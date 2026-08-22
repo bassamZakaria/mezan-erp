@@ -635,5 +635,57 @@ export {
   type ExcludeEtaSubmissionDTO,
 } from "./eta.js";
 
+export {
+  chequeDirectionSchema,
+  chequeStoredStatusSchema,
+  chequeStatusSchema,
+  chequeControlAccountsSchema,
+  chequeSchema,
+  createChequeSchema,
+  depositChequeSchema,
+  collectChequeSchema,
+  bounceChequeSchema,
+  replaceChequeSchema,
+  chequeListQuerySchema,
+  type ChequeDirectionDTO,
+  type ChequeStoredStatusDTO,
+  type ChequeStatusDTO,
+  type ChequeControlAccountsDTO,
+  type ChequeDTO,
+  type CreateChequeDTO,
+  type DepositChequeDTO,
+  type CollectChequeDTO,
+  type BounceChequeDTO,
+  type ReplaceChequeDTO,
+  type ChequeListQueryDTO,
+} from "./cheque.js";
+
+export {
+  bankStatementStatusSchema,
+  statementLineStatusSchema,
+  statementDateFormatSchema,
+  statementColumnMappingSchema,
+  columnMappingInputSchema,
+  bankStatementSchema,
+  statementLineSchema,
+  importBankStatementSchema,
+  matchStatementLineSchema,
+  addManualLineSchema,
+  matchSummarySchema,
+  bankStatementListQuerySchema,
+  type BankStatementStatusDTO,
+  type StatementLineStatusDTO,
+  type StatementDateFormatDTO,
+  type StatementColumnMappingDTO,
+  type ColumnMappingInputDTO,
+  type BankStatementDTO,
+  type StatementLineDTO,
+  type ImportBankStatementDTO,
+  type MatchStatementLineDTO,
+  type AddManualLineDTO,
+  type MatchSummaryDTO,
+  type BankStatementListQueryDTO,
+} from "./bank-reconciliation.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

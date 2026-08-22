@@ -1,10 +1,19 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AccountDTO,
+  BankStatementDTO,
+  BankStatementStatusDTO,
   BootstrapAdminRequestDTO,
+  BounceChequeDTO,
+  BranchDTO,
+  ChequeDTO,
+  ChequeDirectionDTO,
+  ChequeStatusDTO,
+  CollectChequeDTO,
   BootstrapSeedResultDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CreateAccountDTO,
+  CreateChequeDTO,
   CreateCustomerDTO,
   CreateGlJournalEntryDTO,
   CreateItemDTO,
@@ -17,16 +26,22 @@ import type {
   CreateUserDTO,
   CustomerDTO,
   DashboardSummaryDTO,
+  DepositChequeDTO,
   GlJournalListQueryDTO,
+  ImportBankStatementDTO,
   ItemDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
   LoginRequestDTO,
+  MatchSummaryDTO,
   PriceListDTO,
   PromotionDTO,
+  ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
   RoleDTO,
   SessionDTO,
+  StatementColumnMappingDTO,
+  StatementLineDTO,
   SupplierDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
@@ -679,5 +694,255 @@ export function useDeleteRole() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف الدور."));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
+  });
+}
+
+/** الفروع (docs/catalog/09) — read-only list, used by the branch typeahead on real-data forms. */
+export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<BranchDTO[], ApiError>({
+    queryKey: ["branches"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/branches");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفروع.");
+      return res.json<BranchDTO[]>();
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* سجل الشيكات — Cheque Register (docs/catalog/04)                       */
+/* -------------------------------------------------------------------- */
+
+export interface ChequeListFilters {
+  readonly direction?: ChequeDirectionDTO;
+  /** The DERIVED 7-state status the register's filter tabs expose. */
+  readonly status?: ChequeStatusDTO;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+}
+
+function chequeQueryString(filters: ChequeListFilters): string {
+  const params = new URLSearchParams();
+  if (filters.direction) params.set("direction", filters.direction);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.fromDate) params.set("fromDate", filters.fromDate);
+  if (filters.toDate) params.set("toDate", filters.toDate);
+  const qs = params.toString();
+  return qs === "" ? "" : `?${qs}`;
+}
+
+/**
+ * The register list. Filters are part of the `queryKey` and go to the server —
+ * the 7-state status (including the date-derived تحت التحصيل/المستحقة اليوم) is
+ * resolved server-side against its own "as of" date, never recomputed here.
+ */
+export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<ChequeDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ChequeDTO[], ApiError>({
+    queryKey: ["cheques", filters],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/cheques${chequeQueryString(filters)}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الشيكات.");
+      return res.json<ChequeDTO[]>();
+    },
+  });
+}
+
+export function useCreateCheque() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ الشيك."));
+      return res.json<ChequeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
+  });
+}
+
+/** إيداع / تحصيل / ارتداد — the three status transitions that take a body. */
+function useChequeAction<Body>(action: "deposit" | "collect" | "bounce", fallbackMessage: string) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ChequeDTO, ApiError, { id: string; body: Body }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/cheques/${id}/${action}`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      return res.json<ChequeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
+  });
+}
+
+/** تسليم الشيك للبنك للتحصيل (قيد الانتظار → مودع). */
+export function useDepositCheque() {
+  return useChequeAction<DepositChequeDTO>("deposit", "تعذّر إيداع الشيك.");
+}
+/** تأكيد البنك للتحصيل (مودع → محصل). */
+export function useCollectCheque() {
+  return useChequeAction<CollectChequeDTO>("collect", "تعذّر تحصيل الشيك.");
+}
+/** ارتداد الشيك (مودع → مرتد). */
+export function useBounceCheque() {
+  return useChequeAction<BounceChequeDTO>("bounce", "تعذّر تسجيل ارتداد الشيك.");
+}
+
+/** استبدال شيك مرتد بشيك جديد بنفس القيمة (مرتد → مستبدل + شيك جديد قيد الانتظار). */
+export function useReplaceCheque() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: ChequeDTO; replacement: ChequeDTO }, ApiError, { id: string; body: ReplaceChequeDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/cheques/${id}/replace`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استبدال الشيك."));
+      return res.json<{ original: ChequeDTO; replacement: ChequeDTO }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* تسوية كشوف البنك — Bank Statement Reconciliation (docs/catalog/04)     */
+/* -------------------------------------------------------------------- */
+
+/** `GET /bank-statements/:id` — the statement plus its lines and match summary. */
+export interface BankStatementDetailDTO extends BankStatementDTO {
+  readonly lines: readonly StatementLineDTO[];
+  readonly matchSummary: MatchSummaryDTO;
+}
+
+export interface BankStatementListFilters {
+  readonly treasuryAccountId?: string;
+  readonly status?: BankStatementStatusDTO;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+}
+
+export function useBankStatements(filters: BankStatementListFilters = {}): UseQueryResult<BankStatementDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<BankStatementDTO[], ApiError>({
+    queryKey: ["bank-statements", filters],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.treasuryAccountId) params.set("treasuryAccountId", filters.treasuryAccountId);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.fromDate) params.set("fromDate", filters.fromDate);
+      if (filters.toDate) params.set("toDate", filters.toDate);
+      const qs = params.toString();
+      const res = await request(`/bank-statements${qs === "" ? "" : `?${qs}`}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل كشوف البنك.");
+      return res.json<BankStatementDTO[]>();
+    },
+  });
+}
+
+export function useBankStatement(id: string | null): UseQueryResult<BankStatementDetailDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<BankStatementDetailDTO, ApiError>({
+    queryKey: ["bank-statements", "detail", id],
+    enabled: session !== null && id !== null,
+    queryFn: async () => {
+      const res = await request(`/bank-statements/${id}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل كشف البنك.");
+      return res.json<BankStatementDetailDTO>();
+    },
+  });
+}
+
+/**
+ * The treasury account's SAVED CSV column mapping ("يحفظ التعيين لكل حساب").
+ * 404 means the account has never been imported for — a first-time mapping, not
+ * an error, so it resolves to `null` rather than throwing.
+ */
+export function useStatementColumnMapping(treasuryAccountId: string | null): UseQueryResult<StatementColumnMappingDTO | null, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StatementColumnMappingDTO | null, ApiError>({
+    queryKey: ["bank-statements", "column-mapping", treasuryAccountId],
+    enabled: session !== null && treasuryAccountId !== null && treasuryAccountId !== "",
+    queryFn: async () => {
+      const res = await request(`/bank-statements/column-mapping/${treasuryAccountId}`);
+      if (res.status === 404) return null;
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تعيين الأعمدة.");
+      return res.json<StatementColumnMappingDTO>();
+    },
+  });
+}
+
+/** استيراد كشف بنك — persists the column mapping for the account, then the statement + its parsed lines. */
+export function useImportBankStatement() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BankStatementDetailDTO, ApiError, ImportBankStatementDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/bank-statements/import", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استيراد كشف البنك."));
+      return res.json<BankStatementDetailDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
+  });
+}
+
+/** مطابقة تلقائية — applies every exact amount + date-tolerance suggestion against the treasury ledger. */
+export function useAutoMatchStatement() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ matchedCount: number }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/bank-statements/${id}/auto-match`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت المطابقة التلقائية."));
+      return res.json<{ matchedCount: number }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
+  });
+}
+
+export function useMatchStatementLine() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StatementLineDTO, ApiError, { statementId: string; lineId: string; entryId: string }>({
+    mutationFn: async ({ statementId, lineId, entryId }) => {
+      const res = await request(`/bank-statements/${statementId}/lines/${lineId}/match`, {
+        method: "POST",
+        body: JSON.stringify({ entryId }),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت مطابقة السطر."));
+      return res.json<StatementLineDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
+  });
+}
+
+export function useUnmatchStatementLine() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StatementLineDTO, ApiError, { statementId: string; lineId: string }>({
+    mutationFn: async ({ statementId, lineId }) => {
+      const res = await request(`/bank-statements/${statementId}/lines/${lineId}/unmatch`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء مطابقة السطر."));
+      return res.json<StatementLineDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
+  });
+}
+
+/** إنهاء التسوية — locks the statement (منتهية); no further matching is possible. */
+export function useFinalizeBankStatement() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BankStatementDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/bank-statements/${id}/finalize`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء التسوية."));
+      return res.json<BankStatementDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
   });
 }

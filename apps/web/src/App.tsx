@@ -19,6 +19,8 @@ import { TaxesScreen } from "./screens/TaxesScreen";
 import { CostCentersScreen } from "./screens/CostCentersScreen";
 import { TreasuryAccountsScreen } from "./screens/TreasuryAccountsScreen";
 import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
+import { BankReconciliationScreen } from "./screens/BankReconciliationScreen";
+import { ChequesScreen } from "./screens/ChequesScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
@@ -122,6 +124,8 @@ const ROUTABLE_SCREENS = {
   taxes: TaxesScreen,
   "treasury-accounts": TreasuryAccountsScreen,
   "treasury-vouchers": TreasuryVouchersScreen,
+  "bank-reconciliation": BankReconciliationScreen,
+  cheques: ChequesScreen,
   "trial-balance-report": TrialBalanceReportScreen,
   "report-sales-by-period": SalesByPeriodReportScreen,
   "report-sales-by-item": SalesByItemReportScreen,

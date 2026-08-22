@@ -278,3 +278,110 @@ describe("createBackend — sales-quotes, price-lists, promotions, credit contro
     expect(confirm.status).toBe(200);
   });
 });
+
+describe("createBackend — cheques + bank reconciliation (phase7/treasury-completion)", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+
+  it("mounts /cheques and runs a real incoming lifecycle over the seeded COA", async () => {
+    const app = await newBackend();
+    const created = await post(
+      app,
+      "/cheques",
+      {
+        id: "chq-1",
+        direction: "incoming",
+        chequeNumber: "CHQ-5001",
+        bankName: "بنك مصر",
+        amount: "1000.00",
+        issueDate: new Date().toISOString().slice(0, 10),
+        dueDate: new Date().toISOString().slice(0, 10),
+        branchId: "BR1",
+        partyId: "cust-1",
+        counterpartyGlAccountId: "1105",
+        controlAccounts: { underCollectionAccountId: "1320", bouncedAccountId: "1360" },
+      },
+      ADMIN,
+    );
+    expect(created.status).toBe(201);
+    expect((await created.json()) as { status: string }).toMatchObject({ status: "pending" });
+
+    const deposited = await post(app, "/cheques/chq-1/deposit", { bankTreasuryAccountId: "ta-bank1" }, ADMIN);
+    expect(deposited.status).toBe(200);
+
+    const collected = await post(app, "/cheques/chq-1/collect", { bankGlAccountId: "1310" }, ADMIN);
+    expect(collected.status).toBe(200);
+    const body = (await collected.json()) as { status: string; collectionJournalEntryId: string | null };
+    expect(body.status).toBe("collected");
+    expect(body.collectionJournalEntryId).toBeTruthy();
+  });
+
+  it("posts an outgoing cheque against the seeded 2150 شيكات صادرة control account", async () => {
+    const app = await newBackend();
+    const res = await post(
+      app,
+      "/cheques",
+      {
+        direction: "outgoing",
+        chequeNumber: "CHQ-9001",
+        bankName: "البنك الأهلي",
+        amount: "500.00",
+        issueDate: new Date().toISOString().slice(0, 10),
+        dueDate: new Date().toISOString().slice(0, 10),
+        branchId: "BR1",
+        partyId: "sup-1",
+        counterpartyGlAccountId: "2100",
+        controlAccounts: { underCollectionAccountId: "2150" },
+      },
+      ADMIN,
+    );
+    expect(res.status).toBe(201);
+  });
+
+  it("gates /cheques behind cheques.view", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/cheques"));
+    expect(res.status).toBe(403);
+  });
+
+  it("mounts /bank-statements and imports a CSV statement with its per-account column mapping", async () => {
+    const app = await newBackend();
+    const res = await post(
+      app,
+      "/bank-statements/import",
+      {
+        id: "stmt-1",
+        treasuryAccountId: "ta-bank1",
+        rawCsv: "Date,Description,Amount,Ref\n2026-08-01,Deposit,100.00,TX1\n2026-08-02,Fee,-5.00,TX2\n",
+        mapping: { dateColumn: "Date", descriptionColumn: "Description", amountColumn: "Amount", referenceColumn: "Ref" },
+        periodStart: "2026-08-01",
+        periodEnd: "2026-08-31",
+        openingBalance: "0.00",
+        closingBalance: "95.00",
+      },
+      ADMIN,
+    );
+    expect(res.status).toBe(201);
+    const imported = (await res.json()) as { status: string; lines: { amount: string }[] };
+    expect(imported.status).toBe("imported");
+    expect(imported.lines.map((l) => l.amount)).toEqual(["100.000000", "-5.000000"]);
+
+    const mapping = await app.fetch(new Request("http://local/bank-statements/column-mapping/ta-bank1", { headers: ADMIN }));
+    expect(mapping.status).toBe(200);
+    expect((await mapping.json()) as { amountColumn: string }).toMatchObject({ amountColumn: "Amount", dateFormat: "YYYY-MM-DD" });
+
+    const matched = await post(app, "/bank-statements/stmt-1/lines/stmt-1:L0/match", { entryId: "je-1" }, ADMIN);
+    expect(matched.status).toBe(200);
+
+    const detail = await app.fetch(new Request("http://local/bank-statements/stmt-1", { headers: ADMIN }));
+    expect((await detail.json()) as { status: string }).toMatchObject({
+      status: "in_progress",
+      matchSummary: { total: 2, matched: 1, unmatched: 1, matchRate: 0.5 },
+    });
+  });
+
+  it("gates /bank-statements behind treasury.reconciliation.view", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/bank-statements"));
+    expect(res.status).toBe(403);
+  });
+});

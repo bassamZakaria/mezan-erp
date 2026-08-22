@@ -98,6 +98,8 @@ import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./rec
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
+import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
+import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -259,6 +261,20 @@ export interface CreateAppOptions {
    * `VoucherService` composes. Omit it and the app behaves exactly as before.
    */
   readonly vouchers?: VoucherRoutesDeps;
+  /**
+   * Mounts the Cheque Register routes (docs/catalog/04 §"سجل الشيكات") under
+   * `/cheques` when present. Bundles the cheque repository with the GL
+   * posting engine deps the `ChequeService` composes (see cheques-routes.ts).
+   */
+  readonly cheques?: ChequeRoutesDeps;
+  /**
+   * Mounts the Bank Statement Reconciliation routes (docs/catalog/04
+   * §"تسوية كشوف البنك") under `/bank-statements` when present. Bundles the
+   * statement/column-mapping repositories with a `TreasuryLedgerReader`
+   * (bind `createTreasuryLedgerReader` from `@mezan/domain` over the real
+   * ledger + treasury-account repos).
+   */
+  readonly bankReconciliation?: BankReconciliationRoutesDeps;
   /**
    * Mounts the purchase chain under `/purchases` (docs/catalog/02): أوامر الشراء
    * → استلام البضائع → فواتير المشتريات. The caller supplies the three document
@@ -457,6 +473,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.vouchers) {
     app.route("/vouchers", createVouchersRoutes(options.vouchers, options.resolveAuthContext));
     app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
+  }
+  if (options.cheques) {
+    app.route("/cheques", createChequesRoutes(options.cheques, options.resolveAuthContext));
+  }
+  if (options.bankReconciliation) {
+    app.route("/bank-statements", createBankReconciliationRoutes(options.bankReconciliation, options.resolveAuthContext));
   }
   if (options.salesInvoices) {
     const salesInvoices = options.salesInvoices;

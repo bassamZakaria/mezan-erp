@@ -81,7 +81,13 @@ export const navGroups: NavGroup[] = [
     items: [
       { key: "treasury-accounts", label: "حسابات الخزينة" },
       { key: "treasury-vouchers", label: "السندات النقدية" },
+      { key: "bank-reconciliation", label: "تسوية كشوف البنك" },
     ],
+  },
+  {
+    key: "financial-papers",
+    label: "الأوراق المالية",
+    items: [{ key: "cheques", label: "سجل الشيكات" }],
   },
   {
     key: "installments",

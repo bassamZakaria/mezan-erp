@@ -135,3 +135,8 @@ export {
   type SqliteEtaStoreHandle,
   type EtaConfigStore,
 } from "./eta-store.js";
+export { createSqliteChequeRepository, type SqliteChequeRepositoryHandle } from "./cheque-repository.js";
+export {
+  createSqliteBankReconciliationStore,
+  type SqliteBankReconciliationStoreHandle,
+} from "./bank-reconciliation-repository.js";

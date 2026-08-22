@@ -42,6 +42,7 @@ import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
+import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 
 /**
@@ -165,6 +166,14 @@ export interface CreateAppOptions {
    */
   readonly gl?: GlRoutesDeps;
   /**
+   * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
+   * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
+   * — when present. Bundles the voucher/allocation/invoice repositories with the
+   * GL posting engine, numbering, treasury-account lookup and settings the
+   * `VoucherService` composes. Omit it and the app behaves exactly as before.
+   */
+  readonly vouchers?: VoucherRoutesDeps;
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -230,6 +239,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, options.resolveAuthContext));
+  }
+  if (options.vouchers) {
+    app.route("/vouchers", createVouchersRoutes(options.vouchers, options.resolveAuthContext));
+    app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
   }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.

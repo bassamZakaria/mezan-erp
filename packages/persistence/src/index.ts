@@ -72,3 +72,7 @@ export {
   createSqliteLedgerStore,
   type SqliteLedgerStoreHandle,
 } from "./ledger-store.js";
+export {
+  createSqliteVoucherStore,
+  type SqliteVoucherStoreHandle,
+} from "./voucher-store.js";

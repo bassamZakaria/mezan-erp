@@ -4,3 +4,5 @@ packages:
 allowBuilds:
   better-sqlite3: true
   esbuild: true
+  # electron: skeleton only — never launched in Phase 0; skip the binary download.
+  electron: false

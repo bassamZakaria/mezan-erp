@@ -1,5 +1,4 @@
 import { Hono } from "hono";
-import { z } from "zod";
 import {
   Money,
   postJournalEntry,
@@ -8,20 +7,7 @@ import {
   type JournalEntry,
   type UnitOfWork,
 } from "@mezan/domain";
-
-const lineSchema = z.object({
-  accountId: z.string().min(1),
-  // Money crosses the wire as an exact decimal string, never a float.
-  debit: z.string(),
-  credit: z.string(),
-});
-
-const createEntrySchema = z.object({
-  id: z.string().min(1),
-  date: z.string().min(1),
-  memo: z.string(),
-  lines: z.array(lineSchema).min(2),
-});
+import { createJournalEntrySchema } from "@mezan/contracts";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -50,7 +36,7 @@ export function createApp(uow: UnitOfWork) {
   const app = new Hono();
 
   app.post("/journal-entries", async (c) => {
-    const parsed = createEntrySchema.safeParse(await c.req.json());
+    const parsed = createJournalEntrySchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json(
         { error: "VALIDATION_ERROR", details: parsed.error.flatten() },

@@ -23,8 +23,13 @@ import {
   createSqlitePriceListStore,
   createSqlitePromotionStore,
   createSqliteSalesQuoteStore,
+  createSqliteExchangeRateRepository,
+  createSqliteEtaStore,
   createScryptHasher,
+  createSqlitePurchaseInvoiceStore,
+  createStandaloneSqliteInstallmentPlanStore,
 } from "@mezan/persistence";
+import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -68,19 +73,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const treasuryAccounts = createSqliteTreasuryAccountRepository(dbPath);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(dbPath);
   const ledger = createSqliteLedgerStore(dbPath);
-  const stockStore = createSqliteStockLedgerStore(dbPath);
-  const salesInvoiceRepo = createSqliteSalesInvoiceStore(dbPath);
   const priceLists = createSqlitePriceListStore(dbPath);
   const promotions = createSqlitePromotionStore(dbPath);
   const salesQuotes = createSqliteSalesQuoteStore(dbPath);
+  const exchangeRates = createSqliteExchangeRateRepository(dbPath);
+  const etaStore = createSqliteEtaStore(dbPath);
+  const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
   const hasher = createScryptHasher();
 
+  // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
+  // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
+  const salesInvoices = createSqliteSalesInvoiceStore(dbPath);
+  const purchaseInvoices = createSqlitePurchaseInvoiceStore(dbPath);
+  const stockLedger = createSqliteStockLedgerStore(dbPath);
+  const installmentPlans = createStandaloneSqliteInstallmentPlanStore(dbPath);
+
   const stockService = new StockLedgerService({
-    ledger: stockStore.ledger,
-    layers: stockStore.layers,
-    snapshots: stockStore.snapshots,
+    ledger: stockLedger.ledger,
+    layers: stockLedger.layers,
+    snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
-    transaction: stockStore.transaction,
+    transaction: stockLedger.transaction,
   });
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
 
@@ -116,7 +129,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
     },
     salesInvoices: {
-      repo: salesInvoiceRepo,
+      repo: salesInvoices,
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
@@ -126,6 +139,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     salesQuotes: {
       repo: salesQuotes,
       numbering: { next: () => ledger.numbering.next("SALES_QUOTE") },
+    },
+    // --- phase9/accounting-depth ---
+    exchangeRateRepo: exchangeRates,
+    costCenterPl: { ledger, accounts, costCenters },
+    fxRevaluation: {
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      exchangeRates,
+      // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
+      gainAccountId: "4900",
+      lossAccountId: "5900",
+    },
+    eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    reports: {
+      salesInvoices,
+      purchaseInvoices,
+      customers,
+      suppliers,
+      items,
+      warehouses,
+      stockLedger: stockLedger.ledger,
+      costLayers: stockLedger.layers,
+      wacSnapshots: stockLedger.snapshots,
+      installmentPlans,
     },
   });
 
@@ -157,11 +196,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccounts,
     fiscalPeriods,
     ledger,
-    stockStore,
-    salesInvoiceRepo,
     priceLists,
     promotions,
     salesQuotes,
+    exchangeRates,
+    etaStore,
+    salesInvoices,
+    purchaseInvoices,
+    stockLedger,
+    installmentPlans,
   ];
 
   return {

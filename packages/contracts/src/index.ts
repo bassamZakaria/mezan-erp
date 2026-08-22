@@ -487,6 +487,71 @@ export {
   type BootstrapAdminRequestDTO,
   type BootstrapSeedResultDTO,
 } from "./auth.js";
+// --- accounting depth cluster (phase9/accounting-depth) ---
+export {
+  exchangeRateTypeSchema,
+  exchangeRateSourceSchema,
+  exchangeRateStatusSchema,
+  exchangeRateSchema,
+  createExchangeRateSchema,
+  type ExchangeRateTypeDTO,
+  type ExchangeRateSourceDTO,
+  type ExchangeRateStatusDTO,
+  type ExchangeRateDTO,
+  type CreateExchangeRateDTO,
+} from "./exchange-rate.js";
+
+export {
+  fxRevaluationRequestSchema,
+  fxRevaluationDetailSchema,
+  fxRevaluationPreviewSchema,
+  fxRevaluationPostResultSchema,
+  type FxRevaluationRequestDTO,
+  type FxRevaluationDetailDTO,
+  type FxRevaluationPreviewDTO,
+  type FxRevaluationPostResultDTO,
+} from "./fx-revaluation.js";
+
+export {
+  costCenterPnLRowSchema,
+  costCenterPnLReportSchema,
+  type CostCenterPnLRowDTO,
+  type CostCenterPnLReportDTO,
+} from "./cost-center-pl.js";
+
+export {
+  reconciliationRowSchema,
+  unlinkedEntryLineSchema,
+  reconciliationReportSchema,
+  type ReconciliationRowDTO,
+  type UnlinkedEntryLineDTO,
+  type ReconciliationReportDTO,
+} from "./reconciliation.js";
+
+export {
+  etaEnvironmentSchema,
+  etaDocumentVersionSchema,
+  etaSigningMethodSchema,
+  etaDocumentTypeSchema,
+  etaSubmissionStatusSchema,
+  etaCompanyAddressSchema,
+  etaConfigSchema,
+  updateEtaConfigSchema,
+  etaReadinessSchema,
+  etaSubmissionSchema,
+  excludeEtaSubmissionSchema,
+  type EtaEnvironmentDTO,
+  type EtaDocumentVersionDTO,
+  type EtaSigningMethodDTO,
+  type EtaDocumentTypeDTO,
+  type EtaSubmissionStatusDTO,
+  type EtaCompanyAddressDTO,
+  type EtaConfigDTO,
+  type UpdateEtaConfigDTO,
+  type EtaReadinessDTO,
+  type EtaSubmissionDTO,
+  type ExcludeEtaSubmissionDTO,
+} from "./eta.js";
 
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

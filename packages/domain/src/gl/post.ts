@@ -34,6 +34,12 @@ export interface JournalLineInput {
   readonly debit: Money;
   readonly credit: Money;
   readonly memo?: string | null;
+  /** Optional cost-center dimension ("مركز التكلفة"), for the Cost Center P&L report. */
+  readonly costCenterId?: string | null;
+  /** Original transaction currency of a multi-currency line; debit/credit stay base-currency. */
+  readonly currency?: string | null;
+  /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
+  readonly fxRate?: string | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -75,6 +81,9 @@ function toLine(input: JournalLineInput): JournalLine {
     debit: input.debit,
     credit: input.credit,
     memo: input.memo ?? null,
+    costCenterId: input.costCenterId ?? null,
+    currency: input.currency ?? null,
+    fxRate: input.fxRate ?? null,
   };
 }
 

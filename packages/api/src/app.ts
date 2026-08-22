@@ -71,6 +71,13 @@ import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
+import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
+import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
+import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
+import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
+import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
+import type { ExchangeRateRepository } from "@mezan/domain";
+import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -214,6 +221,16 @@ export interface CreateAppOptions {
    * caller didn't already set `invoice` themselves.
    */
   readonly salesQuotes?: SalesQuoteRoutesDeps;
+  /** Mounts `/exchange-rates` (docs/catalog/04 "أسعار الصرف") when present. */
+  readonly exchangeRateRepo?: ExchangeRateRepository;
+  /** Mounts `/cost-center-pl` (docs/catalog/04 "أرباح مراكز التكلفة") when present. */
+  readonly costCenterPl?: CostCenterPnLRoutesDeps;
+  /** Mounts `/revaluation` (docs/catalog/04 "إعادة تقييم العملات الأجنبية") when present. */
+  readonly fxRevaluation?: FxRevaluationRoutesDeps;
+  /** Mounts `/reconciliation` (docs/catalog/04 "مطابقة الأرصدة") when present. */
+  readonly reconciliation?: ReconciliationRoutesDeps;
+  /** Mounts `/eta` (docs/catalog/04 "الفاتورة الإلكترونية") when present. */
+  readonly eta?: EtaRoutesDeps;
   /**
    * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
    * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
@@ -266,6 +283,15 @@ export interface CreateAppOptions {
   };
   /** Mounts `/installments` (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
   readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /**
+   * Mounts `/reports` (docs/catalog/08 — operational reports) when present.
+   * Independent of `options.inventory`/`options.purchases`/etc. — it takes
+   * its own repository references directly (not the higher-level services
+   * those blocks wrap) since reports only ever READ, never post GL/stock
+   * effects. Omit it and the app behaves exactly as before (no `/reports`
+   * routes).
+   */
+  readonly reports?: ReportsRoutesDeps;
   /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
@@ -408,6 +434,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.installments) {
     app.route("/installments", createInstallmentsRoutes(options.installments, options.installments.resolveAuthContext));
   }
+  if (options.exchangeRateRepo) {
+    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, options.resolveAuthContext));
+  }
+  if (options.costCenterPl) {
+    app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, options.resolveAuthContext));
+  }
+  if (options.fxRevaluation) {
+    app.route("/revaluation", createFxRevaluationRoutes(options.fxRevaluation, options.resolveAuthContext));
+  }
+  if (options.reconciliation) {
+    app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, options.resolveAuthContext));
+  }
+  if (options.eta) {
+    app.route("/eta", createEtaRoutes(options.eta, options.resolveAuthContext));
+  }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
   app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
@@ -461,6 +502,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         purchases.resolveAuthContext ?? options.resolveAuthContext,
       ),
     );
+  }
+
+  if (options.reports) {
+    app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
   }
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));

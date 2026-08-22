@@ -117,3 +117,12 @@ export {
 export { createSqlitePriceListStore, type SqlitePriceListStoreHandle } from "./price-list-store.js";
 export { createSqliteSalesQuoteStore, type SqliteSalesQuoteStoreHandle } from "./sales-quote-store.js";
 export { createSqlitePromotionStore, type SqlitePromotionStoreHandle } from "./promotion-store.js";
+export {
+  createSqliteExchangeRateRepository,
+  type SqliteExchangeRateRepositoryHandle,
+} from "./exchange-rate-repository.js";
+export {
+  createSqliteEtaStore,
+  type SqliteEtaStoreHandle,
+  type EtaConfigStore,
+} from "./eta-store.js";

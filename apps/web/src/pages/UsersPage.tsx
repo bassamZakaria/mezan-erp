@@ -11,17 +11,23 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { ALL_SCOPE, type Role, type ScopeSelection, type User, type UserStatus } from "@mezan/domain";
-import type { StoreResult } from "../store/useUsersRolesStore";
+import { ALL_SCOPE, type ScopeSelection } from "@mezan/domain";
+import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
+
+export interface StoreResult<T> {
+  ok: boolean;
+  value?: T;
+  error?: string;
+}
 
 export interface UsersPageProps {
-  users: User[];
-  roles: Role[];
+  users: UserDTO[];
+  roles: RoleDTO[];
   branches: { id: string; name: string }[];
   warehouses: { id: string; name: string; branchId: string }[];
   employees: { id: string; name: string; position: string }[];
-  onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<User>>;
-  onToggleStatus: (userId: string, status: UserStatus) => Promise<StoreResult<User>>;
+  onSave: (draft: UserFormDraft, editingId: string | null) => Promise<StoreResult<UserDTO>>;
+  onToggleStatus: (userId: string, status: UserStatusDTO) => Promise<StoreResult<UserDTO>>;
 }
 
 export interface UserFormDraft {
@@ -35,11 +41,11 @@ export interface UserFormDraft {
   employeeId: string | null;
   branchIds: string[];
   warehouseIds: string[];
-  status: UserStatus;
+  status: UserStatusDTO;
 }
 
-const STATUS_LABEL: Record<UserStatus, string> = { active: "نشط", inactive: "غير نشط" };
-const STATUS_TONE: Record<UserStatus, PillTone> = { active: "success", inactive: "neutral" };
+const STATUS_LABEL: Record<UserStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
 function emptyDraft(): UserFormDraft {
   return {
@@ -61,7 +67,7 @@ function scopeToIds(scope: ScopeSelection, all: string[]): string[] {
   return scope === ALL_SCOPE ? all : [...scope];
 }
 
-function userToDraft(user: User, allBranchIds: string[], allWarehouseIds: string[]): UserFormDraft {
+function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: string[]): UserFormDraft {
   return {
     fullName: user.fullName,
     email: user.email,
@@ -78,7 +84,7 @@ function userToDraft(user: User, allBranchIds: string[], allWarehouseIds: string
 }
 
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus }: UsersPageProps) {
-  const [statusFilter, setStatusFilter] = useState<UserStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<UserStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -109,7 +115,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     setPanelOpen(true);
   }
 
-  function openEdit(user: User) {
+  function openEdit(user: UserDTO) {
     setEditingId(user.id);
     setDraft(userToDraft(user, allBranchIds, allWarehouseIds));
     setFormError(null);
@@ -139,7 +145,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const roleOptions: EntityPickerOption[] = roles.map((r) => ({ id: r.id, label: r.name, sublabel: r.code }));
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: e.name, sublabel: e.position }));
 
-  const columns: DocumentListColumn<User>[] = [
+  const columns: DocumentListColumn<UserDTO>[] = [
     {
       key: "fullName",
       header: "الاسم الكامل",
@@ -214,7 +220,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   return (
     <>
-      <DocumentList<User>
+      <DocumentList<UserDTO>
         eyebrow="Settings · Users"
         title="المستخدمون"
         description="إدارة حسابات المستخدمين وأدوارهم ونطاق الفروع/المستودعات المتاحة لهم."
@@ -227,7 +233,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as UserStatus | "all")}
+        onStatusChange={(key) => setStatusFilter(key as UserStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث بالاسم أو البريد الإلكتروني…"

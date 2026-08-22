@@ -18,7 +18,8 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
-import { categoryLabel, demoGlAccounts, demoItemCategories, demoItems, demoUnits, glAccountLabel, unitLabel } from "../items-sample-data";
+import { categoryLabel, demoItemCategories, demoUnits, unitLabel } from "../items-sample-data";
+import { useAccounts, useCreateItem, useItems, useUpdateItem } from "../data/hooks";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 
 const TYPE_LABEL: Record<ItemTypeDTO, string> = { stock: "منتج مخزون", service: "خدمة" };
@@ -191,7 +192,18 @@ function nextItemCode(items: ItemDTO[]): string {
 
 /** الأصناف (Items) — docs/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
 export function ItemsScreen() {
-  const [items, setItems] = useState<ItemDTO[]>(demoItems);
+  const query = useItems();
+  const createItem = useCreateItem();
+  const updateItem = useUpdateItem();
+  const accountsQuery = useAccounts();
+  const items = query.data ?? [];
+  const glAccounts = accountsQuery.data ?? [];
+
+  function glAccountLabel(id: string | null): string {
+    if (!id) return "الافتراضي حسب نوع الصنف";
+    const account = glAccounts.find((a) => a.id === id);
+    return account ? `${account.code} — ${account.nameAr}` : id;
+  }
 
   const [view, setView] = useState<"list" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -244,8 +256,8 @@ export function ItemsScreen() {
     [],
   );
   const glOptions: EntityPickerOption[] = useMemo(
-    () => [DEFAULT_GL_OPTION, ...demoGlAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
-    [],
+    () => [DEFAULT_GL_OPTION, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
+    [glAccounts],
   );
 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
@@ -270,7 +282,7 @@ export function ItemsScreen() {
     setView("detail");
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const error = validateDraft(draft, items, editingId);
     if (error) {
@@ -278,14 +290,17 @@ export function ItemsScreen() {
       return;
     }
     setFormError(null);
-    if (editingId) {
-      const updated = draftToItem(draft, editingId);
-      setItems((prev) => prev.map((i) => (i.id === editingId ? updated : i)));
-    } else {
-      const id = `itm-${Date.now()}`;
-      setItems((prev) => [...prev, draftToItem(draft, id)]);
+    try {
+      if (editingId) {
+        const { id: _id, code: _code, ...patch } = draftToItem(draft, editingId);
+        await updateItem.mutateAsync({ id: editingId, patch });
+      } else {
+        await createItem.mutateAsync(draftToItem(draft, crypto.randomUUID()));
+      }
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
     }
-    setFormOpen(false);
   }
 
   function updateAlternateUnit(index: number, patch: Partial<AlternateUnitDTO>) {
@@ -767,6 +782,14 @@ export function ItemsScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الأصناف.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<ItemDTO>
         eyebrow="Inventory · Items"
         title="الأصناف"

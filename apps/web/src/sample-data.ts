@@ -1,5 +1,5 @@
 import type { CommandItem, NavGroup, NavItem } from "@mezan/ui";
-import { createEntitlements, type Entitlements, type Role, type User } from "@mezan/domain";
+import { createEntitlements, type Entitlements } from "@mezan/domain";
 
 /** Demo tenant: "Cyag" (شركة سياج), current user محمد الشهابي — matches the approved mockup's sample data. */
 export const demoUser = {
@@ -190,110 +190,5 @@ export const demoEntitlements: Entitlements = createEntitlements({
   expiresAt: null,
 });
 
-const VAN_SALES_ROLE_ID = "role-van-sales";
-
-/** The one custom role in this tenant — 4 permissions across 2 modules, exactly as recon'd. */
-export const demoRoles: Role[] = [
-  {
-    id: VAN_SALES_ROLE_ID,
-    code: "VAN_SALES",
-    name: "مندوب مبيعات",
-    description: "دور السائق/المندوب الميداني — تحميل السيارة وتسجيل فواتير المبيعات أثناء الجولة.",
-    permissions: [
-      "sales.invoice.view_own",
-      "sales.invoice.create",
-      "field.van_trip.view_own",
-      "field.van_trip.open",
-    ],
-    isSystem: false,
-    createdAt: "2026-08-08T09:00:00.000Z",
-  },
-];
-
-/** `demo:<password>` — the web demo's placeholder hasher (see `local-store.ts`); never real auth. */
-function demoHash(secret: string) {
-  return `demo:${secret}`;
-}
-
-export const demoUsers: User[] = [
-  {
-    id: "user-1",
-    fullName: "محمد الشهابي",
-    email: "mohamed@cyag.test",
-    phone: "+201001234567",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: demoHash("1234"),
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: "2026-08-21T08:12:00.000Z",
-    createdAt: "2026-06-01T09:00:00.000Z",
-  },
-  {
-    id: "user-2",
-    fullName: "سارة عبد الله",
-    email: "sara@cyag.test",
-    phone: "+201009876543",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: "2026-08-20T14:40:00.000Z",
-    createdAt: "2026-06-02T09:00:00.000Z",
-  },
-  {
-    id: "user-3",
-    fullName: "يوسف محمد",
-    email: "youssef@cyag.test",
-    phone: "+201005556677",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: null,
-    createdAt: "2026-07-11T09:00:00.000Z",
-  },
-  {
-    id: "user-4",
-    fullName: "أحمد الجندي",
-    email: "ahmed@cyag.test",
-    phone: null,
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "inactive",
-    lastLoginAt: "2026-07-30T11:05:00.000Z",
-    createdAt: "2026-06-15T09:00:00.000Z",
-  },
-  {
-    id: "user-5",
-    fullName: "كريم عزت",
-    email: "kareem@cyag.test",
-    phone: "+201002223344",
-    passwordHash: demoHash("Van12345"),
-    pinHash: demoHash("4321"),
-    roleId: VAN_SALES_ROLE_ID,
-    isCompanyAdmin: false,
-    employeeId: "emp-1",
-    branchScope: ["MAIN"],
-    warehouseScope: ["MAIN-WH", "VAN-1"],
-    status: "active",
-    lastLoginAt: "2026-08-21T06:30:00.000Z",
-    createdAt: "2026-08-08T09:15:00.000Z",
-  },
-];
+// Roles/users moved to the real /roles and /users API (see App.tsx's
+// useRoles/useUsers) — this tenant's data now lives in the seeded backend.

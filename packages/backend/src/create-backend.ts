@@ -26,13 +26,28 @@ import {
   createSqliteExchangeRateRepository,
   createSqliteEtaStore,
   createScryptHasher,
+  createSqlitePurchaseOrderStore,
+  createSqliteGoodsReceiptStore,
   createSqlitePurchaseInvoiceStore,
+  createSqliteVoucherStore,
   createStandaloneSqliteInstallmentPlanStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
+
+/**
+ * The GL accounts the purchase chain's invoice confirm posts against —
+ * docs/catalog/04's standard COA (packages/domain/src/accounts/coa-template.ts):
+ * inventory (1200), trade payables (2100), input VAT (1400), freight (5200).
+ */
+const PURCHASE_GL_ACCOUNTS = {
+  inventoryAccountId: "1200",
+  payableAccountId: "2100",
+  taxAccountId: "1400",
+  freightAccountId: "5200",
+};
 
 export interface BackendHandle {
   readonly app: App;
@@ -88,6 +103,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const stockLedger = createSqliteStockLedgerStore(dbPath);
   const installmentPlans = createStandaloneSqliteInstallmentPlanStore(dbPath);
 
+  // --- sweep/real-data-screens — the purchase chain's order/receipt stores and the
+  // treasury-voucher store; `purchaseInvoices` above is shared with the /reports wiring
+  // so both routes see the same confirmed invoices. ---
+  const purchaseOrders = createSqlitePurchaseOrderStore(dbPath);
+  const goodsReceipts = createSqliteGoodsReceiptStore(dbPath);
+  const vouchers = createSqliteVoucherStore(dbPath);
+
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -127,6 +149,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+    },
+    vouchers: {
+      documents: vouchers.documents,
+      allocations: vouchers.allocations,
+      invoices: vouchers.invoices,
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      treasuryAccounts,
+    },
+    purchases: {
+      orders: purchaseOrders,
+      receipts: goodsReceipts,
+      invoices: purchaseInvoices,
+      numbering: ledger.numbering,
+      stock: stockService,
+      gl: salesInvoiceGl,
+      accounts: PURCHASE_GL_ACCOUNTS,
     },
     salesInvoices: {
       repo: salesInvoices,
@@ -205,6 +246,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     purchaseInvoices,
     stockLedger,
     installmentPlans,
+    purchaseOrders,
+    goodsReceipts,
+    vouchers,
   ];
 
   return {

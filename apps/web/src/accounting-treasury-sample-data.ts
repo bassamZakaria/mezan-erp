@@ -1,11 +1,10 @@
-import type { CostCenterDTO, FiscalPeriodDTO, TaxRateDTO, TreasuryAccountDTO } from "@mezan/contracts";
+import type { CostCenterDTO, FiscalPeriodDTO, TaxRateDTO } from "@mezan/contracts";
 
 /**
- * Tax rates / cost centers / treasury accounts / fiscal periods demo data
- * for the Cyag tenant (شركة سياج), matching apps/web/src/sample-data.ts's
- * demoUser (محمد الشهابي) and apps/web/src/accounts-sample-data.ts's Chart
- * of Accounts (GL account codes 2200/1400/1300-1/1310 referenced below are
- * the same ones transcribed from docs/catalog/04-accounting-treasury.md).
+ * Tax rates / cost centers / fiscal periods demo data for the Cyag tenant
+ * (شركة سياج) — docs/catalog/04-accounting-treasury.md. Treasury accounts
+ * moved to the real `/treasury-accounts` API (see TreasuryAccountsScreen);
+ * these remaining resources still await their own web-data-wiring sweep.
  */
 
 export const demoTaxRates: TaxRateDTO[] = [
@@ -40,12 +39,6 @@ export const demoCostCenters: CostCenterDTO[] = [
   { id: "cc-sales", code: "CC-002", nameAr: "المبيعات", nameEn: "Sales", type: "department", departmentId: "dep-sales", branchId: null, parentId: "cc-admin", notes: null, status: "active" },
   { id: "cc-marketing", code: "CC-003", nameAr: "التسويق", nameEn: "Marketing", type: "department", departmentId: "dep-marketing", branchId: null, parentId: "cc-admin", notes: null, status: "active" },
   { id: "cc-alex", code: "CC-004", nameAr: "فرع الإسكندرية", nameEn: "Alexandria Branch", type: "branch", departmentId: null, branchId: "b2", parentId: null, notes: "مركز تكلفة مستقل مرتبط بفرع الإسكندرية", status: "active" },
-];
-
-export const demoTreasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي", type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
-  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الرئيسي", type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: "238.000000", openingBalanceDate: "2026-08-01", status: "active" },
-  { id: "ta-bank1", code: "BANK-001", name: "البنك الأهلي المصري — جاري", type: "bank", currency: "EGP", branchId: "b1", glAccountId: "1310", openingBalance: "50000.000000", openingBalanceDate: "2026-01-01", status: "active" },
 ];
 
 function pad2(n: number): string {

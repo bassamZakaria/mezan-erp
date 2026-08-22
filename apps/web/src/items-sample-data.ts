@@ -48,30 +48,6 @@ export function categoryLabel(id: string | null): string {
   return demoItemCategories.find((c) => c.id === id)?.nameAr ?? id;
 }
 
-export interface GlAccountOption {
-  id: string;
-  code: string;
-  nameAr: string;
-}
-
-/**
- * A small subset of the Chart of Accounts for the item-mapping pickers —
- * matches the codes/names `accounts-sample-data.ts` uses for the same
- * defaults (4100/5100/1200), kept local so this screen has no data
- * dependency on the Accounting screen's sample-data module.
- */
-export const demoGlAccounts: GlAccountOption[] = [
-  { id: "4100", code: "4100", nameAr: "إيرادات المبيعات" },
-  { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة" },
-  { id: "1200", code: "1200", nameAr: "المخزون" },
-];
-
-export function glAccountLabel(id: string | null): string {
-  if (!id) return "الافتراضي حسب نوع الصنف";
-  const account = demoGlAccounts.find((a) => a.id === id);
-  return account ? `${account.code} — ${account.nameAr}` : id;
-}
-
 export const demoItems: ItemDTO[] = [
   {
     id: "itm-1",

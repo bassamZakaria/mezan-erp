@@ -1,17 +1,42 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  AccountDTO,
   BootstrapAdminRequestDTO,
   BootstrapSeedResultDTO,
   ConvertSalesQuoteToInvoiceDTO,
+  CreateAccountDTO,
+  CreateCustomerDTO,
+  CreateGlJournalEntryDTO,
+  CreateItemDTO,
   CreatePriceListDTO,
   CreatePromotionDTO,
+  CreateRoleDTO,
   CreateSalesQuoteDTO,
+  CreateSupplierDTO,
+  CreateTreasuryAccountDTO,
+  CreateUserDTO,
   CustomerDTO,
   DashboardSummaryDTO,
+  GlJournalListQueryDTO,
+  ItemDTO,
+  JournalEntrySourceDTO,
+  JournalEntryStatusDTO,
   LoginRequestDTO,
   PriceListDTO,
   PromotionDTO,
+  ReverseGlJournalEntryDTO,
+  RoleDTO,
   SessionDTO,
+  SupplierDTO,
+  TreasuryAccountDTO,
+  UpdateAccountDTO,
+  UpdateCustomerDTO,
+  UpdateItemDTO,
+  UpdateRoleDTO,
+  UpdateSupplierDTO,
+  UpdateTreasuryAccountDTO,
+  UpdateUserDTO,
+  UserDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
@@ -140,7 +165,52 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
   });
 }
 
-/** العملاء (real, for pickers on other real-data screens — e.g. quotes). */
+async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+  const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
+  return body.message ?? fallback;
+}
+
+/** الأصناف (docs/catalog/03) — list, create, edit. */
+export function useItems(): UseQueryResult<ItemDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemDTO[], ApiError>({
+    queryKey: ["items"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/items");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأصناف.");
+      return res.json<ItemDTO[]>();
+    },
+  });
+}
+
+export function useCreateItem() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemDTO, ApiError, CreateItemDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/items", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الصنف."));
+      return res.json<ItemDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+  });
+}
+
+export function useUpdateItem() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemDTO, ApiError, { id: string; patch: UpdateItemDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/items/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الصنف."));
+      return res.json<ItemDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
+  });
+}
+
+/** العملاء (docs/catalog/01) — list, create, edit; also used for pickers on other real-data screens (e.g. quotes). */
 export function useCustomers(): UseQueryResult<CustomerDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<CustomerDTO[], ApiError>({
@@ -151,6 +221,152 @@ export function useCustomers(): UseQueryResult<CustomerDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العملاء.");
       return res.json<CustomerDTO[]>();
     },
+  });
+}
+
+export function useCreateCustomer() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CustomerDTO, ApiError, CreateCustomerDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/customers", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العميل."));
+      return res.json<CustomerDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+  });
+}
+
+export function useUpdateCustomer() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CustomerDTO, ApiError, { id: string; patch: UpdateCustomerDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/customers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل العميل."));
+      return res.json<CustomerDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
+  });
+}
+
+/** الموردون (docs/catalog/02) — list, create, edit. */
+export function useSuppliers(): UseQueryResult<SupplierDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<SupplierDTO[], ApiError>({
+    queryKey: ["suppliers"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/suppliers");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموردين.");
+      return res.json<SupplierDTO[]>();
+    },
+  });
+}
+
+export function useCreateSupplier() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SupplierDTO, ApiError, CreateSupplierDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/suppliers", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المورد."));
+      return res.json<SupplierDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
+  });
+}
+
+export function useUpdateSupplier() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SupplierDTO, ApiError, { id: string; patch: UpdateSupplierDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/suppliers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المورد."));
+      return res.json<SupplierDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
+  });
+}
+
+/** دليل الحسابات (docs/catalog/04) — list, create, edit. */
+export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<AccountDTO[], ApiError>({
+    queryKey: ["accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/accounts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل دليل الحسابات.");
+      return res.json<AccountDTO[]>();
+    },
+  });
+}
+
+export function useCreateAccount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AccountDTO, ApiError, CreateAccountDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/accounts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الحساب."));
+      return res.json<AccountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+  });
+}
+
+export function useUpdateAccount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AccountDTO, ApiError, { id: string; patch: UpdateAccountDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الحساب."));
+      return res.json<AccountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
+  });
+}
+
+/** حسابات الخزينة (docs/catalog/04) — list, create, edit. */
+export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<TreasuryAccountDTO[], ApiError>({
+    queryKey: ["treasury-accounts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/treasury-accounts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل حسابات الخزينة.");
+      return res.json<TreasuryAccountDTO[]>();
+    },
+  });
+}
+
+export function useCreateTreasuryAccount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TreasuryAccountDTO, ApiError, CreateTreasuryAccountDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/treasury-accounts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الحساب."));
+      return res.json<TreasuryAccountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
+  });
+}
+
+export function useUpdateTreasuryAccount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TreasuryAccountDTO, ApiError, { id: string; patch: UpdateTreasuryAccountDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/treasury-accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الحساب."));
+      return res.json<TreasuryAccountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
   });
 }
 
@@ -294,5 +510,174 @@ export function useConvertSalesQuoteToInvoice() {
       return res.json<{ quote: SalesQuoteRecord; invoiceId: string; invoiceDocNo: string | null }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-quotes"] }),
+  });
+}
+
+/** Wire shape of a posted/reversed GL journal entry (packages/api/src/gl-routes.ts `serialize`) — no dedicated response DTO ships from @mezan/contracts yet. */
+export interface JournalEntryDTO {
+  readonly id: string;
+  readonly entryNo: string | null;
+  readonly date: string;
+  readonly memo: string;
+  readonly status: JournalEntryStatusDTO;
+  readonly source: JournalEntrySourceDTO;
+  readonly createdAt: string | null;
+  readonly postedAt: string | null;
+  readonly reversesEntryId: string | null;
+  readonly reversedByEntryId: string | null;
+  readonly lines: ReadonlyArray<{ accountId: string; debit: string; credit: string; memo: string | null }>;
+}
+
+/** القيود المحاسبية (docs/catalog/04) — the GL posting engine mounted under /gl. */
+export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<JournalEntryDTO[], ApiError>({
+    queryKey: ["journal-entries", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter.status) params.set("status", filter.status);
+      if (filter.source) params.set("source", filter.source);
+      if (filter.fromDate) params.set("fromDate", filter.fromDate);
+      if (filter.toDate) params.set("toDate", filter.toDate);
+      const qs = params.toString();
+      const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيود المحاسبية.");
+      return res.json<JournalEntryDTO[]>();
+    },
+  });
+}
+
+/** Creates and posts a balanced journal entry in one step (POST /gl/journal-entries). */
+export function useCreateJournalEntry() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر ترحيل القيد."));
+      return res.json<JournalEntryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
+  });
+}
+
+/** يعكس قيداً مرحّلاً (POST /gl/journal-entries/:id/reverse). */
+export function useReverseJournalEntry() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: JournalEntryDTO; reversal: JournalEntryDTO }, ApiError, { id: string; body?: ReverseGlJournalEntryDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/gl/journal-entries/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس القيد."));
+      return res.json<{ original: JournalEntryDTO; reversal: JournalEntryDTO }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
+  });
+}
+
+/** المستخدمون (docs/catalog/09) — list, create, edit, activate/deactivate. */
+export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<UserDTO[], ApiError>({
+    queryKey: ["users"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/users");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستخدمين.");
+      return res.json<UserDTO[]>();
+    },
+  });
+}
+
+export function useCreateUser() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<UserDTO, ApiError, CreateUserDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/users", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ المستخدم."));
+      return res.json<UserDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+export function useUpdateUser() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<UserDTO, ApiError, { id: string; body: UpdateUserDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ المستخدم."));
+      return res.json<UserDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+export function useSetUserStatus() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
+    mutationFn: async ({ id, status }) => {
+      const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث حالة المستخدم."));
+      return res.json<UserDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
+  });
+}
+
+/** الأدوار (docs/catalog/09) — list, create, edit, delete. */
+export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<RoleDTO[], ApiError>({
+    queryKey: ["roles"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/roles");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأدوار.");
+      return res.json<RoleDTO[]>();
+    },
+  });
+}
+
+export function useCreateRole() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RoleDTO, ApiError, CreateRoleDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/roles", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الدور."));
+      return res.json<RoleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
+  });
+}
+
+export function useUpdateRole() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RoleDTO, ApiError, { id: string; body: UpdateRoleDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/roles/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الدور."));
+      return res.json<RoleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
+  });
+}
+
+export function useDeleteRole() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/roles/${id}`, { method: "DELETE" });
+      // 204 No Content on success — the body is empty, never parse it as JSON.
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف الدور."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
   });
 }

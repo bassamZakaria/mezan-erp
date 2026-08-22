@@ -47,6 +47,7 @@ export default tseslint.config(
       "**/*.config.ts",
       "**/*.config.mjs",
       "scripts/**",
+      ".worktrees/**",
     ],
   },
   {

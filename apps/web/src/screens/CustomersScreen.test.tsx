@@ -1,20 +1,80 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
+import type { CustomerDTO } from "@mezan/contracts";
 import { CustomersScreen } from "./CustomersScreen";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+function customer(overrides: Partial<CustomerDTO> = {}): CustomerDTO {
+  return {
+    id: "cust-1",
+    code: "C000001",
+    nameAr: "شركة الأمل للتجارة",
+    nameEn: "Al Amal Trading Co.",
+    phone: "01012345001",
+    email: "accounts@alamal.example",
+    contactPerson: "محمود فتحي",
+    taxNumber: "300111222300003",
+    category: "تجزئة",
+    notes: null,
+    paymentTermsDays: 30,
+    currency: "EGP",
+    openingBalance: "450.00",
+    active: true,
+    priceListId: null,
+    creditLimit: "15000.00",
+    taxExempt: false,
+    etaBuyerType: "business",
+    nationalId: null,
+    ...overrides,
+  };
+}
+
+const inactiveCustomer = customer({
+  id: "cust-2",
+  code: "C000002",
+  nameAr: "مصنع الوادي الأخضر",
+  nameEn: "Green Valley Factory",
+  active: false,
+});
+
+function renderScreen(customers: CustomerDTO[] = [customer(), inactiveCustomer]) {
+  let current = [...customers];
+  const transport = stubTransport({
+    "GET /customers": () => ({ body: current }),
+    "POST /customers": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      const created: CustomerDTO = { ...customer(), ...body, id: body.id, code: body.code };
+      current = [...current, created];
+      return { status: 201, body: created };
+    },
+    "PATCH /customers/cust-1": (init) => {
+      const patch = JSON.parse((init?.body as string) ?? "{}");
+      const updated: CustomerDTO = { ...current[0]!, ...patch };
+      current = [updated, ...current.slice(1)];
+      return { body: updated };
+    },
+  });
+  return renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
+}
 
 describe("CustomersScreen", () => {
-  it("lists the sample customers", () => {
-    render(<CustomersScreen />);
+  it("lists customers from the real backend", async () => {
+    renderScreen();
     expect(screen.getByRole("heading", { name: "العملاء" })).toBeInTheDocument();
-    expect(screen.getByText("شركة الأمل للتجارة")).toBeInTheDocument();
+    expect(await screen.findByText("شركة الأمل للتجارة")).toBeInTheDocument();
     expect(screen.getByText("C000001")).toBeInTheDocument();
   });
 
-  it("opens the customer detail on row click, with an overview tab and statement/attachments stubs", () => {
-    render(<CustomersScreen />);
-    fireEvent.click(screen.getByText("شركة الأمل للتجارة"));
+  it("shows an empty state when there are no customers yet", async () => {
+    renderScreen([]);
+    expect(await screen.findByText("لا يوجد عملاء مطابقون")).toBeInTheDocument();
+  });
+
+  it("opens the customer detail on row click, with an overview tab and statement/attachments stubs", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     expect(screen.getByRole("heading", { name: /شركة الأمل للتجارة/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "نظرة عامة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "كشف حساب" })).toBeInTheDocument();
@@ -23,33 +83,36 @@ describe("CustomersScreen", () => {
     expect(screen.getAllByText("قريباً").length).toBeGreaterThan(0);
   });
 
-  it("returns to the list from the detail view", () => {
-    render(<CustomersScreen />);
-    fireEvent.click(screen.getByText("شركة الأمل للتجارة"));
+  it("returns to the list from the detail view", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("button", { name: "رجوع لقائمة العملاء" }));
     expect(screen.getByRole("heading", { name: "العملاء" })).toBeInTheDocument();
   });
 
-  it("filters by status chip", () => {
-    render(<CustomersScreen />);
+  it("filters by status chip", async () => {
+    renderScreen();
+    await screen.findByText("شركة الأمل للتجارة");
     fireEvent.click(screen.getByRole("tab", { name: /غير نشط/ }));
     expect(screen.queryByText("شركة الأمل للتجارة")).not.toBeInTheDocument();
     expect(screen.getByText("مصنع الوادي الأخضر")).toBeInTheDocument();
   });
 
-  it("adds a new customer through the side panel", () => {
-    render(<CustomersScreen />);
+  it("adds a new customer through the side panel", async () => {
+    renderScreen();
+    await screen.findByText("شركة الأمل للتجارة");
     fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
     fireEvent.change(within(dialog).getByLabelText("اسم العميل *"), { target: { value: "عميل تجريبي" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
 
-    expect(screen.getByText("عميل تجريبي")).toBeInTheDocument();
+    expect(await screen.findByText("عميل تجريبي")).toBeInTheDocument();
   });
 
-  it("shows an Arabic domain validation error instead of adding an invalid customer", () => {
-    render(<CustomersScreen />);
+  it("shows an Arabic validation error instead of adding an invalid customer", async () => {
+    renderScreen();
+    await screen.findByText("شركة الأمل للتجارة");
     fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
     // Leave the required Arabic name empty and try to save.
@@ -57,15 +120,15 @@ describe("CustomersScreen", () => {
     expect(within(dialog).getByText("الاسم بالعربية مطلوب")).toBeInTheDocument();
   });
 
-  it("edits an existing customer from the detail view without clobbering its credit limit", () => {
-    render(<CustomersScreen />);
-    fireEvent.click(screen.getByText("شركة الأمل للتجارة"));
+  it("edits an existing customer from the detail view without clobbering its credit limit", async () => {
+    renderScreen();
+    fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
 
     const dialog = screen.getByRole("dialog", { name: "تعديل عميل" });
     fireEvent.change(within(dialog).getByLabelText("الهاتف"), { target: { value: "01000000000" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
 
-    expect(screen.getByText(/15,000|15000/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/15,000|15000/)).toBeInTheDocument());
   });
 });

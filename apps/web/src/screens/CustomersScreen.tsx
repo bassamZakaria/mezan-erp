@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
@@ -10,23 +11,15 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import {
-  Money,
-  createCustomer,
-  updateCustomer,
-  InvalidCustomerError,
-  ETA_BUYER_TYPES,
-  type Customer,
-  type EtaBuyerType,
-} from "@mezan/domain";
-import { demoCustomers } from "../partners-sample-data";
+import { ETA_BUYER_TYPES } from "@mezan/domain";
+import type { CustomerDTO, EtaBuyerTypeDTO } from "@mezan/contracts";
+import { useCreateCustomer, useCustomers, useUpdateCustomer } from "../data/hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 
 /**
  * العملاء (Customers) — docs/catalog/01-sales.md "العملاء (Customers —
  * Customer master)". List + detail (DocumentList/DocumentDetail) + add/edit
- * form (SidePanel), sample-data-driven like every other Phase-0/1 web screen
- * (no live API wiring yet — apps/server exposes the real routes already).
+ * form (SidePanel), backed by the real `/customers` API.
  *
  * The invoices/statement rollup and the running "مديونية العميل" balance are
  * Phase-2 (document) work — the الفواتير/كشف حساب/المرفقات tabs below render
@@ -34,14 +27,14 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
  * `openingBalance`) is real.
  */
 
-const ETA_BUYER_TYPE_LABEL: Record<EtaBuyerType, string> = {
+const ETA_BUYER_TYPE_LABEL: Record<EtaBuyerTypeDTO, string> = {
   auto: "تلقائي (منشأة إذا وُجد رقم ضريبي، وإلا فرد)",
   business: "منشأة",
   individual: "فرد",
 };
 
-function toDisplayNumber(value: Money): number {
-  return Number(value.toString());
+function num(value: string | undefined): number {
+  return value ? Number(value) : 0;
 }
 
 function StubTab({ label }: { label: string }) {
@@ -70,7 +63,7 @@ interface CustomerDraft {
   creditLimit: number;
   priceListId: string;
   taxExempt: boolean;
-  etaBuyerType: EtaBuyerType;
+  etaBuyerType: EtaBuyerTypeDTO;
   nationalId: string;
   active: boolean;
 }
@@ -95,7 +88,7 @@ const BLANK_DRAFT: CustomerDraft = {
   active: true,
 };
 
-function draftFromCustomer(customer: Customer): CustomerDraft {
+function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
   return {
     code: customer.code,
     nameAr: customer.nameAr,
@@ -108,7 +101,7 @@ function draftFromCustomer(customer: Customer): CustomerDraft {
     notes: customer.notes ?? "",
     paymentTermsDays: customer.paymentTermsDays,
     currency: customer.currency,
-    creditLimit: toDisplayNumber(customer.creditLimit),
+    creditLimit: num(customer.creditLimit),
     priceListId: customer.priceListId ?? "",
     taxExempt: customer.taxExempt,
     etaBuyerType: customer.etaBuyerType,
@@ -117,10 +110,8 @@ function draftFromCustomer(customer: Customer): CustomerDraft {
   };
 }
 
-let nextId = demoCustomers.length + 1;
-
-function CustomerDetail({ customer, onBack, onEdit }: { customer: Customer; onBack: () => void; onEdit: () => void }) {
-  const remainingCredit = customer.creditLimit.scaled - customer.openingBalance.scaled;
+function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
+  const remainingCredit = num(customer.creditLimit) - num(customer.openingBalance);
   return (
     <DocumentDetail
       title={`${customer.nameAr} · ${customer.code}`}
@@ -138,12 +129,12 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: Customer; onBa
       summary={[
         { label: "التصنيف", value: customer.category ?? "بدون تصنيف" },
         { label: "شروط الدفع", value: <span className="mz-num">{customer.paymentTermsDays} يوم</span> },
-        { label: "الحد الائتماني", value: <MoneyValue value={toDisplayNumber(customer.creditLimit)} /> },
-        { label: "الرصيد الافتتاحي", value: <MoneyValue value={toDisplayNumber(customer.openingBalance)} /> },
+        { label: "الحد الائتماني", value: <MoneyValue value={num(customer.creditLimit)} /> },
+        { label: "الرصيد الافتتاحي", value: <MoneyValue value={num(customer.openingBalance)} /> },
         {
           label: "متبقي من الحد",
-          value: <MoneyValue value={Number(Money.fromScaled(remainingCredit).toString())} />,
-          valueTone: remainingCredit < 0n ? "danger" : "default",
+          value: <MoneyValue value={remainingCredit} />,
+          valueTone: remainingCredit < 0 ? "danger" : "default",
         },
         { label: "نوع المشتري (ETA)", value: ETA_BUYER_TYPE_LABEL[customer.etaBuyerType] },
       ]}
@@ -186,7 +177,11 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: Customer; onBa
 }
 
 export function CustomersScreen() {
-  const [customers, setCustomers] = useState<Customer[]>(demoCustomers);
+  const query = useCustomers();
+  const createCustomer = useCreateCustomer();
+  const updateCustomer = useUpdateCustomer();
+  const customers = query.data ?? [];
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
@@ -215,7 +210,7 @@ export function CustomersScreen() {
     { key: "inactive", label: "غير نشط", count: customers.filter((c) => !c.active).length },
   ];
 
-  const columns: DocumentListColumn<Customer>[] = [
+  const columns: DocumentListColumn<CustomerDTO>[] = [
     {
       key: "name",
       header: "اسم العميل",
@@ -229,8 +224,8 @@ export function CustomersScreen() {
     { key: "phone", header: "الهاتف", render: (c) => c.phone ?? "—" },
     { key: "terms", header: "شروط الدفع", render: (c) => <span className="mz-num">{c.paymentTermsDays} يوم</span> },
     { key: "category", header: "التصنيف", render: (c) => c.category ?? "بدون تصنيف" },
-    { key: "creditLimit", header: "الحد الائتماني", align: "end", render: (c) => <MoneyValue value={toDisplayNumber(c.creditLimit)} /> },
-    { key: "openingBalance", header: "الرصيد الافتتاحي", align: "end", render: (c) => <MoneyValue value={toDisplayNumber(c.openingBalance)} /> },
+    { key: "creditLimit", header: "الحد الائتماني", align: "end", render: (c) => <MoneyValue value={num(c.creditLimit)} /> },
+    { key: "openingBalance", header: "الرصيد الافتتاحي", align: "end", render: (c) => <MoneyValue value={num(c.openingBalance)} /> },
     {
       key: "status",
       header: "الحالة",
@@ -245,47 +240,47 @@ export function CustomersScreen() {
     setPanelOpen(true);
   }
 
-  function openEditForm(customer: Customer) {
+  function openEditForm(customer: CustomerDTO) {
     setEditingId(customer.id);
     setDraft(draftFromCustomer(customer));
     setError(null);
     setPanelOpen(true);
   }
 
-  function submit() {
+  async function submit() {
     setError(null);
+    if (draft.nameAr.trim() === "") {
+      setError("الاسم بالعربية مطلوب");
+      return;
+    }
+    const fields = {
+      nameAr: draft.nameAr.trim(),
+      nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
+      phone: draft.phone.trim() === "" ? null : draft.phone.trim(),
+      email: draft.email.trim() === "" ? null : draft.email.trim(),
+      contactPerson: draft.contactPerson.trim() === "" ? null : draft.contactPerson.trim(),
+      taxNumber: draft.taxNumber.trim() === "" ? null : draft.taxNumber.trim(),
+      category: draft.category.trim() === "" ? null : draft.category.trim(),
+      notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
+      paymentTermsDays: draft.paymentTermsDays,
+      currency: draft.currency.trim() === "" ? "EGP" : draft.currency.trim(),
+      creditLimit: String(draft.creditLimit || 0),
+      priceListId: draft.priceListId.trim() === "" ? null : draft.priceListId.trim(),
+      taxExempt: draft.taxExempt,
+      etaBuyerType: draft.etaBuyerType,
+      nationalId: draft.nationalId.trim() === "" ? null : draft.nationalId.trim(),
+    };
     try {
-      const fields = {
-        nameAr: draft.nameAr.trim(),
-        nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
-        phone: draft.phone.trim() === "" ? null : draft.phone.trim(),
-        email: draft.email.trim() === "" ? null : draft.email.trim(),
-        contactPerson: draft.contactPerson.trim() === "" ? null : draft.contactPerson.trim(),
-        taxNumber: draft.taxNumber.trim() === "" ? null : draft.taxNumber.trim(),
-        category: draft.category.trim() === "" ? null : draft.category.trim(),
-        notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
-        paymentTermsDays: draft.paymentTermsDays,
-        currency: draft.currency.trim() === "" ? "EGP" : draft.currency.trim(),
-        creditLimit: Money.fromMajor(String(draft.creditLimit || 0)),
-        priceListId: draft.priceListId.trim() === "" ? null : draft.priceListId.trim(),
-        taxExempt: draft.taxExempt,
-        etaBuyerType: draft.etaBuyerType,
-        nationalId: draft.nationalId.trim() === "" ? null : draft.nationalId.trim(),
-      };
       if (editingId) {
-        const current = customers.find((c) => c.id === editingId);
-        if (!current) return;
-        const updated = updateCustomer(current, { ...fields, code: current.code, active: draft.active });
-        setCustomers((prev) => prev.map((c) => (c.id === editingId ? updated : c)));
+        await updateCustomer.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
       } else {
         // "الكود: تلقائي إذا فارغ" — auto-generate a sequential code when left blank.
-        const code = draft.code.trim() === "" ? `C${String(nextId).padStart(6, "0")}` : draft.code.trim();
-        const created = createCustomer({ id: `cust-${nextId++}`, code, ...fields });
-        setCustomers((prev) => [...prev, created]);
+        const code = draft.code.trim() === "" ? `C${String(customers.length + 1).padStart(6, "0")}` : draft.code.trim();
+        await createCustomer.mutateAsync({ id: crypto.randomUUID(), code, ...fields });
       }
       setPanelOpen(false);
     } catch (err) {
-      setError(err instanceof InvalidCustomerError ? err.message : "تعذر حفظ بيانات العميل");
+      setError(err instanceof Error ? err.message : "تعذر حفظ بيانات العميل");
     }
   }
 
@@ -327,7 +322,7 @@ export function CustomersScreen() {
         <SelectField
           label="نوع المشتري (ETA)"
           value={draft.etaBuyerType}
-          onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerType }))}
+          onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
           options={ETA_BUYER_TYPES.map((t) => ({ value: t, label: ETA_BUYER_TYPE_LABEL[t] }))}
         />
         <TextField label="الرقم القومي" value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
@@ -357,7 +352,15 @@ export function CustomersScreen() {
 
   return (
     <>
-      <DocumentList<Customer>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل العملاء.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<CustomerDTO>
         eyebrow="Sales · Customers"
         title="العملاء"
         description="السجل المركزي للعملاء — بيانات الاتصال، شروط الائتمان، والتصنيف والتسعير"
@@ -371,11 +374,11 @@ export function CustomersScreen() {
           { label: "نشط", value: <span className="mz-num">{customers.filter((c) => c.active).length}</span> },
           {
             label: "إجمالي حدود الائتمان",
-            value: <MoneyValue value={customers.reduce((sum, c) => sum + toDisplayNumber(c.creditLimit), 0)} showUnit={false} />,
+            value: <MoneyValue value={customers.reduce((sum, c) => sum + num(c.creditLimit), 0)} showUnit={false} />,
           },
           {
             label: "إجمالي الأرصدة الافتتاحية",
-            value: <MoneyValue value={customers.reduce((sum, c) => sum + toDisplayNumber(c.openingBalance), 0)} showUnit={false} />,
+            value: <MoneyValue value={customers.reduce((sum, c) => sum + num(c.openingBalance), 0)} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
-import { ALL_SCOPE, type Role, type ScopeSelection } from "@mezan/domain";
+import { ALL_SCOPE } from "@mezan/domain";
+import type { RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
@@ -63,15 +64,22 @@ import {
   demoBranches,
   demoEmployees,
   demoEntitlements,
-  demoRoles,
-  demoUsers,
   demoWarehouses,
   navGroups,
   topNavItem,
 } from "./sample-data";
 import { useApi } from "./data/ApiContext";
 import type { ShellUser } from "@mezan/ui";
-import { useUsersRolesStore } from "./store/useUsersRolesStore";
+import {
+  useCreateRole,
+  useCreateUser,
+  useDeleteRole,
+  useRoles,
+  useSetUserStatus,
+  useUpdateRole,
+  useUpdateUser,
+  useUsers,
+} from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
@@ -135,7 +143,7 @@ type RoutableKey = keyof typeof ROUTABLE_SCREENS;
 /**
  * المستخدمون / الأدوار aren't stateless ROUTABLE_SCREENS entries — the role
  * editor needs the in-flight `editingRole` (create vs. edit), and all three
- * share the same `useUsersRolesStore` instance, so they're handled as their
+ * share the same real `/roles` + `/users` data, so they're handled as their
  * own small state machine alongside the routable-screen lookup instead.
  */
 type UsersRolesView = "users" | "roles" | "role-editor";
@@ -145,7 +153,7 @@ function isRoutable(key: string): key is RoutableKey {
   return key in ROUTABLE_SCREENS;
 }
 
-function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelection {
+function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO {
   return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
@@ -165,12 +173,18 @@ export function App() {
   const { session } = useApi();
   const [mode, setMode] = useState<AppMode>("login");
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
-  const [editingRole, setEditingRole] = useState<Role | null>(null); // null = creating new
+  const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
-  const { roles, users, createOrUpdateRole, removeRole, createOrUpdateUser, toggleUserStatus } = useUsersRolesStore({
-    roles: demoRoles,
-    users: demoUsers,
-  });
+  const rolesQuery = useRoles();
+  const usersQuery = useUsers();
+  const roles = rolesQuery.data ?? [];
+  const users = usersQuery.data ?? [];
+  const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
+  const setUserStatus = useSetUserStatus();
+  const createRole = useCreateRole();
+  const updateRole = useUpdateRole();
+  const deleteRoleMutation = useDeleteRole();
 
   const allBranchIds = demoBranches.map((b) => b.id);
   const allWarehouseIds = demoWarehouses.map((w) => w.id);
@@ -209,8 +223,7 @@ export function App() {
   }, []);
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
-    return createOrUpdateUser({
-      id: editingId ?? crypto.randomUUID(),
+    const fields = {
       fullName: draft.fullName,
       email: draft.email,
       phone: draft.phone.trim() === "" ? null : draft.phone,
@@ -222,17 +235,43 @@ export function App() {
       branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
       warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
       status: draft.status,
-      createdAt: new Date().toISOString(),
-    });
+    };
+    try {
+      const value = editingId
+        ? await updateUser.mutateAsync({ id: editingId, body: fields })
+        : await createUser.mutateAsync({ ...fields, password: fields.password ?? "" });
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ المستخدم" };
+    }
   }
 
   async function handleSaveRole(cmd: { code: string; name: string; description: string; permissions: string[] }) {
-    const result = await createOrUpdateRole(
-      { id: editingRole?.id ?? crypto.randomUUID(), ...cmd, createdAt: new Date().toISOString() },
-      demoEntitlements,
-    );
-    if (result.ok) setActiveScreen("roles");
-    return result;
+    try {
+      const value = editingRole ? await updateRole.mutateAsync({ id: editingRole.id, body: cmd }) : await createRole.mutateAsync(cmd);
+      setActiveScreen("roles");
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ الدور" };
+    }
+  }
+
+  async function handleRemoveRole(roleId: string) {
+    try {
+      await deleteRoleMutation.mutateAsync(roleId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حذف الدور" };
+    }
+  }
+
+  async function handleToggleUserStatus(userId: string, status: "active" | "inactive") {
+    try {
+      const value = await setUserStatus.mutateAsync({ id: userId, status });
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر تحديث حالة المستخدم" };
+    }
   }
 
   if (mode === "wizard") {
@@ -271,7 +310,7 @@ export function App() {
           warehouses={demoWarehouses}
           employees={demoEmployees}
           onSave={handleSaveUser}
-          onToggleStatus={toggleUserStatus}
+          onToggleStatus={handleToggleUserStatus}
         />
       ) : null}
 
@@ -287,7 +326,7 @@ export function App() {
             setEditingRole(role);
             setActiveScreen("role-editor");
           }}
-          onDelete={removeRole}
+          onDelete={handleRemoveRole}
         />
       ) : null}
 

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Role } from "@mezan/domain";
+import type { RoleDTO as Role } from "@mezan/contracts";
 import { RolesPage } from "./RolesPage";
 
 const role: Role = {

@@ -12,3 +12,6 @@ export {
   getAuthContext,
   type AuthContextResolver,
 } from "./permission-gate.js";
+export { createSettingsRoutes } from "./settings-routes.js";
+export { createBranchesRoutes } from "./branches-routes.js";
+export { createWarehousesRoutes } from "./warehouses-routes.js";

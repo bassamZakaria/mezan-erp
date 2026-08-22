@@ -46,7 +46,9 @@ export const navGroups: NavGroup[] = [
     label: "الإعدادات",
     defaultCollapsed: true,
     items: [
-      { key: "general", label: "عام", tag: { label: "قريباً", tone: "soon" } },
+      { key: "settings-general", label: "عام" },
+      { key: "settings-branches", label: "الفروع" },
+      { key: "settings-warehouses", label: "المستودعات" },
       { key: "users", label: "المستخدمون", tag: { label: "قريباً", tone: "soon" } },
     ],
   },

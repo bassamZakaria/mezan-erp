@@ -84,3 +84,6 @@ export * from "./lan/index.js";
 
 // --- accounts/ — Chart of Accounts (phase1/chart-of-accounts) ---
 export * from "./accounts/index.js";
+
+// --- settings foundation cluster (phase0/settings-foundation) ---
+export * from "./settings/index.js";

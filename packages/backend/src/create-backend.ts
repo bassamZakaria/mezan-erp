@@ -1,5 +1,10 @@
 import { createApp, type App } from "@mezan/api";
 import {
+  StockLedgerService,
+  createSalesInvoiceGlHook,
+  createSalesInvoiceStockHook,
+} from "@mezan/domain";
+import {
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
@@ -13,6 +18,11 @@ import {
   createSqliteTreasuryAccountRepository,
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
+  createSqliteStockLedgerStore,
+  createSqliteSalesInvoiceStore,
+  createSqlitePriceListStore,
+  createSqlitePromotionStore,
+  createSqliteSalesQuoteStore,
   createScryptHasher,
 } from "@mezan/persistence";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -58,7 +68,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const treasuryAccounts = createSqliteTreasuryAccountRepository(dbPath);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(dbPath);
   const ledger = createSqliteLedgerStore(dbPath);
+  const stockStore = createSqliteStockLedgerStore(dbPath);
+  const salesInvoiceRepo = createSqliteSalesInvoiceStore(dbPath);
+  const priceLists = createSqlitePriceListStore(dbPath);
+  const promotions = createSqlitePromotionStore(dbPath);
+  const salesQuotes = createSqliteSalesQuoteStore(dbPath);
   const hasher = createScryptHasher();
+
+  const stockService = new StockLedgerService({
+    ledger: stockStore.ledger,
+    layers: stockStore.layers,
+    snapshots: stockStore.snapshots,
+    policy: { allowNegativeStock: false },
+    transaction: stockStore.transaction,
+  });
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
 
   const seedStores: SeedStores = {
     accounts,
@@ -91,6 +115,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
     },
+    salesInvoices: {
+      repo: salesInvoiceRepo,
+      numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
+      gl: createSalesInvoiceGlHook(salesInvoiceGl),
+      stock: createSalesInvoiceStockHook(stockService),
+    },
+    priceListRepo: priceLists,
+    promotionRepo: promotions,
+    salesQuotes: {
+      repo: salesQuotes,
+      numbering: { next: () => ledger.numbering.next("SALES_QUOTE") },
+    },
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -121,6 +157,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccounts,
     fiscalPeriods,
     ledger,
+    stockStore,
+    salesInvoiceRepo,
+    priceLists,
+    promotions,
+    salesQuotes,
   ];
 
   return {

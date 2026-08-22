@@ -17,6 +17,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 1000 الأصول (Assets) ---
   { id: "1000", code: "1000", nameAr: "الأصول", nameEn: "Assets", type: "asset", naturalBalance: "debit", parentId: null, isHeader: true },
   { id: "1100", code: "1100", nameAr: "ذمم مدينة", nameEn: "Accounts Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
+  { id: "1105", code: "1105", nameAr: "ذمم عملاء تجارية", nameEn: "Trade Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1110", code: "1110", nameAr: "ذمم أقساط مدينة", nameEn: "Installment Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1150", code: "1150", nameAr: "محتجزات ضمان مدينة", nameEn: "Retention Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },

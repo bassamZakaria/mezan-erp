@@ -7,6 +7,9 @@ import { ItemsScreen } from "./screens/ItemsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
+import { PurchaseOrdersScreen } from "./screens/PurchaseOrdersScreen";
+import { GoodsReceiptsScreen } from "./screens/GoodsReceiptsScreen";
+import { PurchaseInvoicesScreen } from "./screens/PurchaseInvoicesScreen";
 import { TaxesScreen } from "./screens/TaxesScreen";
 import { CostCentersScreen } from "./screens/CostCentersScreen";
 import { TreasuryAccountsScreen } from "./screens/TreasuryAccountsScreen";
@@ -44,6 +47,9 @@ const ROUTABLE_SCREENS = {
   "sales-invoices": SalesInvoicesScreen,
   customers: CustomersScreen,
   vendors: SuppliersScreen,
+  "purchase-orders": PurchaseOrdersScreen,
+  "goods-receipts": GoodsReceiptsScreen,
+  "purchase-invoices": PurchaseInvoicesScreen,
   coa: ChartOfAccountsScreen,
   journals: JournalsScreen,
   items: ItemsScreen,

@@ -76,3 +76,13 @@ export {
   createSqliteVoucherStore,
   type SqliteVoucherStoreHandle,
 } from "./voucher-store.js";
+export {
+  createSqlitePurchaseOrderStore,
+  createSqliteGoodsReceiptStore,
+  createSqlitePurchaseInvoiceStore,
+  createSqlitePurchasingStores,
+  type SqlitePurchaseOrderStoreHandle,
+  type SqliteGoodsReceiptStoreHandle,
+  type SqlitePurchaseInvoiceStoreHandle,
+  type SqlitePurchasingStores,
+} from "./purchasing-stores.js";

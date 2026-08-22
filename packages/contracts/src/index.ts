@@ -296,5 +296,37 @@ export {
   type VoucherListQueryDTO,
 } from "./voucher.js";
 
+export {
+  purchaseOrderStatusSchema,
+  goodsReceiptStatusSchema,
+  purchaseInvoiceStatusSchema,
+  purchaseInvoiceLineKindSchema,
+  purchaseOrderLineSchema,
+  purchaseOrderSchema,
+  createPurchaseOrderLineSchema,
+  createPurchaseOrderSchema,
+  goodsReceiptLineSchema,
+  goodsReceiptSchema,
+  createGoodsReceiptLineSchema,
+  createGoodsReceiptSchema,
+  purchaseInvoiceLineSchema,
+  purchaseInvoiceSchema,
+  createPurchaseInvoiceLineSchema,
+  createPurchaseInvoiceSchema,
+  type PurchaseOrderStatusDTO,
+  type GoodsReceiptStatusDTO,
+  type PurchaseInvoiceStatusDTO,
+  type PurchaseInvoiceLineKindDTO,
+  type PurchaseOrderLineDTO,
+  type PurchaseOrderDTO,
+  type CreatePurchaseOrderDTO,
+  type GoodsReceiptLineDTO,
+  type GoodsReceiptDTO,
+  type CreateGoodsReceiptDTO,
+  type PurchaseInvoiceLineDTO,
+  type PurchaseInvoiceDTO,
+  type CreatePurchaseInvoiceDTO,
+} from "./purchasing.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

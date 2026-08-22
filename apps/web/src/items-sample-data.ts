@@ -1,0 +1,300 @@
+import type { ItemDTO } from "@mezan/contracts";
+
+/**
+ * Sample Items catalog for the Cyag (شركة سياج) demo tenant — docs/catalog/03-inventory.md
+ * "الأصناف". Uses `ItemDTO` (the wire contract) directly as the local demo
+ * type, the same convention `accounts-sample-data.ts` established for the
+ * Chart of Accounts screen: apps/web has no live API wiring yet (every
+ * Phase-0/Phase-1 screen is sample-data-driven), so this keeps the demo state
+ * shaped exactly like what the real API would return.
+ */
+
+export interface ItemUnitOption {
+  code: string;
+  labelAr: string;
+}
+
+/** Base units offered in the unit picker (docs/catalog/03 "وحدة القياس"). */
+export const demoUnits: ItemUnitOption[] = [
+  { code: "PCS", labelAr: "قطعة" },
+  { code: "CTN", labelAr: "كرتونة" },
+  { code: "BOX", labelAr: "صندوق" },
+  { code: "KG", labelAr: "كيلوجرام" },
+  { code: "G", labelAr: "جرام" },
+  { code: "L", labelAr: "لتر" },
+  { code: "M", labelAr: "متر" },
+  { code: "SVC", labelAr: "خدمة" },
+];
+
+export function unitLabel(code: string): string {
+  return demoUnits.find((u) => u.code === code)?.labelAr ?? code;
+}
+
+export interface ItemCategoryOption {
+  id: string;
+  nameAr: string;
+}
+
+/** Item categories dialog data (docs/catalog/03 "تصنيفات الأصناف"). */
+export const demoItemCategories: ItemCategoryOption[] = [
+  { id: "cat-food", nameAr: "مواد غذائية" },
+  { id: "cat-office", nameAr: "مستلزمات مكتبية" },
+  { id: "cat-spares", nameAr: "قطع غيار" },
+  { id: "cat-services", nameAr: "خدمات" },
+];
+
+export function categoryLabel(id: string | null): string {
+  if (!id) return "بدون تصنيف";
+  return demoItemCategories.find((c) => c.id === id)?.nameAr ?? id;
+}
+
+export interface GlAccountOption {
+  id: string;
+  code: string;
+  nameAr: string;
+}
+
+/**
+ * A small subset of the Chart of Accounts for the item-mapping pickers —
+ * matches the codes/names `accounts-sample-data.ts` uses for the same
+ * defaults (4100/5100/1200), kept local so this screen has no data
+ * dependency on the Accounting screen's sample-data module.
+ */
+export const demoGlAccounts: GlAccountOption[] = [
+  { id: "4100", code: "4100", nameAr: "إيرادات المبيعات" },
+  { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة" },
+  { id: "1200", code: "1200", nameAr: "المخزون" },
+];
+
+export function glAccountLabel(id: string | null): string {
+  if (!id) return "الافتراضي حسب نوع الصنف";
+  const account = demoGlAccounts.find((a) => a.id === id);
+  return account ? `${account.code} — ${account.nameAr}` : id;
+}
+
+export const demoItems: ItemDTO[] = [
+  {
+    id: "itm-1",
+    code: "ITM-000001",
+    nameAr: "أرز أبيض مصري 5 كجم",
+    nameEn: "Egyptian White Rice 5kg",
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [{ code: "CTN", name: "كرتونة (12 قطعة)", factor: 12 }],
+    barcodes: ["6221031200015"],
+    categoryId: "cat-food",
+    brand: "أبو كاس",
+    costingMethod: "WAC",
+    salePrice: "185.00",
+    costPrice: "150.00",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: true,
+    trackExpiry: true,
+    reorderPoint: 40,
+    reorderQty: 200,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: "1200",
+    etaCodeType: "GPC",
+    etaItemCode: null,
+    gpcCode: "10000051",
+    status: "active",
+  },
+  {
+    id: "itm-2",
+    code: "ITM-000002",
+    nameAr: "زيت عباد الشمس 1 لتر",
+    nameEn: "Sunflower Oil 1L",
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [{ code: "CTN", name: "كرتونة (12 قطعة)", factor: 12 }],
+    barcodes: ["6221031200022", "6221031200039"],
+    categoryId: "cat-food",
+    brand: "الملكة",
+    costingMethod: "FIFO",
+    salePrice: "89.50",
+    costPrice: "72.00",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: true,
+    trackExpiry: true,
+    reorderPoint: 60,
+    reorderQty: 240,
+    revenueAccountId: "4100",
+    cogsAccountId: "5100",
+    inventoryAccountId: "1200",
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+  },
+  {
+    id: "itm-3",
+    code: "ITM-000003",
+    nameAr: "ورق طباعة A4 (رزمة 500 ورقة)",
+    nameEn: "A4 Printing Paper (500 sheets)",
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [],
+    barcodes: ["6221049900011"],
+    categoryId: "cat-office",
+    brand: "دبل A",
+    costingMethod: "WAC",
+    salePrice: "145.00",
+    costPrice: "110.00",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: 15,
+    reorderQty: 50,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+  },
+  {
+    id: "itm-4",
+    code: "ITM-000004",
+    nameAr: "خرطوشة حبر HP 63 أسود",
+    nameEn: "HP 63 Black Ink Cartridge",
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [],
+    barcodes: ["6221049900028"],
+    categoryId: "cat-office",
+    brand: "HP",
+    costingMethod: "WAC",
+    salePrice: "420.00",
+    costPrice: "340.00",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: 5,
+    reorderQty: 20,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: "EGS",
+    etaItemCode: "EG-000123456-001",
+    gpcCode: null,
+    status: "active",
+  },
+  {
+    id: "itm-5",
+    code: "ITM-000005",
+    nameAr: "سير ناقل صناعي 10 متر",
+    nameEn: "Industrial Conveyor Belt 10m",
+    type: "stock",
+    baseUnitCode: "M",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: "cat-spares",
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: "950.00",
+    costPrice: "780.00",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: 20,
+    reorderQty: 100,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: "1200",
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "inactive",
+  },
+  {
+    id: "itm-6",
+    code: "ITM-000006",
+    nameAr: "خدمة صيانة معدات",
+    nameEn: "Equipment Maintenance Service",
+    type: "service",
+    baseUnitCode: "SVC",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: "cat-services",
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: "500.00",
+    costPrice: null,
+    taxRatePercent: 14,
+    trackInventory: false,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: null,
+    reorderQty: null,
+    revenueAccountId: "4100",
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+  },
+  {
+    id: "itm-7",
+    code: "ITM-000007",
+    nameAr: "خدمة تركيب وتوصيل",
+    nameEn: "Installation & Delivery Service",
+    type: "service",
+    baseUnitCode: "SVC",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: "cat-services",
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: "150.00",
+    costPrice: null,
+    taxRatePercent: 0,
+    trackInventory: false,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: null,
+    reorderQty: null,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+  },
+  {
+    id: "itm-8",
+    code: "ITM-000008",
+    nameAr: "سكر أبيض 1 كجم",
+    nameEn: "White Sugar 1kg",
+    type: "stock",
+    baseUnitCode: "KG",
+    alternateUnits: [{ code: "CTN", name: "كرتونة (10 كجم)", factor: 10 }],
+    barcodes: ["6221031200046"],
+    categoryId: "cat-food",
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: "42.00",
+    costPrice: "34.50",
+    taxRatePercent: 14,
+    trackInventory: true,
+    trackBatches: true,
+    trackExpiry: true,
+    reorderPoint: 100,
+    reorderQty: 500,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: "1200",
+    etaCodeType: "GPC",
+    etaItemCode: null,
+    gpcCode: "10000067",
+    status: "active",
+  },
+];

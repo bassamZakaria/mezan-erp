@@ -1,0 +1,88 @@
+import type { Account } from "../accounts/index.js";
+import type { Money } from "../money/index.js";
+import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType } from "./item.js";
+import { InvalidItemError, ItemNotFoundError } from "./errors.js";
+import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
+
+/**
+ * Every field but `code` (docs/catalog/03: the item code is auto-generated
+ * and disabled on edit — a full replace of any other field is expected via
+ * the same form that creates an item).
+ */
+export interface UpdateItemCommand {
+  readonly nameAr?: string;
+  readonly nameEn?: string | null;
+  readonly type?: ItemType;
+  readonly baseUnitCode?: string;
+  readonly alternateUnits?: readonly AlternateUnit[];
+  readonly barcodes?: readonly string[];
+  readonly categoryId?: string | null;
+  readonly brand?: string | null;
+  readonly costingMethod?: CostingMethod;
+  readonly salePrice?: Money | null;
+  readonly costPrice?: Money | null;
+  readonly taxRatePercent?: number;
+  readonly trackInventory?: boolean;
+  readonly trackBatches?: boolean;
+  readonly trackExpiry?: boolean;
+  readonly reorderPoint?: number | null;
+  readonly reorderQty?: number | null;
+  readonly revenueAccountId?: string | null;
+  readonly cogsAccountId?: string | null;
+  readonly inventoryAccountId?: string | null;
+  readonly etaCodeType?: EtaCodeType | null;
+  readonly etaItemCode?: string | null;
+  readonly gpcCode?: string | null;
+  readonly status?: ItemStatus;
+}
+
+/**
+ * Edits an existing item (docs/catalog/03's "Add Item" dialog doubles as the
+ * edit form). Re-validates every field-level and GL-mapping rule that still
+ * applies after the change — `accounts`, when supplied, checks any GL
+ * mapping overrides the same way `createItem` does.
+ */
+export async function updateItem(
+  itemId: string,
+  command: UpdateItemCommand,
+  repo: ItemRepository,
+  accounts?: readonly Account[],
+): Promise<Item> {
+  const current = await repo.findById(itemId);
+  if (!current) throw new ItemNotFoundError(itemId);
+
+  const updated: Item = {
+    ...current,
+    nameAr: command.nameAr ?? current.nameAr,
+    nameEn: command.nameEn !== undefined ? command.nameEn : current.nameEn,
+    type: command.type ?? current.type,
+    baseUnitCode: command.baseUnitCode ?? current.baseUnitCode,
+    alternateUnits: command.alternateUnits ?? current.alternateUnits,
+    barcodes: command.barcodes ?? current.barcodes,
+    categoryId: command.categoryId !== undefined ? command.categoryId : current.categoryId,
+    brand: command.brand !== undefined ? command.brand : current.brand,
+    costingMethod: command.costingMethod ?? current.costingMethod,
+    salePrice: command.salePrice !== undefined ? command.salePrice : current.salePrice,
+    costPrice: command.costPrice !== undefined ? command.costPrice : current.costPrice,
+    taxRatePercent: command.taxRatePercent ?? current.taxRatePercent,
+    trackInventory: command.trackInventory ?? current.trackInventory,
+    trackBatches: command.trackBatches ?? current.trackBatches,
+    trackExpiry: command.trackExpiry ?? current.trackExpiry,
+    reorderPoint: command.reorderPoint !== undefined ? command.reorderPoint : current.reorderPoint,
+    reorderQty: command.reorderQty !== undefined ? command.reorderQty : current.reorderQty,
+    revenueAccountId: command.revenueAccountId !== undefined ? command.revenueAccountId : current.revenueAccountId,
+    cogsAccountId: command.cogsAccountId !== undefined ? command.cogsAccountId : current.cogsAccountId,
+    inventoryAccountId:
+      command.inventoryAccountId !== undefined ? command.inventoryAccountId : current.inventoryAccountId,
+    etaCodeType: command.etaCodeType !== undefined ? command.etaCodeType : current.etaCodeType,
+    etaItemCode: command.etaItemCode !== undefined ? command.etaItemCode : current.etaItemCode,
+    gpcCode: command.gpcCode !== undefined ? command.gpcCode : current.gpcCode,
+    status: command.status ?? current.status,
+  };
+
+  const reasons = [...collectItemFieldErrors(updated), ...validateGlAccountRefs(updated, accounts)];
+  if (reasons.length > 0) throw new InvalidItemError(reasons);
+
+  await repo.update(updated);
+  return updated;
+}

@@ -13,6 +13,7 @@ import {
   type WarehouseRepository,
   type CustomerRepository,
   type SupplierRepository,
+  type ItemRepository,
 } from "@mezan/domain";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
@@ -24,6 +25,7 @@ import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
+import { createItemsRouter } from "./items-routes.js";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -62,6 +64,16 @@ export interface CreateAppOptions {
    */
   readonly accounts?: {
     readonly repo: AccountRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/items` (docs/catalog/03 "الأصناف") when present. Items aren't
+   * part of the journal-posting `UnitOfWork` yet, so its repository is
+   * injected separately — omit it and the app behaves exactly as before (no
+   * `/items` routes), same as any existing caller.
+   */
+  readonly items?: {
+    readonly repo: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
@@ -113,6 +125,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.accounts) {
     app.route("/accounts", createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext));
+  }
+
+  if (options.items) {
+    app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
   }
 
   app.post("/journal-entries", async (c) => {

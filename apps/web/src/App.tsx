@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { AppShell } from "@mezan/ui";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
+import { ItemsScreen } from "./screens/ItemsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
@@ -19,6 +20,7 @@ const ROUTABLE_SCREENS = {
   customers: CustomersScreen,
   vendors: SuppliersScreen,
   coa: ChartOfAccountsScreen,
+  items: ItemsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
@@ -38,9 +40,9 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
 
   // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
-  // الحسابات, Settings' عام/الفروع/المستودعات) to switch screens; every
-  // other item keeps whatever static onClick/href sample-data.ts gave it —
-  // mostly none, they're "قريباً" placeholders.
+  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات) to switch screens;
+  // every other item keeps whatever static onClick/href sample-data.ts gave
+  // it — mostly none, they're "قريباً" placeholders.
   const groups = useMemo(
     () =>
       navGroups.map((group) => ({

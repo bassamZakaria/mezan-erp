@@ -1,9 +1,12 @@
+import { randomUUID } from "node:crypto";
 import { createApp, type App } from "@mezan/api";
 import {
   StockLedgerService,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   createTreasuryLedgerReader,
+  VoucherService,
+  type TreasuryTransferInput,
 } from "@mezan/domain";
 import {
   createSqliteUnitOfWork,
@@ -34,6 +37,15 @@ import {
   createStandaloneSqliteInstallmentPlanStore,
   createSqliteChequeRepository,
   createSqliteBankReconciliationStore,
+  createSqliteLeadRepository,
+  createSqliteOpportunityRepository,
+  createSqlitePipelineStageRepository,
+  createSqliteActivityRepository,
+  createSqliteProjectRepository,
+  createSqliteAssetCategoryRepository,
+  createSqliteAssetRepository,
+  createSqliteDepreciationRunRepository,
+  createSqliteVanTripRepository,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -50,6 +62,16 @@ const PURCHASE_GL_ACCOUNTS = {
   payableAccountId: "2100",
   taxAccountId: "1400",
   freightAccountId: "5200",
+};
+
+/**
+ * System-default fixed-assets GL accounts (docs/catalog/07 §تصنيفات الأصول
+ * "افتراضيات الإهلاك" helper text) — used whenever a depreciation run posts
+ * for an asset/category that didn't override its own account mapping.
+ */
+const FIXED_ASSETS_GL_ACCOUNTS = {
+  depreciationExpenseAccountId: "5400",
+  accumulatedDepreciationAccountId: "1590",
 };
 
 export interface BackendHandle {
@@ -119,6 +141,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const cheques = createSqliteChequeRepository(dbPath);
   const bankStatements = createSqliteBankReconciliationStore(dbPath);
 
+  // --- phase11/crm-projects-assets-field — CRM, Projects, Fixed Assets, Field/Van Sales. ---
+  const leads = createSqliteLeadRepository(dbPath);
+  const opportunities = createSqliteOpportunityRepository(dbPath);
+  const pipelineStages = createSqlitePipelineStageRepository(dbPath);
+  const activities = createSqliteActivityRepository(dbPath);
+  const projects = createSqliteProjectRepository(dbPath);
+  const assetCategories = createSqliteAssetCategoryRepository(dbPath);
+  const assets = createSqliteAssetRepository(dbPath);
+  const depreciationRuns = createSqliteDepreciationRunRepository(dbPath);
+  const vanTrips = createSqliteVanTripRepository(dbPath);
+
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -137,8 +170,44 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     fiscalPeriods,
     uow,
     hasher,
+    pipelineStages,
   };
   await seedIfEmpty(seedStores);
+
+  // --- Field/Van Sales' openVanTrip/settleVanTrip reuse the REAL treasury
+  // voucher engine for the opening cash float / cash-handed-in transfer: a
+  // confirmed "inter_treasury_transfer" voucher between the two treasury
+  // accounts, posted through the same GL engine every other voucher uses. ---
+  const vanTripVoucherService = new VoucherService({
+    documents: vouchers.documents,
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    treasuryAccounts,
+    allocations: vouchers.allocations,
+    invoices: vouchers.invoices,
+  });
+  async function vanTripTreasuryTransfer(input: TreasuryTransferInput): Promise<void> {
+    const [from, to] = await Promise.all([
+      treasuryAccounts.findById(input.fromTreasuryAccountId),
+      treasuryAccounts.findById(input.toTreasuryAccountId),
+    ]);
+    const id = randomUUID();
+    await vanTripVoucherService.createVoucher({
+      id,
+      date: input.date,
+      voucherType: "inter_treasury_transfer",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: "cash",
+      treasuryAccountId: input.fromTreasuryAccountId,
+      treasuryGlAccountId: from?.glAccountId ?? "1010",
+      counterTreasuryAccountId: input.toTreasuryAccountId,
+      counterTreasuryGlAccountId: to?.glAccountId ?? "1010",
+    });
+    await vanTripVoucherService.confirmVoucher(id);
+  }
 
   const app = createApp(uow, {
     settingsStore: settings,
@@ -153,6 +222,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
     hasher,
+    inventory: { service: stockService },
     gl: {
       ledger,
       accounts,
@@ -213,6 +283,30 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       lossAccountId: "5900",
     },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    // --- phase11/crm-projects-assets-field ---
+    crm: {
+      leads,
+      opportunities,
+      pipelineStages,
+      activities,
+      customers,
+    },
+    projects: {
+      projects,
+      costCenters,
+    },
+    fixedAssets: {
+      categories: assetCategories,
+      assets,
+      runs: depreciationRuns,
+      gl: salesInvoiceGl,
+      defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
+    },
+    fieldSales: {
+      trips: vanTrips,
+      stock: stockService,
+      treasuryTransfer: vanTripTreasuryTransfer,
+    },
     reports: {
       salesInvoices,
       purchaseInvoices,
@@ -269,6 +363,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     vouchers,
     cheques,
     bankStatements,
+    leads,
+    opportunities,
+    pipelineStages,
+    activities,
+    projects,
+    assetCategories,
+    assets,
+    depreciationRuns,
+    vanTrips,
   ];
 
   return {

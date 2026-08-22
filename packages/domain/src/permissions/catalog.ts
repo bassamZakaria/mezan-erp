@@ -64,6 +64,10 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "notifications", labelAr: "الإشعارات", count: 2 },
   { id: "audit", labelAr: "المراجعة", count: 1 },
   { id: "transactions", labelAr: "المعاملات", count: 2 },
+  // --- phase11/crm-projects-assets-field — Projects & Contracting isn't part of
+  // the original 268-permission/19-module matrix (docs/catalog/09); it's added
+  // fresh per docs/catalog/07-mfg-projects-assets.md "المشاريع والمقاولات".
+  { id: "projects", labelAr: "المشاريع", count: 2 },
 ];
 
 /**
@@ -382,6 +386,10 @@ const ROWS: readonly Row[] = [
   // 19. transactions — 2
   ["transactions.view"],
   ["transactions.view_all", "transactions.view"],
+
+  // 20. projects — 2 (phase11/crm-projects-assets-field, docs/catalog/07 §المشاريع)
+  ["projects.project.view"],
+  ["projects.project.manage", "projects.project.view"],
 ];
 
 function expand(row: Row): PermissionDef {

@@ -100,6 +100,10 @@ import type { ExchangeRateRepository } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
+import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
+import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
+import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
+import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -124,6 +128,7 @@ const DEMO_ACTIVE_MODULES = [
   "notifications",
   "loyalty",
   "field",
+  "projects",
 ];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
@@ -275,6 +280,29 @@ export interface CreateAppOptions {
    * ledger + treasury-account repos).
    */
   readonly bankReconciliation?: BankReconciliationRoutesDeps;
+  /**
+   * Mounts CRM (docs/catalog/06 "إدارة علاقات العملاء") under `/crm` when
+   * present: leads, opportunities, pipeline stages, activities.
+   */
+  readonly crm?: CrmRoutesDeps;
+  /**
+   * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
+   * when present. Creating a project auto-creates its linked `PRJ-{code}`
+   * cost center via the real cost-centers domain.
+   */
+  readonly projects?: ProjectsRoutesDeps;
+  /**
+   * Mounts Fixed Assets (docs/catalog/07 "الأصول الثابتة") under `/assets`
+   * when present: asset categories, the asset register, and depreciation
+   * runs (posting a REAL balanced GL entry through the GL posting engine).
+   */
+  readonly fixedAssets?: FixedAssetsRoutesDeps;
+  /**
+   * Mounts Field/Van Sales (docs/catalog/07 "رحلات المندوبين") under
+   * `/field/van-trips` when present: open (crew, van warehouse, opening cash
+   * float, stock load) through settle (cash + stock variance).
+   */
+  readonly fieldSales?: FieldSalesRoutesDeps;
   /**
    * Mounts the purchase chain under `/purchases` (docs/catalog/02): أوامر الشراء
    * → استلام البضائع → فواتير المشتريات. The caller supplies the three document
@@ -479,6 +507,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.bankReconciliation) {
     app.route("/bank-statements", createBankReconciliationRoutes(options.bankReconciliation, options.resolveAuthContext));
+  }
+  if (options.crm) {
+    app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
+  }
+  if (options.projects) {
+    app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));
+  }
+  if (options.fixedAssets) {
+    app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, options.resolveAuthContext));
+  }
+  if (options.fieldSales) {
+    app.route("/field/van-trips", createFieldSalesRoutes(options.fieldSales, options.resolveAuthContext));
   }
   if (options.salesInvoices) {
     const salesInvoices = options.salesInvoices;

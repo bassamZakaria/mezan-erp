@@ -5,6 +5,7 @@ import {
   createDefaultSettings,
   generateFiscalYear,
   saveUser,
+  createPipelineStage,
   ALL_SCOPE,
   type AccountRepository,
   type BranchRepository,
@@ -16,6 +17,7 @@ import {
   type SecretHasher,
   type Role,
   type TaxRate,
+  type PipelineStageRepository,
 } from "@mezan/domain";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
@@ -42,6 +44,13 @@ export interface SeedStores {
   readonly fiscalPeriods: FiscalPeriodRepository;
   readonly uow: UnitOfWork;
   readonly hasher: SecretHasher;
+  /**
+   * Optional — seeds the 7 standard pipeline stages (docs/catalog/06 "مراحل
+   * خط المبيعات") on an empty DB when supplied. Omit it and the CRM pipeline
+   * simply starts with zero stages (same as omitting any other optional
+   * seed block).
+   */
+  readonly pipelineStages?: PipelineStageRepository;
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
@@ -133,6 +142,32 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
     stores.uow,
     stores.hasher,
   );
+
+  if (stores.pipelineStages) {
+    // Seed values only (docs/catalog/06 "مراحل خط المبيعات") — the same 7
+    // stages/probabilities/win-loss flags the reference system ships with.
+    const seedStages: ReadonlyArray<{
+      readonly id: string;
+      readonly name: string;
+      readonly defaultProbability: number;
+      readonly color: string;
+      readonly isWinStage?: boolean;
+      readonly isLossStage?: boolean;
+    }> = [
+      { id: "STAGE-LEAD", name: "عميل محتمل", defaultProbability: 10, color: "#94a3b8" },
+      { id: "STAGE-CONTACTED", name: "تواصل أولي", defaultProbability: 20, color: "#60a5fa" },
+      { id: "STAGE-QUOTE", name: "عرض سعر", defaultProbability: 40, color: "#818cf8" },
+      { id: "STAGE-NEGOTIATION", name: "تفاوض", defaultProbability: 60, color: "#f59e0b" },
+      { id: "STAGE-FINAL-REVIEW", name: "مراجعة نهائية", defaultProbability: 80, color: "#fb923c" },
+      { id: "STAGE-WON", name: "تم الإغلاق", defaultProbability: 100, color: "#22c55e", isWinStage: true },
+      { id: "STAGE-LOST", name: "خسارة", defaultProbability: 0, color: "#ef4444", isLossStage: true },
+    ];
+    let existing: Awaited<ReturnType<PipelineStageRepository["list"]>> = [];
+    for (const stage of seedStages) {
+      const created = await createPipelineStage(stage, existing, stores.pipelineStages);
+      existing = [...existing, created];
+    }
+  }
 
   return currentCounts(stores);
 }

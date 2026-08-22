@@ -36,6 +36,18 @@ describe("documents router — type registry", () => {
     expect(journal?.hooks.gl).toBe(true);
     expect(journal?.hooks.stock).toBe(false);
   });
+
+  it("lists the phase4/inventory-ops document types (stock adjustment + transfer)", async () => {
+    const app = createDocumentsRoutes();
+    const res = await app.fetch(req("/types", { permissions: "accounting.journal.view" }));
+    const types = (await res.json()) as Array<{ code: string; hooks: Record<string, boolean> }>;
+    const adjustment = types.find((t) => t.code === "STOCK_ADJUSTMENT");
+    const transfer = types.find((t) => t.code === "STOCK_TRANSFER");
+    expect(adjustment?.hooks.stock).toBe(true);
+    expect(adjustment?.hooks.gl).toBe(false); // GL posting happens inside the stock hook, not a standalone buildGlPosting
+    expect(transfer?.hooks.stock).toBe(true);
+    expect(transfer?.hooks.gl).toBe(false);
+  });
 });
 
 describe("documents router — journal effects", () => {

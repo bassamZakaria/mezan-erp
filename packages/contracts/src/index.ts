@@ -263,5 +263,38 @@ export {
   type JournalDocumentEffectsRequestDTO,
 } from "./documents.js";
 
+export {
+  stockAdjustmentDocLineSchema,
+  createStockAdjustmentSchema,
+  stockAdjustmentDocumentSchema,
+  stockTransferDocLineSchema,
+  createStockTransferSchema,
+  stockTransferDocumentSchema,
+  physicalCountStatusSchema,
+  physicalCountLineSchema,
+  startPhysicalCountSchema,
+  recordPhysicalCountEntrySchema,
+  recordPhysicalCountEntriesSchema,
+  generateAdjustmentFromCountSchema,
+  physicalCountSchema,
+  stockBalanceRowSchema,
+  stockBalanceListQuerySchema,
+  type StockAdjustmentDocLineDTO,
+  type CreateStockAdjustmentDTO,
+  type StockAdjustmentDocumentDTO,
+  type StockTransferDocLineDTO,
+  type CreateStockTransferDTO,
+  type StockTransferDocumentDTO,
+  type PhysicalCountStatusDTO,
+  type PhysicalCountLineDTO,
+  type StartPhysicalCountDTO,
+  type RecordPhysicalCountEntryDTO,
+  type RecordPhysicalCountEntriesDTO,
+  type GenerateAdjustmentFromCountDTO,
+  type PhysicalCountDTO,
+  type StockBalanceRowDTO,
+  type StockBalanceListQueryDTO,
+} from "./stock-documents.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

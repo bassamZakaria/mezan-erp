@@ -21,6 +21,10 @@ import {
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
   type StockLedgerService,
+  type DocumentService,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
+  type PhysicalCountService,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -43,6 +47,11 @@ import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
+import {
+  createStockAdjustmentsRoutes,
+  createStockTransfersRoutes,
+  createPhysicalCountsRoutes,
+} from "./stock-documents-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -158,6 +167,26 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
+   * Mounts `/inventory/stock-adjustments` (docs/catalog/03 §"تسويات المخزون")
+   * — the document-layer draft/confirm CRUD built on `stockAdjustmentDocumentType`
+   * — when present. Omit it for no such route (the raw `/inventory/adjustments`
+   * engine endpoint above is unaffected either way).
+   */
+  readonly stockAdjustments?: {
+    readonly service: DocumentService<StockAdjustmentDocLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/inventory/stock-transfers` (docs/catalog/03 §"تحويلات المخزون") when present. */
+  readonly stockTransfers?: {
+    readonly service: DocumentService<StockTransferDocLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/inventory/physical-counts` (docs/catalog/03 §"الجرد الفعلي") when present. */
+  readonly physicalCounts?: {
+    readonly service: PhysicalCountService;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
    * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
    * when present — omit it for no `/gl` routes. Bundles its own ledger,
    * account/period lookups and numbering engine (all connection-shared for
@@ -242,6 +271,24 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/inventory",
       createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
+    );
+  }
+  if (options.stockAdjustments) {
+    app.route(
+      "/inventory/stock-adjustments",
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, options.stockAdjustments.resolveAuthContext),
+    );
+  }
+  if (options.stockTransfers) {
+    app.route(
+      "/inventory/stock-transfers",
+      createStockTransfersRoutes(options.stockTransfers.service, options.stockTransfers.resolveAuthContext),
+    );
+  }
+  if (options.physicalCounts) {
+    app.route(
+      "/inventory/physical-counts",
+      createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
     );
   }
 

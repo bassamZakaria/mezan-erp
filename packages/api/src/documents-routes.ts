@@ -2,6 +2,8 @@ import { Hono } from "hono";
 import {
   Money,
   journalDocumentType,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
   type DocumentTypeDefinition,
   type FrameworkDocument,
   type JournalDocLine,
@@ -23,6 +25,8 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
 
 const DOCUMENT_TYPES: readonly DocumentTypeDefinition<unknown>[] = [
   journalDocumentType as DocumentTypeDefinition<unknown>,
+  stockAdjustmentDocumentType as DocumentTypeDefinition<unknown>,
+  stockTransferDocumentType as DocumentTypeDefinition<unknown>,
 ];
 
 function describeType(def: DocumentTypeDefinition<unknown>) {

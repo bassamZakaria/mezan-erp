@@ -6,9 +6,11 @@ import {
   NegativeStockError,
   InvalidStockMovementError,
   SameWarehouseTransferError,
+  rollupStockBalance,
   type StockMovement,
   type WacSnapshot,
   type DriftReport,
+  type StockBalanceRow,
 } from "@mezan/domain";
 import { postAdjustmentSchema, postTransferSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -44,6 +46,16 @@ function serializeBalance(s: WacSnapshot) {
     onHand: s.onHand.toString(),
     averageCost: s.averageCost.toString(),
     totalValue: s.totalValue.toString(),
+  };
+}
+
+function serializeBalanceRow(r: StockBalanceRow) {
+  return {
+    itemId: r.itemId,
+    onHand: r.onHand.toString(),
+    totalValue: r.totalValue.toString(),
+    averageCost: r.averageCost.toString(),
+    warehouseCount: r.warehouseCount,
   };
 }
 
@@ -126,6 +138,14 @@ export function createInventoryRoutes(
       rows: positions.map(serializeBalance),
       totalValue: totalValue.toString(),
     });
+  });
+
+  // أرصدة المخزون (docs/catalog/03) — cross-warehouse rollup, one row per item.
+  app.get("/stock-balance", gate("inventory.stock.view"), async (c) => {
+    const { positions } = await service.getValuation();
+    const warehouseId = c.req.query("warehouseId");
+    const rows = rollupStockBalance(positions, { warehouseId });
+    return c.json({ rows: rows.map(serializeBalanceRow) });
   });
 
   app.get("/drift", gate("inventory.valuation.view"), async (c) => {

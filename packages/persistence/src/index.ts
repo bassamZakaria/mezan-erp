@@ -72,3 +72,16 @@ export {
   createSqliteLedgerStore,
   type SqliteLedgerStoreHandle,
 } from "./ledger-store.js";
+export {
+  createSqliteFrameworkDocumentStore,
+  type FrameworkDocumentStoreOptions,
+  type SqliteFrameworkDocumentStoreHandle,
+} from "./framework-document-store.js";
+export {
+  createSqlitePhysicalCountStore,
+  type SqlitePhysicalCountStoreHandle,
+} from "./physical-count-store.js";
+export {
+  createSqliteInventoryOpsStore,
+  type SqliteInventoryOpsStoreHandle,
+} from "./inventory-ops-store.js";

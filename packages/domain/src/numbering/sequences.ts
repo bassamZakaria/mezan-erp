@@ -47,6 +47,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PAYMENT_RECEIPT", labelAr: "سند تحصيل", prefix: "REC-", padLength: 6, annualReset: false },
   { code: "PAYROLL_RUN", labelAr: "دورة رواتب", prefix: "PR-", padLength: 6, annualReset: false },
   { code: "PAYSLIP", labelAr: "قسيمة راتب", prefix: "PS-", padLength: 6, annualReset: false },
+  { code: "PHYSICAL_COUNT", labelAr: "جرد فعلي", prefix: "CNT-", padLength: 6, annualReset: false },
   { code: "POS_SALE", labelAr: "مبيعة نقطة بيع", prefix: "POS-", padLength: 8, annualReset: false },
   { code: "PURCHASE_INVOICE", labelAr: "فاتورة مشتريات", prefix: "PI-", padLength: 6, annualReset: false },
   { code: "PURCHASE_ORDER", labelAr: "أمر شراء", prefix: "PO-", padLength: 6, annualReset: false },
@@ -54,6 +55,8 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PURCHASE_RFQ", labelAr: "طلب عرض سعر", prefix: "RFQ-", padLength: 6, annualReset: false },
   { code: "SALES_INVOICE", labelAr: "فاتورة مبيعات", prefix: "INV-", padLength: 6, annualReset: false },
   { code: "SALES_ORDER", labelAr: "أمر مبيعات", prefix: "SO-", padLength: 6, annualReset: false },
+  { code: "STOCK_ADJUSTMENT", labelAr: "تسوية مخزون", prefix: "ADJ-", padLength: 6, annualReset: false },
+  { code: "STOCK_TRANSFER", labelAr: "تحويل مخزون", prefix: "TRF-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

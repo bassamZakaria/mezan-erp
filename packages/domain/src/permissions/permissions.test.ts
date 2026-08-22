@@ -16,11 +16,11 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("has the documented 268 permissions across 19 modules", () => {
-    expect(PERMISSIONS).toHaveLength(268);
+  it("has the documented 268 permissions across 19 modules, plus 3 phase4 inventory.count.* permissions", () => {
+    expect(PERMISSIONS).toHaveLength(271);
     expect(MODULES).toHaveLength(19);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(268);
+    expect(summed).toBe(271);
   });
 
   it("passes integrity checks (unique codes, resolvable deps, module counts)", () => {

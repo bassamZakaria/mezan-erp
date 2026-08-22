@@ -27,6 +27,28 @@ import { ExchangeRatesScreen } from "./screens/ExchangeRatesScreen";
 import { FxRevaluationScreen } from "./screens/FxRevaluationScreen";
 import { ReconciliationScreen } from "./screens/ReconciliationScreen";
 import { EtaScreen } from "./screens/EtaScreen";
+import {
+  SalesByPeriodReportScreen,
+  SalesByItemReportScreen,
+  SalesByCustomerReportScreen,
+  TopProductsReportScreen,
+} from "./screens/reports/SalesReportsScreens";
+import {
+  PurchasesByPeriodReportScreen,
+  PurchasesBySupplierReportScreen,
+  PurchasesByItemReportScreen,
+} from "./screens/reports/PurchasesReportsScreens";
+import {
+  InventoryStockLevelsReportScreen,
+  InventoryMovementReportScreen,
+  InventoryLedgerReportScreen,
+  InventoryValuationReportScreen,
+  InventoryAgingReportScreen,
+  InventorySlowMovingReportScreen,
+  InventoryDriftReportScreen,
+} from "./screens/reports/InventoryReportsScreens";
+import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
+import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -79,6 +101,24 @@ const ROUTABLE_SCREENS = {
   "treasury-accounts": TreasuryAccountsScreen,
   "treasury-vouchers": TreasuryVouchersScreen,
   "trial-balance-report": TrialBalanceReportScreen,
+  "report-sales-by-period": SalesByPeriodReportScreen,
+  "report-sales-by-item": SalesByItemReportScreen,
+  "report-sales-by-customer": SalesByCustomerReportScreen,
+  "report-sales-top-products": TopProductsReportScreen,
+  "report-purchases-by-period": PurchasesByPeriodReportScreen,
+  "report-purchases-by-supplier": PurchasesBySupplierReportScreen,
+  "report-purchases-by-item": PurchasesByItemReportScreen,
+  "report-inventory-stock-levels": InventoryStockLevelsReportScreen,
+  "report-inventory-movement": InventoryMovementReportScreen,
+  "report-inventory-ledger": InventoryLedgerReportScreen,
+  "report-inventory-valuation": InventoryValuationReportScreen,
+  "report-inventory-aging": InventoryAgingReportScreen,
+  "report-inventory-slow-moving": InventorySlowMovingReportScreen,
+  "report-inventory-drift": InventoryDriftReportScreen,
+  "report-aging-customers": AgingCustomersReportScreen,
+  "report-aging-suppliers": AgingSuppliersReportScreen,
+  "report-installments-overview": InstallmentsOverviewReportScreen,
+  "report-installments-overdue": InstallmentsOverdueReportScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,

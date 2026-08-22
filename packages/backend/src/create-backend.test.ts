@@ -69,4 +69,14 @@ describe("createBackend — seeded app", () => {
     expect(result.accounts).toBeGreaterThan(0);
     expect(result.users).toBeGreaterThanOrEqual(1);
   });
+
+  it("mounts /reports/* over the real seeded repositories (docs/catalog/08)", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(
+      new Request("http://local/reports/sales/by-period?groupBy=day", { headers: { "x-permissions": "*" } }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { rows: unknown[] };
+    expect(body.rows).toEqual([]); // freshly seeded DB — no invoices yet, but the route computes over real data
+  });
 });

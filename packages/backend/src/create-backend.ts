@@ -16,6 +16,10 @@ import {
   createSqliteExchangeRateRepository,
   createSqliteEtaStore,
   createScryptHasher,
+  createSqliteSalesInvoiceStore,
+  createSqlitePurchaseInvoiceStore,
+  createSqliteStockLedgerStore,
+  createStandaloneSqliteInstallmentPlanStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -66,6 +70,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
   const hasher = createScryptHasher();
 
+  // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over ---
+  const salesInvoices = createSqliteSalesInvoiceStore(dbPath);
+  const purchaseInvoices = createSqlitePurchaseInvoiceStore(dbPath);
+  const stockLedger = createSqliteStockLedgerStore(dbPath);
+  const installmentPlans = createStandaloneSqliteInstallmentPlanStore(dbPath);
+
   const seedStores: SeedStores = {
     accounts,
     branches,
@@ -111,6 +121,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       lossAccountId: "5900",
     },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    reports: {
+      salesInvoices,
+      purchaseInvoices,
+      customers,
+      suppliers,
+      items,
+      warehouses,
+      stockLedger: stockLedger.ledger,
+      costLayers: stockLedger.layers,
+      wacSnapshots: stockLedger.snapshots,
+      installmentPlans,
+    },
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -143,6 +165,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     ledger,
     exchangeRates,
     etaStore,
+    salesInvoices,
+    purchaseInvoices,
+    stockLedger,
+    installmentPlans,
   ];
 
   return {

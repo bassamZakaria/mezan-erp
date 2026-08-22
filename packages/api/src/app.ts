@@ -71,6 +71,7 @@ import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-re
 import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
+import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -258,6 +259,15 @@ export interface CreateAppOptions {
   /** Mounts `/installments` (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
   readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /**
+   * Mounts `/reports` (docs/catalog/08 — operational reports) when present.
+   * Independent of `options.inventory`/`options.purchases`/etc. — it takes
+   * its own repository references directly (not the higher-level services
+   * those blocks wrap) since reports only ever READ, never post GL/stock
+   * effects. Omit it and the app behaves exactly as before (no `/reports`
+   * routes).
+   */
+  readonly reports?: ReportsRoutesDeps;
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -420,6 +430,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         purchases.resolveAuthContext ?? options.resolveAuthContext,
       ),
     );
+  }
+
+  if (options.reports) {
+    app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
   }
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));

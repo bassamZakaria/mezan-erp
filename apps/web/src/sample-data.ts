@@ -90,6 +90,36 @@ export const navGroups: NavGroup[] = [
     items: [{ key: "cheques", label: "سجل الشيكات" }],
   },
   {
+    key: "crm",
+    label: "إدارة علاقات العملاء",
+    items: [
+      { key: "leads", label: "العملاء المحتملون" },
+      { key: "opportunities", label: "الفرص" },
+      { key: "pipeline", label: "خط المبيعات" },
+      { key: "pipeline-stages", label: "مراحل خط المبيعات" },
+      { key: "crm-activities", label: "الأنشطة" },
+    ],
+  },
+  {
+    key: "projects",
+    label: "المشاريع",
+    items: [{ key: "projects", label: "المشاريع والمقاولات" }],
+  },
+  {
+    key: "assets",
+    label: "الأصول الثابتة",
+    items: [
+      { key: "asset-register", label: "سجل الأصول" },
+      { key: "depreciation-runs", label: "الإهلاك" },
+      { key: "asset-categories", label: "تصنيفات الأصول" },
+    ],
+  },
+  {
+    key: "field",
+    label: "المبيعات الميدانية",
+    items: [{ key: "van-trips", label: "رحلات المندوبين" }],
+  },
+  {
     key: "installments",
     label: "الأقساط",
     items: [

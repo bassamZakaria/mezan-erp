@@ -36,6 +36,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1500", code: "1500", nameAr: "أصول ثابتة", nameEn: "Fixed Assets", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
   { id: "1510", code: "1510", nameAr: "معدات", nameEn: "Equipment", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
   { id: "1520", code: "1520", nameAr: "مركبات", nameEn: "Vehicles", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
+  // phase11/crm-projects-assets-field — Fixed Assets' system-default GL accounts
+  // (docs/catalog/07 §تصنيفات الأصول "افتراضيات الإهلاك"). 1590 is a
+  // contra-asset (credit natural balance), same modeling as 1190 above.
+  { id: "1590", code: "1590", nameAr: "مجمع إهلاك الأصول", nameEn: "Accumulated Depreciation", type: "asset", naturalBalance: "credit", parentId: "1500", isHeader: false },
 
   // --- 2000 الالتزامات (Liabilities) ---
   { id: "2000", code: "2000", nameAr: "الالتزامات", nameEn: "Liabilities", type: "liability", naturalBalance: "credit", parentId: null, isHeader: true },
@@ -53,11 +57,14 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "4000", code: "4000", nameAr: "الإيرادات", nameEn: "Revenue", type: "revenue", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "4100", code: "4100", nameAr: "إيرادات المبيعات", nameEn: "Sales Revenue", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   { id: "4900", code: "4900", nameAr: "فائض الصندوق", nameEn: "Cash Overage", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  { id: "4500", code: "4500", nameAr: "أرباح بيع الأصول", nameEn: "Gain on Asset Disposal", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
 
   // --- 5000 المصروفات (Expenses) ---
   { id: "5000", code: "5000", nameAr: "المصروفات", nameEn: "Expenses", type: "expense", naturalBalance: "debit", parentId: null, isHeader: true },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 ];
 

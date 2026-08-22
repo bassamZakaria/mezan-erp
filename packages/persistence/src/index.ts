@@ -140,3 +140,25 @@ export {
   createSqliteBankReconciliationStore,
   type SqliteBankReconciliationStoreHandle,
 } from "./bank-reconciliation-repository.js";
+
+// --- phase11/crm-projects-assets-field ---
+export {
+  createSqliteLeadRepository,
+  createSqliteOpportunityRepository,
+  createSqlitePipelineStageRepository,
+  createSqliteActivityRepository,
+  type SqliteLeadRepositoryHandle,
+  type SqliteOpportunityRepositoryHandle,
+  type SqlitePipelineStageRepositoryHandle,
+  type SqliteActivityRepositoryHandle,
+} from "./crm-store.js";
+export { createSqliteProjectRepository, type SqliteProjectRepositoryHandle } from "./project-repository.js";
+export {
+  createSqliteAssetCategoryRepository,
+  createSqliteAssetRepository,
+  createSqliteDepreciationRunRepository,
+  type SqliteAssetCategoryRepositoryHandle,
+  type SqliteAssetRepositoryHandle,
+  type SqliteDepreciationRunRepositoryHandle,
+} from "./fixed-assets-store.js";
+export { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "./van-trip-store.js";

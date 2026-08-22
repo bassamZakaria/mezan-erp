@@ -385,3 +385,284 @@ describe("createBackend — cheques + bank reconciliation (phase7/treasury-compl
     expect(res.status).toBe(403);
   });
 });
+
+describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase11/crm-projects-assets-field)", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+
+  it("seeds the 7 standard CRM pipeline stages on an empty DB", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: ADMIN }));
+    expect(res.status).toBe(200);
+    const stages = (await res.json()) as { name: string; isWinStage: boolean; isLossStage: boolean }[];
+    expect(stages).toHaveLength(7);
+    expect(stages.filter((s) => s.isWinStage)).toHaveLength(1);
+    expect(stages.filter((s) => s.isLossStage)).toHaveLength(1);
+  });
+
+  it("runs a lead through the full state machine and converts it to a customer + opportunity", async () => {
+    const app = await newBackend();
+    const create = await post(app, "/crm/leads", { id: "lead-1", name: "شركة الأمل" }, ADMIN);
+    expect(create.status).toBe(201);
+    expect(((await create.json()) as { status: string }).status).toBe("new");
+
+    const contacted = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, ADMIN);
+    expect(contacted.status).toBe(200);
+    const qualified = await post(app, "/crm/leads/lead-1/transition", { status: "qualified" }, ADMIN);
+    expect(qualified.status).toBe(200);
+    expect(((await qualified.json()) as { status: string }).status).toBe("qualified");
+
+    // an invalid jump (qualified -> contacted) is rejected by the state machine
+    const invalid = await post(app, "/crm/leads/lead-1/transition", { status: "contacted" }, ADMIN);
+    expect(invalid.status).toBe(422);
+
+    const stages = (await (await app.fetch(new Request("http://local/crm/pipeline-stages", { headers: ADMIN }))).json()) as {
+      id: string;
+      isWinStage: boolean;
+    }[];
+    const openStage = stages.find((s) => !s.isWinStage)!;
+
+    const convert = await post(
+      app,
+      "/crm/leads/lead-1/convert",
+      {
+        createCustomer: true,
+        customer: { id: "cust-from-lead-1", code: "CUST-LEAD-1" },
+        createOpportunity: true,
+        opportunity: { id: "opp-1", title: "صفقة الأمل", stageId: openStage.id, expectedValue: "5000", probability: 40 },
+      },
+      ADMIN,
+    );
+    expect(convert.status).toBe(200);
+    const converted = (await convert.json()) as {
+      lead: { status: string; convertedCustomerId: string | null; convertedOpportunityId: string | null };
+    };
+    expect(converted.lead.status).toBe("converted");
+    expect(converted.lead.convertedCustomerId).toBe("cust-from-lead-1");
+    expect(converted.lead.convertedOpportunityId).toBe("opp-1");
+
+    const customer = await app.fetch(new Request("http://local/customers/cust-from-lead-1", { headers: ADMIN }));
+    expect(customer.status).toBe(200);
+    const opportunity = await app.fetch(new Request("http://local/crm/opportunities/opp-1", { headers: ADMIN }));
+    expect(opportunity.status).toBe(200);
+  });
+
+  it("creates a project and auto-creates its linked PRJ-{code} cost center", async () => {
+    const app = await newBackend();
+    const create = await post(app, "/projects", { id: "proj-1", code: "TOWER-A", nameAr: "مشروع البرج أ", budget: "100000" }, ADMIN);
+    expect(create.status).toBe(201);
+    const project = (await create.json()) as { costCenterId: string; status: string };
+    expect(project.status).toBe("planned");
+
+    const costCenter = await app.fetch(new Request(`http://local/cost-centers/${project.costCenterId}`, { headers: ADMIN }));
+    expect(costCenter.status).toBe(200);
+    const cc = (await costCenter.json()) as { code: string };
+    expect(cc.code).toBe("PRJ-TOWER-A");
+  });
+
+  it("registers an asset category + asset, runs depreciation, and posts a REAL balanced GL entry", async () => {
+    const app = await newBackend();
+    const category = await post(
+      app,
+      "/assets/categories",
+      { id: "cat-1", code: "FA-01", nameAr: "سيارات", defaultUsefulLifeMonths: 60, defaultSalvagePercent: 10 },
+      ADMIN,
+    );
+    expect(category.status).toBe(201);
+
+    const asset = await post(
+      app,
+      "/assets",
+      {
+        id: "asset-1",
+        code: "AST-0001",
+        nameAr: "سيارة النقل الرئيسية",
+        categoryId: "cat-1",
+        acquisitionDate: "2026-01-01",
+        acquisitionCost: "120000",
+        usefulLifeMonths: 60,
+      },
+      ADMIN,
+    );
+    expect(asset.status).toBe(201);
+
+    const run = await post(app, "/assets/depreciation/runs", { period: "2026-02" }, ADMIN);
+    expect(run.status).toBe(201);
+    const created = (await run.json()) as { id: string; status: string; totalAmount: string; lines: unknown[] };
+    expect(created.status).toBe("draft");
+    expect(created.lines).toHaveLength(1);
+    expect(Number(created.totalAmount)).toBeGreaterThan(0);
+
+    const posted = await post(app, `/assets/depreciation/runs/${created.id}/post`, {}, ADMIN);
+    expect(posted.status).toBe(200);
+    const postedRun = (await posted.json()) as { status: string; journalEntryId: string | null };
+    expect(postedRun.status).toBe("posted");
+    expect(postedRun.journalEntryId).toBeTruthy();
+
+    const entry = await app.fetch(new Request(`http://local/gl/journal-entries/${postedRun.journalEntryId}`, { headers: ADMIN }));
+    expect(entry.status).toBe(200);
+    const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
+    const totalCredit = je.lines.reduce((n, l) => n + Number(l.credit), 0);
+    expect(totalDebit).toBeCloseTo(totalCredit, 6);
+    expect(je.lines.some((l) => l.accountId === "5400")).toBe(true);
+    expect(je.lines.some((l) => l.accountId === "1590")).toBe(true);
+  });
+
+  it("opens a van trip (real treasury transfer + real stock transfer) and settles it with cash + stock variance", async () => {
+    const app = await newBackend();
+
+    const van = await post(app, "/warehouses", { id: "wh-van1", code: "WH-VAN1", name: "مستودع الڤان 1", branchId: "BR-MAIN", type: "VAN" }, ADMIN);
+    expect(van.status).toBe(201);
+    const sourceTa = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-main", code: "TA-MAIN", name: "خزينة الفرع الرئيسي", branchId: "BR-MAIN", glAccountId: "1300-1", openingBalance: "10000" },
+      ADMIN,
+    );
+    expect(sourceTa.status).toBe(201);
+    const vanTa = await post(
+      app,
+      "/treasury-accounts",
+      { id: "ta-van1", code: "TA-VAN1", name: "خزينة الڤان 1", branchId: "BR-MAIN", glAccountId: "1310" },
+      ADMIN,
+    );
+    expect(vanTa.status).toBe(201);
+    const item = await post(
+      app,
+      "/items",
+      { id: "item-van1", code: "ITEM-VAN1", nameAr: "منتج للفان", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+      ADMIN,
+    );
+    expect(item.status).toBe(201);
+
+    // fund the source treasury account with a REAL posted capital-injection voucher —
+    // a treasury account's own `openingBalance` field is metadata only; its actual
+    // cash balance the guard checks comes from posted GL journal entries.
+    const fund = await post(
+      app,
+      "/vouchers",
+      {
+        id: "voucher-fund-main",
+        date: "2026-08-01",
+        voucherType: "capital_injection",
+        amount: "10000",
+        branchId: "BR-MAIN",
+        paymentMethod: "cash",
+        treasuryAccountId: "ta-main",
+        treasuryGlAccountId: "1300-1",
+        counterpartyGlAccountId: "3100",
+      },
+      ADMIN,
+    );
+    expect(fund.status).toBe(201);
+    const fundConfirm = await post(app, "/vouchers/voucher-fund-main/confirm", {}, ADMIN);
+    expect(fundConfirm.status).toBe(200);
+
+    // load the source warehouse with stock the van trip can transfer out of
+    const adjust = await post(
+      app,
+      "/inventory/adjustments",
+      {
+        adjustmentId: "adj-van1",
+        warehouseId: "WH-MAIN",
+        reason: "INITIAL_STOCK",
+        lines: [{ itemId: "item-van1", direction: "IN", qty: "20", unitCost: "50" }],
+      },
+      ADMIN,
+    );
+    expect(adjust.status).toBe(201);
+
+    const open = await post(
+      app,
+      "/field/van-trips",
+      {
+        id: "trip-1",
+        date: "2026-08-21",
+        branchId: "BR-MAIN",
+        vanWarehouseId: "wh-van1",
+        vanTreasuryAccountId: "ta-van1",
+        sourceWarehouseId: "WH-MAIN",
+        sourceTreasuryAccountId: "ta-main",
+        openingCashFloat: "500",
+        crew: [{ employeeId: "emp-1", role: "driver" }],
+        loadedStock: [{ itemId: "item-van1", qty: "10" }],
+      },
+      ADMIN,
+    );
+    expect(open.status).toBe(201);
+    const trip = (await open.json()) as { id: string; status: string; openingCashFloat: string };
+    expect(trip.status).toBe("ongoing");
+    expect(trip.openingCashFloat).toBe("500.000000");
+
+    // opening the trip really moved stock into the van warehouse via the real stock ledger
+    const vanStock = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=wh-van1", { headers: ADMIN }),
+    );
+    expect(vanStock.status).toBe(200);
+    expect(Number(((await vanStock.json()) as { onHand: string }).onHand)).toBe(10);
+
+    // and it really moved cash between the two treasury accounts via a confirmed inter-treasury voucher
+    const sourceStock = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-van1&warehouseId=WH-MAIN", { headers: ADMIN }),
+    );
+    expect(Number(((await sourceStock.json()) as { onHand: string }).onHand)).toBe(10); // 20 loaded - 10 transferred to the van
+
+    const collection = await post(
+      app,
+      `/field/van-trips/${trip.id}/cash-movements`,
+      { id: "cm-1", kind: "collection", amount: "300", occurredAt: "2026-08-21T10:00:00.000Z" },
+      ADMIN,
+    );
+    expect(collection.status).toBe(200);
+
+    // in the field, the 300 collected really lands in the van's own treasury too
+    // (a customer-collection voucher posted straight to the van's cash account) —
+    // recordVanCashMovement only logs the trip-level summary line, so the
+    // settlement's real cash-out transfer needs the van treasury to actually
+    // hold what it's being asked to hand back.
+    const vanCollection = await post(
+      app,
+      "/vouchers",
+      {
+        id: "voucher-van-collection",
+        date: "2026-08-21",
+        voucherType: "other_income",
+        amount: "300",
+        branchId: "BR-MAIN",
+        paymentMethod: "cash",
+        treasuryAccountId: "ta-van1",
+        treasuryGlAccountId: "1310",
+        counterpartyGlAccountId: "4900",
+      },
+      ADMIN,
+    );
+    expect(vanCollection.status).toBe(201);
+    expect((await post(app, "/vouchers/voucher-van-collection/confirm", {}, ADMIN)).status).toBe(200);
+
+    const settle = await post(
+      app,
+      `/field/van-trips/${trip.id}/settle`,
+      { countedCash: "780", stockCounts: [{ itemId: "item-van1", countedQty: "6" }] },
+      ADMIN,
+    );
+    expect(settle.status).toBe(200);
+    const settled = (await settle.json()) as {
+      status: string;
+      settlement: { expectedCash: string; countedCash: string; cashVariance: string; stockCounts: { itemId: string; varianceQty: string }[] };
+    };
+    expect(settled.status).toBe("settled");
+    // expected = opening float (500) + collection (300) = 800; counted 780 -> -20 shortage variance
+    expect(settled.settlement.expectedCash).toBe("800.000000");
+    expect(settled.settlement.cashVariance).toBe("-20.000000");
+    const line = settled.settlement.stockCounts.find((s) => s.itemId === "item-van1")!;
+    expect(line.varianceQty).toBe("-4.000000"); // loaded 10, counted 6
+  });
+
+  it("gates /crm, /projects, /assets and /field/van-trips behind their own permissions", async () => {
+    const app = await newBackend();
+    expect((await app.fetch(new Request("http://local/crm/leads"))).status).toBe(403);
+    expect((await app.fetch(new Request("http://local/projects"))).status).toBe(403);
+    expect((await app.fetch(new Request("http://local/assets"))).status).toBe(403);
+    expect((await app.fetch(new Request("http://local/field/van-trips"))).status).toBe(403);
+  });
+});

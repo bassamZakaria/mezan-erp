@@ -59,6 +59,16 @@ import {
 } from "./screens/reports/InventoryReportsScreens";
 import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
 import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
+import { LeadsScreen } from "./screens/LeadsScreen";
+import { OpportunitiesScreen } from "./screens/OpportunitiesScreen";
+import { PipelineScreen } from "./screens/PipelineScreen";
+import { PipelineStagesScreen } from "./screens/PipelineStagesScreen";
+import { ActivitiesScreen } from "./screens/ActivitiesScreen";
+import { ProjectsScreen } from "./screens/ProjectsScreen";
+import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
+import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
+import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
+import { VanTripsScreen } from "./screens/VanTripsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -149,6 +159,16 @@ const ROUTABLE_SCREENS = {
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  leads: LeadsScreen,
+  opportunities: OpportunitiesScreen,
+  pipeline: PipelineScreen,
+  "pipeline-stages": PipelineStagesScreen,
+  "crm-activities": ActivitiesScreen,
+  projects: ProjectsScreen,
+  "asset-categories": AssetCategoriesScreen,
+  "asset-register": AssetRegisterScreen,
+  "depreciation-runs": DepreciationRunsScreen,
+  "van-trips": VanTripsScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;

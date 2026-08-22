@@ -170,3 +170,15 @@ export * from "./cheques/index.js";
 
 // --- bank-reconciliation/ — Bank Statement Reconciliation (phase7/treasury-completion) ---
 export * from "./bank-reconciliation/index.js";
+
+// --- crm/ — CRM (phase11) ---
+export * from "./crm/index.js";
+
+// --- projects/ — Projects (phase11) ---
+export * from "./projects/index.js";
+
+// --- fixed-assets/ — Fixed Assets (phase11) ---
+export * from "./fixed-assets/index.js";
+
+// --- field-sales/ — Field/Van Sales (phase11) ---
+export * from "./field-sales/index.js";

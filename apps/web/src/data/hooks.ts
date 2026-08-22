@@ -1,27 +1,39 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AccountDTO,
+  ActivityDTO,
   AllocationSummaryDTO,
+  AssetCategoryDTO,
+  AssetDTO,
   BankStatementDTO,
   BankStatementStatusDTO,
   BootstrapAdminRequestDTO,
+  BootstrapSeedResultDTO,
   BounceChequeDTO,
   BranchDTO,
-  ChequeDTO,
   ChequeDirectionDTO,
+  ChequeDTO,
   ChequeStatusDTO,
   CollectChequeDTO,
-  BootstrapSeedResultDTO,
   ConfirmVoucherDTO,
+  ConvertLeadDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CreateAccountDTO,
+  CreateActivityDTO,
   CreateAllocationDTO,
+  CreateAssetCategoryDTO,
+  CreateAssetDTO,
   CreateChequeDTO,
   CreateCustomerDTO,
+  CreateDepreciationRunDTO,
   CreateGlJournalEntryDTO,
   CreateGoodsReceiptDTO,
   CreateItemDTO,
+  CreateLeadDTO,
+  CreateOpportunityDTO,
+  CreatePipelineStageDTO,
   CreatePriceListDTO,
+  CreateProjectDTO,
   CreatePromotionDTO,
   CreatePurchaseInvoiceDTO,
   CreatePurchaseOrderDTO,
@@ -35,19 +47,27 @@ import type {
   CustomerDTO,
   DashboardSummaryDTO,
   DepositChequeDTO,
+  DepreciationRunDTO,
   GlJournalListQueryDTO,
   GoodsReceiptDTO,
   ImportBankStatementDTO,
   ItemDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
+  LeadDTO,
   LoginRequestDTO,
   MatchSummaryDTO,
+  MoveOpportunityStageDTO,
   OpenInvoiceDTO,
+  OpenVanTripDTO,
+  OpportunityDTO,
+  PipelineStageDTO,
   PriceListDTO,
+  ProjectDTO,
   PromotionDTO,
   PurchaseInvoiceDTO,
   PurchaseOrderDTO,
+  RecordVanCashMovementDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
   ReverseVoucherDTO,
@@ -55,18 +75,22 @@ import type {
   SalesInvoiceDiscountDTO,
   SalesInvoiceListQueryDTO,
   SessionDTO,
+  SettleVanTripDTO,
   StatementColumnMappingDTO,
   StatementLineDTO,
   SupplierDTO,
+  TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
   UpdateCustomerDTO,
   UpdateItemDTO,
+  UpdateProjectDTO,
   UpdateRoleDTO,
   UpdateSupplierDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
   UserDTO,
+  VanTripDTO,
   VoucherAllocationDTO,
   VoucherDTO,
   VoucherListQueryDTO,
@@ -966,6 +990,7 @@ export function useFinalizeBankStatement() {
   });
 }
 
+
 /* -------------------------------------------------------------------- */
 /* sweep/real-data-screens — Tier 2 (vouchers, purchase chain, sales     */
 /* invoices, and their small dependency hooks)                           */
@@ -1371,5 +1396,398 @@ export function useRecordSalesInvoicePayment() {
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// CRM (docs/catalog/06 "إدارة علاقات العملاء") — phase11/crm-projects-assets-field
+// ---------------------------------------------------------------------------
+
+export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeadDTO[], ApiError>({
+    queryKey: ["crm-leads"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/crm/leads");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العملاء المحتملين.");
+      return res.json<LeadDTO[]>();
+    },
+  });
+}
+
+export function useCreateLead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeadDTO, ApiError, CreateLeadDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/crm/leads", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العميل المحتمل."));
+      return res.json<LeadDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
+  });
+}
+
+export function useTransitionLead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeadDTO, ApiError, { id: string; body: TransitionLeadDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/crm/leads/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحديث حالة العميل المحتمل."));
+      return res.json<LeadDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
+  });
+}
+
+export interface ConvertLeadResultDTO {
+  readonly lead: LeadDTO;
+  readonly customerId: string | null;
+  readonly opportunityId: string | null;
+}
+
+export function useConvertLead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ConvertLeadResultDTO, ApiError, { id: string; body: ConvertLeadDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/crm/leads/${id}/convert`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحويل العميل المحتمل."));
+      return res.json<ConvertLeadResultDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["crm-leads"] });
+      queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+    },
+  });
+}
+
+export function useOpportunities(): UseQueryResult<OpportunityDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<OpportunityDTO[], ApiError>({
+    queryKey: ["crm-opportunities"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/crm/opportunities");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفرص.");
+      return res.json<OpportunityDTO[]>();
+    },
+  });
+}
+
+export function useCreateOpportunity() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<OpportunityDTO, ApiError, CreateOpportunityDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/crm/opportunities", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الفرصة."));
+      return res.json<OpportunityDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
+  });
+}
+
+export function useMoveOpportunityStage() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<OpportunityDTO, ApiError, { id: string; body: MoveOpportunityStageDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/crm/opportunities/${id}/move-stage`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر نقل الفرصة."));
+      return res.json<OpportunityDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
+  });
+}
+
+export function usePipelineStages(): UseQueryResult<PipelineStageDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PipelineStageDTO[], ApiError>({
+    queryKey: ["crm-pipeline-stages"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/crm/pipeline-stages");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مراحل خط المبيعات.");
+      return res.json<PipelineStageDTO[]>();
+    },
+  });
+}
+
+export function useCreatePipelineStage() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PipelineStageDTO, ApiError, CreatePipelineStageDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/crm/pipeline-stages", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المرحلة."));
+      return res.json<PipelineStageDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
+  });
+}
+
+export function useMovePipelineStage() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PipelineStageDTO, ApiError, { id: string; direction: "up" | "down" }>({
+    mutationFn: async ({ id, direction }) => {
+      const res = await request(`/crm/pipeline-stages/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إعادة ترتيب المرحلة."));
+      return res.json<PipelineStageDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
+  });
+}
+
+export function useCrmActivities(): UseQueryResult<ActivityDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ActivityDTO[], ApiError>({
+    queryKey: ["crm-activities"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/crm/activities");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأنشطة.");
+      return res.json<ActivityDTO[]>();
+    },
+  });
+}
+
+export function useCreateActivity() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ActivityDTO, ApiError, CreateActivityDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/crm/activities", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة النشاط."));
+      return res.json<ActivityDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
+  });
+}
+
+export function useCompleteActivity() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ActivityDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/crm/activities/${id}/complete`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إكمال النشاط."));
+      return res.json<ActivityDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
+  });
+}
+
+export function useCancelActivity() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ActivityDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/crm/activities/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء النشاط."));
+      return res.json<ActivityDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Projects (docs/catalog/07 "المشاريع والمقاولات") — phase11/crm-projects-assets-field
+// ---------------------------------------------------------------------------
+
+export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ProjectDTO[], ApiError>({
+    queryKey: ["projects"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/projects");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المشاريع.");
+      return res.json<ProjectDTO[]>();
+    },
+  });
+}
+
+export function useCreateProject() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProjectDTO, ApiError, CreateProjectDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/projects", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المشروع."));
+      return res.json<ProjectDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+
+export function useUpdateProject() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProjectDTO, ApiError, { id: string; patch: UpdateProjectDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المشروع."));
+      return res.json<ProjectDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Fixed Assets (docs/catalog/07 "الأصول الثابتة") — phase11/crm-projects-assets-field
+// ---------------------------------------------------------------------------
+
+export function useAssetCategories(): UseQueryResult<AssetCategoryDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<AssetCategoryDTO[], ApiError>({
+    queryKey: ["asset-categories"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets/categories");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تصنيفات الأصول.");
+      return res.json<AssetCategoryDTO[]>();
+    },
+  });
+}
+
+export function useCreateAssetCategory() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetCategoryDTO, ApiError, CreateAssetCategoryDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/assets/categories", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة التصنيف."));
+      return res.json<AssetCategoryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-categories"] }),
+  });
+}
+
+export function useAssets(): UseQueryResult<AssetDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<AssetDTO[], ApiError>({
+    queryKey: ["assets"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سجل الأصول.");
+      return res.json<AssetDTO[]>();
+    },
+  });
+}
+
+export function useCreateAsset() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, CreateAssetDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/assets", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الأصل."));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+export function useDepreciationRuns(): UseQueryResult<DepreciationRunDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<DepreciationRunDTO[], ApiError>({
+    queryKey: ["depreciation-runs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/assets/depreciation/runs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات الإهلاك.");
+      return res.json<DepreciationRunDTO[]>();
+    },
+  });
+}
+
+export function useCreateDepreciationRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, CreateDepreciationRunDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/assets/depreciation/runs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء عملية الإهلاك."));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
+  });
+}
+
+export function usePostDepreciationRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepreciationRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/assets/depreciation/runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل عملية الإهلاك."));
+      return res.json<DepreciationRunDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] });
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Field/Van Sales (docs/catalog/07 "رحلات المندوبين") — phase11/crm-projects-assets-field
+// ---------------------------------------------------------------------------
+
+export function useVanTrips(): UseQueryResult<VanTripDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<VanTripDTO[], ApiError>({
+    queryKey: ["van-trips"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/field/van-trips");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل رحلات المندوبين.");
+      return res.json<VanTripDTO[]>();
+    },
+  });
+}
+
+export function useOpenVanTrip() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VanTripDTO, ApiError, OpenVanTripDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/field/van-trips", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر فتح الرحلة."));
+      return res.json<VanTripDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
+  });
+}
+
+export function useRecordVanCashMovement() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VanTripDTO, ApiError, { id: string; body: RecordVanCashMovementDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/field/van-trips/${id}/cash-movements`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الحركة النقدية."));
+      return res.json<VanTripDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
+  });
+}
+
+export function useSettleVanTrip() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VanTripDTO, ApiError, { id: string; body: SettleVanTripDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/field/van-trips/${id}/settle`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسوية الرحلة."));
+      return res.json<VanTripDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
   });
 }

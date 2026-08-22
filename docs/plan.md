@@ -10,6 +10,8 @@
 
 **v1 = Electron desktop app only (SQLite).** Descoped for now: the HR module, the POS module (including the net-new POS selling screen), and the entire cloud/SaaS website edition. Path chosen = **Path A**: SQLite-only for now, but the repository ports + Drizzle abstraction and the Hono app layer are kept so the website + Postgres can be added later additively. The Postgres dialect, the dual-engine conformance suite, and Postgres CI are deferred, not built now. **LAN multi-till stays** — it's desktop/offline and satisfies the one-license-multiple-devices requirement. The core business loop is unchanged: journal entries, sales & purchase invoices, treasury vouchers, print.
 
+**Design status:** UI visual direction is in team review — a light-first RTL desktop design (deep-teal + gold finance identity, Cairo/IBM Plex Sans Arabic, balance-beam brand motif), with base pages and the full accounting section mocked; viewable in a separate design artifact.
+
 ---
 
 ## Market & competitive notes (for review)
@@ -31,6 +33,32 @@ Inputs from a review of a competing Egyptian ERP's public marketing site, gather
 → Action: check each against docs/catalog before finalizing those modules' issues.
 
 **Module-boundary notes.** The reference product markets **multi-currency** and **ETA e-invoicing** almost as standalone modules. → Consider treating **multi-currency as its own licensable module** in our entitlement model, rather than an always-on accounting feature.
+
+---
+
+## Competitive landscape (for review)
+
+Broader review intel gathered against the named ERPs an Egyptian SMB buyer would actually compare us to, plus Excel as the do-nothing baseline. As with the section above, this is **review input, not committed positioning**.
+
+| Product | Arabic/RTL | Egypt ETA fit | Deployment | Pricing model | Coverage vs our domains | Primary weakness |
+|---|---|---|---|---|---|---|
+| Daftra | Native | Real ETA (manual credential/dongle setup; markets Saudi ZATCA first) | Cloud only | Tiered SaaS with usage caps — Basic ~490 / Advanced ~978 / Premium ~1,960 EGP/mo — + per-unit add-ons (users, branches, warehouses, storage) | High | No offline/desktop or self-host |
+| Odoo | Partner/add-on | Via localization/partner | Cloud or self-host | Free community + paid apps (Egypt implementations cited ~125,000 EGP+) | High but assembled | Hidden TCO, partner-dependent |
+| SAP Business One | Partner | Partner Arabic/ETA | On-prem/partner cloud | Costly, partner-led | High (enterprise) | Cost + long rollout |
+| ERPNext | Community-translated | Not native | Self-host or Frappe Cloud | Free license + hosting/partner | Med-High | Needs a technical team; no built-in Egypt compliance |
+| Microsoft Dynamics 365 Business Central | Partner/ISV | Partner Arabic/ETA | Cloud/partner | Per-user + implementation | High | Cost, bolted-on localization |
+| QuickBooks | Not Egypt-native | Not Egypt-native | Cloud | Subscription | Low (accounting-only) | No real Egypt localization/ERP depth |
+| Zoho | Not Egypt-native | Not Egypt-native | Cloud | Subscription | Low (accounting-only) | No real Egypt localization/ERP depth |
+| Excel | None | None | Local/offline | Free | Very low | Manual, no GL |
+
+**Note on Daftra specifically:** it is the closest competitor and is actually deep — cheque cycle, installments, BOM/routings/scrap manufacturing, HR/payroll, multi-branch, 7 mobile apps, and an offline-syncing POS.
+
+**Where Mezan differentiates:**
+1. A true offline-first Arabic **desktop** ERP — no competitor in this field offers it (Daftra's offline capability is POS-only).
+2. Module-based licensing vs. Daftra's cap-based tiers.
+3. Egypt/ETA-first positioning.
+
+> **Honesty caveat.** Independent research shows the reference system's own compare page **overstates** Daftra's weaknesses — Daftra actually has manufacturing, cheques, installments, and offline-capable POS. Mezan's real edge is deployment model + execution quality, not "features they lack." Don't reuse the reference system's overstated competitive claims in our own materials.
 
 ---
 

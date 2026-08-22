@@ -1,0 +1,62 @@
+/**
+ * Ports for the sales-invoice module. The domain depends only on these
+ * interfaces — never on SQL, HTTP, or the GL/stock engines (docs/plan.md §3.2).
+ * The GL and workflow hooks reuse the document framework's hook ports verbatim;
+ * the stock issue hook is sales-specific because it must return the cost of
+ * goods sold so a single combined journal entry (revenue + COGS) can be posted.
+ */
+
+import type { Money, Qty } from "../money/index.js";
+import type { SalesInvoice } from "./sales-invoice.js";
+
+/** Persistence port for sales invoices, keyed by id. */
+export interface SalesInvoiceRepository {
+  save(invoice: SalesInvoice): Promise<void>;
+  update(invoice: SalesInvoice): Promise<void>;
+  findById(id: string): Promise<SalesInvoice | null>;
+  list(filter?: SalesInvoiceListFilter): Promise<readonly SalesInvoice[]>;
+  /** Run `fn` in one atomic transaction. In-memory implementations may just call `fn`. */
+  transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+export interface SalesInvoiceListFilter {
+  readonly status?: SalesInvoice["status"];
+  readonly customerId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+}
+
+/** One line of stock to issue OUT on confirm. */
+export interface SalesInvoiceIssueLine {
+  readonly itemId: string;
+  readonly qty: Qty;
+}
+
+export interface SalesInvoiceStockIssue {
+  readonly issueId: string;
+  readonly sourceDocId: string;
+  readonly sourceDocNumber: string | null;
+  readonly warehouseId: string;
+  readonly occurredAt: string;
+  readonly lines: readonly SalesInvoiceIssueLine[];
+}
+
+export interface SalesInvoiceIssuedLineCost {
+  readonly itemId: string;
+  readonly unitCost: Money;
+  readonly cost: Money;
+}
+
+export interface SalesInvoiceStockResult {
+  readonly totalCost: Money;
+  readonly lines: readonly SalesInvoiceIssuedLineCost[];
+}
+
+/**
+ * Issues stock OUT for a confirming invoice and returns the moving-average cost
+ * of what left, so the service can post Dr COGS / Cr Inventory in the same
+ * journal entry as the revenue. Bound to the stock-ledger engine's `postIssue`.
+ */
+export interface SalesInvoiceStockHook {
+  issue(plan: SalesInvoiceStockIssue): Promise<SalesInvoiceStockResult>;
+}

@@ -53,6 +53,7 @@ import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
+import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
 
@@ -176,6 +177,9 @@ export interface CreateAppOptions {
    * atomic no-gap numbering); optional audit sink + domain-event publisher.
    */
   readonly gl?: GlRoutesDeps;
+
+  /** Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when supplied. */
+  readonly salesInvoices?: SalesInvoiceRoutesDeps;
   /**
    * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
    * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
@@ -276,6 +280,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.vouchers) {
     app.route("/vouchers", createVouchersRoutes(options.vouchers, options.resolveAuthContext));
     app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
+  }
+  if (options.salesInvoices) {
+    app.route("/sales-invoices", createSalesInvoicesRoutes(options.salesInvoices, options.resolveAuthContext));
   }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.

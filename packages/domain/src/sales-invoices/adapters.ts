@@ -1,0 +1,68 @@
+/**
+ * Adapters binding the REAL engines behind the sales-invoice hook ports — the
+ * document layer never imports the engines directly (docs/plan.md §3.2).
+ *
+ * - the GL hook posts a document-driven journal entry through the GL posting
+ *   engine (source = "system"), and reverses one for corrections;
+ * - the stock hook issues stock OUT through the stock-ledger engine's
+ *   `postIssue`, returning the moving-average cost of goods sold so the service
+ *   can fold COGS into the same journal entry.
+ */
+
+import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import type { DocumentGlHook } from "../documents/hooks.js";
+import type { StockLedgerService } from "../inventory/index.js";
+import type { SalesInvoiceStockHook } from "./ports.js";
+
+/** Bind the GL posting engine behind the framework's GL hook, posting as a system document. */
+export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHook {
+  return {
+    async post(posting) {
+      const entry = await postJournalEntry(
+        {
+          id: posting.sourceDocId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          lines: posting.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            memo: l.memo ?? null,
+          })),
+        },
+        deps,
+      );
+      return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
+    },
+    async reverse(journalEntryId, opts) {
+      const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
+        reversalId: opts.reversalId,
+        date: opts.date,
+        memo: opts.memo,
+      });
+      return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
+    },
+  };
+}
+
+/** Bind the stock-ledger engine's `postIssue` behind the sales-invoice stock hook. */
+export function createSalesInvoiceStockHook(service: StockLedgerService): SalesInvoiceStockHook {
+  return {
+    async issue(plan) {
+      const result = await service.postIssue({
+        issueId: plan.issueId,
+        sourceDocType: "SALES_INVOICE",
+        sourceDocId: plan.sourceDocId,
+        sourceDocNumber: plan.sourceDocNumber,
+        warehouseId: plan.warehouseId,
+        occurredAt: plan.occurredAt,
+        lines: plan.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
+      });
+      return {
+        totalCost: result.totalCost,
+        lines: result.lines.map((l) => ({ itemId: l.itemId, unitCost: l.unitCost, cost: l.cost })),
+      };
+    },
+  };
+}

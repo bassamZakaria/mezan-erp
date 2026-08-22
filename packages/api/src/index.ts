@@ -31,5 +31,6 @@ export {
   createAllocationRoutes,
   type VoucherRoutesDeps,
 } from "./vouchers-routes.js";
+export { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
 export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";

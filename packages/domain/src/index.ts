@@ -124,6 +124,9 @@ export * from "./purchasing/index.js";
 // --- reports/ — Report engine abstraction (phase8/report-engine) ---
 export * from "./reports/index.js";
 
+// --- sales-invoices/ — Sales Invoices (phase3/sales-invoices) ---
+export * from "./sales-invoices/index.js";
+
 // --- documents/ — generic document framework (phase2/document-framework) ---
 export * from "./documents/index.js";
 

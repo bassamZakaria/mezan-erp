@@ -1,4 +1,4 @@
-import { Money } from "./money.js";
+import { Money } from "./money/index.js";
 import type { JournalEntry, JournalLine, UnitOfWork } from "./journal.js";
 
 /** Raised when a journal entry does not satisfy Σdebit = Σcredit. */

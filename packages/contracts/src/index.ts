@@ -12,5 +12,25 @@ export {
   type CreateJournalEntryDTO,
 } from "./journal.js";
 
+export {
+  sequenceDefinitionSchema,
+  nextNumberRequestSchema,
+  nextNumberResponseSchema,
+  type SequenceDefinitionDTO,
+  type NextNumberRequestDTO,
+  type NextNumberResponseDTO,
+} from "./numbering.js";
+
+export {
+  auditSeveritySchema,
+  auditStreamSchema,
+  auditEventSchema,
+  type AuditSeverityDTO,
+  type AuditStreamDTO,
+  type AuditEventDTO,
+} from "./audit.js";
+
+export { domainEventSchema, type DomainEventDTO } from "./events.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

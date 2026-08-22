@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money } from "./money.js";
+import { Money } from "./money/index.js";
 import type { JournalEntry, UnitOfWork } from "./journal.js";
 import {
   postJournalEntry,

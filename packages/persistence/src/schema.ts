@@ -23,4 +23,36 @@ export const journalLine = sqliteTable("journal_line", {
   credit: integer("credit").notNull(),
 });
 
-export const schema = { journalEntry, journalLine };
+/**
+ * Numbering counter (docs/plan.md §2.3 rule 5). One row per (code, period);
+ * `period` is "" for a never-resetting sequence or the calendar year for an
+ * annual-reset one. Bumped under BEGIN IMMEDIATE so numbers have no gaps/dupes.
+ */
+export const sequenceCounter = sqliteTable("sequence_counter", {
+  code: text("code").notNull(),
+  period: text("period").notNull(),
+  value: integer("value").notNull(),
+});
+
+/**
+ * Append-only audit trail (docs/plan.md §5.7). BEFORE UPDATE/DELETE triggers in
+ * the store enforce append-only at the storage layer; `details` is JSON text.
+ */
+export const auditEvent = sqliteTable("audit_event", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  stream: text("stream").notNull(),
+  module: text("module").notNull(),
+  entityType: text("entity_type").notNull(),
+  action: text("action").notNull(),
+  actor: text("actor").notNull(),
+  timestamp: text("timestamp").notNull(),
+  severity: text("severity").notNull(),
+  details: text("details"),
+});
+
+export const schema = {
+  journalEntry,
+  journalLine,
+  sequenceCounter,
+  auditEvent,
+};

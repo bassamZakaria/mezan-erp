@@ -26,3 +26,4 @@ export { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 export { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 export { createInventoryRoutes } from "./inventory-routes.js";
 export { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
+export { createDocumentsRoutes } from "./documents-routes.js";

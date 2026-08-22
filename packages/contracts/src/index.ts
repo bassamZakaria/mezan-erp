@@ -246,5 +246,22 @@ export {
   type GlJournalListQueryDTO,
 } from "./gl.js";
 
+export {
+  documentStatusSchema,
+  documentEffectKindSchema,
+  documentEffectSchema,
+  documentEffectsSchema,
+  journalDocumentLineSchema,
+  createJournalDocumentSchema,
+  journalDocumentEffectsRequestSchema,
+  type DocumentStatusDTO,
+  type DocumentEffectKindDTO,
+  type DocumentEffectDTO,
+  type DocumentEffectsDTO,
+  type JournalDocumentLineDTO,
+  type CreateJournalDocumentDTO,
+  type JournalDocumentEffectsRequestDTO,
+} from "./documents.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

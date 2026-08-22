@@ -68,3 +68,7 @@ export {
   createSqliteStockLedgerStore,
   type SqliteStockLedgerHandle,
 } from "./stock-ledger-store.js";
+export {
+  createSqliteLedgerStore,
+  type SqliteLedgerStoreHandle,
+} from "./ledger-store.js";

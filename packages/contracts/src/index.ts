@@ -231,5 +231,20 @@ export {
   type PostTransferDTO,
 } from "./inventory.js";
 
+export {
+  journalEntrySourceSchema,
+  journalEntryStatusSchema,
+  glJournalLineSchema,
+  createGlJournalEntrySchema,
+  reverseGlJournalEntrySchema,
+  glJournalListQuerySchema,
+  type JournalEntrySourceDTO,
+  type JournalEntryStatusDTO,
+  type GlJournalLineDTO,
+  type CreateGlJournalEntryDTO,
+  type ReverseGlJournalEntryDTO,
+  type GlJournalListQueryDTO,
+} from "./gl.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

@@ -4,3 +4,6 @@ dist/
 .worktrees/
 *.log
 apps/desktop/release/
+e2e-results/
+playwright-report/
+blob-report/

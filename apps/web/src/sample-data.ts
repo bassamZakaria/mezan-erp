@@ -60,7 +60,7 @@ export const navGroups: NavGroup[] = [
     label: "الخزينة",
     items: [
       { key: "treasury-accounts", label: "حسابات الخزينة" },
-      { key: "treasury-vouchers", label: "السندات النقدية", tag: { label: "قريباً", tone: "soon" } },
+      { key: "treasury-vouchers", label: "السندات النقدية" },
     ],
   },
   {

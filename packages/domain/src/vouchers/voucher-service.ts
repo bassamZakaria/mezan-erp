@@ -1,0 +1,302 @@
+/**
+ * VoucherService — the treasury-voucher application service.
+ *
+ * It composes the generic {@link DocumentService} (numbering + workflow gate +
+ * GL posting + audit + lifecycle) with the two voucher-specific concerns the
+ * framework can't own: the cash-negative guard (needs the live ledger balance)
+ * and invoice allocation. The GL hook posts each voucher's balanced two-line
+ * entry through the REAL GL posting engine as a "system" source; the numbering
+ * hook stamps the CV- number. Everything the framework already does — the draft
+ * → confirmed → reversed lifecycle, the workflow gate, audit, events — is reused
+ * unchanged.
+ */
+
+import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
+import type { LedgerRepository } from "../gl/ledger.js";
+import type { AccountRepository } from "../accounts/account.js";
+import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
+import { NextNumberService } from "../numbering/index.js";
+import type { AuditSink } from "../audit/index.js";
+import type { GateConfig, GateableActionType } from "../workflow/index.js";
+import type { TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
+import type { SettingsRepository } from "../settings/ports.js";
+import {
+  DocumentService,
+  type DocumentEventPublisher,
+  type DocumentGlHook,
+  type DocumentListFilter,
+  type FrameworkDocument,
+} from "../documents/index.js";
+import { createDocumentWorkflowGate } from "../documents/journal-document.js";
+import {
+  voucherDocumentType,
+  voucherLine,
+  type VoucherDocument,
+  type VoucherLine,
+} from "./voucher-document.js";
+import {
+  getVoucherTypeDefinition,
+  type VoucherType,
+} from "./voucher-types.js";
+import { assertCashBalanceAllows } from "./cash-guard.js";
+import {
+  allocate as allocateFn,
+  reverseAllocation as reverseAllocationFn,
+  summarize,
+  type AllocatableInvoiceRepository,
+  type AllocationRepository,
+  type AllocationSummary,
+  type VoucherAllocation,
+} from "./allocation.js";
+import { VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
+
+/** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
+export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
+  return {
+    async post(posting) {
+      const entry = await postJournalEntry(
+        {
+          id: posting.sourceDocId,
+          date: posting.date,
+          memo: posting.memo,
+          source: "system",
+          lines: posting.lines.map((l) => ({
+            accountId: l.accountId,
+            debit: l.debit,
+            credit: l.credit,
+            memo: l.memo ?? null,
+          })),
+        },
+        deps,
+      );
+      return { journalEntryId: entry.id, journalEntryNo: entry.entryNo ?? null };
+    },
+    async reverse(journalEntryId, opts) {
+      const { reversal } = await reverseJournalEntry(journalEntryId, deps, {
+        reversalId: opts.reversalId,
+        date: opts.date,
+        memo: opts.memo,
+      });
+      return { journalEntryId: reversal.id, journalEntryNo: reversal.entryNo ?? null };
+    },
+  };
+}
+
+export interface VoucherServiceDeps {
+  readonly documents: import("../documents/document.js").DocumentRepository<VoucherLine>;
+  readonly ledger: LedgerRepository;
+  readonly accounts: Pick<AccountRepository, "findById">;
+  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly numbering: NextNumberService;
+  readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
+  readonly allocations: AllocationRepository;
+  readonly invoices: AllocatableInvoiceRepository;
+  /** Tenant settings source for the cash-negative policy; when absent the policy defaults ON. */
+  readonly settings?: SettingsRepository;
+  /** Resolves the configured approval chain per action type (null = none → auto-grant). */
+  readonly resolveGateConfig?: (actionType: GateableActionType) => GateConfig | null;
+  readonly audit?: AuditSink;
+  readonly events?: DocumentEventPublisher;
+  readonly now?: () => string;
+  readonly actor?: string;
+  readonly actorRoles?: readonly string[];
+}
+
+/** All the fields needed to open a new voucher draft (one economic line + envelope). */
+export interface CreateVoucherCommand {
+  readonly id: string;
+  readonly date: string;
+  readonly memo?: string;
+  readonly voucherType: VoucherType;
+  readonly amount: import("../money/money.js").Money;
+  readonly currency?: string;
+  readonly branchId: string;
+  readonly paymentMethod: VoucherLine["paymentMethod"];
+  readonly treasuryAccountId: string;
+  readonly treasuryGlAccountId: string;
+  readonly counterpartyGlAccountId?: string | null;
+  readonly counterTreasuryAccountId?: string | null;
+  readonly counterTreasuryGlAccountId?: string | null;
+  readonly customerId?: string | null;
+  readonly supplierId?: string | null;
+  readonly referenceNo?: string | null;
+}
+
+export interface ConfirmVoucherOptions {
+  readonly actor?: string;
+  readonly actorRoles?: readonly string[];
+  readonly requestId?: string;
+}
+
+export class VoucherService {
+  private readonly service: DocumentService<VoucherLine>;
+
+  constructor(private readonly deps: VoucherServiceDeps) {
+    const glDeps: JournalPostingDeps = {
+      ledger: deps.ledger,
+      accounts: deps.accounts,
+      periods: deps.periods,
+      numbering: deps.numbering,
+      audit: deps.audit,
+      now: deps.now,
+      actor: deps.actor,
+    };
+    this.service = new DocumentService(voucherDocumentType, {
+      repo: deps.documents,
+      numbering: { next: () => deps.numbering.next("CASH_VOUCHER") },
+      gl: createVoucherGlHook(glDeps),
+      workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null)),
+      audit: deps.audit,
+      events: deps.events,
+      auditModule: "treasury",
+      now: deps.now,
+      actor: deps.actor,
+      actorRoles: deps.actorRoles,
+    });
+  }
+
+  private now(): string {
+    return this.deps.now ? this.deps.now() : new Date().toISOString();
+  }
+
+  effectsOf(doc: VoucherDocument) {
+    return this.service.effectsOf(doc);
+  }
+
+  /** Open a new مسودة (draft) voucher. */
+  async createVoucher(cmd: CreateVoucherCommand): Promise<VoucherDocument> {
+    const def = getVoucherTypeDefinition(cmd.voucherType);
+    const line: VoucherLine = {
+      voucherType: cmd.voucherType,
+      direction: def.direction,
+      amount: cmd.amount,
+      currency: cmd.currency ?? "EGP",
+      branchId: cmd.branchId,
+      paymentMethod: cmd.paymentMethod,
+      treasuryAccountId: cmd.treasuryAccountId,
+      treasuryGlAccountId: cmd.treasuryGlAccountId,
+      counterpartyGlAccountId: cmd.counterpartyGlAccountId ?? null,
+      counterTreasuryAccountId: cmd.counterTreasuryAccountId ?? null,
+      counterTreasuryGlAccountId: cmd.counterTreasuryGlAccountId ?? null,
+      customerId: cmd.customerId ?? null,
+      supplierId: cmd.supplierId ?? null,
+      referenceNo: cmd.referenceNo ?? null,
+    };
+    return this.service.createDraft({
+      id: cmd.id,
+      date: cmd.date,
+      memo: cmd.memo ?? def.labelAr,
+      lines: [line],
+    });
+  }
+
+  /**
+   * Confirm a voucher: runs the cash-negative guard (against the live ledger)
+   * BEFORE the framework posts its GL entry, then delegates to the generic
+   * confirm — numbering (CV-), workflow gate, GL posting, audit, events.
+   */
+  async confirmVoucher(id: string, opts: ConfirmVoucherOptions = {}) {
+    const existing = await this.service.findById(id);
+    if (existing) {
+      const line = voucherLine(existing);
+      await assertCashBalanceAllows(line, {
+        treasuryAccounts: this.deps.treasuryAccounts,
+        ledger: this.deps.ledger,
+        preventNegativeCashBalance: await this.cashPolicy(),
+      }, existing.date);
+    }
+    return this.service.confirm(id, opts);
+  }
+
+  /** Cancel a draft/pending voucher (a live one is reversed instead). */
+  async cancelVoucher(id: string): Promise<VoucherDocument> {
+    return this.service.cancel(id);
+  }
+
+  /**
+   * Reverse a confirmed voucher: reverse all its ACTIVE allocations first (so
+   * invoice outstandings are restored), then reverse the document — which posts
+   * the mirror-image GL entry via the GL hook.
+   */
+  async reverseVoucher(
+    id: string,
+    opts: { reversalId: string; date?: string; memo?: string },
+  ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
+    const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
+    for (const alloc of active) {
+      await reverseAllocationFn(alloc.id, this.now(), {
+        allocations: this.deps.allocations,
+        invoices: this.deps.invoices,
+      });
+    }
+    return this.service.reverse(id, opts);
+  }
+
+  async allocate(
+    voucherId: string,
+    input: { allocationId: string; invoiceId: string; amount: import("../money/money.js").Money; now?: string },
+  ): Promise<{ allocation: VoucherAllocation }> {
+    const doc = await this.requireConfirmedAllocatable(voucherId);
+    const line = voucherLine(doc);
+    const def = getVoucherTypeDefinition(line.voucherType);
+    const partyId = (line.customerId ?? line.supplierId)!;
+    const result = await allocateFn(
+      {
+        allocationId: input.allocationId,
+        voucherId,
+        voucherAmount: line.amount,
+        voucherPartyId: partyId,
+        expectedKind: def.allocationKind!,
+        invoiceId: input.invoiceId,
+        amount: input.amount,
+        now: input.now ?? this.now(),
+      },
+      { allocations: this.deps.allocations, invoices: this.deps.invoices },
+    );
+    return { allocation: result.allocation };
+  }
+
+  async reverseAllocation(allocationId: string, now?: string): Promise<{ allocation: VoucherAllocation }> {
+    const result = await reverseAllocationFn(allocationId, now ?? this.now(), {
+      allocations: this.deps.allocations,
+      invoices: this.deps.invoices,
+    });
+    return { allocation: result.allocation };
+  }
+
+  async listAllocations(voucherId: string): Promise<readonly VoucherAllocation[]> {
+    return this.deps.allocations.listByVoucher(voucherId);
+  }
+
+  async allocationSummary(doc: VoucherDocument): Promise<AllocationSummary> {
+    const line = voucherLine(doc);
+    const def = getVoucherTypeDefinition(line.voucherType);
+    const allocations = await this.deps.allocations.listByVoucher(doc.id);
+    return summarize(line.amount, allocations, def.allocatable);
+  }
+
+  async findById(id: string): Promise<VoucherDocument | null> {
+    return this.service.findById(id);
+  }
+
+  async list(filter?: DocumentListFilter): Promise<readonly VoucherDocument[]> {
+    return this.service.list(filter);
+  }
+
+  private async cashPolicy(): Promise<boolean> {
+    if (!this.deps.settings) return true;
+    const settings = await this.deps.settings.get();
+    return settings?.preventNegativeCashBalance ?? true;
+  }
+
+  private async requireConfirmedAllocatable(voucherId: string): Promise<VoucherDocument> {
+    const doc = await this.service.findById(voucherId);
+    if (!doc) throw new VoucherNotConfirmedError(voucherId, "missing");
+    if (doc.status !== "confirmed") throw new VoucherNotConfirmedError(voucherId, doc.status);
+    const line = voucherLine(doc);
+    if (!getVoucherTypeDefinition(line.voucherType).allocatable) {
+      throw new VoucherNotAllocatableError(voucherId, line.voucherType);
+    }
+    return doc;
+  }
+}

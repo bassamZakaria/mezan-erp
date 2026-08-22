@@ -123,3 +123,6 @@ export * from "./reports/index.js";
 
 // --- documents/ — generic document framework (phase2/document-framework) ---
 export * from "./documents/index.js";
+
+// --- vouchers/ — Treasury Vouchers (phase4/treasury-vouchers) ---
+export * from "./vouchers/index.js";

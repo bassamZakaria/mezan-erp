@@ -263,5 +263,38 @@ export {
   type JournalDocumentEffectsRequestDTO,
 } from "./documents.js";
 
+export {
+  voucherTypeSchema,
+  voucherDirectionSchema,
+  voucherPaymentMethodSchema,
+  voucherStatusSchema,
+  allocationInvoiceKindSchema,
+  allocationStatusSchema,
+  voucherSchema,
+  createVoucherSchema,
+  confirmVoucherSchema,
+  reverseVoucherSchema,
+  openInvoiceSchema,
+  voucherAllocationSchema,
+  createAllocationSchema,
+  allocationSummarySchema,
+  voucherListQuerySchema,
+  type VoucherTypeDTO,
+  type VoucherDirectionDTO,
+  type VoucherPaymentMethodDTO,
+  type VoucherStatusDTO,
+  type AllocationInvoiceKindDTO,
+  type AllocationStatusDTO,
+  type VoucherDTO,
+  type CreateVoucherDTO,
+  type ConfirmVoucherDTO,
+  type ReverseVoucherDTO,
+  type OpenInvoiceDTO,
+  type VoucherAllocationDTO,
+  type CreateAllocationDTO,
+  type AllocationSummaryDTO,
+  type VoucherListQueryDTO,
+} from "./voucher.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

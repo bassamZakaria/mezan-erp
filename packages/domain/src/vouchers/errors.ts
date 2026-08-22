@@ -1,0 +1,99 @@
+/** Treasury-voucher domain errors. Stable `code`s so the api/UI can branch. */
+
+/** Raised when a voucher's single economic line is malformed (bad amount, missing account/party). */
+export class InvalidVoucherError extends Error {
+  readonly code = "INVALID_VOUCHER";
+  constructor(
+    readonly voucherId: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = "InvalidVoucherError";
+  }
+}
+
+/**
+ * Raised when confirming a payment/transfer would push a CASH treasury account
+ * below zero and the tenant's "منع الرصيد السالب للحسابات النقدية" policy is on.
+ * Bank accounts are exempt (overdraft allowed) — docs/catalog/04 + docs/catalog/09.
+ */
+export class CashBalanceWouldGoNegativeError extends Error {
+  readonly code = "CASH_BALANCE_NEGATIVE";
+  constructor(
+    readonly treasuryAccountId: string,
+    readonly currentBalance: string,
+    readonly amount: string,
+  ) {
+    super(
+      `Confirming this voucher would take cash treasury account "${treasuryAccountId}" ` +
+        `negative (balance ${currentBalance}, amount ${amount}).`,
+    );
+    this.name = "CashBalanceWouldGoNegativeError";
+  }
+}
+
+/** Raised when an allocation targets a voucher whose type cannot be allocated. */
+export class VoucherNotAllocatableError extends Error {
+  readonly code = "VOUCHER_NOT_ALLOCATABLE";
+  constructor(readonly voucherId: string, readonly voucherType: string) {
+    super(`Voucher "${voucherId}" of type "${voucherType}" cannot be allocated to invoices.`);
+    this.name = "VoucherNotAllocatableError";
+  }
+}
+
+/** Raised when allocating against a voucher that is not confirmed. */
+export class VoucherNotConfirmedError extends Error {
+  readonly code = "VOUCHER_NOT_CONFIRMED";
+  constructor(readonly voucherId: string, readonly status: string) {
+    super(`Voucher "${voucherId}" is "${status}", not confirmed; allocation is not allowed.`);
+    this.name = "VoucherNotConfirmedError";
+  }
+}
+
+/** Raised when an operation references an invoice id that does not exist. */
+export class InvoiceNotFoundError extends Error {
+  readonly code = "INVOICE_NOT_FOUND";
+  constructor(readonly invoiceId: string) {
+    super(`Open invoice "${invoiceId}" was not found.`);
+    this.name = "InvoiceNotFoundError";
+  }
+}
+
+/** Raised when an operation references an allocation id that does not exist. */
+export class AllocationNotFoundError extends Error {
+  readonly code = "ALLOCATION_NOT_FOUND";
+  constructor(readonly allocationId: string) {
+    super(`Allocation "${allocationId}" was not found.`);
+    this.name = "AllocationNotFoundError";
+  }
+}
+
+/** Raised when the invoice's kind (sales/purchase) or party does not match the voucher. */
+export class AllocationMismatchError extends Error {
+  readonly code = "ALLOCATION_MISMATCH";
+  constructor(message: string) {
+    super(message);
+    this.name = "AllocationMismatchError";
+  }
+}
+
+/**
+ * Raised when an allocation amount exceeds either the voucher's unallocated
+ * remainder or the invoice's outstanding balance, or is not positive.
+ */
+export class AllocationExceedsError extends Error {
+  readonly code = "ALLOCATION_EXCEEDS";
+  constructor(message: string) {
+    super(message);
+    this.name = "AllocationExceedsError";
+  }
+}
+
+/** Raised when reversing an allocation that is already reversed. */
+export class AllocationAlreadyReversedError extends Error {
+  readonly code = "ALLOCATION_ALREADY_REVERSED";
+  constructor(readonly allocationId: string) {
+    super(`Allocation "${allocationId}" is already reversed.`);
+    this.name = "AllocationAlreadyReversedError";
+  }
+}

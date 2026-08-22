@@ -48,6 +48,12 @@ export {
   type DocumentDetailTab,
 } from "./primitives/DocumentDetail";
 
+export {
+  DocumentStatusStepper,
+  type DocumentStatusStepperProps,
+  type DocumentStatusStep,
+} from "./primitives/DocumentStatusStepper";
+
 export { SidePanel, type SidePanelProps } from "./primitives/SidePanel";
 export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";

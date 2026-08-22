@@ -42,6 +42,7 @@ import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
+import { createDocumentsRoutes } from "./documents-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -230,6 +231,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.gl) {
     app.route("/gl", createGlRoutes(options.gl, options.resolveAuthContext));
   }
+  // Generic document framework (docs/execution-plan.md W4): read-only type
+  // registry + pure effects computation. No persistence, so always mounted.
+  app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
 
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));

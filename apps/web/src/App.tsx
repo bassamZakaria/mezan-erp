@@ -12,6 +12,7 @@ import { CostCentersScreen } from "./screens/CostCentersScreen";
 import { TreasuryAccountsScreen } from "./screens/TreasuryAccountsScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
+import { JournalsScreen } from "./screens/JournalsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -42,6 +43,7 @@ const ROUTABLE_SCREENS = {
   customers: CustomersScreen,
   vendors: SuppliersScreen,
   coa: ChartOfAccountsScreen,
+  journals: JournalsScreen,
   items: ItemsScreen,
   "cost-centers": CostCentersScreen,
   "fiscal-periods": FiscalPeriodsScreen,

@@ -120,3 +120,6 @@ export * from "./inventory/index.js";
 
 // --- reports/ — Report engine abstraction (phase8/report-engine) ---
 export * from "./reports/index.js";
+
+// --- documents/ — generic document framework (phase2/document-framework) ---
+export * from "./documents/index.js";

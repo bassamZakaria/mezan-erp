@@ -125,11 +125,11 @@ test.describe("Cost centers", () => {
     await form.getByLabel("الكود *").fill("CC-099");
     await form.getByLabel("الاسم *").fill("مركز تجريبي");
 
-    // EntityPicker has no accessible label (no id/htmlFor wiring), and its
-    // dynamic placeholder (the currently-selected option's label) changes
-    // once a selection is made — so target the one real <input
-    // role="combobox"> in the form instead (the "النوع"/"الحالة" fields are
-    // plain <select>s, which also report role=combobox but aren't <input>s).
+    // EntityPicker's dynamic placeholder (the currently-selected option's
+    // label) changes once a selection is made, so target the one real
+    // <input role="combobox"> in the form instead of getByLabel (the
+    // "النوع"/"الحالة" fields are plain <select>s, which also report
+    // role=combobox but aren't <input>s).
     const parentPicker = form.locator('input[role="combobox"]');
     await parentPicker.fill("الإدارة");
     await form.getByRole("option", { name: /الإدارة العامة/ }).click();

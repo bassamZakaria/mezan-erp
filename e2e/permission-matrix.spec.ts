@@ -204,7 +204,7 @@ test.describe("Role editor — PermissionMatrix", () => {
     await page.getByLabel("رمز الدور *").fill("VAN_SALES"); // already used by the demo role
     await page.getByRole("button", { name: "حفظ الدور" }).click();
 
-    await expect(page.getByText("A role with code VAN_SALES already exists")).toBeVisible();
+    await expect(page.getByText('يوجد دور بالفعل بالكود "VAN_SALES"')).toBeVisible();
     await expect(page.getByRole("heading", { name: "دور جديد" })).toBeVisible(); // still on the editor
   });
 

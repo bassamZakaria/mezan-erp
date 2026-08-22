@@ -84,17 +84,25 @@ test.describe("Users", () => {
     const form = page.getByRole("dialog", { name: "إضافة مستخدم" });
     await expect(form).toBeVisible();
 
+    // A full name and email are required before saving reaches the domain layer.
+    await form.getByRole("button", { name: "حفظ المستخدم" }).click();
+    await expect(form.getByText("الاسم الكامل مطلوب.")).toBeVisible();
+    await form.getByLabel("الاسم الكامل *").fill("مستخدم اختبار التحقق");
+    await form.getByRole("button", { name: "حفظ المستخدم" }).click();
+    await expect(form.getByText("البريد الإلكتروني مطلوب.")).toBeVisible();
+    await form.getByLabel("البريد الإلكتروني *").fill("validation-test@cyag.test");
+
     // Neither a role nor the company-admin bypass is selected by default.
     await form.getByRole("button", { name: "حفظ المستخدم" }).click();
     await expect(
-      form.getByText("A user must have exactly one of: a role, or the company-admin bypass."),
+      form.getByText("يجب أن يكون للمستخدم دور واحد فقط أو صلاحية مدير الشركة، وليس كليهما."),
     ).toBeVisible();
     await expect(form).toBeVisible(); // stays open on validation error
 
     // Bypass the role requirement via company-admin, but still no branch selected.
     await form.getByLabel("صلاحيات مدير المنشأة").check();
     await form.getByRole("button", { name: "حفظ المستخدم" }).click();
-    await expect(form.getByText("At least one branch is required.")).toBeVisible();
+    await expect(form.getByText("يجب اختيار فرع واحد على الأقل.")).toBeVisible();
   });
 
   test("creating a user with a role, then editing it, round-trips through the form", async ({ page }) => {
@@ -105,10 +113,7 @@ test.describe("Users", () => {
     await form.getByLabel("البريد الإلكتروني *").fill("test.user@cyag.test");
     await form.getByLabel("كلمة مرور مؤقتة * (٨ أحرف على الأقل)").fill("Passw0rd1");
 
-    // EntityPicker's <label> isn't associated with its input (no id/htmlFor
-    // wired through from UsersPage), so getByLabel can't find it — locate the
-    // combobox as the label's next sibling instead.
-    const roleInput = form.locator("label", { hasText: "الدور *" }).locator("xpath=following-sibling::input");
+    const roleInput = form.getByLabel("الدور *");
     await roleInput.click();
     await page.getByRole("option", { name: "مندوب مبيعات" }).click();
     await expect(roleInput).toHaveAttribute("placeholder", "مندوب مبيعات");
@@ -125,9 +130,7 @@ test.describe("Users", () => {
     const editForm = page.getByRole("dialog", { name: "تعديل مستخدم" });
     await expect(editForm).toBeVisible();
     await expect(editForm.getByLabel("الاسم الكامل *")).toHaveValue("مستخدم اختبار");
-    const editRoleInput = editForm
-      .locator("label", { hasText: "الدور *" })
-      .locator("xpath=following-sibling::input");
+    const editRoleInput = editForm.getByLabel("الدور *");
     await expect(editRoleInput).toHaveAttribute("placeholder", "مندوب مبيعات");
   });
 });

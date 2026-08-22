@@ -169,11 +169,7 @@ test.describe("Items", () => {
     const form = page.getByRole("dialog", { name: "تعديل صنف" });
     await expect(form).toBeVisible();
 
-    // The code field's <label> wraps its "يُنشأ تلقائياً" hint span too (no
-    // whitespace between the two adjacent JSX text nodes), so its accessible
-    // name is the label+hint concatenated, not "كود الصنف" alone — which is
-    // also a substring of the ETA "كود الصنف لدى المصلحة" field's name.
-    const codeInput = form.getByLabel("كود الصنفيُنشأ تلقائياً", { exact: true });
+    const codeInput = form.getByLabel("كود الصنف", { exact: true });
     await expect(codeInput).toBeDisabled();
     await expect(codeInput).toHaveValue("ITM-000002");
     await expect(form.getByLabel("اسم الصنف *")).toHaveValue("زيت عباد الشمس 1 لتر");

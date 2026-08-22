@@ -127,7 +127,7 @@ test.describe("Customers", () => {
 
     await form.getByRole("button", { name: "إضافة عميل", exact: true }).click();
 
-    await expect(form.getByRole("alert")).toContainText("nameAr is required");
+    await expect(form.getByRole("alert")).toContainText("الاسم بالعربية مطلوب");
     await expect(form).toBeVisible();
     await expect(page.getByText("عرض 6 من 6 عميل")).toBeVisible();
   });

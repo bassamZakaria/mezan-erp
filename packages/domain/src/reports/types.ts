@@ -69,6 +69,14 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly rowKey: (row: Row) => string;
   readonly group?: ReportGroupSpec<Row>;
   readonly reconciliation?: ReportReconciliationSpec<Row, Ctx>;
+  /**
+   * Whether the grand-total row is meaningful for this report. The balance
+   * sheet sets this false — summing the assets section against the
+   * liabilities+equity section yields no useful figure (the A = L + E check
+   * lives in `reconciliation` instead), while per-section subtotals stay on.
+   * Defaults to true.
+   */
+  readonly showGrandTotal?: boolean;
 }
 
 export interface ReportValidationError {

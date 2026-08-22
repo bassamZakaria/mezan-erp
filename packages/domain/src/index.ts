@@ -105,3 +105,6 @@ export * from "./tax-rates/index.js";
 export * from "./cost-centers/index.js";
 export * from "./treasury-accounts/index.js";
 export * from "./fiscal-periods/index.js";
+
+// --- reports/ — Report engine abstraction (phase8/report-engine) ---
+export * from "./reports/index.js";

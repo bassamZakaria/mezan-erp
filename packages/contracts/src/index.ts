@@ -204,5 +204,32 @@ export {
   type GenerateFiscalYearDTO,
 } from "./fiscal-period.js";
 
+export {
+  stockMovementDirectionSchema,
+  adjustmentReasonSchema,
+  stockSourceDocTypeSchema,
+  stockMovementSchema,
+  stockBalanceSchema,
+  valuationRowSchema,
+  valuationReportSchema,
+  driftReportSchema,
+  adjustmentLineSchema,
+  postAdjustmentSchema,
+  transferLineSchema,
+  postTransferSchema,
+  type StockMovementDirectionDTO,
+  type AdjustmentReasonDTO,
+  type StockSourceDocTypeDTO,
+  type StockMovementDTO,
+  type StockBalanceDTO,
+  type ValuationRowDTO,
+  type ValuationReportDTO,
+  type DriftReportDTO,
+  type AdjustmentLineDTO,
+  type PostAdjustmentDTO,
+  type TransferLineDTO,
+  type PostTransferDTO,
+} from "./inventory.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

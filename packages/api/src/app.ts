@@ -20,6 +20,7 @@ import {
   type CostCenterRepository,
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
+  type StockLedgerService,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -39,6 +40,7 @@ import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+import { createInventoryRoutes } from "./inventory-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -144,6 +146,16 @@ export interface CreateAppOptions {
   /** Mounts `/fiscal-periods` (docs/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
   /**
+   * Mounts `/inventory` (docs/catalog/03 — the costing + stock-ledger engine)
+   * when present. The caller builds the `StockLedgerService` (wiring the SQLite
+   * store, the negative-stock policy, and any event/GL adapters) — omit it and
+   * the app behaves exactly as before (no `/inventory` routes).
+   */
+  readonly inventory?: {
+    readonly service: StockLedgerService;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -210,6 +222,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
+  }
+  if (options.inventory) {
+    app.route(
+      "/inventory",
+      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
+    );
   }
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));

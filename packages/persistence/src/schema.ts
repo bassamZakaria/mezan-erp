@@ -50,9 +50,47 @@ export const auditEvent = sqliteTable("audit_event", {
   details: text("details"),
 });
 
+/**
+ * Custom role — permission grants stored as a JSON array of raw (pre
+ * dependency-resolution) permission codes (docs/plan.md §5.2 / roles/role.ts).
+ */
+export const role = sqliteTable("role", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  permissions: text("permissions").notNull(), // JSON string[]
+  isSystem: integer("is_system", { mode: "boolean" }).notNull(),
+  createdAt: text("created_at").notNull(),
+});
+
+/**
+ * Tenant user account. `branchScope`/`warehouseScope` are JSON: either the
+ * `"*"` sentinel or a string array of ids (permissions/auth-context.ts
+ * `ScopeSelection`).
+ */
+export const user = sqliteTable("user", {
+  id: text("id").primaryKey(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  passwordHash: text("password_hash").notNull(),
+  pinHash: text("pin_hash"),
+  roleId: text("role_id").references(() => role.id),
+  isCompanyAdmin: integer("is_company_admin", { mode: "boolean" }).notNull(),
+  employeeId: text("employee_id"),
+  branchScope: text("branch_scope").notNull(), // JSON
+  warehouseScope: text("warehouse_scope").notNull(), // JSON
+  status: text("status").notNull(),
+  lastLoginAt: text("last_login_at"),
+  createdAt: text("created_at").notNull(),
+});
+
 export const schema = {
   journalEntry,
   journalLine,
   sequenceCounter,
   auditEvent,
+  role,
+  user,
 };

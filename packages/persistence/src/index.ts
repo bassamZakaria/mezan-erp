@@ -8,6 +8,8 @@ export {
   journalLine,
   sequenceCounter,
   auditEvent,
+  role,
+  user,
 } from "./schema.js";
 export {
   createSqliteSequenceStore,
@@ -45,3 +47,4 @@ export {
   createSqliteItemStore,
   type SqliteItemStoreHandle,
 } from "./item-store.js";
+export { createScryptHasher } from "./secret-hasher.js";

@@ -1,102 +1,90 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, screen, within } from "@testing-library/react";
+import type { DashboardSummaryDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./DashboardScreen";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+function summary(overrides: Partial<DashboardSummaryDTO> = {}): DashboardSummaryDTO {
+  return {
+    generatedAt: "2026-08-22T00:00:00.000Z",
+    counts: { accounts: 30, customers: 2, suppliers: 1, items: 4, users: 3, journalEntries: 5 },
+    gl: {
+      revenue: "86240.00",
+      expenses: "61930.00",
+      netProfit: "24310.00",
+      cash: "338.00",
+      receivables: "2782.30",
+      payables: "110.00",
+      inventoryValue: "604950.90",
+    },
+    recentActivity: [{ id: "je-1", entryNo: "JE-0001", date: "2026-08-20", memo: "قيد افتتاحي" }],
+    ...overrides,
+  };
+}
+
+/** Default range is "هذا الشهر", which sends a fromDate; "كل الفترات" sends none — lets us prove the range control re-queries real data. */
+function rangeAwareTransport() {
+  return stubTransport({
+    "GET /dashboard/summary": (_init, path) => {
+      const scoped = path.includes("fromDate=");
+      return { body: summary({ gl: { ...summary().gl, revenue: scoped ? "1000.00" : "9999.00" } }) };
+    },
+  });
+}
 
 describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) => {
   afterEach(() => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("renders the greeting header, quick actions and KPI tiles", () => {
+  function renderDashboard(transport = stubTransport({ "GET /dashboard/summary": () => ({ body: summary() }) })) {
+    return renderWithProviders(<DashboardScreen />, { transport, initialSession: testAdminSession });
+  }
+
+  it("renders the greeting header, quick actions and real KPI tiles", async () => {
     document.documentElement.setAttribute("data-theme", theme);
-    render(<DashboardScreen />);
+    renderDashboard();
     expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "فاتورة جديدة" })).toBeInTheDocument();
-    expect(screen.getByText("إجمالي الإيرادات · هذا الشهر")).toBeInTheDocument();
-    expect(screen.getByText("86,240.00")).toBeInTheDocument();
-    expect(screen.getByText("-18,087.50")).toBeInTheDocument();
+    expect(screen.getByText("إجمالي الإيرادات")).toBeInTheDocument();
+    expect(await screen.findByText("86,240.00")).toBeInTheDocument();
+    expect(screen.getByText("24,310.00")).toBeInTheDocument();
   });
 
-  it("renders needs-follow-up actions and the company-wide KPI row", () => {
-    render(<DashboardScreen />);
-    expect(screen.getByText("يحتاج متابعة")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "تحصيل الآن" })).toBeInTheDocument();
+  it("renders the company-wide KPI row from real GL figures", async () => {
+    renderDashboard();
     expect(screen.getByText("مبالغ لدى العملاء")).toBeInTheDocument();
-    expect(screen.getByText("604,950.90")).toBeInTheDocument();
+    expect(await screen.findByText("604,950.90")).toBeInTheDocument();
+    expect(screen.getByText("2,782.30")).toBeInTheDocument();
   });
 
-  it("renders the aging widget and recent activity", () => {
-    render(<DashboardScreen />);
-    expect(screen.getByText("المبالغ المتأخرة")).toBeInTheDocument();
-    expect(screen.getByText("العملاء")).toBeInTheDocument();
-    expect(screen.getByText("الموردون")).toBeInTheDocument();
-    expect(screen.getByText(/اكتمل أمر التصنيع WO-0010/)).toBeInTheDocument();
+  it("renders the system-data counts and recent activity from real data", async () => {
+    renderDashboard();
+    expect(screen.getByText("بيانات النظام")).toBeInTheDocument();
+    expect(await screen.findByText("قيد افتتاحي")).toBeInTheDocument();
+    expect(screen.getByText("النشاط الأخير")).toBeInTheDocument();
   });
 
-  it("renders the expense donut with the documented category split", () => {
-    render(<DashboardScreen />);
-    expect(screen.getByRole("heading", { name: "توزيع المصروفات" })).toBeInTheDocument();
-    expect(screen.getByText("21.4 ألف")).toBeInTheDocument();
-    expect(screen.getByText("95%")).toBeInTheDocument();
+  it("shows an empty activity state when there are no posted entries", async () => {
+    renderDashboard(stubTransport({ "GET /dashboard/summary": () => ({ body: summary({ recentActivity: [] }) }) }));
+    expect(await screen.findByText(/لا يوجد نشاط بعد/)).toBeInTheDocument();
   });
 
-  it("defaults the revenue trend to the 6-month range and switches on toggle", () => {
-    render(<DashboardScreen />);
-    const trendGroup = screen.getByRole("group", { name: "أداء الفترة" });
-    expect(within(trendGroup).getByRole("button", { name: "6 أشهر" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByText("مارس")).toBeInTheDocument();
+  it("re-queries real data when the period range changes", async () => {
+    renderDashboard(rangeAwareTransport());
+    // Default range "هذا الشهر" sends a fromDate → scoped figure.
+    expect(await screen.findByText("1,000.00")).toBeInTheDocument();
 
-    fireEvent.click(within(trendGroup).getByRole("button", { name: "3 أشهر" }));
-    expect(screen.queryByText("مارس")).not.toBeInTheDocument();
-    expect(screen.getByText("أغسطس")).toBeInTheDocument();
-  });
-
-  it("re-sorts top items by quantity and toggles tax-exclusive amounts", () => {
-    render(<DashboardScreen />);
-    const optionsGroup = screen.getByRole("group", { name: "خيارات العرض · الأصناف الأعلى مبيعاً" });
-    expect(screen.getByText("18,900.00")).toBeInTheDocument();
-
-    fireEvent.click(within(optionsGroup).getByRole("button", { name: "غير شامل الضريبة" }));
-    expect(screen.getByText("16,578.95")).toBeInTheDocument();
-  });
-
-  it("filters top items by the date-range chip, not just its pressed state", () => {
-    render(<DashboardScreen />);
-    const rangeGroup = screen.getByRole("group", { name: "نطاق التاريخ · الأصناف الأعلى مبيعاً" });
-    expect(screen.getByText("18,900.00")).toBeInTheDocument();
-
-    const button3Months = within(rangeGroup).getByRole("button", { name: "3 أشهر" });
-    fireEvent.click(button3Months);
-    expect(button3Months).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByText("18,900.00")).not.toBeInTheDocument();
-    expect(screen.getByText("56,700.00")).toBeInTheDocument();
-  });
-
-  it("filters top customers by the date-range chip, not just its pressed state", () => {
-    render(<DashboardScreen />);
-    const rangeGroup = screen.getByRole("group", { name: "خيارات العرض · أعلى العملاء مبيعاً" });
-    expect(screen.getByText("24,850.00")).toBeInTheDocument();
-
-    const button3Months = within(rangeGroup).getByRole("button", { name: "3 أشهر" });
-    fireEvent.click(button3Months);
-    expect(button3Months).toHaveAttribute("aria-pressed", "true");
-    expect(screen.queryByText("24,850.00")).not.toBeInTheDocument();
-    expect(screen.getByText("74,550.00")).toBeInTheDocument();
-  });
-
-  it("filters the expense-breakdown donut by the date-range chip, not just its pressed state", () => {
-    render(<DashboardScreen />);
-    expect(screen.getByText("21.4 ألف")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "آخر 3 أشهر" }));
-    expect(screen.queryByText("21.4 ألف")).not.toBeInTheDocument();
-    expect(screen.getByText("64.2 ألف")).toBeInTheDocument();
+    const rangeGroup = screen.getByRole("group", { name: "نطاق الفترة" });
+    fireEvent.click(within(rangeGroup).getByRole("button", { name: "كل الفترات" }));
+    // "كل الفترات" sends no dates → all-time figure from the backend.
+    expect(await screen.findByText("9,999.00")).toBeInTheDocument();
   });
 
   it("shows the company-wide footer disclaimer", () => {
-    render(<DashboardScreen />);
+    renderDashboard();
     expect(
       screen.getByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
     ).toBeInTheDocument();

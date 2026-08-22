@@ -96,12 +96,9 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.3)
-      '@mezan/api':
+      '@mezan/backend':
         specifier: workspace:*
-        version: link:../../packages/api
-      '@mezan/persistence':
-        specifier: workspace:*
-        version: link:../../packages/persistence
+        version: link:../../packages/backend
 
   apps/web:
     dependencies:
@@ -114,6 +111,9 @@ importers:
       '@mezan/ui':
         specifier: workspace:*
         version: link:../../packages/ui
+      '@tanstack/react-query':
+        specifier: ^5.62.7
+        version: 5.101.4(react@18.3.1)
       react:
         specifier: ^18.3.1
         version: 18.3.1
@@ -170,6 +170,24 @@ importers:
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.3)
+
+  packages/backend:
+    dependencies:
+      '@mezan/api':
+        specifier: workspace:*
+        version: link:../api
+      '@mezan/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@mezan/domain':
+        specifier: workspace:*
+        version: link:../domain
+      '@mezan/persistence':
+        specifier: workspace:*
+        version: link:../persistence
+      hono:
+        specifier: ^4.6.14
+        version: 4.13.3
 
   packages/contracts:
     dependencies:
@@ -1159,6 +1177,14 @@ packages:
   '@szmarczak/http-timer@4.0.6':
     resolution: {integrity: sha512-4BAffykYOgO+5nzBWYwE3W90sBgLJoUPRWWcL8wlyiM8IB8ipJz3UMJ9KXQd1RKQXpKp8Tutn80HZtWsu2u76w==}
     engines: {node: '>=10'}
+
+  '@tanstack/query-core@5.101.4':
+    resolution: {integrity: sha512-gNwcvOJcRbLWPOLG/2OBm+zM+Yv+MKsXKEOWC57USuZDEsI71hEErQsiEGx5wX9rzWWkfwM0fVSPoiIFSsxfiw==}
+
+  '@tanstack/react-query@5.101.4':
+    resolution: {integrity: sha512-yRg2pfOCxIs4ZJW3XYYHU/WgtD04FHSnfHlpRT7h7pR77hwkdRG4wxbKe4aq6P0RvXUTBSQpQeadS1SUYUe+KA==}
+    peerDependencies:
+      react: ^18 || ^19
 
   '@testing-library/dom@10.4.1':
     resolution: {integrity: sha512-o4PXJQidqJl82ckFaXUeoAW+XysPLauYI43Abki5hABd853iMhitooc6znOnczgbTYmEP6U6/y1ZyKAIsvMKGg==}
@@ -4244,6 +4270,13 @@ snapshots:
   '@szmarczak/http-timer@4.0.6':
     dependencies:
       defer-to-connect: 2.0.1
+
+  '@tanstack/query-core@5.101.4': {}
+
+  '@tanstack/react-query@5.101.4(react@18.3.1)':
+    dependencies:
+      '@tanstack/query-core': 5.101.4
+      react: 18.3.1
 
   '@testing-library/dom@10.4.1':
     dependencies:

@@ -417,5 +417,29 @@ export {
   type CollectionFollowUpDTO,
 } from "./installments.js";
 
+export {
+  dashboardCountsSchema,
+  dashboardGlSchema,
+  dashboardActivitySchema,
+  dashboardSummarySchema,
+  type DashboardCountsDTO,
+  type DashboardGlDTO,
+  type DashboardActivityDTO,
+  type DashboardSummaryDTO,
+} from "./dashboard.js";
+
+export {
+  loginRequestSchema,
+  sessionSchema,
+  loginResponseSchema,
+  bootstrapAdminRequestSchema,
+  bootstrapSeedResultSchema,
+  type LoginRequestDTO,
+  type SessionDTO,
+  type LoginResponseDTO,
+  type BootstrapAdminRequestDTO,
+  type BootstrapSeedResultDTO,
+} from "./auth.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

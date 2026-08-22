@@ -1,8 +1,24 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { FirstRunWizard } from "./FirstRunWizard";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+function wizardTransport() {
+  return stubTransport({
+    "POST /bootstrap/seed": () => ({
+      body: { accounts: 30, taxRates: 1, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1 },
+    }),
+    "POST /bootstrap/admin": () => ({ status: 201, body: testAdminSession }),
+  });
+}
+
+function renderWizard(onFinish = () => {}, onCancel = () => {}) {
+  return renderWithProviders(<FirstRunWizard onFinish={onFinish} onCancel={onCancel} />, {
+    transport: wizardTransport(),
+  });
+}
 
 function goToAdminStep() {
   fireEvent.click(screen.getByRole("button", { name: "تفعيل" }));
@@ -21,24 +37,23 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("starts on the activate-license step with تجريبي stub notes", () => {
+  it("starts on the activate-license step", () => {
     document.documentElement.setAttribute("data-theme", theme);
-    render(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />);
+    renderWizard();
     expect(screen.getByRole("heading", { name: "معالج الإعداد الأولي" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "تفعيل الترخيص" })).toBeInTheDocument();
-    expect(screen.getAllByText("تجريبي").length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "التالي" })).toBeDisabled();
   });
 
   it("enables التالي once activation is stubbed-completed", () => {
-    render(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />);
+    renderWizard();
     fireEvent.click(screen.getByRole("button", { name: "تفعيل" }));
     expect(screen.getByText("مُفعّل")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled();
   });
 
-  it("validates the admin step before advancing to seed", () => {
-    render(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />);
+  it("validates the admin step, then persists the admin and advances to seed", async () => {
+    renderWizard();
     goToAdminStep();
     expect(screen.getByRole("heading", { name: "إنشاء حساب المسؤول" })).toBeInTheDocument();
 
@@ -47,28 +62,31 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
 
     fillAdminForm();
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
-    expect(screen.getByRole("heading", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
   });
 
-  it("requires every seed task done before التالي, and تشغيل الكل completes them all", () => {
-    render(<FirstRunWizard onFinish={() => {}} onCancel={() => {}} />);
+  it("requires every seed task done before التالي, and تشغيل الكل seeds them all for real", async () => {
+    renderWizard();
     goToAdminStep();
     fillAdminForm();
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
 
     expect(screen.getByRole("button", { name: "التالي" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "تشغيل الكل" }));
-    expect(screen.getAllByText("جاهز")).toHaveLength(5);
+    expect(await screen.findAllByText("جاهز")).toHaveLength(5);
     expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled();
   });
 
-  it("reaches the optional import step and finishes into the app", () => {
+  it("reaches the optional import step and finishes into the app", async () => {
     const onFinish = vi.fn();
-    render(<FirstRunWizard onFinish={onFinish} onCancel={() => {}} />);
+    renderWizard(onFinish);
     goToAdminStep();
     fillAdminForm();
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
+    await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
     fireEvent.click(screen.getByRole("button", { name: "تشغيل الكل" }));
+    await screen.findAllByText("جاهز");
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 
     expect(screen.getByRole("heading", { name: "استيراد البيانات (اختياري)" })).toBeInTheDocument();
@@ -80,7 +98,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
 
   it("calls onCancel to return to login from any step", () => {
     const onCancel = vi.fn();
-    render(<FirstRunWizard onFinish={() => {}} onCancel={onCancel} />);
+    renderWizard(() => {}, onCancel);
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
     expect(onCancel).toHaveBeenCalledTimes(1);
   });

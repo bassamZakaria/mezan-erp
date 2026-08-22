@@ -1,9 +1,11 @@
 import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { BrandMark, Button } from "@mezan/ui";
-import { demoUser } from "../sample-data";
-import { DEMO_LOGIN_PIN, demoTenantName, demoTenantPlanLabel, licensedModules } from "./login-sample-data";
+import { useLogin } from "../data/hooks";
+import { demoTenantName, demoTenantPlanLabel, licensedModules } from "./login-sample-data";
 
 const PIN_LENGTH = 4;
+/** Prefilled default username = the seed admin (docs/catalog/09). The PIN is always verified against the real user store. */
+const DEFAULT_USERNAME = "محمد الشهابي";
 
 export interface LoginScreenProps {
   onLogin: () => void;
@@ -12,18 +14,19 @@ export interface LoginScreenProps {
 
 /**
  * Desktop login — docs/catalog/09's "desktop user + PIN" login shape and the
- * approved mockup's `data-view="login"` (design/mezan-ui-mockups.html:1580).
- * No auth backend is wired yet: "دخول" accepts the demo PIN (1234) only —
- * see login-sample-data.ts.
+ * approved mockup's `data-view="login"`. "دخول" verifies the username + PIN
+ * against the real users store via `POST /auth/login`; a success establishes
+ * the AuthContext session every subsequent API call uses.
  */
 export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
-  const [username, setUsername] = useState(demoUser.name);
+  const login = useLogin();
+  const [username, setUsername] = useState(DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   const [error, setError] = useState<string | null>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const pinComplete = pinDigits.every((d) => d !== "");
-  const canSubmit = username.trim() !== "" && pinComplete;
+  const canSubmit = username.trim() !== "" && pinComplete && !login.isPending;
 
   function handlePinChange(index: number, event: ChangeEvent<HTMLInputElement>) {
     const digit = event.target.value.replace(/\D/g, "").slice(-1);
@@ -45,11 +48,14 @@ export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!canSubmit) return;
-    if (pinDigits.join("") === DEMO_LOGIN_PIN) {
-      onLogin();
-    } else {
-      setError("رمز PIN غير صحيح — جرّب 1234 لهذا العرض التجريبي.");
-    }
+    setError(null);
+    login.mutate(
+      { username: username.trim(), pin: pinDigits.join("") },
+      {
+        onSuccess: () => onLogin(),
+        onError: (err) => setError(err.message || "تعذّر تسجيل الدخول."),
+      },
+    );
   }
 
   return (

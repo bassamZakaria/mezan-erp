@@ -1,0 +1,77 @@
+import Database from "better-sqlite3";
+import { Money, Qty, type LandedCostLine } from "@mezan/domain";
+import {
+  createSqliteDocumentStore,
+  createStandaloneSqliteDocumentStore,
+  ensureDocumentTable,
+  type SqliteDocumentStoreHandle,
+} from "./document-store.js";
+
+const DOC_TYPE = "LANDED_COST";
+
+interface WireCostItem {
+  costType: string;
+  description: string;
+  amount: string;
+}
+
+interface WireLine {
+  itemId: string;
+  warehouseId: string;
+  sourceInvoiceId: string;
+  sourceInvoiceNumber: string | null;
+  qty: string;
+  unitCost: string;
+  allocatedAmount: string;
+  newUnitCost: string;
+  distributionMethod: string;
+  costItems: WireCostItem[];
+}
+
+function serializeLine(line: LandedCostLine): WireLine {
+  return {
+    itemId: line.itemId,
+    warehouseId: line.warehouseId,
+    sourceInvoiceId: line.sourceInvoiceId,
+    sourceInvoiceNumber: line.sourceInvoiceNumber,
+    qty: line.qty.toString(),
+    unitCost: line.unitCost.toString(),
+    allocatedAmount: line.allocatedAmount.toString(),
+    newUnitCost: line.newUnitCost.toString(),
+    distributionMethod: line.distributionMethod,
+    costItems: line.costItems.map((c) => ({
+      costType: c.costType,
+      description: c.description,
+      amount: c.amount.toString(),
+    })),
+  };
+}
+
+function deserializeLine(wire: unknown): LandedCostLine {
+  const w = wire as WireLine;
+  return {
+    itemId: w.itemId,
+    warehouseId: w.warehouseId,
+    sourceInvoiceId: w.sourceInvoiceId,
+    sourceInvoiceNumber: w.sourceInvoiceNumber,
+    qty: Qty.fromMajor(w.qty),
+    unitCost: Money.fromMajor(w.unitCost),
+    allocatedAmount: Money.fromMajor(w.allocatedAmount),
+    newUnitCost: Money.fromMajor(w.newUnitCost),
+    distributionMethod: w.distributionMethod as LandedCostLine["distributionMethod"],
+    costItems: w.costItems.map((c) => ({
+      costType: c.costType as LandedCostLine["costItems"][number]["costType"],
+      description: c.description,
+      amount: Money.fromMajor(c.amount),
+    })),
+  };
+}
+
+export function createSqliteLandedCostStore(sqlite: Database.Database) {
+  ensureDocumentTable(sqlite);
+  return createSqliteDocumentStore<LandedCostLine>(sqlite, DOC_TYPE, serializeLine, deserializeLine);
+}
+
+export function createStandaloneSqliteLandedCostStore(path = ":memory:"): SqliteDocumentStoreHandle<LandedCostLine> {
+  return createStandaloneSqliteDocumentStore<LandedCostLine>(DOC_TYPE, serializeLine, deserializeLine, path);
+}

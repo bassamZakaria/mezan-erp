@@ -127,8 +127,14 @@ export * from "./reports/index.js";
 // --- sales-invoices/ — Sales Invoices (phase3/sales-invoices) ---
 export * from "./sales-invoices/index.js";
 
-// --- documents/ — generic document framework (phase2/document-framework) ---
+// --- documents/ — generic document framework (phase2/document-framework W4) ---
 export * from "./documents/index.js";
 
 // --- vouchers/ — Treasury Vouchers (phase4/treasury-vouchers) ---
 export * from "./vouchers/index.js";
+
+// --- phase5/6: returns, landed costs, installments (docs/catalog/01, 02, 05) ---
+export * from "./sales-returns/index.js";
+export * from "./purchase-returns/index.js";
+export * from "./landed-costs/index.js";
+export * from "./installments/index.js";

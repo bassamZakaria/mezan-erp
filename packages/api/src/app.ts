@@ -31,6 +31,11 @@ import {
   type PurchaseGlPosting,
   type PurchaseGlPostingPort,
   type PurchasePolicy,
+  type DocumentService,
+  type LandedCostService,
+  type SalesReturnLine,
+  type PurchaseReturnLine,
+  type LandedCostLine,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -54,6 +59,10 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
+import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
+import { createLandedCostsRoutes } from "./landed-costs-routes.js";
+import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
 
@@ -211,6 +220,28 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
+   * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
+   * present. The caller builds the `DocumentService` (repo + numbering + GL
+   * hook + `createInventoryStockHook` + workflow gate) — omit it for no
+   * `/sales-returns` routes.
+   */
+  readonly salesReturns?: { readonly service: DocumentService<SalesReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
+  readonly purchaseReturns?: { readonly service: DocumentService<PurchaseReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  /**
+   * Mounts `/landed-costs` (docs/catalog/02 §"التكاليف الإضافية") when
+   * present. `documents` drives list/create/cancel; `service` (the same
+   * document service wrapped by `LandedCostService`) drives confirm so the
+   * cost-layer revaluation runs alongside the GL post.
+   */
+  readonly landedCosts?: {
+    readonly documents: DocumentService<LandedCostLine>;
+    readonly service: LandedCostService;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/installments` (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
+  readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -283,6 +314,27 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.salesInvoices) {
     app.route("/sales-invoices", createSalesInvoicesRoutes(options.salesInvoices, options.resolveAuthContext));
+  }
+  if (options.salesReturns) {
+    app.route(
+      "/sales-returns",
+      createSalesReturnsRoutes(options.salesReturns.service, options.salesReturns.resolveAuthContext),
+    );
+  }
+  if (options.purchaseReturns) {
+    app.route(
+      "/purchase-returns",
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, options.purchaseReturns.resolveAuthContext),
+    );
+  }
+  if (options.landedCosts) {
+    app.route(
+      "/landed-costs",
+      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, options.landedCosts.resolveAuthContext),
+    );
+  }
+  if (options.installments) {
+    app.route("/installments", createInstallmentsRoutes(options.installments, options.installments.resolveAuthContext));
   }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.

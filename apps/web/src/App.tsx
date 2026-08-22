@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { AppShell } from "@mezan/ui";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
+import { CustomersScreen } from "./screens/CustomersScreen";
+import { SuppliersScreen } from "./screens/SuppliersScreen";
 import { commandItems, demoUser, navGroups, topNavItem } from "./sample-data";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
@@ -10,6 +12,8 @@ import { WarehousesPage } from "./settings/WarehousesPage";
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
   "sales-invoices": SalesInvoicesScreen,
+  customers: CustomersScreen,
+  vendors: SuppliersScreen,
   coa: ChartOfAccountsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,

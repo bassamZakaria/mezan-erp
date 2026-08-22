@@ -87,3 +87,8 @@ export * from "./accounts/index.js";
 
 // --- settings foundation cluster (phase0/settings-foundation) ---
 export * from "./settings/index.js";
+
+// --- customers/ + suppliers/ — Phase 1 partner master data (phase1/partners) ---
+export type { PartnerBase } from "./partners/partner-base.js";
+export * from "./customers/index.js";
+export * from "./suppliers/index.js";

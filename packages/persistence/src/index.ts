@@ -33,3 +33,11 @@ export {
   createSqliteWarehouseStore,
   type SqliteWarehouseStoreHandle,
 } from "./warehouse-store.js";
+export {
+  createSqliteCustomerRepository,
+  type SqliteCustomerRepositoryHandle,
+} from "./customer-repository.js";
+export {
+  createSqliteSupplierRepository,
+  type SqliteSupplierRepositoryHandle,
+} from "./supplier-repository.js";

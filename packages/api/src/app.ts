@@ -11,6 +11,8 @@ import {
   type SettingsRepository,
   type BranchRepository,
   type WarehouseRepository,
+  type CustomerRepository,
+  type SupplierRepository,
 } from "@mezan/domain";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
@@ -20,6 +22,8 @@ import type { AuthContextResolver } from "./permission-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
+import { createCustomersRouter } from "./customers-routes.js";
+import { createSuppliersRouter } from "./suppliers-routes.js";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -66,12 +70,16 @@ export interface CreateAppOptions {
   readonly branchStore?: BranchRepository;
   /** Mounts `/warehouses` (docs/catalog/09) when present — omit it for no `/warehouses` route. */
   readonly warehouseStore?: WarehouseRepository;
+  /** Mounts `/customers` (docs/catalog/01 "العملاء") when present — omit it for no `/customers` route. */
+  readonly customerStore?: CustomerRepository;
+  /** Mounts `/suppliers` (docs/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
+  readonly supplierStore?: SupplierRepository;
   /**
-   * Resolves the caller's AuthContext for the settings/branches/warehouses
-   * routes. Defaults to `headerAuthContextResolver` (see permission-gate.ts),
-   * the same default `createAccountsRouter` uses — omit it to get that
-   * header-driven spike behavior; a real deployment injects a resolver
-   * derived from the JWT/session instead.
+   * Resolves the caller's AuthContext for the settings/branches/warehouses/
+   * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
+   * permission-gate.ts), the same default `createAccountsRouter` uses — omit
+   * it to get that header-driven spike behavior; a real deployment injects a
+   * resolver derived from the JWT/session instead.
    */
   readonly resolveAuthContext?: AuthContextResolver;
 }
@@ -95,6 +103,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.warehouseStore) {
     app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, options.resolveAuthContext));
+  }
+  if (options.customerStore) {
+    app.route("/customers", createCustomersRouter(options.customerStore, options.resolveAuthContext));
+  }
+  if (options.supplierStore) {
+    app.route("/suppliers", createSuppliersRouter(options.supplierStore, options.resolveAuthContext));
   }
 
   if (options.accounts) {

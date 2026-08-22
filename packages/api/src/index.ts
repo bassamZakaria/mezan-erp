@@ -15,3 +15,5 @@ export {
 export { createSettingsRoutes } from "./settings-routes.js";
 export { createBranchesRoutes } from "./branches-routes.js";
 export { createWarehousesRoutes } from "./warehouses-routes.js";
+export { createCustomersRouter } from "./customers-routes.js";
+export { createSuppliersRouter } from "./suppliers-routes.js";

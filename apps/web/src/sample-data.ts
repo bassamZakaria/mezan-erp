@@ -52,6 +52,7 @@ export const navGroups: NavGroup[] = [
       { key: "journals", label: "القيود المحاسبية" },
       { key: "fiscal-periods", label: "الفترات المالية" },
       { key: "taxes", label: "الضرائب" },
+      { key: "trial-balance-report", label: "ميزان المراجعة", tag: { label: "نمط", tone: "pattern" } },
     ],
   },
   {

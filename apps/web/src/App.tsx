@@ -10,6 +10,7 @@ import { SuppliersScreen } from "./screens/SuppliersScreen";
 import { TaxesScreen } from "./screens/TaxesScreen";
 import { CostCentersScreen } from "./screens/CostCentersScreen";
 import { TreasuryAccountsScreen } from "./screens/TreasuryAccountsScreen";
+import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
@@ -45,6 +46,7 @@ const ROUTABLE_SCREENS = {
   "fiscal-periods": FiscalPeriodsScreen,
   taxes: TaxesScreen,
   "treasury-accounts": TreasuryAccountsScreen,
+  "trial-balance-report": TrialBalanceReportScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,

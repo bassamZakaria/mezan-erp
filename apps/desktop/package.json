@@ -11,7 +11,10 @@
     "package": "pnpm run build:main && electron-builder"
   },
   "dependencies": {
+    "@hono/node-server": "^1.13.7",
     "@mezan/api": "workspace:*",
+    "@mezan/contracts": "workspace:*",
+    "@mezan/domain": "workspace:*",
     "@mezan/persistence": "workspace:*",
     "better-sqlite3": "^11.10.0",
     "electron-updater": "^6.8.9",

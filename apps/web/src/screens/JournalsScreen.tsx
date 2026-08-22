@@ -13,31 +13,26 @@ import {
   type DocumentStatusStep,
   type PillTone,
 } from "@mezan/ui";
-import { Money, type DocumentStatus, type FrameworkDocument, type JournalDocLine } from "@mezan/domain";
-import { useJournalsStore } from "../store/useJournalsStore";
-import { demoAccounts } from "../accounts-sample-data";
-import { demoJournalDocuments, demoJeStartNumber, demoOpenPeriod } from "../journals-sample-data";
+import { Money } from "@mezan/domain";
+import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO } from "@mezan/contracts";
+import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 
-/** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the document framework. */
+/** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
-type JournalDoc = FrameworkDocument<JournalDocLine>;
+type JournalDoc = JournalEntryDTO;
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
+const STATUS_LABEL: Record<JournalEntryStatusDTO, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",
   posted: "مرحل",
-  confirmed: "مؤكد",
   reversed: "معكوس",
-  cancelled: "ملغي",
 };
-const STATUS_TONE: Record<DocumentStatus, PillTone> = {
+const STATUS_TONE: Record<JournalEntryStatusDTO, PillTone> = {
   draft: "neutral",
   pending: "warning",
   posted: "success",
-  confirmed: "success",
   reversed: "danger",
-  cancelled: "neutral",
 };
 
 const STEPPER_STEPS: DocumentStatusStep[] = [
@@ -47,12 +42,15 @@ const STEPPER_STEPS: DocumentStatusStep[] = [
   { key: "reversed", label: "معكوس" },
 ];
 
-function toMajor(m: Money): number {
-  return Number(m.toString());
+function toMajor(value: string): number {
+  return Number(value);
 }
 
-function docTotals(doc: JournalDoc): { debit: Money; credit: Money } {
-  return { debit: Money.sum(doc.lines.map((l) => l.debit)), credit: Money.sum(doc.lines.map((l) => l.credit)) };
+function docTotals(doc: JournalDoc): { debit: number; credit: number } {
+  return {
+    debit: doc.lines.reduce((sum, l) => sum + toMajor(l.debit), 0),
+    credit: doc.lines.reduce((sum, l) => sum + toMajor(l.credit), 0),
+  };
 }
 
 /* -------------------------------------------------------------------- */
@@ -74,24 +72,23 @@ function blankLine(): LineDraft {
 }
 
 export function JournalsScreen() {
-  const store = useJournalsStore({
-    accounts: demoAccounts,
-    period: demoOpenPeriod,
-    seededDocuments: demoJournalDocuments,
-    startJeNumber: demoJeStartNumber,
-  });
+  const query = useJournalEntries();
+  const accountsQuery = useAccounts();
+  const createJournalEntry = useCreateJournalEntry();
+  const reverseJournalEntry = useReverseJournalEntry();
+  const accounts = accountsQuery.data ?? [];
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | JournalEntryStatusDTO>("all");
 
   const accountLabel = useMemo(() => {
-    const map = new Map(store.accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
+    const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
     return (id: string) => map.get(id) ?? id;
-  }, [store.accounts]);
+  }, [accounts]);
 
-  const documents = store.documents;
+  const documents = query.data ?? [];
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, pending: 0, posted: 0, reversed: 0 };
@@ -109,7 +106,7 @@ export function JournalsScreen() {
     if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
+      rows = rows.filter((d) => (d.entryNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
     }
     return rows;
   }, [documents, statusFilter, search]);
@@ -118,14 +115,14 @@ export function JournalsScreen() {
 
   const columns: DocumentListColumn<JournalDoc>[] = [
     {
-      key: "docNo",
+      key: "entryNo",
       header: "رقم القيد",
       sortable: true,
-      render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>,
+      render: (d) => <span className="mz-num font-semibold text-ink">{d.entryNo ?? "—"}</span>,
     },
     { key: "date", header: "التاريخ", sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     { key: "memo", header: "البيان", render: (d) => <span className="text-ink">{d.memo}</span> },
-    { key: "debit", header: "إجمالي المدين", align: "end", render: (d) => <MoneyDisplay value={toMajor(docTotals(d).debit)} /> },
+    { key: "debit", header: "إجمالي المدين", align: "end", render: (d) => <MoneyDisplay value={docTotals(d).debit} /> },
     { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
   ];
 
@@ -135,16 +132,22 @@ export function JournalsScreen() {
   }
 
   if (mode === "create") {
-    return <CreateJournalView store={store} accountOptions={store.accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))} onDone={() => setMode("list")} />;
+    return (
+      <CreateJournalView
+        onPost={(body) => createJournalEntry.mutateAsync(body)}
+        accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+        onDone={() => setMode("list")}
+      />
+    );
   }
 
   if (mode === "detail" && selected) {
     const totals = docTotals(selected);
-    const balanced = totals.debit.equals(totals.credit);
+    const balanced = Math.abs(totals.debit - totals.credit) < 0.005;
     return (
       <div className="w-full">
         <DocumentDetail
-          title={selected.docNo ?? "قيد يومية"}
+          title={selected.entryNo ?? "قيد يومية"}
           statusLabel={STATUS_LABEL[selected.status]}
           statusTone={STATUS_TONE[selected.status]}
           subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
@@ -155,7 +158,7 @@ export function JournalsScreen() {
                 <Button
                   variant="danger-outline"
                   onClick={async () => {
-                    await store.reverse(selected.id);
+                    await reverseJournalEntry.mutateAsync({ id: selected.id });
                     setMode("list");
                   }}
                 >
@@ -168,8 +171,8 @@ export function JournalsScreen() {
             { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
             { label: "المصدر", value: "يدوي" },
             { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
-            { label: "إجمالي المدين", value: <MoneyDisplay value={toMajor(totals.debit)} /> },
-            { label: "إجمالي الدائن", value: <MoneyDisplay value={toMajor(totals.credit)} /> },
+            { label: "إجمالي المدين", value: <MoneyDisplay value={totals.debit} /> },
+            { label: "إجمالي الدائن", value: <MoneyDisplay value={totals.credit} /> },
             { label: "التوازن", value: balanced ? "متوازن ✓" : "غير متوازن", valueTone: balanced ? "success" : "danger" },
           ]}
           tabs={[
@@ -193,8 +196,8 @@ export function JournalsScreen() {
                           <tr key={i} className="border-b border-border last:border-b-0">
                             <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
                             <td className="px-[15px] py-[11px] text-ink-muted">{l.memo ?? "—"}</td>
-                            <td className="px-[15px] py-[11px] text-end">{l.debit.scaled !== 0n ? <MoneyDisplay value={toMajor(l.debit)} /> : "—"}</td>
-                            <td className="px-[15px] py-[11px] text-end">{l.credit.scaled !== 0n ? <MoneyDisplay value={toMajor(l.credit)} /> : "—"}</td>
+                            <td className="px-[15px] py-[11px] text-end">{toMajor(l.debit) !== 0 ? <MoneyDisplay value={toMajor(l.debit)} /> : "—"}</td>
+                            <td className="px-[15px] py-[11px] text-end">{toMajor(l.credit) !== 0 ? <MoneyDisplay value={toMajor(l.credit)} /> : "—"}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -203,8 +206,8 @@ export function JournalsScreen() {
                           <td className="px-[15px] py-[11px]" colSpan={2}>
                             <StatusPill label={balanced ? "متوازن ✓" : "غير متوازن"} tone={balanced ? "success" : "danger"} />
                           </td>
-                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(totals.debit)} /></td>
-                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(totals.credit)} /></td>
+                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.debit} /></td>
+                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.credit} /></td>
                         </tr>
                       </tfoot>
                     </table>
@@ -220,10 +223,18 @@ export function JournalsScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل القيود المحاسبية.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<JournalDoc>
         eyebrow="Accounting · Journal Entries"
         title="القيود المحاسبية"
-        description="سجل القيود المحاسبية — مسودة ← بانتظار الموافقة ← مرحل ← معكوس، على إطار المستندات الموحّد"
+        description="سجل القيود المحاسبية — مسودة ← بانتظار الموافقة ← مرحل ← معكوس، على المحرك المحاسبي الحقيقي"
         actions={
           <Button variant="primary" onClick={() => setMode("create")}>
             قيد جديد
@@ -242,7 +253,7 @@ export function JournalsScreen() {
           { key: "reversed", label: "معكوس", count: counts.reversed },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | JournalEntryStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم القيد..."
@@ -268,11 +279,11 @@ export function JournalsScreen() {
 /* -------------------------------------------------------------------- */
 
 function CreateJournalView({
-  store,
+  onPost,
   accountOptions,
   onDone,
 }: {
-  store: ReturnType<typeof useJournalsStore>;
+  onPost: (body: CreateGlJournalEntryDTO) => Promise<unknown>;
   accountOptions: { value: string; label: string }[];
   onDone: () => void;
 }) {
@@ -305,14 +316,24 @@ function CreateJournalView({
     if (!canPost) return;
     setBusy(true);
     setError(null);
-    const result = await store.postNew({
-      date,
-      memo: memo.trim(),
-      lines: lines.map((l) => ({ accountId: l.accountId, debit: l.debit || 0, credit: l.credit || 0, memo: l.memo })),
-    });
-    setBusy(false);
-    if (result.ok) onDone();
-    else setError(result.error ?? "تعذر ترحيل القيد.");
+    try {
+      await onPost({
+        id: crypto.randomUUID(),
+        date,
+        memo: memo.trim(),
+        lines: lines.map((l) => ({
+          accountId: l.accountId,
+          debit: String(l.debit || 0),
+          credit: String(l.credit || 0),
+          memo: l.memo.trim() === "" ? null : l.memo.trim(),
+        })),
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر ترحيل القيد.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   const difference = Math.abs(totalDebit - totalCredit);

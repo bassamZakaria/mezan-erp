@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
+import {
+  closePeriod as closePeriodDomain,
+  reopenPeriod as reopenPeriodDomain,
+  lockPeriod as lockPeriodDomain,
+  InvalidPeriodTransitionError,
+  type FiscalPeriod,
+} from "@mezan/domain";
 import { demoFiscalPeriods } from "../accounting-treasury-sample-data";
 
 /**
@@ -55,31 +62,33 @@ export function FiscalPeriodsScreen() {
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
 
-  function closePeriod(period: FiscalPeriodDTO) {
+  // Each action runs the REAL domain state-machine transition
+  // (packages/domain/src/fiscal-periods/transitions.ts) rather than duplicating
+  // the rules in the UI — an invalid transition throws and surfaces as an error.
+  function applyTransition(period: FiscalPeriodDTO, transition: (p: FiscalPeriod) => FiscalPeriod, verb: string) {
     setActionError(null);
-    if (period.status !== "open") {
-      setActionError(`لا يمكن إغلاق فترة "${monthLabel(period.periodNumber)} ${period.year}" — يجب أن تكون مفتوحة.`);
-      return;
+    try {
+      const next = transition(period as FiscalPeriod);
+      setPeriods((prev) => prev.map((p) => (p.id === period.id ? (next as FiscalPeriodDTO) : p)));
+    } catch (err) {
+      if (err instanceof InvalidPeriodTransitionError) {
+        setActionError(`تعذر ${verb} فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
+      } else {
+        throw err;
+      }
     }
-    setPeriods((prev) => prev.map((p) => (p.id === period.id ? { ...p, status: "closed" } : p)));
+  }
+
+  function closePeriod(period: FiscalPeriodDTO) {
+    applyTransition(period, closePeriodDomain, "إغلاق");
   }
 
   function lockPeriod(period: FiscalPeriodDTO) {
-    setActionError(null);
-    if (period.status !== "closed") {
-      setActionError(`لا يمكن قفل فترة "${monthLabel(period.periodNumber)} ${period.year}" — يجب إغلاقها أولاً.`);
-      return;
-    }
-    setPeriods((prev) => prev.map((p) => (p.id === period.id ? { ...p, status: "locked" } : p)));
+    applyTransition(period, lockPeriodDomain, "قفل");
   }
 
   function reopenPeriod(period: FiscalPeriodDTO) {
-    setActionError(null);
-    if (period.status !== "closed") {
-      setActionError(`لا يمكن إعادة فتح فترة "${monthLabel(period.periodNumber)} ${period.year}" — يجب أن تكون مغلقة.`);
-      return;
-    }
-    setPeriods((prev) => prev.map((p) => (p.id === period.id ? { ...p, status: "open" } : p)));
+    applyTransition(period, reopenPeriodDomain, "إعادة فتح");
   }
 
   function generateNextYear() {

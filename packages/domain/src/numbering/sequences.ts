@@ -1,9 +1,9 @@
 /**
  * Document-numbering sequence definitions.
  *
- * The 26 document-type sequences — the 25 from docs/catalog/09 (تسلسلات
- * الترقيم, `/settings/sequences`) plus WORK_ORDER, added with the manufacturing
- * module — encoded as data: one source of truth for the
+ * The document-type sequences — the 25 from docs/catalog/09 (تسلسلات
+ * الترقيم, `/settings/sequences`) plus SALES_RETURN and SALES_QUOTE (phase5/6)
+ * and WORK_ORDER (manufacturing) — encoded as data: one source of truth for the
  * numbering engine, the settings UI and the docs. Each definition carries the
  * prefix, an optional suffix, the zero-pad length of the numeric part, and
  * whether the counter resets at the start of each calendar year.
@@ -55,6 +55,12 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PURCHASE_RFQ", labelAr: "طلب عرض سعر", prefix: "RFQ-", padLength: 6, annualReset: false },
   { code: "SALES_INVOICE", labelAr: "فاتورة مبيعات", prefix: "INV-", padLength: 6, annualReset: false },
   { code: "SALES_ORDER", labelAr: "أمر مبيعات", prefix: "SO-", padLength: 6, annualReset: false },
+  // Added by phase5/6 (مرتجعات المبيعات) — an oversight in the original 25:
+  // PURCHASE_RETURN/LANDED_COST/INSTALLMENT_PLAN were captured but its sales
+  // counterpart was not.
+  { code: "SALES_RETURN", labelAr: "مرتجع مبيعات", prefix: "SRT-", padLength: 6, annualReset: false },
+  { code: "SALES_QUOTE", labelAr: "عرض سعر", prefix: "QT-", padLength: 6, annualReset: false },
+  // Added by phase11/manufacturing:
   { code: "WORK_ORDER", labelAr: "أمر تصنيع", prefix: "WO-", padLength: 4, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 

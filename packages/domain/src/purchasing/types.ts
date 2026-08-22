@@ -12,7 +12,7 @@
  */
 
 import type { Money } from "../money/index.js";
-import type { PostReceiptCommand } from "../inventory/index.js";
+import type { PostReceiptCommand, ReverseReceiptCommand } from "../inventory/index.js";
 
 /** أمر الشراء lifecycle (docs/catalog/02 §Purchase Orders §Workflows/statuses). */
 export type PurchaseOrderStatus =
@@ -29,20 +29,36 @@ export type GoodsReceiptStatus = "draft" | "confirmed" | "cancelled";
 export type PurchaseInvoiceStatus = "draft" | "confirmed" | "cancelled";
 
 /**
- * The two purchase-strictness gates (docs/catalog/02 — "the two strictness
- * gates exist as settings but default off"). Threaded through the create/confirm
- * use-cases; both default OFF so the manual paths work out of the box.
+ * The purchase-strictness gates (docs/catalog/09 §"التحكم في المشتريات"): a
+ * 3-gate procurement strictness model — PO→GRN→Invoice enforcement, plus a
+ * cancellation-safety guard. Threaded through the create/confirm/cancel
+ * use-cases; every gate defaults OFF (except `trackSoldPurchaseItems`, which
+ * defaults ON) so the lenient/manual paths work out of the box
+ * (docs/catalog/09 lines 316-319).
  */
 export interface PurchasePolicy {
-  /** Require a confirmed goods receipt before a purchase invoice may be created. */
+  /**
+   * Require an existing, confirmed ("sent"/"partially_received") purchase
+   * order before a goods receipt may be created. OFF allows an ad-hoc receipt
+   * with no `purchaseOrderId` (`requirePoForGrn` in TenantSettings).
+   */
+  readonly requirePoForGrn: boolean;
+  /** Require a confirmed goods receipt before a purchase invoice may be created (`requireGrnForInvoice`). */
   readonly requireReceiptForInvoice: boolean;
   /** Block a goods receipt from receiving more than the PO's outstanding qty. */
   readonly blockOverReceipt: boolean;
+  /**
+   * Block cancelling a purchase invoice/receipt once any of its goods have
+   * since been sold, transferred, or otherwise consumed (`trackSoldPurchaseItems`).
+   */
+  readonly trackSoldPurchaseItems: boolean;
 }
 
 export const DEFAULT_PURCHASE_POLICY: PurchasePolicy = {
+  requirePoForGrn: false,
   requireReceiptForInvoice: false,
   blockOverReceipt: false,
+  trackSoldPurchaseItems: true,
 };
 
 // --- GL posting hook (no import of the accounting module) -------------------
@@ -90,4 +106,19 @@ export interface PurchaseGlAccounts {
  */
 export interface PurchaseStockPostingPort {
   postReceipt(command: PostReceiptCommand): Promise<void>;
+  /** Undo a prior `postReceipt` (cancellation). `StockLedgerService.reverseReceipt` satisfies this structurally. */
+  reverseReceipt(command: ReverseReceiptCommand): Promise<void>;
+}
+
+/**
+ * The GL reversal hook a confirmed purchase invoice's cancellation uses to
+ * mirror-reverse its posted journal entry (docs/catalog/04 — "never mutate a
+ * posted entry, post a reversing one"). A separate, optional port from
+ * {@link PurchaseGlPostingPort} so existing confirm-only callers are unaffected.
+ */
+export interface PurchaseGlReversalPort {
+  reverse(
+    sourceDocId: string,
+    opts: { readonly reversalId: string; readonly date?: string; readonly memo?: string },
+  ): Promise<void>;
 }

@@ -118,7 +118,7 @@ export function isFullyReceived(order: { readonly lines: readonly PurchaseOrderL
 }
 
 /** Derive the status after (possibly partial) receiving, from a base of "sent". */
-function deriveReceivedStatus(lines: readonly PurchaseOrderLine[]): PurchaseOrderStatus {
+export function deriveReceivedStatus(lines: readonly PurchaseOrderLine[]): PurchaseOrderStatus {
   const anyReceived = lines.some((l) => !l.receivedQty.isZero());
   const allReceived = lines.every((l) => lineOutstandingQty(l).isZero());
   if (allReceived) return "fully_received";
@@ -240,4 +240,33 @@ export function applyReceiptToOrder(
     return { ...line, receivedQty: line.receivedQty.add(take) };
   });
   return { ...order, lines, status: deriveReceivedStatus(lines) };
+}
+
+/**
+ * Undo `applyReceiptToOrder` (used when a goods receipt is cancelled): subtracts
+ * the reversed quantities back off each line's `receivedQty`, capped so it never
+ * goes negative, and re-derives the status — but ONLY when the order's status
+ * was itself receiving-driven ("partially_received"/"fully_received"); a
+ * "cancelled" order (cancelled independently of receiving) is left untouched.
+ */
+export function revertReceiptFromOrder(
+  order: PurchaseOrder,
+  received: readonly { itemId: string; qty: Qty }[],
+): PurchaseOrder {
+  const remainingByItem = new Map<string, Qty>();
+  for (const r of received) {
+    remainingByItem.set(r.itemId, (remainingByItem.get(r.itemId) ?? Qty.zero()).add(r.qty));
+  }
+  const lines = order.lines.map((line) => {
+    const remaining = remainingByItem.get(line.itemId);
+    if (!remaining || remaining.isZero() || remaining.isNegative()) return line;
+    const take = remaining.compare(line.receivedQty) <= 0 ? remaining : line.receivedQty;
+    remainingByItem.set(line.itemId, remaining.subtract(take));
+    return { ...line, receivedQty: line.receivedQty.subtract(take) };
+  });
+  const status =
+    order.status === "partially_received" || order.status === "fully_received"
+      ? deriveReceivedStatus(lines)
+      : order.status;
+  return { ...order, lines, status };
 }

@@ -6,16 +6,16 @@ import {
 } from "./sequences.js";
 
 describe("sequence definitions", () => {
-  it("encodes the 25 catalog-09 sequences plus WORK_ORDER (manufacturing)", () => {
-    expect(SEQUENCE_DEFINITIONS).toHaveLength(26);
+  it("encodes the 25 catalog-09 sequences plus SALES_RETURN, SALES_QUOTE and WORK_ORDER", () => {
+    expect(SEQUENCE_DEFINITIONS).toHaveLength(28);
     expect(getSequenceDefinition("WORK_ORDER").prefix).toBe("WO-");
   });
 
   it("has unique codes and unique prefixes", () => {
     const codes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.code));
     const prefixes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.prefix));
-    expect(codes.size).toBe(26);
-    expect(prefixes.size).toBe(26);
+    expect(codes.size).toBe(28);
+    expect(prefixes.size).toBe(28);
   });
 
   it("matches the catalog's next-number previews", () => {

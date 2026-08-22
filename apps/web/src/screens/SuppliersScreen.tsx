@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
@@ -10,22 +11,21 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import { Money, createSupplier, updateSupplier, InvalidSupplierError, type Supplier } from "@mezan/domain";
-import { demoSuppliers } from "../partners-sample-data";
+import type { SupplierDTO } from "@mezan/contracts";
+import { useCreateSupplier, useSuppliers, useUpdateSupplier } from "../data/hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
  * of CustomersScreen.tsx: same DocumentList/DocumentDetail/SidePanel shape,
- * sample-data-driven, no live API wiring yet (apps/server exposes the real
- * routes already). Purchase invoices/orders/returns and the running "المستحق
- * للمورد" balance are Phase-2 (document) work — تبويبات فواتير المشتريات/كشف
- * حساب/المرفقات render as explicit stubs; only the supplier master record
- * itself (incl. its `openingBalance`) is real.
+ * backed by the real `/suppliers` API. Purchase invoices/orders/returns and
+ * the running "المستحق للمورد" balance are Phase-2 (document) work —
+ * تبويبات فواتير المشتريات/كشف حساب/المرفقات render as explicit stubs; only
+ * the supplier master record itself (incl. its `openingBalance`) is real.
  */
 
-function toDisplayNumber(value: Money): number {
-  return Number(value.toString());
+function num(value: string | undefined): number {
+  return value ? Number(value) : 0;
 }
 
 function StubTab({ label }: { label: string }) {
@@ -77,7 +77,7 @@ const BLANK_DRAFT: SupplierDraft = {
   active: true,
 };
 
-function draftFromSupplier(supplier: Supplier): SupplierDraft {
+function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
   return {
     code: supplier.code,
     nameAr: supplier.nameAr,
@@ -90,7 +90,7 @@ function draftFromSupplier(supplier: Supplier): SupplierDraft {
     notes: supplier.notes ?? "",
     paymentTermsDays: supplier.paymentTermsDays,
     currency: supplier.currency,
-    openingBalance: toDisplayNumber(supplier.openingBalance),
+    openingBalance: num(supplier.openingBalance),
     addressCity: supplier.addressCity ?? "",
     addressDistrict: supplier.addressDistrict ?? "",
     addressStreet: supplier.addressStreet ?? "",
@@ -98,9 +98,7 @@ function draftFromSupplier(supplier: Supplier): SupplierDraft {
   };
 }
 
-let nextId = demoSuppliers.length + 1;
-
-function SupplierDetail({ supplier, onBack, onEdit }: { supplier: Supplier; onBack: () => void; onEdit: () => void }) {
+function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; onBack: () => void; onEdit: () => void }) {
   const address = [supplier.addressStreet, supplier.addressDistrict, supplier.addressCity].filter(Boolean).join("، ");
   return (
     <DocumentDetail
@@ -123,7 +121,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: Supplier; onBa
         { label: "الهاتف", value: supplier.phone ?? "لا يوجد" },
         {
           label: "المستحق للمورد (الرصيد الافتتاحي)",
-          value: <MoneyValue value={toDisplayNumber(supplier.openingBalance)} />,
+          value: <MoneyValue value={num(supplier.openingBalance)} />,
         },
         { label: "تاريخ الإنشاء", value: "—" },
       ]}
@@ -162,7 +160,11 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: Supplier; onBa
 }
 
 export function SuppliersScreen() {
-  const [suppliers, setSuppliers] = useState<Supplier[]>(demoSuppliers);
+  const query = useSuppliers();
+  const createSupplier = useCreateSupplier();
+  const updateSupplier = useUpdateSupplier();
+  const suppliers = query.data ?? [];
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
@@ -191,7 +193,7 @@ export function SuppliersScreen() {
     { key: "inactive", label: "غير نشط", count: suppliers.filter((s) => !s.active).length },
   ];
 
-  const columns: DocumentListColumn<Supplier>[] = [
+  const columns: DocumentListColumn<SupplierDTO>[] = [
     {
       key: "name",
       header: "المورد",
@@ -205,7 +207,7 @@ export function SuppliersScreen() {
     { key: "phone", header: "الهاتف", render: (s) => s.phone ?? "—" },
     { key: "terms", header: "شروط الدفع", render: (s) => <span className="mz-num">{s.paymentTermsDays} يوم</span> },
     { key: "category", header: "التصنيف", render: (s) => s.category ?? "بدون تصنيف" },
-    { key: "openingBalance", header: "المستحق للمورد", align: "end", render: (s) => <MoneyValue value={toDisplayNumber(s.openingBalance)} /> },
+    { key: "openingBalance", header: "المستحق للمورد", align: "end", render: (s) => <MoneyValue value={num(s.openingBalance)} /> },
     {
       key: "status",
       header: "الحالة",
@@ -220,46 +222,46 @@ export function SuppliersScreen() {
     setPanelOpen(true);
   }
 
-  function openEditForm(supplier: Supplier) {
+  function openEditForm(supplier: SupplierDTO) {
     setEditingId(supplier.id);
     setDraft(draftFromSupplier(supplier));
     setError(null);
     setPanelOpen(true);
   }
 
-  function submit() {
+  async function submit() {
     setError(null);
+    if (draft.nameAr.trim() === "") {
+      setError("الاسم بالعربية مطلوب");
+      return;
+    }
+    const fields = {
+      nameAr: draft.nameAr.trim(),
+      nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
+      phone: draft.phone.trim() === "" ? null : draft.phone.trim(),
+      email: draft.email.trim() === "" ? null : draft.email.trim(),
+      contactPerson: draft.contactPerson.trim() === "" ? null : draft.contactPerson.trim(),
+      taxNumber: draft.taxNumber.trim() === "" ? null : draft.taxNumber.trim(),
+      category: draft.category.trim() === "" ? null : draft.category.trim(),
+      notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
+      paymentTermsDays: draft.paymentTermsDays,
+      currency: draft.currency.trim() === "" ? "EGP" : draft.currency.trim(),
+      openingBalance: String(draft.openingBalance || 0),
+      addressCity: draft.addressCity.trim() === "" ? null : draft.addressCity.trim(),
+      addressDistrict: draft.addressDistrict.trim() === "" ? null : draft.addressDistrict.trim(),
+      addressStreet: draft.addressStreet.trim() === "" ? null : draft.addressStreet.trim(),
+    };
     try {
-      const fields = {
-        nameAr: draft.nameAr.trim(),
-        nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
-        phone: draft.phone.trim() === "" ? null : draft.phone.trim(),
-        email: draft.email.trim() === "" ? null : draft.email.trim(),
-        contactPerson: draft.contactPerson.trim() === "" ? null : draft.contactPerson.trim(),
-        taxNumber: draft.taxNumber.trim() === "" ? null : draft.taxNumber.trim(),
-        category: draft.category.trim() === "" ? null : draft.category.trim(),
-        notes: draft.notes.trim() === "" ? null : draft.notes.trim(),
-        paymentTermsDays: draft.paymentTermsDays,
-        currency: draft.currency.trim() === "" ? "EGP" : draft.currency.trim(),
-        openingBalance: Money.fromMajor(String(draft.openingBalance || 0)),
-        addressCity: draft.addressCity.trim() === "" ? null : draft.addressCity.trim(),
-        addressDistrict: draft.addressDistrict.trim() === "" ? null : draft.addressDistrict.trim(),
-        addressStreet: draft.addressStreet.trim() === "" ? null : draft.addressStreet.trim(),
-      };
       if (editingId) {
-        const current = suppliers.find((s) => s.id === editingId);
-        if (!current) return;
-        const updated = updateSupplier(current, { ...fields, code: current.code, active: draft.active });
-        setSuppliers((prev) => prev.map((s) => (s.id === editingId ? updated : s)));
+        await updateSupplier.mutateAsync({ id: editingId, patch: { ...fields, active: draft.active } });
       } else {
         // "الكود: تلقائي إذا فارغ" — auto-generate a sequential code when left blank.
-        const code = draft.code.trim() === "" ? `S${String(nextId).padStart(6, "0")}` : draft.code.trim();
-        const created = createSupplier({ id: `sup-${nextId++}`, code, ...fields });
-        setSuppliers((prev) => [...prev, created]);
+        const code = draft.code.trim() === "" ? `S${String(suppliers.length + 1).padStart(6, "0")}` : draft.code.trim();
+        await createSupplier.mutateAsync({ id: crypto.randomUUID(), code, ...fields });
       }
       setPanelOpen(false);
     } catch (err) {
-      setError(err instanceof InvalidSupplierError ? err.message : "تعذر حفظ بيانات المورد");
+      setError(err instanceof Error ? err.message : "تعذر حفظ بيانات المورد");
     }
   }
 
@@ -324,7 +326,15 @@ export function SuppliersScreen() {
 
   return (
     <>
-      <DocumentList<Supplier>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الموردين.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<SupplierDTO>
         eyebrow="Purchases · Suppliers"
         title="الموردون"
         description="السجل المركزي للموردين — بيانات الاتصال، شروط الدفع، والتصنيف والعنوان"
@@ -338,7 +348,7 @@ export function SuppliersScreen() {
           { label: "نشط", value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
           {
             label: "المستحق للموردين",
-            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + toDisplayNumber(s.openingBalance), 0)} showUnit={false} />,
+            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + num(s.openingBalance), 0)} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

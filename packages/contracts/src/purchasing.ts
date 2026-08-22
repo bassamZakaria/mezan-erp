@@ -80,7 +80,8 @@ export const goodsReceiptLineSchema = z.object({
 export const goodsReceiptSchema = z.object({
   id: z.string().min(1),
   number: z.string().min(1),
-  purchaseOrderId: z.string().min(1),
+  /** Null for an ad-hoc (PO-less) receipt — only possible when `requirePoForGrn` is off. */
+  purchaseOrderId: z.string().min(1).nullable(),
   supplierId: z.string().min(1),
   warehouseId: z.string().min(1),
   date: isoDate,
@@ -102,11 +103,15 @@ export const createGoodsReceiptLineSchema = z.object({
 
 export const createGoodsReceiptSchema = z.object({
   id: z.string().min(1),
-  purchaseOrderId: z.string().min(1),
+  /** Omit for an ad-hoc (PO-less) receipt — only allowed when `requirePoForGrn` is off. */
+  purchaseOrderId: z.string().min(1).nullable().optional(),
   date: isoDate,
   notes: z.string().nullable().optional(),
-  /** Omit to auto-fill from the PO's outstanding quantities (create-from-PO). */
+  /** Required for an ad-hoc receipt (no PO to source from); omit to auto-fill from the PO. */
   lines: z.array(createGoodsReceiptLineSchema).min(1).optional(),
+  /** Required for an ad-hoc receipt; ignored (derived from the PO) otherwise. */
+  supplierId: z.string().min(1).optional(),
+  warehouseId: z.string().min(1).optional(),
 });
 
 // --- Purchase Invoice ------------------------------------------------------
@@ -178,3 +183,89 @@ export type CreateGoodsReceiptDTO = z.infer<typeof createGoodsReceiptSchema>;
 export type PurchaseInvoiceLineDTO = z.infer<typeof purchaseInvoiceLineSchema>;
 export type PurchaseInvoiceDTO = z.infer<typeof purchaseInvoiceSchema>;
 export type CreatePurchaseInvoiceDTO = z.infer<typeof createPurchaseInvoiceSchema>;
+
+// --- RFQ (طلبات عروض الأسعار) ------------------------------------------------
+
+export const purchaseRfqStatusSchema = z.enum(["draft", "sent", "closed", "cancelled"]);
+
+export const purchaseRfqLineSchema = z.object({
+  itemId: z.string().min(1),
+  description: z.string().nullable(),
+  qty: decimalString,
+  notes: z.string().nullable(),
+});
+
+export const purchaseRfqSchema = z.object({
+  id: z.string().min(1),
+  number: z.string().min(1),
+  date: isoDate,
+  requiredByDate: z.string().nullable(),
+  branchId: z.string().min(1),
+  warehouseId: z.string().min(1),
+  notes: z.string().nullable(),
+  lines: z.array(purchaseRfqLineSchema),
+  status: purchaseRfqStatusSchema,
+  purchaseOrderId: z.string().nullable(),
+  createdBy: z.string(),
+  createdAt: z.string(),
+});
+
+export const createPurchaseRfqLineSchema = z.object({
+  itemId: z.string().min(1),
+  description: z.string().nullable().optional(),
+  qty: positiveDecimalString,
+  notes: z.string().nullable().optional(),
+});
+
+export const createPurchaseRfqSchema = z.object({
+  id: z.string().min(1),
+  date: isoDate,
+  requiredByDate: z.string().nullable().optional(),
+  branchId: z.string().min(1),
+  warehouseId: z.string().min(1),
+  notes: z.string().nullable().optional(),
+  lines: z.array(createPurchaseRfqLineSchema).min(1),
+});
+
+export const rfqQuoteLineSchema = z.object({
+  itemId: z.string().min(1),
+  unitPrice: decimalString,
+  notes: z.string().nullable(),
+});
+
+export const rfqQuoteSchema = z.object({
+  id: z.string().min(1),
+  rfqId: z.string().min(1),
+  supplierId: z.string().min(1),
+  lines: z.array(rfqQuoteLineSchema),
+  notes: z.string().nullable(),
+  submittedAt: z.string(),
+});
+
+export const createRfqQuoteLineSchema = z.object({
+  itemId: z.string().min(1),
+  unitPrice: positiveDecimalString,
+  notes: z.string().nullable().optional(),
+});
+
+export const createRfqQuoteSchema = z.object({
+  id: z.string().min(1),
+  supplierId: z.string().min(1),
+  lines: z.array(createRfqQuoteLineSchema).min(1),
+  notes: z.string().nullable().optional(),
+});
+
+export const convertRfqSchema = z.object({
+  purchaseOrderId: z.string().min(1),
+  supplierId: z.string().min(1),
+  expectedDeliveryDate: z.string().nullable().optional(),
+});
+
+export type PurchaseRfqStatusDTO = z.infer<typeof purchaseRfqStatusSchema>;
+export type PurchaseRfqLineDTO = z.infer<typeof purchaseRfqLineSchema>;
+export type PurchaseRfqDTO = z.infer<typeof purchaseRfqSchema>;
+export type CreatePurchaseRfqDTO = z.infer<typeof createPurchaseRfqSchema>;
+export type RfqQuoteLineDTO = z.infer<typeof rfqQuoteLineSchema>;
+export type RfqQuoteDTO = z.infer<typeof rfqQuoteSchema>;
+export type CreateRfqQuoteDTO = z.infer<typeof createRfqQuoteSchema>;
+export type ConvertRfqDTO = z.infer<typeof convertRfqSchema>;

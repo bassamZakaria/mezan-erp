@@ -46,7 +46,7 @@ export const CATALOG_VERSION = 1 as const;
 
 export const MODULES: readonly ModuleDef[] = [
   { id: "dashboard", labelAr: "لوحة التحكم", count: 2 },
-  { id: "sales", labelAr: "المبيعات", count: 27 },
+  { id: "sales", labelAr: "المبيعات", count: 29 },
   { id: "purchases", labelAr: "المشتريات", count: 34 },
   { id: "inventory", labelAr: "المخزون", count: 12 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
@@ -107,6 +107,8 @@ const ROWS: readonly Row[] = [
   ["sales.price_list.view"],
   ["sales.price_list.manage", "sales.price_list.view"],
   ["sales.price.override", "sales.invoice.create"],
+  ["sales.promotion.view"],
+  ["sales.promotion.manage", "sales.promotion.view"],
 
   // 3. purchases — 34
   ["purchases.supplier.view"],

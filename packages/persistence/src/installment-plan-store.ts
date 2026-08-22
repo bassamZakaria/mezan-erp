@@ -1,0 +1,68 @@
+import Database from "better-sqlite3";
+import { Money, type InstallmentLine } from "@mezan/domain";
+import {
+  createSqliteDocumentStore,
+  createStandaloneSqliteDocumentStore,
+  ensureDocumentTable,
+  type SqliteDocumentStoreHandle,
+} from "./document-store.js";
+
+const DOC_TYPE = "INSTALLMENT_PLAN";
+
+interface WireLine {
+  no: number;
+  customerId: string;
+  sourceInvoiceId: string;
+  sourceInvoiceNumber: string | null;
+  frequency: string;
+  downPayment: string;
+  dueDate: string;
+  amount: string;
+  paidAmount: string;
+  status: string;
+  lateFeeAmount: string;
+}
+
+function serializeLine(line: InstallmentLine): WireLine {
+  return {
+    no: line.no,
+    customerId: line.customerId,
+    sourceInvoiceId: line.sourceInvoiceId,
+    sourceInvoiceNumber: line.sourceInvoiceNumber,
+    frequency: line.frequency,
+    downPayment: line.downPayment.toString(),
+    dueDate: line.dueDate,
+    amount: line.amount.toString(),
+    paidAmount: line.paidAmount.toString(),
+    status: line.status,
+    lateFeeAmount: line.lateFeeAmount.toString(),
+  };
+}
+
+function deserializeLine(wire: unknown): InstallmentLine {
+  const w = wire as WireLine;
+  return {
+    no: w.no,
+    customerId: w.customerId,
+    sourceInvoiceId: w.sourceInvoiceId,
+    sourceInvoiceNumber: w.sourceInvoiceNumber,
+    frequency: w.frequency as InstallmentLine["frequency"],
+    downPayment: Money.fromMajor(w.downPayment),
+    dueDate: w.dueDate,
+    amount: Money.fromMajor(w.amount),
+    paidAmount: Money.fromMajor(w.paidAmount),
+    status: w.status as InstallmentLine["status"],
+    lateFeeAmount: Money.fromMajor(w.lateFeeAmount),
+  };
+}
+
+export function createSqliteInstallmentPlanStore(sqlite: Database.Database) {
+  ensureDocumentTable(sqlite);
+  return createSqliteDocumentStore<InstallmentLine>(sqlite, DOC_TYPE, serializeLine, deserializeLine);
+}
+
+export function createStandaloneSqliteInstallmentPlanStore(
+  path = ":memory:",
+): SqliteDocumentStoreHandle<InstallmentLine> {
+  return createStandaloneSqliteDocumentStore<InstallmentLine>(DOC_TYPE, serializeLine, deserializeLine, path);
+}

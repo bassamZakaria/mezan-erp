@@ -15,7 +15,7 @@ import {
 } from "@mezan/ui";
 import type { AccountDTO, AccountStatusDTO, AccountTypeDTO, NaturalBalanceDTO } from "@mezan/contracts";
 import { buildAccountTree, hasChildAccounts, isDescendantOf, type AccountTreeNode } from "../lib/account-tree";
-import { demoAccountBalances, demoAccounts } from "../accounts-sample-data";
+import { useAccounts, useCreateAccount, useUpdateAccount } from "../data/hooks";
 
 const TYPE_LABEL: Record<AccountTypeDTO, string> = {
   asset: "أصول",
@@ -119,14 +119,15 @@ function draftFromAccount(account: AccountDTO): AccountDraft {
 }
 
 export function ChartOfAccountsScreen() {
-  const [accounts, setAccounts] = useState<AccountDTO[]>(demoAccounts);
+  const query = useAccounts();
+  const createAccount = useCreateAccount();
+  const updateAccount = useUpdateAccount();
+  const accounts = query.data ?? [];
 
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<AccountTypeDTO | "all">("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatusDTO | "all">("all");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(
-    () => new Set(demoAccounts.filter((a) => a.isHeader).map((a) => a.id)),
-  );
+  const [expandedOverride, setExpandedOverride] = useState<Set<string> | null>(null);
 
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"movements" | "audit">("movements");
@@ -137,6 +138,9 @@ export function ChartOfAccountsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const tree = useMemo(() => buildAccountTree(accounts), [accounts]);
+  const allHeaderIds = useMemo(() => accounts.filter((a) => a.isHeader).map((a) => a.id), [accounts]);
+  // All headers start expanded until the user makes their first explicit toggle.
+  const expandedIds = expandedOverride ?? new Set(allHeaderIds);
 
   const hasActiveFilter = search.trim() !== "" || typeFilter !== "all" || statusFilter !== "all";
 
@@ -165,7 +169,6 @@ export function ChartOfAccountsScreen() {
     expanded: expandedIds.has(row.id),
   }));
 
-  const allHeaderIds = useMemo(() => accounts.filter((a) => a.isHeader).map((a) => a.id), [accounts]);
   const allExpanded = allHeaderIds.length > 0 && allHeaderIds.every((id) => expandedIds.has(id));
 
   const headerOptions: EntityPickerOption[] = useMemo(
@@ -180,7 +183,8 @@ export function ChartOfAccountsScreen() {
 
   const selectedAccount = selectedAccountId ? accounts.find((a) => a.id === selectedAccountId) ?? null : null;
   const parentOfSelected = selectedAccount?.parentId ? accounts.find((a) => a.id === selectedAccount.parentId) ?? null : null;
-  const balance = selectedAccountId ? demoAccountBalances[selectedAccountId] ?? { opening: 0, movement: 0, closing: 0 } : null;
+  // Movements/balance are stubbed server-side (GET /accounts/:id) until journal posting feeds the ledger — always zero today.
+  const balance = { opening: 0, movement: 0, closing: 0 };
 
   function openCreateForm() {
     setEditingId(null);
@@ -196,7 +200,7 @@ export function ChartOfAccountsScreen() {
     setFormOpen(true);
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const error = validateDraft(draft, accounts, editingId);
     if (error) {
@@ -205,38 +209,36 @@ export function ChartOfAccountsScreen() {
     }
     setFormError(null);
     const nameEn = draft.nameEn.trim() === "" ? null : draft.nameEn.trim();
-    if (editingId) {
-      setAccounts((prev) =>
-        prev.map((a) =>
-          a.id === editingId
-            ? {
-                ...a,
-                nameAr: draft.nameAr.trim(),
-                nameEn,
-                type: draft.type,
-                naturalBalance: draft.naturalBalance,
-                parentId: draft.parentId,
-                isHeader: draft.isHeader,
-                status: draft.status,
-              }
-            : a,
-        ),
-      );
-    } else {
-      const newAccount: AccountDTO = {
-        id: `acc-${draft.code.trim()}-${Date.now()}`,
-        code: draft.code.trim(),
-        nameAr: draft.nameAr.trim(),
-        nameEn,
-        type: draft.type,
-        naturalBalance: draft.naturalBalance,
-        parentId: draft.parentId,
-        isHeader: draft.isHeader,
-        status: "active",
-      };
-      setAccounts((prev) => [...prev, newAccount]);
+    try {
+      if (editingId) {
+        await updateAccount.mutateAsync({
+          id: editingId,
+          patch: {
+            nameAr: draft.nameAr.trim(),
+            nameEn,
+            type: draft.type,
+            naturalBalance: draft.naturalBalance,
+            parentId: draft.parentId,
+            isHeader: draft.isHeader,
+            status: draft.status,
+          },
+        });
+      } else {
+        await createAccount.mutateAsync({
+          id: crypto.randomUUID(),
+          code: draft.code.trim(),
+          nameAr: draft.nameAr.trim(),
+          nameEn,
+          type: draft.type,
+          naturalBalance: draft.naturalBalance,
+          parentId: draft.parentId,
+          isHeader: draft.isHeader,
+        });
+      }
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
     }
-    setFormOpen(false);
   }
 
   const totalCount = accounts.length;
@@ -257,11 +259,7 @@ export function ChartOfAccountsScreen() {
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
-          <Button
-            onClick={() =>
-              setExpandedIds(allExpanded ? new Set() : new Set(accounts.filter((a) => a.isHeader).map((a) => a.id)))
-            }
-          >
+          <Button onClick={() => setExpandedOverride(allExpanded ? new Set() : new Set(allHeaderIds))}>
             {allExpanded ? "طي الكل" : "توسيع الكل"}
           </Button>
           <Button variant="primary" onClick={openCreateForm}>
@@ -269,6 +267,15 @@ export function ChartOfAccountsScreen() {
           </Button>
         </div>
       </div>
+
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل دليل الحسابات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <StatCard label="إجمالي الحسابات" value={<span className="mz-num">{totalCount}</span>} />
@@ -320,8 +327,8 @@ export function ChartOfAccountsScreen() {
       <AccountTree
         rows={treeRows}
         onToggle={(id) =>
-          setExpandedIds((prev) => {
-            const next = new Set(prev);
+          setExpandedOverride((prev) => {
+            const next = new Set(prev ?? allHeaderIds);
             if (next.has(id)) next.delete(id);
             else next.add(id);
             return next;

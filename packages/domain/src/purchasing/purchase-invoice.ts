@@ -12,7 +12,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
-import { extend } from "../inventory/index.js";
+import { extend, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
@@ -22,6 +22,7 @@ import {
   type PurchaseGlPosting,
   type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
   type PurchaseInvoiceStatus,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
@@ -32,6 +33,7 @@ import {
   InvalidPurchaseDocumentError,
   PurchaseDocumentNotDraftError,
   PurchaseInvoiceNotFoundError,
+  PurchaseItemsAlreadyConsumedError,
   ReceiptRequiredError,
 } from "./errors.js";
 
@@ -123,6 +125,15 @@ export interface ConfirmPurchaseInvoiceResult {
   readonly invoice: PurchaseInvoice;
   /** The balanced posting handed to the GL — surfaced for callers/tests. */
   readonly posting: PurchaseGlPosting;
+}
+
+export interface CancelPurchaseInvoiceDeps {
+  readonly invoices: PurchaseInvoiceRepository;
+  readonly stock: PurchaseStockPostingPort;
+  readonly glReverse: PurchaseGlReversalPort;
+  readonly layers: CostLayerRepository;
+  readonly policy?: PurchasePolicy;
+  readonly now?: () => string;
 }
 
 function nowIso(deps: { now?: () => string }): string {
@@ -376,4 +387,64 @@ export async function confirmPurchaseInvoice(
   const confirmed: PurchaseInvoice = { ...invoice, status: "confirmed" };
   await deps.invoices.update(confirmed);
   return { invoice: confirmed, posting };
+}
+
+/**
+ * إلغاء الفاتورة (Cancel invoice) — docs/catalog/09 §"تتبع البضاعة المستهلكة
+ * من فواتير الشراء": a draft invoice (no GL/stock effect yet) cancels
+ * trivially. A confirmed invoice may be cancelled too — UNLESS
+ * `trackSoldPurchaseItems` is on and any of its inventory-line goods have
+ * since been sold, transferred, or consumed, in which case it must be
+ * corrected via a Purchase Return instead. Cancelling a confirmed invoice
+ * mirror-reverses its GL posting and — for a MANUAL invoice only (a
+ * from-receipt invoice's stock belongs to the receipt, not the invoice) —
+ * reverses the stock it posted.
+ */
+export async function cancelPurchaseInvoice(
+  id: string,
+  deps: CancelPurchaseInvoiceDeps,
+): Promise<PurchaseInvoice> {
+  const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+  const invoice = await deps.invoices.findById(id);
+  if (!invoice) throw new PurchaseInvoiceNotFoundError(id);
+  if (invoice.status === "cancelled") {
+    throw new PurchaseDocumentNotDraftError(id, invoice.status);
+  }
+
+  if (invoice.status === "confirmed") {
+    const inventoryLines = invoice.lines.filter((l) => l.kind === "inventory" && l.itemId !== null);
+    if (policy.trackSoldPurchaseItems) {
+      for (const line of inventoryLines) {
+        const layers = await deps.layers.listByPosition(line.itemId as string, invoice.warehouseId);
+        const consumed = layers
+          .filter((l) => l.sourceDocId === invoice.id)
+          .some((l) => l.remainingQty.compare(l.originalQty) !== 0);
+        if (consumed) throw new PurchaseItemsAlreadyConsumedError(id);
+      }
+    }
+
+    await deps.glReverse.reverse(invoice.id, {
+      reversalId: `${invoice.id}:cancel`,
+      date: nowIso(deps),
+      memo: `عكس فاتورة مشتريات ${invoice.number}`,
+    });
+
+    // A from-receipt invoice never posted its own stock (the receipt did) — see confirmPurchaseInvoice.
+    if (!invoice.receiptId && inventoryLines.length > 0) {
+      await deps.stock.reverseReceipt({
+        reversalId: `${invoice.id}:cancel`,
+        sourceDocType: "PURCHASE_INVOICE",
+        sourceDocId: invoice.id,
+        positions: inventoryLines.map((l) => ({
+          itemId: l.itemId as string,
+          warehouseId: invoice.warehouseId,
+        })),
+        occurredAt: nowIso(deps),
+      });
+    }
+  }
+
+  const cancelled: PurchaseInvoice = { ...invoice, status: "cancelled" };
+  await deps.invoices.update(cancelled);
+  return cancelled;
 }

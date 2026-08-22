@@ -73,4 +73,6 @@ export {
   type PostIssueCommand,
   type IssueLineCost,
   type PostIssueResult,
+  type ReverseReceiptPosition,
+  type ReverseReceiptCommand,
 } from "./stock-ledger-service.js";

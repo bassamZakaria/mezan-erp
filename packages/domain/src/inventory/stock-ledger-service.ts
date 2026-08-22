@@ -15,7 +15,7 @@
  * callers).
  */
 
-import { Money, Qty } from "../money/index.js";
+import { Money, Qty, allocate } from "../money/index.js";
 import type { CostLayer } from "./cost-layer.js";
 import {
   NegativeStockError,
@@ -117,6 +117,29 @@ export interface PostReceiptCommand {
   /** The document that received the goods (a purchase receipt/invoice, or a work-order finished-goods receipt). */
   readonly sourceDocType: Extract<StockSourceDocType, "PURCHASE_RECEIPT" | "PURCHASE_INVOICE" | "WORK_ORDER">;
   readonly lines: readonly ReceiptLine[];
+  readonly occurredAt?: string;
+}
+
+/** One (itemId, warehouseId) position to inspect/reverse for {@link ReverseReceiptCommand}. */
+export interface ReverseReceiptPosition {
+  readonly itemId: string;
+  readonly warehouseId: string;
+}
+
+/**
+ * Reverse a prior `postReceipt` (docs/catalog/02 — cancelling a purchase
+ * receipt/invoice whose "sold-item" guard passed). Unlike `postIssue`, this
+ * does NOT draw down layers FIFO: it removes precisely the cost layer(s) this
+ * `sourceDocId` created, at THEIR OWN immutable cost, and refuses if any of
+ * them has already been drawn down (defense in depth — the caller's guard is
+ * expected to have checked this already).
+ */
+export interface ReverseReceiptCommand {
+  readonly reversalId: string;
+  readonly sourceDocType: StockSourceDocType;
+  /** The `sourceDocId` of the original `postReceipt` call being undone. */
+  readonly sourceDocId: string;
+  readonly positions: readonly ReverseReceiptPosition[];
   readonly occurredAt?: string;
 }
 
@@ -525,6 +548,179 @@ export class StockLedgerService {
           reason: null,
           occurredAt,
         });
+      }
+    });
+  }
+
+  /**
+   * Reverse a prior `postReceipt` by `sourceDocId` (docs/catalog/02 — cancelling
+   * a purchase receipt/invoice). For each supplied position, finds the cost
+   * layer(s) this `sourceDocId` created and — only if untouched since
+   * (`remainingQty === originalQty`) — removes them, subtracts their value from
+   * the cached snapshot and appends a mirror-image OUT movement referencing the
+   * reversal. Throws if any matching layer has already been drawn down.
+   */
+  async reverseReceipt(command: ReverseReceiptCommand): Promise<void> {
+    const occurredAt = command.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      for (const pos of command.positions) {
+        const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
+        const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
+        for (const layer of mine) {
+          if (layer.remainingQty.compare(layer.originalQty) !== 0) {
+            throw new InvalidStockMovementError([
+              `cost layer "${layer.id}" for item "${pos.itemId}" has already been drawn down; cannot reverse "${command.sourceDocId}"`,
+            ]);
+          }
+        }
+
+        let idx = 0;
+        for (const layer of mine) {
+          const snap = await this.loadSnapshot(pos.itemId, pos.warehouseId);
+          const value = extend(layer.originalQty, layer.unitCost);
+          const newOnHand = snap.onHand.subtract(layer.originalQty);
+          const newTotalValue = snap.totalValue.add(value.negate());
+
+          const movement: StockMovement = {
+            id: `${command.reversalId}:${pos.itemId}:${idx++}`,
+            itemId: pos.itemId,
+            warehouseId: pos.warehouseId,
+            direction: "OUT",
+            qty: layer.originalQty,
+            unitCost: layer.unitCost,
+            sourceDocType: command.sourceDocType,
+            sourceDocId: command.reversalId,
+            sourceDocNumber: null,
+            reason: null,
+            occurredAt,
+          };
+          await this.deps.ledger.append(movement);
+          await this.deps.layers.remove(layer.id);
+          await this.deps.snapshots.save({
+            itemId: pos.itemId,
+            warehouseId: pos.warehouseId,
+            onHand: newOnHand,
+            totalValue: newTotalValue,
+            averageCost: unitCostOf(newTotalValue, newOnHand),
+          });
+
+          this.deps.events?.publish({
+            type: "StockMoved",
+            movement,
+            onHandAfter: newOnHand,
+            averageCostAfter: unitCostOf(newTotalValue, newOnHand),
+          });
+        }
+      }
+    });
+  }
+
+  /**
+   * Generic quantity-movement applier for the document framework's stock hook
+   * (`../documents/inventory-stock-hook.ts`). Any document type that declares a
+   * `buildStockPlan` — sales/purchase returns, transfers-as-documents, POS sales,
+   * work orders — reuses this ONE method instead of a bespoke poster per type;
+   * it never posts to the GL itself (a document's own `buildGlPosting` owns that,
+   * posted separately by the document framework's GL hook), it only moves qty/
+   * cost-layers/snapshot. Structurally identical to `DocumentStockPlan` (kept as
+   * a local shape so this engine stays decoupled from the documents module —
+   * docs/plan.md §3.2).
+   */
+  async applyDocumentStockPlan(plan: {
+    readonly sourceDocType: StockSourceDocType;
+    readonly sourceDocId: string;
+    readonly sourceDocNumber: string | null;
+    readonly warehouseId: string;
+    readonly lines: readonly {
+      readonly itemId: string;
+      readonly direction: StockMovementDirection;
+      readonly qty: Qty;
+      readonly unitCost?: Money;
+    }[];
+    readonly occurredAt?: string;
+  }): Promise<void> {
+    if (plan.lines.length === 0) return;
+    const occurredAt = plan.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      for (let i = 0; i < plan.lines.length; i++) {
+        const line = plan.lines[i] as (typeof plan.lines)[number];
+        await this.applyMovement({
+          movementId: `${plan.sourceDocId}:${i}`,
+          itemId: line.itemId,
+          warehouseId: plan.warehouseId,
+          direction: line.direction,
+          qty: line.qty,
+          unitCost: line.unitCost,
+          sourceDocType: plan.sourceDocType,
+          sourceDocId: plan.sourceDocId,
+          sourceDocNumber: plan.sourceDocNumber,
+          reason: null,
+          occurredAt,
+        });
+      }
+    });
+  }
+
+  /**
+   * Landed-cost revaluation (docs/catalog/02 §"التكاليف الإضافية"): raises the
+   * cost basis of an EXISTING position by `valueDelta` with NO quantity change —
+   * freight/customs/insurance allocated onto goods already received. Unlike a
+   * normal movement this posts no ledger line (there is no qty to move); it
+   * bumps the cached snapshot's `totalValue`/`averageCost` directly, and —
+   * scoped to `sourceDocId` (the target purchase invoice) — proportionally
+   * raises the unit cost of the SPECIFIC cost layers that invoice's receipt
+   * created, by removing + re-adding each layer at its new unit cost (allowed:
+   * SQLite's `cost_layer_immutable_cost` trigger only blocks an UPDATE of
+   * unit_cost, not a delete+insert). This is the one sanctioned exception to a
+   * layer's "immutable receipt-time cost" invariant (cost-layer.ts) — landed
+   * cost is, by definition, a retroactive correction to that receipt's true
+   * cost. Layers already fully consumed (fully drawn down before the landed
+   * cost posts) are skipped for the per-layer step; the snapshot-level value
+   * bump still applies so system-wide inventory valuation stays exact.
+   */
+  async applyLandedCostRevaluation(line: {
+    readonly itemId: string;
+    readonly warehouseId: string;
+    /** The purchase invoice (or other receipt document) whose layers absorb the cost. */
+    readonly sourceDocId: string;
+    /** Positive amount to add to this position's cost basis. */
+    readonly valueDelta: Money;
+  }): Promise<void> {
+    if (line.valueDelta.scaled <= 0n) {
+      throw new InvalidStockMovementError([
+        `landed cost valueDelta for item "${line.itemId}" must be positive`,
+      ]);
+    }
+    await this.runInTransaction(async () => {
+      const snap = await this.loadSnapshot(line.itemId, line.warehouseId);
+      const newTotalValue = snap.totalValue.add(line.valueDelta);
+      const newAverageCost = unitCostOf(newTotalValue, snap.onHand);
+      await this.deps.snapshots.save({
+        itemId: line.itemId,
+        warehouseId: line.warehouseId,
+        onHand: snap.onHand,
+        totalValue: newTotalValue,
+        averageCost: newAverageCost,
+      });
+
+      const layers = (await this.deps.layers.listByPosition(line.itemId, line.warehouseId)).filter(
+        (l) => l.sourceDocId === line.sourceDocId,
+      );
+      if (layers.length === 0) return;
+      const totalOriginalQty = layers.reduce((sum, l) => sum.add(l.originalQty), Qty.zero());
+      if (totalOriginalQty.isZero()) return;
+
+      const weights = layers.map((l) => l.originalQty.scaled);
+      const shares = allocate(line.valueDelta, weights);
+      for (let i = 0; i < layers.length; i++) {
+        const layer = layers[i] as CostLayer;
+        const share = shares[i] as Money;
+        if (layer.originalQty.isZero() || share.scaled === 0n) continue;
+        const perUnitIncrease = unitCostOf(share, layer.originalQty);
+        await this.deps.layers.remove(layer.id);
+        await this.deps.layers.add({ ...layer, unitCost: layer.unitCost.add(perUnitIncrease) });
       }
     });
   }

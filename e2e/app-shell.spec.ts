@@ -33,9 +33,9 @@ test.describe("App shell", () => {
   });
 
   test("sidebar footer and topbar both show the signed-in user", async ({ page }) => {
-    // Appears twice: sidebar footer + topbar user chip (matches AppShell.test.tsx's assumption).
+    // The signed-in user's real name + role (from the session), sidebar footer + topbar chip.
     await expect(page.getByText("محمد الشهابي")).toHaveCount(2);
-    await expect(page.getByText("Company Admin")).toHaveCount(2);
+    await expect(page.getByText("مدير الشركة")).toHaveCount(2);
   });
 
   test("topbar shows the branch scope chip and notification badge", async ({ page }) => {

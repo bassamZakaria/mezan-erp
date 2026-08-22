@@ -111,6 +111,15 @@ export {
 } from "./lib/report-export";
 
 export {
+  buildHistoricalImportTemplate,
+  parseHistoricalImportFile,
+  type HistoricalImportFileDocType,
+  type ParsedHistoricalImportRow,
+  type HistoricalImportParseError,
+  type HistoricalImportParseResult,
+} from "./lib/historical-import-file";
+
+export {
   DEFAULT_PRINT_TEMPLATE_CONFIG,
   resolvePrintTemplateConfig,
   type PrintTemplateConfig,

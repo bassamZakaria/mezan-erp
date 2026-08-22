@@ -21,6 +21,8 @@ import type {
   DocumentEventPublisher,
 } from "../documents/hooks.js";
 import type { GateableActionType } from "../workflow/index.js";
+import type { CreditControlMode } from "../settings/settings.js";
+import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
 import { SALES_INVOICE_STATUS_LABELS_AR } from "./sales-invoice.js";
 import type {
   SalesInvoice,
@@ -36,6 +38,7 @@ import type {
   SalesInvoiceRepository,
   SalesInvoiceListFilter,
   SalesInvoiceStockHook,
+  SalesInvoiceCustomerExposureHook,
 } from "./ports.js";
 import {
   DuplicateSalesInvoiceError,
@@ -43,6 +46,20 @@ import {
   InvalidSalesInvoicePaymentError,
   SalesInvoiceNotFoundError,
 } from "./errors.js";
+
+/**
+ * Credit-control deps (docs/catalog/01/09 §"الرقابة الائتمانية"), optional so
+ * every existing caller/test that doesn't configure it keeps confirming
+ * exactly as before. When present, `confirm()` checks the customer's exposure
+ * (their current live-invoice balance + this invoice's own total) against
+ * `getCreditLimit`, honouring WARNING (never blocks, surfaces `creditWarning`
+ * on the result) vs BLOCK (throws {@link CreditLimitExceededError}) mode.
+ */
+export interface SalesInvoiceCreditControlDeps {
+  readonly exposure: SalesInvoiceCustomerExposureHook;
+  readonly getCreditLimit: (customerId: string) => Promise<Money>;
+  readonly getPolicy: () => Promise<{ readonly enabled: boolean; readonly mode: CreditControlMode }>;
+}
 
 /** The workflow action gated on confirm (docs/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
@@ -54,6 +71,8 @@ export interface SalesInvoiceServiceDeps {
   readonly stock: SalesInvoiceStockHook;
   /** Optional approval gate; when omitted, confirmation is never held. */
   readonly workflow?: DocumentWorkflowGate;
+  /** Optional credit-control check on confirm; when omitted, no credit check runs at all. */
+  readonly creditControl?: SalesInvoiceCreditControlDeps;
   readonly audit?: AuditSink;
   readonly events?: DocumentEventPublisher;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
@@ -105,6 +124,8 @@ export interface ConfirmSalesInvoiceResult {
   readonly invoice: SalesInvoice;
   /** True when the gate held the invoice بانتظار الموافقة (pending). */
   readonly held: boolean;
+  /** Set when credit control ran and the customer is over their limit in WARNING mode; null otherwise (incl. when credit control isn't configured, or the customer is within limit). */
+  readonly creditWarning: CreditCheckResult | null;
 }
 
 export class SalesInvoiceService {
@@ -179,12 +200,14 @@ export class SalesInvoiceService {
         };
         await this.deps.repo.update(held);
         this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true };
+        return { invoice: held, held: true, creditWarning: null };
       }
     }
 
     assertTransition(id, existing.status, "confirmed");
     const totals = this.totalsOf(existing);
+
+    const creditWarning = await this.checkCredit(existing, totals.grandTotal);
 
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next();
@@ -238,7 +261,34 @@ export class SalesInvoiceService {
 
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false };
+    return { invoice: confirmed, held: false, creditWarning };
+  }
+
+  /**
+   * Runs the credit-control check (docs/catalog/01/09 §"الرقابة الائتمانية")
+   * when `creditControl` deps are configured; no-op (returns null) otherwise.
+   * BLOCK-mode violations throw {@link CreditLimitExceededError} — the caller
+   * never sees a "blocked" result, only "warning" or null.
+   */
+  private async checkCredit(invoice: SalesInvoice, newExposure: Money): Promise<CreditCheckResult | null> {
+    const cc = this.deps.creditControl;
+    if (!cc) return null;
+    const [policy, creditLimit, currentBalance] = await Promise.all([
+      cc.getPolicy(),
+      cc.getCreditLimit(invoice.customerId),
+      cc.exposure.currentBalance(invoice.customerId, invoice.id),
+    ]);
+    const result = checkCustomerCredit({
+      enabled: policy.enabled,
+      mode: policy.mode,
+      creditLimit,
+      currentBalance,
+      newExposure,
+    });
+    if (result.status === "blocked") {
+      throw new CreditLimitExceededError(invoice.customerId, result.message ?? "تجاوز الحد الائتماني للعميل.");
+    }
+    return result.status === "warning" ? result : null;
   }
 
   /** Cancel a draft/pending invoice (never a live one — those are corrected by a return). */

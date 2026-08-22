@@ -1,5 +1,5 @@
 import type { CommandItem, NavGroup, NavItem } from "@mezan/ui";
-import { createEntitlements, type Entitlements, type Role, type User } from "@mezan/domain";
+import { createEntitlements, type Entitlements } from "@mezan/domain";
 
 /** Demo tenant: "Cyag" (شركة سياج), current user محمد الشهابي — matches the approved mockup's sample data. */
 export const demoUser = {
@@ -18,9 +18,11 @@ export const navGroups: NavGroup[] = [
     label: "المبيعات",
     items: [
       { key: "customers", label: "العملاء" },
-      { key: "quotes", label: "عروض الأسعار", tag: { label: "قريباً", tone: "soon" } },
+      { key: "quotes", label: "عروض الأسعار" },
       { key: "sales-invoices", label: "فواتير المبيعات", tag: { label: "نمط", tone: "pattern" } },
-      { key: "sales-returns", label: "مرتجعات المبيعات", tag: { label: "قريباً", tone: "soon" } },
+      { key: "sales-returns", label: "مرتجعات المبيعات" },
+      { key: "price-lists", label: "قوائم الأسعار" },
+      { key: "promotions", label: "العروض" },
     ],
   },
   {
@@ -28,9 +30,12 @@ export const navGroups: NavGroup[] = [
     label: "المشتريات",
     items: [
       { key: "vendors", label: "الموردون" },
+      { key: "rfqs", label: "طلبات عروض الأسعار" },
       { key: "purchase-orders", label: "أوامر الشراء" },
       { key: "goods-receipts", label: "استلام البضائع" },
       { key: "purchase-invoices", label: "فواتير المشتريات" },
+      { key: "purchase-returns", label: "مرتجعات المشتريات" },
+      { key: "landed-costs", label: "التكاليف الإضافية" },
     ],
   },
   {
@@ -59,9 +64,14 @@ export const navGroups: NavGroup[] = [
     items: [
       { key: "coa", label: "دليل الحسابات" },
       { key: "cost-centers", label: "مراكز التكلفة" },
+      { key: "cost-center-pl", label: "أرباح مراكز التكلفة" },
       { key: "journals", label: "القيود المحاسبية" },
       { key: "fiscal-periods", label: "الفترات المالية" },
       { key: "taxes", label: "الضرائب" },
+      { key: "exchange-rates", label: "أسعار الصرف" },
+      { key: "revaluation", label: "إعادة تقييم العملات الأجنبية" },
+      { key: "reconciliation", label: "مطابقة الأرصدة" },
+      { key: "eta", label: "الفاتورة الإلكترونية" },
       { key: "trial-balance-report", label: "ميزان المراجعة", tag: { label: "نمط", tone: "pattern" } },
     ],
   },
@@ -71,6 +81,38 @@ export const navGroups: NavGroup[] = [
     items: [
       { key: "treasury-accounts", label: "حسابات الخزينة" },
       { key: "treasury-vouchers", label: "السندات النقدية" },
+    ],
+  },
+  {
+    key: "installments",
+    label: "الأقساط",
+    items: [
+      { key: "installment-plans", label: "خطط الأقساط" },
+      { key: "installment-follow-ups", label: "متابعة التحصيل" },
+    ],
+  },
+  {
+    key: "reports",
+    label: "التقارير",
+    items: [
+      { key: "report-sales-by-period", label: "المبيعات حسب الفترة" },
+      { key: "report-sales-by-item", label: "المبيعات حسب الصنف" },
+      { key: "report-sales-by-customer", label: "المبيعات حسب العميل" },
+      { key: "report-sales-top-products", label: "أفضل المنتجات" },
+      { key: "report-purchases-by-period", label: "المشتريات حسب الفترة" },
+      { key: "report-purchases-by-supplier", label: "المشتريات حسب المورد" },
+      { key: "report-purchases-by-item", label: "المشتريات حسب الصنف" },
+      { key: "report-inventory-stock-levels", label: "مستويات المخزون" },
+      { key: "report-inventory-movement", label: "حركة المخزون" },
+      { key: "report-inventory-ledger", label: "سجل المخزون" },
+      { key: "report-inventory-valuation", label: "تقييم المخزون" },
+      { key: "report-inventory-aging", label: "أعمار المخزون" },
+      { key: "report-inventory-slow-moving", label: "أصناف بطيئة الحركة" },
+      { key: "report-inventory-drift", label: "انحراف تقييم المخزون" },
+      { key: "report-aging-customers", label: "أعمار ديون العملاء" },
+      { key: "report-aging-suppliers", label: "أعمار ديون الموردين" },
+      { key: "report-installments-overview", label: "نظرة عامة على الأقساط" },
+      { key: "report-installments-overdue", label: "الأقساط المتأخرة" },
     ],
   },
   {
@@ -158,110 +200,5 @@ export const demoEntitlements: Entitlements = createEntitlements({
   expiresAt: null,
 });
 
-const VAN_SALES_ROLE_ID = "role-van-sales";
-
-/** The one custom role in this tenant — 4 permissions across 2 modules, exactly as recon'd. */
-export const demoRoles: Role[] = [
-  {
-    id: VAN_SALES_ROLE_ID,
-    code: "VAN_SALES",
-    name: "مندوب مبيعات",
-    description: "دور السائق/المندوب الميداني — تحميل السيارة وتسجيل فواتير المبيعات أثناء الجولة.",
-    permissions: [
-      "sales.invoice.view_own",
-      "sales.invoice.create",
-      "field.van_trip.view_own",
-      "field.van_trip.open",
-    ],
-    isSystem: false,
-    createdAt: "2026-08-08T09:00:00.000Z",
-  },
-];
-
-/** `demo:<password>` — the web demo's placeholder hasher (see `local-store.ts`); never real auth. */
-function demoHash(secret: string) {
-  return `demo:${secret}`;
-}
-
-export const demoUsers: User[] = [
-  {
-    id: "user-1",
-    fullName: "محمد الشهابي",
-    email: "mohamed@cyag.test",
-    phone: "+201001234567",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: demoHash("1234"),
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: "2026-08-21T08:12:00.000Z",
-    createdAt: "2026-06-01T09:00:00.000Z",
-  },
-  {
-    id: "user-2",
-    fullName: "سارة عبد الله",
-    email: "sara@cyag.test",
-    phone: "+201009876543",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: "2026-08-20T14:40:00.000Z",
-    createdAt: "2026-06-02T09:00:00.000Z",
-  },
-  {
-    id: "user-3",
-    fullName: "يوسف محمد",
-    email: "youssef@cyag.test",
-    phone: "+201005556677",
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "active",
-    lastLoginAt: null,
-    createdAt: "2026-07-11T09:00:00.000Z",
-  },
-  {
-    id: "user-4",
-    fullName: "أحمد الجندي",
-    email: "ahmed@cyag.test",
-    phone: null,
-    passwordHash: demoHash("Passw0rd!"),
-    pinHash: null,
-    roleId: null,
-    isCompanyAdmin: true,
-    employeeId: null,
-    branchScope: "*",
-    warehouseScope: "*",
-    status: "inactive",
-    lastLoginAt: "2026-07-30T11:05:00.000Z",
-    createdAt: "2026-06-15T09:00:00.000Z",
-  },
-  {
-    id: "user-5",
-    fullName: "كريم عزت",
-    email: "kareem@cyag.test",
-    phone: "+201002223344",
-    passwordHash: demoHash("Van12345"),
-    pinHash: demoHash("4321"),
-    roleId: VAN_SALES_ROLE_ID,
-    isCompanyAdmin: false,
-    employeeId: "emp-1",
-    branchScope: ["MAIN"],
-    warehouseScope: ["MAIN-WH", "VAN-1"],
-    status: "active",
-    lastLoginAt: "2026-08-21T06:30:00.000Z",
-    createdAt: "2026-08-08T09:15:00.000Z",
-  },
-];
+// Roles/users moved to the real /roles and /users API (see App.tsx's
+// useRoles/useUsers) — this tenant's data now lives in the seeded backend.

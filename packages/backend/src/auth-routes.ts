@@ -1,0 +1,132 @@
+import { Hono } from "hono";
+import {
+  saveUser,
+  ALL_SCOPE,
+  InvalidUserError,
+  DuplicateUserEmailError,
+  type UnitOfWork,
+  type SecretHasher,
+  type SettingsRepository,
+  type User,
+} from "@mezan/domain";
+import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
+import { SEED_TENANT_NAME, seedIfEmpty, type SeedStores } from "./seed.js";
+
+export interface AuthRoutesDeps {
+  readonly uow: UnitOfWork;
+  readonly hasher: SecretHasher;
+  readonly settings: SettingsRepository;
+  readonly seedStores: SeedStores;
+}
+
+async function tenantName(settings: SettingsRepository): Promise<string> {
+  const s = await settings.get();
+  return s?.companyName && s.companyName.trim() !== "" ? s.companyName : SEED_TENANT_NAME;
+}
+
+async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> {
+  let permissions: string[];
+  if (user.isCompanyAdmin) {
+    permissions = ["*"];
+  } else if (user.roleId) {
+    const role = await deps.uow.roles.findById(user.roleId);
+    permissions = role ? [...role.permissions] : [];
+  } else {
+    permissions = [];
+  }
+  return {
+    userId: user.id,
+    fullName: user.fullName,
+    email: user.email,
+    isCompanyAdmin: user.isCompanyAdmin,
+    permissions,
+    branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
+    warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
+    tenantName: await tenantName(deps.settings),
+  };
+}
+
+/**
+ * Real auth + first-run bootstrap routes (docs/plan.md — desktop username+PIN):
+ *   POST /auth/login          verify user + PIN, return the resolved session
+ *   POST /bootstrap/seed      idempotently seed an empty DB (wizard seed step)
+ *   POST /bootstrap/admin     create the first-run admin, return their session
+ *
+ * These are intentionally UNGATED: login has no session yet, and the bootstrap
+ * routes run before any user could authenticate (local desktop first-run).
+ */
+export function createAuthRoutes(deps: AuthRoutesDeps) {
+  const app = new Hono();
+
+  app.post("/auth/login", async (c) => {
+    const parsed = loginRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const { username, pin } = parsed.data;
+    const needle = username.trim().toLowerCase();
+    const users = await deps.uow.users.list();
+    const user = users.find(
+      (u) => u.fullName.trim().toLowerCase() === needle || u.email.trim().toLowerCase() === needle,
+    );
+    if (!user || user.status !== "active" || !user.pinHash) {
+      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+    }
+    const ok = await deps.hasher.verify(pin, user.pinHash);
+    if (!ok) {
+      return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
+    }
+    return c.json(await toSession(user, deps));
+  });
+
+  app.post("/bootstrap/seed", async (c) => {
+    const result = await seedIfEmpty(deps.seedStores);
+    return c.json(result);
+  });
+
+  app.post("/bootstrap/admin", async (c) => {
+    const parsed = bootstrapAdminRequestSchema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    await seedIfEmpty(deps.seedStores);
+    try {
+      const user = await saveUser(
+        {
+          id: crypto.randomUUID(),
+          fullName: parsed.data.fullName,
+          email: parsed.data.email,
+          phone: null,
+          password: `pw-${crypto.randomUUID()}`,
+          pin: parsed.data.pin,
+          roleId: null,
+          isCompanyAdmin: true,
+          employeeId: null,
+          branchScope: ALL_SCOPE,
+          warehouseScope: ALL_SCOPE,
+          status: "active",
+          createdAt: new Date().toISOString(),
+        },
+        deps.uow,
+        deps.hasher,
+      );
+      return c.json(await toSession(user, deps), 201);
+    } catch (err) {
+      // First-run idempotency: re-running the wizard with the same admin email
+      // returns that admin's session (so wizard retries don't dead-end on 409).
+      if (err instanceof DuplicateUserEmailError) {
+        const existing = await deps.uow.users.findByEmail(parsed.data.email);
+        if (existing && existing.isCompanyAdmin && existing.status === "active") {
+          return c.json(await toSession(existing, deps), 200);
+        }
+        return c.json({ error: err.code, message: err.message }, 409);
+      }
+      if (err instanceof InvalidUserError) {
+        return c.json({ error: err.code, message: err.message }, 400);
+      }
+      throw err;
+    }
+  });
+
+  return app;
+}

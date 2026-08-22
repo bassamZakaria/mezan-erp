@@ -84,3 +84,90 @@ export class OverReceiptError extends Error {
     this.name = "OverReceiptError";
   }
 }
+
+export class PurchaseOrderRequiredError extends Error {
+  readonly code = "PURCHASE_ORDER_REQUIRED";
+  constructor() {
+    super(
+      "A confirmed purchase order is required before a goods receipt may be created (strictness gate is on).",
+    );
+    this.name = "PurchaseOrderRequiredError";
+  }
+}
+
+export class PurchaseItemsAlreadyConsumedError extends Error {
+  readonly code = "PURCHASE_ITEMS_ALREADY_CONSUMED";
+  constructor(readonly id: string) {
+    super(
+      `Purchase document "${id}" cannot be cancelled: some of its goods have already been sold, transferred, or consumed (strictness gate is on).`,
+    );
+    this.name = "PurchaseItemsAlreadyConsumedError";
+  }
+}
+
+export class GoodsReceiptAlreadyInvoicedError extends Error {
+  readonly code = "GOODS_RECEIPT_ALREADY_INVOICED";
+  constructor(readonly id: string) {
+    super(`Goods receipt "${id}" has already been invoiced and cannot be cancelled.`);
+    this.name = "GoodsReceiptAlreadyInvoicedError";
+  }
+}
+
+// --- RFQ (طلبات عروض الأسعار) ------------------------------------------------
+
+export class RfqNotFoundError extends Error {
+  readonly code = "RFQ_NOT_FOUND";
+  constructor(readonly id: string) {
+    super(`RFQ "${id}" was not found.`);
+    this.name = "RfqNotFoundError";
+  }
+}
+
+export class InvalidRfqError extends Error {
+  readonly code = "INVALID_RFQ";
+  constructor(readonly reasons: readonly string[]) {
+    super(`Invalid RFQ: ${reasons.join("; ")}`);
+    this.name = "InvalidRfqError";
+  }
+}
+
+export class RfqNotDraftError extends Error {
+  readonly code = "RFQ_NOT_DRAFT";
+  constructor(
+    readonly id: string,
+    readonly status: string,
+  ) {
+    super(`RFQ "${id}" is "${status}", not a draft.`);
+    this.name = "RfqNotDraftError";
+  }
+}
+
+export class RfqNotSentError extends Error {
+  readonly code = "RFQ_NOT_SENT";
+  constructor(
+    readonly id: string,
+    readonly status: string,
+  ) {
+    super(`RFQ "${id}" is "${status}"; quotes can only be recorded against a sent RFQ.`);
+    this.name = "RfqNotSentError";
+  }
+}
+
+export class RfqNotOpenError extends Error {
+  readonly code = "RFQ_NOT_OPEN";
+  constructor(
+    readonly id: string,
+    readonly status: string,
+  ) {
+    super(`RFQ "${id}" is "${status}" and cannot be closed/cancelled from this state.`);
+    this.name = "RfqNotOpenError";
+  }
+}
+
+export class RfqQuoteNotFoundError extends Error {
+  readonly code = "RFQ_QUOTE_NOT_FOUND";
+  constructor(readonly id: string) {
+    super(`RFQ quote "${id}" was not found.`);
+    this.name = "RfqQuoteNotFoundError";
+  }
+}

@@ -31,8 +31,42 @@ export interface LedgerRepository {
   accountBalance(accountId: string, asOfDate?: string): Promise<AccountBalance>;
   /** The individual posted movements for one account, oldest-first, dated on/before `asOfDate`. */
   accountLedger(accountId: string, asOfDate?: string): Promise<readonly AccountLedgerLine[]>;
+  /**
+   * The individual posted journal lines matching `filter`, oldest-first. Backs
+   * dimensional reporting (Cost Center P&L groups these by costCenterId +
+   * account) and the reconciliation "unlinked entries" scan. Optional on the
+   * port so lightweight in-memory ledgers need not implement it.
+   */
+  listLines?(filter?: PostedLineFilter): Promise<readonly PostedLine[]>;
   /** Run `fn` inside one atomic transaction (BEGIN IMMEDIATE on SQLite). */
   transaction<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+/** Filter for {@link LedgerRepository.listLines}. */
+export interface PostedLineFilter {
+  /** ISO date (YYYY-MM-DD), inclusive lower bound on the entry date. */
+  readonly fromDate?: string;
+  /** ISO date (YYYY-MM-DD), inclusive upper bound on the entry date. */
+  readonly toDate?: string;
+  /** Restrict to lines carrying one of these account ids. */
+  readonly accountIds?: readonly string[];
+  /** Restrict to lines carrying this cost-center dimension. */
+  readonly costCenterId?: string;
+}
+
+/** One posted journal line with its full dimensional context. */
+export interface PostedLine {
+  readonly entryId: string;
+  readonly entryNo: string | null;
+  readonly date: string;
+  readonly source: JournalEntrySource;
+  readonly accountId: string;
+  readonly costCenterId: string | null;
+  readonly currency: string | null;
+  readonly fxRate: string | null;
+  readonly memo: string | null;
+  readonly debit: Money;
+  readonly credit: Money;
 }
 
 /** Optional filters for {@link LedgerRepository.list}. */

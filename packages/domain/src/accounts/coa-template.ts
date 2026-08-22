@@ -17,6 +17,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 1000 الأصول (Assets) ---
   { id: "1000", code: "1000", nameAr: "الأصول", nameEn: "Assets", type: "asset", naturalBalance: "debit", parentId: null, isHeader: true },
   { id: "1100", code: "1100", nameAr: "ذمم مدينة", nameEn: "Accounts Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
+  { id: "1105", code: "1105", nameAr: "ذمم عملاء تجارية", nameEn: "Trade Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1110", code: "1110", nameAr: "ذمم أقساط مدينة", nameEn: "Installment Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1150", code: "1150", nameAr: "محتجزات ضمان مدينة", nameEn: "Retention Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
@@ -38,6 +39,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
 
   // --- 2000 الالتزامات (Liabilities) ---
   { id: "2000", code: "2000", nameAr: "الالتزامات", nameEn: "Liabilities", type: "liability", naturalBalance: "credit", parentId: null, isHeader: true },
+  { id: "2100", code: "2100", nameAr: "ذمم موردين تجاريين", nameEn: "Trade Accounts Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
 
   // --- 3000 حقوق الملكية (Equity) ---
@@ -53,6 +55,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 5000 المصروفات (Expenses) ---
   { id: "5000", code: "5000", nameAr: "المصروفات", nameEn: "Expenses", type: "expense", naturalBalance: "debit", parentId: null, isHeader: true },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 ];
 

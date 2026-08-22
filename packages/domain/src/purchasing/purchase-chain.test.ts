@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Money, Qty } from "../money/index.js";
+import type { CostLayer, CostLayerRepository } from "../inventory/index.js";
 import {
   createPurchaseOrder,
   confirmPurchaseOrder,
@@ -10,16 +11,26 @@ import {
 import {
   createGoodsReceipt,
   confirmGoodsReceipt,
+  cancelGoodsReceipt,
   goodsReceiptTotalCost,
 } from "./goods-receipt.js";
 import {
   createPurchaseInvoice,
   confirmPurchaseInvoice,
+  cancelPurchaseInvoice,
   buildInvoiceLinesFromReceipt,
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
 } from "./purchase-invoice.js";
-import type { PurchaseGlAccounts } from "./types.js";
+import type { PurchaseGlAccounts, PurchaseGlReversalPort, PurchaseStockPostingPort } from "./types.js";
+import {
+  PurchaseOrderRequiredError,
+  PurchaseItemsAlreadyConsumedError,
+  GoodsReceiptAlreadyInvoicedError,
+  GoodsReceiptNotFoundError,
+  PurchaseInvoiceNotFoundError,
+  PurchaseDocumentNotDraftError,
+} from "./errors.js";
 import {
   InMemoryPurchaseOrders,
   InMemoryGoodsReceipts,
@@ -28,6 +39,55 @@ import {
   makeNumbering,
   makeStockService,
 } from "./test-helpers.js";
+
+/** A PurchaseStockPostingPort fake that just records calls — the cancel paths depend on this port, not on StockLedgerService directly. */
+class RecordingStockPort implements PurchaseStockPostingPort {
+  readonly received: unknown[] = [];
+  readonly reversed: unknown[] = [];
+  async postReceipt(command: unknown): Promise<void> {
+    this.received.push(command);
+  }
+  async reverseReceipt(command: unknown): Promise<void> {
+    this.reversed.push(command);
+  }
+}
+
+/** A PurchaseGlReversalPort fake that just records calls. */
+class RecordingGlReversalPort implements PurchaseGlReversalPort {
+  readonly calls: { sourceDocId: string; opts: { reversalId: string; date?: string; memo?: string } }[] = [];
+  async reverse(sourceDocId: string, opts: { reversalId: string; date?: string; memo?: string }): Promise<void> {
+    this.calls.push({ sourceDocId, opts });
+  }
+}
+
+/** A CostLayerRepository fake whose listByPosition returns pre-seeded fixtures. */
+class FakeCostLayers implements CostLayerRepository {
+  constructor(private readonly fixtures: CostLayer[] = []) {}
+  async add(): Promise<void> {
+    throw new Error("not expected to be called by a cancel path");
+  }
+  async listByPosition(itemId: string, warehouseId: string): Promise<readonly CostLayer[]> {
+    return this.fixtures.filter((l) => l.itemId === itemId && l.warehouseId === warehouseId);
+  }
+  async updateRemaining(): Promise<void> {
+    throw new Error("not expected to be called by a cancel path");
+  }
+  async remove(): Promise<void> {
+    // no-op: fine to be called by a real reverseReceipt path if ever wired in.
+  }
+}
+
+function layer(overrides: Partial<CostLayer> & { id: string; itemId: string; warehouseId: string; sourceDocId: string }): CostLayer {
+  return {
+    unitCost: Money.fromMajor("10.00"),
+    originalQty: Qty.fromMajor("5"),
+    remainingQty: Qty.fromMajor("5"),
+    sourceDocType: "PURCHASE_RECEIPT",
+    sourceDocNumber: null,
+    createdAt: "2026-08-21T00:00:00.000Z",
+    ...overrides,
+  };
+}
 
 const now = () => "2026-08-21T09:00:00.000Z";
 const WH = "MAIN-WH";
@@ -178,7 +238,12 @@ describe("Goods Receipt", () => {
       lines: [{ itemId: "item-A", qty: Qty.fromMajor("99"), unitCost: Money.fromMajor("25.00") }],
     };
     await expect(
-      createGoodsReceipt(over, { receipts, orders, numbering, policy: { requireReceiptForInvoice: false, blockOverReceipt: true } }),
+      createGoodsReceipt(over, {
+        receipts,
+        orders,
+        numbering,
+        policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: true, trackSoldPurchaseItems: true },
+      }),
     ).rejects.toThrow(/PURCHASE_OVER_RECEIPT|outstanding/);
     // default policy (gate off) allows it
     const gr = await createGoodsReceipt(over, { receipts, orders, numbering });
@@ -195,6 +260,141 @@ describe("Goods Receipt", () => {
     );
     await confirmGoodsReceipt("gr-1", { receipts, orders, stock });
     await expect(confirmGoodsReceipt("gr-1", { receipts, orders, stock })).rejects.toThrow();
+  });
+
+  it("requires a confirmed PO when requirePoForGrn is on", async () => {
+    const orders = new InMemoryPurchaseOrders();
+    const receipts = new InMemoryGoodsReceipts();
+    const numbering = makeNumbering();
+    await expect(
+      createGoodsReceipt(
+        { id: "gr-adhoc", date: "2026-08-22", supplierId: "sup-1", warehouseId: WH, lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
+        { receipts, orders, numbering, policy: { requirePoForGrn: true, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: true } },
+      ),
+    ).rejects.toThrow(PurchaseOrderRequiredError);
+  });
+
+  it("allows an ad-hoc (PO-less) receipt when requirePoForGrn is off (default), and it confirms normally", async () => {
+    const orders = new InMemoryPurchaseOrders();
+    const receipts = new InMemoryGoodsReceipts();
+    const numbering = makeNumbering();
+    const stock = makeStockService();
+    const gr = await createGoodsReceipt(
+      {
+        id: "gr-adhoc",
+        date: "2026-08-22",
+        supplierId: "sup-1",
+        warehouseId: WH,
+        lines: [{ itemId: "item-A", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10.00") }],
+      },
+      { receipts, orders, numbering },
+    );
+    expect(gr.purchaseOrderId).toBeNull();
+    expect(gr.status).toBe("draft");
+
+    const confirmed = await confirmGoodsReceipt("gr-adhoc", { receipts, orders, stock });
+    expect(confirmed.status).toBe("confirmed");
+    expect((await stock.getBalanceDetail("item-A", WH)).onHand.toString()).toBe("2.000000");
+  });
+
+  it("rejects an ad-hoc receipt missing a supplier, warehouse, or lines", async () => {
+    const orders = new InMemoryPurchaseOrders();
+    const numbering = makeNumbering();
+    await expect(
+      createGoodsReceipt(
+        { id: "gr-1", date: "2026-08-22", warehouseId: WH, lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
+        { receipts: new InMemoryGoodsReceipts(), orders, numbering },
+      ),
+    ).rejects.toThrow(/supplier is required/);
+    await expect(
+      createGoodsReceipt(
+        { id: "gr-2", date: "2026-08-22", supplierId: "sup-1", lines: [{ itemId: "item-A", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
+        { receipts: new InMemoryGoodsReceipts(), orders, numbering },
+      ),
+    ).rejects.toThrow(/warehouse is required/);
+    await expect(
+      createGoodsReceipt(
+        { id: "gr-3", date: "2026-08-22", supplierId: "sup-1", warehouseId: WH },
+        { receipts: new InMemoryGoodsReceipts(), orders, numbering },
+      ),
+    ).rejects.toThrow(/lines are required/);
+  });
+
+  describe("cancelGoodsReceipt", () => {
+    it("cancels a draft receipt trivially (no stock reversal)", async () => {
+      const { orders, numbering } = await sentOrder();
+      const receipts = new InMemoryGoodsReceipts();
+      const stock = new RecordingStockPort();
+      const layers = new FakeCostLayers();
+      await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+      const cancelled = await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers });
+      expect(cancelled.status).toBe("cancelled");
+      expect(stock.reversed).toHaveLength(0);
+    });
+
+    it("reverses stock and rolls back the linked PO when trackSoldPurchaseItems is off", async () => {
+      const { orders, numbering } = await sentOrder();
+      const receipts = new InMemoryGoodsReceipts();
+      const stock = new RecordingStockPort();
+      const layers = new FakeCostLayers();
+      await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+      await confirmGoodsReceipt("gr-1", { receipts, orders, stock: makeStockService() });
+      // re-derive the PO from the real confirm above, then cancel using the recording stock port
+      const cancelled = await cancelGoodsReceipt("gr-1", {
+        receipts,
+        orders,
+        stock,
+        layers,
+        policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: false },
+      });
+      expect(cancelled.status).toBe("cancelled");
+      expect(stock.reversed).toHaveLength(1);
+      const po = await orders.findById("po-1");
+      expect(po?.lines.every((l) => l.receivedQty.isZero())).toBe(true);
+      expect(po?.status).toBe("sent");
+    });
+
+    it("rejects cancelling when trackSoldPurchaseItems is on and a layer has been drawn down", async () => {
+      const { orders, numbering } = await sentOrder();
+      const receipts = new InMemoryGoodsReceipts();
+      const stock = new RecordingStockPort();
+      await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+      await confirmGoodsReceipt("gr-1", { receipts, orders, stock: makeStockService() });
+      const layers = new FakeCostLayers([
+        layer({ id: "layer-1", itemId: "item-A", warehouseId: WH, sourceDocId: "gr-1", originalQty: Qty.fromMajor("10"), remainingQty: Qty.fromMajor("4") }),
+      ]);
+      await expect(cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers })).rejects.toThrow(PurchaseItemsAlreadyConsumedError);
+      expect(stock.reversed).toHaveLength(0);
+    });
+
+    it("rejects cancelling an already-invoiced receipt regardless of status", async () => {
+      const { orders, numbering } = await sentOrder();
+      const receipts = new InMemoryGoodsReceipts();
+      await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+      const gr = await receipts.findById("gr-1");
+      await receipts.update({ ...(gr as NonNullable<typeof gr>), status: "confirmed", invoiced: true });
+      await expect(
+        cancelGoodsReceipt("gr-1", { receipts, orders, stock: new RecordingStockPort(), layers: new FakeCostLayers() }),
+      ).rejects.toThrow(GoodsReceiptAlreadyInvoicedError);
+    });
+
+    it("rejects cancelling an already-cancelled receipt", async () => {
+      const { orders, numbering } = await sentOrder();
+      const receipts = new InMemoryGoodsReceipts();
+      await createGoodsReceipt({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }, { receipts, orders, numbering });
+      const stock = new RecordingStockPort();
+      const layers = new FakeCostLayers();
+      await cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers });
+      await expect(cancelGoodsReceipt("gr-1", { receipts, orders, stock, layers })).rejects.toThrow(PurchaseDocumentNotDraftError);
+    });
+
+    it("404s on a missing receipt", async () => {
+      const orders = new InMemoryPurchaseOrders();
+      const receipts = new InMemoryGoodsReceipts();
+      await expect(
+        cancelGoodsReceipt("nope", { receipts, orders, stock: new RecordingStockPort(), layers: new FakeCostLayers() }),
+      ).rejects.toThrow(GoodsReceiptNotFoundError);
+    });
   });
 });
 
@@ -350,7 +550,11 @@ describe("Purchase Invoice", () => {
       lines: [{ itemId: "item-Y", kind: "inventory" as const, qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }],
     };
     await expect(
-      createPurchaseInvoice(manual, { invoices, numbering, policy: { requireReceiptForInvoice: true, blockOverReceipt: false } }),
+      createPurchaseInvoice(manual, {
+        invoices,
+        numbering,
+        policy: { requirePoForGrn: false, requireReceiptForInvoice: true, blockOverReceipt: false, trackSoldPurchaseItems: true },
+      }),
     ).rejects.toThrow(/PURCHASE_RECEIPT_REQUIRED|required/);
     const inv = await createPurchaseInvoice(manual, { invoices, numbering });
     expect(inv.status).toBe("draft");
@@ -376,5 +580,111 @@ describe("Purchase Invoice", () => {
     await expect(
       confirmPurchaseInvoice("pi-1", { invoices, stock, gl, accounts: ACCOUNTS, now }),
     ).rejects.toThrow();
+  });
+
+  describe("cancelPurchaseInvoice", () => {
+    async function confirmedManualInvoice() {
+      const invoices = new InMemoryPurchaseInvoices();
+      const numbering = makeNumbering();
+      const stock = makeStockService();
+      await createPurchaseInvoice(
+        {
+          id: "pi-c",
+          supplierId: "sup-2",
+          date: "2026-08-23",
+          branchId: "MAIN",
+          warehouseId: WH,
+          lines: [{ itemId: "item-Q", kind: "inventory", qty: Qty.fromMajor("2"), unitCost: Money.fromMajor("10.00") }],
+        },
+        { invoices, numbering },
+      );
+      const gl = new RecordingGlPort();
+      await confirmPurchaseInvoice("pi-c", { invoices, stock, gl, accounts: ACCOUNTS, now });
+      return { invoices, numbering };
+    }
+
+    it("cancels a draft invoice trivially (no glReverse/stock calls)", async () => {
+      const invoices = new InMemoryPurchaseInvoices();
+      const numbering = makeNumbering();
+      await createPurchaseInvoice(
+        { id: "pi-d", supplierId: "sup-2", date: "2026-08-23", branchId: "MAIN", warehouseId: WH, lines: [{ itemId: "item-Q", kind: "inventory", qty: Qty.fromMajor("1"), unitCost: Money.fromMajor("10.00") }] },
+        { invoices, numbering },
+      );
+      const stock = new RecordingStockPort();
+      const glReverse = new RecordingGlReversalPort();
+      const cancelled = await cancelPurchaseInvoice("pi-d", { invoices, stock, glReverse, layers: new FakeCostLayers() });
+      expect(cancelled.status).toBe("cancelled");
+      expect(stock.reversed).toHaveLength(0);
+      expect(glReverse.calls).toHaveLength(0);
+    });
+
+    it("cancels a confirmed MANUAL invoice: reverses GL and stock", async () => {
+      const { invoices } = await confirmedManualInvoice();
+      const stock = new RecordingStockPort();
+      const glReverse = new RecordingGlReversalPort();
+      const cancelled = await cancelPurchaseInvoice("pi-c", {
+        invoices,
+        stock,
+        glReverse,
+        layers: new FakeCostLayers(),
+        policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: false },
+      });
+      expect(cancelled.status).toBe("cancelled");
+      expect(glReverse.calls).toHaveLength(1);
+      expect(glReverse.calls[0]?.sourceDocId).toBe("pi-c");
+      expect(stock.reversed).toHaveLength(1); // manual invoice owns its own stock posting
+    });
+
+    it("cancels a confirmed FROM-RECEIPT invoice: reverses GL but NOT stock (the receipt owns it)", async () => {
+      const { receipts, invoices, numbering, stock: realStock } = await receivedChain();
+      const receipt = await receipts.findById("gr-1");
+      await createPurchaseInvoice(
+        { id: "pi-fr", supplierId: "sup-1", date: "2026-08-23", branchId: "MAIN", warehouseId: WH, receiptId: "gr-1", lines: buildInvoiceLinesFromReceipt(receipt!, () => 14) },
+        { invoices, receipts, numbering },
+      );
+      const gl = new RecordingGlPort();
+      await confirmPurchaseInvoice("pi-fr", { invoices, receipts, stock: realStock, gl, accounts: ACCOUNTS, now });
+
+      const stock = new RecordingStockPort();
+      const glReverse = new RecordingGlReversalPort();
+      const cancelled = await cancelPurchaseInvoice("pi-fr", {
+        invoices,
+        stock,
+        glReverse,
+        layers: new FakeCostLayers(),
+        policy: { requirePoForGrn: false, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: false },
+      });
+      expect(cancelled.status).toBe("cancelled");
+      expect(glReverse.calls).toHaveLength(1);
+      expect(stock.reversed).toHaveLength(0); // receipt owns the stock, not the invoice
+    });
+
+    it("rejects cancelling when trackSoldPurchaseItems is on and a layer has been consumed — and never touches GL/stock", async () => {
+      const { invoices } = await confirmedManualInvoice();
+      const stock = new RecordingStockPort();
+      const glReverse = new RecordingGlReversalPort();
+      const layers = new FakeCostLayers([
+        layer({ id: "layer-1", itemId: "item-Q", warehouseId: WH, sourceDocId: "pi-c", originalQty: Qty.fromMajor("2"), remainingQty: Qty.fromMajor("1") }),
+      ]);
+      await expect(cancelPurchaseInvoice("pi-c", { invoices, stock, glReverse, layers })).rejects.toThrow(PurchaseItemsAlreadyConsumedError);
+      expect(glReverse.calls).toHaveLength(0);
+      expect(stock.reversed).toHaveLength(0);
+    });
+
+    it("rejects cancelling an already-cancelled invoice", async () => {
+      const { invoices } = await confirmedManualInvoice();
+      const stock = new RecordingStockPort();
+      const glReverse = new RecordingGlReversalPort();
+      const layers = new FakeCostLayers();
+      await cancelPurchaseInvoice("pi-c", { invoices, stock, glReverse, layers });
+      await expect(cancelPurchaseInvoice("pi-c", { invoices, stock, glReverse, layers })).rejects.toThrow(PurchaseDocumentNotDraftError);
+    });
+
+    it("404s on a missing invoice", async () => {
+      const invoices = new InMemoryPurchaseInvoices();
+      await expect(
+        cancelPurchaseInvoice("nope", { invoices, stock: new RecordingStockPort(), glReverse: new RecordingGlReversalPort(), layers: new FakeCostLayers() }),
+      ).rejects.toThrow(PurchaseInvoiceNotFoundError);
+    });
   });
 });

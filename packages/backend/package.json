@@ -1,0 +1,16 @@
+{
+  "name": "@mezan/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@mezan/api": "workspace:*",
+    "@mezan/contracts": "workspace:*",
+    "@mezan/domain": "workspace:*",
+    "@mezan/persistence": "workspace:*",
+    "hono": "^4.6.14"
+  }
+}

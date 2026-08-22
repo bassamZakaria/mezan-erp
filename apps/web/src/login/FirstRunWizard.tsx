@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { BrandMark, Button, StatusPill } from "@mezan/ui";
+import { useBootstrapSeed, useCreateFirstAdmin } from "../data/hooks";
 import { demoTenantName, seedTasks } from "./login-sample-data";
 
 const STEPS = [
@@ -70,6 +71,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [stepIndex, setStepIndex] = useState(0);
   const step: StepKey = (STEPS[stepIndex] ?? STEPS[0]).key;
 
+  const seedMutation = useBootstrapSeed();
+  const createAdmin = useCreateFirstAdmin();
+
   const [licenseKey, setLicenseKey] = useState("");
   const [activateStatus, setActivateStatus] = useState<"idle" | "activating" | "done">("idle");
 
@@ -78,6 +82,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [adminPin, setAdminPin] = useState("");
   const [adminPinConfirm, setAdminPinConfirm] = useState("");
   const [adminError, setAdminError] = useState<string | null>(null);
+  const [adminCreated, setAdminCreated] = useState(false);
 
   const [seedDone, setSeedDone] = useState<Record<string, boolean>>({});
 
@@ -102,15 +107,37 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
       return;
     }
     setAdminError(null);
-    goNext();
+    if (adminCreated) {
+      goNext();
+      return;
+    }
+    // Persist the admin for real and establish their session, then advance.
+    createAdmin.mutate(
+      { fullName: adminName.trim(), email: adminEmail.trim(), pin: adminPin },
+      {
+        onSuccess: () => {
+          setAdminCreated(true);
+          goNext();
+        },
+        onError: (err) => setAdminError(err.message),
+      },
+    );
   }
 
   function toggleSeedTask(key: string) {
-    setSeedDone((prev) => ({ ...prev, [key]: !prev[key] }));
+    if (seedDone[key]) {
+      setSeedDone((prev) => ({ ...prev, [key]: false }));
+      return;
+    }
+    seedMutation.mutate(undefined, {
+      onSuccess: () => setSeedDone((prev) => ({ ...prev, [key]: true })),
+    });
   }
 
   function markAllSeedTasksDone() {
-    setSeedDone(Object.fromEntries(seedTasks.map((t) => [t.key, true])));
+    seedMutation.mutate(undefined, {
+      onSuccess: () => setSeedDone(Object.fromEntries(seedTasks.map((t) => [t.key, true]))),
+    });
   }
 
   function goNext() {
@@ -203,7 +230,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
                 {adminError}
               </p>
             ) : null}
-            <StubNote>لا يتم حفظ هذا الحساب فعلياً بعد — الربط بخدمة المستخدمين خارج نطاق هذا العرض.</StubNote>
+            <p className="mt-[10px] text-[11.5px] text-ink-muted">
+              يُحفظ هذا الحساب فعلياً كمستخدم مدير ويُستخدم لتسجيل الدخول إلى النظام.
+            </p>
           </section>
         ) : null}
 
@@ -235,7 +264,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
                 );
               })}
             </ul>
-            <StubNote>هذه خطوة تجريبية تُظهر التسلسل فقط — التهيئة الفعلية لكل عنصر (COA/الضريبة/الترقيم/الفرع/المستودع) خارج نطاق هذا العرض.</StubNote>
+            <p className="mt-[10px] text-[11.5px] text-ink-muted">
+              التهيئة تُنفَّذ فعلياً على قاعدة البيانات (دليل الحسابات، الضريبة، الترقيم، الفرع، المستودع) وهي آمنة للتكرار.
+            </p>
           </section>
         ) : null}
 

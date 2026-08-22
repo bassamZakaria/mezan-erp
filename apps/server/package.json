@@ -4,8 +4,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@mezan/api": "workspace:*",
-    "@mezan/persistence": "workspace:*",
+    "@mezan/backend": "workspace:*",
     "@hono/node-server": "^1.13.7"
   }
 }

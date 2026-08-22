@@ -86,3 +86,4 @@ export {
   type SqlitePurchaseInvoiceStoreHandle,
   type SqlitePurchasingStores,
 } from "./purchasing-stores.js";
+export { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";

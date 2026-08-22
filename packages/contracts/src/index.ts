@@ -328,5 +328,22 @@ export {
   type CreatePurchaseInvoiceDTO,
 } from "./purchasing.js";
 
+export {
+  salesInvoiceStatusSchema,
+  salesInvoiceDiscountSchema,
+  createSalesInvoiceLineSchema,
+  createSalesInvoiceSchema,
+  confirmSalesInvoiceSchema,
+  salesInvoicePaymentSchema,
+  salesInvoiceListQuerySchema,
+  type SalesInvoiceStatusDTO,
+  type SalesInvoiceDiscountDTO,
+  type CreateSalesInvoiceLineDTO,
+  type CreateSalesInvoiceDTO,
+  type ConfirmSalesInvoiceDTO,
+  type SalesInvoicePaymentDTO,
+  type SalesInvoiceListQueryDTO,
+} from "./sales-invoice.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

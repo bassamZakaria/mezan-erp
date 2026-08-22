@@ -120,6 +120,46 @@ export interface PostReceiptCommand {
   readonly occurredAt?: string;
 }
 
+/** One line of a document-driven stock issue (a sale, a POS sale…). */
+export interface IssueLine {
+  readonly itemId: string;
+  readonly qty: Qty;
+}
+
+/**
+ * Issue stock OUT against a source document (docs/catalog/01 — a confirmed sales
+ * invoice deducts stock). Each line leaves at the position's moving-average cost,
+ * so the caller learns the cost of goods issued (for a Dr COGS / Cr Inventory
+ * posting) without re-deriving WAC. Optionally the engine posts that balancing
+ * entry itself via the GL port (as `postAdjustment` does); omit `gl` when the
+ * caller composes a single combined journal entry (revenue + COGS) instead.
+ */
+export interface PostIssueCommand {
+  readonly issueId: string;
+  readonly sourceDocType: StockSourceDocType;
+  readonly sourceDocId: string;
+  readonly sourceDocNumber?: string | null;
+  readonly warehouseId: string;
+  readonly lines: readonly IssueLine[];
+  readonly occurredAt?: string;
+  /** Post Dr COGS / Cr Inventory for the total issued cost. Omit to let the caller post. */
+  readonly gl?: { readonly cogsAccountId: string; readonly inventoryAccountId: string };
+}
+
+/** The moving-average cost at which one issue line left stock. */
+export interface IssueLineCost {
+  readonly itemId: string;
+  readonly qty: Qty;
+  readonly unitCost: Money;
+  /** qty × unitCost — the cost of goods issued for this line (a positive magnitude). */
+  readonly cost: Money;
+}
+
+export interface PostIssueResult {
+  readonly totalCost: Money;
+  readonly lines: readonly IssueLineCost[];
+}
+
 export class StockLedgerService {
   constructor(private readonly deps: StockLedgerServiceDeps) {}
 
@@ -310,6 +350,66 @@ export class StockLedgerService {
         valueDelta,
         movementIds,
       });
+    });
+  }
+
+  /**
+   * Issue stock OUT against a source document (a confirmed sales invoice / POS
+   * sale). Each line leaves at the moving-average cost; the returned per-line +
+   * total cost is the cost of goods sold. When `gl` is supplied the balancing
+   * Dr COGS / Cr Inventory entry is posted here; otherwise the caller composes it.
+   */
+  async postIssue(command: PostIssueCommand): Promise<PostIssueResult> {
+    if (command.lines.length === 0) {
+      throw new InvalidStockMovementError(["an issue needs at least one line"]);
+    }
+    for (let i = 0; i < command.lines.length; i++) {
+      const line = command.lines[i] as IssueLine;
+      if (line.qty.isNegative() || line.qty.isZero()) {
+        throw new InvalidStockMovementError([`line ${i}: qty must be a positive magnitude`]);
+      }
+    }
+    const occurredAt = command.occurredAt ?? this.now();
+
+    return this.runInTransaction(async () => {
+      const lineCosts: IssueLineCost[] = [];
+      let totalCost = Money.zero();
+
+      for (let i = 0; i < command.lines.length; i++) {
+        const line = command.lines[i] as IssueLine;
+        const { signedValue, unitCost } = await this.applyMovement({
+          movementId: `${command.issueId}:${i}`,
+          itemId: line.itemId,
+          warehouseId: command.warehouseId,
+          direction: "OUT",
+          qty: line.qty,
+          sourceDocType: command.sourceDocType,
+          sourceDocId: command.sourceDocId,
+          sourceDocNumber: command.sourceDocNumber ?? null,
+          reason: null,
+          occurredAt,
+        });
+        // OUT signedValue is negative COGS; the reported cost is its magnitude.
+        const cost = signedValue.negate();
+        totalCost = totalCost.add(cost);
+        lineCosts.push({ itemId: line.itemId, qty: line.qty, unitCost, cost });
+      }
+
+      if (command.gl && this.deps.gl && totalCost.scaled !== 0n) {
+        await this.deps.gl.post({
+          sourceDocType: command.sourceDocType,
+          sourceDocId: command.sourceDocId,
+          sourceDocNumber: command.sourceDocNumber ?? null,
+          date: occurredAt,
+          memo: `Stock issue ${command.sourceDocNumber ?? command.sourceDocId}`,
+          lines: [
+            { accountId: command.gl.cogsAccountId, debit: totalCost, credit: Money.zero() },
+            { accountId: command.gl.inventoryAccountId, debit: Money.zero(), credit: totalCost },
+          ],
+        });
+      }
+
+      return { totalCost, lines: lineCosts };
     });
   }
 

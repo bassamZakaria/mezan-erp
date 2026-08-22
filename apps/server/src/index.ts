@@ -8,6 +8,10 @@ import {
   createSqliteWarehouseStore,
   createSqliteCustomerRepository,
   createSqliteSupplierRepository,
+  createSqliteTaxRateRepository,
+  createSqliteCostCenterRepository,
+  createSqliteTreasuryAccountRepository,
+  createSqliteFiscalPeriodRepository,
 } from "@mezan/persistence";
 import { seedStandardChartOfAccounts } from "@mezan/domain";
 
@@ -28,6 +32,10 @@ if ((await accountRepo.list()).length === 0) {
 
 const customerStore = createSqliteCustomerRepository(process.env.MEZAN_CUSTOMERS_DB ?? ":memory:");
 const supplierStore = createSqliteSupplierRepository(process.env.MEZAN_SUPPLIERS_DB ?? ":memory:");
+const taxRateRepo = createSqliteTaxRateRepository(process.env.MEZAN_TAX_DB ?? ":memory:");
+const costCenterRepo = createSqliteCostCenterRepository(process.env.MEZAN_COST_CENTER_DB ?? ":memory:");
+const treasuryAccountRepo = createSqliteTreasuryAccountRepository(process.env.MEZAN_TREASURY_DB ?? ":memory:");
+const fiscalPeriodRepo = createSqliteFiscalPeriodRepository(process.env.MEZAN_FISCAL_PERIOD_DB ?? ":memory:");
 
 const app = createApp(uow, {
   settingsStore,
@@ -36,6 +44,10 @@ const app = createApp(uow, {
   accounts: { repo: accountRepo },
   customerStore,
   supplierStore,
+  taxRateRepo,
+  costCenterRepo,
+  treasuryAccountRepo,
+  fiscalPeriodRepo,
 });
 const port = Number(process.env.PORT ?? 3000);
 

@@ -1,0 +1,65 @@
+import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository } from "./tax-rate.js";
+import { DuplicateTaxCodeError, InvalidTaxRateError } from "./errors.js";
+
+export interface CreateTaxRateCommand {
+  readonly id: string;
+  readonly code: string;
+  readonly name: string;
+  readonly rate: number;
+  readonly calculationType?: TaxCalculationType;
+  readonly isDefault?: boolean;
+  readonly outputTaxAccountId?: string | null;
+  readonly inputTaxAccountId?: string | null;
+  readonly etaSubType?: EtaVatSubType;
+}
+
+function assertValidRate(rate: number): void {
+  if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
+    throw new InvalidTaxRateError(`Tax rate must be a number between 0 and 100, got ${rate}.`);
+  }
+}
+
+/**
+ * Validates a new-tax-rate command against the existing list (docs/catalog/04
+ * "الضرائب"): the code must be unique and the rate must be a 0–100 percentage.
+ */
+export function validateNewTaxRate(command: CreateTaxRateCommand, existing: readonly TaxRate[]): void {
+  if (existing.some((t) => t.code === command.code)) {
+    throw new DuplicateTaxCodeError(command.code);
+  }
+  assertValidRate(command.rate);
+}
+
+/**
+ * Creates and persists a new tax rate. New rates always start `active`. At
+ * most one tax rate may be `isDefault` — when the new rate is marked default,
+ * every currently-default rate is flipped off first (mirrors the mockup's
+ * single "الافتراضي" badge).
+ */
+export async function createTaxRate(command: CreateTaxRateCommand, repo: TaxRateRepository): Promise<TaxRate> {
+  const existing = await repo.list();
+  validateNewTaxRate(command, existing);
+
+  const isDefault = command.isDefault ?? false;
+  if (isDefault) {
+    for (const other of existing) {
+      if (other.isDefault) await repo.update({ ...other, isDefault: false });
+    }
+  }
+
+  const taxRate: TaxRate = {
+    id: command.id,
+    code: command.code,
+    name: command.name,
+    rate: command.rate,
+    calculationType: command.calculationType ?? "exclusive",
+    isDefault,
+    outputTaxAccountId: command.outputTaxAccountId ?? null,
+    inputTaxAccountId: command.inputTaxAccountId ?? null,
+    etaSubType: command.etaSubType ?? "auto",
+    status: "active",
+  };
+
+  await repo.create(taxRate);
+  return taxRate;
+}

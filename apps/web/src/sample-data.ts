@@ -51,6 +51,15 @@ export const navGroups: NavGroup[] = [
       { key: "cost-centers", label: "مراكز التكلفة" },
       { key: "journals", label: "القيود المحاسبية" },
       { key: "fiscal-periods", label: "الفترات المالية" },
+      { key: "taxes", label: "الضرائب" },
+    ],
+  },
+  {
+    key: "treasury",
+    label: "الخزينة",
+    items: [
+      { key: "treasury-accounts", label: "حسابات الخزينة" },
+      { key: "treasury-vouchers", label: "السندات النقدية", tag: { label: "قريباً", tone: "soon" } },
     ],
   },
   {

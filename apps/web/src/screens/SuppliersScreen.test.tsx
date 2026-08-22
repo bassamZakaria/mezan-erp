@@ -48,13 +48,13 @@ describe("SuppliersScreen", () => {
     expect(screen.getByText("مورد تجريبي")).toBeInTheDocument();
   });
 
-  it("shows a domain validation error instead of adding an invalid supplier", () => {
+  it("shows an Arabic domain validation error instead of adding an invalid supplier", () => {
     render(<SuppliersScreen />);
     fireEvent.click(screen.getByRole("button", { name: "إضافة مورد" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة مورد" });
     // Leave the required Arabic name empty and try to save.
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة مورد" }));
-    expect(within(dialog).getByText(/Invalid supplier/)).toBeInTheDocument();
+    expect(within(dialog).getByText("الاسم بالعربية مطلوب")).toBeInTheDocument();
   });
 
   it("edits an existing supplier from the detail view without clobbering its opening balance", () => {
@@ -67,5 +67,18 @@ describe("SuppliersScreen", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
 
     expect(screen.getByText(/3,200|3200/)).toBeInTheDocument();
+  });
+
+  it("lets an editing supplier be toggled inactive via the active/inactive switch", () => {
+    render(<SuppliersScreen />);
+    fireEvent.click(screen.getByText("جاري"));
+    fireEvent.click(screen.getByRole("button", { name: "تعديل" }));
+
+    const dialog = screen.getByRole("dialog", { name: "تعديل مورد" });
+    expect(within(dialog).getByRole("switch", { name: "نشط" })).toHaveAttribute("aria-checked", "true");
+    fireEvent.click(within(dialog).getByRole("switch", { name: "نشط" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "حفظ التعديلات" }));
+
+    expect(screen.getByText("غير نشط")).toBeInTheDocument();
   });
 });

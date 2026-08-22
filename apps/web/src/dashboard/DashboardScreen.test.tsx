@@ -62,6 +62,39 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect(screen.getByText("16,578.95")).toBeInTheDocument();
   });
 
+  it("filters top items by the date-range chip, not just its pressed state", () => {
+    render(<DashboardScreen />);
+    const rangeGroup = screen.getByRole("group", { name: "نطاق التاريخ · الأصناف الأعلى مبيعاً" });
+    expect(screen.getByText("18,900.00")).toBeInTheDocument();
+
+    const button3Months = within(rangeGroup).getByRole("button", { name: "3 أشهر" });
+    fireEvent.click(button3Months);
+    expect(button3Months).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("18,900.00")).not.toBeInTheDocument();
+    expect(screen.getByText("56,700.00")).toBeInTheDocument();
+  });
+
+  it("filters top customers by the date-range chip, not just its pressed state", () => {
+    render(<DashboardScreen />);
+    const rangeGroup = screen.getByRole("group", { name: "خيارات العرض · أعلى العملاء مبيعاً" });
+    expect(screen.getByText("24,850.00")).toBeInTheDocument();
+
+    const button3Months = within(rangeGroup).getByRole("button", { name: "3 أشهر" });
+    fireEvent.click(button3Months);
+    expect(button3Months).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByText("24,850.00")).not.toBeInTheDocument();
+    expect(screen.getByText("74,550.00")).toBeInTheDocument();
+  });
+
+  it("filters the expense-breakdown donut by the date-range chip, not just its pressed state", () => {
+    render(<DashboardScreen />);
+    expect(screen.getByText("21.4 ألف")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "آخر 3 أشهر" }));
+    expect(screen.queryByText("21.4 ألف")).not.toBeInTheDocument();
+    expect(screen.getByText("64.2 ألف")).toBeInTheDocument();
+  });
+
   it("shows the company-wide footer disclaimer", () => {
     render(<DashboardScreen />);
     expect(

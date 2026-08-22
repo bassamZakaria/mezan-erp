@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { cn } from "@mezan/ui";
 
 /**
@@ -18,19 +18,27 @@ export interface FieldProps {
   hint?: string;
   required?: boolean;
   className?: string;
+  /** The hint `<span>`'s `id`, referenced by the control's `aria-describedby` — keeps hint text out of the `<label>`'s accessible name (it's rendered as a sibling of the label, not inside it). */
+  hintId?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint, required, className, children }: FieldProps) {
+export function Field({ label, hint, required, className, hintId, children }: FieldProps) {
   return (
-    <label className={cn("flex flex-col gap-[6px]", className)}>
-      <span className="text-xs font-semibold text-ink-muted">
-        {label}
-        {required ? " *" : ""}
-      </span>
-      {children}
-      {hint ? <span className="text-[11px] text-ink-faint">{hint}</span> : null}
-    </label>
+    <div className={cn("flex flex-col gap-[6px]", className)}>
+      <label className="flex flex-col gap-[6px]">
+        <span className="text-xs font-semibold text-ink-muted">
+          {label}
+          {required ? " *" : ""}
+        </span>
+        {children}
+      </label>
+      {hint ? (
+        <span id={hintId} className="text-[11px] text-ink-faint">
+          {hint}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -66,8 +74,9 @@ export interface TextFieldProps {
 }
 
 export function TextField({ label, value, onChange, placeholder, hint, required, disabled, dir }: TextFieldProps) {
+  const hintId = useId();
   return (
-    <Field label={label} hint={hint} required={required}>
+    <Field label={label} hint={hint} required={required} hintId={hint ? hintId : undefined}>
       <input
         type="text"
         dir={dir}
@@ -75,6 +84,7 @@ export function TextField({ label, value, onChange, placeholder, hint, required,
         value={value}
         placeholder={placeholder}
         disabled={disabled}
+        aria-describedby={hint ? hintId : undefined}
         onChange={(e) => onChange(e.target.value)}
         className={controlClass}
       />
@@ -98,9 +108,16 @@ export interface SelectFieldProps {
 }
 
 export function SelectField({ label, value, onChange, options, hint, required, disabled }: SelectFieldProps) {
+  const hintId = useId();
   return (
-    <Field label={label} hint={hint} required={required}>
-      <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={controlClass}>
+    <Field label={label} hint={hint} required={required} hintId={hint ? hintId : undefined}>
+      <select
+        value={value}
+        disabled={disabled}
+        aria-describedby={hint ? hintId : undefined}
+        onChange={(e) => onChange(e.target.value)}
+        className={controlClass}
+      >
         {options.map((opt) => (
           <option key={opt.value} value={opt.value}>
             {opt.label}
@@ -121,14 +138,16 @@ export interface NumberFieldProps {
 }
 
 export function NumberField({ label, value, onChange, hint, min, disabled }: NumberFieldProps) {
+  const hintId = useId();
   return (
-    <Field label={label} hint={hint}>
+    <Field label={label} hint={hint} hintId={hint ? hintId : undefined}>
       <input
         type="number"
         dir="ltr"
         min={min}
         disabled={disabled}
         value={value ?? ""}
+        aria-describedby={hint ? hintId : undefined}
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         className={cn(controlClass, "mz-num")}
       />
@@ -145,17 +164,23 @@ export interface ToggleFieldProps {
 }
 
 export function ToggleField({ label, checked, onChange, hint, disabled }: ToggleFieldProps) {
+  const hintId = useId();
   return (
     <div className="flex items-start justify-between gap-[14px] rounded-md border border-border px-[12px] py-[10px]">
       <div>
         <div className="text-[12.5px] font-semibold text-ink">{label}</div>
-        {hint ? <div className="mt-[3px] max-w-[46ch] text-[11px] text-ink-muted">{hint}</div> : null}
+        {hint ? (
+          <div id={hintId} className="mt-[3px] max-w-[46ch] text-[11px] text-ink-muted">
+            {hint}
+          </div>
+        ) : null}
       </div>
       <button
         type="button"
         role="switch"
         aria-checked={checked}
         aria-label={label}
+        aria-describedby={hint ? hintId : undefined}
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(

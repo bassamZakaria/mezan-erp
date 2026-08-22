@@ -4,7 +4,7 @@ import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type Tr
 import type { TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { demoTreasuryAccounts } from "../accounting-treasury-sample-data";
 import { sampleBranches, branchName } from "../settings/sample-data";
-import { SelectField, TextField } from "../settings/form-controls";
+import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
@@ -24,16 +24,41 @@ interface TreasuryAccountDraft {
   glAccountId: string;
   openingBalance: number | null;
   openingBalanceDate: string;
+  active: boolean;
 }
 
 function blankDraft(): TreasuryAccountDraft {
-  return { code: "", name: "", type: "cash", currency: "EGP", branchId: sampleBranches[0]?.id ?? "", glAccountId: "", openingBalance: 0, openingBalanceDate: "" };
+  return {
+    code: "",
+    name: "",
+    type: "cash",
+    currency: "EGP",
+    branchId: sampleBranches[0]?.id ?? "",
+    glAccountId: "",
+    openingBalance: 0,
+    openingBalanceDate: "",
+    active: true,
+  };
 }
 
-function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO[]): string | null {
+function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
+  return {
+    code: account.code,
+    name: account.name,
+    type: account.type,
+    currency: account.currency,
+    branchId: account.branchId,
+    glAccountId: account.glAccountId ?? "",
+    openingBalance: toMajor(account.openingBalance),
+    openingBalanceDate: account.openingBalanceDate ?? "",
+    active: account.status === "active",
+  };
+}
+
+function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO[], editingId: string | null): string | null {
   const code = draft.code.trim();
   if (code === "") return "الكود مطلوب.";
-  if (existing.some((a) => a.code === code)) return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
+  if (existing.some((a) => a.code === code && a.id !== editingId)) return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
   if (draft.name.trim() === "") return "اسم الحساب مطلوب.";
   if (draft.branchId.trim() === "") return "الفرع مطلوب.";
   if (draft.type === "cash" && (draft.openingBalance ?? 0) < 0) {
@@ -49,6 +74,7 @@ export function TreasuryAccountsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -72,32 +98,61 @@ export function TreasuryAccountsScreen() {
   const selected = selectedId ? accounts.find((a) => a.id === selectedId) ?? null : null;
 
   function openCreateForm() {
+    setEditingId(null);
     setDraft(blankDraft());
+    setFormError(null);
+    setFormOpen(true);
+  }
+
+  function openEditForm(account: TreasuryAccountDTO) {
+    setEditingId(account.id);
+    setDraft(draftFromAccount(account));
     setFormError(null);
     setFormOpen(true);
   }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const error = validateDraft(draft, accounts);
+    const error = validateDraft(draft, accounts, editingId);
     if (error) {
       setFormError(error);
       return;
     }
     setFormError(null);
-    const newAccount: TreasuryAccountDTO = {
-      id: `ta-${draft.code.trim()}-${Date.now()}`,
-      code: draft.code.trim(),
-      name: draft.name.trim(),
-      type: draft.type,
-      currency: draft.currency,
-      branchId: draft.branchId,
-      glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
-      openingBalance: (draft.openingBalance ?? 0).toFixed(6),
-      openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
-      status: "active",
-    };
-    setAccounts((prev) => [...prev, newAccount]);
+    if (editingId) {
+      setAccounts((prev) =>
+        prev.map((a) =>
+          a.id === editingId
+            ? {
+                ...a,
+                code: draft.code.trim(),
+                name: draft.name.trim(),
+                type: draft.type,
+                currency: draft.currency,
+                branchId: draft.branchId,
+                glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
+                openingBalance: (draft.openingBalance ?? 0).toFixed(6),
+                openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
+                status: draft.active ? "active" : "inactive",
+              }
+            : a,
+        ),
+      );
+    } else {
+      const newAccount: TreasuryAccountDTO = {
+        id: `ta-${draft.code.trim()}-${Date.now()}`,
+        code: draft.code.trim(),
+        name: draft.name.trim(),
+        type: draft.type,
+        currency: draft.currency,
+        branchId: draft.branchId,
+        glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
+        openingBalance: (draft.openingBalance ?? 0).toFixed(6),
+        openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
+        status: "active",
+      };
+      setAccounts((prev) => [...prev, newAccount]);
+    }
     setFormOpen(false);
   }
 
@@ -175,9 +230,14 @@ export function TreasuryAccountsScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `كشف حساب — ${selected.name}` : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <div className="flex flex-wrap items-center gap-[8px]">
-              <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
-              <StatusPill label={getTreasuryAccountTypeLabel(selected.type as DomainTreasuryAccountType)} tone="info" />
+            <div className="flex flex-wrap items-center justify-between gap-[8px]">
+              <div className="flex flex-wrap items-center gap-[8px]">
+                <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+                <StatusPill label={getTreasuryAccountTypeLabel(selected.type as DomainTreasuryAccountType)} tone="info" />
+              </div>
+              <Button variant="primary" onClick={() => openEditForm(selected)}>
+                تعديل
+              </Button>
             </div>
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
@@ -213,8 +273,13 @@ export function TreasuryAccountsScreen() {
         ) : null}
       </SidePanel>
 
-      {/* -------- Add treasury account form -------- */}
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="إضافة حساب" description="بيانات الحساب الأساسية">
+      {/* -------- Add/edit treasury account form -------- */}
+      <SidePanel
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        title={editingId ? "تعديل حساب" : "إضافة حساب"}
+        description="بيانات الحساب الأساسية"
+      >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -260,12 +325,16 @@ export function TreasuryAccountsScreen() {
             </div>
           </div>
 
+          {editingId ? (
+            <ToggleField label="نشط" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} />
+          ) : null}
+
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
               إلغاء
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {editingId ? "حفظ التعديلات" : "إضافة"}
             </Button>
           </div>
         </form>

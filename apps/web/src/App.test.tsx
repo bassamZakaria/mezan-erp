@@ -21,6 +21,8 @@ describe("App", () => {
     expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     // The top nav "لوحة التحكم" sidebar entry marks itself current when it's the active screen.
     expect(screen.getByRole("button", { name: "لوحة التحكم" })).toHaveAttribute("aria-current", "page");
+    // The shell surfaces the actual tenant name, not just the static "ميزان" product wordmark.
+    expect(screen.getByText("Cyag")).toBeInTheDocument();
   });
 
   it("routes to another screen and back to لوحة التحكم via the sidebar top item", () => {

@@ -20,7 +20,7 @@ export interface Supplier extends PartnerBase {
 export class InvalidSupplierError extends Error {
   readonly code = "INVALID_SUPPLIER";
   constructor(readonly reasons: readonly string[]) {
-    super(`Invalid supplier: ${reasons.join("; ")}`);
+    super(reasons.join("، "));
     this.name = "InvalidSupplierError";
   }
 }

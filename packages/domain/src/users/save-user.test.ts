@@ -104,6 +104,20 @@ describe("saveUser", () => {
     ).rejects.toBeInstanceOf(DuplicateUserEmailError);
   });
 
+  it("rejects a blank full name", async () => {
+    const uow = createFakeUow();
+    await expect(saveUser({ ...baseCmd, fullName: "   " }, uow, fakeHasher())).rejects.toBeInstanceOf(
+      InvalidUserError,
+    );
+  });
+
+  it("rejects a blank email", async () => {
+    const uow = createFakeUow();
+    await expect(saveUser({ ...baseCmd, email: "   " }, uow, fakeHasher())).rejects.toBeInstanceOf(
+      InvalidUserError,
+    );
+  });
+
   it("rejects a malformed PIN", async () => {
     const uow = createFakeUow();
     await expect(saveUser({ ...baseCmd, pin: "12" }, uow, fakeHasher())).rejects.toBeInstanceOf(

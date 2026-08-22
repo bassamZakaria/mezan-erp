@@ -12,7 +12,7 @@ import {
 } from "@mezan/ui";
 import { Money, createSupplier, updateSupplier, InvalidSupplierError, type Supplier } from "@mezan/domain";
 import { demoSuppliers } from "../partners-sample-data";
-import { TextField, NumberField } from "../settings/form-controls";
+import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
@@ -301,6 +301,7 @@ export function SuppliersScreen() {
       <TextField label="الحي" value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />
       <TextField label="الشارع" value={draft.addressStreet} onChange={(v) => setDraft((d) => ({ ...d, addressStreet: v }))} />
       <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+      {editingId ? <ToggleField label="نشط" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
       <div className="flex justify-end gap-[9px]">
         <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
         <Button variant="primary" onClick={submit}>

@@ -39,6 +39,8 @@ export function EntityPicker({
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
   const listboxId = useId();
+  const generatedInputId = useId();
+  const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
 
   const filtered =
@@ -75,12 +77,12 @@ export function EntityPicker({
   return (
     <div ref={containerRef} className={cn("relative", className)}>
       {label ? (
-        <label htmlFor={id} className="mb-[6px] block text-xs font-semibold text-ink-muted">
+        <label htmlFor={inputId} className="mb-[6px] block text-xs font-semibold text-ink-muted">
           {label}
         </label>
       ) : null}
       <input
-        id={id}
+        id={inputId}
         role="combobox"
         aria-expanded={open}
         aria-controls={listboxId}

@@ -13,7 +13,7 @@ export class InvalidUserError extends Error {
 export class DuplicateUserEmailError extends Error {
   readonly code = "DUPLICATE_USER_EMAIL";
   constructor(readonly email: string) {
-    super(`A user with email ${email} already exists`);
+    super(`يوجد مستخدم بالفعل بالبريد الإلكتروني "${email}"`);
     this.name = "DuplicateUserEmailError";
   }
 }
@@ -21,7 +21,7 @@ export class DuplicateUserEmailError extends Error {
 export class UnknownRoleError extends Error {
   readonly code = "UNKNOWN_ROLE";
   constructor(readonly roleId: string) {
-    super(`Role ${roleId} was not found`);
+    super(`الدور "${roleId}" غير موجود`);
     this.name = "UnknownRoleError";
   }
 }
@@ -29,7 +29,7 @@ export class UnknownRoleError extends Error {
 export class UserNotFoundError extends Error {
   readonly code = "USER_NOT_FOUND";
   constructor(readonly userId: string) {
-    super(`User ${userId} was not found`);
+    super(`المستخدم "${userId}" غير موجود`);
     this.name = "UserNotFoundError";
   }
 }
@@ -76,16 +76,22 @@ export async function saveUser(
   uow: UnitOfWork,
   hasher: SecretHasher,
 ): Promise<User> {
+  if (cmd.fullName.trim() === "") {
+    throw new InvalidUserError("الاسم الكامل مطلوب.");
+  }
+  if (cmd.email.trim() === "") {
+    throw new InvalidUserError("البريد الإلكتروني مطلوب.");
+  }
   if (cmd.isCompanyAdmin === (cmd.roleId !== null)) {
     throw new InvalidUserError(
-      "A user must have exactly one of: a role, or the company-admin bypass.",
+      "يجب أن يكون للمستخدم دور واحد فقط أو صلاحية مدير الشركة، وليس كليهما.",
     );
   }
   if (isScopeEmpty(cmd.branchScope)) {
-    throw new InvalidUserError("At least one branch is required.");
+    throw new InvalidUserError("يجب اختيار فرع واحد على الأقل.");
   }
   if (cmd.pin !== undefined && cmd.pin !== null && !PIN_PATTERN.test(cmd.pin)) {
-    throw new InvalidUserError("PIN must be 4 to 6 digits.");
+    throw new InvalidUserError("يجب أن يتكون الرقم السري من 4 إلى 6 أرقام.");
   }
 
   if (cmd.roleId) {
@@ -104,7 +110,7 @@ export async function saveUser(
     ? await hasher.hash(cmd.password)
     : prior?.passwordHash;
   if (!passwordHash) {
-    throw new InvalidUserError("A password is required to create a user.");
+    throw new InvalidUserError("كلمة المرور مطلوبة لإنشاء المستخدم.");
   }
 
   const pinHash =

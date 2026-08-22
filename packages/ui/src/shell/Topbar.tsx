@@ -6,6 +6,7 @@ import type { ShellUser } from "./types";
 export interface TopbarProps {
   onOpenCommandPalette: () => void;
   searchPlaceholder?: string;
+  tenantName?: string;
   scopeLabel?: string;
   theme: ThemePreference;
   onToggleTheme: () => void;
@@ -14,10 +15,11 @@ export interface TopbarProps {
   className?: string;
 }
 
-/** Topbar — search launcher (Ctrl K), branch scope chip, theme toggle, notifications, user menu. */
+/** Topbar — search launcher (Ctrl K), tenant chip, branch scope chip, theme toggle, notifications, user menu. */
 export function Topbar({
   onOpenCommandPalette,
   searchPlaceholder = "بحث عن صفحة، عميل، فاتورة، أو إجراء…",
+  tenantName,
   scopeLabel,
   theme,
   onToggleTheme,
@@ -50,6 +52,16 @@ export function Topbar({
       </button>
 
       <div className="flex-1" />
+
+      {tenantName ? (
+        <div className="mz-lat flex items-center gap-[7px] rounded-pill border border-border bg-surface-2 px-[12px] py-[7px] text-[12.5px] font-semibold text-ink">
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
+            <rect x="3.5" y="4.5" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
+            <path d="M7 8h6M7 11h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+          </svg>
+          {tenantName}
+        </div>
+      ) : null}
 
       {scopeLabel ? (
         <div className="flex items-center gap-[7px] rounded-pill border border-border bg-surface-2 px-[12px] py-[7px] text-[12.5px] font-medium text-ink-muted">

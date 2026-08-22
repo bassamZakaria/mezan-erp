@@ -14,6 +14,18 @@ describe("Topbar", () => {
     expect(screen.getByText("Ctrl K")).toBeInTheDocument();
   });
 
+  it("renders the tenant chip only when tenantName is supplied", () => {
+    const { rerender } = render(
+      <Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} />,
+    );
+    expect(screen.queryByText("Cyag")).not.toBeInTheDocument();
+
+    rerender(
+      <Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} tenantName="Cyag" />,
+    );
+    expect(screen.getByText("Cyag")).toBeInTheDocument();
+  });
+
   it("calls onOpenCommandPalette when the search button is clicked", () => {
     const onOpenCommandPalette = vi.fn();
     render(<Topbar onOpenCommandPalette={onOpenCommandPalette} theme="light" onToggleTheme={() => {}} user={user} />);

@@ -34,3 +34,4 @@ export {
 export { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
 export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
+export { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";

@@ -132,3 +132,6 @@ export * from "./documents/index.js";
 
 // --- vouchers/ — Treasury Vouchers (phase4/treasury-vouchers) ---
 export * from "./vouchers/index.js";
+
+// --- manufacturing/ — BOMs, work orders, configurable products (phase11/manufacturing) ---
+export * from "./manufacturing/index.js";

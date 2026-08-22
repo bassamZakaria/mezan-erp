@@ -1,13 +1,14 @@
 /**
  * Document-numbering sequence definitions.
  *
- * The 25 document-type sequences from docs/catalog/09 (تسلسلات الترقيم,
- * `/settings/sequences`), encoded as data — one source of truth for the
+ * The 26 document-type sequences — the 25 from docs/catalog/09 (تسلسلات
+ * الترقيم, `/settings/sequences`) plus WORK_ORDER, added with the manufacturing
+ * module — encoded as data: one source of truth for the
  * numbering engine, the settings UI and the docs. Each definition carries the
  * prefix, an optional suffix, the zero-pad length of the numeric part, and
  * whether the counter resets at the start of each calendar year.
  *
- * In the captured tenant all 25 sequences have annual reset OFF and no suffix,
+ * In the captured tenant all documented sequences have annual reset OFF and no suffix,
  * but both are first-class knobs the edit dialog exposes, so the engine models
  * them fully. Sequences are tenant-global (no per-branch scoping observed —
  * flagged as an open question in the catalog).
@@ -54,6 +55,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PURCHASE_RFQ", labelAr: "طلب عرض سعر", prefix: "RFQ-", padLength: 6, annualReset: false },
   { code: "SALES_INVOICE", labelAr: "فاتورة مبيعات", prefix: "INV-", padLength: 6, annualReset: false },
   { code: "SALES_ORDER", labelAr: "أمر مبيعات", prefix: "SO-", padLength: 6, annualReset: false },
+  { code: "WORK_ORDER", labelAr: "أمر تصنيع", prefix: "WO-", padLength: 4, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

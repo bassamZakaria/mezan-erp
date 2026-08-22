@@ -42,6 +42,15 @@ export const navGroups: NavGroup[] = [
       { key: "stock-transfers", label: "تحويلات المخزون", tag: { label: "قريباً", tone: "soon" } },
       { key: "stock-adjustments", label: "تسويات المخزون", tag: { label: "قريباً", tone: "soon" } },
       { key: "physical-counts", label: "الجرد الفعلي", tag: { label: "قريباً", tone: "soon" } },
+      { key: "configurable-products", label: "منتجات قابلة للتهيئة" },
+    ],
+  },
+  {
+    key: "manufacturing",
+    label: "التصنيع",
+    items: [
+      { key: "work-orders", label: "أوامر التصنيع" },
+      { key: "boms", label: "قوائم المواد" },
     ],
   },
   {

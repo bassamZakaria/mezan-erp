@@ -4,6 +4,9 @@ import { ALL_SCOPE, type Role, type ScopeSelection } from "@mezan/domain";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
+import { BomsScreen } from "./screens/BomsScreen";
+import { WorkOrdersScreen } from "./screens/WorkOrdersScreen";
+import { ConfigurableProductsScreen } from "./screens/ConfigurableProductsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
@@ -53,6 +56,9 @@ const ROUTABLE_SCREENS = {
   coa: ChartOfAccountsScreen,
   journals: JournalsScreen,
   items: ItemsScreen,
+  "work-orders": WorkOrdersScreen,
+  boms: BomsScreen,
+  "configurable-products": ConfigurableProductsScreen,
   "cost-centers": CostCentersScreen,
   "fiscal-periods": FiscalPeriodsScreen,
   taxes: TaxesScreen,

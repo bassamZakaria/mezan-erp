@@ -114,8 +114,8 @@ export interface PostReceiptCommand {
   readonly receiptId: string;
   readonly receiptNumber?: string | null;
   readonly warehouseId: string;
-  /** The purchase document that received the goods. */
-  readonly sourceDocType: Extract<StockSourceDocType, "PURCHASE_RECEIPT" | "PURCHASE_INVOICE">;
+  /** The document that received the goods (a purchase receipt/invoice, or a work-order finished-goods receipt). */
+  readonly sourceDocType: Extract<StockSourceDocType, "PURCHASE_RECEIPT" | "PURCHASE_INVOICE" | "WORK_ORDER">;
   readonly lines: readonly ReceiptLine[];
   readonly occurredAt?: string;
 }

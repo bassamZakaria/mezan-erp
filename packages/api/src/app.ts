@@ -31,6 +31,13 @@ import {
   type PurchaseGlPosting,
   type PurchaseGlPostingPort,
   type PurchasePolicy,
+  type BomRepository,
+  type WorkOrderRepository,
+  type ConfigurableProductRepository,
+  type ConfigInstanceRepository,
+  type WorkOrderGlAccounts,
+  type ManufacturingGlPosting,
+  type ManufacturingGlPostingPort,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -56,6 +63,7 @@ import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } 
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
+import { createManufacturingRoutes } from "./manufacturing-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -211,6 +219,28 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
+   * Mounts the manufacturing module under `/manufacturing` (docs/catalog/07):
+   * BOMs, work orders (4-stage), configurable products and custom manufacturing.
+   * The caller supplies the four document repositories, the numbering engine,
+   * the costing/stock-ledger service (raw OUT on issue, finished-goods IN on
+   * receipt) and the GL posting deps (the work-order completion journal entry).
+   * Omit it and the app behaves exactly as before (no `/manufacturing` routes).
+   */
+  readonly manufacturing?: {
+    readonly boms: BomRepository;
+    readonly workOrders: WorkOrderRepository;
+    readonly configurableProducts: ConfigurableProductRepository;
+    readonly configInstances: ConfigInstanceRepository;
+    readonly numbering: NextNumberService;
+    readonly stock: StockLedgerService;
+    /** GL posting engine deps — the work-order complete builds a JE and posts it here. */
+    readonly gl: JournalPostingDeps;
+    readonly accounts: WorkOrderGlAccounts;
+    readonly resolveUnitCost?: (itemId: string) => Promise<Money>;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -335,6 +365,48 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? options.resolveAuthContext,
+      ),
+    );
+  }
+
+  if (options.manufacturing) {
+    const mfg = options.manufacturing;
+    // Adapter: turn a completed work order's balanced WIP posting into a system
+    // journal entry, posted through the GL engine (atomic JE numbering).
+    const glPort: ManufacturingGlPostingPort = {
+      post: async (posting: ManufacturingGlPosting) => {
+        await postJournalEntry(
+          {
+            id: `WO-JE:${posting.sourceDocId}`,
+            date: posting.date,
+            memo: posting.memo,
+            source: "system",
+            lines: posting.lines.map((l) => ({
+              accountId: l.accountId,
+              debit: l.debit,
+              credit: l.credit,
+            })),
+          },
+          mfg.gl,
+        );
+      },
+    };
+    app.route(
+      "/manufacturing",
+      createManufacturingRoutes(
+        {
+          boms: mfg.boms,
+          workOrders: mfg.workOrders,
+          configurableProducts: mfg.configurableProducts,
+          configInstances: mfg.configInstances,
+          numbering: mfg.numbering,
+          stock: mfg.stock,
+          gl: glPort,
+          accounts: mfg.accounts,
+          resolveUnitCost: mfg.resolveUnitCost,
+          now: mfg.now,
+        },
+        mfg.resolveAuthContext ?? options.resolveAuthContext,
       ),
     );
   }

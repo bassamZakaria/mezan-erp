@@ -12,6 +12,28 @@
 
 ---
 
+## Market & competitive notes (for review)
+
+Inputs from a review of a competing Egyptian ERP's public marketing site, gathered to sanity-check our approach and surface possible catalog gaps. These are **discussion inputs for a "what do we actually need for v1" review, not decisions or committed scope** — each item needs a team call before it changes a plan or a backlog issue.
+
+**Pricing & licensing model — validates our approach.** A competing Egyptian ERP sells a **Core** bundle (Accounting + Sales + Purchases + Inventory) plus **priced add-on modules**: POS (+500), Manufacturing (+500), HR & Payroll (+400), Installments & Cheques (+250), Multi-currency (+200), Fixed Assets (+200), Loyalty (+150), AI Assistant (+500) — all EGP/month. **Capacity axes** (seats, branches, warehouses, POS terminals) are priced separately, and curated **persona bundles** (Wholesale & Distribution / Retail & F&B / Manufacturing) sit on top of the à la carte modules. Commercial terms: two-month-free annual discount, 14-day trial.
+→ This is a clean external validation of our module-entitlement design (§2.5, §6.3.1). Recommended action: fold the **4 capacity dimensions** (seats / branches / warehouses / POS terminals) into our licensing model, and consider offering **persona bundles** on top of raw per-module pricing.
+
+**Deployment differentiator.** The reference product is cloud SaaS; **only its POS module is offline-capable** (with sync back to the cloud). Our **fully-offline desktop edition is a genuine differentiator**, not just feature parity — worth leaning on in positioning.
+
+**Possible catalog gaps to verify.** Features the reference product markets that our catalog may cover thinly or not at all:
+- BOQ / progress-certificate / retention billing for Contracting & Real-Estate — our Projects domain looked thin (see §6.3.7, Projects row in Phase 7).
+- FEFO (first-expiry-first-out) for pharma.
+- Cheque **endorsement / replacement** states (beyond the 7-state lifecycle already captured, §2.3, §4).
+- Restaurant **own-fleet delivery tracking**.
+- IAS-21 **FX gain/loss** depth in multi-currency.
+
+→ Action: check each against docs/catalog before finalizing those modules' issues.
+
+**Module-boundary notes.** The reference product markets **multi-currency** and **ETA e-invoicing** almost as standalone modules. → Consider treating **multi-currency as its own licensable module** in our entitlement model, rather than an always-on accounting feature.
+
+---
+
 ## 1. Executive summary
 
 ### What is being built

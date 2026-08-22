@@ -72,3 +72,9 @@ export type {
   EventHandler,
   EventBusOptions,
 } from "./events/index.js";
+
+// --- access-control cluster (phase0/access-control) ---
+export * from "./permissions/index.js";
+export * from "./workflow/index.js";
+export * from "./entitlements/index.js";
+export * from "./licensing/index.js";

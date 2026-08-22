@@ -32,5 +32,13 @@ export {
 
 export { domainEventSchema, type DomainEventDTO } from "./events.js";
 
+export {
+  featureFlagsSchema,
+  entitlementsSchema,
+  licensePayloadSchema,
+  type EntitlementsDTO,
+  type LicensePayloadDTO,
+} from "./entitlements.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

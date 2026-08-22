@@ -17,6 +17,11 @@ import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
+import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
+import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
+import { LandedCostsScreen } from "./screens/LandedCostsScreen";
+import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
+import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -26,16 +31,16 @@ import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
   commandItems,
   demoBranches,
-  demoCompanyName,
   demoEmployees,
   demoEntitlements,
   demoRoles,
-  demoUser,
   demoUsers,
   demoWarehouses,
   navGroups,
   topNavItem,
 } from "./sample-data";
+import { useApi } from "./data/ApiContext";
+import type { ShellUser } from "@mezan/ui";
 import { useUsersRolesStore } from "./store/useUsersRolesStore";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
@@ -52,6 +57,11 @@ const ROUTABLE_SCREENS = {
   "purchase-invoices": PurchaseInvoicesScreen,
   coa: ChartOfAccountsScreen,
   journals: JournalsScreen,
+  "sales-returns": SalesReturnsScreen,
+  "purchase-returns": PurchaseReturnsScreen,
+  "landed-costs": LandedCostsScreen,
+  "installment-plans": InstallmentPlansScreen,
+  "installment-follow-ups": InstallmentFollowUpsScreen,
   items: ItemsScreen,
   "cost-centers": CostCentersScreen,
   "fiscal-periods": FiscalPeriodsScreen,
@@ -86,7 +96,17 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelection {
 /** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
 type AppMode = "login" | "wizard" | "app";
 
+function initialsFor(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "؟";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join(".");
+}
+
 export function App() {
+  const { session } = useApi();
   const [mode, setMode] = useState<AppMode>("login");
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<Role | null>(null); // null = creating new
@@ -159,24 +179,29 @@ export function App() {
     return result;
   }
 
-  if (mode === "login") {
-    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
-  }
-
   if (mode === "wizard") {
     return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
   }
 
+  if (mode === "login" || !session) {
+    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  }
+
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
+  const shellUser: ShellUser = {
+    name: session.fullName,
+    role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
+    initials: initialsFor(session.fullName),
+  };
 
   return (
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
       navGroups={groups}
-      user={demoUser}
+      user={shellUser}
       commandItems={commandItems}
-      tenantName={demoCompanyName}
+      tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
       notificationCount={3}
     >

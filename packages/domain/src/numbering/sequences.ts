@@ -54,6 +54,10 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PURCHASE_RFQ", labelAr: "طلب عرض سعر", prefix: "RFQ-", padLength: 6, annualReset: false },
   { code: "SALES_INVOICE", labelAr: "فاتورة مبيعات", prefix: "INV-", padLength: 6, annualReset: false },
   { code: "SALES_ORDER", labelAr: "أمر مبيعات", prefix: "SO-", padLength: 6, annualReset: false },
+  // Added by phase5/6 (مرتجعات المبيعات) — an oversight in the original 25:
+  // PURCHASE_RETURN/LANDED_COST/INSTALLMENT_PLAN were captured but its sales
+  // counterpart was not.
+  { code: "SALES_RETURN", labelAr: "مرتجع مبيعات", prefix: "SRT-", padLength: 6, annualReset: false },
   { code: "SALES_QUOTE", labelAr: "عرض سعر", prefix: "QT-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 

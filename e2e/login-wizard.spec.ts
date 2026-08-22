@@ -46,7 +46,7 @@ test.describe("Login screen", () => {
     await fillPin(page, "0000");
     await page.getByRole("button", { name: "دخول" }).click();
 
-    await expect(page.getByRole("alert")).toHaveText("رمز PIN غير صحيح — جرّب 1234 لهذا العرض التجريبي.");
+    await expect(page.getByRole("alert")).toHaveText("اسم المستخدم أو رمز PIN غير صحيح.");
     await expect(page.getByRole("heading", { name: "تسجيل الدخول" })).toBeVisible();
     await expect(page.getByRole("heading", { name: /مرحباً، محمد/ })).toBeHidden();
   });
@@ -134,6 +134,9 @@ test.describe("First-run wizard", () => {
     await expect(importStep.getByRole("button", { name: "استيراد الآن" })).toBeDisabled();
 
     await page.getByRole("button", { name: "إنهاء والانتقال إلى النظام" }).click();
-    await expect(page.getByRole("heading", { name: /مرحباً، محمد/ })).toBeVisible();
+    // The wizard persisted a real admin (سارة إبراهيم) and established their
+    // session, so we land in the app shell greeted by that real user.
+    await expect(page.getByRole("button", { name: "تبديل المظهر" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /مرحباً، سارة/ })).toBeVisible();
   });
 });

@@ -20,7 +20,7 @@ export const navGroups: NavGroup[] = [
       { key: "customers", label: "العملاء" },
       { key: "quotes", label: "عروض الأسعار" },
       { key: "sales-invoices", label: "فواتير المبيعات", tag: { label: "نمط", tone: "pattern" } },
-      { key: "sales-returns", label: "مرتجعات المبيعات", tag: { label: "قريباً", tone: "soon" } },
+      { key: "sales-returns", label: "مرتجعات المبيعات" },
       { key: "price-lists", label: "قوائم الأسعار" },
       { key: "promotions", label: "العروض" },
     ],
@@ -33,6 +33,8 @@ export const navGroups: NavGroup[] = [
       { key: "purchase-orders", label: "أوامر الشراء" },
       { key: "goods-receipts", label: "استلام البضائع" },
       { key: "purchase-invoices", label: "فواتير المشتريات" },
+      { key: "purchase-returns", label: "مرتجعات المشتريات" },
+      { key: "landed-costs", label: "التكاليف الإضافية" },
     ],
   },
   {
@@ -64,6 +66,14 @@ export const navGroups: NavGroup[] = [
     items: [
       { key: "treasury-accounts", label: "حسابات الخزينة" },
       { key: "treasury-vouchers", label: "السندات النقدية" },
+    ],
+  },
+  {
+    key: "installments",
+    label: "الأقساط",
+    items: [
+      { key: "installment-plans", label: "خطط الأقساط" },
+      { key: "installment-follow-ups", label: "متابعة التحصيل" },
     ],
   },
   {

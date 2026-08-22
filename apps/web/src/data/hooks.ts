@@ -991,6 +991,25 @@ export function useFinalizeBankStatement() {
 }
 
 
+/* -------------------------------------------------------------------- */
+/* sweep/real-data-screens — Tier 2 (vouchers, purchase chain, sales     */
+/* invoices, and their small dependency hooks)                           */
+/* -------------------------------------------------------------------- */
+
+/** One posted journal entry, for a document's "القيود المحاسبية" tab (e.g. a confirmed sales invoice's `journalEntryId`). */
+export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<JournalEntryDTO, ApiError>({
+    queryKey: ["journal-entries", "detail", id],
+    enabled: session !== null && id !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/journal-entries/${id}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيد المحاسبي.");
+      return res.json<JournalEntryDTO>();
+    },
+  });
+}
+
 /** المستودعات (docs/catalog/09) — read-only here; a picker dependency for other real-data screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();

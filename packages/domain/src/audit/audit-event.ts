@@ -1,0 +1,100 @@
+/**
+ * Audit trail.
+ *
+ * docs/plan.md §5.7 + docs/catalog/09 (سجلات المراجعة والأمان, `/audit/reports`):
+ * an append-only forensic record with two streams and a severity taxonomy. On
+ * desktop this matters MORE, not less — it is the only forensic record when
+ * there is no server.
+ *
+ * Append-only is an invariant: audit events are only ever created and read,
+ * never updated or deleted. The port below has no update/delete by design, and
+ * the SQLite table in @mezan/persistence enforces it at the storage layer.
+ */
+
+/**
+ * Severity taxonomy. `CRITICAL` and `WARNING` were observed in the captured app
+ * (account lockout = CRITICAL, HR contract creation = WARNING); `INFO`/`ERROR`
+ * complete the set per docs/plan.md §5.7.
+ */
+export const AUDIT_SEVERITIES = [
+  "CRITICAL",
+  "ERROR",
+  "WARNING",
+  "INFO",
+] as const;
+export type AuditSeverity = (typeof AUDIT_SEVERITIES)[number];
+
+/**
+ * The two audit streams from the catalog: security events (أحداث الأمان) and
+ * sensitive operations (العمليات الحساسة). Each has its own tab/count in the UI.
+ */
+export const AUDIT_STREAMS = ["security", "sensitive"] as const;
+export type AuditStream = (typeof AUDIT_STREAMS)[number];
+
+/** An append-only audit record. `timestamp` is an ISO-8601 UTC string. */
+export interface AuditEvent {
+  readonly stream: AuditStream;
+  readonly module: string; // e.g. "auth", "hr"
+  readonly entityType: string; // e.g. "AUTH_USER", "CONTRACT"
+  readonly action: string; // e.g. "ACCOUNT_LOCKED", "CREATE"
+  readonly actor: string; // user id / name
+  readonly timestamp: string; // ISO-8601 UTC
+  readonly severity: AuditSeverity;
+  readonly details: Readonly<Record<string, unknown>> | null;
+}
+
+/** Fields the caller supplies; timestamp/details are filled in if omitted. */
+export interface AuditEventInput {
+  readonly stream: AuditStream;
+  readonly module: string;
+  readonly entityType: string;
+  readonly action: string;
+  readonly actor: string;
+  readonly severity: AuditSeverity;
+  readonly timestamp?: string;
+  readonly details?: Readonly<Record<string, unknown>> | null;
+}
+
+/**
+ * Append-only sink port. No update, no delete — the shape encodes the invariant.
+ * `query` is read-only, scoped to a stream, newest-first.
+ */
+export interface AuditSink {
+  append(event: AuditEvent): Promise<void>;
+  query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
+}
+
+/** Build a validated, timestamped AuditEvent from caller input. */
+export function createAuditEvent(input: AuditEventInput): AuditEvent {
+  if (input.module.trim() === "") throw new RangeError("audit: module required");
+  if (input.entityType.trim() === "")
+    throw new RangeError("audit: entityType required");
+  if (input.action.trim() === "") throw new RangeError("audit: action required");
+  if (input.actor.trim() === "") throw new RangeError("audit: actor required");
+  return {
+    stream: input.stream,
+    module: input.module,
+    entityType: input.entityType,
+    action: input.action,
+    actor: input.actor,
+    severity: input.severity,
+    timestamp: input.timestamp ?? new Date().toISOString(),
+    details: input.details ?? null,
+  };
+}
+
+/** Convenience: record a security-stream event. */
+export function recordSecurityEvent(
+  sink: AuditSink,
+  input: Omit<AuditEventInput, "stream">,
+): Promise<void> {
+  return sink.append(createAuditEvent({ ...input, stream: "security" }));
+}
+
+/** Convenience: record a sensitive-operations event. */
+export function recordSensitiveEvent(
+  sink: AuditSink,
+  input: Omit<AuditEventInput, "stream">,
+): Promise<void> {
+  return sink.append(createAuditEvent({ ...input, stream: "sensitive" }));
+}

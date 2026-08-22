@@ -1,4 +1,4 @@
-import { Money } from "./money.js";
+import { Money } from "./money/index.js";
 
 /** A single debit/credit line of a journal entry (docs/catalog/04). */
 export interface JournalLine {

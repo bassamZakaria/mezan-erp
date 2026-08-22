@@ -92,3 +92,6 @@ export * from "./settings/index.js";
 export type { PartnerBase } from "./partners/partner-base.js";
 export * from "./customers/index.js";
 export * from "./suppliers/index.js";
+
+// --- items/ — Items master data (phase1/items) ---
+export * from "./items/index.js";

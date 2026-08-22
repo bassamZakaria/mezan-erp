@@ -41,3 +41,7 @@ export {
   createSqliteSupplierRepository,
   type SqliteSupplierRepositoryHandle,
 } from "./supplier-repository.js";
+export {
+  createSqliteItemStore,
+  type SqliteItemStoreHandle,
+} from "./item-store.js";

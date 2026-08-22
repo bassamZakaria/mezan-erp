@@ -95,3 +95,7 @@ export * from "./suppliers/index.js";
 
 // --- items/ — Items master data (phase1/items) ---
 export * from "./items/index.js";
+
+// --- Phase 1: Users & Roles / Permissions ---
+export * from "./roles/index.js";
+export * from "./users/index.js";

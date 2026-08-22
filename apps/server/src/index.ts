@@ -49,4 +49,6 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(
     `[server] try: GET/POST/PATCH /customers , GET/POST/PATCH /suppliers (x-permissions: sales.customer.view / purchases.supplier.view, etc.)`,
   );
+  console.log(`[server] try: GET/POST /roles , GET/PUT/DELETE /roles/:id`);
+  console.log(`[server] try: GET/POST /users , GET/PUT /users/:id , POST /users/:id/(de)activate`);
 });

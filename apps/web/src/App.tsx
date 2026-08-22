@@ -1,17 +1,33 @@
 import { useMemo, useState } from "react";
-import { AppShell } from "@mezan/ui";
+import { AppShell, type NavGroup } from "@mezan/ui";
+import { ALL_SCOPE, type Role, type ScopeSelection } from "@mezan/domain";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
 import { SuppliersScreen } from "./screens/SuppliersScreen";
-import { commandItems, demoUser, navGroups, topNavItem } from "./sample-data";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
+import {
+  commandItems,
+  demoBranches,
+  demoEmployees,
+  demoEntitlements,
+  demoRoles,
+  demoUser,
+  demoUsers,
+  demoWarehouses,
+  navGroups,
+  topNavItem,
+} from "./sample-data";
+import { useUsersRolesStore } from "./store/useUsersRolesStore";
+import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
+import { RolesPage } from "./pages/RolesPage";
+import { RoleEditorPage } from "./pages/RoleEditorPage";
 
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
@@ -26,10 +42,22 @@ const ROUTABLE_SCREENS = {
   "settings-warehouses": WarehousesPage,
 } as const;
 
-type ScreenKey = keyof typeof ROUTABLE_SCREENS;
+type RoutableKey = keyof typeof ROUTABLE_SCREENS;
+/**
+ * المستخدمون / الأدوار aren't stateless ROUTABLE_SCREENS entries — the role
+ * editor needs the in-flight `editingRole` (create vs. edit), and all three
+ * share the same `useUsersRolesStore` instance, so they're handled as their
+ * own small state machine alongside the routable-screen lookup instead.
+ */
+type UsersRolesView = "users" | "roles" | "role-editor";
+type ScreenKey = RoutableKey | UsersRolesView;
 
-function isRoutable(key: string): key is ScreenKey {
+function isRoutable(key: string): key is RoutableKey {
   return key in ROUTABLE_SCREENS;
+}
+
+function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelection {
+  return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
 /** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
@@ -38,18 +66,39 @@ type AppMode = "login" | "wizard" | "app";
 export function App() {
   const [mode, setMode] = useState<AppMode>("login");
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
+  const [editingRole, setEditingRole] = useState<Role | null>(null); // null = creating new
+
+  const { roles, users, createOrUpdateRole, removeRole, createOrUpdateUser, toggleUserStatus } = useUsersRolesStore({
+    roles: demoRoles,
+    users: demoUsers,
+  });
+
+  const allBranchIds = demoBranches.map((b) => b.id);
+  const allWarehouseIds = demoWarehouses.map((w) => w.id);
+
+  const usersByRoleId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const u of users) {
+      if (u.roleId) map.set(u.roleId, (map.get(u.roleId) ?? 0) + 1);
+    }
+    return map;
+  }, [users]);
 
   // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
-  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات) to switch screens;
-  // every other item keeps whatever static onClick/href sample-data.ts gave
-  // it — mostly none, they're "قريباً" placeholders.
-  const groups = useMemo(
+  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات, المستخدمون,
+  // الأدوار) to switch screens; every other item keeps whatever static
+  // onClick/href sample-data.ts gave it — mostly none, they're "قريباً"
+  // placeholders.
+  const groups: NavGroup[] = useMemo(
     () =>
       navGroups.map((group) => ({
         ...group,
         items: group.items.map((item) => {
           const key = item.key;
-          return isRoutable(key) ? { ...item, onClick: () => setActiveScreen(key) } : item;
+          if (isRoutable(key) || key === "users" || key === "roles") {
+            return { ...item, onClick: () => setActiveScreen(key as ScreenKey) };
+          }
+          return item;
         }),
       })),
     [],
@@ -60,6 +109,33 @@ export function App() {
     return isRoutable(key) ? { ...topNavItem, onClick: () => setActiveScreen(key) } : topNavItem;
   }, []);
 
+  async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
+    return createOrUpdateUser({
+      id: editingId ?? crypto.randomUUID(),
+      fullName: draft.fullName,
+      email: draft.email,
+      phone: draft.phone.trim() === "" ? null : draft.phone,
+      password: draft.password.trim() === "" ? undefined : draft.password,
+      pin: draft.pin.trim() === "" ? undefined : draft.pin,
+      roleId: draft.roleId,
+      isCompanyAdmin: draft.isCompanyAdmin,
+      employeeId: draft.employeeId,
+      branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
+      warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
+      status: draft.status,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  async function handleSaveRole(cmd: { code: string; name: string; description: string; permissions: string[] }) {
+    const result = await createOrUpdateRole(
+      { id: editingRole?.id ?? crypto.randomUUID(), ...cmd, createdAt: new Date().toISOString() },
+      demoEntitlements,
+    );
+    if (result.ok) setActiveScreen("roles");
+    return result;
+  }
+
   if (mode === "login") {
     return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
   }
@@ -68,11 +144,11 @@ export function App() {
     return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
   }
 
-  const ActiveScreen = ROUTABLE_SCREENS[activeScreen];
+  const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
 
   return (
     <AppShell
-      activeNavKey={activeScreen}
+      activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
       navGroups={groups}
       user={demoUser}
@@ -80,7 +156,44 @@ export function App() {
       scopeLabel="الفرع الرئيسي"
       notificationCount={3}
     >
-      <ActiveScreen />
+      {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
+
+      {activeScreen === "users" ? (
+        <UsersPage
+          users={users}
+          roles={roles}
+          branches={demoBranches}
+          warehouses={demoWarehouses}
+          employees={demoEmployees}
+          onSave={handleSaveUser}
+          onToggleStatus={toggleUserStatus}
+        />
+      ) : null}
+
+      {activeScreen === "roles" ? (
+        <RolesPage
+          roles={roles}
+          usersByRoleId={usersByRoleId}
+          onCreate={() => {
+            setEditingRole(null);
+            setActiveScreen("role-editor");
+          }}
+          onEdit={(role) => {
+            setEditingRole(role);
+            setActiveScreen("role-editor");
+          }}
+          onDelete={removeRole}
+        />
+      ) : null}
+
+      {activeScreen === "role-editor" ? (
+        <RoleEditorPage
+          role={editingRole}
+          entitlements={demoEntitlements}
+          onSave={handleSaveRole}
+          onCancel={() => setActiveScreen("roles")}
+        />
+      ) : null}
     </AppShell>
   );
 }

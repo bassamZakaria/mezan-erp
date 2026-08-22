@@ -29,3 +29,11 @@ export {
   type ScopeSelection,
   type ScopeQuery,
 } from "./auth-context.js";
+
+export {
+  isModuleLicensed,
+  licensedModules,
+  licensedPermissions,
+} from "./module-licensing.js";
+
+export { togglePermission, toggleAll } from "./role-editor.js";

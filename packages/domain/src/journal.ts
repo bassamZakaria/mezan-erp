@@ -1,4 +1,6 @@
 import { Money } from "./money/index.js";
+import type { RoleRepository } from "./roles/role.js";
+import type { UserRepository } from "./users/user.js";
 
 /** A single debit/credit line of a journal entry (docs/catalog/04). */
 export interface JournalLine {
@@ -33,5 +35,7 @@ export interface JournalRepository {
 /** Unit-of-Work port: one atomic transaction per state-changing use case. */
 export interface UnitOfWork {
   readonly journal: JournalRepository;
+  readonly roles: RoleRepository;
+  readonly users: UserRepository;
   transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T>;
 }

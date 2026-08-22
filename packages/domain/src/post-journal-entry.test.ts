@@ -20,6 +20,31 @@ function fakeUow(): UnitOfWork & { saved: JournalEntry[] } {
         return saved.find((e) => e.id === id) ?? null;
       },
     },
+    roles: {
+      async save() {},
+      async findById() {
+        return null;
+      },
+      async findByCode() {
+        return null;
+      },
+      async list() {
+        return [];
+      },
+      async delete() {},
+    },
+    users: {
+      async save() {},
+      async findById() {
+        return null;
+      },
+      async findByEmail() {
+        return null;
+      },
+      async list() {
+        return [];
+      },
+    },
     async transaction(fn) {
       return fn(uow);
     },

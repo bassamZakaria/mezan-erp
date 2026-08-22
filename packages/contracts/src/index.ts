@@ -132,5 +132,27 @@ export {
   type UpdateItemDTO,
 } from "./items.js";
 
+export {
+  scopeSelectionSchema,
+  roleSchema,
+  createRoleSchema,
+  updateRoleSchema,
+  type ScopeSelectionDTO,
+  type RoleDTO,
+  type CreateRoleDTO,
+  type UpdateRoleDTO,
+} from "./roles.js";
+
+export {
+  userSchema,
+  userStatusSchema,
+  createUserSchema,
+  updateUserSchema,
+  type UserDTO,
+  type UserStatusDTO,
+  type CreateUserDTO,
+  type UpdateUserDTO,
+} from "./users.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

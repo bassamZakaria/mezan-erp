@@ -5,6 +5,7 @@ import {
   UnbalancedEntryError,
   InvalidJournalEntryError,
   SeatSessionRegistry,
+  createEntitlements,
   type JournalEntry,
   type UnitOfWork,
   type AccountRepository,
@@ -14,7 +15,9 @@ import {
   type CustomerRepository,
   type SupplierRepository,
   type ItemRepository,
+  type Entitlements,
 } from "@mezan/domain";
+import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
@@ -26,6 +29,44 @@ import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
+import { createRolesRoutes } from "./roles-routes.js";
+import { createUsersRoutes } from "./users-routes.js";
+
+/**
+ * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
+ * the default entitlements the `/roles` route validates grants against when
+ * the mounting app does not supply its own `resolveEntitlements`. Phase 1 has
+ * no real session/login wiring yet — apps/server / apps/desktop override this
+ * once real auth + a real entitlements source land.
+ */
+const DEMO_ACTIVE_MODULES = [
+  "sales",
+  "purchases",
+  "inventory",
+  "accounting",
+  "treasury",
+  "installments",
+  "financial_papers",
+  "crm",
+  "pos",
+  "hr",
+  "manufacturing",
+  "assets",
+  "notifications",
+  "loyalty",
+  "field",
+];
+
+function defaultEntitlementsResolver(): EntitlementsResolver {
+  const entitlements: Entitlements = createEntitlements({
+    plan: "ENTERPRISE",
+    activeModules: DEMO_ACTIVE_MODULES,
+    features: {},
+    seats: 10,
+    expiresAt: null,
+  });
+  return () => entitlements;
+}
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -94,6 +135,15 @@ export interface CreateAppOptions {
    * resolver derived from the JWT/session instead.
    */
   readonly resolveAuthContext?: AuthContextResolver;
+  /**
+   * Entitlements resolver the `/roles` route validates permission grants
+   * against (docs/catalog/09 §الأدوار — only licensed-module permissions are
+   * grantable). Defaults to a broad demo entitlements set (`DEMO_ACTIVE_MODULES`)
+   * since there is no real per-tenant entitlements source wired up yet.
+   */
+  readonly resolveEntitlements?: EntitlementsResolver;
+  /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
+  readonly hasher?: ReturnType<typeof createScryptHasher>;
 }
 
 /**
@@ -105,6 +155,9 @@ export interface CreateAppOptions {
  * Routes carry no business logic — they validate, call the domain, serialize.
  */
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
+  const resolveEntitlements = options.resolveEntitlements ?? defaultEntitlementsResolver();
+  const hasher = options.hasher ?? createScryptHasher();
+
   const app = new Hono();
 
   if (options.settingsStore) {
@@ -130,6 +183,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
   }
+
+  app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
+  app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
 
   app.post("/journal-entries", async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());

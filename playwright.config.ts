@@ -10,6 +10,8 @@ import { defineConfig, devices } from "@playwright/test";
  */
 const PORT = 5183;
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const API_PORT = 3187;
+const API_URL = `http://127.0.0.1:${API_PORT}`;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -30,19 +32,34 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
   ],
-  webServer: {
-    // `pnpm --filter web exec vite -- --port …` silently drops the forwarded
-    // flags in this pnpm version — running from apps/web directly is the
-    // form that reliably passes them through to vite's CLI.
-    // `--host 127.0.0.1` matters: Vite's default "localhost" host can bind
-    // IPv6-only on some machines, and Playwright's readiness probe below
-    // hits 127.0.0.1 explicitly — mismatched families look like a hung
-    // server (ECONNREFUSED) even though Vite logged "ready".
-    command: `cd apps/web && pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,
-    url: BASE_URL,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-    stdout: "pipe",
-    stderr: "pipe",
-  },
+  webServer: [
+    // The real, seeded Hono backend (apps/server) on an in-memory SQLite DB —
+    // freshly seeded on every start, so e2e sees a deterministic empty tenant
+    // (admin محمد الشهابي / PIN 1234, standard COA, main branch+warehouse).
+    {
+      command: `pnpm exec tsx apps/server/src/index.ts`,
+      url: `${API_URL}/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { PORT: String(API_PORT), MEZAN_DB: ":memory:" },
+    },
+    {
+      // `pnpm --filter web exec vite -- --port …` silently drops the forwarded
+      // flags in this pnpm version — running from apps/web directly is the
+      // form that reliably passes them through to vite's CLI.
+      // `--host 127.0.0.1` matters: Vite's default "localhost" host can bind
+      // IPv6-only on some machines, and Playwright's readiness probe below
+      // hits 127.0.0.1 explicitly — mismatched families look like a hung
+      // server (ECONNREFUSED) even though Vite logged "ready".
+      command: `cd apps/web && pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,
+      url: BASE_URL,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      stdout: "pipe",
+      stderr: "pipe",
+      env: { MEZAN_API_URL: API_URL },
+    },
+  ],
 });

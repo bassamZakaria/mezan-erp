@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Button, DocumentList, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
-import type { Role } from "@mezan/domain";
+import type { RoleDTO as Role } from "@mezan/contracts";
 
 export interface RolesPageProps {
   roles: Role[];

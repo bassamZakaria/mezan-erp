@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
-import { ALL_SCOPE, type Role, type ScopeSelection } from "@mezan/domain";
+import { ALL_SCOPE } from "@mezan/domain";
+import type { RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
@@ -18,6 +19,41 @@ import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
+import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
+import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
+import { LandedCostsScreen } from "./screens/LandedCostsScreen";
+import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
+import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
+import { SalesQuotesScreen } from "./screens/SalesQuotesScreen";
+import { PriceListsScreen } from "./screens/PriceListsScreen";
+import { PromotionsScreen } from "./screens/PromotionsScreen";
+import { CostCenterPnLScreen } from "./screens/CostCenterPnLScreen";
+import { ExchangeRatesScreen } from "./screens/ExchangeRatesScreen";
+import { FxRevaluationScreen } from "./screens/FxRevaluationScreen";
+import { ReconciliationScreen } from "./screens/ReconciliationScreen";
+import { EtaScreen } from "./screens/EtaScreen";
+import {
+  SalesByPeriodReportScreen,
+  SalesByItemReportScreen,
+  SalesByCustomerReportScreen,
+  TopProductsReportScreen,
+} from "./screens/reports/SalesReportsScreens";
+import {
+  PurchasesByPeriodReportScreen,
+  PurchasesBySupplierReportScreen,
+  PurchasesByItemReportScreen,
+} from "./screens/reports/PurchasesReportsScreens";
+import {
+  InventoryStockLevelsReportScreen,
+  InventoryMovementReportScreen,
+  InventoryLedgerReportScreen,
+  InventoryValuationReportScreen,
+  InventoryAgingReportScreen,
+  InventorySlowMovingReportScreen,
+  InventoryDriftReportScreen,
+} from "./screens/reports/InventoryReportsScreens";
+import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
+import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -27,17 +63,24 @@ import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
   commandItems,
   demoBranches,
-  demoCompanyName,
   demoEmployees,
   demoEntitlements,
-  demoRoles,
-  demoUser,
-  demoUsers,
   demoWarehouses,
   navGroups,
   topNavItem,
 } from "./sample-data";
-import { useUsersRolesStore } from "./store/useUsersRolesStore";
+import { useApi } from "./data/ApiContext";
+import type { ShellUser } from "@mezan/ui";
+import {
+  useCreateRole,
+  useCreateUser,
+  useDeleteRole,
+  useRoles,
+  useSetUserStatus,
+  useUpdateRole,
+  useUpdateUser,
+  useUsers,
+} from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
@@ -46,6 +89,9 @@ import { RoleEditorPage } from "./pages/RoleEditorPage";
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
   "sales-invoices": SalesInvoicesScreen,
+  quotes: SalesQuotesScreen,
+  "price-lists": PriceListsScreen,
+  promotions: PromotionsScreen,
   customers: CustomersScreen,
   vendors: SuppliersScreen,
   rfqs: RfqsScreen,
@@ -54,13 +100,41 @@ const ROUTABLE_SCREENS = {
   "purchase-invoices": PurchaseInvoicesScreen,
   coa: ChartOfAccountsScreen,
   journals: JournalsScreen,
+  "sales-returns": SalesReturnsScreen,
+  "purchase-returns": PurchaseReturnsScreen,
+  "landed-costs": LandedCostsScreen,
+  "installment-plans": InstallmentPlansScreen,
+  "installment-follow-ups": InstallmentFollowUpsScreen,
   items: ItemsScreen,
   "cost-centers": CostCentersScreen,
+  "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,
+  "exchange-rates": ExchangeRatesScreen,
+  revaluation: FxRevaluationScreen,
+  reconciliation: ReconciliationScreen,
+  eta: EtaScreen,
   taxes: TaxesScreen,
   "treasury-accounts": TreasuryAccountsScreen,
   "treasury-vouchers": TreasuryVouchersScreen,
   "trial-balance-report": TrialBalanceReportScreen,
+  "report-sales-by-period": SalesByPeriodReportScreen,
+  "report-sales-by-item": SalesByItemReportScreen,
+  "report-sales-by-customer": SalesByCustomerReportScreen,
+  "report-sales-top-products": TopProductsReportScreen,
+  "report-purchases-by-period": PurchasesByPeriodReportScreen,
+  "report-purchases-by-supplier": PurchasesBySupplierReportScreen,
+  "report-purchases-by-item": PurchasesByItemReportScreen,
+  "report-inventory-stock-levels": InventoryStockLevelsReportScreen,
+  "report-inventory-movement": InventoryMovementReportScreen,
+  "report-inventory-ledger": InventoryLedgerReportScreen,
+  "report-inventory-valuation": InventoryValuationReportScreen,
+  "report-inventory-aging": InventoryAgingReportScreen,
+  "report-inventory-slow-moving": InventorySlowMovingReportScreen,
+  "report-inventory-drift": InventoryDriftReportScreen,
+  "report-aging-customers": AgingCustomersReportScreen,
+  "report-aging-suppliers": AgingSuppliersReportScreen,
+  "report-installments-overview": InstallmentsOverviewReportScreen,
+  "report-installments-overdue": InstallmentsOverdueReportScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
@@ -71,7 +145,7 @@ type RoutableKey = keyof typeof ROUTABLE_SCREENS;
 /**
  * المستخدمون / الأدوار aren't stateless ROUTABLE_SCREENS entries — the role
  * editor needs the in-flight `editingRole` (create vs. edit), and all three
- * share the same `useUsersRolesStore` instance, so they're handled as their
+ * share the same real `/roles` + `/users` data, so they're handled as their
  * own small state machine alongside the routable-screen lookup instead.
  */
 type UsersRolesView = "users" | "roles" | "role-editor";
@@ -81,22 +155,38 @@ function isRoutable(key: string): key is RoutableKey {
   return key in ROUTABLE_SCREENS;
 }
 
-function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelection {
+function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO {
   return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
 /** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
 type AppMode = "login" | "wizard" | "app";
 
+function initialsFor(fullName: string): string {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "؟";
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0])
+    .join(".");
+}
+
 export function App() {
+  const { session } = useApi();
   const [mode, setMode] = useState<AppMode>("login");
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
-  const [editingRole, setEditingRole] = useState<Role | null>(null); // null = creating new
+  const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
-  const { roles, users, createOrUpdateRole, removeRole, createOrUpdateUser, toggleUserStatus } = useUsersRolesStore({
-    roles: demoRoles,
-    users: demoUsers,
-  });
+  const rolesQuery = useRoles();
+  const usersQuery = useUsers();
+  const roles = rolesQuery.data ?? [];
+  const users = usersQuery.data ?? [];
+  const createUser = useCreateUser();
+  const updateUser = useUpdateUser();
+  const setUserStatus = useSetUserStatus();
+  const createRole = useCreateRole();
+  const updateRole = useUpdateRole();
+  const deleteRoleMutation = useDeleteRole();
 
   const allBranchIds = demoBranches.map((b) => b.id);
   const allWarehouseIds = demoWarehouses.map((w) => w.id);
@@ -135,8 +225,7 @@ export function App() {
   }, []);
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
-    return createOrUpdateUser({
-      id: editingId ?? crypto.randomUUID(),
+    const fields = {
       fullName: draft.fullName,
       email: draft.email,
       phone: draft.phone.trim() === "" ? null : draft.phone,
@@ -148,37 +237,68 @@ export function App() {
       branchScope: scopeIdsToSelection(draft.branchIds, allBranchIds),
       warehouseScope: scopeIdsToSelection(draft.warehouseIds, allWarehouseIds),
       status: draft.status,
-      createdAt: new Date().toISOString(),
-    });
+    };
+    try {
+      const value = editingId
+        ? await updateUser.mutateAsync({ id: editingId, body: fields })
+        : await createUser.mutateAsync({ ...fields, password: fields.password ?? "" });
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ المستخدم" };
+    }
   }
 
   async function handleSaveRole(cmd: { code: string; name: string; description: string; permissions: string[] }) {
-    const result = await createOrUpdateRole(
-      { id: editingRole?.id ?? crypto.randomUUID(), ...cmd, createdAt: new Date().toISOString() },
-      demoEntitlements,
-    );
-    if (result.ok) setActiveScreen("roles");
-    return result;
+    try {
+      const value = editingRole ? await updateRole.mutateAsync({ id: editingRole.id, body: cmd }) : await createRole.mutateAsync(cmd);
+      setActiveScreen("roles");
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ الدور" };
+    }
   }
 
-  if (mode === "login") {
-    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  async function handleRemoveRole(roleId: string) {
+    try {
+      await deleteRoleMutation.mutateAsync(roleId);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر حذف الدور" };
+    }
+  }
+
+  async function handleToggleUserStatus(userId: string, status: "active" | "inactive") {
+    try {
+      const value = await setUserStatus.mutateAsync({ id: userId, status });
+      return { ok: true, value };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : "تعذر تحديث حالة المستخدم" };
+    }
   }
 
   if (mode === "wizard") {
     return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
   }
 
+  if (mode === "login" || !session) {
+    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  }
+
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
+  const shellUser: ShellUser = {
+    name: session.fullName,
+    role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
+    initials: initialsFor(session.fullName),
+  };
 
   return (
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
       navGroups={groups}
-      user={demoUser}
+      user={shellUser}
       commandItems={commandItems}
-      tenantName={demoCompanyName}
+      tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
       notificationCount={3}
     >
@@ -192,7 +312,7 @@ export function App() {
           warehouses={demoWarehouses}
           employees={demoEmployees}
           onSave={handleSaveUser}
-          onToggleStatus={toggleUserStatus}
+          onToggleStatus={handleToggleUserStatus}
         />
       ) : null}
 
@@ -208,7 +328,7 @@ export function App() {
             setEditingRole(role);
             setActiveScreen("role-editor");
           }}
-          onDelete={removeRole}
+          onDelete={handleRemoveRole}
         />
       ) : null}
 

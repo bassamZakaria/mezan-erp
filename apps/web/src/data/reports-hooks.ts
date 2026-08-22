@@ -1,0 +1,49 @@
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domain";
+import { useApi } from "./ApiContext";
+import { ApiError } from "./hooks";
+
+/**
+ * التقارير التشغيلية data hook (docs/catalog/08-reports.md). Every operational-
+ * report screen goes through this one query hook: it hits `/reports${path}`
+ * over the SAME `useApi().request` transport (with the session's permission
+ * headers merged in) that the dashboard uses — so reports read the live seeded
+ * backend, never sample data. The server (`@mezan/api` reports-routes) already
+ * validated params and ran the report engine; this hook only carries the
+ * render-ready outcome back to `<ReportRunner>`.
+ */
+
+export interface ReportResult<Row> {
+  readonly rows: readonly Row[];
+  readonly groups: readonly ReportGroupResult<Row>[];
+  readonly grandTotals: Readonly<Record<string, number>>;
+  readonly reconciliation: ReportReconciliationResult | null;
+}
+
+/** Blank param values are dropped so the server falls back to the report's own defaults. */
+function toQueryString(params: Record<string, string>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== "") search.set(key, value);
+  }
+  const qs = search.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export function useReport<Row>(
+  reportId: string,
+  apiPath: string,
+  params: Record<string, string>,
+  options: { readonly enabled?: boolean } = {},
+): UseQueryResult<ReportResult<Row>, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ReportResult<Row>, ApiError>({
+    queryKey: ["reports", reportId, params],
+    enabled: session !== null && (options.enabled ?? true),
+    queryFn: async () => {
+      const res = await request(`/reports${apiPath}${toQueryString(params)}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل التقرير.");
+      return res.json<ReportResult<Row>>();
+    },
+  });
+}

@@ -382,5 +382,213 @@ export {
   type SalesInvoiceListQueryDTO,
 } from "./sales-invoice.js";
 
+export {
+  priceListLineSchema,
+  priceListSchema,
+  createPriceListSchema,
+  updatePriceListSchema,
+  type PriceListLineDTO,
+  type PriceListDTO,
+  type CreatePriceListDTO,
+  type UpdatePriceListDTO,
+} from "./price-list.js";
+
+export {
+  salesQuoteStatusSchema,
+  salesQuoteDiscountSchema,
+  createSalesQuoteLineSchema,
+  createSalesQuoteSchema,
+  salesQuoteListQuerySchema,
+  convertSalesQuoteLineSchema,
+  convertSalesQuoteToInvoiceSchema,
+  type SalesQuoteStatusDTO,
+  type SalesQuoteDiscountDTO,
+  type CreateSalesQuoteLineDTO,
+  type CreateSalesQuoteDTO,
+  type SalesQuoteListQueryDTO,
+  type ConvertSalesQuoteLineDTO,
+  type ConvertSalesQuoteToInvoiceDTO,
+} from "./sales-quote.js";
+
+export {
+  promotionTypeSchema,
+  promotionScopeSchema,
+  promotionDayHourRestrictionSchema,
+  promotionBundleComponentSchema,
+  promotionSchema,
+  createPromotionSchema,
+  updatePromotionSchema,
+  evaluatePromotionsQuerySchema,
+  type PromotionTypeDTO,
+  type PromotionScopeDTO,
+  type PromotionDayHourRestrictionDTO,
+  type PromotionBundleComponentDTO,
+  type PromotionDTO,
+  type CreatePromotionDTO,
+  type UpdatePromotionDTO,
+  type EvaluatePromotionsQueryDTO,
+} from "./promotion.js";
+
+export {
+  salesReturnReasonSchema,
+  salesReturnLineSchema,
+  createSalesReturnSchema,
+  salesReturnRequestedQtySchema,
+  buildSalesReturnFromInvoiceSchema,
+  salesReturnDocumentSchema,
+  type SalesReturnReasonDTO,
+  type SalesReturnLineDTO,
+  type CreateSalesReturnDTO,
+  type BuildSalesReturnFromInvoiceDTO,
+  type SalesReturnDocumentDTO,
+} from "./sales-returns.js";
+
+export {
+  purchaseReturnReasonSchema,
+  purchaseReturnLineSchema,
+  createPurchaseReturnSchema,
+  purchaseReturnRequestedQtySchema,
+  buildPurchaseReturnFromInvoiceSchema,
+  purchaseReturnDocumentSchema,
+  type PurchaseReturnReasonDTO,
+  type PurchaseReturnLineDTO,
+  type CreatePurchaseReturnDTO,
+  type BuildPurchaseReturnFromInvoiceDTO,
+  type PurchaseReturnDocumentDTO,
+} from "./purchase-returns.js";
+
+export {
+  landedCostTypeSchema,
+  landedCostDistributionMethodSchema,
+  landedCostItemEntrySchema,
+  landedCostTargetSchema,
+  createLandedCostSchema,
+  landedCostLineSchema,
+  landedCostDocumentSchema,
+  type LandedCostTypeDTO,
+  type LandedCostDistributionMethodDTO,
+  type LandedCostItemEntryDTO,
+  type LandedCostTargetDTO,
+  type CreateLandedCostDTO,
+  type LandedCostLineDTO,
+  type LandedCostDocumentDTO,
+} from "./landed-costs.js";
+
+export {
+  installmentFrequencySchema,
+  installmentLineStatusSchema,
+  createInstallmentPlanSchema,
+  installmentLineSchema,
+  installmentPlanDocumentSchema,
+  processOverdueInstallmentsSchema,
+  processOverdueInstallmentsResultSchema,
+  followUpTypeSchema,
+  followUpStatusSchema,
+  createFollowUpSchema,
+  completeFollowUpSchema,
+  collectionFollowUpSchema,
+  type InstallmentFrequencyDTO,
+  type InstallmentLineStatusDTO,
+  type CreateInstallmentPlanDTO,
+  type InstallmentLineDTO,
+  type InstallmentPlanDocumentDTO,
+  type ProcessOverdueInstallmentsDTO,
+  type ProcessOverdueInstallmentsResultDTO,
+  type FollowUpTypeDTO,
+  type FollowUpStatusDTO,
+  type CreateFollowUpDTO,
+  type CompleteFollowUpDTO,
+  type CollectionFollowUpDTO,
+} from "./installments.js";
+
+export {
+  dashboardCountsSchema,
+  dashboardGlSchema,
+  dashboardActivitySchema,
+  dashboardSummarySchema,
+  type DashboardCountsDTO,
+  type DashboardGlDTO,
+  type DashboardActivityDTO,
+  type DashboardSummaryDTO,
+} from "./dashboard.js";
+
+export {
+  loginRequestSchema,
+  sessionSchema,
+  loginResponseSchema,
+  bootstrapAdminRequestSchema,
+  bootstrapSeedResultSchema,
+  type LoginRequestDTO,
+  type SessionDTO,
+  type LoginResponseDTO,
+  type BootstrapAdminRequestDTO,
+  type BootstrapSeedResultDTO,
+} from "./auth.js";
+// --- accounting depth cluster (phase9/accounting-depth) ---
+export {
+  exchangeRateTypeSchema,
+  exchangeRateSourceSchema,
+  exchangeRateStatusSchema,
+  exchangeRateSchema,
+  createExchangeRateSchema,
+  type ExchangeRateTypeDTO,
+  type ExchangeRateSourceDTO,
+  type ExchangeRateStatusDTO,
+  type ExchangeRateDTO,
+  type CreateExchangeRateDTO,
+} from "./exchange-rate.js";
+
+export {
+  fxRevaluationRequestSchema,
+  fxRevaluationDetailSchema,
+  fxRevaluationPreviewSchema,
+  fxRevaluationPostResultSchema,
+  type FxRevaluationRequestDTO,
+  type FxRevaluationDetailDTO,
+  type FxRevaluationPreviewDTO,
+  type FxRevaluationPostResultDTO,
+} from "./fx-revaluation.js";
+
+export {
+  costCenterPnLRowSchema,
+  costCenterPnLReportSchema,
+  type CostCenterPnLRowDTO,
+  type CostCenterPnLReportDTO,
+} from "./cost-center-pl.js";
+
+export {
+  reconciliationRowSchema,
+  unlinkedEntryLineSchema,
+  reconciliationReportSchema,
+  type ReconciliationRowDTO,
+  type UnlinkedEntryLineDTO,
+  type ReconciliationReportDTO,
+} from "./reconciliation.js";
+
+export {
+  etaEnvironmentSchema,
+  etaDocumentVersionSchema,
+  etaSigningMethodSchema,
+  etaDocumentTypeSchema,
+  etaSubmissionStatusSchema,
+  etaCompanyAddressSchema,
+  etaConfigSchema,
+  updateEtaConfigSchema,
+  etaReadinessSchema,
+  etaSubmissionSchema,
+  excludeEtaSubmissionSchema,
+  type EtaEnvironmentDTO,
+  type EtaDocumentVersionDTO,
+  type EtaSigningMethodDTO,
+  type EtaDocumentTypeDTO,
+  type EtaSubmissionStatusDTO,
+  type EtaCompanyAddressDTO,
+  type EtaConfigDTO,
+  type UpdateEtaConfigDTO,
+  type EtaReadinessDTO,
+  type EtaSubmissionDTO,
+  type ExcludeEtaSubmissionDTO,
+} from "./eta.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

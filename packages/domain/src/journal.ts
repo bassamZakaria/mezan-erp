@@ -26,6 +26,22 @@ export interface JournalLine {
   readonly credit: Money;
   /** Per-line description ("الوصف" column in the JE line table). Optional. */
   readonly memo?: string | null;
+  /**
+   * Optional cost-center dimension ("مركز التكلفة") carried by the line — the
+   * basis of the "أرباح مراكز التكلفة" (Cost Center P&L) report which groups
+   * revenue/expense lines by this tag (docs/catalog/04). Null = unattributed.
+   */
+  readonly costCenterId?: string | null;
+  /**
+   * Original transaction currency for a multi-currency line (docs/catalog/04
+   * §"أسعار الصرف"/§FX Revaluation). `debit`/`credit` are ALWAYS the base
+   * (EGP) amounts; these two record what foreign currency + rate produced them
+   * at confirmation time, so the line can be revalued at the closing rate.
+   * Null/"EGP" = a base-currency line.
+   */
+  readonly currency?: string | null;
+  /** Exchange rate (foreign→base) applied at confirmation, as an exact decimal string. Null for base-currency lines. */
+  readonly fxRate?: string | null;
 }
 
 /**

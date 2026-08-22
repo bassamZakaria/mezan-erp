@@ -60,3 +60,14 @@ export interface SalesInvoiceStockResult {
 export interface SalesInvoiceStockHook {
   issue(plan: SalesInvoiceStockIssue): Promise<SalesInvoiceStockResult>;
 }
+
+/**
+ * Resolves a customer's outstanding balance for credit control (docs/catalog/01
+ * §"الحد الائتماني"): the sum of (grandTotal − amountPaid) across their live
+ * (confirmed/partially_paid) invoices. Bound to the sales-invoice repository
+ * itself — see {@link createSalesInvoiceCustomerExposureHook} — so the service
+ * never depends on the customer/AR sub-ledger directly.
+ */
+export interface SalesInvoiceCustomerExposureHook {
+  currentBalance(customerId: string, excludeInvoiceId?: string): Promise<Money>;
+}

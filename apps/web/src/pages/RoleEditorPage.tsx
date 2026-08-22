@@ -9,10 +9,10 @@ import {
   toggleAll,
   togglePermission,
   type Entitlements,
-  type Role,
 } from "@mezan/domain";
+import type { RoleDTO as Role } from "@mezan/contracts";
 import { entitySegment, permissionLabel, subgroupLabel } from "../permission-labels";
-import type { StoreResult } from "../store/useUsersRolesStore";
+import type { StoreResult } from "./UsersPage";
 
 export interface RoleEditorPageProps {
   role: Role | null;

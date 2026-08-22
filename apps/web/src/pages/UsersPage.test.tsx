@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Role, User } from "@mezan/domain";
+import type { RoleDTO, UserDTO } from "@mezan/contracts";
 import { UsersPage } from "./UsersPage";
 
-const role: Role = {
+const role: RoleDTO = {
   id: "role-1",
   code: "VAN_SALES",
   name: "مندوب مبيعات",
@@ -14,13 +14,12 @@ const role: Role = {
   createdAt: "2026-08-08T00:00:00.000Z",
 };
 
-const user: User = {
+const user: UserDTO = {
   id: "user-1",
   fullName: "محمد الشهابي",
   email: "mohamed@cyag.test",
   phone: null,
-  passwordHash: "x",
-  pinHash: null,
+  hasPin: false,
   roleId: null,
   isCompanyAdmin: true,
   employeeId: null,

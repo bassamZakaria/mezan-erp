@@ -19,18 +19,21 @@ import {
   PeriodNotOpenForPostingError,
   DuplicateJournalEntryError,
   NegativeStockError,
+  CreditLimitExceededError,
   type SalesInvoice,
   type SalesInvoiceDiscount,
   type SalesInvoiceTotals,
   type SalesInvoiceRepository,
   type SalesInvoiceStockHook,
   type SalesInvoiceServiceDeps,
+  type SalesInvoiceCreditControlDeps,
   type CreateSalesInvoiceCommand,
   type DocumentNumberingHook,
   type DocumentGlHook,
   type DocumentWorkflowGate,
   type DocumentEventPublisher,
   type AuditSink,
+  type CreditCheckResult,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -58,6 +61,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly gl: DocumentGlHook;
   readonly stock: SalesInvoiceStockHook;
   readonly workflow?: DocumentWorkflowGate;
+  /** Credit control on confirm (docs/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
+  readonly creditControl?: SalesInvoiceCreditControlDeps;
   readonly audit?: AuditSink;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
@@ -76,6 +81,16 @@ function serializeDiscount(discount: SalesInvoiceDiscount) {
   return discount.type === "percent"
     ? { type: "percent" as const, percent: discount.percent }
     : { type: "amount" as const, amount: discount.amount.toString() };
+}
+
+function serializeCreditWarning(warning: CreditCheckResult | null) {
+  if (!warning) return null;
+  return {
+    status: warning.status,
+    projectedBalance: warning.projectedBalance.toString(),
+    overBy: warning.overBy.toString(),
+    message: warning.message,
+  };
 }
 
 function serializeTotals(totals: SalesInvoiceTotals) {
@@ -151,6 +166,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof InvalidSalesInvoicePaymentError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
+  if (err instanceof CreditLimitExceededError) {
+    return c.json({ error: err.code, message: err.message, customerId: err.customerId }, 422);
+  }
   if (err instanceof UnbalancedEntryError) {
     return c.json(
       { error: err.code, message: err.message, totalDebit: err.totalDebit.toString(), totalCredit: err.totalCredit.toString() },
@@ -196,6 +214,7 @@ export function createSalesInvoicesRoutes(
       gl: deps.gl,
       stock: deps.stock,
       workflow: deps.workflow,
+      creditControl: deps.creditControl,
       audit: deps.audit,
       events: deps.events,
       now: deps.now,
@@ -293,7 +312,11 @@ export function createSalesInvoicesRoutes(
         actor: ctx?.userId,
         actorRoles: ctx?.permissions ? [...ctx.permissions] : undefined,
       });
-      return c.json({ ...serialize(result.invoice, totalsFor(svc, result.invoice)), held: result.held });
+      return c.json({
+        ...serialize(result.invoice, totalsFor(svc, result.invoice)),
+        held: result.held,
+        creditWarning: serializeCreditWarning(result.creditWarning),
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

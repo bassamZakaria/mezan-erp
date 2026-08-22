@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { demoTreasuryAccounts } from "../accounting-treasury-sample-data";
+import { useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount } from "../data/hooks";
 import { sampleBranches, branchName } from "../settings/sample-data";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 
@@ -68,7 +68,10 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
 }
 
 export function TreasuryAccountsScreen() {
-  const [accounts, setAccounts] = useState<TreasuryAccountDTO[]>(demoTreasuryAccounts);
+  const query = useTreasuryAccounts();
+  const createTreasuryAccount = useCreateTreasuryAccount();
+  const updateTreasuryAccount = useUpdateTreasuryAccount();
+  const accounts = query.data ?? [];
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
 
@@ -111,7 +114,7 @@ export function TreasuryAccountsScreen() {
     setFormOpen(true);
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const error = validateDraft(draft, accounts, editingId);
     if (error) {
@@ -119,41 +122,26 @@ export function TreasuryAccountsScreen() {
       return;
     }
     setFormError(null);
-    if (editingId) {
-      setAccounts((prev) =>
-        prev.map((a) =>
-          a.id === editingId
-            ? {
-                ...a,
-                code: draft.code.trim(),
-                name: draft.name.trim(),
-                type: draft.type,
-                currency: draft.currency,
-                branchId: draft.branchId,
-                glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
-                openingBalance: (draft.openingBalance ?? 0).toFixed(6),
-                openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
-                status: draft.active ? "active" : "inactive",
-              }
-            : a,
-        ),
-      );
-    } else {
-      const newAccount: TreasuryAccountDTO = {
-        id: `ta-${draft.code.trim()}-${Date.now()}`,
-        code: draft.code.trim(),
-        name: draft.name.trim(),
-        type: draft.type,
-        currency: draft.currency,
-        branchId: draft.branchId,
-        glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
-        openingBalance: (draft.openingBalance ?? 0).toFixed(6),
-        openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
-        status: "active",
-      };
-      setAccounts((prev) => [...prev, newAccount]);
+    const fields = {
+      code: draft.code.trim(),
+      name: draft.name.trim(),
+      type: draft.type,
+      currency: draft.currency,
+      branchId: draft.branchId,
+      glAccountId: draft.glAccountId.trim() === "" ? null : draft.glAccountId.trim(),
+      openingBalance: (draft.openingBalance ?? 0).toFixed(6),
+      openingBalanceDate: draft.openingBalanceDate.trim() === "" ? null : draft.openingBalanceDate.trim(),
+    };
+    try {
+      if (editingId) {
+        await updateTreasuryAccount.mutateAsync({ id: editingId, patch: { ...fields, status: draft.active ? "active" : "inactive" } });
+      } else {
+        await createTreasuryAccount.mutateAsync({ id: crypto.randomUUID(), ...fields });
+      }
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
     }
-    setFormOpen(false);
   }
 
   const columns: DocumentListColumn<TreasuryAccountDTO>[] = [
@@ -177,6 +165,14 @@ export function TreasuryAccountsScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل حسابات الخزينة.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<TreasuryAccountDTO>
         eyebrow="Treasury · Accounts"
         title="حسابات الخزينة"

@@ -41,6 +41,14 @@ import {
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
+  type DocumentService,
+  type LandedCostService,
+  type SalesReturnLine,
+  type PurchaseReturnLine,
+  type LandedCostLine,
+  type PriceListRepository,
+  type PromotionRepository,
+  createSalesInvoiceCustomerExposureHook,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -64,10 +72,24 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+import { createSalesReturnsRoutes } from "./sales-returns-routes.js";
+import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
+import { createLandedCostsRoutes } from "./landed-costs-routes.js";
+import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
+import { createPriceListsRoutes } from "./price-lists-routes.js";
+import { createPromotionsRoutes } from "./promotions-routes.js";
+import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
+import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
+import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
+import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
+import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
+import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
+import type { ExchangeRateRepository } from "@mezan/domain";
+import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -190,8 +212,37 @@ export interface CreateAppOptions {
    */
   readonly gl?: GlRoutesDeps;
 
-  /** Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when supplied. */
+  /**
+   * Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when
+   * supplied. When `creditControl` isn't already set on these deps AND both
+   * `settingsStore` and `customerStore` are also supplied, `createApp` wires
+   * a REAL credit-control check automatically (tenant settings' الرقابة
+   * الائتمانية + the customer's own الحد الائتماني + their live-invoice
+   * exposure via `createSalesInvoiceCustomerExposureHook`) — omit either
+   * store to get exactly today's behaviour (no credit check at all).
+   */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
+  readonly priceListRepo?: PriceListRepository;
+  /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
+  readonly promotionRepo?: PromotionRepository;
+  /**
+   * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
+   * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
+   * `salesInvoices`'s repo/numbering/gl/stock when both are supplied and the
+   * caller didn't already set `invoice` themselves.
+   */
+  readonly salesQuotes?: SalesQuoteRoutesDeps;
+  /** Mounts `/exchange-rates` (docs/catalog/04 "أسعار الصرف") when present. */
+  readonly exchangeRateRepo?: ExchangeRateRepository;
+  /** Mounts `/cost-center-pl` (docs/catalog/04 "أرباح مراكز التكلفة") when present. */
+  readonly costCenterPl?: CostCenterPnLRoutesDeps;
+  /** Mounts `/revaluation` (docs/catalog/04 "إعادة تقييم العملات الأجنبية") when present. */
+  readonly fxRevaluation?: FxRevaluationRoutesDeps;
+  /** Mounts `/reconciliation` (docs/catalog/04 "مطابقة الأرصدة") when present. */
+  readonly reconciliation?: ReconciliationRoutesDeps;
+  /** Mounts `/eta` (docs/catalog/04 "الفاتورة الإلكترونية") when present. */
+  readonly eta?: EtaRoutesDeps;
   /**
    * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
    * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
@@ -260,6 +311,37 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     readonly now?: () => string;
   };
+  /**
+   * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
+   * present. The caller builds the `DocumentService` (repo + numbering + GL
+   * hook + `createInventoryStockHook` + workflow gate) — omit it for no
+   * `/sales-returns` routes.
+   */
+  readonly salesReturns?: { readonly service: DocumentService<SalesReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
+  readonly purchaseReturns?: { readonly service: DocumentService<PurchaseReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  /**
+   * Mounts `/landed-costs` (docs/catalog/02 §"التكاليف الإضافية") when
+   * present. `documents` drives list/create/cancel; `service` (the same
+   * document service wrapped by `LandedCostService`) drives confirm so the
+   * cost-layer revaluation runs alongside the GL post.
+   */
+  readonly landedCosts?: {
+    readonly documents: DocumentService<LandedCostLine>;
+    readonly service: LandedCostService;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/installments` (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل") when present. */
+  readonly installments?: InstallmentsRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /**
+   * Mounts `/reports` (docs/catalog/08 — operational reports) when present.
+   * Independent of `options.inventory`/`options.purchases`/etc. — it takes
+   * its own repository references directly (not the higher-level services
+   * those blocks wrap) since reports only ever READ, never post GL/stock
+   * effects. Omit it and the app behaves exactly as before (no `/reports`
+   * routes).
+   */
+  readonly reports?: ReportsRoutesDeps;
   /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
@@ -347,7 +429,90 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
   }
   if (options.salesInvoices) {
-    app.route("/sales-invoices", createSalesInvoicesRoutes(options.salesInvoices, options.resolveAuthContext));
+    const salesInvoices = options.salesInvoices;
+    // Auto-wire credit control (docs/catalog/01/09 §"الرقابة الائتمانية") when
+    // the caller supplied the tenant-settings + customer stores but didn't
+    // already hand-wire `creditControl` themselves.
+    const creditControl =
+      salesInvoices.creditControl ??
+      (options.settingsStore && options.customerStore
+        ? {
+            exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
+            getCreditLimit: async (customerId: string) => {
+              const customer = await options.customerStore?.findById(customerId);
+              return customer?.creditLimit ?? Money.zero();
+            },
+            getPolicy: async () => {
+              const settings = await options.settingsStore?.get();
+              return {
+                enabled: settings?.creditControlEnabled ?? false,
+                mode: settings?.creditControlMode ?? "WARNING",
+              };
+            },
+          }
+        : undefined);
+    app.route(
+      "/sales-invoices",
+      createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
+    );
+  }
+  if (options.priceListRepo) {
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
+  }
+  if (options.promotionRepo) {
+    app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+  }
+  if (options.salesQuotes) {
+    const salesQuotes = options.salesQuotes;
+    // Auto-wire "إنشاء من عرض سعر" (convert to invoice) from the salesInvoices
+    // deps when both are supplied and the caller didn't already set it.
+    const invoice =
+      salesQuotes.invoice ??
+      (options.salesInvoices
+        ? {
+            repo: options.salesInvoices.repo,
+            numbering: options.salesInvoices.numbering,
+            gl: options.salesInvoices.gl,
+            stock: options.salesInvoices.stock,
+          }
+        : undefined);
+    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, options.resolveAuthContext));
+  }
+  if (options.salesReturns) {
+    app.route(
+      "/sales-returns",
+      createSalesReturnsRoutes(options.salesReturns.service, options.salesReturns.resolveAuthContext),
+    );
+  }
+  if (options.purchaseReturns) {
+    app.route(
+      "/purchase-returns",
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, options.purchaseReturns.resolveAuthContext),
+    );
+  }
+  if (options.landedCosts) {
+    app.route(
+      "/landed-costs",
+      createLandedCostsRoutes(options.landedCosts.documents, options.landedCosts.service, options.landedCosts.resolveAuthContext),
+    );
+  }
+  if (options.installments) {
+    app.route("/installments", createInstallmentsRoutes(options.installments, options.installments.resolveAuthContext));
+  }
+  if (options.exchangeRateRepo) {
+    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, options.resolveAuthContext));
+  }
+  if (options.costCenterPl) {
+    app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, options.resolveAuthContext));
+  }
+  if (options.fxRevaluation) {
+    app.route("/revaluation", createFxRevaluationRoutes(options.fxRevaluation, options.resolveAuthContext));
+  }
+  if (options.reconciliation) {
+    app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, options.resolveAuthContext));
+  }
+  if (options.eta) {
+    app.route("/eta", createEtaRoutes(options.eta, options.resolveAuthContext));
   }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
@@ -444,6 +609,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/rfqs",
       createRfqRoutes(options.rfq, options.rfq.resolveAuthContext ?? options.resolveAuthContext),
     );
+  }
+
+  if (options.reports) {
+    app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
   }
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));

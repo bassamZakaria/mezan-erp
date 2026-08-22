@@ -127,8 +127,38 @@ export * from "./reports/index.js";
 // --- sales-invoices/ — Sales Invoices (phase3/sales-invoices) ---
 export * from "./sales-invoices/index.js";
 
-// --- documents/ — generic document framework (phase2/document-framework) ---
+// --- documents/ — generic document framework (phase2/document-framework W4) ---
 export * from "./documents/index.js";
 
 // --- vouchers/ — Treasury Vouchers (phase4/treasury-vouchers) ---
 export * from "./vouchers/index.js";
+
+// --- phase5/6: returns, landed costs, installments (docs/catalog/01, 02, 05) ---
+export * from "./sales-returns/index.js";
+export * from "./purchase-returns/index.js";
+export * from "./landed-costs/index.js";
+export * from "./installments/index.js";
+
+// --- credit-control/ — credit-limit warn/block enforcement (phase5/full-sales) ---
+export * from "./credit-control/index.js";
+
+// --- price-lists/ — قوائم الأسعار (phase5/full-sales) ---
+export * from "./price-lists/index.js";
+
+// --- sales-quotes/ — عروض الأسعار (phase5/full-sales) ---
+export * from "./sales-quotes/index.js";
+
+// --- promotions/ — العروض, discount/pricing rules engine (phase5/full-sales) ---
+export * from "./promotions/index.js";
+
+// --- accounting depth cluster (phase9/accounting-depth) ---
+// exchange-rates/ — FX master data + base-currency conversion + strict rate policy
+export * from "./exchange-rates/index.js";
+// fx-revaluation/ — period-end FX revaluation with auto-reverse
+export * from "./fx-revaluation/index.js";
+// cost-center-pl/ — أرباح مراكز التكلفة (Cost Center P&L)
+export * from "./cost-center-pl/index.js";
+// reconciliation/ — مطابقة الأرصدة (sub-ledger vs GL control account)
+export * from "./reconciliation/index.js";
+// eta/ — الفاتورة الإلكترونية (ETA e-invoicing) config + submission queue
+export * from "./eta/index.js";

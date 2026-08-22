@@ -92,3 +92,42 @@ export {
   createSqliteHistoricalPurchaseArchiveStore,
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
+export {
+  createSqliteDocumentStore,
+  createStandaloneSqliteDocumentStore,
+  ensureDocumentTable,
+  type SqliteDocumentStoreHandle,
+} from "./document-store.js";
+export {
+  createSqliteSalesReturnStore,
+  createStandaloneSqliteSalesReturnStore,
+} from "./sales-return-store.js";
+export {
+  createSqlitePurchaseReturnStore,
+  createStandaloneSqlitePurchaseReturnStore,
+} from "./purchase-return-store.js";
+export {
+  createSqliteLandedCostStore,
+  createStandaloneSqliteLandedCostStore,
+} from "./landed-cost-store.js";
+export {
+  createSqliteInstallmentPlanStore,
+  createStandaloneSqliteInstallmentPlanStore,
+} from "./installment-plan-store.js";
+export {
+  createSqliteFollowUpStore,
+  createStandaloneSqliteFollowUpStore,
+  type SqliteFollowUpStoreHandle,
+} from "./follow-up-store.js";
+export { createSqlitePriceListStore, type SqlitePriceListStoreHandle } from "./price-list-store.js";
+export { createSqliteSalesQuoteStore, type SqliteSalesQuoteStoreHandle } from "./sales-quote-store.js";
+export { createSqlitePromotionStore, type SqlitePromotionStoreHandle } from "./promotion-store.js";
+export {
+  createSqliteExchangeRateRepository,
+  type SqliteExchangeRateRepositoryHandle,
+} from "./exchange-rate-repository.js";
+export {
+  createSqliteEtaStore,
+  type SqliteEtaStoreHandle,
+  type EtaConfigStore,
+} from "./eta-store.js";

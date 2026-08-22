@@ -7,3 +7,7 @@ apps/desktop/release/
 e2e-results/
 playwright-report/
 blob-report/
+mezan.db
+mezan.db-*
+*.sqlite
+*.sqlite-*

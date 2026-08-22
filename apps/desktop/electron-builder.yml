@@ -1,0 +1,59 @@
+# electron-builder config — CONFIG ONLY for Phase 0 (see PR description).
+#
+# What's wired: package identity, win/mac/linux targets, the `web` bundle
+# copied in as extraResources (see main/env.ts `rendererEntry()`), and an
+# electron-updater `publish` feed shape (see main/updater.ts).
+#
+# What's deliberately NOT wired yet — left as documented TODOs, same as
+# electron-updater's signing-dependent auto-download:
+#   - Code signing (win: `certificateFile`/`certificatePassword` or a signing
+#     service; mac: `identity` + a Developer ID cert).
+#   - macOS notarization (`afterSign` hook + `notarize: true`/apple credentials).
+#   - A real `publish` provider/URL (currently a placeholder `generic` feed).
+# Wiring these needs real certificates/Apple credentials, which is exactly
+# the kind of secret Phase 0 must not invent — a later, dedicated release
+# issue owns it.
+appId: com.mezan.desktop
+productName: Mezan
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/main/**
+  - dist/preload/**
+  - package.json
+extraResources:
+  - from: ../web/dist
+    to: web
+    filter: ["**/*"]
+
+# TODO(signing): win.certificateFile / win.certificatePassword (or CSC_LINK /
+# CSC_KEY_PASSWORD env vars) once a code-signing certificate exists.
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+# TODO(signing+notarize): mac.identity + notarize config once an Apple
+# Developer ID and notarization credentials exist.
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.finance
+  hardenedRuntime: true
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Office
+
+# Placeholder feed — swap for the real distribution channel (S3/GitHub
+# Releases/self-hosted) before shipping electron-updater to real users.
+publish:
+  provider: generic
+  url: https://updates.mezan.example/desktop/
+  channel: latest

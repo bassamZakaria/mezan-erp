@@ -3,14 +3,24 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "dist/main/index.cjs",
   "scripts": {
-    "demo": "tsx src/headless-demo.ts"
+    "demo": "tsx src/headless-demo.ts",
+    "build:main": "node scripts/build.mjs",
+    "start": "pnpm run build:main && electron .",
+    "package": "pnpm run build:main && electron-builder"
   },
   "dependencies": {
     "@mezan/api": "workspace:*",
-    "@mezan/persistence": "workspace:*"
+    "@mezan/persistence": "workspace:*",
+    "better-sqlite3": "^11.10.0",
+    "electron-updater": "^6.8.9",
+    "tar": "^7.5.22",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
-    "electron": "^33.2.1"
+    "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2"
   }
 }

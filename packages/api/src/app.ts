@@ -8,12 +8,18 @@ import {
   type JournalEntry,
   type UnitOfWork,
   type AccountRepository,
+  type SettingsRepository,
+  type BranchRepository,
+  type WarehouseRepository,
 } from "@mezan/domain";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import type { AuthContextResolver } from "./permission-gate.js";
+import { createSettingsRoutes } from "./settings-routes.js";
+import { createBranchesRoutes } from "./branches-routes.js";
+import { createWarehousesRoutes } from "./warehouses-routes.js";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -54,6 +60,20 @@ export interface CreateAppOptions {
     readonly repo: AccountRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
+  /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
+  readonly settingsStore?: SettingsRepository;
+  /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
+  readonly branchStore?: BranchRepository;
+  /** Mounts `/warehouses` (docs/catalog/09) when present — omit it for no `/warehouses` route. */
+  readonly warehouseStore?: WarehouseRepository;
+  /**
+   * Resolves the caller's AuthContext for the settings/branches/warehouses
+   * routes. Defaults to `headerAuthContextResolver` (see permission-gate.ts),
+   * the same default `createAccountsRouter` uses — omit it to get that
+   * header-driven spike behavior; a real deployment injects a resolver
+   * derived from the JWT/session instead.
+   */
+  readonly resolveAuthContext?: AuthContextResolver;
 }
 
 /**
@@ -66,6 +86,16 @@ export interface CreateAppOptions {
  */
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const app = new Hono();
+
+  if (options.settingsStore) {
+    app.route("/settings", createSettingsRoutes(options.settingsStore, options.resolveAuthContext));
+  }
+  if (options.branchStore) {
+    app.route("/branches", createBranchesRoutes(options.branchStore, options.resolveAuthContext));
+  }
+  if (options.warehouseStore) {
+    app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, options.resolveAuthContext));
+  }
 
   if (options.accounts) {
     app.route("/accounts", createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext));

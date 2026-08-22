@@ -1,0 +1,66 @@
+import { Hono } from "hono";
+import { createBranch, updateBranch, InvalidBranchError, type BranchRepository } from "@mezan/domain";
+import { createBranchSchema, updateBranchSchema } from "@mezan/contracts";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+
+/** Branch CRUD routes (docs/catalog/09 §"إدارة الفروع"), gated by admin.branches.*. */
+export function createBranchesRoutes(
+  store: BranchRepository,
+  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+) {
+  const app = new Hono();
+  const gate = createPermissionGate(resolveAuthContext);
+
+  app.get("/", gate("admin.branches.view"), async (c) => {
+    return c.json(await store.findAll());
+  });
+
+  app.get("/:id", gate("admin.branches.view"), async (c) => {
+    const branch = await store.findById(c.req.param("id"));
+    if (!branch) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json(branch);
+  });
+
+  app.post("/", gate("admin.branches.create"), async (c) => {
+    const parsed = createBranchSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    if (await store.findById(parsed.data.id)) {
+      return c.json({ error: "ALREADY_EXISTS" }, 409);
+    }
+    try {
+      const branch = createBranch(parsed.data);
+      await store.save(branch);
+      return c.json(branch, 201);
+    } catch (err) {
+      if (err instanceof InvalidBranchError) {
+        return c.json({ error: err.code, message: err.message }, 422);
+      }
+      throw err;
+    }
+  });
+
+  app.put("/:id", gate("admin.branches.edit"), async (c) => {
+    const id = c.req.param("id");
+    const current = await store.findById(id);
+    if (!current) return c.json({ error: "NOT_FOUND" }, 404);
+
+    const parsed = updateBranchSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const next = updateBranch(current, parsed.data);
+      await store.save(next);
+      return c.json(next);
+    } catch (err) {
+      if (err instanceof InvalidBranchError) {
+        return c.json({ error: err.code, message: err.message }, 422);
+      }
+      throw err;
+    }
+  });
+
+  return app;
+}

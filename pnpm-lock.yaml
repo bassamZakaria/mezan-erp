@@ -105,6 +105,9 @@ importers:
       '@mezan/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@mezan/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@mezan/ui':
         specifier: workspace:*
         version: link:../../packages/ui

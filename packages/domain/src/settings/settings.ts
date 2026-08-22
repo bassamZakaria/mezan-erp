@@ -1,0 +1,221 @@
+/**
+ * Tenant Settings — the config bag documented in docs/catalog/09 §"Settings —
+ * عام (General settings hub)": the `/settings` tabbed screen (عام / بيانات
+ * المنشأة / الضريبة / الرقابة الائتمانية / سياسة المخزون / التحكم في
+ * المشتريات / سياسة الخزينة) plus the raw tenant `settings` payload captured
+ * from `/api/auth/me`. Fields are transcribed from that catalog, not invented.
+ *
+ * This is a pure domain module: no I/O, no framework types. `updateSettings`
+ * is the one write path and enforces every numeric/enum invariant the catalog
+ * documents (e.g. "allowed range 7–365" for the contract-expiry warning), so
+ * an invalid patch can never reach persistence.
+ */
+
+export type TaxCalculationMode = "EXCLUSIVE" | "INCLUSIVE";
+export type CreditControlMode = "WARNING" | "BLOCK";
+export type FxRateMissingPolicy = "STRICT" | "ALLOW_MISSING";
+export type DepreciationProrateMode = "DAILY" | "FULL_MONTH";
+export type NumeralSystem = "western" | "arabic";
+export type UiDirection = "LTR" | "RTL";
+export type SettingsLanguage = "ar" | "en" | "de";
+
+export interface TenantSettings {
+  // --- عام (General / localization) ---
+  readonly currency: string;
+  readonly secondaryCurrencies: readonly string[];
+  readonly language: SettingsLanguage;
+  readonly timezone: string;
+  readonly direction: UiDirection;
+  readonly dateFormat: string;
+  readonly dateNumerals: NumeralSystem;
+  readonly weekendDays: readonly number[];
+  readonly fiscalYearStartMonth: number;
+  readonly fxRateMissingPolicy: FxRateMissingPolicy;
+
+  // --- بيانات المنشأة (Company info) ---
+  readonly companyName: string;
+  readonly taxRegistrationNumber: string;
+  readonly commercialRegistrationNumber: string;
+  readonly phone: string;
+  readonly email: string;
+  readonly address: string;
+  readonly hrContractExpiryWarningDays: number;
+  readonly overtimeMultiplier: number;
+  readonly standardDailyWorkHours: number;
+
+  // --- الضريبة (Tax) ---
+  readonly taxEnabled: boolean;
+  readonly defaultTaxRate: number;
+  readonly taxCalculation: TaxCalculationMode;
+  readonly depreciationProrate: DepreciationProrateMode;
+
+  // --- الرقابة الائتمانية (Credit control) ---
+  readonly priceListsEnabled: boolean;
+  readonly creditControlEnabled: boolean;
+  readonly creditControlMode: CreditControlMode;
+
+  // --- سياسة المخزون (Inventory policy) ---
+  readonly allowCrossWarehouseSales: boolean;
+  readonly showOtherWarehouseStock: boolean;
+  readonly allowBackorder: boolean;
+  readonly allowNegativeStock: boolean;
+
+  // --- التحكم في المشتريات (Purchase control) ---
+  readonly requirePoForGrn: boolean;
+  readonly requireGrnForInvoice: boolean;
+  readonly trackSoldPurchaseItems: boolean;
+
+  // --- سياسة الخزينة (Treasury policy) ---
+  readonly preventNegativeCashBalance: boolean;
+  readonly allowNegativeTreasury: boolean;
+}
+
+export class InvalidSettingsError extends Error {
+  readonly code = "INVALID_SETTINGS";
+  constructor(reasons: readonly string[]) {
+    super(`Invalid settings: ${reasons.join("; ")}`);
+    this.name = "InvalidSettingsError";
+  }
+}
+
+const TAX_CALCULATION_MODES: readonly TaxCalculationMode[] = ["EXCLUSIVE", "INCLUSIVE"];
+const CREDIT_CONTROL_MODES: readonly CreditControlMode[] = ["WARNING", "BLOCK"];
+const FX_RATE_MISSING_POLICIES: readonly FxRateMissingPolicy[] = ["STRICT", "ALLOW_MISSING"];
+const DEPRECIATION_PRORATE_MODES: readonly DepreciationProrateMode[] = ["DAILY", "FULL_MONTH"];
+const NUMERAL_SYSTEMS: readonly NumeralSystem[] = ["western", "arabic"];
+const UI_DIRECTIONS: readonly UiDirection[] = ["LTR", "RTL"];
+const LANGUAGES: readonly SettingsLanguage[] = ["ar", "en", "de"];
+
+/**
+ * Defaults mirroring the captured tenant payload (docs/catalog/09 lines
+ * 44-115), minus the couple of fields the catalog flags as platform-managed
+ * (multi-currency activation itself, WAC drift knobs) which are out of this
+ * tenant-settings surface.
+ */
+export const DEFAULT_SETTINGS: TenantSettings = {
+  currency: "EGP",
+  secondaryCurrencies: ["SAR", "USD", "AED", "EUR", "KWD", "QAR", "JOD"],
+  language: "ar",
+  timezone: "Africa/Cairo",
+  direction: "RTL",
+  dateFormat: "DD/MM/YYYY",
+  dateNumerals: "western",
+  weekendDays: [5, 6],
+  fiscalYearStartMonth: 1,
+  fxRateMissingPolicy: "STRICT",
+
+  companyName: "",
+  taxRegistrationNumber: "",
+  commercialRegistrationNumber: "",
+  phone: "",
+  email: "",
+  address: "",
+  hrContractExpiryWarningDays: 30,
+  overtimeMultiplier: 1.5,
+  standardDailyWorkHours: 8,
+
+  taxEnabled: true,
+  defaultTaxRate: 14,
+  taxCalculation: "EXCLUSIVE",
+  depreciationProrate: "DAILY",
+
+  priceListsEnabled: true,
+  creditControlEnabled: false,
+  creditControlMode: "WARNING",
+
+  allowCrossWarehouseSales: true,
+  showOtherWarehouseStock: true,
+  allowBackorder: false,
+  allowNegativeStock: false,
+
+  requirePoForGrn: false,
+  requireGrnForInvoice: false,
+  trackSoldPurchaseItems: true,
+
+  preventNegativeCashBalance: true,
+  allowNegativeTreasury: true,
+};
+
+function validate(settings: TenantSettings): string[] {
+  const reasons: string[] = [];
+
+  if (!/^[A-Z]{3}$/.test(settings.currency)) {
+    reasons.push("currency must be a 3-letter uppercase ISO 4217 code");
+  }
+  for (const code of settings.secondaryCurrencies) {
+    if (!/^[A-Z]{3}$/.test(code)) {
+      reasons.push(`secondaryCurrencies contains an invalid code: "${code}"`);
+    }
+  }
+  if (!LANGUAGES.includes(settings.language)) {
+    reasons.push(`language must be one of ${LANGUAGES.join(", ")}`);
+  }
+  if (!UI_DIRECTIONS.includes(settings.direction)) {
+    reasons.push(`direction must be one of ${UI_DIRECTIONS.join(", ")}`);
+  }
+  if (!NUMERAL_SYSTEMS.includes(settings.dateNumerals)) {
+    reasons.push(`dateNumerals must be one of ${NUMERAL_SYSTEMS.join(", ")}`);
+  }
+  const uniqueWeekendDays = new Set(settings.weekendDays);
+  if (
+    uniqueWeekendDays.size !== settings.weekendDays.length ||
+    settings.weekendDays.some((d) => !Number.isInteger(d) || d < 0 || d > 6)
+  ) {
+    reasons.push("weekendDays must be unique integers in 0..6");
+  }
+  if (!Number.isInteger(settings.fiscalYearStartMonth) || settings.fiscalYearStartMonth < 1 || settings.fiscalYearStartMonth > 12) {
+    reasons.push("fiscalYearStartMonth must be an integer in 1..12");
+  }
+  if (!FX_RATE_MISSING_POLICIES.includes(settings.fxRateMissingPolicy)) {
+    reasons.push(`fxRateMissingPolicy must be one of ${FX_RATE_MISSING_POLICIES.join(", ")}`);
+  }
+
+  if (
+    !Number.isInteger(settings.hrContractExpiryWarningDays) ||
+    settings.hrContractExpiryWarningDays < 7 ||
+    settings.hrContractExpiryWarningDays > 365
+  ) {
+    reasons.push("hrContractExpiryWarningDays must be an integer in 7..365");
+  }
+  if (settings.overtimeMultiplier <= 0) {
+    reasons.push("overtimeMultiplier must be greater than 0");
+  }
+  if (settings.standardDailyWorkHours <= 0 || settings.standardDailyWorkHours > 24) {
+    reasons.push("standardDailyWorkHours must be in (0, 24]");
+  }
+
+  if (settings.defaultTaxRate < 0 || settings.defaultTaxRate > 100) {
+    reasons.push("defaultTaxRate must be in 0..100");
+  }
+  if (!TAX_CALCULATION_MODES.includes(settings.taxCalculation)) {
+    reasons.push(`taxCalculation must be one of ${TAX_CALCULATION_MODES.join(", ")}`);
+  }
+  if (!DEPRECIATION_PRORATE_MODES.includes(settings.depreciationProrate)) {
+    reasons.push(`depreciationProrate must be one of ${DEPRECIATION_PRORATE_MODES.join(", ")}`);
+  }
+  if (!CREDIT_CONTROL_MODES.includes(settings.creditControlMode)) {
+    reasons.push(`creditControlMode must be one of ${CREDIT_CONTROL_MODES.join(", ")}`);
+  }
+
+  return reasons;
+}
+
+/** Builds a `TenantSettings`, applying `overrides` on top of the catalog defaults. */
+export function createDefaultSettings(overrides: Partial<TenantSettings> = {}): TenantSettings {
+  const settings: TenantSettings = { ...DEFAULT_SETTINGS, ...overrides };
+  const reasons = validate(settings);
+  if (reasons.length > 0) throw new InvalidSettingsError(reasons);
+  return settings;
+}
+
+/**
+ * The single write path for tenant settings: merges `patch` onto `current`
+ * and re-validates the whole object (a patch can never produce an invalid
+ * combination, e.g. a tax rate of 140).
+ */
+export function updateSettings(current: TenantSettings, patch: Partial<TenantSettings>): TenantSettings {
+  const next: TenantSettings = { ...current, ...patch };
+  const reasons = validate(next);
+  if (reasons.length > 0) throw new InvalidSettingsError(reasons);
+  return next;
+}

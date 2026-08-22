@@ -69,6 +69,11 @@ export async function saltedFingerprintHash(
   salt: string,
 ): Promise<string> {
   const data = utf8ToBytes(`${salt}:${rawIdentity}`);
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", data);
+  // `data` is always ArrayBuffer-backed (TextEncoder never yields a
+  // SharedArrayBuffer view); the `unknown` round-trip only satisfies TS's
+  // stricter typed-array generic under lib.dom (present when this file is
+  // type-checked from a DOM-lib consumer, e.g. apps/web) without naming a
+  // DOM-only type, which would fail to resolve for non-DOM consumers.
+  const digest = await globalThis.crypto.subtle.digest("SHA-256", data as unknown as Uint8Array<ArrayBuffer>);
   return bytesToHex(new Uint8Array(digest));
 }

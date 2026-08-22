@@ -50,6 +50,11 @@ function outgoingCmd(overrides: Partial<CreateChequeCommand> = {}): CreateCheque
   };
 }
 
+/** The accounting-meaningful part of a posted entry's lines (the poster also stamps memo/costCenterId/currency/fxRate as nulls). */
+function glLines(entry: { lines: readonly { accountId: string; debit: Money; credit: Money }[] } | null | undefined) {
+  return entry?.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit }));
+}
+
 describe("ChequeService.createCheque", () => {
   it("posts Dr underCollection / Cr AR and saves status pending for an incoming cheque", async () => {
     const { service, ledger } = buildTestService();
@@ -59,9 +64,9 @@ describe("ChequeService.createCheque", () => {
 
     const entry = await ledger.findById("je-create-1");
     expect(entry?.status).toBe("posted");
-    expect(entry?.lines).toEqual([
-      { accountId: "1320", debit: Money.fromMajor("1000"), credit: Money.zero(), memo: null },
-      { accountId: "1100", debit: Money.zero(), credit: Money.fromMajor("1000"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "1320", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1100", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
 
@@ -69,9 +74,9 @@ describe("ChequeService.createCheque", () => {
     const { service, ledger } = buildTestService();
     await service.createCheque(outgoingCmd());
     const entry = await ledger.findById("je-create-2");
-    expect(entry?.lines).toEqual([
-      { accountId: "2100", debit: Money.fromMajor("500"), credit: Money.zero(), memo: null },
-      { accountId: "2150", debit: Money.zero(), credit: Money.fromMajor("500"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "2100", debit: Money.fromMajor("500"), credit: Money.zero() },
+      { accountId: "2150", debit: Money.zero(), credit: Money.fromMajor("500") },
     ]);
   });
 
@@ -107,9 +112,9 @@ describe("ChequeService full lifecycle", () => {
     expect(collected.status).toBe("collected");
     expect(collected.collectionJournalEntryId).toBe("je-collect-1");
     const entry = await ledger.findById("je-collect-1");
-    expect(entry?.lines).toEqual([
-      { accountId: "1310", debit: Money.fromMajor("1000"), credit: Money.zero(), memo: null },
-      { accountId: "1320", debit: Money.zero(), credit: Money.fromMajor("1000"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "1310", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1320", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
 
@@ -119,9 +124,9 @@ describe("ChequeService full lifecycle", () => {
     await service.deposit({ chequeId: "chq-2", bankTreasuryAccountId: "ta-bank1" });
     await service.collect({ chequeId: "chq-2", bankGlAccountId: "1310", journalEntryId: "je-collect-2" });
     const entry = await ledger.findById("je-collect-2");
-    expect(entry?.lines).toEqual([
-      { accountId: "2150", debit: Money.fromMajor("500"), credit: Money.zero(), memo: null },
-      { accountId: "1310", debit: Money.zero(), credit: Money.fromMajor("500"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "2150", debit: Money.fromMajor("500"), credit: Money.zero() },
+      { accountId: "1310", debit: Money.zero(), credit: Money.fromMajor("500") },
     ]);
   });
 
@@ -132,9 +137,9 @@ describe("ChequeService full lifecycle", () => {
     const bounced = await service.bounce({ chequeId: "chq-1", journalEntryId: "je-bounce-1" });
     expect(bounced.status).toBe("bounced");
     const entry = await ledger.findById("je-bounce-1");
-    expect(entry?.lines).toEqual([
-      { accountId: "1360", debit: Money.fromMajor("1000"), credit: Money.zero(), memo: null },
-      { accountId: "1320", debit: Money.zero(), credit: Money.fromMajor("1000"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "1360", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1320", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
 
@@ -144,9 +149,9 @@ describe("ChequeService full lifecycle", () => {
     await service.deposit({ chequeId: "chq-2", bankTreasuryAccountId: "ta-bank1" });
     await service.bounce({ chequeId: "chq-2", journalEntryId: "je-bounce-2" });
     const entry = await ledger.findById("je-bounce-2");
-    expect(entry?.lines).toEqual([
-      { accountId: "2150", debit: Money.fromMajor("500"), credit: Money.zero(), memo: null },
-      { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("500"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "2150", debit: Money.fromMajor("500"), credit: Money.zero() },
+      { accountId: "2100", debit: Money.zero(), credit: Money.fromMajor("500") },
     ]);
   });
 
@@ -184,9 +189,9 @@ describe("ChequeService full lifecycle", () => {
     expect(await cheques.findById("chq-1r")).toEqual(replacement);
 
     const entry = await ledger.findById("je-replace-1");
-    expect(entry?.lines).toEqual([
-      { accountId: "1320", debit: Money.fromMajor("1000"), credit: Money.zero(), memo: null },
-      { accountId: "1360", debit: Money.zero(), credit: Money.fromMajor("1000"), memo: null },
+    expect(glLines(entry)).toEqual([
+      { accountId: "1320", debit: Money.fromMajor("1000"), credit: Money.zero() },
+      { accountId: "1360", debit: Money.zero(), credit: Money.fromMajor("1000") },
     ]);
   });
 

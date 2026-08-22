@@ -40,6 +40,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 2000 الالتزامات (Liabilities) ---
   { id: "2000", code: "2000", nameAr: "الالتزامات", nameEn: "Liabilities", type: "liability", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "2100", code: "2100", nameAr: "ذمم موردين تجاريين", nameEn: "Trade Accounts Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2150", code: "2150", nameAr: "شيكات صادرة", nameEn: "Cheques Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
 
   // --- 3000 حقوق الملكية (Equity) ---

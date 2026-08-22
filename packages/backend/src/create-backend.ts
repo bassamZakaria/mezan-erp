@@ -3,6 +3,7 @@ import {
   StockLedgerService,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  createTreasuryLedgerReader,
 } from "@mezan/domain";
 import {
   createSqliteUnitOfWork,
@@ -31,6 +32,8 @@ import {
   createSqlitePurchaseInvoiceStore,
   createSqliteVoucherStore,
   createStandaloneSqliteInstallmentPlanStore,
+  createSqliteChequeRepository,
+  createSqliteBankReconciliationStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -110,6 +113,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const goodsReceipts = createSqliteGoodsReceiptStore(dbPath);
   const vouchers = createSqliteVoucherStore(dbPath);
 
+  // --- phase7/treasury-completion — سجل الشيكات + تسوية كشوف البنك. The reconciliation
+  // ledger reader resolves a treasury account's GL account and reads its posted movements,
+  // so statement lines only ever link to entries the voucher/cheque engines already posted. ---
+  const cheques = createSqliteChequeRepository(dbPath);
+  const bankStatements = createSqliteBankReconciliationStore(dbPath);
+
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -174,6 +183,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
+    },
+    cheques: {
+      cheques,
+      gl: salesInvoiceGl,
+    },
+    bankReconciliation: {
+      statements: bankStatements.statements,
+      mappings: bankStatements.mappings,
+      ledgerReader: createTreasuryLedgerReader({ treasuryAccounts, ledger }),
     },
     priceListRepo: priceLists,
     promotionRepo: promotions,
@@ -249,6 +267,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     purchaseOrders,
     goodsReceipts,
     vouchers,
+    cheques,
+    bankStatements,
   ];
 
   return {

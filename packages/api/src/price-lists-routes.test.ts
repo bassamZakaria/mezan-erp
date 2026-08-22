@@ -174,3 +174,72 @@ describe("price-lists router — CRUD", () => {
     expect(body).toEqual([]);
   });
 });
+
+describe("POST /resolve-price — applying a price list to a line", () => {
+  async function withLine() {
+    const { app } = newApp();
+    await app.fetch(
+      req("/", {
+        method: "POST",
+        permissions: "sales.price_list.manage",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...payload, lines: [{ itemId: "ITEM-A", price: "80.00" }] }),
+      }),
+    );
+    return app;
+  }
+
+  it("returns the price list's line override when one exists", async () => {
+    const app = await withLine();
+    const res = await app.fetch(
+      req("/resolve-price", {
+        method: "POST",
+        permissions: "sales.price_list.view",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ priceListId: "pl1", itemId: "ITEM-A", fallback: "100.00" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { price: string }).price).toBe("80.000000");
+  });
+
+  it("falls back to the item's normal price when the list has no override for it", async () => {
+    const app = await withLine();
+    const res = await app.fetch(
+      req("/resolve-price", {
+        method: "POST",
+        permissions: "sales.price_list.view",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ priceListId: "pl1", itemId: "ITEM-B", fallback: "100.00" }),
+      }),
+    );
+    expect(((await res.json()) as { price: string }).price).toBe("100.000000");
+  });
+
+  it("falls back to the item's normal price when no price list is given (no price-list customer)", async () => {
+    const { app } = newApp();
+    const res = await app.fetch(
+      req("/resolve-price", {
+        method: "POST",
+        permissions: "sales.price_list.view",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ priceListId: null, itemId: "ITEM-A", fallback: "100.00" }),
+      }),
+    );
+    expect(((await res.json()) as { price: string }).price).toBe("100.000000");
+  });
+
+  it("falls back to the item's normal price when the price list is inactive", async () => {
+    const app = await withLine();
+    await app.fetch(req("/pl1/deactivate", { method: "POST", permissions: "sales.price_list.manage" }));
+    const res = await app.fetch(
+      req("/resolve-price", {
+        method: "POST",
+        permissions: "sales.price_list.view",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ priceListId: "pl1", itemId: "ITEM-A", fallback: "100.00" }),
+      }),
+    );
+    expect(((await res.json()) as { price: string }).price).toBe("100.000000");
+  });
+});

@@ -1,8 +1,10 @@
+import { z } from "zod";
 import { Hono, type Context } from "hono";
 import {
   Money,
   createPriceList,
   updatePriceList,
+  resolvePrice,
   DuplicatePriceListError,
   InvalidPriceListError,
   PriceListNotFoundError,
@@ -11,6 +13,12 @@ import {
 } from "@mezan/domain";
 import { createPriceListSchema, updatePriceListSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+
+const resolvePriceSchema = z.object({
+  priceListId: z.string().min(1).nullish(),
+  itemId: z.string().min(1),
+  fallback: z.string(),
+});
 
 function serialize(priceList: PriceList) {
   return {
@@ -62,6 +70,25 @@ export function createPriceListsRoutes(
     const priceList = await repo.findById(c.req.param("id"));
     if (!priceList) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(priceList));
+  });
+
+  /**
+   * Applies a price list to a line (docs/catalog/01 §"قوائم الأسعار" —
+   * per-customer/category sell prices). Thin wrapper around the pure
+   * `resolvePrice` domain function: the line override if the list is active
+   * and has one for `itemId`, else `fallback` (the item's normal sale price).
+   * Callers resolve the customer's own `priceListId` (or their category's)
+   * before calling this — this route only knows how to apply ONE list.
+   */
+  app.post("/resolve-price", gate("sales.price_list.view"), async (c) => {
+    const parsed = resolvePriceSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const { priceListId, itemId, fallback } = parsed.data;
+    const priceList = priceListId ? await repo.findById(priceListId) : null;
+    const price = resolvePrice(priceList, itemId, Money.fromMajor(fallback));
+    return c.json({ price: price.toString() });
   });
 
   app.post("/", gate("sales.price_list.manage"), async (c) => {

@@ -17,35 +17,39 @@ import {
 } from "@mezan/ui";
 import {
   Money,
-  invoiceOutstanding,
-  voucherLine,
+  voucherDocumentType,
   getVoucherTypeDefinition,
   getVoucherPaymentMethodLabel,
   VOUCHER_TYPE_DEFINITIONS,
   VOUCHER_PAYMENT_METHODS,
-  type DocumentStatus,
   type VoucherDocument,
+  type VoucherLine,
   type VoucherPaymentMethod,
   type VoucherType,
 } from "@mezan/domain";
-import { useVouchersStore } from "../store/useVouchersStore";
+import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
 import {
-  demoCvStartNumber,
-  demoOpenInvoices,
-  demoSeededAllocations,
-  demoSeededVouchers,
-  demoTreasuryOpeningBalances,
-  demoVoucherAccounts,
-  demoVoucherCustomers,
-  demoVoucherOpenPeriod,
-  demoVoucherSuppliers,
-  demoVoucherTreasuryAccounts,
-} from "../vouchers-sample-data";
+  useAccounts,
+  useConfirmVoucher,
+  useCreateAllocation,
+  useCreateVoucher,
+  useCustomers,
+  useOpenInvoices,
+  useReverseAllocation,
+  useReverseVoucher,
+  useSuppliers,
+  useTreasuryAccounts,
+  useVoucherDetail,
+  useVouchers,
+  type VoucherDetailDTO,
+  type VoucherRowDTO,
+} from "../data/hooks";
+import { sampleBranches } from "../settings/sample-data";
 import { SelectField, TextField } from "../settings/form-controls";
 
-/** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the document framework. */
+/** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
+const STATUS_LABEL: Record<VoucherStatusDTO, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",
   posted: "مرحل",
@@ -53,7 +57,7 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   reversed: "معكوس",
   cancelled: "ملغي",
 };
-const STATUS_TONE: Record<DocumentStatus, PillTone> = {
+const STATUS_TONE: Record<VoucherStatusDTO, PillTone> = {
   draft: "neutral",
   pending: "warning",
   posted: "success",
@@ -69,12 +73,17 @@ const STEPPER_STEPS: DocumentStatusStep[] = [
   { key: "reversed", label: "معكوس" },
 ];
 
-/** Fixed counterparty GL account per voucher type; null = the user picks it (income/expense) or n/a (transfer). */
+/**
+ * Fixed counterparty GL account per voucher type — leaves of the standard COA
+ * (packages/domain/src/accounts/coa-template.ts): trade receivables (1105),
+ * trade payables (2100), customer advances (2160), output VAT (2200), capital
+ * (3100). null = the user picks it (income/expense) or n/a (transfer).
+ */
 const FIXED_COUNTERPARTY: Record<VoucherType, string | null> = {
-  customer_collection: "1100",
+  customer_collection: "1105",
   supplier_payment: "2100",
-  customer_refund: "1100",
-  customer_advance: "2150",
+  customer_refund: "1105",
+  customer_advance: "2160",
   supplier_refund: "2100",
   other_income: null,
   other_expense: null,
@@ -84,47 +93,78 @@ const FIXED_COUNTERPARTY: Record<VoucherType, string | null> = {
   inter_treasury_transfer: null,
 };
 
-function toMajor(m: Money): number {
-  return Number(m.toString());
+function toMajor(value: string): number {
+  return Number(value);
 }
 
-function seed() {
+/** Rebuilds the domain's pure `VoucherLine`/`VoucherDocument` shape from the wire DTO so `voucherDocumentType.describeEffects` (no I/O) can drive the effects panel — same helper the create-flow preview below uses. */
+function toVoucherLine(d: {
+  voucherType: VoucherType;
+  direction: VoucherLine["direction"];
+  amount: string;
+  currency: string;
+  branchId: string;
+  paymentMethod: VoucherPaymentMethod;
+  treasuryAccountId: string;
+  treasuryGlAccountId: string;
+  counterpartyGlAccountId: string | null;
+  counterTreasuryAccountId: string | null;
+  counterTreasuryGlAccountId: string | null;
+  customerId: string | null;
+  supplierId: string | null;
+  referenceNo: string | null;
+}): VoucherLine {
+  return { ...d, amount: Money.fromMajor(d.amount) };
+}
+
+function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo: string; status: VoucherDocument["status"] }): VoucherDocument {
   return {
-    accounts: demoVoucherAccounts,
-    treasuryAccounts: demoVoucherTreasuryAccounts,
-    customers: demoVoucherCustomers,
-    suppliers: demoVoucherSuppliers,
-    period: demoVoucherOpenPeriod,
-    openInvoices: demoOpenInvoices,
-    openingBalances: demoTreasuryOpeningBalances,
-    seededVouchers: demoSeededVouchers,
-    seededAllocations: demoSeededAllocations,
-    startCvNumber: demoCvStartNumber,
-    now: () => "2026-08-22T10:00:00.000Z",
+    id: extra.id,
+    docType: "TREASURY_VOUCHER",
+    docNo: null,
+    date: extra.date,
+    memo: extra.memo,
+    status: extra.status,
+    lines: [line],
+    createdAt: "",
+    confirmedAt: null,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
   };
 }
 
 export function TreasuryVouchersScreen() {
-  const store = useVouchersStore(seed());
+  const query = useVouchers();
+  const customersQuery = useCustomers();
+  const suppliersQuery = useSuppliers();
+  const treasuryQuery = useTreasuryAccounts();
+  const accountsQuery = useAccounts();
+
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | DocumentStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
   const [typeFilter, setTypeFilter] = useState<"all" | VoucherType>("all");
 
-  const documents = store.documents;
+  const documents = query.data ?? [];
+  const customers = customersQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? [];
+  const treasuryAccounts = treasuryQuery.data ?? [];
+  const accounts = accountsQuery.data ?? [];
 
   const partyName = useMemo(() => {
     const map = new Map<string, string>();
-    for (const c of store.customers) map.set(c.id, c.nameAr);
-    for (const s of store.suppliers) map.set(s.id, s.nameAr);
-    return (id: string | null) => (id ? map.get(id) ?? id : "بدون طرف محدد");
-  }, [store.customers, store.suppliers]);
+    for (const c of customers) map.set(c.id, c.nameAr);
+    for (const s of suppliers) map.set(s.id, s.nameAr);
+    return (id: string | null) => (id ? (map.get(id) ?? id) : "بدون طرف محدد");
+  }, [customers, suppliers]);
 
   const treasuryName = useMemo(() => {
-    const map = new Map(store.treasuryAccounts.map((t) => [t.id, t.name]));
+    const map = new Map(treasuryAccounts.map((t) => [t.id, t.name]));
     return (id: string) => map.get(id) ?? id;
-  }, [store.treasuryAccounts]);
+  }, [treasuryAccounts]);
 
   const counts = useMemo(() => {
     let confirmed = 0;
@@ -133,51 +173,39 @@ export function TreasuryVouchersScreen() {
     for (const d of documents) {
       if (d.status === "confirmed") confirmed += 1;
       if (d.status === "draft") draft += 1;
-      const line = voucherLine(d);
-      if (d.status === "confirmed" && getVoucherTypeDefinition(line.voucherType).allocatable && store.summaryFor(d).needsAllocation) {
-        needsAllocation += 1;
-      }
+      if (d.status === "confirmed" && d.allocatable && d.allocationSummary.needsAllocation) needsAllocation += 1;
     }
     return { all: documents.length, confirmed, draft, needsAllocation };
-  }, [documents, store]);
+  }, [documents]);
 
   const typeBreakdown = useMemo(() => {
     const map = new Map<VoucherType, number>();
-    for (const d of documents) {
-      const t = voucherLine(d).voucherType;
-      map.set(t, (map.get(t) ?? 0) + 1);
-    }
+    for (const d of documents) map.set(d.voucherType, (map.get(d.voucherType) ?? 0) + 1);
     return [...map.entries()];
   }, [documents]);
 
   const filtered = useMemo(() => {
     let rows = documents;
-    if (typeFilter !== "all") rows = rows.filter((d) => voucherLine(d).voucherType === typeFilter);
+    if (typeFilter !== "all") rows = rows.filter((d) => d.voucherType === typeFilter);
     if (statusFilter === "needs_allocation") {
-      rows = rows.filter((d) => {
-        const line = voucherLine(d);
-        return d.status === "confirmed" && getVoucherTypeDefinition(line.voucherType).allocatable && store.summaryFor(d).needsAllocation;
-      });
+      rows = rows.filter((d) => d.status === "confirmed" && d.allocatable && d.allocationSummary.needsAllocation);
     } else if (statusFilter !== "all") {
       rows = rows.filter((d) => d.status === statusFilter);
     }
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((d) => {
-        const line = voucherLine(d);
         return (
           (d.docNo ?? "").toLowerCase().includes(q) ||
-          partyName(line.customerId ?? line.supplierId).toLowerCase().includes(q) ||
-          (line.referenceNo ?? "").toLowerCase().includes(q)
+          partyName(d.customerId ?? d.supplierId).toLowerCase().includes(q) ||
+          (d.referenceNo ?? "").toLowerCase().includes(q)
         );
       });
     }
     return rows;
-  }, [documents, typeFilter, statusFilter, search, store, partyName]);
+  }, [documents, typeFilter, statusFilter, search, partyName]);
 
-  const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
-
-  const columns: DocumentListColumn<VoucherDocument>[] = [
+  const columns: DocumentListColumn<VoucherRowDTO>[] = [
     {
       key: "docNo",
       header: "رقم السند",
@@ -189,28 +217,24 @@ export function TreasuryVouchersScreen() {
         </div>
       ),
     },
-    { key: "type", header: "نوع السند", render: (d) => getVoucherTypeDefinition(voucherLine(d).voucherType).labelAr },
+    { key: "type", header: "نوع السند", render: (d) => getVoucherTypeDefinition(d.voucherType).labelAr },
     {
       key: "party",
       header: "الطرف",
-      render: (d) => {
-        const line = voucherLine(d);
-        return <span className="text-ink">{partyName(line.customerId ?? line.supplierId)}</span>;
-      },
+      render: (d) => <span className="text-ink">{partyName(d.customerId ?? d.supplierId)}</span>,
     },
     {
       key: "treasury",
       header: "حساب الخزينة",
       render: (d) => {
-        const line = voucherLine(d);
-        if (line.direction === "transfer" && line.counterTreasuryAccountId) {
+        if (d.direction === "transfer" && d.counterTreasuryAccountId) {
           return (
             <span className="text-[12px] text-ink-muted">
-              {treasuryName(line.treasuryAccountId)} ← {treasuryName(line.counterTreasuryAccountId)}
+              {treasuryName(d.treasuryAccountId)} ← {treasuryName(d.counterTreasuryAccountId)}
             </span>
           );
         }
-        return <span className="text-[12px] text-ink-muted">{treasuryName(line.treasuryAccountId)}</span>;
+        return <span className="text-[12px] text-ink-muted">{treasuryName(d.treasuryAccountId)}</span>;
       },
     },
     {
@@ -218,13 +242,12 @@ export function TreasuryVouchersScreen() {
       header: "المبلغ",
       align: "end",
       render: (d) => {
-        const line = voucherLine(d);
-        const tone = line.direction === "receipt" ? "text-success-ink" : line.direction === "payment" ? "text-danger-ink" : "text-ink";
-        const sign = line.direction === "receipt" ? "+" : line.direction === "payment" ? "−" : "";
+        const tone = d.direction === "receipt" ? "text-success-ink" : d.direction === "payment" ? "text-danger-ink" : "text-ink";
+        const sign = d.direction === "receipt" ? "+" : d.direction === "payment" ? "−" : "";
         return (
           <span className={tone}>
             {sign}
-            <MoneyDisplay value={toMajor(line.amount)} />
+            <MoneyDisplay value={toMajor(d.amount)} />
           </span>
         );
       },
@@ -238,16 +261,32 @@ export function TreasuryVouchersScreen() {
   }
 
   if (mode === "create") {
-    return <CreateVoucherView store={store} onDone={() => setMode("list")} />;
+    return (
+      <CreateVoucherView
+        customers={customers}
+        suppliers={suppliers}
+        treasuryAccounts={treasuryAccounts}
+        accounts={accounts}
+        onDone={() => setMode("list")}
+      />
+    );
   }
 
-  if (mode === "detail" && selected) {
-    return <VoucherDetailView doc={selected} store={store} partyName={partyName} treasuryName={treasuryName} onBack={() => setMode("list")} />;
+  if (mode === "detail" && selectedId) {
+    return <VoucherDetailView id={selectedId} partyName={partyName} treasuryName={treasuryName} onBack={() => setMode("list")} />;
   }
 
   return (
     <div className="w-full">
-      <DocumentList<VoucherDocument>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل السندات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<VoucherRowDTO>
         eyebrow="Treasury · Vouchers"
         title="السندات النقدية"
         description="سندات القبض والصرف والتحويل — مستند موحّد بـ11 نوعاً على إطار المستندات، مع تخصيص على الفواتير"
@@ -307,57 +346,67 @@ export function TreasuryVouchersScreen() {
 /* -------------------------------------------------------------------- */
 
 function VoucherDetailView({
-  doc,
-  store,
+  id,
   partyName,
   treasuryName,
   onBack,
 }: {
-  doc: VoucherDocument;
-  store: ReturnType<typeof useVouchersStore>;
+  id: string;
   partyName: (id: string | null) => string;
   treasuryName: (id: string) => string;
   onBack: () => void;
 }) {
-  const line = voucherLine(doc);
-  const def = getVoucherTypeDefinition(line.voucherType);
-  const summary = store.summaryFor(doc);
-  const effects = store.service.effectsOf(doc);
+  const query = useVoucherDetail(id);
+  const reverseVoucher = useReverseVoucher();
+  const createAllocation = useCreateAllocation();
+  const reverseAllocation = useReverseAllocation();
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reversingAllocId, setReversingAllocId] = useState<string | null>(null);
-
-  // Allocation form state.
-  const [invoiceId, setInvoiceId] = useState<string>("");
+  const [invoiceId, setInvoiceId] = useState("");
   const [allocAmount, setAllocAmount] = useState<number | null>(null);
 
-  const activeAllocations = store.allocationsFor(doc.id).filter((a) => a.status === "active");
-  const partyId = line.customerId ?? line.supplierId;
-  const openInvoices = def.allocatable ? store.openInvoicesFor(def.allocationKind!, partyId) : [];
-  const invoiceById = useMemo(() => new Map(store.openInvoices.map((i) => [i.id, i])), [store.openInvoices]);
+  const doc = query.data;
+  const def = doc ? getVoucherTypeDefinition(doc.voucherType) : null;
+  const partyId = doc ? (doc.customerId ?? doc.supplierId) : null;
+  const openInvoicesQuery = useOpenInvoices(def?.allocationKind ?? undefined, partyId);
+  const openInvoices = openInvoicesQuery.data ?? [];
+  const invoiceById = useMemo(() => new Map(openInvoices.map((i) => [i.id, i])), [openInvoices]);
+
+  const effects = useMemo(() => {
+    if (!doc) return null;
+    const line = toVoucherLine(doc);
+    const preview = toPreviewDoc(line, { id: doc.id, date: doc.date, memo: doc.memo, status: doc.status });
+    return voucherDocumentType.describeEffects(preview);
+  }, [doc]);
 
   async function handleReverseVoucher() {
-    if (busy) return;
+    if (busy || !doc) return;
     setBusy(true);
     setError(null);
-    const result = await store.reverse(doc.id);
-    setBusy(false);
-    if (result.ok) onBack();
-    else setError(result.error ?? "تعذر عكس السند.");
+    try {
+      await reverseVoucher.mutateAsync({ id: doc.id });
+      onBack();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر عكس السند.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleAllocate() {
-    if (busy || invoiceId === "" || !allocAmount || allocAmount <= 0) return;
+    if (busy || !doc || invoiceId === "" || !allocAmount || allocAmount <= 0) return;
     setBusy(true);
     setError(null);
-    const result = await store.allocate(doc.id, invoiceId, Money.fromMajor(String(allocAmount)));
-    setBusy(false);
-    if (result.ok) {
+    try {
+      await createAllocation.mutateAsync({ voucherId: doc.id, body: { invoiceId, amount: String(allocAmount) } });
       setInvoiceId("");
       setAllocAmount(null);
-    } else {
-      setError(result.error ?? "تعذر تخصيص المبلغ.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر تخصيص المبلغ.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -365,22 +414,42 @@ function VoucherDetailView({
     if (reversingAllocId) return;
     setReversingAllocId(allocId);
     setError(null);
-    const result = await store.reverseAllocation(allocId);
-    setReversingAllocId(null);
-    if (!result.ok) setError(result.error ?? "تعذر عكس التخصيص.");
+    try {
+      await reverseAllocation.mutateAsync(allocId);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر عكس التخصيص.");
+    } finally {
+      setReversingAllocId(null);
+    }
   }
+
+  if (!doc || !def) {
+    return (
+      <div className="w-full">
+        <Button onClick={onBack}>رجوع</Button>
+        {query.isError ? (
+          <Card className="mt-[16px] p-[18px_20px]">
+            <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل السند.</p>
+          </Card>
+        ) : null}
+      </div>
+    );
+  }
+
+  const summary = doc.allocationSummary;
+  const activeAllocations = doc.allocations.filter((a) => a.status === "active");
 
   const summaryItems = [
     { label: "النوع", value: def.labelAr },
     { label: "التاريخ", value: <span className="mz-num">{doc.date}</span> },
-    { label: "طريقة الدفع", value: getVoucherPaymentMethodLabel(line.paymentMethod) },
+    { label: "طريقة الدفع", value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
     { label: "الطرف", value: partyName(partyId) },
-    { label: "المبلغ", value: <MoneyDisplay value={toMajor(line.amount)} /> },
+    { label: "المبلغ", value: <MoneyDisplay value={toMajor(doc.amount)} /> },
     ...(def.allocatable
       ? [
           {
             label: "التخصيص",
-            value: summary.fullyAllocated ? "مخصّص بالكامل" : `مخصّص ${summary.allocated.toString()}`,
+            value: summary.fullyAllocated ? "مخصّص بالكامل" : `مخصّص ${summary.allocated}`,
             valueTone: summary.needsAllocation ? ("danger" as const) : ("success" as const),
           },
         ]
@@ -460,7 +529,7 @@ function VoucherDetailView({
                     { value: "", label: "اختر فاتورة…" },
                     ...openInvoices.map((i) => ({
                       value: i.id,
-                      label: `${i.invoiceNo} — متبقٍ ${invoiceOutstanding(i).toString()}`,
+                      label: `${i.invoiceNo} — متبقٍ ${i.outstanding}`,
                     })),
                   ]}
                 />
@@ -524,7 +593,7 @@ function VoucherDetailView({
         }
         summary={summaryItems}
         effectsTitle="تأثيرات هذا السند"
-        effects={effects.effects.map((e) => e.description)}
+        effects={(effects?.effects ?? []).map((e) => e.description)}
         tabs={tabs}
       />
     </div>
@@ -547,16 +616,31 @@ interface CreateDraft {
   memo: string;
 }
 
-function CreateVoucherView({ store, onDone }: { store: ReturnType<typeof useVouchersStore>; onDone: () => void }) {
+function CreateVoucherView({
+  customers,
+  suppliers,
+  treasuryAccounts,
+  accounts,
+  onDone,
+}: {
+  customers: CustomerDTO[];
+  suppliers: SupplierDTO[];
+  treasuryAccounts: TreasuryAccountDTO[];
+  accounts: AccountDTO[];
+  onDone: () => void;
+}) {
+  const createVoucher = useCreateVoucher();
+  const confirmVoucher = useConfirmVoucher();
+
   const [type, setType] = useState<VoucherType | null>(null);
   const [draft, setDraft] = useState<CreateDraft>({
     amount: null,
     paymentMethod: "cash",
-    treasuryAccountId: store.treasuryAccounts[0]?.id ?? "",
-    counterTreasuryAccountId: store.treasuryAccounts[1]?.id ?? "",
+    treasuryAccountId: treasuryAccounts[0]?.id ?? "",
+    counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
     counterpartyGlAccountId: "4900",
     partyId: "",
-    date: "2026-08-22",
+    date: new Date().toISOString().slice(0, 10),
     referenceNo: "",
     memo: "",
   });
@@ -565,21 +649,21 @@ function CreateVoucherView({ store, onDone }: { store: ReturnType<typeof useVouc
 
   const def = type ? getVoucherTypeDefinition(type) : null;
 
-  const treasuryOptions = store.treasuryAccounts.map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }));
+  const treasuryOptions = treasuryAccounts.map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }));
   const partyOptions: EntityPickerOption[] = def?.requiresCustomer
-    ? store.customers.map((c) => ({ id: c.id, label: c.nameAr }))
+    ? customers.map((c) => ({ id: c.id, label: c.nameAr }))
     : def?.requiresSupplier
-      ? store.suppliers.map((s) => ({ id: s.id, label: s.nameAr }))
+      ? suppliers.map((s) => ({ id: s.id, label: s.nameAr }))
       : [];
   const revenueOrExpenseOptions =
     type === "other_income"
-      ? store.accounts.filter((a) => a.type === "revenue").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
+      ? accounts.filter((a) => a.type === "revenue").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
       : type === "other_expense"
-        ? store.accounts.filter((a) => a.type === "expense").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
+        ? accounts.filter((a) => a.type === "expense").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
         : [];
 
   function treasuryGlOf(id: string): string {
-    return store.treasuryAccounts.find((t) => t.id === id)?.glAccountId ?? "";
+    return treasuryAccounts.find((t) => t.id === id)?.glAccountId ?? "";
   }
 
   function counterpartyGl(): string | null {
@@ -589,60 +673,15 @@ function CreateVoucherView({ store, onDone }: { store: ReturnType<typeof useVouc
     return fixed ?? draft.counterpartyGlAccountId;
   }
 
-  // A preview document for the live effects panel.
-  const previewEffects = useMemo(() => {
+  function buildLine(): VoucherLine | null {
     if (!type || !def) return null;
     const amount = Money.fromMajor(String(draft.amount ?? 0));
-    if (amount.scaled <= 0n) return null;
-    const preview: VoucherDocument = {
-      id: "preview",
-      docType: "TREASURY_VOUCHER",
-      docNo: null,
-      date: draft.date,
-      memo: draft.memo || def.labelAr,
-      status: "draft",
-      lines: [
-        {
-          voucherType: type,
-          direction: def.direction,
-          amount,
-          currency: "EGP",
-          branchId: "b1",
-          paymentMethod: draft.paymentMethod,
-          treasuryAccountId: draft.treasuryAccountId,
-          treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),
-          counterpartyGlAccountId: counterpartyGl(),
-          counterTreasuryAccountId: def.direction === "transfer" ? draft.counterTreasuryAccountId : null,
-          counterTreasuryGlAccountId: def.direction === "transfer" ? treasuryGlOf(draft.counterTreasuryAccountId) : null,
-          customerId: def.requiresCustomer ? draft.partyId || null : null,
-          supplierId: def.requiresSupplier ? draft.partyId || null : null,
-          referenceNo: draft.referenceNo || null,
-        },
-      ],
-      createdAt: "",
-      confirmedAt: null,
-      reversesDocId: null,
-      reversedByDocId: null,
-      workflowRequestId: null,
-      journalEntryId: null,
-    };
-    try {
-      return store.service.effectsOf(preview);
-    } catch {
-      return null;
-    }
-  }, [type, def, draft, store]);
-
-  async function submitVoucher() {
-    if (!type || !def || busy) return;
-    setBusy(true);
-    setError(null);
-    const result = await store.createAndConfirm({
-      date: draft.date,
-      memo: draft.memo || def.labelAr,
+    return {
       voucherType: type,
-      amount: Money.fromMajor(String(draft.amount ?? 0)),
-      branchId: "b1",
+      direction: def.direction,
+      amount,
+      currency: "EGP",
+      branchId: sampleBranches[0]?.id ?? "MAIN",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),
@@ -652,10 +691,52 @@ function CreateVoucherView({ store, onDone }: { store: ReturnType<typeof useVouc
       customerId: def.requiresCustomer ? draft.partyId || null : null,
       supplierId: def.requiresSupplier ? draft.partyId || null : null,
       referenceNo: draft.referenceNo || null,
-    });
-    setBusy(false);
-    if (result.ok) onDone();
-    else setError(result.error ?? "تعذر إنشاء السند.");
+    };
+  }
+
+  // A preview document for the live effects panel — a pure client-side computation, no network call.
+  const previewEffects = useMemo(() => {
+    if (!type || !def) return null;
+    const line = buildLine();
+    if (!line || line.amount.scaled <= 0n) return null;
+    const preview = toPreviewDoc(line, { id: "preview", date: draft.date, memo: draft.memo || def.labelAr, status: "draft" });
+    try {
+      return voucherDocumentType.describeEffects(preview);
+    } catch {
+      return null;
+    }
+  }, [type, def, draft]);
+
+  async function submitVoucher() {
+    if (!type || !def || busy) return;
+    const line = buildLine();
+    if (!line) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createVoucher.mutateAsync({
+        date: draft.date,
+        memo: draft.memo || def.labelAr,
+        voucherType: line.voucherType,
+        amount: line.amount.toString(),
+        branchId: line.branchId,
+        paymentMethod: line.paymentMethod,
+        treasuryAccountId: line.treasuryAccountId,
+        treasuryGlAccountId: line.treasuryGlAccountId,
+        counterpartyGlAccountId: line.counterpartyGlAccountId,
+        counterTreasuryAccountId: line.counterTreasuryAccountId,
+        counterTreasuryGlAccountId: line.counterTreasuryGlAccountId,
+        customerId: line.customerId,
+        supplierId: line.supplierId,
+        referenceNo: line.referenceNo,
+      });
+      await confirmVoucher.mutateAsync({ id: created.id });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر إنشاء السند.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (!type || !def) {

@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
@@ -8,67 +9,36 @@ import {
   SidePanel,
   Chip,
   EntityPicker,
-  buildHistoricalImportTemplate,
-  parseHistoricalImportFile,
-  downloadReportExport,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
 } from "@mezan/ui";
+import type { GoodsReceiptDTO, PurchaseInvoiceDTO, PurchaseInvoiceLineDTO, PurchaseInvoiceStatusDTO } from "@mezan/contracts";
 import {
-  Money,
-  Qty,
-  buildInvoiceLinesFromReceipt,
-  purchaseInvoiceSubtotal,
-  purchaseInvoiceTax,
-  purchaseInvoiceTotal,
-  purchaseInvoiceLineBase,
-  purchaseInvoiceLineTax,
-  previewHistoricalImport,
-  importHistoricalPurchaseDocuments,
-  type PurchaseInvoice,
-  type PurchaseInvoiceStatus,
-  type PurchaseInvoiceLine,
-  type HistoricalImportRowInput,
-  type HistoricalImportPreview,
-  type HistoricalPurchaseArchive,
-  type HistoricalPurchaseArchiveRepository,
-} from "@mezan/domain";
-import { demoSuppliers } from "../partners-sample-data";
-import {
-  demoPurchaseInvoices,
-  demoGoodsReceipts,
-  demoPurchaseItems,
-  itemName,
-  supplierName,
-} from "../purchasing-sample-data";
+  useConfirmPurchaseInvoice,
+  useCreatePurchaseInvoice,
+  useGoodsReceipts,
+  useItems,
+  usePurchaseInvoices,
+  useSuppliers,
+} from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 
-const STATUS_LABEL: Record<PurchaseInvoiceStatus, string> = {
+const STATUS_LABEL: Record<PurchaseInvoiceStatusDTO, string> = {
   draft: "مسودة",
   confirmed: "مؤكد",
   cancelled: "ملغي",
 };
-const STATUS_TONE: Record<PurchaseInvoiceStatus, PillTone> = {
+const STATUS_TONE: Record<PurchaseInvoiceStatusDTO, PillTone> = {
   draft: "neutral",
   confirmed: "success",
   cancelled: "danger",
 };
 
-const num = (m: Money) => Number(m.toString());
-const taxRateFor = (itemId: string) => demoPurchaseItems.find((i) => i.id === itemId)?.taxRatePercent ?? 0;
-
-const supplierOptions: EntityPickerOption[] = demoSuppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-const itemOptions: EntityPickerOption[] = demoPurchaseItems.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.unit }));
-const confirmedReceipts = demoGoodsReceipts.filter((r) => r.status === "confirmed" && !r.invoiced);
-const receiptOptions: EntityPickerOption[] = confirmedReceipts.map((r) => ({
-  id: r.id,
-  label: `${r.number} · ${supplierName(r.supplierId)}`,
-  sublabel: r.date,
-}));
-
-let nextSeq = demoPurchaseInvoices.length + 1;
+const num = (v: string) => Number(v);
+const lineBase = (l: PurchaseInvoiceLineDTO) => Number(l.qty) * Number(l.unitCost);
+const lineTax = (l: PurchaseInvoiceLineDTO) => (lineBase(l) * l.taxRatePercent) / 100;
 
 interface DraftLine {
   itemId: string;
@@ -79,7 +49,26 @@ interface DraftLine {
   description: string;
 }
 
-function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoice; onBack: () => void; onConfirm: () => void }) {
+interface PreviewLine {
+  itemId: string | null;
+  qty: number;
+  unitCost: number;
+  taxRatePercent: number;
+}
+
+function InvoiceDetail({
+  invoice,
+  supplierName,
+  itemName,
+  onBack,
+  onConfirm,
+}: {
+  invoice: PurchaseInvoiceDTO;
+  supplierName: (id: string) => string;
+  itemName: (id: string | null) => string;
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
   return (
     <DocumentDetail
       title={`فاتورة مشتريات ${invoice.number}`}
@@ -102,7 +91,7 @@ function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoic
         { label: "تاريخ الاستحقاق", value: invoice.dueDate?.split("-").reverse().join("/") ?? "—" },
         { label: "رقم فاتورة المورد", value: invoice.supplierInvoiceNumber ?? "—" },
         { label: "المصدر", value: invoice.receiptId ? "من إيصال استلام" : "إدخال يدوي" },
-        { label: "الإجمالي الكلي", value: <MoneyValue value={num(purchaseInvoiceTotal(invoice))} /> },
+        { label: "الإجمالي الكلي", value: <MoneyValue value={num(invoice.total)} /> },
       ]}
       effects={[
         invoice.receiptId
@@ -133,10 +122,10 @@ function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoic
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{l.kind === "expense" ? (l.description ?? "مصروف") : itemName(l.itemId)}</td>
                       <td className="px-[12px] py-[10px]">{l.kind === "inventory" ? "مخزني" : "مصروف شحن"}</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty.toString()}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
-                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(purchaseInvoiceLineBase(l).add(purchaseInvoiceLineTax(l)))} showUnit={false} /></td>
+                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -144,9 +133,9 @@ function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoic
                   <tr className="border-t border-border font-semibold">
                     <td className="px-[12px] py-[10px]" colSpan={5}>المجموع الفرعي / الضريبة / الإجمالي</td>
                     <td className="px-[12px] py-[10px] text-end">
-                      <div><MoneyValue value={num(purchaseInvoiceSubtotal(invoice))} showUnit={false} /></div>
-                      <div className="text-ink-muted"><MoneyValue value={num(purchaseInvoiceTax(invoice))} showUnit={false} /></div>
-                      <div><MoneyValue value={num(purchaseInvoiceTotal(invoice))} showUnit={false} /></div>
+                      <div><MoneyValue value={num(invoice.subtotal)} showUnit={false} /></div>
+                      <div className="text-ink-muted"><MoneyValue value={num(invoice.tax)} showUnit={false} /></div>
+                      <div><MoneyValue value={num(invoice.total)} showUnit={false} /></div>
                     </td>
                   </tr>
                 </tfoot>
@@ -159,235 +148,57 @@ function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoic
   );
 }
 
-/** Local, in-memory HistoricalPurchaseArchiveRepository — mirrors the real SQLite store's contract (packages/persistence/src/historical-import-store.ts) but backed by a ref so the panel can exercise the REAL domain import functions without a live API. */
-function useHistoricalArchiveRepo(): HistoricalPurchaseArchiveRepository {
-  const ref = useRef<HistoricalPurchaseArchive[]>([]);
-  return useMemo<HistoricalPurchaseArchiveRepository>(
-    () => ({
-      async create(archive) {
-        ref.current = [...ref.current, archive];
-      },
-      async list() {
-        return ref.current;
-      },
-      async findById(id) {
-        return ref.current.find((a) => a.id === id) ?? null;
-      },
-      async findByOriginalNumber(docType, originalNumber) {
-        return ref.current.find((a) => a.docType === docType && a.originalNumber === originalNumber) ?? null;
-      },
-    }),
-    [],
-  );
-}
-
-interface ImportRowIssue {
-  readonly rowNumber: number;
-  readonly reasons: readonly string[];
-}
-
-function HistoricalImportPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const archives = useHistoricalArchiveRepo();
-  const [fileName, setFileName] = useState<string | null>(null);
-  const [parseIssues, setParseIssues] = useState<ImportRowIssue[]>([]);
-  const [preview, setPreview] = useState<HistoricalImportPreview | null>(null);
-  const [rows, setRows] = useState<HistoricalImportRowInput[]>([]);
-  const [result, setResult] = useState<{ archivedCount: number; errors: readonly ImportRowIssue[] } | null>(null);
-  const [importing, setImporting] = useState(false);
-
-  function reset() {
-    setFileName(null);
-    setParseIssues([]);
-    setPreview(null);
-    setRows([]);
-    setResult(null);
-  }
-
-  async function handleFile(file: File) {
-    reset();
-    setFileName(file.name);
-    const buffer = await file.arrayBuffer();
-    const parsed = await parseHistoricalImportFile(buffer);
-
-    const rowInputs: HistoricalImportRowInput[] = [];
-    const conversionIssues: ImportRowIssue[] = [];
-    for (const r of parsed.rows) {
-      try {
-        rowInputs.push({
-          rowNumber: r.rowNumber,
-          docType: r.docType,
-          documentNumber: r.documentNumber,
-          supplierId: r.supplierId,
-          date: r.date,
-          dueDate: r.dueDate,
-          itemId: r.itemId,
-          description: r.description,
-          qty: Qty.fromMajor(r.qty || "0"),
-          unitCost: Money.fromMajor(r.unitCost || "0"),
-          amountPaid: Money.fromMajor(r.amountPaid || "0"),
-        });
-      } catch {
-        conversionIssues.push({ rowNumber: r.rowNumber, reasons: ["قيمة رقمية غير صالحة في الكمية أو التكلفة أو المبلغ المسدد"] });
-      }
-    }
-
-    setParseIssues([
-      ...parsed.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: [e.reason] })),
-      ...conversionIssues,
-    ]);
-    setRows(rowInputs);
-    setPreview(rowInputs.length > 0 ? previewHistoricalImport(rowInputs) : null);
-  }
-
-  async function commit() {
-    if (rows.length === 0) return;
-    setImporting(true);
-    try {
-      const outcome = await importHistoricalPurchaseDocuments(
-        { importBatchId: `HPI-${Date.now()}`, rows, createdBy: "محمد الشهابي" },
-        { archives },
-      );
-      setResult({ archivedCount: outcome.archived.length, errors: outcome.errors });
-      setPreview(null);
-      setRows([]);
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function downloadTemplate() {
-    const file = await buildHistoricalImportTemplate();
-    downloadReportExport(file);
-  }
-
-  return (
-    <SidePanel
-      open={open}
-      onClose={() => {
-        reset();
-        onClose();
-      }}
-      title="استيراد فواتير سابقة"
-      description="أرشفة مستندات مشتريات سابقة لبدء التشغيل — دون قيد محاسبي للمستندات المسواة بالكامل، ودون أي تأثير على المخزون"
-    >
-      <div className="flex flex-col gap-[14px]">
-        <div className="rounded-lg border border-border bg-surface p-[12px] text-[12px] leading-[1.7] text-ink-muted">
-          المستندات المسواة بالكامل تُؤرشف بدون أي قيد محاسبي. المستندات ذات رصيد متبقٍ يُسجَّل رصيدها المتبقي فقط
-          كمستحق للمورد. البضاعة كانت موجودة بالمستودع مسبقاً — لا يتأثر المخزون بهذا الاستيراد.
-        </div>
-
-        <div className="flex items-center justify-between gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">ملف الاستيراد (Excel)</span>
-          <Button onClick={downloadTemplate}>تحميل النموذج</Button>
-        </div>
-        <input
-          type="file"
-          accept=".xlsx"
-          aria-label="اختيار ملف"
-          onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) void handleFile(file);
-          }}
-          className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink"
-        />
-        {fileName ? <p className="text-[12px] text-ink-muted">الملف المحدد: {fileName}</p> : null}
-
-        {parseIssues.length > 0 ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {parseIssues.map((e, i) => (
-              <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
-            ))}
-          </div>
-        ) : null}
-
-        {preview && preview.groups.length > 0 ? (
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <table className="w-full min-w-[520px] border-collapse text-[12.5px]">
-              <thead>
-                <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                  <th className="px-[10px] py-[8px] text-start">رقم المستند</th>
-                  <th className="px-[10px] py-[8px] text-start">النوع</th>
-                  <th className="px-[10px] py-[8px] text-start">المورد</th>
-                  <th className="px-[10px] py-[8px] text-end">الإجمالي</th>
-                  <th className="px-[10px] py-[8px] text-end">المتبقي</th>
-                  <th className="px-[10px] py-[8px] text-start">الحالة</th>
-                </tr>
-              </thead>
-              <tbody>
-                {preview.groups.map((g) => (
-                  <tr key={`${g.docType}:${g.documentNumber}`} className="border-b border-border last:border-b-0">
-                    <td className="mz-num px-[10px] py-[8px]">{g.documentNumber}</td>
-                    <td className="px-[10px] py-[8px]">{g.docType === "PURCHASE_INVOICE" ? "فاتورة" : "مرتجع"}</td>
-                    <td className="px-[10px] py-[8px]">{supplierName(g.supplierId)}</td>
-                    <td className="px-[10px] py-[8px] text-end"><MoneyValue value={num(g.total)} showUnit={false} /></td>
-                    <td className="px-[10px] py-[8px] text-end"><MoneyValue value={num(g.remainingBalance)} showUnit={false} /></td>
-                    <td className="px-[10px] py-[8px]">
-                      <StatusPill label={g.settled ? "مسواة بالكامل" : "بها رصيد متبقٍ"} tone={g.settled ? "success" : "warning"} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : null}
-
-        {preview && preview.errors.length > 0 ? (
-          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-            {preview.errors.map((e, i) => (
-              <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
-            ))}
-          </div>
-        ) : null}
-
-        {result ? (
-          <div className="rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
-            <div>تم استيراد {result.archivedCount} مستند بنجاح.</div>
-            {result.errors.length > 0 ? (
-              <div className="mt-[6px] text-danger-ink">
-                {result.errors.map((e, i) => (
-                  <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => { reset(); onClose(); }}>إلغاء</Button>
-          <Button
-            variant="primary"
-            onClick={commit}
-            disabled={!preview || preview.groups.length === 0 || importing}
-          >
-            استيراد {preview?.groups.length ?? 0} مستند
-          </Button>
-        </div>
-      </div>
-    </SidePanel>
-  );
-}
-
 export function PurchaseInvoicesScreen() {
-  const [invoices, setInvoices] = useState<PurchaseInvoice[]>(demoPurchaseInvoices);
+  const query = usePurchaseInvoices();
+  const receiptsQuery = useGoodsReceipts();
+  const suppliersQuery = useSuppliers();
+  const itemsQuery = useItems();
+  const createInvoice = useCreatePurchaseInvoice();
+  const confirmInvoice = useConfirmPurchaseInvoice();
+
+  const invoices = query.data ?? [];
+  const receipts = receiptsQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  const supplierName = useMemo(() => {
+    const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [suppliers]);
+  const itemName = useMemo(() => {
+    const map = new Map(items.map((i) => [i.id, i.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : "—");
+  }, [items]);
+
+  const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
+  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr }));
+  const confirmedReceipts: GoodsReceiptDTO[] = receipts.filter((r) => r.status === "confirmed" && !r.invoiced);
+  const receiptOptions: EntityPickerOption[] = confirmedReceipts.map((r) => ({
+    id: r.id,
+    label: `${r.number} · ${supplierName(r.supplierId)}`,
+    sublabel: r.date,
+  }));
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
-  const [importPanelOpen, setImportPanelOpen] = useState(false);
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);
-  const [date, setDate] = useState("2026-08-21");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const selected = invoices.find((inv) => inv.id === selectedId) ?? null;
 
-  // create-from-receipt auto-fill.
-  const receiptLines: PurchaseInvoiceLine[] = useMemo(() => {
+  // create-from-receipt preview only — the server auto-fills the real lines from the confirmed receipt when `lines` is omitted.
+  const receiptLines: PreviewLine[] = useMemo(() => {
     const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
-    return receipt ? buildInvoiceLinesFromReceipt(receipt, taxRateFor) : [];
-  }, [pickedReceipt]);
+    if (!receipt) return [];
+    return receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost), taxRatePercent: 0 }));
+  }, [pickedReceipt, confirmedReceipts]);
 
   const filtered = useMemo(() => {
     let rows = invoices;
@@ -397,22 +208,22 @@ export function PurchaseInvoicesScreen() {
       rows = rows.filter((inv) => inv.number.toLowerCase().includes(q) || supplierName(inv.supplierId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [invoices, statusFilter, search]);
+  }, [invoices, statusFilter, search, supplierName]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: "الكل", count: invoices.length },
-    ...(Object.keys(STATUS_LABEL) as PurchaseInvoiceStatus[]).map((s) => ({
+    ...(Object.keys(STATUS_LABEL) as PurchaseInvoiceStatusDTO[]).map((s) => ({
       key: s,
       label: STATUS_LABEL[s],
       count: invoices.filter((inv) => inv.status === s).length,
     })),
   ];
 
-  const columns: DocumentListColumn<PurchaseInvoice>[] = [
+  const columns: DocumentListColumn<PurchaseInvoiceDTO>[] = [
     { key: "number", header: "رقم الفاتورة", render: (inv) => <span className="mz-num font-semibold text-ink">{inv.number}</span> },
     { key: "supplier", header: "المورد", render: (inv) => supplierName(inv.supplierId) },
     { key: "date", header: "التاريخ", render: (inv) => <span className="mz-num">{inv.date.split("-").reverse().join("/")}</span> },
-    { key: "total", header: "الإجمالي", align: "end", render: (inv) => <MoneyValue value={num(purchaseInvoiceTotal(inv))} /> },
+    { key: "total", header: "الإجمالي", align: "end", render: (inv) => <MoneyValue value={num(inv.total)} /> },
     { key: "status", header: "الحالة", render: (inv) => <StatusPill label={STATUS_LABEL[inv.status]} tone={STATUS_TONE[inv.status]} /> },
   ];
 
@@ -420,70 +231,77 @@ export function PurchaseInvoicesScreen() {
     setMethod("manual");
     setSupplier(null);
     setPickedReceipt(null);
-    setDate("2026-08-21");
+    setDate(new Date().toISOString().slice(0, 10));
     setSupplierInvoiceNumber("");
     setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
+    setFormError(null);
     setPanelOpen(true);
   }
 
-  function confirmSelected(id: string) {
-    setInvoices((prev) => prev.map((inv) => (inv.id === id && inv.status === "draft" ? { ...inv, status: "confirmed" } : inv)));
-  }
-
-  function save() {
-    let invoiceLines: PurchaseInvoiceLine[];
-    let supplierId: string;
-    let receiptId: string | null = null;
-
-    if (method === "from-receipt") {
-      const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
-      if (!receipt || receiptLines.length === 0) return;
-      invoiceLines = receiptLines;
-      supplierId = receipt.supplierId;
-      receiptId = receipt.id;
-    } else {
-      if (!supplier) return;
-      const usable = lines.filter((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
-      if (usable.length === 0) return;
-      invoiceLines = usable.map((l) => ({
-        itemId: l.kind === "expense" ? null : l.itemId,
-        description: l.description.trim() === "" ? null : l.description.trim(),
-        kind: l.kind,
-        qty: Qty.fromMajor(String(l.qty)),
-        unitCost: Money.fromMajor(String(l.unitCost || 0)),
-        taxRatePercent: l.taxRatePercent,
-      }));
-      supplierId = supplier.id;
+  async function confirmSelected(id: string) {
+    try {
+      await confirmInvoice.mutateAsync(id);
+    } catch {
+      // failure surfaces via the mutation's own error state on retry; nothing further to do here.
     }
-
-    const invoice: PurchaseInvoice = {
-      id: `pi-${nextSeq}`,
-      number: `PI-${String(nextSeq).padStart(6, "0")}`,
-      supplierId,
-      date,
-      dueDate: null,
-      supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
-      branchId: "MAIN",
-      warehouseId: "MAIN-WH",
-      currency: "EGP",
-      notes: null,
-      receiptId,
-      lines: invoiceLines,
-      status: "draft",
-      createdBy: "محمد الشهابي",
-      createdAt: new Date().toISOString(),
-    };
-    nextSeq += 1;
-    setInvoices((prev) => [invoice, ...prev]);
-    setPanelOpen(false);
   }
 
   const manualSubtotal = lines.reduce((sum, l) => sum + l.qty * l.unitCost, 0);
-  const canSave = method === "from-receipt" ? pickedReceipt !== null && receiptLines.length > 0 : supplier !== null && lines.some((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
+  const canSave =
+    method === "from-receipt"
+      ? pickedReceipt !== null && receiptLines.length > 0
+      : supplier !== null && lines.some((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
+
+  async function save() {
+    setFormError(null);
+    try {
+      if (method === "from-receipt") {
+        const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
+        if (!receipt || receiptLines.length === 0) return;
+        await createInvoice.mutateAsync({
+          id: crypto.randomUUID(),
+          supplierId: receipt.supplierId,
+          date,
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
+          receiptId: receipt.id,
+        });
+      } else {
+        if (!supplier) return;
+        const usable = lines.filter((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
+        if (usable.length === 0) return;
+        await createInvoice.mutateAsync({
+          id: crypto.randomUUID(),
+          supplierId: supplier.id,
+          date,
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
+          lines: usable.map((l) => ({
+            itemId: l.kind === "expense" ? null : l.itemId,
+            description: l.description.trim() === "" ? null : l.description.trim(),
+            kind: l.kind,
+            qty: String(l.qty),
+            unitCost: String(l.unitCost || 0),
+            taxRatePercent: l.taxRatePercent,
+          })),
+        });
+      }
+      setPanelOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذر حفظ فاتورة المشتريات.");
+    }
+  }
 
   const panel = (
     <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="فاتورة مشتريات جديدة" description="إدخال يدوي أو من إيصال استلام مؤكد">
       <div className="flex flex-col gap-[14px]">
+        {formError ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {formError}
+          </div>
+        ) : null}
         <div className="flex flex-col gap-[6px]">
           <span className="text-[12.5px] font-semibold text-ink">طريقة الإنشاء</span>
           <div className="flex gap-[8px]">
@@ -503,9 +321,8 @@ export function PurchaseInvoicesScreen() {
                     {receiptLines.map((l, i) => (
                       <tr key={i} className="border-b border-border last:border-b-0">
                         <td className="py-[7px]">{itemName(l.itemId)}</td>
-                        <td className="mz-num py-[7px] text-end">{l.qty.toString()}</td>
-                        <td className="py-[7px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
-                        <td className="mz-num py-[7px] text-end">{l.taxRatePercent}%</td>
+                        <td className="mz-num py-[7px] text-end">{l.qty}</td>
+                        <td className="py-[7px] text-end"><MoneyValue value={l.unitCost} showUnit={false} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -527,8 +344,19 @@ export function PurchaseInvoicesScreen() {
                     label="الصنف"
                     value={itemOptions.find((o) => o.id === line.itemId) ?? null}
                     onChange={(opt) => {
-                      const item = demoPurchaseItems.find((it) => it.id === opt?.id);
-                      setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "", unitCost: item ? Number(item.defaultCost) : l.unitCost, taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent } : l)));
+                      const item = items.find((it) => it.id === opt?.id);
+                      setLines((prev) =>
+                        prev.map((l, j) =>
+                          j === i
+                            ? {
+                                ...l,
+                                itemId: opt?.id ?? "",
+                                unitCost: item?.costPrice ? Number(item.costPrice) : l.unitCost,
+                                taxRatePercent: item?.taxRatePercent ?? l.taxRatePercent,
+                              }
+                            : l,
+                        ),
+                      );
                     }}
                     options={itemOptions}
                     placeholder="اختر صنفاً…"
@@ -566,41 +394,43 @@ export function PurchaseInvoicesScreen() {
     </SidePanel>
   );
 
-  const importPanel = <HistoricalImportPanel open={importPanelOpen} onClose={() => setImportPanelOpen(false)} />;
-
   if (selected) {
     return (
       <>
-        <InvoiceDetail invoice={selected} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
+        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
         {panel}
-        {importPanel}
       </>
     );
   }
 
   return (
     <>
-      <DocumentList<PurchaseInvoice>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل فواتير المشتريات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<PurchaseInvoiceDTO>
         eyebrow="Purchases · Invoices"
         title="فواتير المشتريات"
         description="فاتورة المورد — تزيد المخزون والمستحق للمورد وتسجّل الضريبة عند التأكيد"
         actions={
-          <>
-            <Button onClick={() => setImportPanelOpen(true)}>استيراد فواتير سابقة</Button>
-            <Button variant="primary" onClick={openCreate}>
-              فاتورة مشتريات جديدة
-            </Button>
-          </>
+          <Button variant="primary" onClick={openCreate}>
+            فاتورة مشتريات جديدة
+          </Button>
         }
         stats={[
           { label: "إجمالي الفواتير", value: <span className="mz-num">{invoices.length}</span> },
           { label: "مؤكدة", value: <span className="mz-num">{invoices.filter((inv) => inv.status === "confirmed").length}</span> },
-          { label: "إجمالي المشتريات", value: <MoneyValue value={invoices.reduce((sum, inv) => sum + num(purchaseInvoiceTotal(inv)), 0)} showUnit={false} /> },
+          { label: "إجمالي المشتريات", value: <MoneyValue value={invoices.reduce((sum, inv) => sum + num(inv.total), 0)} showUnit={false} /> },
           { label: "مسودة", value: <span className="mz-num">{invoices.filter((inv) => inv.status === "draft").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as PurchaseInvoiceStatus | "all")}
+        onStatusChange={(key) => setStatusFilter(key as PurchaseInvoiceStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم الفاتورة أو اسم المورد…"
@@ -614,7 +444,6 @@ export function PurchaseInvoicesScreen() {
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد فواتير مطابقة</div>}
       />
       {panel}
-      {importPanel}
     </>
   );
 }

@@ -190,7 +190,16 @@ export function createVouchersRoutes(
     if (parsed.data.type) {
       docs = docs.filter((d) => voucherLine(d).voucherType === parsed.data.type);
     }
-    return c.json(docs.map(serialize));
+    // Row-level allocation summary so the list's "needs allocation" chip/filter
+    // doesn't need an N+1 detail fetch per row (mirrors GET /:id below).
+    const rows = await Promise.all(
+      docs.map(async (doc) => ({
+        ...serialize(doc),
+        allocatable: getVoucherTypeDefinition(voucherLine(doc).voucherType).allocatable,
+        allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
+      })),
+    );
+    return c.json(rows);
   });
 
   app.get("/:id", gate("treasury.cash_voucher.view"), async (c) => {

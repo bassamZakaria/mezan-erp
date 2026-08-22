@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
@@ -12,32 +13,19 @@ import {
   type PillTone,
   type EntityPickerOption,
 } from "@mezan/ui";
-import {
-  Money,
-  Qty,
-  purchaseOrderSubtotal,
-  purchaseOrderLineTotal,
-  lineOutstandingQty,
-  type PurchaseOrder,
-  type PurchaseOrderStatus,
-} from "@mezan/domain";
-import { demoSuppliers } from "../partners-sample-data";
-import {
-  demoPurchaseOrders,
-  demoPurchaseItems,
-  itemName,
-  supplierName,
-} from "../purchasing-sample-data";
+import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
+import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
+import { unitLabel } from "../items-sample-data";
 import { TextField, NumberField } from "../settings/form-controls";
 
-const STATUS_LABEL: Record<PurchaseOrderStatus, string> = {
+const STATUS_LABEL: Record<PurchaseOrderStatusDTO, string> = {
   draft: "مسودة",
   sent: "مرسل",
   partially_received: "مستلم جزئياً",
   fully_received: "مستلم بالكامل",
   cancelled: "ملغي",
 };
-const STATUS_TONE: Record<PurchaseOrderStatus, PillTone> = {
+const STATUS_TONE: Record<PurchaseOrderStatusDTO, PillTone> = {
   draft: "neutral",
   sent: "info",
   partially_received: "warning",
@@ -45,9 +33,9 @@ const STATUS_TONE: Record<PurchaseOrderStatus, PillTone> = {
   cancelled: "danger",
 };
 
-const num = (m: Money) => Number(m.toString());
-const supplierOptions: EntityPickerOption[] = demoSuppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-const itemOptions: EntityPickerOption[] = demoPurchaseItems.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.unit }));
+const num = (v: string) => Number(v);
+const lineTotal = (l: PurchaseOrderLineDTO) => Number(l.qty) * Number(l.unitPrice);
+const outstandingQty = (l: PurchaseOrderLineDTO) => Number(l.qty) - Number(l.receivedQty);
 
 interface DraftLine {
   itemId: string;
@@ -55,9 +43,19 @@ interface DraftLine {
   unitPrice: number;
 }
 
-let nextSeq = demoPurchaseOrders.length + 1;
-
-function OrderDetail({ order, onBack, onConfirm }: { order: PurchaseOrder; onBack: () => void; onConfirm: () => void }) {
+function OrderDetail({
+  order,
+  supplierName,
+  itemName,
+  onBack,
+  onConfirm,
+}: {
+  order: PurchaseOrderDTO;
+  supplierName: (id: string) => string;
+  itemName: (id: string) => string;
+  onBack: () => void;
+  onConfirm: () => void;
+}) {
   return (
     <DocumentDetail
       title={`أمر شراء ${order.number}`}
@@ -79,7 +77,7 @@ function OrderDetail({ order, onBack, onConfirm }: { order: PurchaseOrder; onBac
         { label: "التاريخ", value: order.date.split("-").reverse().join("/") },
         { label: "التسليم المتوقع", value: order.expectedDeliveryDate?.split("-").reverse().join("/") ?? "—" },
         { label: "المستودع", value: order.warehouseId },
-        { label: "الإجمالي", value: <MoneyValue value={num(purchaseOrderSubtotal(order))} /> },
+        { label: "الإجمالي", value: <MoneyValue value={num(order.subtotal)} /> },
         { label: "أنشئ بواسطة", value: order.createdBy },
       ]}
       effects={[
@@ -108,11 +106,11 @@ function OrderDetail({ order, onBack, onConfirm }: { order: PurchaseOrder; onBac
                   {order.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty.toString()}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitPrice)} showUnit={false} /></td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.receivedQty.toString()}</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{lineOutstandingQty(l).toString()}</td>
-                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(purchaseOrderLineTotal(l))} showUnit={false} /></td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{l.receivedQty}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{outstandingQty(l)}</td>
+                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineTotal(l)} showUnit={false} /></td>
                     </tr>
                   ))}
                 </tbody>
@@ -126,15 +124,37 @@ function OrderDetail({ order, onBack, onConfirm }: { order: PurchaseOrder; onBac
 }
 
 export function PurchaseOrdersScreen() {
-  const [orders, setOrders] = useState<PurchaseOrder[]>(demoPurchaseOrders);
+  const query = usePurchaseOrders();
+  const suppliersQuery = useSuppliers();
+  const itemsQuery = useItems();
+  const createOrder = useCreatePurchaseOrder();
+  const confirmOrder = useConfirmPurchaseOrder();
+
+  const orders = query.data ?? [];
+  const suppliers = suppliersQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  const supplierName = useMemo(() => {
+    const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [suppliers]);
+  const itemName = useMemo(() => {
+    const map = new Map(items.map((i) => [i.id, i.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [items]);
+
+  const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
+  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
-  const [date, setDate] = useState("2026-08-21");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const selected = orders.find((o) => o.id === selectedId) ?? null;
 
@@ -146,72 +166,73 @@ export function PurchaseOrdersScreen() {
       rows = rows.filter((o) => o.number.toLowerCase().includes(q) || supplierName(o.supplierId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [orders, statusFilter, search]);
+  }, [orders, statusFilter, search, supplierName]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: "الكل", count: orders.length },
-    ...(Object.keys(STATUS_LABEL) as PurchaseOrderStatus[]).map((s) => ({
+    ...(Object.keys(STATUS_LABEL) as PurchaseOrderStatusDTO[]).map((s) => ({
       key: s,
       label: STATUS_LABEL[s],
       count: orders.filter((o) => o.status === s).length,
     })),
   ];
 
-  const columns: DocumentListColumn<PurchaseOrder>[] = [
+  const columns: DocumentListColumn<PurchaseOrderDTO>[] = [
     { key: "number", header: "رقم الأمر", render: (o) => <span className="mz-num font-semibold text-ink">{o.number}</span> },
     { key: "supplier", header: "المورد", render: (o) => supplierName(o.supplierId) },
     { key: "date", header: "التاريخ", render: (o) => <span className="mz-num">{o.date.split("-").reverse().join("/")}</span> },
-    { key: "total", header: "الإجمالي", align: "end", render: (o) => <MoneyValue value={num(purchaseOrderSubtotal(o))} /> },
+    { key: "total", header: "الإجمالي", align: "end", render: (o) => <MoneyValue value={num(o.subtotal)} /> },
     { key: "status", header: "الحالة", render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
   ];
 
   function openCreate() {
     setSupplier(null);
-    setDate("2026-08-21");
+    setDate(new Date().toISOString().slice(0, 10));
     setNotes("");
     setLines([{ itemId: "", qty: 1, unitPrice: 0 }]);
+    setFormError(null);
     setPanelOpen(true);
   }
 
-  function confirmSelected(id: string) {
-    setOrders((prev) => prev.map((o) => (o.id === id && o.status === "draft" ? { ...o, status: "sent" } : o)));
+  async function confirmSelected(id: string) {
+    try {
+      await confirmOrder.mutateAsync(id);
+    } catch {
+      // The list/detail re-render from the failed mutation's settled cache; nothing further to do here.
+    }
   }
 
   const draftSubtotal = lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
   const canSave = supplier !== null && lines.some((l) => l.itemId !== "" && l.qty > 0);
 
-  function save() {
+  async function save() {
     if (!supplier) return;
-    const order: PurchaseOrder = {
-      id: `po-${nextSeq}`,
-      number: `PO-${String(nextSeq).padStart(6, "0")}`,
-      supplierId: supplier.id,
-      date,
-      expectedDeliveryDate: null,
-      branchId: "MAIN",
-      warehouseId: "MAIN-WH",
-      currency: "EGP",
-      notes: notes.trim() === "" ? null : notes.trim(),
-      lines: lines
-        .filter((l) => l.itemId !== "" && l.qty > 0)
-        .map((l) => ({
-          itemId: l.itemId,
-          description: null,
-          qty: Qty.fromMajor(String(l.qty)),
-          unitPrice: Money.fromMajor(String(l.unitPrice || 0)),
-          receivedQty: Qty.zero(),
-        })),
-      status: "draft",
-      createdBy: "محمد الشهابي",
-      createdAt: new Date().toISOString(),
-    };
-    nextSeq += 1;
-    setOrders((prev) => [order, ...prev]);
-    setPanelOpen(false);
+    setFormError(null);
+    try {
+      await createOrder.mutateAsync({
+        id: crypto.randomUUID(),
+        supplierId: supplier.id,
+        date,
+        branchId: "MAIN",
+        warehouseId: "MAIN-WH",
+        notes: notes.trim() === "" ? null : notes.trim(),
+        lines: lines
+          .filter((l) => l.itemId !== "" && l.qty > 0)
+          .map((l) => ({ itemId: l.itemId, qty: String(l.qty), unitPrice: String(l.unitPrice || 0) })),
+      });
+      setPanelOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذر حفظ أمر الشراء.");
+    }
   }
 
   const form = (
     <div className="flex flex-col gap-[14px]">
+      {formError ? (
+        <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {formError}
+        </div>
+      ) : null}
       <EntityPicker label="المورد *" value={supplier} onChange={setSupplier} options={supplierOptions} placeholder="اختر المورد…" />
       <TextField label="التاريخ" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
       <div className="flex flex-col gap-[10px]">
@@ -222,8 +243,8 @@ export function PurchaseOrdersScreen() {
               label="الصنف"
               value={itemOptions.find((o) => o.id === line.itemId) ?? null}
               onChange={(opt) => {
-                const item = demoPurchaseItems.find((it) => it.id === opt?.id);
-                setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "", unitPrice: item ? Number(item.defaultCost) : l.unitPrice } : l)));
+                const item = items.find((it) => it.id === opt?.id);
+                setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "", unitPrice: item?.costPrice ? Number(item.costPrice) : l.unitPrice } : l)));
               }}
               options={itemOptions}
               placeholder="اختر صنفاً…"
@@ -264,7 +285,7 @@ export function PurchaseOrdersScreen() {
   if (selected) {
     return (
       <>
-        <OrderDetail order={selected} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
+        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
         {panel}
       </>
     );
@@ -272,7 +293,15 @@ export function PurchaseOrdersScreen() {
 
   return (
     <>
-      <DocumentList<PurchaseOrder>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أوامر الشراء.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<PurchaseOrderDTO>
         eyebrow="Purchases · Orders"
         title="أوامر الشراء"
         description="أمر رسمي للمورد بطلب البضائع — يقود إيصالات الاستلام ثم فواتير المشتريات"
@@ -284,12 +313,12 @@ export function PurchaseOrdersScreen() {
         stats={[
           { label: "إجمالي الأوامر", value: <span className="mz-num">{orders.length}</span> },
           { label: "طلبات مرسلة", value: <span className="mz-num">{orders.filter((o) => o.status === "sent").length}</span> },
-          { label: "إجمالي القيمة", value: <MoneyValue value={orders.reduce((sum, o) => sum + num(purchaseOrderSubtotal(o)), 0)} showUnit={false} /> },
+          { label: "إجمالي القيمة", value: <MoneyValue value={orders.reduce((sum, o) => sum + num(o.subtotal), 0)} showUnit={false} /> },
           { label: "مستلم بالكامل", value: <span className="mz-num">{orders.filter((o) => o.status === "fully_received").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as PurchaseOrderStatus | "all")}
+        onStatusChange={(key) => setStatusFilter(key as PurchaseOrderStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم الأمر أو اسم المورد…"

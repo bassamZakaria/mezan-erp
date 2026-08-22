@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   AccountDTO,
+  AllocationSummaryDTO,
   BankStatementDTO,
   BankStatementStatusDTO,
   BootstrapAdminRequestDTO,
@@ -11,34 +12,48 @@ import type {
   ChequeStatusDTO,
   CollectChequeDTO,
   BootstrapSeedResultDTO,
+  ConfirmVoucherDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CreateAccountDTO,
+  CreateAllocationDTO,
   CreateChequeDTO,
   CreateCustomerDTO,
   CreateGlJournalEntryDTO,
+  CreateGoodsReceiptDTO,
   CreateItemDTO,
   CreatePriceListDTO,
   CreatePromotionDTO,
+  CreatePurchaseInvoiceDTO,
+  CreatePurchaseOrderDTO,
   CreateRoleDTO,
+  CreateSalesInvoiceDTO,
   CreateSalesQuoteDTO,
   CreateSupplierDTO,
   CreateTreasuryAccountDTO,
   CreateUserDTO,
+  CreateVoucherDTO,
   CustomerDTO,
   DashboardSummaryDTO,
   DepositChequeDTO,
   GlJournalListQueryDTO,
+  GoodsReceiptDTO,
   ImportBankStatementDTO,
   ItemDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
   LoginRequestDTO,
   MatchSummaryDTO,
+  OpenInvoiceDTO,
   PriceListDTO,
   PromotionDTO,
+  PurchaseInvoiceDTO,
+  PurchaseOrderDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
+  ReverseVoucherDTO,
   RoleDTO,
+  SalesInvoiceDiscountDTO,
+  SalesInvoiceListQueryDTO,
   SessionDTO,
   StatementColumnMappingDTO,
   StatementLineDTO,
@@ -52,6 +67,10 @@ import type {
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
   UserDTO,
+  VoucherAllocationDTO,
+  VoucherDTO,
+  VoucherListQueryDTO,
+  WarehouseDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
@@ -944,5 +963,413 @@ export function useFinalizeBankStatement() {
       return res.json<BankStatementDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* sweep/real-data-screens — Tier 2 (vouchers, purchase chain, sales     */
+/* invoices, and their small dependency hooks)                           */
+/* -------------------------------------------------------------------- */
+
+/** One posted journal entry, for a document's "القيود المحاسبية" tab (e.g. a confirmed sales invoice's `journalEntryId`). */
+export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<JournalEntryDTO, ApiError>({
+    queryKey: ["journal-entries", "detail", id],
+    enabled: session !== null && id !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/journal-entries/${id}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيد المحاسبي.");
+      return res.json<JournalEntryDTO>();
+    },
+  });
+}
+
+/** المستودعات (docs/catalog/09) — read-only here; a picker dependency for other real-data screens (e.g. sales invoices). */
+export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WarehouseDTO[], ApiError>({
+    queryKey: ["warehouses"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/warehouses");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستودعات.");
+      return res.json<WarehouseDTO[]>();
+    },
+  });
+}
+
+/** A voucher list/detail row — the base VoucherDTO plus the row-level allocation summary GET /vouchers adds (packages/api/src/vouchers-routes.ts). */
+export interface VoucherRowDTO extends VoucherDTO {
+  readonly allocatable: boolean;
+  readonly allocationSummary: AllocationSummaryDTO;
+}
+
+/** السندات النقدية (docs/catalog/04) — list, create, confirm, reverse, allocate. */
+export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<VoucherRowDTO[], ApiError>({
+    queryKey: ["vouchers", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter.type) params.set("type", filter.type);
+      if (filter.status) params.set("status", filter.status);
+      const qs = params.toString();
+      const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل السندات.");
+      return res.json<VoucherRowDTO[]>();
+    },
+  });
+}
+
+export interface VoucherDetailDTO extends VoucherDTO {
+  readonly allocatable: boolean;
+  readonly allocationSummary: AllocationSummaryDTO;
+  readonly allocations: VoucherAllocationDTO[];
+}
+
+export function useVoucherDetail(id: string | null): UseQueryResult<VoucherDetailDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<VoucherDetailDTO, ApiError>({
+    queryKey: ["vouchers", "detail", id],
+    enabled: session !== null && id !== null,
+    queryFn: async () => {
+      const res = await request(`/vouchers/${id}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل السند.");
+      return res.json<VoucherDetailDTO>();
+    },
+  });
+}
+
+function invalidateVouchers(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+}
+
+export function useCreateVoucher() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء السند."));
+      return res.json<VoucherDTO>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useConfirmVoucher() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VoucherDTO & { held: boolean }, ApiError, { id: string; body?: ConfirmVoucherDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/vouchers/${id}/confirm`, { method: "POST", body: JSON.stringify(body ?? {}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد السند."));
+      return res.json<VoucherDTO & { held: boolean }>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useReverseVoucher() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ original: VoucherDTO; reversal: VoucherDTO }, ApiError, { id: string; body?: ReverseVoucherDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/vouchers/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس السند."));
+      return res.json<{ original: VoucherDTO; reversal: VoucherDTO }>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useCreateAllocation() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
+    mutationFn: async ({ voucherId, body }) => {
+      const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تخصيص المبلغ."));
+      return res.json<VoucherAllocationDTO>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useReverseAllocation() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VoucherAllocationDTO, ApiError, string>({
+    mutationFn: async (allocationId) => {
+      const res = await request(`/allocations/${allocationId}/reverse`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس التخصيص."));
+      return res.json<VoucherAllocationDTO>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | null): UseQueryResult<OpenInvoiceDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<OpenInvoiceDTO[], ApiError>({
+    queryKey: ["open-invoices", kind ?? null, partyId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (kind) params.set("kind", kind);
+      if (partyId) params.set("partyId", partyId);
+      const qs = params.toString();
+      const res = await request(`/open-invoices${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفواتير المفتوحة.");
+      return res.json<OpenInvoiceDTO[]>();
+    },
+  });
+}
+
+/** أوامر الشراء (docs/catalog/02) — list, create, confirm (draft → sent). */
+export function usePurchaseOrders(): UseQueryResult<PurchaseOrderDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PurchaseOrderDTO[], ApiError>({
+    queryKey: ["purchase-orders"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/purchases/orders");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر الشراء.");
+      return res.json<PurchaseOrderDTO[]>();
+    },
+  });
+}
+
+export function useCreatePurchaseOrder() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseOrderDTO, ApiError, CreatePurchaseOrderDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/purchases/orders", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء أمر الشراء."));
+      return res.json<PurchaseOrderDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
+  });
+}
+
+export function useConfirmPurchaseOrder() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseOrderDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/purchases/orders/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد أمر الشراء."));
+      return res.json<PurchaseOrderDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
+  });
+}
+
+/** إيصالات الاستلام (docs/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
+export function useGoodsReceipts(): UseQueryResult<GoodsReceiptDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<GoodsReceiptDTO[], ApiError>({
+    queryKey: ["goods-receipts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/purchases/receipts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إيصالات الاستلام.");
+      return res.json<GoodsReceiptDTO[]>();
+    },
+  });
+}
+
+export function useCreateGoodsReceipt() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<GoodsReceiptDTO, ApiError, CreateGoodsReceiptDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/purchases/receipts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء إيصال الاستلام."));
+      return res.json<GoodsReceiptDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
+}
+
+export function useConfirmGoodsReceipt() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<GoodsReceiptDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/purchases/receipts/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد إيصال الاستلام."));
+      return res.json<GoodsReceiptDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
+}
+
+/** فواتير المشتريات (docs/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
+export function usePurchaseInvoices(): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PurchaseInvoiceDTO[], ApiError>({
+    queryKey: ["purchase-invoices"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/purchases/invoices");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل فواتير المشتريات.");
+      return res.json<PurchaseInvoiceDTO[]>();
+    },
+  });
+}
+
+export function useCreatePurchaseInvoice() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء فاتورة المشتريات."));
+      return res.json<PurchaseInvoiceDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
+  });
+}
+
+export function useConfirmPurchaseInvoice() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseInvoiceDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/purchases/invoices/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد فاتورة المشتريات."));
+      return res.json<PurchaseInvoiceDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["goods-receipts"] });
+    },
+  });
+}
+
+/** Wire shape of a sales invoice with its server-computed totals (packages/api/src/sales-invoices-routes.ts `serialize`) — no dedicated response DTO ships from @mezan/contracts yet. */
+export interface SalesInvoiceLineRowDTO {
+  readonly lineId: string;
+  readonly itemId: string;
+  readonly itemNameAr: string;
+  readonly isStock: boolean;
+  readonly qty: string;
+  readonly unitPrice: string;
+  readonly discountPercent: number;
+  readonly taxRatePercent: number;
+  readonly revenueAccountId: string;
+  readonly cogsAccountId: string | null;
+  readonly inventoryAccountId: string | null;
+  readonly unitCost: string | null;
+}
+
+export interface SalesInvoiceTotalsDTO {
+  readonly grossTotal: string;
+  readonly lineDiscountTotal: string;
+  readonly invoiceDiscountTotal: string;
+  readonly subtotal: string;
+  readonly taxableTotal: string;
+  readonly taxTotal: string;
+  readonly grandTotal: string;
+}
+
+export interface SalesInvoiceDTO {
+  readonly id: string;
+  readonly docType: string;
+  readonly docNo: string | null;
+  readonly status: "draft" | "pending" | "confirmed" | "partially_paid" | "paid" | "cancelled" | "reversed";
+  readonly date: string;
+  readonly dueDate: string;
+  readonly customerId: string;
+  readonly customerNameAr: string;
+  readonly customerTaxExempt: boolean;
+  readonly warehouseId: string;
+  readonly branchId: string;
+  readonly currency: string;
+  readonly notes: string | null;
+  readonly internalNotes: string | null;
+  readonly discount: SalesInvoiceDiscountDTO;
+  readonly arAccountId: string;
+  readonly taxAccountId: string;
+  readonly amountPaid: string;
+  readonly remainingBalance: string;
+  readonly journalEntryId: string | null;
+  readonly workflowRequestId: string | null;
+  readonly createdAt: string;
+  readonly confirmedAt: string | null;
+  readonly lines: readonly SalesInvoiceLineRowDTO[];
+  readonly totals: SalesInvoiceTotalsDTO;
+}
+
+/** فواتير المبيعات (docs/catalog/01) — list, create, confirm, record a payment. */
+export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<SalesInvoiceDTO[], ApiError>({
+    queryKey: ["sales-invoices", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter.status) params.set("status", filter.status);
+      if (filter.customerId) params.set("customerId", filter.customerId);
+      if (filter.fromDate) params.set("fromDate", filter.fromDate);
+      if (filter.toDate) params.set("toDate", filter.toDate);
+      const qs = params.toString();
+      const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل فواتير المبيعات.");
+      return res.json<SalesInvoiceDTO[]>();
+    },
+  });
+}
+
+function invalidateSalesInvoices(queryClient: ReturnType<typeof useQueryClient>) {
+  queryClient.invalidateQueries({ queryKey: ["sales-invoices"] });
+}
+
+export function useCreateSalesInvoice() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الفاتورة."));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
+  });
+}
+
+export function useConfirmSalesInvoice() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد الفاتورة."));
+      return res.json<SalesInvoiceDTO & { held: boolean }>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
+  });
+}
+
+export function useRecordSalesInvoicePayment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string; amount: string }>({
+    mutationFn: async ({ id, amount }) => {
+      const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify({ amount }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تسجيل الدفعة."));
+      return res.json<SalesInvoiceDTO>();
+    },
+    onSuccess: () => invalidateSalesInvoices(queryClient),
   });
 }

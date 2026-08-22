@@ -7,3 +7,5 @@ export {
   ROUNDING_BOUNDARIES,
 } from "./rounding.js";
 export type { RoundingMode, RoundingBoundary } from "./rounding.js";
+export { amountInWords, EGP_WORDS, SAR_WORDS } from "./amount-in-words.js";
+export type { ArabicCurrencyNoun, ArabicCurrencyWords, ArabicNounGender } from "./amount-in-words.js";

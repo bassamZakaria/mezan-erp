@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   MEZAN_FETCH_CHANNEL,
+  MEZAN_PRINT_TO_PDF_CHANNEL,
   type IpcFetchRequest,
   type IpcFetchResponse,
   type MezanBridge,
+  type PrintToPdfOptions,
 } from "../shared/ipc-contract.js";
 
 /**
@@ -44,6 +46,9 @@ const mezanBridge: MezanBridge = {
   fetch(input: string, init?: RequestInit): Promise<IpcFetchResponse> {
     const request: IpcFetchRequest = { url: input, ...normalizeInit(init) };
     return ipcRenderer.invoke(MEZAN_FETCH_CHANNEL, request);
+  },
+  printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array> {
+    return ipcRenderer.invoke(MEZAN_PRINT_TO_PDF_CHANNEL, options);
   },
 };
 

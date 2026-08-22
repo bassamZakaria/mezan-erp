@@ -78,7 +78,10 @@ test.describe("Settings — branches", () => {
 
     await expect(page.getByRole("heading", { name: "فرع الإسكندرية · ALEX" })).toBeVisible();
     await expect(page.getByText("إيرادات الشهر")).toBeVisible();
-    await expect(page.getByText("حسابات الخزينة")).toBeVisible();
+    // Scoped to the heading role — "حسابات الخزينة" also appears as a
+    // sidebar nav button now that the Treasury nav group exists, so an
+    // unscoped text query would match twice.
+    await expect(page.getByRole("heading", { name: "حسابات الخزينة" })).toBeVisible();
 
     // Out-of-scope Branch 360 tabs render as an explicit stub, not a crash.
     await page.getByRole("tab", { name: "المخزون" }).click();

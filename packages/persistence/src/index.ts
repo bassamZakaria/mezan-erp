@@ -87,3 +87,6 @@ export {
   type SqlitePurchasingStores,
 } from "./purchasing-stores.js";
 export { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
+export { createSqlitePriceListStore, type SqlitePriceListStoreHandle } from "./price-list-store.js";
+export { createSqliteSalesQuoteStore, type SqliteSalesQuoteStoreHandle } from "./sales-quote-store.js";
+export { createSqlitePromotionStore, type SqlitePromotionStoreHandle } from "./promotion-store.js";

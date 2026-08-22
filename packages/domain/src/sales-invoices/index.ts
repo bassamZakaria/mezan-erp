@@ -47,11 +47,13 @@ export type {
   SalesInvoiceIssueLine,
   SalesInvoiceStockResult,
   SalesInvoiceIssuedLineCost,
+  SalesInvoiceCustomerExposureHook,
 } from "./ports.js";
 
 export {
   SalesInvoiceService,
   type SalesInvoiceServiceDeps,
+  type SalesInvoiceCreditControlDeps,
   type CreateSalesInvoiceCommand,
   type CreateSalesInvoiceLine,
   type ConfirmSalesInvoiceOptions,
@@ -61,6 +63,7 @@ export {
 export {
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  createSalesInvoiceCustomerExposureHook,
 } from "./adapters.js";
 
 export {

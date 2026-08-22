@@ -54,6 +54,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PURCHASE_RFQ", labelAr: "طلب عرض سعر", prefix: "RFQ-", padLength: 6, annualReset: false },
   { code: "SALES_INVOICE", labelAr: "فاتورة مبيعات", prefix: "INV-", padLength: 6, annualReset: false },
   { code: "SALES_ORDER", labelAr: "أمر مبيعات", prefix: "SO-", padLength: 6, annualReset: false },
+  { code: "SALES_QUOTE", labelAr: "عرض سعر", prefix: "QT-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

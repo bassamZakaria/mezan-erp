@@ -132,3 +132,15 @@ export * from "./documents/index.js";
 
 // --- vouchers/ — Treasury Vouchers (phase4/treasury-vouchers) ---
 export * from "./vouchers/index.js";
+
+// --- credit-control/ — credit-limit warn/block enforcement (phase5/full-sales) ---
+export * from "./credit-control/index.js";
+
+// --- price-lists/ — قوائم الأسعار (phase5/full-sales) ---
+export * from "./price-lists/index.js";
+
+// --- sales-quotes/ — عروض الأسعار (phase5/full-sales) ---
+export * from "./sales-quotes/index.js";
+
+// --- promotions/ — العروض, discount/pricing rules engine (phase5/full-sales) ---
+export * from "./promotions/index.js";

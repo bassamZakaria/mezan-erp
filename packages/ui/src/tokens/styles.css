@@ -1,0 +1,7 @@
+/*
+ * Single entrypoint for consumers: `import "@mezan/ui/styles.css"` once
+ * near the app root (before Tailwind's own stylesheet, so Tailwind
+ * utilities can still override token-driven base styles when needed).
+ */
+@import "./fonts.css";
+@import "./tokens.css";

@@ -1,0 +1,244 @@
+/*
+ * Mezan design tokens — CSS custom properties.
+ *
+ * Light-first: the bare `:root` block below is the light palette and is the
+ * default with no other signal. Dark applies two ways, matching the approved
+ * mockup (design/mezan-ui-mockups.html):
+ *   1. `prefers-color-scheme: dark` when the app hasn't set an explicit theme
+ *      (`:root:not([data-theme="light"])`)
+ *   2. an explicit `[data-theme="dark"]` attribute on <html>, which wins
+ *      regardless of OS preference (set by the theme toggle / useTheme()).
+ *
+ * Do not add left/right physical values here — logical properties only
+ * (the repo's `pnpm lint:rtl` check enforces this on consumers).
+ */
+
+:root {
+  --bg: #edf1ee;
+  --surface: #ffffff;
+  --surface-2: #f4f7f4;
+  --surface-3: #e9eeea;
+  --border: #e1e7e2;
+  --border-strong: #cad3cc;
+  --text: #12201b;
+  --text-muted: #586860;
+  --text-faint: #8a968e;
+
+  --brand: #0e5049;
+  --brand-strong: #0a3b35;
+  --brand-soft: #e4f0ec;
+  --brand-ink: #ffffff;
+
+  --accent: #ae7c24;
+  --accent-strong: #8c6216;
+  --accent-soft: #f6edd8;
+
+  --success: #2c8a57;
+  --success-soft: #e4f3ea;
+  --success-ink: #1c6b41;
+  --warning: #b0791f;
+  --warning-soft: #fbefd6;
+  --warning-ink: #875c13;
+  --danger: #c0402f;
+  --danger-soft: #fbe7e2;
+  --danger-ink: #932c1f;
+  --info: #2f6690;
+  --info-soft: #e4edf4;
+  --info-ink: #234e6e;
+
+  --chart-1: #0e7c69;
+  --chart-2: #c05a2e;
+  --chart-3: #c39a3c;
+  --chart-4: #3b6ea5;
+
+  --shadow-1:
+    0 1px 2px rgba(16, 40, 32, 0.06),
+    0 1px 1px rgba(16, 40, 32, 0.04);
+  --shadow-2:
+    0 18px 40px -18px rgba(16, 40, 32, 0.28),
+    0 4px 12px -4px rgba(16, 40, 32, 0.1);
+
+  --r-sm: 5px;
+  --r-md: 8px;
+  --r-lg: 13px;
+  --r-pill: 999px;
+
+  --font-ar: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-display: "Cairo", "IBM Plex Sans Arabic", sans-serif;
+  --font-lat: "IBM Plex Sans", "IBM Plex Sans Arabic", sans-serif;
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1512;
+    --surface: #131f1b;
+    --surface-2: #18251f;
+    --surface-3: #213029;
+    --border: #243228;
+    --border-strong: #354a3c;
+    --text: #e9efea;
+    --text-muted: #9fb0a4;
+    --text-faint: #6a7a6e;
+
+    --brand: #3aa592;
+    --brand-strong: #4fc0ab;
+    --brand-soft: #123029;
+    --brand-ink: #08150f;
+
+    --accent: #d6ad5f;
+    --accent-strong: #e4be72;
+    --accent-soft: #2c2413;
+
+    --success: #4cb07d;
+    --success-soft: #123626;
+    --success-ink: #84d6a9;
+    --warning: #d9a24c;
+    --warning-soft: #38290f;
+    --warning-ink: #ebbe7b;
+    --danger: #e37b67;
+    --danger-soft: #3a1712;
+    --danger-ink: #f0a796;
+    --info: #6fa3cc;
+    --info-soft: #12293a;
+    --info-ink: #9ec7e7;
+
+    --chart-1: #2fb49a;
+    --chart-2: #d2723f;
+    --chart-3: #cfa24a;
+    --chart-4: #5a94cc;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-2: 0 20px 44px -18px rgba(0, 0, 0, 0.6);
+
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg: #0c1512;
+  --surface: #131f1b;
+  --surface-2: #18251f;
+  --surface-3: #213029;
+  --border: #243228;
+  --border-strong: #354a3c;
+  --text: #e9efea;
+  --text-muted: #9fb0a4;
+  --text-faint: #6a7a6e;
+
+  --brand: #3aa592;
+  --brand-strong: #4fc0ab;
+  --brand-soft: #123029;
+  --brand-ink: #08150f;
+
+  --accent: #d6ad5f;
+  --accent-strong: #e4be72;
+  --accent-soft: #2c2413;
+
+  --success: #4cb07d;
+  --success-soft: #123626;
+  --success-ink: #84d6a9;
+  --warning: #d9a24c;
+  --warning-soft: #38290f;
+  --warning-ink: #ebbe7b;
+  --danger: #e37b67;
+  --danger-soft: #3a1712;
+  --danger-ink: #f0a796;
+  --info: #6fa3cc;
+  --info-soft: #12293a;
+  --info-ink: #9ec7e7;
+
+  --chart-1: #2fb49a;
+  --chart-2: #d2723f;
+  --chart-3: #cfa24a;
+  --chart-4: #5a94cc;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 20px 44px -18px rgba(0, 0, 0, 0.6);
+
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-ar);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+[lang="en"],
+.mz-lat {
+  font-family: var(--font-lat);
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* Figures: tabular-nums, always LTR-isolated regardless of surrounding RTL text. */
+.mz-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  unicode-bidi: isolate;
+  display: inline-block;
+}
+
+.mz-disp {
+  font-family: var(--font-display);
+}
+
+::selection {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+@keyframes mz-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes mz-idle-sway {
+  0%,
+  100% {
+    transform: rotate(-2.5deg);
+  }
+  50% {
+    transform: rotate(2.5deg);
+  }
+}

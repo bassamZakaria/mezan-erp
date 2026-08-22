@@ -64,3 +64,7 @@ export {
   createSqliteFiscalPeriodRepository,
   type SqliteFiscalPeriodRepositoryHandle,
 } from "./fiscal-period-repository.js";
+export {
+  createSqliteLedgerStore,
+  type SqliteLedgerStoreHandle,
+} from "./ledger-store.js";

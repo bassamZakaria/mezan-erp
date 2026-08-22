@@ -3,14 +3,21 @@ export type {
   JournalEntry,
   JournalLine,
   JournalRepository,
+  JournalEntrySource,
+  JournalEntryStatus,
   UnitOfWork,
 } from "./journal.js";
+// The spike's minimal poster (backs the legacy `/journal-entries` route). The
+// full GL posting engine below owns the primary `postJournalEntry` name.
 export {
-  postJournalEntry,
+  postJournalEntry as postJournalEntrySpike,
   UnbalancedEntryError,
   InvalidJournalEntryError,
 } from "./post-journal-entry.js";
 export type { PostJournalEntryCommand } from "./post-journal-entry.js";
+
+// --- gl/ — GL posting engine (phase2/gl-posting) ---
+export * from "./gl/index.js";
 
 // --- ledger-support + infra cluster (phase0/ledger-infra) ---
 

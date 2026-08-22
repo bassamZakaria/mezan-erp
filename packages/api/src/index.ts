@@ -24,4 +24,5 @@ export { createTaxRatesRoutes } from "./tax-rates-routes.js";
 export { createCostCentersRoutes } from "./cost-centers-routes.js";
 export { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 export { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+export { createInventoryRoutes } from "./inventory-routes.js";
 export { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";

@@ -113,5 +113,8 @@ export * from "./cost-centers/index.js";
 export * from "./treasury-accounts/index.js";
 export * from "./fiscal-periods/index.js";
 
+// --- inventory/ — costing + stock-ledger engine (phase2/costing-stock-ledger) ---
+export * from "./inventory/index.js";
+
 // --- reports/ — Report engine abstraction (phase8/report-engine) ---
 export * from "./reports/index.js";

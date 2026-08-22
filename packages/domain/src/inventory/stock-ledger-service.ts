@@ -1,0 +1,496 @@
+/**
+ * StockLedgerService — the write path for the costing + stock-ledger engine.
+ *
+ * It composes the pure WAC primitives (wac.ts / wac-math.ts) with the ports
+ * (ports.ts): every quantity change appends an immutable movement, maintains
+ * the cached weighted-average snapshot and the immutable cost layers, enforces
+ * the negative-stock policy, emits a decoupled domain event, and — for
+ * value-impacting adjustments — hands a balanced posting to the GL port
+ * (without importing accounting). Transfers are valuation-neutral and never
+ * post to the GL.
+ *
+ * Compound operations (adjustment, transfer) run inside `deps.transaction` when
+ * provided, so the movement, the layer, the snapshot and the GL posting commit
+ * atomically (docs/plan.md §2.2). Without it they run directly (tests / simple
+ * callers).
+ */
+
+import { Money, Qty } from "../money/index.js";
+import type { CostLayer } from "./cost-layer.js";
+import {
+  NegativeStockError,
+  InvalidStockMovementError,
+  SameWarehouseTransferError,
+} from "./errors.js";
+import {
+  StockMovement,
+  StockMovementDirection,
+  StockSourceDocType,
+} from "./movement.js";
+import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import { extend, unitCostOf } from "./wac-math.js";
+import { replay, checkDrift, emptyPosition, type WacPosition, type DriftReport } from "./wac.js";
+import type {
+  StockLedgerRepository,
+  CostLayerRepository,
+  WacSnapshotRepository,
+  WacSnapshot,
+  InventoryEventPublisher,
+  InventoryGlPostingPort,
+  InventoryGlPosting,
+} from "./ports.js";
+
+export interface StockLedgerPolicy {
+  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`. */
+  readonly allowNegativeStock: boolean;
+}
+
+export interface StockLedgerServiceDeps {
+  readonly ledger: StockLedgerRepository;
+  readonly layers: CostLayerRepository;
+  readonly snapshots: WacSnapshotRepository;
+  readonly policy: StockLedgerPolicy;
+  readonly events?: InventoryEventPublisher;
+  readonly gl?: InventoryGlPostingPort;
+  /** Wraps a compound operation in one atomic transaction. Defaults to direct execution. */
+  readonly transaction?: <T>(fn: () => Promise<T>) => Promise<T>;
+  /** Clock for `occurredAt` defaults. Defaults to `Date.now`-based ISO. */
+  readonly clock?: () => string;
+}
+
+export interface AdjustmentLine {
+  readonly itemId: string;
+  readonly direction: StockMovementDirection;
+  readonly qty: Qty;
+  /** Required for an IN line (receipt-time cost); ignored for an OUT line. */
+  readonly unitCost?: Money;
+}
+
+export interface PostAdjustmentCommand {
+  readonly adjustmentId: string;
+  readonly adjustmentNumber?: string | null;
+  readonly warehouseId: string;
+  readonly reason: AdjustmentReason;
+  readonly lines: readonly AdjustmentLine[];
+  readonly occurredAt?: string;
+  /**
+   * GL account mapping for the balancing journal entry (Dr inventory / Cr
+   * counterpart when value rises, reversed when it falls). Omit to skip GL
+   * posting entirely (e.g. no GL adapter wired).
+   */
+  readonly gl?: { readonly inventoryAccountId: string; readonly counterpartAccountId: string };
+}
+
+export interface TransferLine {
+  readonly itemId: string;
+  readonly qty: Qty;
+}
+
+export interface PostTransferCommand {
+  readonly transferId: string;
+  readonly transferNumber?: string | null;
+  readonly fromWarehouseId: string;
+  readonly toWarehouseId: string;
+  readonly lines: readonly TransferLine[];
+  readonly occurredAt?: string;
+}
+
+export class StockLedgerService {
+  constructor(private readonly deps: StockLedgerServiceDeps) {}
+
+  private now(): string {
+    return (this.deps.clock ?? (() => new Date().toISOString()))();
+  }
+
+  private runInTransaction<T>(fn: () => Promise<T>): Promise<T> {
+    return this.deps.transaction ? this.deps.transaction(fn) : fn();
+  }
+
+  private async loadSnapshot(itemId: string, warehouseId: string): Promise<WacSnapshot> {
+    const existing = await this.deps.snapshots.get(itemId, warehouseId);
+    return (
+      existing ?? {
+        itemId,
+        warehouseId,
+        onHand: Qty.zero(),
+        totalValue: Money.zero(),
+        averageCost: Money.zero(),
+      }
+    );
+  }
+
+  /**
+   * Core primitive: apply ONE movement to the ledger, layers and snapshot, and
+   * emit `StockMoved`. Returns the signed value effect and the unit cost used
+   * (the moving average, for an OUT). Not transactional on its own — callers
+   * wrap a sequence in `runInTransaction`.
+   */
+  private async applyMovement(input: {
+    movementId: string;
+    itemId: string;
+    warehouseId: string;
+    direction: StockMovementDirection;
+    qty: Qty;
+    /** For IN: the receipt cost. For OUT: ignored (moving average used). */
+    unitCost?: Money;
+    sourceDocType: StockSourceDocType;
+    sourceDocId: string;
+    sourceDocNumber: string | null;
+    reason: AdjustmentReason | null;
+    occurredAt: string;
+  }): Promise<{ signedValue: Money; unitCost: Money }> {
+    if (input.qty.isNegative() || input.qty.isZero()) {
+      throw new InvalidStockMovementError(["qty must be a positive magnitude"]);
+    }
+    const snap = await this.loadSnapshot(input.itemId, input.warehouseId);
+
+    let unitCost: Money;
+    let newOnHand: Qty;
+    let newTotalValue: Money;
+    let signed: Money;
+
+    if (input.direction === "IN") {
+      if (!input.unitCost) {
+        throw new InvalidStockMovementError(["an IN movement requires a unitCost"]);
+      }
+      unitCost = input.unitCost;
+      const value = extend(input.qty, unitCost);
+      newOnHand = snap.onHand.add(input.qty);
+      newTotalValue = snap.totalValue.add(value);
+      signed = value;
+    } else {
+      const projected = snap.onHand.subtract(input.qty);
+      if (projected.isNegative() && !this.deps.policy.allowNegativeStock) {
+        throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
+      }
+      unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average
+      const cogs = extend(input.qty, unitCost);
+      newOnHand = projected;
+      newTotalValue = snap.totalValue.add(cogs.negate());
+      signed = cogs.negate();
+    }
+
+    const movement: StockMovement = {
+      id: input.movementId,
+      itemId: input.itemId,
+      warehouseId: input.warehouseId,
+      direction: input.direction,
+      qty: input.qty,
+      unitCost,
+      sourceDocType: input.sourceDocType,
+      sourceDocId: input.sourceDocId,
+      sourceDocNumber: input.sourceDocNumber,
+      reason: input.reason,
+      occurredAt: input.occurredAt,
+    };
+
+    await this.deps.ledger.append(movement);
+
+    if (input.direction === "IN") {
+      const layer: CostLayer = {
+        id: input.movementId,
+        itemId: input.itemId,
+        warehouseId: input.warehouseId,
+        unitCost,
+        originalQty: input.qty,
+        remainingQty: input.qty,
+        sourceDocType: input.sourceDocType,
+        sourceDocId: input.sourceDocId,
+        sourceDocNumber: input.sourceDocNumber,
+        createdAt: input.occurredAt,
+      };
+      await this.deps.layers.add(layer);
+    } else {
+      await this.consumeLayers(input.itemId, input.warehouseId, input.qty);
+    }
+
+    const averageCost = unitCostOf(newTotalValue, newOnHand);
+    await this.deps.snapshots.save({
+      itemId: input.itemId,
+      warehouseId: input.warehouseId,
+      onHand: newOnHand,
+      totalValue: newTotalValue,
+      averageCost,
+    });
+
+    this.deps.events?.publish({
+      type: "StockMoved",
+      movement,
+      onHandAfter: newOnHand,
+      averageCostAfter: averageCost,
+    });
+
+    return { signedValue: signed, unitCost };
+  }
+
+  /** Draw `qty` down across a position's layers FIFO, persisting the changes. */
+  private async consumeLayers(itemId: string, warehouseId: string, qty: Qty): Promise<void> {
+    const layers = await this.deps.layers.listByPosition(itemId, warehouseId);
+    let remaining = qty;
+    for (const layer of layers) {
+      if (!remaining.isNegative() && !remaining.isZero()) {
+        if (layer.remainingQty.compare(remaining) <= 0) {
+          remaining = remaining.subtract(layer.remainingQty);
+          await this.deps.layers.remove(layer.id);
+        } else {
+          await this.deps.layers.updateRemaining(layer.id, layer.remainingQty.subtract(remaining));
+          remaining = Qty.zero();
+        }
+      }
+    }
+    // Leftover `remaining` (issue beyond costed layers) only when negative stock
+    // is permitted; the drift report surfaces the resulting mismatch.
+  }
+
+  /** Post a stock adjustment (docs/catalog/03 §"تسويات المخزون"). Value-impacting. */
+  async postAdjustment(command: PostAdjustmentCommand): Promise<void> {
+    this.validateAdjustment(command);
+    const occurredAt = command.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      const movementIds: string[] = [];
+      let valueDelta = Money.zero();
+
+      for (let i = 0; i < command.lines.length; i++) {
+        const line = command.lines[i] as AdjustmentLine;
+        const movementId = `${command.adjustmentId}:${i}`;
+        movementIds.push(movementId);
+        const { signedValue } = await this.applyMovement({
+          movementId,
+          itemId: line.itemId,
+          warehouseId: command.warehouseId,
+          direction: line.direction,
+          qty: line.qty,
+          unitCost: line.unitCost,
+          sourceDocType: "ADJUSTMENT",
+          sourceDocId: command.adjustmentId,
+          sourceDocNumber: command.adjustmentNumber ?? null,
+          reason: command.reason,
+          occurredAt,
+        });
+        valueDelta = valueDelta.add(signedValue);
+      }
+
+      if (command.gl && this.deps.gl && valueDelta.scaled !== 0n) {
+        await this.deps.gl.post(
+          buildAdjustmentPosting(command, valueDelta, occurredAt),
+        );
+      }
+
+      this.deps.events?.publish({
+        type: "StockAdjustmentPosted",
+        adjustmentId: command.adjustmentId,
+        warehouseId: command.warehouseId,
+        reason: command.reason,
+        valueDelta,
+        movementIds,
+      });
+    });
+  }
+
+  /** Opening balance — a specialised INITIAL_STOCK adjustment (docs/catalog/03). */
+  async recordOpeningBalance(command: Omit<PostAdjustmentCommand, "reason" | "lines"> & {
+    readonly lines: readonly { itemId: string; qty: Qty; unitCost: Money }[];
+  }): Promise<void> {
+    await this.postAdjustment({
+      ...command,
+      reason: "INITIAL_STOCK",
+      lines: command.lines.map((l) => ({
+        itemId: l.itemId,
+        direction: "IN" as const,
+        qty: l.qty,
+        unitCost: l.unitCost,
+      })),
+    });
+  }
+
+  /**
+   * Post a stock transfer (docs/catalog/03 §"تحويلات المخزون") — VALUATION
+   * NEUTRAL: each line issues from the source at the source's moving average
+   * and receives into the destination at that SAME unit cost, so total system
+   * inventory value is unchanged. Never posts to the GL.
+   */
+  async postTransfer(command: PostTransferCommand): Promise<void> {
+    if (command.fromWarehouseId === command.toWarehouseId) {
+      throw new SameWarehouseTransferError(command.fromWarehouseId);
+    }
+    if (command.lines.length === 0) {
+      throw new InvalidStockMovementError(["a transfer needs at least one line"]);
+    }
+    const occurredAt = command.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      const movementIds: string[] = [];
+      for (let i = 0; i < command.lines.length; i++) {
+        const line = command.lines[i] as TransferLine;
+        const outId = `${command.transferId}:out:${i}`;
+        const inId = `${command.transferId}:in:${i}`;
+
+        const { unitCost } = await this.applyMovement({
+          movementId: outId,
+          itemId: line.itemId,
+          warehouseId: command.fromWarehouseId,
+          direction: "OUT",
+          qty: line.qty,
+          sourceDocType: "TRANSFER",
+          sourceDocId: command.transferId,
+          sourceDocNumber: command.transferNumber ?? null,
+          reason: null,
+          occurredAt,
+        });
+
+        await this.applyMovement({
+          movementId: inId,
+          itemId: line.itemId,
+          warehouseId: command.toWarehouseId,
+          direction: "IN",
+          qty: line.qty,
+          unitCost, // same unit cost as the OUT leg → system value unchanged
+          sourceDocType: "TRANSFER",
+          sourceDocId: command.transferId,
+          sourceDocNumber: command.transferNumber ?? null,
+          reason: null,
+          occurredAt,
+        });
+
+        movementIds.push(outId, inId);
+      }
+
+      this.deps.events?.publish({
+        type: "StockTransferPosted",
+        transferId: command.transferId,
+        fromWarehouseId: command.fromWarehouseId,
+        toWarehouseId: command.toWarehouseId,
+        movementIds,
+      });
+    });
+  }
+
+  private validateAdjustment(command: PostAdjustmentCommand): void {
+    const reasons: string[] = [];
+    if (command.lines.length === 0) reasons.push("an adjustment needs at least one line");
+    const def = getAdjustmentReasonDefinition(command.reason);
+    for (let i = 0; i < command.lines.length; i++) {
+      const line = command.lines[i] as AdjustmentLine;
+      if (def.direction !== "EITHER" && line.direction !== def.direction) {
+        reasons.push(
+          `line ${i}: reason "${command.reason}" requires direction ${def.direction}, got ${line.direction}`,
+        );
+      }
+      if (line.direction === "IN" && !line.unitCost) {
+        reasons.push(`line ${i}: an IN line requires a unitCost`);
+      }
+    }
+    if (reasons.length > 0) throw new InvalidStockMovementError(reasons);
+  }
+
+  // --- Read side -----------------------------------------------------------
+
+  /** On-hand balance for a position (cached snapshot; 0 if none). */
+  async getBalance(itemId: string, warehouseId: string): Promise<Qty> {
+    const snap = await this.deps.snapshots.get(itemId, warehouseId);
+    return snap?.onHand ?? Qty.zero();
+  }
+
+  /** Cached balance detail (on-hand, weighted-average cost, total value) for a position. */
+  async getBalanceDetail(itemId: string, warehouseId: string): Promise<WacSnapshot> {
+    return this.loadSnapshot(itemId, warehouseId);
+  }
+
+  /** Movements for a position in ledger order. */
+  async getMovements(itemId: string, warehouseId: string): Promise<readonly StockMovement[]> {
+    return this.deps.ledger.listByPosition(itemId, warehouseId);
+  }
+
+  /** Authoritative position by replaying the ledger (not the cache). */
+  async getPosition(itemId: string, warehouseId: string): Promise<WacPosition> {
+    const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+    if (movements.length === 0) return emptyPosition(itemId, warehouseId);
+    return replay(itemId, warehouseId, movements);
+  }
+
+  /** Cached snapshot valuation across every position that has one. */
+  async getValuation(): Promise<{
+    readonly positions: readonly WacSnapshot[];
+    readonly totalValue: Money;
+  }> {
+    const positions = await this.deps.snapshots.list();
+    return { positions, totalValue: Money.sum(positions.map((p) => p.totalValue)) };
+  }
+
+  /** Drift report for one position (cached snapshot vs replayed ledger vs layers). */
+  async checkDriftFor(
+    itemId: string,
+    warehouseId: string,
+    tolerance: Money = Money.zero(),
+  ): Promise<DriftReport> {
+    const snap = await this.loadSnapshot(itemId, warehouseId);
+    const cached: WacPosition = {
+      itemId,
+      warehouseId,
+      onHand: snap.onHand,
+      totalValue: snap.totalValue,
+      averageCost: snap.averageCost,
+      layers: await this.deps.layers.listByPosition(itemId, warehouseId),
+    };
+    const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+    return checkDrift(cached, movements, tolerance);
+  }
+
+  /**
+   * Rebuild the cached snapshot AND the cost layers for a position from the
+   * ledger (the source of truth), overwriting any drifted cache. Returns the
+   * recomputed position.
+   */
+  async rebuild(itemId: string, warehouseId: string): Promise<WacPosition> {
+    return this.runInTransaction(async () => {
+      const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+      const position =
+        movements.length === 0
+          ? emptyPosition(itemId, warehouseId)
+          : replay(itemId, warehouseId, movements);
+
+      const existingLayers = await this.deps.layers.listByPosition(itemId, warehouseId);
+      for (const layer of existingLayers) await this.deps.layers.remove(layer.id);
+      for (const layer of position.layers) await this.deps.layers.add(layer);
+
+      await this.deps.snapshots.save({
+        itemId,
+        warehouseId,
+        onHand: position.onHand,
+        totalValue: position.totalValue,
+        averageCost: position.averageCost,
+      });
+      return position;
+    });
+  }
+}
+
+/** Build the balanced Dr/Cr posting for a value-impacting adjustment. */
+function buildAdjustmentPosting(
+  command: PostAdjustmentCommand,
+  valueDelta: Money,
+  date: string,
+): InventoryGlPosting {
+  const gl = command.gl as { inventoryAccountId: string; counterpartAccountId: string };
+  const magnitude = valueDelta.scaled < 0n ? valueDelta.negate() : valueDelta;
+  const increased = valueDelta.scaled > 0n;
+  // Value up → Dr Inventory / Cr counterpart. Value down → reverse.
+  const lines = increased
+    ? [
+        { accountId: gl.inventoryAccountId, debit: magnitude, credit: Money.zero() },
+        { accountId: gl.counterpartAccountId, debit: Money.zero(), credit: magnitude },
+      ]
+    : [
+        { accountId: gl.counterpartAccountId, debit: magnitude, credit: Money.zero() },
+        { accountId: gl.inventoryAccountId, debit: Money.zero(), credit: magnitude },
+      ];
+  return {
+    sourceDocType: "ADJUSTMENT",
+    sourceDocId: command.adjustmentId,
+    sourceDocNumber: command.adjustmentNumber ?? null,
+    date,
+    memo: `Stock adjustment ${command.adjustmentNumber ?? command.adjustmentId} (${command.reason})`,
+    lines,
+  };
+}

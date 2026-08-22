@@ -1,0 +1,309 @@
+import { Money } from "../money/index.js";
+import type {
+  JournalEntry,
+  JournalLine,
+  JournalEntrySource,
+} from "../journal.js";
+import type { AccountRepository } from "../accounts/account.js";
+import { AccountNotFoundError } from "../accounts/errors.js";
+import { HeaderAccountNotPostableError } from "../accounts/errors.js";
+import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
+import { assertOpenForPosting } from "../fiscal-periods/transitions.js";
+import { NoFiscalPeriodForDateError } from "../fiscal-periods/errors.js";
+import { NextNumberService } from "../numbering/index.js";
+import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
+import {
+  UnbalancedEntryError,
+  InvalidJournalEntryError,
+} from "../post-journal-entry.js";
+import type { LedgerRepository } from "./ledger.js";
+import type { GlEventPublisher } from "./events.js";
+import {
+  DuplicateJournalEntryError,
+  InactiveAccountError,
+  JournalEntryNotDraftError,
+  JournalEntryNotFoundError,
+} from "./errors.js";
+
+/** Sequence code the JE numbering engine uses (numbering/sequences.ts). */
+const JOURNAL_ENTRY_SEQUENCE = "JOURNAL_ENTRY";
+
+/** A debit/credit line as supplied to the engine. */
+export interface JournalLineInput {
+  readonly accountId: string;
+  readonly debit: Money;
+  readonly credit: Money;
+  readonly memo?: string | null;
+}
+
+/** Command to create/post a journal entry. */
+export interface CreateJournalEntryCommand {
+  readonly id: string;
+  /** ISO date (YYYY-MM-DD) the entry is dated into (drives the period gate). */
+  readonly date: string;
+  readonly memo: string;
+  /** Defaults to "manual". Document-driven callers pass "system". */
+  readonly source?: JournalEntrySource;
+  readonly lines: readonly JournalLineInput[];
+}
+
+/**
+ * Ports the GL posting engine depends on. `ledger` and `numbering` MUST be
+ * backed by the same connection/transaction so number allocation and the entry
+ * insert are atomic (no-gap numbering, docs/plan.md §3 rule 5).
+ */
+export interface JournalPostingDeps {
+  readonly ledger: LedgerRepository;
+  readonly accounts: Pick<AccountRepository, "findById">;
+  readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  readonly numbering: NextNumberService;
+  readonly audit?: AuditSink;
+  readonly events?: GlEventPublisher;
+  /** ISO-8601 UTC "now"; overridable for deterministic tests. */
+  readonly now?: () => string;
+  /** Audit actor; defaults to "system". */
+  readonly actor?: string;
+}
+
+function nowIso(deps: JournalPostingDeps): string {
+  return deps.now ? deps.now() : new Date().toISOString();
+}
+
+function toLine(input: JournalLineInput): JournalLine {
+  return {
+    accountId: input.accountId,
+    debit: input.debit,
+    credit: input.credit,
+    memo: input.memo ?? null,
+  };
+}
+
+/**
+ * Structural validation (docs/catalog/04): a journal entry needs at least two
+ * lines, every line targets an account, no line is both a debit and a credit,
+ * and no amount is negative (a "negative debit" is a credit — model it as one).
+ */
+export function assertEntryStructure(lines: readonly JournalLineInput[]): void {
+  if (lines.length < 2) {
+    throw new InvalidJournalEntryError("A journal entry requires at least two lines.");
+  }
+  for (const line of lines) {
+    if (line.accountId.trim() === "") {
+      throw new InvalidJournalEntryError("Every journal line must target an account.");
+    }
+    const debitNeg = line.debit.scaled < 0n;
+    const creditNeg = line.credit.scaled < 0n;
+    if (debitNeg || creditNeg) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" has a negative amount; use the opposite side instead.`,
+      );
+    }
+    const hasDebit = line.debit.scaled !== 0n;
+    const hasCredit = line.credit.scaled !== 0n;
+    if (hasDebit && hasCredit) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" cannot be both a debit and a credit.`,
+      );
+    }
+    if (!hasDebit && !hasCredit) {
+      throw new InvalidJournalEntryError(
+        `Journal line for account "${line.accountId}" must have a non-zero debit or credit.`,
+      );
+    }
+  }
+}
+
+/** The double-entry invariant: Σ debit = Σ credit (docs/plan.md §3 rule 2). */
+export function assertBalanced(lines: readonly JournalLineInput[]): {
+  totalDebit: Money;
+  totalCredit: Money;
+} {
+  const totalDebit = Money.sum(lines.map((l) => l.debit));
+  const totalCredit = Money.sum(lines.map((l) => l.credit));
+  if (!totalDebit.equals(totalCredit)) {
+    throw new UnbalancedEntryError(totalDebit, totalCredit);
+  }
+  return { totalDebit, totalCredit };
+}
+
+/**
+ * Every referenced account must exist, be a postable (detail, non-header)
+ * account, and be active (docs/catalog/04: only حساب تفصيلي leaves accept
+ * journal lines; inactive accounts are blocked).
+ */
+export async function assertLinesPostable(
+  lines: readonly JournalLineInput[],
+  accounts: Pick<AccountRepository, "findById">,
+): Promise<void> {
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (seen.has(line.accountId)) continue;
+    seen.add(line.accountId);
+    const account = await accounts.findById(line.accountId);
+    if (!account) throw new AccountNotFoundError(line.accountId);
+    if (account.isHeader) throw new HeaderAccountNotPostableError(account.id);
+    if (account.status !== "active") throw new InactiveAccountError(account.id);
+  }
+}
+
+/** The period covering `date` must exist and be مفتوحة (open) — the period gate. */
+export async function assertPeriodOpen(
+  date: string,
+  periods: Pick<FiscalPeriodRepository, "findByDate">,
+): Promise<void> {
+  const period = await periods.findByDate(date);
+  if (!period) throw new NoFiscalPeriodForDateError(date);
+  assertOpenForPosting(period);
+}
+
+/**
+ * Create a مسودة (draft) journal entry: structurally valid, balanced, and
+ * targeting postable accounts — but NOT yet number-stamped and NOT period-gated
+ * (a draft may be dated into any period; the gate is enforced when it posts).
+ */
+export async function createJournalEntry(
+  cmd: CreateJournalEntryCommand,
+  deps: JournalPostingDeps,
+): Promise<JournalEntry> {
+  assertEntryStructure(cmd.lines);
+  assertBalanced(cmd.lines);
+  await assertLinesPostable(cmd.lines, deps.accounts);
+
+  return deps.ledger.transaction(async () => {
+    if (await deps.ledger.findById(cmd.id)) {
+      throw new DuplicateJournalEntryError(cmd.id);
+    }
+    const entry: JournalEntry = {
+      id: cmd.id,
+      entryNo: null,
+      date: cmd.date,
+      memo: cmd.memo,
+      status: "draft",
+      source: cmd.source ?? "manual",
+      lines: cmd.lines.map(toLine),
+      createdAt: nowIso(deps),
+      postedAt: null,
+      reversesEntryId: null,
+      reversedByEntryId: null,
+    };
+    await deps.ledger.save(entry);
+    return entry;
+  });
+}
+
+/**
+ * Create AND post a journal entry in one atomic step — the common path for both
+ * system-generated entries (a confirmed document posts its GL entry directly)
+ * and a manual entry the user posts straight away.
+ *
+ * Enforces, in order: structure, Σdebit=Σcredit, postable/active accounts, and
+ * the period-open gate. Then, inside ONE transaction: allocates the next
+ * JE number, writes the "posted" entry, records a sensitive audit event, and
+ * publishes JOURNAL_ENTRY_POSTED.
+ */
+export async function postJournalEntry(
+  cmd: CreateJournalEntryCommand,
+  deps: JournalPostingDeps,
+): Promise<JournalEntry> {
+  assertEntryStructure(cmd.lines);
+  const { totalDebit, totalCredit } = assertBalanced(cmd.lines);
+  await assertLinesPostable(cmd.lines, deps.accounts);
+  await assertPeriodOpen(cmd.date, deps.periods);
+
+  const entry = await deps.ledger.transaction(async () => {
+    if (await deps.ledger.findById(cmd.id)) {
+      throw new DuplicateJournalEntryError(cmd.id);
+    }
+    const stamp = nowIso(deps);
+    const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
+    const posted: JournalEntry = {
+      id: cmd.id,
+      entryNo: number.formatted,
+      date: cmd.date,
+      memo: cmd.memo,
+      status: "posted",
+      source: cmd.source ?? "manual",
+      lines: cmd.lines.map(toLine),
+      createdAt: stamp,
+      postedAt: stamp,
+      reversesEntryId: null,
+      reversedByEntryId: null,
+    };
+    await deps.ledger.save(posted);
+    return posted;
+  });
+
+  await emitPosted(entry, totalDebit, totalCredit, deps);
+  return entry;
+}
+
+/**
+ * Post an existing مسودة (draft) entry: draft → posted. Re-checks balance,
+ * postable accounts and the period gate at post time (a period may have closed
+ * since the draft was saved), then stamps the JE number and posting time.
+ */
+export async function postDraftJournalEntry(
+  entryId: string,
+  deps: JournalPostingDeps,
+): Promise<JournalEntry> {
+  const existing = await deps.ledger.findById(entryId);
+  if (!existing) throw new JournalEntryNotFoundError(entryId);
+  if (existing.status !== "draft") {
+    throw new JournalEntryNotDraftError(entryId, existing.status);
+  }
+
+  assertEntryStructure(existing.lines);
+  const { totalDebit, totalCredit } = assertBalanced(existing.lines);
+  await assertLinesPostable(existing.lines, deps.accounts);
+  await assertPeriodOpen(existing.date, deps.periods);
+
+  const entry = await deps.ledger.transaction(async () => {
+    const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);
+    const posted: JournalEntry = {
+      ...existing,
+      entryNo: number.formatted,
+      status: "posted",
+      postedAt: nowIso(deps),
+    };
+    await deps.ledger.update(posted);
+    return posted;
+  });
+
+  await emitPosted(entry, totalDebit, totalCredit, deps);
+  return entry;
+}
+
+async function emitPosted(
+  entry: JournalEntry,
+  totalDebit: Money,
+  totalCredit: Money,
+  deps: JournalPostingDeps,
+): Promise<void> {
+  if (deps.audit) {
+    await recordSensitiveEvent(deps.audit, {
+      module: "accounting",
+      entityType: "JOURNAL_ENTRY",
+      action: "POST",
+      actor: deps.actor ?? "system",
+      severity: "INFO",
+      details: {
+        entryId: entry.id,
+        entryNo: entry.entryNo,
+        date: entry.date,
+        source: entry.source ?? "manual",
+        totalDebit: totalDebit.toString(),
+        lineCount: entry.lines.length,
+      },
+    });
+  }
+  deps.events?.publish({
+    type: "JOURNAL_ENTRY_POSTED",
+    entryId: entry.id,
+    entryNo: entry.entryNo ?? null,
+    date: entry.date,
+    source: entry.source ?? "manual",
+    totalDebit,
+    totalCredit,
+    occurredAt: entry.postedAt ?? nowIso(deps),
+  });
+}

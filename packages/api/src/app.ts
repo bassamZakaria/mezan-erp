@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import {
   Money,
-  postJournalEntry,
+  postJournalEntrySpike,
   UnbalancedEntryError,
   InvalidJournalEntryError,
   SeatSessionRegistry,
@@ -39,6 +39,7 @@ import { createTaxRatesRoutes } from "./tax-rates-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
+import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -144,6 +145,13 @@ export interface CreateAppOptions {
   /** Mounts `/fiscal-periods` (docs/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
   readonly fiscalPeriodRepo?: FiscalPeriodRepository;
   /**
+   * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
+   * when present — omit it for no `/gl` routes. Bundles its own ledger,
+   * account/period lookups and numbering engine (all connection-shared for
+   * atomic no-gap numbering); optional audit sink + domain-event publisher.
+   */
+  readonly gl?: GlRoutesDeps;
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -207,6 +215,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.fiscalPeriodRepo) {
     app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, options.resolveAuthContext));
   }
+  if (options.gl) {
+    app.route("/gl", createGlRoutes(options.gl, options.resolveAuthContext));
+  }
 
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
@@ -225,7 +236,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }
 
     try {
-      const entry = await postJournalEntry(
+      const entry = await postJournalEntrySpike(
         {
           id: parsed.data.id,
           date: parsed.data.date,

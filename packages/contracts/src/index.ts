@@ -51,5 +51,20 @@ export {
   type LanSessionsListDTO,
 } from "./lan.js";
 
+export {
+  accountTypeSchema,
+  naturalBalanceSchema,
+  accountStatusSchema,
+  accountSchema,
+  createAccountSchema,
+  updateAccountSchema,
+  type AccountTypeDTO,
+  type NaturalBalanceDTO,
+  type AccountStatusDTO,
+  type AccountDTO,
+  type CreateAccountDTO,
+  type UpdateAccountDTO,
+} from "./accounts.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

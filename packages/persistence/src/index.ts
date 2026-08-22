@@ -17,3 +17,7 @@ export {
   createSqliteAuditSink,
   type SqliteAuditSinkHandle,
 } from "./audit-sink.js";
+export {
+  createSqliteAccountRepository,
+  type SqliteAccountRepositoryHandle,
+} from "./account-repository.js";

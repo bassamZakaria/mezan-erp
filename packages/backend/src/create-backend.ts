@@ -13,8 +13,11 @@ import {
   createSqliteTreasuryAccountRepository,
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
+  createSqliteExchangeRateRepository,
+  createSqliteEtaStore,
   createScryptHasher,
 } from "@mezan/persistence";
+import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -58,6 +61,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const treasuryAccounts = createSqliteTreasuryAccountRepository(dbPath);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(dbPath);
   const ledger = createSqliteLedgerStore(dbPath);
+  const exchangeRates = createSqliteExchangeRateRepository(dbPath);
+  const etaStore = createSqliteEtaStore(dbPath);
+  const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
   const hasher = createScryptHasher();
 
   const seedStores: SeedStores = {
@@ -91,6 +97,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
     },
+    // --- phase9/accounting-depth ---
+    exchangeRateRepo: exchangeRates,
+    costCenterPl: { ledger, accounts, costCenters },
+    fxRevaluation: {
+      ledger,
+      accounts,
+      periods: fiscalPeriods,
+      numbering: ledger.numbering,
+      exchangeRates,
+      // فائض/عجز الصندوق double as the FX gain/loss accounts (postable leaves in the standard COA).
+      gainAccountId: "4900",
+      lossAccountId: "5900",
+    },
+    eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -121,6 +141,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccounts,
     fiscalPeriods,
     ledger,
+    exchangeRates,
+    etaStore,
   ];
 
   return {

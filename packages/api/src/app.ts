@@ -65,6 +65,12 @@ import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
+import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
+import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
+import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
+import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
+import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
+import type { ExchangeRateRepository } from "@mezan/domain";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -189,6 +195,16 @@ export interface CreateAppOptions {
 
   /** Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when supplied. */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /** Mounts `/exchange-rates` (docs/catalog/04 "أسعار الصرف") when present. */
+  readonly exchangeRateRepo?: ExchangeRateRepository;
+  /** Mounts `/cost-center-pl` (docs/catalog/04 "أرباح مراكز التكلفة") when present. */
+  readonly costCenterPl?: CostCenterPnLRoutesDeps;
+  /** Mounts `/revaluation` (docs/catalog/04 "إعادة تقييم العملات الأجنبية") when present. */
+  readonly fxRevaluation?: FxRevaluationRoutesDeps;
+  /** Mounts `/reconciliation` (docs/catalog/04 "مطابقة الأرصدة") when present. */
+  readonly reconciliation?: ReconciliationRoutesDeps;
+  /** Mounts `/eta` (docs/catalog/04 "الفاتورة الإلكترونية") when present. */
+  readonly eta?: EtaRoutesDeps;
   /**
    * Mounts the Treasury Vouchers routes (docs/catalog/04 §"السندات النقدية") —
    * `/vouchers/*` plus the root `/allocations/:id/reverse` and `/open-invoices`
@@ -335,6 +351,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.installments) {
     app.route("/installments", createInstallmentsRoutes(options.installments, options.installments.resolveAuthContext));
+  }
+  if (options.exchangeRateRepo) {
+    app.route("/exchange-rates", createExchangeRatesRoutes(options.exchangeRateRepo, options.resolveAuthContext));
+  }
+  if (options.costCenterPl) {
+    app.route("/cost-center-pl", createCostCenterPnLRoutes(options.costCenterPl, options.resolveAuthContext));
+  }
+  if (options.fxRevaluation) {
+    app.route("/revaluation", createFxRevaluationRoutes(options.fxRevaluation, options.resolveAuthContext));
+  }
+  if (options.reconciliation) {
+    app.route("/reconciliation", createReconciliationRoutes(options.reconciliation, options.resolveAuthContext));
+  }
+  if (options.eta) {
+    app.route("/eta", createEtaRoutes(options.eta, options.resolveAuthContext));
   }
   // Generic document framework (docs/execution-plan.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.

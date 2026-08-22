@@ -3,19 +3,12 @@
  * `pnpm lint` logical-properties check — use logical properties only
  * (margin-inline-*, padding-inline-*, inset-inline-*, text-align: start/end).
  */
-:root {
-  font-family: "IBM Plex Sans Arabic", system-ui, sans-serif;
-  line-height: 1.5;
-}
+@import "@mezan/ui/styles.css";
 
-body {
-  margin: 0;
-}
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-.app-shell {
-  max-width: 48rem;
-  margin-block: 4rem;
-  margin-inline: auto;
-  padding-inline: 1.5rem;
-  text-align: start;
+#root {
+  min-height: 100vh;
 }

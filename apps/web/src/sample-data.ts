@@ -28,6 +28,7 @@ export const navGroups: NavGroup[] = [
     label: "المشتريات",
     items: [
       { key: "vendors", label: "الموردون" },
+      { key: "rfqs", label: "طلبات عروض الأسعار" },
       { key: "purchase-orders", label: "أوامر الشراء" },
       { key: "goods-receipts", label: "استلام البضائع" },
       { key: "purchase-invoices", label: "فواتير المشتريات" },

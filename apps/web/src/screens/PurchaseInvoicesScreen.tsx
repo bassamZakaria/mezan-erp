@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   Button,
   DocumentList,
@@ -8,6 +8,9 @@ import {
   SidePanel,
   Chip,
   EntityPicker,
+  buildHistoricalImportTemplate,
+  parseHistoricalImportFile,
+  downloadReportExport,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
@@ -22,9 +25,15 @@ import {
   purchaseInvoiceTotal,
   purchaseInvoiceLineBase,
   purchaseInvoiceLineTax,
+  previewHistoricalImport,
+  importHistoricalPurchaseDocuments,
   type PurchaseInvoice,
   type PurchaseInvoiceStatus,
   type PurchaseInvoiceLine,
+  type HistoricalImportRowInput,
+  type HistoricalImportPreview,
+  type HistoricalPurchaseArchive,
+  type HistoricalPurchaseArchiveRepository,
 } from "@mezan/domain";
 import { demoSuppliers } from "../partners-sample-data";
 import {
@@ -150,12 +159,221 @@ function InvoiceDetail({ invoice, onBack, onConfirm }: { invoice: PurchaseInvoic
   );
 }
 
+/** Local, in-memory HistoricalPurchaseArchiveRepository — mirrors the real SQLite store's contract (packages/persistence/src/historical-import-store.ts) but backed by a ref so the panel can exercise the REAL domain import functions without a live API. */
+function useHistoricalArchiveRepo(): HistoricalPurchaseArchiveRepository {
+  const ref = useRef<HistoricalPurchaseArchive[]>([]);
+  return useMemo<HistoricalPurchaseArchiveRepository>(
+    () => ({
+      async create(archive) {
+        ref.current = [...ref.current, archive];
+      },
+      async list() {
+        return ref.current;
+      },
+      async findById(id) {
+        return ref.current.find((a) => a.id === id) ?? null;
+      },
+      async findByOriginalNumber(docType, originalNumber) {
+        return ref.current.find((a) => a.docType === docType && a.originalNumber === originalNumber) ?? null;
+      },
+    }),
+    [],
+  );
+}
+
+interface ImportRowIssue {
+  readonly rowNumber: number;
+  readonly reasons: readonly string[];
+}
+
+function HistoricalImportPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const archives = useHistoricalArchiveRepo();
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [parseIssues, setParseIssues] = useState<ImportRowIssue[]>([]);
+  const [preview, setPreview] = useState<HistoricalImportPreview | null>(null);
+  const [rows, setRows] = useState<HistoricalImportRowInput[]>([]);
+  const [result, setResult] = useState<{ archivedCount: number; errors: readonly ImportRowIssue[] } | null>(null);
+  const [importing, setImporting] = useState(false);
+
+  function reset() {
+    setFileName(null);
+    setParseIssues([]);
+    setPreview(null);
+    setRows([]);
+    setResult(null);
+  }
+
+  async function handleFile(file: File) {
+    reset();
+    setFileName(file.name);
+    const buffer = await file.arrayBuffer();
+    const parsed = await parseHistoricalImportFile(buffer);
+
+    const rowInputs: HistoricalImportRowInput[] = [];
+    const conversionIssues: ImportRowIssue[] = [];
+    for (const r of parsed.rows) {
+      try {
+        rowInputs.push({
+          rowNumber: r.rowNumber,
+          docType: r.docType,
+          documentNumber: r.documentNumber,
+          supplierId: r.supplierId,
+          date: r.date,
+          dueDate: r.dueDate,
+          itemId: r.itemId,
+          description: r.description,
+          qty: Qty.fromMajor(r.qty || "0"),
+          unitCost: Money.fromMajor(r.unitCost || "0"),
+          amountPaid: Money.fromMajor(r.amountPaid || "0"),
+        });
+      } catch {
+        conversionIssues.push({ rowNumber: r.rowNumber, reasons: ["قيمة رقمية غير صالحة في الكمية أو التكلفة أو المبلغ المسدد"] });
+      }
+    }
+
+    setParseIssues([
+      ...parsed.errors.map((e) => ({ rowNumber: e.rowNumber, reasons: [e.reason] })),
+      ...conversionIssues,
+    ]);
+    setRows(rowInputs);
+    setPreview(rowInputs.length > 0 ? previewHistoricalImport(rowInputs) : null);
+  }
+
+  async function commit() {
+    if (rows.length === 0) return;
+    setImporting(true);
+    try {
+      const outcome = await importHistoricalPurchaseDocuments(
+        { importBatchId: `HPI-${Date.now()}`, rows, createdBy: "محمد الشهابي" },
+        { archives },
+      );
+      setResult({ archivedCount: outcome.archived.length, errors: outcome.errors });
+      setPreview(null);
+      setRows([]);
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function downloadTemplate() {
+    const file = await buildHistoricalImportTemplate();
+    downloadReportExport(file);
+  }
+
+  return (
+    <SidePanel
+      open={open}
+      onClose={() => {
+        reset();
+        onClose();
+      }}
+      title="استيراد فواتير سابقة"
+      description="أرشفة مستندات مشتريات سابقة لبدء التشغيل — دون قيد محاسبي للمستندات المسواة بالكامل، ودون أي تأثير على المخزون"
+    >
+      <div className="flex flex-col gap-[14px]">
+        <div className="rounded-lg border border-border bg-surface p-[12px] text-[12px] leading-[1.7] text-ink-muted">
+          المستندات المسواة بالكامل تُؤرشف بدون أي قيد محاسبي. المستندات ذات رصيد متبقٍ يُسجَّل رصيدها المتبقي فقط
+          كمستحق للمورد. البضاعة كانت موجودة بالمستودع مسبقاً — لا يتأثر المخزون بهذا الاستيراد.
+        </div>
+
+        <div className="flex items-center justify-between gap-[10px]">
+          <span className="text-[12.5px] font-semibold text-ink">ملف الاستيراد (Excel)</span>
+          <Button onClick={downloadTemplate}>تحميل النموذج</Button>
+        </div>
+        <input
+          type="file"
+          accept=".xlsx"
+          aria-label="اختيار ملف"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) void handleFile(file);
+          }}
+          className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink"
+        />
+        {fileName ? <p className="text-[12px] text-ink-muted">الملف المحدد: {fileName}</p> : null}
+
+        {parseIssues.length > 0 ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {parseIssues.map((e, i) => (
+              <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
+            ))}
+          </div>
+        ) : null}
+
+        {preview && preview.groups.length > 0 ? (
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full min-w-[520px] border-collapse text-[12.5px]">
+              <thead>
+                <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+                  <th className="px-[10px] py-[8px] text-start">رقم المستند</th>
+                  <th className="px-[10px] py-[8px] text-start">النوع</th>
+                  <th className="px-[10px] py-[8px] text-start">المورد</th>
+                  <th className="px-[10px] py-[8px] text-end">الإجمالي</th>
+                  <th className="px-[10px] py-[8px] text-end">المتبقي</th>
+                  <th className="px-[10px] py-[8px] text-start">الحالة</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.groups.map((g) => (
+                  <tr key={`${g.docType}:${g.documentNumber}`} className="border-b border-border last:border-b-0">
+                    <td className="mz-num px-[10px] py-[8px]">{g.documentNumber}</td>
+                    <td className="px-[10px] py-[8px]">{g.docType === "PURCHASE_INVOICE" ? "فاتورة" : "مرتجع"}</td>
+                    <td className="px-[10px] py-[8px]">{supplierName(g.supplierId)}</td>
+                    <td className="px-[10px] py-[8px] text-end"><MoneyValue value={num(g.total)} showUnit={false} /></td>
+                    <td className="px-[10px] py-[8px] text-end"><MoneyValue value={num(g.remainingBalance)} showUnit={false} /></td>
+                    <td className="px-[10px] py-[8px]">
+                      <StatusPill label={g.settled ? "مسواة بالكامل" : "بها رصيد متبقٍ"} tone={g.settled ? "success" : "warning"} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : null}
+
+        {preview && preview.errors.length > 0 ? (
+          <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {preview.errors.map((e, i) => (
+              <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
+            ))}
+          </div>
+        ) : null}
+
+        {result ? (
+          <div className="rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
+            <div>تم استيراد {result.archivedCount} مستند بنجاح.</div>
+            {result.errors.length > 0 ? (
+              <div className="mt-[6px] text-danger-ink">
+                {result.errors.map((e, i) => (
+                  <div key={i}>صف {e.rowNumber}: {e.reasons.join("، ")}</div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="flex justify-end gap-[9px]">
+          <Button onClick={() => { reset(); onClose(); }}>إلغاء</Button>
+          <Button
+            variant="primary"
+            onClick={commit}
+            disabled={!preview || preview.groups.length === 0 || importing}
+          >
+            استيراد {preview?.groups.length ?? 0} مستند
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
+}
+
 export function PurchaseInvoicesScreen() {
   const [invoices, setInvoices] = useState<PurchaseInvoice[]>(demoPurchaseInvoices);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatus | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  const [importPanelOpen, setImportPanelOpen] = useState(false);
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);
@@ -348,11 +566,14 @@ export function PurchaseInvoicesScreen() {
     </SidePanel>
   );
 
+  const importPanel = <HistoricalImportPanel open={importPanelOpen} onClose={() => setImportPanelOpen(false)} />;
+
   if (selected) {
     return (
       <>
         <InvoiceDetail invoice={selected} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
         {panel}
+        {importPanel}
       </>
     );
   }
@@ -364,9 +585,12 @@ export function PurchaseInvoicesScreen() {
         title="فواتير المشتريات"
         description="فاتورة المورد — تزيد المخزون والمستحق للمورد وتسجّل الضريبة عند التأكيد"
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            فاتورة مشتريات جديدة
-          </Button>
+          <>
+            <Button onClick={() => setImportPanelOpen(true)}>استيراد فواتير سابقة</Button>
+            <Button variant="primary" onClick={openCreate}>
+              فاتورة مشتريات جديدة
+            </Button>
+          </>
         }
         stats={[
           { label: "إجمالي الفواتير", value: <span className="mz-num">{invoices.length}</span> },
@@ -390,6 +614,7 @@ export function PurchaseInvoicesScreen() {
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد فواتير مطابقة</div>}
       />
       {panel}
+      {importPanel}
     </>
   );
 }

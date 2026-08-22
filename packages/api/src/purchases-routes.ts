@@ -10,10 +10,12 @@ import {
   purchaseOrderTotal,
   createGoodsReceipt,
   confirmGoodsReceipt,
+  cancelGoodsReceipt,
   goodsReceiptTotalCost,
   buildInvoiceLinesFromReceipt,
   createPurchaseInvoice,
   confirmPurchaseInvoice,
+  cancelPurchaseInvoice,
   purchaseInvoiceSubtotal,
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
@@ -26,6 +28,9 @@ import {
   PurchaseOrderNotReceivableError,
   ReceiptRequiredError,
   OverReceiptError,
+  PurchaseOrderRequiredError,
+  PurchaseItemsAlreadyConsumedError,
+  GoodsReceiptAlreadyInvoicedError,
   DEFAULT_PURCHASE_POLICY,
   type PurchaseOrder,
   type PurchaseOrderRepository,
@@ -36,8 +41,10 @@ import {
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
+  type CostLayerRepository,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -75,9 +82,19 @@ export interface PurchasesRoutesDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
-  readonly policy?: PurchasePolicy;
+  /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
+  readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
   readonly resolveTaxRate?: (itemId: string) => number;
+  /**
+   * Cost-layer lookups the cancel endpoints use for the "sold-item" guard
+   * (`trackSoldPurchaseItems`) and the stock-reversal ports use to find the
+   * layers a receipt/invoice created. Omit and the two cancel endpoints are
+   * not mounted (existing callers that only need create/confirm are unaffected).
+   */
+  readonly layers?: CostLayerRepository;
+  /** GL reversal hook for cancelling a confirmed purchase invoice. Required together with `layers`. */
+  readonly glReverse?: PurchaseGlReversalPort;
   readonly now?: () => string;
 }
 
@@ -180,7 +197,10 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof InvalidPurchaseDocumentError ||
     err instanceof ReceiptRequiredError ||
-    err instanceof OverReceiptError
+    err instanceof OverReceiptError ||
+    err instanceof PurchaseOrderRequiredError ||
+    err instanceof PurchaseItemsAlreadyConsumedError ||
+    err instanceof GoodsReceiptAlreadyInvoicedError
   ) {
     return c.json(
       {
@@ -200,7 +220,10 @@ export function createPurchasesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
-  const policy = deps.policy ?? DEFAULT_PURCHASE_POLICY;
+  const resolvePolicy = async (): Promise<PurchasePolicy> => {
+    if (!deps.policy) return DEFAULT_PURCHASE_POLICY;
+    return typeof deps.policy === "function" ? await deps.policy() : deps.policy;
+  };
   const resolveTaxRate = deps.resolveTaxRate ?? (() => 0);
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
 
@@ -284,6 +307,8 @@ export function createPurchasesRoutes(
           date: parsed.data.date,
           notes: parsed.data.notes,
           createdBy: actor(c),
+          supplierId: parsed.data.supplierId,
+          warehouseId: parsed.data.warehouseId,
           lines: parsed.data.lines?.map((l) => ({
             itemId: l.itemId,
             description: l.description,
@@ -291,7 +316,13 @@ export function createPurchasesRoutes(
             unitCost: Money.fromMajor(l.unitCost),
           })),
         },
-        { receipts: deps.receipts, orders: deps.orders, numbering: deps.numbering, policy, now: deps.now },
+        {
+          receipts: deps.receipts,
+          orders: deps.orders,
+          numbering: deps.numbering,
+          policy: await resolvePolicy(),
+          now: deps.now,
+        },
       );
       return c.json(serializeReceipt(receipt), 201);
     } catch (err) {
@@ -312,6 +343,25 @@ export function createPurchasesRoutes(
       return handleDomainError(c, err);
     }
   });
+
+  if (deps.layers) {
+    const layers = deps.layers;
+    app.post("/receipts/:id/cancel", gate("purchases.receipt.void"), async (c) => {
+      try {
+        const receipt = await cancelGoodsReceipt(c.req.param("id"), {
+          receipts: deps.receipts,
+          orders: deps.orders,
+          stock: deps.stock,
+          layers,
+          policy: await resolvePolicy(),
+          now: deps.now,
+        });
+        return c.json(serializeReceipt(receipt));
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+  }
 
   // --- Purchase Invoices ---------------------------------------------------
 
@@ -365,7 +415,13 @@ export function createPurchasesRoutes(
           createdBy: actor(c),
           lines,
         },
-        { invoices: deps.invoices, receipts: deps.receipts, numbering: deps.numbering, policy, now: deps.now },
+        {
+          invoices: deps.invoices,
+          receipts: deps.receipts,
+          numbering: deps.numbering,
+          policy: await resolvePolicy(),
+          now: deps.now,
+        },
       );
       return c.json(serializeInvoice(invoice), 201);
     } catch (err) {
@@ -388,6 +444,26 @@ export function createPurchasesRoutes(
       return handleDomainError(c, err);
     }
   });
+
+  if (deps.layers && deps.glReverse) {
+    const layers = deps.layers;
+    const glReverse = deps.glReverse;
+    app.post("/invoices/:id/cancel", gate("purchases.invoice.void"), async (c) => {
+      try {
+        const invoice = await cancelPurchaseInvoice(c.req.param("id"), {
+          invoices: deps.invoices,
+          stock: deps.stock,
+          glReverse,
+          layers,
+          policy: await resolvePolicy(),
+          now: deps.now,
+        });
+        return c.json(serializeInvoice(invoice));
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+  }
 
   return app;
 }

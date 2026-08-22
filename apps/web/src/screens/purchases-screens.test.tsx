@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { buildHistoricalImportTemplate } from "@mezan/ui";
 import { PurchaseOrdersScreen } from "./PurchaseOrdersScreen";
 import { GoodsReceiptsScreen } from "./GoodsReceiptsScreen";
 import { PurchaseInvoicesScreen } from "./PurchaseInvoicesScreen";
@@ -75,5 +76,47 @@ describe("PurchaseInvoicesScreen", () => {
     expect(screen.getByRole("dialog", { name: "فاتورة مشتريات جديدة" })).toBeInTheDocument();
     fireEvent.click(screen.getByText("من إيصال استلام"));
     expect(screen.getByText("إيصال الاستلام *")).toBeInTheDocument();
+  });
+
+  it("imports a historical invoice: parses the uploaded template, previews it (dry-run), then archives it", async () => {
+    render(<PurchaseInvoicesScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "استيراد فواتير سابقة" }));
+    expect(screen.getByRole("dialog", { name: "استيراد فواتير سابقة" })).toBeInTheDocument();
+
+    const template = await buildHistoricalImportTemplate();
+    const file = new File([template.data], template.filename, { type: template.mimeType });
+    const input = screen.getByLabelText("اختيار ملف");
+    fireEvent.change(input, { target: { files: [file] } });
+
+    // Dry-run preview: the template's one example row (qty 10 × 85.00 = 850.00, amountPaid 500.00) groups
+    // into one document with an unsettled remaining balance (350.00).
+    await waitFor(() => expect(screen.getByText("INV-1001")).toBeInTheDocument());
+    expect(screen.getByText("بها رصيد متبقٍ")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "استيراد 1 مستند" })).not.toBeDisabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "استيراد 1 مستند" }));
+    await waitFor(() => expect(screen.getByText(/تم استيراد 1 مستند بنجاح/)).toBeInTheDocument());
+  });
+
+  it("reports a duplicate documentNumber on re-import without archiving it twice", async () => {
+    render(<PurchaseInvoicesScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "استيراد فواتير سابقة" }));
+
+    const template = await buildHistoricalImportTemplate();
+    const upload = () => {
+      const file = new File([template.data], template.filename, { type: template.mimeType });
+      fireEvent.change(screen.getByLabelText("اختيار ملف"), { target: { files: [file] } });
+    };
+
+    upload();
+    await waitFor(() => expect(screen.getByText("INV-1001")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "استيراد 1 مستند" }));
+    await waitFor(() => expect(screen.getByText(/تم استيراد 1 مستند بنجاح/)).toBeInTheDocument());
+
+    upload();
+    await waitFor(() => expect(screen.getByText("INV-1001")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "استيراد 1 مستند" }));
+    await waitFor(() => expect(screen.getByText(/تم استيراد 0 مستند بنجاح/)).toBeInTheDocument());
+    expect(screen.getByText(/already imported/)).toBeInTheDocument();
   });
 });

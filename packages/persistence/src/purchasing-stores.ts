@@ -158,7 +158,7 @@ const CREATE_GR = `
 CREATE TABLE IF NOT EXISTS goods_receipt (
   id                TEXT PRIMARY KEY,
   number            TEXT NOT NULL UNIQUE,
-  purchase_order_id TEXT NOT NULL,
+  purchase_order_id TEXT,
   supplier_id       TEXT NOT NULL,
   warehouse_id      TEXT NOT NULL,
   date              TEXT NOT NULL,
@@ -175,7 +175,7 @@ CREATE INDEX IF NOT EXISTS idx_gr_order ON goods_receipt(purchase_order_id);
 interface GrRow {
   id: string;
   number: string;
-  purchase_order_id: string;
+  purchase_order_id: string | null;
   supplier_id: string;
   warehouse_id: string;
   date: string;

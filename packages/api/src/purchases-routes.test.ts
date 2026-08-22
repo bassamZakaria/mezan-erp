@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { StockLedgerService, type Account } from "@mezan/domain";
+import { StockLedgerService, Qty, type Account, type PurchasePolicy } from "@mezan/domain";
 import {
   createSqliteUnitOfWork,
   createSqliteLedgerStore,
@@ -30,7 +30,7 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   };
 }
 
-async function newApp() {
+async function newApp(opts: { withCancel?: boolean; policy?: PurchasePolicy } = {}) {
   const uow = createSqliteUnitOfWork();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
@@ -76,6 +76,8 @@ async function newApp() {
       },
       resolveTaxRate: () => 14,
       now: () => "2026-08-21T09:00:00.000Z",
+      layers: opts.withCancel ? stockStore.layers : undefined,
+      policy: opts.policy,
     },
   });
   return { app, ledger, stock };
@@ -229,5 +231,178 @@ describe("purchases-routes — full PO → GRN → invoice chain", () => {
       }),
     );
     expect(res.status).toBe(404);
+  });
+});
+
+describe("purchases-routes — cancel endpoints (require `layers`)", () => {
+  it("are not mounted when `layers` is omitted (404 at the routing level)", async () => {
+    const { app } = await newApp();
+    const receiptRes = await app.fetch(req("/purchases/receipts/gr-x/cancel", { method: "POST", permissions: ADMIN }));
+    expect(receiptRes.status).toBe(404);
+    const invoiceRes = await app.fetch(req("/purchases/invoices/pi-x/cancel", { method: "POST", permissions: ADMIN }));
+    expect(invoiceRes.status).toBe(404);
+  });
+
+  it("cancels a draft goods receipt trivially (no stock/PO effect yet)", async () => {
+    const { app } = await newApp({ withCancel: true });
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+    await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(
+      req("/purchases/receipts", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }),
+      }),
+    );
+    const res = await app.fetch(req("/purchases/receipts/gr-1/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("cancelled");
+  });
+
+  it("cancels a confirmed goods receipt, reversing stock and rolling the PO back", async () => {
+    const { app, stock } = await newApp({ withCancel: true });
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+    await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(
+      req("/purchases/receipts", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }),
+      }),
+    );
+    await app.fetch(req("/purchases/receipts/gr-1/confirm", { method: "POST", permissions: ADMIN }));
+    expect((await stock.getBalanceDetail("item-A", "MAIN-WH")).onHand.toString()).toBe("10.000000");
+
+    const res = await app.fetch(req("/purchases/receipts/gr-1/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("cancelled");
+    expect((await stock.getBalanceDetail("item-A", "MAIN-WH")).onHand.toString()).toBe("0.000000");
+
+    const orderRes = await app.fetch(req("/purchases/orders/po-1", { permissions: ADMIN }));
+    expect(((await orderRes.json()) as { status: string }).status).toBe("sent");
+  });
+
+  it("422s cancelling a goods receipt that has already been invoiced (GOODS_RECEIPT_ALREADY_INVOICED)", async () => {
+    const { app } = await newApp({ withCancel: true });
+    await app.fetch(req("/purchases/orders", { method: "POST", permissions: ADMIN, body: JSON.stringify(orderBody) }));
+    await app.fetch(req("/purchases/orders/po-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(
+      req("/purchases/receipts", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "gr-1", purchaseOrderId: "po-1", date: "2026-08-22" }),
+      }),
+    );
+    await app.fetch(req("/purchases/receipts/gr-1/confirm", { method: "POST", permissions: ADMIN }));
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "pi-1", supplierId: "sup-1", date: "2026-08-22", branchId: "MAIN", warehouseId: "MAIN-WH", receiptId: "gr-1" }),
+      }),
+    );
+    await app.fetch(req("/purchases/invoices/pi-1/confirm", { method: "POST", permissions: ADMIN }));
+
+    const res = await app.fetch(req("/purchases/receipts/gr-1/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("GOODS_RECEIPT_ALREADY_INVOICED");
+  });
+
+  it("422s creating a receipt with no PO when requirePoForGrn is on (PURCHASE_ORDER_REQUIRED)", async () => {
+    const { app } = await newApp({
+      withCancel: true,
+      policy: { requirePoForGrn: true, requireReceiptForInvoice: false, blockOverReceipt: false, trackSoldPurchaseItems: true },
+    });
+    const res = await app.fetch(
+      req("/purchases/receipts", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({ id: "gr-adhoc", date: "2026-08-22", supplierId: "sup-1", warehouseId: "MAIN-WH", lines: [{ itemId: "item-A", qty: "1", unitCost: "10.00" }] }),
+      }),
+    );
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("PURCHASE_ORDER_REQUIRED");
+  });
+
+  it("cancels a draft purchase invoice trivially", async () => {
+    const { app } = await newApp({ withCancel: true });
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "pi-draft",
+          supplierId: "sup-2",
+          date: "2026-08-22",
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          lines: [{ itemId: "item-C", kind: "inventory", qty: "1", unitCost: "10.00", taxRatePercent: 0 }],
+        }),
+      }),
+    );
+    const res = await app.fetch(req("/purchases/invoices/pi-draft/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("cancelled");
+  });
+
+  it("cancels a confirmed manual purchase invoice, reversing GL and stock", async () => {
+    const { app, ledger, stock } = await newApp({ withCancel: true });
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "pi-m",
+          supplierId: "sup-2",
+          date: "2026-08-22",
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          lines: [{ itemId: "item-C", kind: "inventory", qty: "4", unitCost: "50.00", taxRatePercent: 0 }],
+        }),
+      }),
+    );
+    await app.fetch(req("/purchases/invoices/pi-m/confirm", { method: "POST", permissions: ADMIN }));
+    expect((await stock.getBalanceDetail("item-C", "MAIN-WH")).onHand.toString()).toBe("4.000000");
+    expect((await ledger.accountBalance("2100-ap")).credit.toString()).toBe("200.000000");
+
+    const res = await app.fetch(req("/purchases/invoices/pi-m/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { status: string }).status).toBe("cancelled");
+
+    expect((await stock.getBalanceDetail("item-C", "MAIN-WH")).onHand.toString()).toBe("0.000000");
+    const apBalance = await ledger.accountBalance("2100-ap");
+    expect(apBalance.credit.toString()).toBe(apBalance.debit.toString());
+  });
+
+  it("422s cancelling a confirmed invoice whose goods have since been sold (PURCHASE_ITEMS_ALREADY_CONSUMED)", async () => {
+    const { app, stock } = await newApp({ withCancel: true });
+    await app.fetch(
+      req("/purchases/invoices", {
+        method: "POST",
+        permissions: ADMIN,
+        body: JSON.stringify({
+          id: "pi-sold",
+          supplierId: "sup-2",
+          date: "2026-08-22",
+          branchId: "MAIN",
+          warehouseId: "MAIN-WH",
+          lines: [{ itemId: "item-D", kind: "inventory", qty: "5", unitCost: "20.00", taxRatePercent: 0 }],
+        }),
+      }),
+    );
+    await app.fetch(req("/purchases/invoices/pi-sold/confirm", { method: "POST", permissions: ADMIN }));
+
+    // simulate a sale drawing down the layer this invoice created.
+    await stock.postIssue({
+      issueId: "iss-1",
+      sourceDocType: "SALES_INVOICE",
+      sourceDocId: "si-1",
+      warehouseId: "MAIN-WH",
+      lines: [{ itemId: "item-D", qty: Qty.fromMajor("2") }],
+    });
+
+    const res = await app.fetch(req("/purchases/invoices/pi-sold/cancel", { method: "POST", permissions: ADMIN }));
+    expect(res.status).toBe(422);
+    expect(((await res.json()) as { error: string }).error).toBe("PURCHASE_ITEMS_ALREADY_CONSUMED");
   });
 });

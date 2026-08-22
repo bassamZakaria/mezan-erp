@@ -14,6 +14,7 @@ export {
   type PurchaseGlPosting,
   type PurchaseGlPostingLine,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
   type PurchaseGlAccounts,
   type PurchaseStockPostingPort,
 } from "./types.js";
@@ -28,6 +29,15 @@ export {
   PurchaseOrderNotReceivableError,
   ReceiptRequiredError,
   OverReceiptError,
+  PurchaseOrderRequiredError,
+  PurchaseItemsAlreadyConsumedError,
+  GoodsReceiptAlreadyInvoicedError,
+  RfqNotFoundError,
+  InvalidRfqError,
+  RfqNotDraftError,
+  RfqNotSentError,
+  RfqNotOpenError,
+  RfqQuoteNotFoundError,
 } from "./errors.js";
 
 export {
@@ -35,6 +45,8 @@ export {
   confirmPurchaseOrder,
   cancelPurchaseOrder,
   applyReceiptToOrder,
+  revertReceiptFromOrder,
+  deriveReceivedStatus,
   purchaseOrderLineTotal,
   purchaseOrderSubtotal,
   purchaseOrderTotal,
@@ -51,6 +63,7 @@ export {
 export {
   createGoodsReceipt,
   confirmGoodsReceipt,
+  cancelGoodsReceipt,
   markGoodsReceiptInvoiced,
   buildReceiptLinesFromOrder,
   goodsReceiptTotalCost,
@@ -61,11 +74,13 @@ export {
   type CreateGoodsReceiptCommand,
   type CreateGoodsReceiptDeps,
   type ConfirmGoodsReceiptDeps,
+  type CancelGoodsReceiptDeps,
 } from "./goods-receipt.js";
 
 export {
   createPurchaseInvoice,
   confirmPurchaseInvoice,
+  cancelPurchaseInvoice,
   buildInvoicePosting,
   buildInvoiceLinesFromReceipt,
   purchaseInvoiceLineBase,
@@ -84,4 +99,49 @@ export {
   type CreatePurchaseInvoiceDeps,
   type ConfirmPurchaseInvoiceDeps,
   type ConfirmPurchaseInvoiceResult,
+  type CancelPurchaseInvoiceDeps,
 } from "./purchase-invoice.js";
+
+export {
+  createRfq,
+  sendRfq,
+  closeRfq,
+  cancelRfq,
+  recordRfqQuote,
+  convertRfqToPurchaseOrder,
+  compareRfqQuotes,
+  type PurchaseRfq,
+  type PurchaseRfqLine,
+  type PurchaseRfqStatus,
+  type PurchaseRfqRepository,
+  type RfqQuote,
+  type RfqQuoteLine,
+  type RfqQuoteRepository,
+  type CreateRfqCommand,
+  type CreateRfqLineInput,
+  type RecordRfqQuoteCommand,
+  type RfqDeps,
+  type RfqComparisonRow,
+  type RfqComparison,
+} from "./rfq.js";
+
+export {
+  previewHistoricalImport,
+  importHistoricalPurchaseDocuments,
+  assertHistoricalImportBatchNotEmpty,
+  type HistoricalPurchaseDocType,
+  type HistoricalImportRowInput,
+  type HistoricalImportRowError,
+  type HistoricalPurchaseArchiveLine,
+  type HistoricalPurchaseArchive,
+  type HistoricalPurchaseArchiveRepository,
+  type HistoricalImportGlPostingLine,
+  type HistoricalImportGlPosting,
+  type HistoricalImportGlPostingPort,
+  type HistoricalImportGlAccounts,
+  type HistoricalImportGroup,
+  type HistoricalImportPreview,
+  type ImportHistoricalPurchaseDocumentsCommand,
+  type ImportHistoricalPurchaseDocumentsDeps,
+  type ImportHistoricalPurchaseDocumentsResult,
+} from "./historical-import.js";

@@ -120,6 +120,29 @@ export interface PostReceiptCommand {
   readonly occurredAt?: string;
 }
 
+/** One (itemId, warehouseId) position to inspect/reverse for {@link ReverseReceiptCommand}. */
+export interface ReverseReceiptPosition {
+  readonly itemId: string;
+  readonly warehouseId: string;
+}
+
+/**
+ * Reverse a prior `postReceipt` (docs/catalog/02 — cancelling a purchase
+ * receipt/invoice whose "sold-item" guard passed). Unlike `postIssue`, this
+ * does NOT draw down layers FIFO: it removes precisely the cost layer(s) this
+ * `sourceDocId` created, at THEIR OWN immutable cost, and refuses if any of
+ * them has already been drawn down (defense in depth — the caller's guard is
+ * expected to have checked this already).
+ */
+export interface ReverseReceiptCommand {
+  readonly reversalId: string;
+  readonly sourceDocType: StockSourceDocType;
+  /** The `sourceDocId` of the original `postReceipt` call being undone. */
+  readonly sourceDocId: string;
+  readonly positions: readonly ReverseReceiptPosition[];
+  readonly occurredAt?: string;
+}
+
 /** One line of a document-driven stock issue (a sale, a POS sale…). */
 export interface IssueLine {
   readonly itemId: string;
@@ -525,6 +548,70 @@ export class StockLedgerService {
           reason: null,
           occurredAt,
         });
+      }
+    });
+  }
+
+  /**
+   * Reverse a prior `postReceipt` by `sourceDocId` (docs/catalog/02 — cancelling
+   * a purchase receipt/invoice). For each supplied position, finds the cost
+   * layer(s) this `sourceDocId` created and — only if untouched since
+   * (`remainingQty === originalQty`) — removes them, subtracts their value from
+   * the cached snapshot and appends a mirror-image OUT movement referencing the
+   * reversal. Throws if any matching layer has already been drawn down.
+   */
+  async reverseReceipt(command: ReverseReceiptCommand): Promise<void> {
+    const occurredAt = command.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      for (const pos of command.positions) {
+        const layers = await this.deps.layers.listByPosition(pos.itemId, pos.warehouseId);
+        const mine = layers.filter((l) => l.sourceDocId === command.sourceDocId);
+        for (const layer of mine) {
+          if (layer.remainingQty.compare(layer.originalQty) !== 0) {
+            throw new InvalidStockMovementError([
+              `cost layer "${layer.id}" for item "${pos.itemId}" has already been drawn down; cannot reverse "${command.sourceDocId}"`,
+            ]);
+          }
+        }
+
+        let idx = 0;
+        for (const layer of mine) {
+          const snap = await this.loadSnapshot(pos.itemId, pos.warehouseId);
+          const value = extend(layer.originalQty, layer.unitCost);
+          const newOnHand = snap.onHand.subtract(layer.originalQty);
+          const newTotalValue = snap.totalValue.add(value.negate());
+
+          const movement: StockMovement = {
+            id: `${command.reversalId}:${pos.itemId}:${idx++}`,
+            itemId: pos.itemId,
+            warehouseId: pos.warehouseId,
+            direction: "OUT",
+            qty: layer.originalQty,
+            unitCost: layer.unitCost,
+            sourceDocType: command.sourceDocType,
+            sourceDocId: command.reversalId,
+            sourceDocNumber: null,
+            reason: null,
+            occurredAt,
+          };
+          await this.deps.ledger.append(movement);
+          await this.deps.layers.remove(layer.id);
+          await this.deps.snapshots.save({
+            itemId: pos.itemId,
+            warehouseId: pos.warehouseId,
+            onHand: newOnHand,
+            totalValue: newTotalValue,
+            averageCost: unitCostOf(newTotalValue, newOnHand),
+          });
+
+          this.deps.events?.publish({
+            type: "StockMoved",
+            movement,
+            onHandAfter: newOnHand,
+            averageCostAfter: unitCostOf(newTotalValue, newOnHand),
+          });
+        }
       }
     });
   }

@@ -30,7 +30,17 @@ import {
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
   type PurchaseGlPostingPort,
+  type PurchaseGlReversalPort,
   type PurchasePolicy,
+  type CostLayerRepository,
+  type PurchaseRfqRepository,
+  type RfqQuoteRepository,
+  type HistoricalPurchaseArchiveRepository,
+  type HistoricalImportGlPostingPort,
+  type HistoricalImportGlAccounts,
+  type TenantSettings,
+  createDefaultSettings,
+  reverseJournalEntry,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -56,6 +66,8 @@ import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } 
 import { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
+import { createRfqRoutes } from "./rfq-routes.js";
+import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -205,8 +217,46 @@ export interface CreateAppOptions {
     /** GL posting engine deps — the invoice confirm builds a JE and posts it here. */
     readonly gl: JournalPostingDeps;
     readonly accounts: PurchaseGlAccounts;
+    /**
+     * A static policy value. Omit it (and supply `settingsStore`) to instead
+     * derive the 3-gate procurement strictness policy from the LIVE tenant
+     * settings on every request (docs/catalog/09 §"التحكم في المشتريات") — no
+     * server restart needed to see a toggle take effect.
+     */
     readonly policy?: PurchasePolicy;
+    /**
+     * Cost-layer lookups for the "sold-item" cancellation guard + the two
+     * cancel endpoints (`POST /receipts/:id/cancel`, `POST /invoices/:id/cancel`).
+     * Omit and those two endpoints are not mounted.
+     */
+    readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
+  /**
+   * Mounts طلبات عروض الأسعار (RFQs, docs/catalog/02) under `/rfqs` when
+   * present — omit it for no `/rfqs` routes. Reuses `options.purchases.orders`
+   * + `.numbering` at wiring time so a converted RFQ becomes a real PO.
+   */
+  readonly rfq?: {
+    readonly rfqs: PurchaseRfqRepository;
+    readonly quotes: RfqQuoteRepository;
+    readonly orders: PurchaseOrderRepository;
+    readonly numbering: NextNumberService;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
+  /**
+   * Mounts the historical purchase-document import (docs/catalog/02 §"استيراد
+   * فواتير سابقة") under `/purchases/historical-import` when present — omit it
+   * for no such routes. `gl`/`accounts` are optional: omit them to archive
+   * documents without ever posting a remaining-balance journal entry.
+   */
+  readonly historicalImport?: {
+    readonly archives: HistoricalPurchaseArchiveRepository;
+    readonly gl?: HistoricalImportGlPostingPort;
+    readonly accounts?: HistoricalImportGlAccounts;
     readonly resolveAuthContext?: AuthContextResolver;
     readonly now?: () => string;
   };
@@ -227,6 +277,21 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+}
+
+/**
+ * Derive the purchase chain's 3-gate strictness policy (docs/catalog/09
+ * §"التحكم في المشتريات") from the live tenant settings — the settings UI's
+ * three toggles map 1:1 onto `PurchasePolicy`'s fields (aside from the
+ * over-receipt guard, which isn't part of that settings tab).
+ */
+function mapSettingsToPurchasePolicy(settings: TenantSettings): PurchasePolicy {
+  return {
+    requirePoForGrn: settings.requirePoForGrn,
+    requireReceiptForInvoice: settings.requireGrnForInvoice,
+    blockOverReceipt: false,
+    trackSoldPurchaseItems: settings.trackSoldPurchaseItems,
+  };
 }
 
 /**
@@ -297,10 +362,24 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
     );
   }
+  // Mounted BEFORE `/purchases` (below): Hono matches registration order for
+  // overlapping wildcard mounts, and `/purchases` mounts a full sub-app at
+  // `/purchases/*` that would otherwise shadow this more specific path.
+  if (options.historicalImport) {
+    app.route(
+      "/purchases/historical-import",
+      createHistoricalImportRoutes(
+        options.historicalImport,
+        options.historicalImport.resolveAuthContext ?? options.resolveAuthContext,
+      ),
+    );
+  }
   if (options.purchases) {
     const purchases = options.purchases;
     // Adapter: turn the chain's balanced posting into a system journal entry,
-    // posted through the GL engine (which allocates the JE number atomically).
+    // posted through the GL engine (which allocates the JE number atomically) —
+    // and its mirror-image reversal for cancelling a confirmed invoice, keyed
+    // by the SAME deterministic id the posting adapter used.
     const glPort: PurchaseGlPostingPort = {
       post: async (posting: PurchaseGlPosting) => {
         await postJournalEntry(
@@ -319,6 +398,25 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         );
       },
     };
+    const glReversePort: PurchaseGlReversalPort = {
+      reverse: async (sourceDocId, opts) => {
+        await reverseJournalEntry(`PI-JE:${sourceDocId}`, purchases.gl, {
+          reversalId: opts.reversalId,
+          date: opts.date,
+          memo: opts.memo,
+        });
+      },
+    };
+    // Derive the 3-gate procurement strictness policy from the LIVE tenant
+    // settings when a settings store is mounted (no restart to apply a
+    // toggle) — falls back to a static value/DEFAULT_PURCHASE_POLICY otherwise.
+    const policy: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy) =
+      purchases.policy ??
+      (options.settingsStore
+        ? async () => mapSettingsToPurchasePolicy((await options.settingsStore!.get()) ?? createDefaultSettings())
+        : undefined) ??
+      (() => mapSettingsToPurchasePolicy(createDefaultSettings()));
+
     app.route(
       "/purchases",
       createPurchasesRoutes(
@@ -329,13 +427,22 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           numbering: purchases.numbering,
           stock: purchases.stock,
           gl: glPort,
+          glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
-          policy: purchases.policy,
+          policy,
+          layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? options.resolveAuthContext,
       ),
+    );
+  }
+
+  if (options.rfq) {
+    app.route(
+      "/rfqs",
+      createRfqRoutes(options.rfq, options.rfq.resolveAuthContext ?? options.resolveAuthContext),
     );
   }
 

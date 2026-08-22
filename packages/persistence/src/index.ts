@@ -87,3 +87,8 @@ export {
   type SqlitePurchasingStores,
 } from "./purchasing-stores.js";
 export { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
+export { createSqliteRfqStores, type SqliteRfqStores } from "./rfq-store.js";
+export {
+  createSqliteHistoricalPurchaseArchiveStore,
+  type SqliteHistoricalPurchaseArchiveStoreHandle,
+} from "./historical-import-store.js";

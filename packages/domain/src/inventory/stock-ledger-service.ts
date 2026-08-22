@@ -95,6 +95,31 @@ export interface PostTransferCommand {
   readonly occurredAt?: string;
 }
 
+export interface ReceiptLine {
+  readonly itemId: string;
+  readonly qty: Qty;
+  /** Receipt-time unit cost booked into the layer and the moving average. */
+  readonly unitCost: Money;
+}
+
+/**
+ * A stock IN posting originating from a purchase document (a goods receipt or a
+ * manually-entered purchase invoice). Value-affecting on the STOCK ledger only
+ * (on-hand, layers, weighted-average) — it deliberately posts NO GL entry: the
+ * purchase chain recognises the payable + inventory journal at invoice
+ * confirmation, so the stock ledger and the GL are driven separately
+ * (docs/catalog/02 §"Document chain").
+ */
+export interface PostReceiptCommand {
+  readonly receiptId: string;
+  readonly receiptNumber?: string | null;
+  readonly warehouseId: string;
+  /** The purchase document that received the goods. */
+  readonly sourceDocType: Extract<StockSourceDocType, "PURCHASE_RECEIPT" | "PURCHASE_INVOICE">;
+  readonly lines: readonly ReceiptLine[];
+  readonly occurredAt?: string;
+}
+
 export class StockLedgerService {
   constructor(private readonly deps: StockLedgerServiceDeps) {}
 
@@ -363,6 +388,44 @@ export class StockLedgerService {
         toWarehouseId: command.toWarehouseId,
         movementIds,
       });
+    });
+  }
+
+  /**
+   * Post a purchase stock IN (docs/catalog/02 — a goods receipt confirming, or a
+   * manual purchase invoice confirming without a prior receipt). Each line adds
+   * an immutable cost layer at its receipt cost and updates the moving average.
+   * Stock-only: NO GL posting (the invoice books inventory + payable + tax).
+   */
+  async postReceipt(command: PostReceiptCommand): Promise<void> {
+    if (command.lines.length === 0) {
+      throw new InvalidStockMovementError(["a receipt needs at least one line"]);
+    }
+    for (let i = 0; i < command.lines.length; i++) {
+      const line = command.lines[i] as ReceiptLine;
+      if (line.qty.isNegative() || line.qty.isZero()) {
+        throw new InvalidStockMovementError([`line ${i}: qty must be a positive magnitude`]);
+      }
+    }
+    const occurredAt = command.occurredAt ?? this.now();
+
+    await this.runInTransaction(async () => {
+      for (let i = 0; i < command.lines.length; i++) {
+        const line = command.lines[i] as ReceiptLine;
+        await this.applyMovement({
+          movementId: `${command.receiptId}:${i}`,
+          itemId: line.itemId,
+          warehouseId: command.warehouseId,
+          direction: "IN",
+          qty: line.qty,
+          unitCost: line.unitCost,
+          sourceDocType: command.sourceDocType,
+          sourceDocId: command.receiptId,
+          sourceDocNumber: command.receiptNumber ?? null,
+          reason: null,
+          occurredAt,
+        });
+      }
     });
   }
 

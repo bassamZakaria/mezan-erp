@@ -21,6 +21,16 @@ import {
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
   type StockLedgerService,
+  postJournalEntry,
+  type NextNumberService,
+  type JournalPostingDeps,
+  type PurchaseOrderRepository,
+  type GoodsReceiptRepository,
+  type PurchaseInvoiceRepository,
+  type PurchaseGlAccounts,
+  type PurchaseGlPosting,
+  type PurchaseGlPostingPort,
+  type PurchasePolicy,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -44,6 +54,7 @@ import { createInventoryRoutes } from "./inventory-routes.js";
 import { createGlRoutes, type GlRoutesDeps } from "./gl-routes.js";
 import { createVouchersRoutes, createAllocationRoutes, type VoucherRoutesDeps } from "./vouchers-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
+import { createPurchasesRoutes } from "./purchases-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -174,6 +185,28 @@ export interface CreateAppOptions {
    */
   readonly vouchers?: VoucherRoutesDeps;
   /**
+   * Mounts the purchase chain under `/purchases` (docs/catalog/02): أوامر الشراء
+   * → استلام البضائع → فواتير المشتريات. The caller supplies the three document
+   * repositories, the numbering engine, the costing/stock-ledger service (for
+   * stock IN on receipt/manual-invoice confirmation) and the GL posting deps
+   * (for the invoice's inventory + payable + tax journal entry). Omit it and the
+   * app behaves exactly as before (no `/purchases` routes).
+   */
+  readonly purchases?: {
+    readonly orders: PurchaseOrderRepository;
+    readonly receipts: GoodsReceiptRepository;
+    readonly invoices: PurchaseInvoiceRepository;
+    readonly numbering: NextNumberService;
+    readonly stock: StockLedgerService;
+    /** GL posting engine deps — the invoice confirm builds a JE and posts it here. */
+    readonly gl: JournalPostingDeps;
+    readonly accounts: PurchaseGlAccounts;
+    readonly policy?: PurchasePolicy;
+    readonly resolveTaxRate?: (itemId: string) => number;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
+  /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
    * permission-gate.ts), the same default `createAccountsRouter` uses — omit
@@ -255,6 +288,47 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/inventory",
       createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
+    );
+  }
+  if (options.purchases) {
+    const purchases = options.purchases;
+    // Adapter: turn the chain's balanced posting into a system journal entry,
+    // posted through the GL engine (which allocates the JE number atomically).
+    const glPort: PurchaseGlPostingPort = {
+      post: async (posting: PurchaseGlPosting) => {
+        await postJournalEntry(
+          {
+            id: `PI-JE:${posting.sourceDocId}`,
+            date: posting.date,
+            memo: posting.memo,
+            source: "system",
+            lines: posting.lines.map((l) => ({
+              accountId: l.accountId,
+              debit: l.debit,
+              credit: l.credit,
+            })),
+          },
+          purchases.gl,
+        );
+      },
+    };
+    app.route(
+      "/purchases",
+      createPurchasesRoutes(
+        {
+          orders: purchases.orders,
+          receipts: purchases.receipts,
+          invoices: purchases.invoices,
+          numbering: purchases.numbering,
+          stock: purchases.stock,
+          gl: glPort,
+          accounts: purchases.accounts,
+          policy: purchases.policy,
+          resolveTaxRate: purchases.resolveTaxRate,
+          now: purchases.now,
+        },
+        purchases.resolveAuthContext ?? options.resolveAuthContext,
+      ),
     );
   }
 

@@ -32,3 +32,4 @@ export {
   type VoucherRoutesDeps,
 } from "./vouchers-routes.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
+export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";

@@ -81,3 +81,6 @@ export * from "./licensing/index.js";
 
 // --- LAN multi-till (phase0/lan-multitill) ---
 export * from "./lan/index.js";
+
+// --- accounts/ — Chart of Accounts (phase1/chart-of-accounts) ---
+export * from "./accounts/index.js";

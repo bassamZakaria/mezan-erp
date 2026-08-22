@@ -7,10 +7,13 @@ import {
   SeatSessionRegistry,
   type JournalEntry,
   type UnitOfWork,
+  type AccountRepository,
 } from "@mezan/domain";
 import { createJournalEntrySchema } from "@mezan/contracts";
 import { createLanRoutes } from "./lan/routes.js";
 import type { EntitlementsResolver } from "./module-gate.js";
+import { createAccountsRouter } from "./accounts.js";
+import type { AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -41,6 +44,16 @@ export interface CreateAppOptions {
     readonly registry?: SeatSessionRegistry;
     readonly sseHeartbeatMs?: number;
   };
+  /**
+   * Mounts `/accounts/*` (docs/catalog/04 "دليل الحسابات") when present. The
+   * Chart of Accounts isn't part of the journal-posting `UnitOfWork` yet, so
+   * its repository is injected separately — omit it and the app behaves
+   * exactly as before (no `/accounts` routes), same as any existing caller.
+   */
+  readonly accounts?: {
+    readonly repo: AccountRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
 }
 
 /**
@@ -53,6 +66,10 @@ export interface CreateAppOptions {
  */
 export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const app = new Hono();
+
+  if (options.accounts) {
+    app.route("/accounts", createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext));
+  }
 
   app.post("/journal-entries", async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());

@@ -1,0 +1,69 @@
+import type { AccountRepository } from "./account.js";
+import type { CreateAccountCommand } from "./create-account.js";
+import { createAccount } from "./create-account.js";
+
+/**
+ * The standard Chart-of-Accounts template — the 5 top-level roots and their
+ * best-attested header/detail children, transcribed from
+ * docs/catalog/04-accounting-treasury.md ("Root account types observed").
+ * `id === code` throughout: account codes are unique and stable, so they
+ * double as the id (this also matches the account codes already used as
+ * `accountId` in the journal-posting spike, e.g. "1300-1", "4000", "2200").
+ *
+ * Listed parent-before-child so `seedStandardChartOfAccounts` can insert
+ * sequentially without a second pass.
+ */
+export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
+  // --- 1000 الأصول (Assets) ---
+  { id: "1000", code: "1000", nameAr: "الأصول", nameEn: "Assets", type: "asset", naturalBalance: "debit", parentId: null, isHeader: true },
+  { id: "1100", code: "1100", nameAr: "ذمم مدينة", nameEn: "Accounts Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
+  { id: "1110", code: "1110", nameAr: "ذمم أقساط مدينة", nameEn: "Installment Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
+  { id: "1150", code: "1150", nameAr: "محتجزات ضمان مدينة", nameEn: "Retention Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
+  { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
+  { id: "1190", code: "1190", nameAr: "مخصص هبوط المخزون", nameEn: "Inventory Provision", type: "asset", naturalBalance: "credit", parentId: "1100", isHeader: false },
+  { id: "1200", code: "1200", nameAr: "المخزون", nameEn: "Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1250", code: "1250", nameAr: "إنتاج تحت التشغيل", nameEn: "Work In Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1300", code: "1300", nameAr: "النقدية", nameEn: "Cash", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
+  { id: "1300-1", code: "1300-1", nameAr: "صندوق نقدي الفرع الرئيسي", nameEn: "Main Branch Cash Drawer", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1310", code: "1310", nameAr: "حسابات بنكية", nameEn: "Bank Accounts", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1315", code: "1315", nameAr: "مستحقات بطاقات الدفع", nameEn: "Card Receivables", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1320", code: "1320", nameAr: "شيكات تحت التحصيل", nameEn: "Cheques Under Collection", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1330", code: "1330", nameAr: "مستحقات المحافظ الإلكترونية", nameEn: "E-Wallet Receivables", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
+  { id: "1350", code: "1350", nameAr: "سلف الموردين", nameEn: "Supplier Advances", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1360", code: "1360", nameAr: "شيكات مرتجعة", nameEn: "Bounced Cheques Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1400", code: "1400", nameAr: "ضريبة مدخلات", nameEn: "Input VAT Receivable", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1500", code: "1500", nameAr: "أصول ثابتة", nameEn: "Fixed Assets", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
+  { id: "1510", code: "1510", nameAr: "معدات", nameEn: "Equipment", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
+  { id: "1520", code: "1520", nameAr: "مركبات", nameEn: "Vehicles", type: "asset", naturalBalance: "debit", parentId: "1500", isHeader: false },
+
+  // --- 2000 الالتزامات (Liabilities) ---
+  { id: "2000", code: "2000", nameAr: "الالتزامات", nameEn: "Liabilities", type: "liability", naturalBalance: "credit", parentId: null, isHeader: true },
+  { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+
+  // --- 3000 حقوق الملكية (Equity) ---
+  { id: "3000", code: "3000", nameAr: "حقوق الملكية", nameEn: "Equity", type: "equity", naturalBalance: "credit", parentId: null, isHeader: true },
+  { id: "3100", code: "3100", nameAr: "رأس المال", nameEn: "Capital", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
+  { id: "3900", code: "3900", nameAr: "الأرباح المرحلة", nameEn: "Retained Earnings", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
+
+  // --- 4000 الإيرادات (Revenue) ---
+  { id: "4000", code: "4000", nameAr: "الإيرادات", nameEn: "Revenue", type: "revenue", naturalBalance: "credit", parentId: null, isHeader: true },
+  { id: "4100", code: "4100", nameAr: "إيرادات المبيعات", nameEn: "Sales Revenue", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  { id: "4900", code: "4900", nameAr: "فائض الصندوق", nameEn: "Cash Overage", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+
+  // --- 5000 المصروفات (Expenses) ---
+  { id: "5000", code: "5000", nameAr: "المصروفات", nameEn: "Expenses", type: "expense", naturalBalance: "debit", parentId: null, isHeader: true },
+  { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+];
+
+/**
+ * Seeds a fresh Chart of Accounts with {@link STANDARD_COA_TEMPLATE}. Inserts
+ * sequentially (parents before children) through the normal `createAccount`
+ * use case, so the same validation a hand-created account gets (unique code,
+ * header-only parents) applies to the seed too.
+ */
+export async function seedStandardChartOfAccounts(repo: AccountRepository): Promise<void> {
+  for (const command of STANDARD_COA_TEMPLATE) {
+    await createAccount(command, repo);
+  }
+}

@@ -22,12 +22,24 @@ export interface IpcFetchResponse {
   readonly body: string;
 }
 
+export const MEZAN_PRINT_TO_PDF_CHANNEL = "mezan:printToPdf";
+
+export interface PrintToPdfOptions {
+  readonly pageSize?: "A4" | "A5";
+  readonly landscape?: boolean;
+}
+
 /**
  * The shape exposed on `window.mezan` by the preload bridge. Kept minimal —
- * one `fetch`-shaped call — so the renderer's HTTP client abstraction only
- * has to swap the `fetch` implementation between editions (real `fetch`
- * online, `window.mezan.fetch` on desktop), never branch on platform.
+ * one `fetch`-shaped call, plus print-to-PDF — so the renderer's HTTP client
+ * abstraction only has to swap the `fetch` implementation between editions
+ * (real `fetch` online, `window.mezan.fetch` on desktop), never branch on
+ * platform. `printToPDF` backs the desktop path of @mezan/ui's
+ * `useElectronPrintToPdf` (docs/plan.md §2.4) — it renders the SAME print
+ * DOM the browser edition prints via `window.print()`, just via
+ * `webContents.printToPDF` on the main-process side (main/ipc.ts) instead.
  */
 export interface MezanBridge {
   fetch(input: string, init?: RequestInit): Promise<IpcFetchResponse>;
+  printToPDF(options?: PrintToPdfOptions): Promise<Uint8Array>;
 }

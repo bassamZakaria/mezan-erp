@@ -1,4 +1,6 @@
 export { Money, MONEY_SCALE_DECIMALS } from "./money/index.js";
+export { amountInWords, EGP_WORDS, SAR_WORDS } from "./money/index.js";
+export type { ArabicCurrencyNoun, ArabicCurrencyWords, ArabicNounGender } from "./money/index.js";
 export type {
   JournalEntry,
   JournalLine,

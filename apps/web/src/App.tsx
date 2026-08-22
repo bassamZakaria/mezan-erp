@@ -15,6 +15,7 @@ import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
+import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
@@ -50,6 +51,7 @@ const ROUTABLE_SCREENS = {
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
+  "settings-print": PrintTemplatesPage,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;

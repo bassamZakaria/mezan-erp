@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import { createApp } from "@mezan/api";
 import { SeatSessionRegistry } from "@mezan/domain";
 import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
-import { registerHonoOverIpc } from "./ipc.js";
+import { registerHonoOverIpc, registerPrintToPdfOverIpc } from "./ipc.js";
 import { createWindow } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
@@ -64,6 +64,7 @@ app.whenReady().then(async () => {
     lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
   });
   registerHonoOverIpc(honoApp);
+  registerPrintToPdfOverIpc();
   lanHost = startLanHost({ app: honoApp, entitlements });
 
   createWindow();

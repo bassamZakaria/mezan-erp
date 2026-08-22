@@ -2,8 +2,10 @@ import { ipcMain } from "electron";
 import type { App } from "@mezan/api";
 import {
   MEZAN_FETCH_CHANNEL,
+  MEZAN_PRINT_TO_PDF_CHANNEL,
   type IpcFetchRequest,
   type IpcFetchResponse,
+  type PrintToPdfOptions,
 } from "../shared/ipc-contract.js";
 
 /**
@@ -33,6 +35,26 @@ export function registerHonoOverIpc(honoApp: App): void {
         headers,
         body: await response.text(),
       };
+    },
+  );
+}
+
+/**
+ * Registers the `printToPDF` IPC handler (docs/plan.md §2.4). `event.sender`
+ * is the `webContents` of whichever renderer window invoked the call, so
+ * this needs no window reference of its own — it prints exactly the page
+ * that asked, the same print DOM the browser edition renders via
+ * `window.print()`.
+ */
+export function registerPrintToPdfOverIpc(): void {
+  ipcMain.handle(
+    MEZAN_PRINT_TO_PDF_CHANNEL,
+    async (event, options?: PrintToPdfOptions): Promise<Uint8Array> => {
+      const pdf = await event.sender.printToPDF({
+        landscape: options?.landscape ?? false,
+        pageSize: options?.pageSize ?? "A4",
+      });
+      return new Uint8Array(pdf);
     },
   );
 }

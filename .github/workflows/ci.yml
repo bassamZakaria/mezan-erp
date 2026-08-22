@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Skip downloading the Electron binary everywhere in CI — Phase 0 only
+# typechecks/lints/tests the desktop stub; it never launches Electron.
+env:
+  ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+
+jobs:
+  build:
+    name: typecheck · lint · test · build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (tsc)
+        run: pnpm typecheck
+
+      - name: Lint (layer boundaries + RTL logical properties)
+        run: pnpm lint
+
+      - name: Test (vitest, SQLite)
+        run: pnpm test
+
+      - name: Build (packages + web Vite bundle)
+        run: pnpm build
+
+  # ---------------------------------------------------------------------------
+  # Placeholder for later Phase 0 / release work — NOT implemented yet.
+  #
+  # A future job matrix will, on `main` and on tags:
+  #   - run Playwright Electron E2E on windows/macOS/linux runners
+  #   - rebuild the better-sqlite3 native module per Electron ABI
+  #   - build, code-sign and notarize the desktop installers
+  #   - publish electron-updater release artifacts
+  #
+  # Intentionally left as a documented stub so packaging/signing is a later
+  # issue, not something half-wired now. See docs/plan.md §2.7 (CI section).
+  #
+  # release:
+  #   name: electron E2E + signed installers (TODO)
+  #   needs: build
+  #   if: github.ref == 'refs/heads/main'
+  #   strategy:
+  #     matrix:
+  #       os: [ubuntu-latest, macos-latest, windows-latest]
+  #   runs-on: ${{ matrix.os }}
+  #   steps:
+  #     - run: echo "Electron E2E + signed-installer release not implemented yet"
+  # ---------------------------------------------------------------------------

@@ -15,9 +15,11 @@
     "baseUrl": ".",
     "paths": {
       "@mezan/domain": ["packages/domain/src/index.ts"],
+      "@mezan/contracts": ["packages/contracts/src/index.ts"],
       "@mezan/persistence": ["packages/persistence/src/index.ts"],
       "@mezan/api": ["packages/api/src/index.ts"]
     }
   },
-  "include": ["packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "vitest.config.ts"]
+  "include": ["packages/*/src/**/*.ts", "apps/*/src/**/*.ts", "vitest.config.ts"],
+  "exclude": ["node_modules", "**/dist/**", "apps/web"]
 }

@@ -1,19 +1,26 @@
 {
-  "name": "mezan-erp-spike",
+  "name": "mezan-erp",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.12.0",
   "scripts": {
+    "build": "tsc -p tsconfig.json && pnpm --filter web build",
+    "typecheck": "tsc -p tsconfig.json && pnpm --filter web typecheck",
     "test": "vitest run",
-    "build": "tsc -p tsconfig.json",
+    "lint": "eslint . && pnpm run lint:rtl",
+    "lint:eslint": "eslint .",
+    "lint:rtl": "node scripts/check-logical-css.mjs",
     "server": "tsx apps/server/src/index.ts",
-    "desktop-spike": "tsx apps/desktop-spike/src/index.ts"
+    "desktop:demo": "pnpm --filter desktop demo"
   },
   "devDependencies": {
+    "@eslint/js": "^9.17.0",
     "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.2",
+    "eslint": "^9.17.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.18.0",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^2.1.8"
   }

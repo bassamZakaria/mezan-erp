@@ -1,0 +1,743 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mezan Roadmap</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#EDF1EE;
+    --surface:#FFFFFF;
+    --surface-2:#F4F7F4;
+    --surface-3:#E9EEEA;
+    --border:#E1E7E2;
+    --border-strong:#CAD3CC;
+    --text:#12201B;
+    --text-muted:#586860;
+    --text-faint:#8A968E;
+    --brand:#0E5049;
+    --brand-strong:#0A3B35;
+    --brand-soft:#E4F0EC;
+    --brand-ink:#FFFFFF;
+    --accent:#AE7C24;
+    --accent-strong:#8C6216;
+    --accent-soft:#F6EDD8;
+    --success:#2C8A57; --success-soft:#E4F3EA; --success-ink:#1C6B41;
+    --warning:#B0791F; --warning-soft:#FBEFD6; --warning-ink:#875C13;
+    --danger:#C0402F;  --danger-soft:#FBE7E2;  --danger-ink:#932C1F;
+    --info:#2F6690;    --info-soft:#E4EDF4;    --info-ink:#234E6E;
+    --shadow-1:0 1px 2px rgba(16,40,32,.06), 0 1px 1px rgba(16,40,32,.04);
+    --shadow-2:0 18px 40px -18px rgba(16,40,32,.28), 0 4px 12px -4px rgba(16,40,32,.10);
+    --r-sm:5px; --r-md:8px; --r-lg:13px; --r-pill:999px;
+    --font-ar:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;
+    --font-display:'Cairo','IBM Plex Sans Arabic',sans-serif;
+    --font-lat:'IBM Plex Sans',system-ui,sans-serif;
+    --font-mono:'IBM Plex Mono','IBM Plex Sans Arabic',monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0C1512; --surface:#131F1B; --surface-2:#18251F; --surface-3:#213029;
+      --border:#243228; --border-strong:#354a3c;
+      --text:#E9EFEA; --text-muted:#9FB0A4; --text-faint:#6A7A6E;
+      --brand:#3AA592; --brand-strong:#4FC0AB; --brand-soft:#123029; --brand-ink:#08150F;
+      --accent:#D6AD5F; --accent-strong:#E4BE72; --accent-soft:#2C2413;
+      --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+      --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+      --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+      --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+      --shadow-1:0 1px 2px rgba(0,0,0,.4);
+      --shadow-2:0 20px 44px -18px rgba(0,0,0,.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C1512; --surface:#131F1B; --surface-2:#18251F; --surface-3:#213029;
+    --border:#243228; --border-strong:#354a3c;
+    --text:#E9EFEA; --text-muted:#9FB0A4; --text-faint:#6A7A6E;
+    --brand:#3AA592; --brand-strong:#4FC0AB; --brand-soft:#123029; --brand-ink:#08150F;
+    --accent:#D6AD5F; --accent-strong:#E4BE72; --accent-soft:#2C2413;
+    --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+    --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+    --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+    --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+    --shadow-1:0 1px 2px rgba(0,0,0,.4);
+    --shadow-2:0 20px 44px -18px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-lat);
+    font-size:14.5px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  .ar{ font-family:var(--font-ar); direction:rtl; unicode-bidi:isolate; display:inline-block; }
+  .num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
+  .disp{ font-family:var(--font-display); }
+  h1,h2,h3,h4{ margin:0; font-weight:700; font-family:var(--font-display); text-wrap:balance; letter-spacing:-.01em; color:var(--text); }
+  p{ margin:0; }
+  a{ color:inherit; }
+  ul{ list-style:none; margin:0; padding:0; }
+  button{ font:inherit; color:inherit; cursor:pointer; }
+  table{ border-collapse:collapse; width:100%; }
+  ::selection{ background:var(--accent-soft); color:var(--text); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--r-sm); }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+  }
+
+  .wrap{ max-width:1180px; margin:0 auto; padding:28px 24px 80px; }
+
+  /* ---------- hero ---------- */
+  .hero{ display:flex; flex-direction:column; gap:20px; padding:30px 32px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); margin-block-end:20px; }
+  .hero-top{ display:flex; align-items:flex-start; justify-content:space-between; gap:20px; flex-wrap:wrap; }
+  .hero-brand{ display:flex; align-items:center; gap:14px; }
+  .brand-mark{ width:46px; height:46px; flex:none; border-radius:12px; background:linear-gradient(150deg,var(--brand),var(--brand-strong)); display:flex; align-items:center; justify-content:center; box-shadow:var(--shadow-1); }
+  .hero-name{ display:flex; flex-direction:column; gap:2px; }
+  .hero-name .en{ font-family:var(--font-display); font-size:23px; font-weight:800; letter-spacing:-.01em; }
+  .hero-name .ar{ font-size:14px; color:var(--text-muted); font-weight:600; }
+  .hero-desc{ max-width:62ch; color:var(--text-muted); font-size:14px; line-height:1.65; }
+  .hero-desc b{ color:var(--text); font-weight:600; }
+  .scope-note{ display:inline-flex; align-items:center; gap:8px; margin-block-start:10px; padding:7px 13px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-strong); font-size:12.5px; font-weight:700; border:1px solid color-mix(in srgb, var(--accent) 30%, transparent); }
+
+  .stat-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  .stat-tile{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-md); padding:14px 16px; display:flex; flex-direction:column; gap:4px; }
+  .stat-tile .v{ font-family:var(--font-mono); font-size:26px; font-weight:600; letter-spacing:-.02em; color:var(--brand); }
+  .stat-tile .l{ font-size:11.5px; color:var(--text-muted); font-weight:600; letter-spacing:.2px; }
+  @media (max-width:720px){ .stat-strip{ grid-template-columns:repeat(2,1fr); } }
+
+  /* ---------- info bar: legend + how-to ---------- */
+  .info-bar{ display:grid; grid-template-columns:1.15fr 1fr; gap:14px; margin-block-end:26px; }
+  @media (max-width:860px){ .info-bar{ grid-template-columns:1fr; } }
+  .panel{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:18px 20px; box-shadow:var(--shadow-1); }
+  .panel h3{ font-size:13px; color:var(--brand); margin-block-end:12px; display:flex; align-items:center; gap:7px; }
+  .panel h3 .dot{ width:6px; height:6px; border-radius:50%; background:var(--brand); }
+
+  .legend-grid{ display:flex; flex-wrap:wrap; gap:8px 10px; align-items:center; }
+  .legend-item{ display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-muted); }
+  .legend-sep{ width:1px; height:16px; background:var(--border-strong); margin:0 2px; }
+
+  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 9px; border-radius:var(--r-pill); font-size:10.5px; font-weight:700; letter-spacing:.2px; border:1px solid transparent; white-space:nowrap; line-height:1.5; }
+  .pill-s{ background:var(--success-soft); color:var(--success-ink); }
+  .pill-m{ background:var(--info-soft); color:var(--info-ink); }
+  .pill-l{ background:var(--warning-soft); color:var(--warning-ink); }
+  .pill-xl{ background:var(--danger-soft); color:var(--danger-ink); }
+  .pill-v1{ background:var(--brand-soft); color:var(--brand); }
+  .pill-deferred{ background:var(--surface-3); color:var(--text-muted); border-color:var(--border-strong); border-style:dashed; }
+  .pill-par{ background:transparent; color:var(--brand); border-color:color-mix(in srgb, var(--brand) 45%, transparent); }
+  .pill-par .ic{ display:inline-flex; flex-direction:column; gap:1.5px; }
+  .pill-par .ic i{ display:block; width:8px; height:1.6px; background:var(--brand); border-radius:1px; }
+  .pill-risk{ background:var(--warning-soft); color:var(--warning-ink); }
+  .pill-dec{ background:var(--info-soft); color:var(--info-ink); }
+  .pill-cross{ background:var(--surface-3); color:var(--text-muted); border-color:var(--border-strong); }
+  .pill-priority{ background:var(--accent-soft); color:var(--accent-strong); border-color:color-mix(in srgb, var(--accent) 35%, transparent); }
+
+  .howto ol{ list-style:none; counter-reset:step; display:flex; flex-direction:column; gap:10px; }
+  .howto li{ counter-increment:step; display:flex; gap:10px; font-size:13px; color:var(--text-muted); line-height:1.55; }
+  .howto li::before{ content:counter(step); flex:none; width:20px; height:20px; border-radius:6px; background:var(--brand-soft); color:var(--brand); font-family:var(--font-mono); font-size:11px; font-weight:700; display:flex; align-items:center; justify-content:center; margin-block-start:1px; }
+  .howto li b{ color:var(--text); font-weight:600; }
+
+  /* ---------- controls ---------- */
+  .controls{ display:flex; align-items:center; justify-content:space-between; gap:14px; flex-wrap:wrap; margin-block-end:16px; }
+  .controls-left{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .seg{ display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-pill); padding:3px; gap:2px; }
+  .seg button{ border:0; background:transparent; padding:6px 14px; border-radius:var(--r-pill); font-size:12px; font-weight:700; color:var(--text-muted); }
+  .seg button.active{ background:var(--brand); color:var(--brand-ink); }
+  .btn-ghost{ border:1px solid var(--border-strong); background:var(--surface); padding:7px 14px; border-radius:var(--r-pill); font-size:12px; font-weight:700; color:var(--text-muted); }
+  .btn-ghost:hover{ color:var(--text); border-color:var(--brand); }
+  .phase-jump{ display:flex; flex-wrap:wrap; gap:6px; }
+  .phase-jump a{ width:26px; height:26px; border-radius:7px; background:var(--surface-2); border:1px solid var(--border); display:flex; align-items:center; justify-content:center; font-family:var(--font-mono); font-size:11px; font-weight:700; color:var(--text-muted); text-decoration:none; }
+  .phase-jump a:hover{ border-color:var(--brand); color:var(--brand); }
+  .phase-jump a.deferred-jump{ border-style:dashed; }
+
+  /* ---------- timeline ---------- */
+  .timeline{ position:relative; padding-inline-start:38px; margin-block-end:34px; }
+  .timeline::before{ content:''; position:absolute; left:13px; top:6px; bottom:6px; width:2px; background:linear-gradient(var(--border-strong),var(--border-strong)); }
+  .phase{ position:relative; margin-block-end:12px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); scroll-margin-top:16px; }
+  .phase[open]{ box-shadow:var(--shadow-2); }
+  .phase-dot{ position:absolute; left:-38px; top:18px; width:28px; height:28px; border-radius:50%; background:var(--brand); color:var(--brand-ink); font-family:var(--font-mono); font-size:11.5px; font-weight:700; display:flex; align-items:center; justify-content:center; box-shadow:0 0 0 4px var(--bg); z-index:1; }
+  .phase[data-scope="deferred"] .phase-dot{ background:var(--surface-3); color:var(--text-muted); border:2px dashed var(--border-strong); }
+  .phase-summary{ list-style:none; cursor:pointer; padding:16px 18px 16px 16px; display:flex; align-items:flex-start; gap:14px; }
+  .phase-summary::-webkit-details-marker{ display:none; }
+  .phase-head{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  .phase-title{ display:flex; align-items:baseline; gap:9px; flex-wrap:wrap; }
+  .phase-title .en{ font-family:var(--font-display); font-size:15.5px; font-weight:700; }
+  .phase-title .ar{ font-size:12.5px; color:var(--text-faint); font-weight:600; }
+  .phase-goal{ font-size:12.5px; color:var(--text-muted); line-height:1.55; max-width:74ch; }
+  .phase-meta{ flex:none; display:flex; align-items:center; gap:7px; flex-wrap:wrap; justify-content:flex-end; max-width:230px; }
+  .phase-count{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-faint); white-space:nowrap; }
+  .chev{ flex:none; width:16px; height:16px; color:var(--text-faint); transition:transform .15s ease; margin-inline-start:4px; }
+  .phase[open] .chev{ transform:rotate(180deg); }
+
+  .phase-body{ border-top:1px solid var(--border); padding:14px 18px 18px; }
+  .table-scroll{ overflow-x:auto; border:1px solid var(--border); border-radius:var(--r-md); }
+  table.issues{ min-width:640px; }
+  table.issues th{ text-align:start; font-size:10.5px; text-transform:uppercase; letter-spacing:.6px; color:var(--text-faint); font-weight:700; padding:9px 12px; background:var(--surface-2); border-bottom:1px solid var(--border); position:sticky; top:0; }
+  table.issues td{ padding:9px 12px; border-bottom:1px solid var(--border); font-size:13px; vertical-align:top; }
+  table.issues tr:last-child td{ border-bottom:0; }
+  table.issues tr:hover td{ background:var(--surface-2); }
+  td.t-title{ max-width:340px; }
+  td.t-deps{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-muted); white-space:nowrap; }
+  td.t-tags{ display:flex; gap:5px; flex-wrap:wrap; }
+
+  /* ---------- coverage ---------- */
+  .coverage{ margin-block-end:30px; }
+  .coverage-grid{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; }
+  .domain-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; display:flex; flex-direction:column; gap:6px; }
+  .domain-card .dn{ display:flex; align-items:baseline; gap:8px; }
+  .domain-card .dn .en{ font-weight:700; font-size:13px; }
+  .domain-card .dn .ar{ font-size:11.5px; color:var(--text-faint); }
+  .domain-card .chips{ display:flex; gap:5px; flex-wrap:wrap; }
+  .domain-card .chips a{ font-family:var(--font-mono); font-size:10.5px; font-weight:700; padding:2px 7px; border-radius:6px; background:var(--brand-soft); color:var(--brand); text-decoration:none; }
+  .domain-card .chips a.deferred-chip{ background:var(--surface-3); color:var(--text-muted); border:1px dashed var(--border-strong); }
+
+  footer{ text-align:center; padding-block-start:14px; border-top:1px solid var(--border); color:var(--text-faint); font-size:11.5px; line-height:1.7; }
+  footer .num{ color:var(--text-muted); }
+
+  section.block{ margin-block-end:12px; }
+  .section-label{ font-size:11px; text-transform:uppercase; letter-spacing:1.4px; color:var(--accent-strong); font-weight:700; margin-block-end:10px; }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="hero-top">
+      <div class="hero-brand">
+        <div class="brand-mark">
+          <svg width="26" height="26" viewBox="0 0 118 52" fill="none">
+            <line x1="17" y1="24" x2="101" y2="24" stroke="var(--accent)" stroke-width="3.4" stroke-linecap="round"/>
+            <circle cx="59" cy="24" r="4.6" fill="var(--accent)"/>
+            <line x1="17" y1="24" x2="17" y2="42" stroke="var(--accent)" stroke-width="1.8"/>
+            <line x1="101" y1="24" x2="101" y2="42" stroke="var(--accent)" stroke-width="1.8"/>
+            <path d="M7 42 a10 8 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2.2"/>
+            <path d="M91 42 a10 8 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2.2"/>
+            <line x1="59" y1="24" x2="59" y2="47" stroke="var(--accent)" stroke-width="2.6" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="hero-name">
+          <span class="en disp">Mezan Roadmap</span>
+          <span class="ar disp">ميزان — خارطة الطريق</span>
+        </div>
+      </div>
+    </div>
+    <p class="hero-desc">The full phased backlog for Mezan's <b>v1 desktop build</b> — a single-tenant Electron app on SQLite, phased strictly by dependency order so parallel work is visible from day one. <b>HR &amp; Payroll, POS, and the cloud/SaaS website edition are deferred</b> — scoped and sequenced, not cut.</p>
+    <span class="scope-note">Read against <span class="num">docs/backlog.md</span> — every issue below traces to a catalog file</span>
+    <div class="stat-strip">
+      <div class="stat-tile"><span class="v num" id="stat-total">—</span><span class="l">Total candidate issues</span></div>
+      <div class="stat-tile"><span class="v num" id="stat-v1">—</span><span class="l">v1 desktop issues</span></div>
+      <div class="stat-tile"><span class="v num" id="stat-v1phases">—</span><span class="l">v1 phases (0–12)</span></div>
+      <div class="stat-tile"><span class="v num" id="stat-defphases">—</span><span class="l">Deferred phases (13–15)</span></div>
+    </div>
+  </header>
+
+  <div class="info-bar">
+    <div class="panel legend">
+      <h3><span class="dot"></span>Legend</h3>
+      <div class="legend-grid">
+        <span class="legend-item"><span class="pill pill-s">S</span> &lt; 1 day</span>
+        <span class="legend-item"><span class="pill pill-m">M</span> 2–4 days</span>
+        <span class="legend-item"><span class="pill pill-l">L</span> ~1–2 weeks</span>
+        <span class="legend-item"><span class="pill pill-xl">XL</span> 2+ weeks</span>
+        <span class="legend-sep"></span>
+        <span class="legend-item"><span class="pill pill-par"><span class="ic"><i></i><i></i></span>parallel-ok</span> independent track</span>
+        <span class="legend-sep"></span>
+        <span class="legend-item"><span class="pill pill-v1">v1</span> ships in v1</span>
+        <span class="legend-item"><span class="pill pill-deferred">deferred</span> later phase</span>
+        <span class="legend-sep"></span>
+        <span class="legend-item"><span class="pill pill-priority">★ priority</span> stakeholder top-6</span>
+        <span class="legend-item"><span class="pill pill-risk">spec-risk</span> thin/inferred evidence</span>
+        <span class="legend-item"><span class="pill pill-dec">decision</span> open product call</span>
+        <span class="legend-item"><span class="pill pill-cross">cross-phase</span> owned elsewhere</span>
+        <span class="legend-sep"></span>
+        <span class="legend-item">Deps <span class="num" style="color:var(--text)">↑</span> — same as the row above</span>
+      </div>
+    </div>
+    <div class="panel howto">
+      <h3><span class="dot"></span>How to pick up work</h3>
+      <ol>
+        <li><b>Start on Phase 0's foundation issues.</b> Nothing else is buildable until the monorepo, persistence layer and app shell land — it's the spike every other phase sits on.</li>
+        <li>Once <span class="num">Phase 0 · Monorepo + package boundaries</span> merges, every issue tagged <span class="pill pill-par" style="font-size:10px;padding:1px 6px"><span class="ic"><i></i><i></i></span>parallel-ok</span> can be picked up by a second engineer immediately — no need to wait for the rest of that phase.</li>
+        <li>Otherwise follow the numbered order: it encodes real dependency chains (e.g. Sales Invoices need Chart of Accounts + the posting engine first). <span class="pill pill-priority" style="font-size:10px;padding:1px 6px">★ priority</span> phases (3–9) are the stakeholder-named priority run — Sales, Purchases, Inventory, Accounting, Treasury, Installments.</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="controls">
+    <div class="controls-left">
+      <div class="seg" id="scope-filter">
+        <button data-f="all" class="active">All phases</button>
+        <button data-f="v1">v1 only</button>
+        <button data-f="deferred">Deferred only</button>
+      </div>
+      <button class="btn-ghost" id="expand-all">Expand all</button>
+      <button class="btn-ghost" id="collapse-all">Collapse all</button>
+    </div>
+    <nav class="phase-jump" id="phase-jump" aria-label="Jump to phase"></nav>
+  </div>
+
+  <section class="timeline" id="timeline"></section>
+
+  <section class="coverage block">
+    <div class="section-label">Domain coverage — 15 catalog domains</div>
+    <div class="panel" style="padding:18px 20px 20px">
+      <div class="coverage-grid" id="coverage-grid"></div>
+    </div>
+  </section>
+
+  <footer>
+    Source of truth: <span class="num">docs/backlog.md</span> — 233 candidate issues across 16 numbered phases (0–15), cross-checked against the full feature catalog. Nothing here is created on GitHub yet.
+  </footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  // issue tuple: [title, size, deps, tags[]]  tags: par|risk|dec|cross
+  var PHASES = [
+    {n:0, en:"Foundations (desktop)", ar:"الأساسيات", scope:"v1", size:"XL",
+     goal:"Monorepo, SQLite-behind-ports persistence, Money/Qty, auth, permissions engine, entitlements/licensing skeleton, numbering engine, audit trail, workflow engine core, notification bus core, RTL app shell + UI-audit spike, Electron shell + backup/restore.",
+     issues:[
+      ["Monorepo + package boundaries + lint enforcement","S","—",[]],
+      ["Persistence architecture: schema-spec DSL → SQLite (Drizzle) + repository/UnitOfWork ports","L","—",[]],
+      ["Money/Qty value objects + scaled-int (10⁻⁶) codecs + rounding policy","M","—",[]],
+      ["Auth: desktop local user store + AuthContext","M","—",[]],
+      ["Permissions engine: ~268-permission catalog, dependency graph, sensitive flag, view/view_own/view_all, branch+warehouse scoping","L","—",[]],
+      ["Entitlements port + license verification skeleton (Ed25519, fingerprint, grace)","M","—",[]],
+      ["Numbering engine: 25 sequence types, atomic counters (BEGIN IMMEDIATE)","M","—",[]],
+      ["Audit trail core (append-only, security + sensitive-op streams, severity taxonomy)","M","—",[]],
+      ["Workflow engine core (pluggable confirmation gate, 26 action types, ordered sequential role steps)","L","—",[]],
+      ["Notification bus + rules engine core (39-event domain taxonomy, transactional outbox)","L","—",[]],
+      ["Own design-system foundation + functional-coverage ruling pass","M","—",[]],
+      ["App shell: RTL layout system, i18n scaffolding (ar+en), typography","L","—",[]],
+      ["Settings foundation: tenant settings object, branches, warehouses (5 types incl. van)","M","—",[]],
+      ["Electron shell: window, IPC bridge, app.fetch() mount, auto-update, backup/restore","L","—",[]],
+      ["Hono app layer + command/query routing","M","—",[]]
+     ]},
+    {n:1, en:"Master data & key pages", ar:"البيانات الأساسية", scope:"v1", size:"L",
+     goal:"Items, categories/brands/seasons, customers, suppliers, tax rates, chart of accounts, cost centers (master), treasury accounts (master), fiscal periods (master).",
+     issues:[
+      ["Items master: identity/classification, types, multi-barcode, image","L","Phase 0",[]],
+      ["Item categories, brands, seasons","S","—",[]],
+      ["Item pricing/costing fields + per-item GL account mapping","M","Phase 2 (accounts)",["cross"]],
+      ["Item inventory policy: costing method (WAC/FIFO), batch/expiry (FEFO) flags, reorder point/qty","M","—",["dec","risk"]],
+      ["Item alternate UOM + conversion factors","S","—",[]],
+      ["Item ETA classification fields (EGS/GPC codes)","S","Phase 8 (ETA)",["cross"]],
+      ["Customers master + detail/360 view","L","Phase 0",[]],
+      ["Customer categories + merge/deactivate actions","S","—",["par"]],
+      ["Suppliers master + detail/360 view","L","Phase 0",["par"]],
+      ["Supplier categories","S","—",["par"]],
+      ["Tax rates + ETA V001–V009 subtypes + posting accounts (2200/1400)","M","Phase 2",["cross"]],
+      ["Chart of Accounts: tree, CRUD, hierarchy, natural balance, main-vs-postable","M","Phase 0",[]],
+      ["Cost centers (master CRUD, hierarchical, optional branch link)","M","—",[]],
+      ["Treasury accounts (master CRUD, GL mapping, opening-balance mechanism)","M","Phase 0",[]],
+      ["Fiscal periods (generate-year, list, 3-state field)","S","—",[]]
+     ]},
+    {n:2, en:"Ledger & costing engine", ar:"دفتر الأستاذ والتكلفة", scope:"v1", size:"XL",
+     goal:"Double-entry posting, journal entries, WAC + immutable cost layers, stock movement ledger, golden-ledger fixtures.",
+     issues:[
+      ["Double-entry posting engine: balance enforcement, append-only, period gate","L","Phase 0, 1",[]],
+      ["Journal Entries: list + create (line table, min 2 lines, live balance diff, draft/post)","L","↑",[]],
+      ["Journal Entries: detail panel (balance badge, account↔JE drill-down)","M","↑",["risk"]],
+      ["WAC costing engine: cost-layer creation on receipt, weighted-average recompute on issue","L","Phase 1",[]],
+      ["Cost-layer immutability + per-item Cost tab (layers keep receipt-time cost, explainer copy)","M","↑",[]],
+      ["Stock movement ledger (append-only, source-doc-linked)","M","↑",[]],
+      ["Golden-ledger fixture test suite","M","↑",[]],
+      ["Multi-currency capture on documents (currency + rate-at-document-time)","S","Phase 1",[]]
+     ]},
+    {n:3, en:"Core Sales & Purchases documents", ar:"المبيعات والمشتريات الأساسية", scope:"v1", size:"XL", priority:true,
+     goal:"Sales Invoices; Purchase Orders → Goods Receipts → Purchase Invoices (happy-path chain, no gates yet).",
+     issues:[
+      ["Sales Invoices: create/edit form, line items, variant picker, ad-hoc product","L","Phase 1, 2",[]],
+      ["Sales Invoices: status lifecycle (draft→confirmed→partial→paid→overdue/cancelled) + stock deduction + AR posting","L","↑",[]],
+      ["Sales Invoices: \"effects of this document\" explainer panel","S","↑",[]],
+      ["Sales Invoices: detail view + tabs (items, collections link, accounting entries, attachments, audit)","M","↑",[]],
+      ["Sales Hub (domain landing page)","S","—",["par"]],
+      ["Purchase Orders: create/edit + confirm/send workflow","M","Phase 1, 2",[]],
+      ["Goods Receipts: create-from-PO, line auto-fill, confirm","M","↑",["risk"]],
+      ["Purchase Invoices: create manual + from-receipt auto-fill, mixed inventory/expense lines","L","↑",["risk"]],
+      ["Purchase Invoices: status lifecycle + stock receipt + AP posting","L","↑",[]],
+      ["Purchase Invoices: effects explainer + detail tabs","M","↑",[]],
+      ["Purchases Hub (domain landing page)","S","—",["par"]],
+      ["Procurement happy-path integration test (PO→GRN→Invoice, no gates yet)","S","↑",[]]
+     ]},
+    {n:4, en:"Inventory operations", ar:"عمليات المخزون", scope:"v1", size:"XL", priority:true,
+     goal:"Stock balance, transfers, adjustments (8 reasons + opening balance), physical counts, valuation + drift + aging write-down, labels, product templates, configurable-product definitions.",
+     issues:[
+      ["Stock Balance (cross-warehouse rollup, reorder visibility)","S","Phase 2",[]],
+      ["Stock Transfers: draft→confirmed one-way workflow, incl. van-warehouse endpoint","M","↑",[]],
+      ["Stock Transfers: Excel import for transfer lines","S","↑",["par"]],
+      ["Stock Adjustments: 8 reasons incl. INITIAL_STOCK opening balance","L","↑",[]],
+      ["Stock Adjustments: GL journal posting + cost-layer injection","M","↑",[]],
+      ["Physical Counts: session workflow (start→count-entry grid→variance→generate adjustment)","L","↑",["risk"]],
+      ["Inventory Valuation report + GL-vs-computed reconciliation card","M","Phase 2",[]],
+      ["Inventory valuation drift detection/rebuild tool","M","↑",[]],
+      ["Aging-based inventory write-down: monthly batch, provisions slow-moving stock, posts JE to 5060/1190","M","Phase 2",[]],
+      ["Label Printing: 3 fixed sizes (40×30/50×25/100×50) + barcode-fit validation, item-mode","M","—",[]],
+      ["Label Printing: document-mode","S","↑",["risk"]],
+      ["Barcode rendering infra (bwip-js integration)","S","—",["par"]],
+      ["Product Templates: attribute CRUD + variant-combination generator","L","Phase 1",[]],
+      ["Product Templates: alternate-UOM propagation to generated variants","S","↑",[]],
+      ["Configurable Products: config input variables (formula identifiers, min/max, type)","M","Phase 1",[]],
+      ["Sandboxed expression evaluator (no eval)","L","—",[]],
+      ["Configurable Products: material-quantity formulas + waste %","M","↑↑",[]],
+      ["Configurable Products: pricing formula + labour/overhead cost formulas","M","↑↑",[]],
+      ["Inventory Hub (domain landing page) + Warehouse detail hub (quick-action deep links)","M","—",["par"]]
+     ]},
+    {n:5, en:"Full Sales", ar:"المبيعات الكاملة", scope:"v1", size:"L", priority:true,
+     goal:"Quotes, sales returns, price lists (incl. per-item override grid), promotions/coupons engine, credit control.",
+     issues:[
+      ["Quotations: CRUD + status lifecycle (draft→sent→accepted→converted, +rejected/expired)","M","Phase 3",[]],
+      ["Quotations: send-to-customer action","S","↑",["par"]],
+      ["Quotations: convert-to-invoice flow","S","↑, Phase 3 invoices",["risk"]],
+      ["Sales Returns: create against confirmed invoice, qty-remaining logic, reason enum","L","Phase 3",[]],
+      ["Sales Returns: confirm/cancel workflow + refund-voucher linkage","M","↑",["cross","risk"]],
+      ["Price Lists: CRUD (name/code/base-list)","S","Phase 1",[]],
+      ["Price Lists: per-item price-override grid","M","↑",["risk"]],
+      ["Promotions: percentage/fixed/special-price discount types","M","Phase 3",[]],
+      ["Promotions: buy-X-get-Y (BXGY)","M","↑",["par"]],
+      ["Promotions: bundle pricing","M","↑",["par"]],
+      ["Promotions: coupon code + day/hour restriction","S","↑",[]],
+      ["Credit control: warn-vs-block policy on invoice/quote creation","M","Phase 1 (customers)",["risk"]],
+      ["Sales invoice profit/margin computation (post-return net)","M","Phase 3 + this phase's returns",[]],
+      ["Delivery notes — open decision, not yet scoped as an issue","—","—",["dec"]]
+     ]},
+    {n:6, en:"Full Purchases", ar:"المشتريات الكاملة", scope:"v1", size:"L", priority:true,
+     goal:"RFQs, purchase returns, landed costs, the 3 procurement strictness gates, historical import.",
+     issues:[
+      ["RFQs: CRUD + draft→sent→closed/cancelled workflow","M","Phase 3",[]],
+      ["RFQs: supplier invitation + quote entry/comparison","M","↑",["risk"]],
+      ["RFQ→PO conversion","S","↑, Phase 3 POs",[]],
+      ["Purchase Returns: create against confirmed invoice, qty-available guard, reason enum","M","Phase 3",[]],
+      ["Purchase Returns: confirm/cancel + refund linkage","M","↑",["cross"]],
+      ["Landed Costs: document CRUD + distribution by value / by quantity","L","Phase 3",[]],
+      ["Landed Costs: linked-invoices multi-select + embedded tab on invoice detail","M","↑",["risk"]],
+      ["Procurement gate: require-PO-for-GRN","S","Phase 3",[]],
+      ["Procurement gate: require-GRN-for-invoice","S","↑",["risk"]],
+      ["Procurement gate: sold-item cancellation guard","S","↑, /sold-tracking API",[]],
+      ["Historical purchase invoice/return Excel import","M","Phase 1, 3",[]],
+      ["Supplier statement i18n fix + categories-dialog polish","S","—",["par"]]
+     ]},
+    {n:7, en:"Treasury completion + Installments", ar:"الخزينة والأقساط", scope:"v1", size:"L", priority:true,
+     goal:"Unified 10-type voucher, invoice allocation, cheque register (7-state), bank reconciliation, installment plans + overdue batch + follow-ups.",
+     issues:[
+      ["Unified voucher: type picker + collection/payment types, create+confirm atomic flow","L","Phase 1, 2",[]],
+      ["Unified voucher: refund types (customer refund, supplier refund)","M","↑",["cross"]],
+      ["Unified voucher: other income/expense, partner capital injection/withdrawal, tax authority payment","M","↑",["par"]],
+      ["Unified voucher: inter-treasury transfer type","M","↑",["par"]],
+      ["Invoice allocation / cash application (reversible per-line, \"needs allocation\" state)","L","↑, Phase 3 invoices",[]],
+      ["Account statements (running balance + opening balances)","M","↑",[]],
+      ["Cheque Register: 7-state lifecycle (incoming/outgoing), accounts 1320/1360","L","↑",["risk"]],
+      ["Bank statement CSV import + persisted per-account column mapping","M","↑",["risk"]],
+      ["Bank reconciliation: line matching","M","↑",[]],
+      ["Cash-vs-bank negative-balance policy (cash hard-blocked, bank overdraft allowed)","S","↑",[]],
+      ["Treasury Hub (domain landing page)","S","—",["par"]],
+      ["Installment Plans: invoice-driven creation, 4 frequencies, down payment, schedule preview","L","Phase 3 invoices",[]],
+      ["Installment overdue batch + late penalties","M","↑",["dec"]],
+      ["Collection Follow-ups (customer-scoped log, 5 types)","M","↑",["par"]]
+     ]},
+    {n:8, en:"Accounting depth", ar:"عمق المحاسبة", scope:"v1", size:"L", priority:true,
+     goal:"Cost-center P&L, fiscal period close, tax groups/account-linking, exchange rates + FX revaluation, balance reconciliation, ETA e-invoicing, opening-balances decision.",
+     issues:[
+      ["Cost-center full integration + Cost Center P&L report","M","Phase 1, 2, 9",["cross"]],
+      ["Fiscal period close workflow (مفتوحة→مغلقة→مقفلة, stale-open warning, posting lock)","M","Phase 1, 2",[]],
+      ["Tax groups screen + Chart-of-Accounts \"Account Linking\" tab","S","Phase 1",["risk"]],
+      ["Exchange rates: CRUD + approval/lock workflow","M","Phase 1",["risk"]],
+      ["FX Revaluation: period-end run, auto-reversing JE, multi-currency select","L","↑, Phase 2",["risk"]],
+      ["Balance Reconciliation: sub-ledger vs control-account cards + unlinked-entries tab","M","Phase 2, 4, 7",[]],
+      ["Accounting Hub (domain landing page)","S","—",["par"]],
+      ["ETA e-invoicing: readiness tracker + config (activity code, address, buyer-ID threshold)","M","Phase 1",[]],
+      ["ETA e-invoicing: connection/credentials (AES-encrypted secrets, signing method test/prod)","M","↑",[]],
+      ["ETA e-invoicing: item/unit/branch code mapping","M","↑",["risk"]],
+      ["ETA e-invoicing: submission queue + lifecycle + JSON export","L","↑, Phase 3",[]],
+      ["Opening balances for non-treasury GL accounts (AR/AP/equity)","M","Phase 1, 2",["dec"]]
+     ]},
+    {n:9, en:"Reports & printing", ar:"التقارير والطباعة", scope:"v1", size:"XL", priority:true,
+     goal:"ReportDefinition abstraction, print rendering engine, amount-in-words, export pipeline, report issues covering all 33 reports.",
+     issues:[
+      ["ReportDefinition abstraction (params schema → query plan → column/format spec)","L","Phase 2",[]],
+      ["Report export pipeline (XLSX via exceljs + CSV) — export everywhere","M","↑",[]],
+      ["GL-reconciliation banner component","S","↑",[]],
+      ["On-demand execution pattern (General Ledger, Account Ledger)","S","↑",[]],
+      ["Print rendering engine: React+CSS print components, A4/A5 pipeline","L","Phase 0",[]],
+      ["Arabic amount-in-words engine","M","—",[]],
+      ["Sales reports pack A: by-Period, by-Item [GL-recon], by-Customer, Top Products","M","↑",["par"]],
+      ["Sales reports pack B: by-Salesperson (shell only), Van Sales","S","Phase 12 (van trips)",[]],
+      ["Purchases reports pack: by-Period, by-Supplier, by-Item [GL-recon]","M","↑",["par"]],
+      ["Inventory reports pack A: Stock Levels, Stock Movement, Stock Ledger","M","Phase 4",["par"]],
+      ["Inventory reports pack B: Aging [GL-recon], Expiring Soon (FEFO), Slow-Moving [GL-recon]","M","↑",["par"]],
+      ["Debt aging pack: Customer Aging, Supplier Aging","M","Phase 1, 3",["par"]],
+      ["POS reports pack (shells only): Daily Sales Summary, Shift Reports","S","—",[]],
+      ["Installments reports pack: Overview, Overdue","S","Phase 7",["par"]],
+      ["Make vs Buy report","S","Phase 11",[]],
+      ["Trial Balance","M","Phase 2",["par"]],
+      ["Income Statement","M","↑",["par"]],
+      ["Balance Sheet","M","↑",["par"]],
+      ["Cash Flow (indirect method)","M","↑",["par"]],
+      ["VAT Return","M","Phase 1 (taxes)",["par"]],
+      ["General Ledger report tab","M","Phase 2",[]],
+      ["Account Ledger report tab","M","↑",[]]
+     ]},
+    {n:10, en:"Platform & config", ar:"المنصة والإعدادات", scope:"v1", size:"L",
+     goal:"Workflow/approvals builder + inbox, notification-rules builder, numbering-sequences admin, print-template designer, barcode-rule config, WAC drift settings, data-migration wizard, audit-log UI, roles/permissions UI, users, dashboard home, global UX, branch 360.",
+     issues:[
+      ["Workflow/Approvals: chain builder UI (26 action types, ordered steps, role assignment)","M","Phase 0 (engine)",[]],
+      ["Workflow/Approvals: /approvals inbox + pending/rejected badge","M","↑",["risk"]],
+      ["Notification Rules: rule builder UI (event→condition→recipient→priority→channels)","M","Phase 0 (bus)",[]],
+      ["Notification Rules: Arabic message templating","M","↑",[]],
+      ["Numbering Sequences: admin screen (25 types, prefix/suffix/pad-length/annual-reset)","M","Phase 0 (engine)",["dec"]],
+      ["Print Templates: 9-tab designer (identity/header/content/line-items/totals/footer/watermark/POS-stub/overrides)","L","Phase 9 (rendering engine)",[]],
+      ["Barcode Codes: embedded/weight barcode rule config + live test panel","M","Phase 4 (barcode infra)",[]],
+      ["Data Migration wizard: framework + step sequencer + template download/import/validation UI","L","Phase 0",[]],
+      ["Data Migration: entity-import steps (treasury, suppliers, customers, items, units, historical invoices)","L","Phase 1, 2, 3, 5, 6",[]],
+      ["Audit log UI: /audit/reports screen, linked into nav","M","Phase 0 (audit trail)",[]],
+      ["Roles & Permissions UI: role CRUD + full matrix editor","L","Phase 0 (permissions engine)",[]],
+      ["Users screen: CRUD, role assignment, branch/warehouse scoping","M","↑",[]],
+      ["Dashboard home: KPI tiles, trend chart, aging widget, expense breakdown, top items/customers","L","Phase 2, 3",[]],
+      ["Global UX: command palette (~80 pages + quick actions), top-bar search, notifications panel","M","Phase 0",[]],
+      ["Settings depth: credit-control, inventory-policy, purchase-control, treasury-policy tabs","M","Phase 5, 6, 7",[]],
+      ["WAC drift settings panel (wacDriftTolerance, wacDriftAlertThreshold, wacAutoRebuildOnDrift)","S","Phase 4 (drift report)",[]],
+      ["Profile screen (self-service: info/security/activity tabs)","S","—",["par"]],
+      ["Branch 360 detail view (KPIs + tabs that light up as later phases land)","M","Phase 7, 12, 14",[]]
+     ]},
+    {n:11, en:"Manufacturing", ar:"التصنيع", scope:"v1", size:"L",
+     goal:"BOMs (versioned, waste%), work orders (4-stage execution), configurable-product order instances, production dashboard.",
+     issues:[
+      ["BOMs: versioned recipe CRUD + waste% gross-up logic","L","Phase 1, 4 (evaluator)",[]],
+      ["BOMs: cost breakdown (materials+labour+overhead) + version history/audit","M","↑",[]],
+      ["Work Orders: creation wizard (BOM picker, qty/priority, warehouses, scheduling)","M","↑",[]],
+      ["Work Orders: 4-stage execution engine (بدء العمل→صرف المواد→استلام المنتج→إكمال)","XL","↑",[]],
+      ["Work Orders: WIP cost accumulation + GL posting chain","L","↑, Phase 2",[]],
+      ["Work Orders: detail tabs (materials/costs/usage/movement/receipts/JEs/log)","M","↑",[]],
+      ["Config Instances (custom manufacturing orders): spec entry, live cost preview, auto-generate WO","L","Phase 4 (configurable products + evaluator)",[]],
+      ["Production Dashboard (exception cockpit)","M","↑",[]],
+      ["Bug note: WO list row-click opens the item, not the WO — fix-forward, do not replicate","S","↑",[]],
+      ["Manufacturing domain integration test (BOM→WO→finished-goods→GL, full round-trip)","M","↑",[]]
+     ]},
+    {n:12, en:"CRM + Projects + Fixed Assets + Field/Van Sales", ar:"العملاء والمشاريع والأصول والمبيعات الميدانية", scope:"v1", size:"L",
+     goal:"Leads/opportunities/pipeline/activities, projects, asset register + categories + depreciation runs, van trips.",
+     issues:[
+      ["Leads: CRUD + 6-state lifecycle","M","Phase 1 (customers)",["risk"]],
+      ["Opportunities: CRUD + stage-driven open/won/lost","M","↑, Pipeline Stages",["risk"]],
+      ["Sales Pipeline: kanban view + drag-drop between stages","M","↑",["risk"]],
+      ["Pipeline Stages config: reorder, probability%, win/loss flags","S","—",[]],
+      ["Lead→Opportunity conversion mechanism","S","↑",["dec"]],
+      ["CRM Activities / My Tasks","S","—",["par"]],
+      ["CRM Hub (domain landing page)","S","—",["par"]],
+      ["Projects: CRUD + status machine + auto-create PRJ-{code} cost center","M","Phase 8 (cost centers)",[]],
+      ["Progress billing (مستخلصات) — spike before scoping","S","—",["dec"]],
+      ["Asset Register: CRUD, scope toggle (general/branch/warehouse), acquisition fields","L","Phase 1",[]],
+      ["Asset Categories: CRUD + depreciation defaults + GL mapping","M","↑",[]],
+      ["Depreciation Runs: draft→posted workflow, daily proration (IFRS) calc","L","↑",["risk"]],
+      ["Asset disposal flow","M","↑",[]],
+      ["Assets Hub (domain landing page)","S","—",["par"]],
+      ["Van Trip: open-trip form (crew, van warehouse, opening cash float, payment-method routing)","M","Phase 7 (treasury)",[]],
+      ["Van Trip: van stock load via transfer","S","Phase 4 (transfers)",[]],
+      ["Van Trip: in-field sales/collections","M","Phase 3/5, Phase 7",[]],
+      ["Van Trip: settlement (cash reconciliation, stock reconciliation table)","L","↑",[]]
+     ]},
+    {n:13, en:"HR & Payroll", ar:"الموارد البشرية والرواتب", scope:"deferred", size:"XL",
+     goal:"All 13 screens: employees, departments, job titles, attendance, holidays, contracts, leave requests, leave policies, leave accrual batches, payroll runs, advances, my-leave, shift settings.",
+     issues:[
+      ["HR Dashboard","S","—",[]],
+      ["Departments + Job Titles","S","—",[]],
+      ["Employees: full detail page (8 tabs) + create form","L","↑",[]],
+      ["Shift Settings","S","—",[]],
+      ["Attendance: calendar-grid, day status codes, monthly summary","L","↑",[]],
+      ["Official Holidays","S","—",["par"]],
+      ["Leave Policies: matrix + two dated legal presets","M","—",["risk"]],
+      ["Contracts: type/pay-basis/currency, leave-entitlement overrides, allowance/deduction lines","L","Employees, Leave Policies",[]],
+      ["Leave Requests: workflow, half-day, leave-type resolution","L","Contracts, Leave Policies",["risk"]],
+      ["Leave Accrual Batches: run + GL journal posting","M","↑, Phase 2",["cross"]],
+      ["Employee Advances: 4-state workflow, balance-sheet-asset treatment","M","Employees, Phase 2",["cross"]],
+      ["My Leave (self-service)","S","Employees",[]],
+      ["Payroll: 5-state run lifecycle + calculation engine","XL","Contracts, Attendance, Advances",["risk"]]
+     ]},
+    {n:14, en:"POS", ar:"نقاط البيع", scope:"deferred", size:"XL",
+     goal:"Terminals, sessions/shifts, sales/refunds ledgers, discount approvals, restaurant mode (tables/kitchen/reservations/deliveries), loyalty, + the net-new selling screen.",
+     issues:[
+      ["Terminals: CRUD (branch/warehouse/cash-drawer/payment-methods/printer)","M","Phase 7 (treasury)",["cross"]],
+      ["Payment-method catalog","S","—",["par"]],
+      ["Sessions/Shifts: open→running→close, variance calc, 6 sub-tabs","XL","↑",[]],
+      ["POS Sales ledger + detail (5 tabs)","M","↑",[]],
+      ["POS Refunds: per-line qty-capped returns","M","↑",[]],
+      ["Discount Approvals: queue + thresholds + 5-min expiry","M","—",[]],
+      ["Restaurant mode: Table Management (floor designer, occupancy, stats)","L","—",[]],
+      ["Restaurant mode: Kitchen Display (stage transitions, meal/course routing)","L","↑",["risk"]],
+      ["Restaurant mode: Reservations","M","↑",["dec"]],
+      ["Deliveries: driver assignment, 6-state pipeline","L","—",["risk"]],
+      ["Loyalty points config","S","—",["par"]],
+      ["POS Hub (domain landing page)","S","—",["par"]],
+      ["POS Selling Screen — net-new design spike","XL","All of the above",[]],
+      ["Barcode-embedded price/weight scan integration","M","Phase 10 (barcode rules)",["cross"]],
+      ["ESC/POS thermal receipt printing + cash-drawer kick","M","Phase 9 (print engine)",["cross"]],
+      ["Offline sale queue + force_close permission","L","—",[]]
+     ]},
+    {n:15, en:"Cloud/SaaS website edition", ar:"النسخة السحابية", scope:"deferred", size:"XL",
+     goal:"Postgres dialect + dual-engine conformance, cloud JWT + RLS, Node server app, SSE+Redis realtime, S3 storage, subscription→entitlements, tenant onboarding, API keys/webhooks/WhatsApp.",
+     issues:[
+      ["Postgres dialect: schema-spec DSL codegen for pg-core, migrations","L","Phase 0",["cross"]],
+      ["Dual-engine conformance test suite (pg+sqlite matrix in CI)","L","↑",[]],
+      ["Cloud JWT auth + refresh-token flow (HttpOnly cookie), Argon2id hashing","M","Phase 0",["cross"]],
+      ["Postgres Row-Level Security (RLS) per-tenant enforcement","M","↑",[]],
+      ["Node server app (apps/server): Hono over HTTP, tenant resolution by company code","M","Phase 0",["cross"]],
+      ["SSE + Redis pub/sub realtime fan-out","M","Phase 0 (event bus)",["cross"]],
+      ["S3-compatible file storage adapter","M","Phase 0 (FileStore port)",["cross"]],
+      ["Subscription/plan → entitlements mapping","M","Phase 0 (entitlements)",["cross"]],
+      ["Tenant onboarding flow (company-code registration, seed wizard)","M","↑",[]],
+      ["Multi-tenant admin/platform-admin permissions tier","S","Phase 0",["cross"]],
+      ["API Keys + Connected Apps screen","M","↑",[]],
+      ["Webhooks: outbound HMAC-signed event delivery + event-type picker","M","↑",["risk"]],
+      ["WhatsApp integration settings","S","—",["risk"]],
+      ["Email delivery (SMTP/Resend) + headless-Chromium PDF generation","M","Phase 9 (print engine)",["cross"]],
+      ["Cloud backup: PITR, cross-region snapshots, per-tenant export","M","Phase 0 (backup)",["cross"]]
+     ]}
+  ];
+
+  var DOMAINS = [
+    ["Sales","المبيعات",[3,5,9]],
+    ["Purchases","المشتريات",[3,6,9]],
+    ["Inventory","المخزون",[1,4,9]],
+    ["Accounting","المحاسبة",[1,2,8,9]],
+    ["Treasury","الخزينة",[1,7]],
+    ["POS","نقاط البيع",[14]],
+    ["Installments","الأقساط",[7]],
+    ["CRM","العملاء المحتملون",[12]],
+    ["HR","الموارد البشرية",[13]],
+    ["Manufacturing","التصنيع",[4,11]],
+    ["Projects","المشاريع",[12]],
+    ["Fixed Assets","الأصول الثابتة",[12]],
+    ["Field/Van Sales","المبيعات الميدانية",[12]],
+    ["Reports (33)","التقارير",[4,5,8,9]],
+    ["Settings/Dashboard/UX","الإعدادات",[0,10,15]]
+  ];
+
+  var TAG_META = {
+    par:  {cls:"pill-par",  html:'<span class="ic"><i></i><i></i></span>parallel-ok'},
+    risk: {cls:"pill-risk", html:"spec-risk"},
+    dec:  {cls:"pill-dec",  html:"decision"},
+    cross:{cls:"pill-cross",html:"cross-phase"}
+  };
+
+  function esc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  function sizePill(s){
+    if(s==="—") return '<span class="pill" style="background:var(--surface-3);color:var(--text-faint)">—</span>';
+    return '<span class="pill pill-'+s.toLowerCase()+'">'+s+'</span>';
+  }
+
+  var timeline = document.getElementById("timeline");
+  var jump = document.getElementById("phase-jump");
+  var totalIssues = 0, v1Issues = 0, v1Phases = 0, defPhases = 0;
+
+  PHASES.forEach(function(p){
+    totalIssues += p.issues.length;
+    if(p.scope === "v1"){ v1Issues += p.issues.length; v1Phases++; } else { defPhases++; }
+
+    var det = document.createElement("details");
+    det.className = "phase";
+    det.id = "phase-"+p.n;
+    det.setAttribute("data-scope", p.scope);
+    if(p.n <= 3) det.open = true;
+
+    var rowsHtml = p.issues.map(function(row){
+      var title = row[0], size = row[1], deps = row[2], tags = row[3];
+      var tagHtml = tags.map(function(t){
+        var m = TAG_META[t];
+        return '<span class="pill '+m.cls+'">'+m.html+'</span>';
+      }).join("");
+      return '<tr><td class="t-title">'+esc(title)+'</td><td>'+sizePill(size)+'</td>'+
+             '<td class="t-deps">'+esc(deps)+'</td><td class="t-tags">'+(tagHtml||'<span style="color:var(--text-faint)">—</span>')+'</td></tr>';
+    }).join("");
+
+    det.innerHTML =
+      '<span class="phase-dot">'+p.n+'</span>'+
+      '<summary class="phase-summary">'+
+        '<div class="phase-head">'+
+          '<div class="phase-title"><span class="en disp">'+esc(p.en)+'</span><span class="ar">'+esc(p.ar)+'</span>'+
+            (p.priority ? '<span class="pill pill-priority">★ priority</span>' : '')+
+          '</div>'+
+          '<div class="phase-goal">'+esc(p.goal)+'</div>'+
+        '</div>'+
+        '<div class="phase-meta">'+
+          '<span class="pill pill-'+p.scope+'">'+(p.scope==="v1"?"v1":"deferred")+'</span>'+
+          sizePill(p.size)+
+          '<span class="phase-count num">'+p.issues.length+' issues</span>'+
+          '<svg class="chev" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'+
+        '</div>'+
+      '</summary>'+
+      '<div class="phase-body">'+
+        '<div class="table-scroll"><table class="issues">'+
+          '<thead><tr><th>Issue</th><th>Size</th><th>Depends on</th><th>Flags</th></tr></thead>'+
+          '<tbody>'+rowsHtml+'</tbody>'+
+        '</table></div>'+
+      '</div>';
+
+    timeline.appendChild(det);
+
+    var a = document.createElement("a");
+    a.href = "#phase-"+p.n;
+    a.textContent = p.n;
+    if(p.scope === "deferred") a.className = "deferred-jump";
+    a.addEventListener("click", function(){ det.open = true; });
+    jump.appendChild(a);
+  });
+
+  document.getElementById("stat-total").textContent = totalIssues;
+  document.getElementById("stat-v1").textContent = v1Issues;
+  document.getElementById("stat-v1phases").textContent = v1Phases;
+  document.getElementById("stat-defphases").textContent = defPhases;
+
+  document.getElementById("expand-all").addEventListener("click", function(){
+    document.querySelectorAll(".phase").forEach(function(d){ d.open = true; });
+  });
+  document.getElementById("collapse-all").addEventListener("click", function(){
+    document.querySelectorAll(".phase").forEach(function(d){ d.open = false; });
+  });
+
+  var filterBtns = document.querySelectorAll("#scope-filter button");
+  filterBtns.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      filterBtns.forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      var f = btn.getAttribute("data-f");
+      document.querySelectorAll(".phase").forEach(function(d){
+        var scope = d.getAttribute("data-scope");
+        d.style.display = (f==="all" || f===scope) ? "" : "none";
+      });
+      jump.querySelectorAll("a").forEach(function(a){
+        var n = parseInt(a.textContent,10);
+        var scope = n <= 12 ? "v1" : "deferred";
+        a.style.display = (f==="all" || f===scope) ? "" : "none";
+      });
+    });
+  });
+
+  var cov = document.getElementById("coverage-grid");
+  DOMAINS.forEach(function(d){
+    var name = d[0], ar = d[1], phases = d[2];
+    var chips = phases.map(function(n){
+      var scope = n <= 12 ? "v1" : "deferred";
+      return '<a href="#phase-'+n+'" class="'+(scope==="deferred"?"deferred-chip":"")+'">P'+n+'</a>';
+    }).join("");
+    var card = document.createElement("div");
+    card.className = "domain-card";
+    card.innerHTML = '<div class="dn"><span class="en">'+esc(name)+'</span><span class="ar">'+esc(ar)+'</span></div><div class="chips">'+chips+'</div>';
+    cov.appendChild(card);
+  });
+
+  cov.querySelectorAll("a").forEach(function(a){
+    a.addEventListener("click", function(){
+      var id = a.getAttribute("href").slice(1);
+      var det = document.getElementById(id);
+      if(det) det.open = true;
+    });
+  });
+})();
+</script>

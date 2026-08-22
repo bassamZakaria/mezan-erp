@@ -1,0 +1,2627 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mezan UI Mockups</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    /* ---- crisp light-first palette ---- */
+    --bg:#EDF1EE;
+    --surface:#FFFFFF;
+    --surface-2:#F4F7F4;
+    --surface-3:#E9EEEA;
+    --border:#E1E7E2;
+    --border-strong:#CAD3CC;
+    --text:#12201B;
+    --text-muted:#586860;
+    --text-faint:#8A968E;
+    --brand:#0E5049;
+    --brand-strong:#0A3B35;
+    --brand-soft:#E4F0EC;
+    --brand-ink:#FFFFFF;
+    --accent:#AE7C24;
+    --accent-strong:#8C6216;
+    --accent-soft:#F6EDD8;
+    --success:#2C8A57; --success-soft:#E4F3EA; --success-ink:#1C6B41;
+    --warning:#B0791F; --warning-soft:#FBEFD6; --warning-ink:#875C13;
+    --danger:#C0402F;  --danger-soft:#FBE7E2;  --danger-ink:#932C1F;
+    --info:#2F6690;    --info-soft:#E4EDF4;    --info-ink:#234E6E;
+    --chart-1:#0E7C69; --chart-2:#C05A2E; --chart-3:#C39A3C; --chart-4:#3B6EA5;
+    --shadow-1:0 1px 2px rgba(16,40,32,.06), 0 1px 1px rgba(16,40,32,.04);
+    --shadow-2:0 18px 40px -18px rgba(16,40,32,.28), 0 4px 12px -4px rgba(16,40,32,.10);
+    --r-sm:5px; --r-md:8px; --r-lg:13px; --r-pill:999px;
+    --font-ar:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;
+    --font-display:'Cairo','IBM Plex Sans Arabic',sans-serif;
+    --font-lat:'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif;
+    --font-mono:'IBM Plex Mono','IBM Plex Sans Arabic',monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0C1512; --surface:#131F1B; --surface-2:#18251F; --surface-3:#213029;
+      --border:#243228; --border-strong:#354a3c;
+      --text:#E9EFEA; --text-muted:#9FB0A4; --text-faint:#6A7A6E;
+      --brand:#3AA592; --brand-strong:#4FC0AB; --brand-soft:#123029; --brand-ink:#08150F;
+      --accent:#D6AD5F; --accent-strong:#E4BE72; --accent-soft:#2C2413;
+      --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+      --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+      --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+      --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+      --chart-1:#2FB49A; --chart-2:#D2723F; --chart-3:#CFA24A; --chart-4:#5A94CC;
+      --shadow-1:0 1px 2px rgba(0,0,0,.4);
+      --shadow-2:0 20px 44px -18px rgba(0,0,0,.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0C1512; --surface:#131F1B; --surface-2:#18251F; --surface-3:#213029;
+    --border:#243228; --border-strong:#354a3c;
+    --text:#E9EFEA; --text-muted:#9FB0A4; --text-faint:#6A7A6E;
+    --brand:#3AA592; --brand-strong:#4FC0AB; --brand-soft:#123029; --brand-ink:#08150F;
+    --accent:#D6AD5F; --accent-strong:#E4BE72; --accent-soft:#2C2413;
+    --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+    --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+    --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+    --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+    --chart-1:#2FB49A; --chart-2:#D2723F; --chart-3:#CFA24A; --chart-4:#5A94CC;
+    --shadow-1:0 1px 2px rgba(0,0,0,.4);
+    --shadow-2:0 20px 44px -18px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--font-ar);
+    font-size:14px;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility;
+    overflow-x:hidden;
+  }
+  #app{ direction:rtl; display:flex; min-height:100vh; }
+  [lang="en"], .lat{ font-family:var(--font-lat); direction:ltr; unicode-bidi:isolate; }
+  .num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; direction:ltr; unicode-bidi:isolate; display:inline-block; }
+  td.num, th.num, td.cell-main.num{ display:table-cell; }
+  .disp{ font-family:var(--font-display); }
+  h1,h2,h3,h4{ margin:0; font-weight:700; font-family:var(--font-display); text-wrap:balance; letter-spacing:-.01em; }
+  p{ margin:0; }
+  a{ color:inherit; text-decoration:none; }
+  ul{ list-style:none; margin:0; padding:0; }
+  button, input, select, textarea{ font:inherit; color:inherit; }
+  button{ cursor:pointer; }
+  table{ border-collapse:collapse; width:100%; }
+  ::selection{ background:var(--accent-soft); color:var(--text); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--r-sm); }
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+  }
+
+  /* ============ SHELL (flex — sidebar on inline-start = right in RTL) ============ */
+  .sidebar{
+    width:270px; flex:none;
+    background:var(--surface);
+    border-inline-start:1px solid var(--border);
+    display:flex; flex-direction:column;
+    height:100vh; position:sticky; top:0;
+    overflow-y:auto;
+  }
+  .main-col{ flex:1; min-width:0; display:flex; flex-direction:column; }
+
+  .brand{ display:flex; align-items:center; gap:11px; padding:17px 18px; border-block-end:1px solid var(--border); }
+  .brand-mark{ width:38px; height:38px; flex:none; border-radius:10px; background:linear-gradient(150deg,var(--brand),var(--brand-strong)); display:flex; align-items:center; justify-content:center; color:var(--accent); box-shadow:var(--shadow-1); }
+  .brand-mark svg{ width:24px; height:24px; }
+  .brand-name{ font-family:var(--font-display); font-size:19px; font-weight:800; letter-spacing:0; line-height:1.1; }
+  .brand-sub{ font-size:10px; color:var(--text-faint); letter-spacing:1.4px; text-transform:uppercase; font-weight:600; margin-block-start:1px; }
+
+  .nav{ flex:1; padding:10px 12px 16px; }
+  .nav-link{
+    display:flex; align-items:center; gap:10px; padding:8px 11px; border-radius:var(--r-md);
+    color:var(--text-muted); font-size:13.5px; font-weight:500; position:relative;
+  }
+  .nav-link.top{ margin-block-end:2px; }
+  .nav-link .dot{ width:5px; height:5px; border-radius:50%; background:var(--border-strong); flex:none; transition:background .15s; }
+  .nav-link:hover{ background:var(--surface-2); color:var(--text); }
+  .nav-link.active{ background:var(--brand-soft); color:var(--brand); font-weight:700; }
+  .nav-link.active::before{ content:''; position:absolute; inset-inline-start:0; top:20%; bottom:20%; width:3px; border-radius:3px; background:var(--brand); }
+  .nav-link.active .dot{ background:var(--brand); }
+  .nav-group{ margin-block-start:8px; }
+  .nav-group-btn{
+    width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px;
+    background:none; border:none; padding:7px 11px 6px; border-radius:var(--r-sm);
+    color:var(--text-faint); font-size:10.5px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+  }
+  .nav-group-btn:hover{ color:var(--text-muted); }
+  .nav-group-btn svg{ width:11px; height:11px; transition:transform .18s ease; opacity:.8; }
+  .nav-group.collapsed .nav-group-btn svg{ transform:rotate(-90deg); }
+  .nav-group.collapsed .nav-list{ display:none; }
+  .nav-list{ display:flex; flex-direction:column; gap:1px; padding-block-start:2px; }
+  .nav-tag{ margin-inline-start:auto; font-size:9px; padding:2px 7px; border-radius:var(--r-pill); background:var(--surface-3); color:var(--text-faint); font-weight:700; letter-spacing:.3px; }
+  .nav-tag.pattern{ background:var(--accent-soft); color:var(--accent-strong); }
+  .nav-tag.soon{ opacity:.85; }
+
+  .sidebar-foot{ border-block-start:1px solid var(--border); padding:12px 14px; display:flex; align-items:center; gap:10px; }
+  .avatar{ width:34px; height:34px; border-radius:10px; background:linear-gradient(150deg,var(--brand),var(--brand-strong)); color:var(--brand-ink); display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex:none; font-family:var(--font-display); }
+  .sidebar-foot .who{ font-size:12.5px; font-weight:700; }
+  .sidebar-foot .role{ font-size:10.5px; color:var(--text-faint); }
+
+  .topbar{
+    display:flex; align-items:center; gap:12px; height:62px; padding:0 22px;
+    border-block-end:1px solid var(--border); background:color-mix(in srgb, var(--surface) 88%, transparent);
+    backdrop-filter:saturate(1.4) blur(8px);
+    position:sticky; top:0; z-index:20;
+  }
+  .search-btn{
+    display:flex; align-items:center; gap:9px; background:var(--surface-2); border:1px solid var(--border);
+    border-radius:var(--r-md); padding:8px 13px; color:var(--text-faint); font-size:13px; width:340px; max-width:38vw;
+    transition:border-color .15s, background .15s;
+  }
+  .search-btn:hover{ border-color:var(--border-strong); }
+  .search-btn svg{ width:15px; height:15px; flex:none; }
+  .search-btn span:first-of-type{ flex:1; text-align:start; }
+  .kbd{ font-family:var(--font-mono); font-size:10px; background:var(--surface); border:1px solid var(--border-strong); border-radius:5px; padding:2px 6px; color:var(--text-faint); }
+  .topbar-spacer{ flex:1; }
+  .scope-chip{ display:flex; align-items:center; gap:7px; padding:7px 12px; border-radius:var(--r-pill); background:var(--surface-2); border:1px solid var(--border); font-size:12.5px; color:var(--text-muted); font-weight:500; }
+  .scope-chip svg{ width:13px; height:13px; color:var(--text-faint); }
+  .icon-btn{
+    width:37px; height:37px; border-radius:var(--r-md); border:1px solid transparent; background:none;
+    display:flex; align-items:center; justify-content:center; color:var(--text-muted); position:relative; flex:none;
+    transition:background .15s, color .15s, border-color .15s;
+  }
+  .icon-btn:hover{ background:var(--surface-2); color:var(--text); border-color:var(--border); }
+  .icon-btn svg{ width:18px; height:18px; }
+  .badge-dot{ position:absolute; top:7px; inset-inline-end:7px; width:7px; height:7px; border-radius:50%; background:var(--danger); border:2px solid var(--surface); }
+  .user-chip{ display:flex; align-items:center; gap:9px; padding:5px 6px 5px 12px; border-radius:var(--r-pill); border:1px solid var(--border); background:var(--surface); }
+  .user-chip:hover{ border-color:var(--border-strong); }
+  .user-chip .who{ font-size:12.5px; font-weight:700; line-height:1.2; }
+  .user-chip .role{ font-size:10px; color:var(--text-faint); }
+
+  main{ flex:1; padding:28px 30px 72px; }
+  .view{ display:none; }
+  .view.active{ display:block; animation:fadeIn .28s ease; }
+  @keyframes fadeIn{ from{ opacity:0; transform:translateY(6px);} to{ opacity:1; transform:none; } }
+
+  /* ============ generic page bits ============ */
+  .eyebrow{ font-family:var(--font-lat); font-size:10.5px; letter-spacing:1.6px; text-transform:uppercase; color:var(--accent-strong); font-weight:600; }
+  .page-header{ display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-block-end:22px; flex-wrap:wrap; }
+  .page-title{ font-size:24px; font-weight:700; margin-block-start:5px; }
+  .page-desc{ font-size:12.5px; color:var(--text-muted); margin-block-start:5px; max-width:62ch; }
+  .page-actions{ display:flex; gap:9px; flex-wrap:wrap; align-items:center; }
+  .badge-pattern{ display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:var(--r-pill); background:var(--accent-soft); color:var(--accent-strong); font-size:11.5px; font-weight:700; border:1px solid color-mix(in srgb, var(--accent) 30%, transparent); margin-block-end:12px; }
+  .badge-pattern svg{ width:12px; height:12px; }
+
+  .btn{ display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:var(--r-md); border:1px solid var(--border-strong); background:var(--surface); font-size:13px; font-weight:600; color:var(--text); transition:background .15s, border-color .15s, box-shadow .15s; }
+  .btn:hover{ background:var(--surface-2); border-color:var(--border-strong); }
+  .btn svg{ width:14px; height:14px; }
+  .btn.primary{ background:var(--brand); color:var(--brand-ink); border-color:var(--brand); box-shadow:0 1px 2px color-mix(in srgb,var(--brand) 30%, transparent); }
+  .btn.primary:hover{ background:var(--brand-strong); border-color:var(--brand-strong); }
+  .btn.primary:disabled{ background:var(--surface-3); color:var(--text-faint); border-color:var(--border); box-shadow:none; cursor:not-allowed; }
+  .btn.ghost{ border-color:transparent; background:none; }
+  .btn.ghost:hover{ background:var(--surface-2); }
+  .btn.sm{ padding:7px 11px; font-size:12px; }
+  .btn.danger-o{ color:var(--danger-ink); border-color:color-mix(in srgb, var(--danger) 40%, transparent); }
+
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); }
+  .card-pad{ padding:20px 22px; }
+  .card-title{ font-size:14.5px; font-weight:700; }
+  .card-hint{ font-size:11.5px; color:var(--text-faint); margin-block-start:2px; }
+
+  /* stat strip */
+  .stat-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-block-end:18px; }
+  .stat-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:16px 18px; box-shadow:var(--shadow-1); position:relative; overflow:hidden; }
+  .stat-card .label{ font-size:11.5px; color:var(--text-muted); font-weight:600; }
+  .stat-card .value{ font-family:var(--font-display); font-size:25px; font-weight:700; margin-block-start:8px; letter-spacing:-.02em; display:flex; align-items:baseline; gap:5px; }
+  .stat-card .value .unit{ font-family:var(--font-ar); font-size:12px; font-weight:600; color:var(--text-faint); }
+  .stat-card .sub{ font-size:11px; color:var(--text-faint); margin-block-start:6px; display:flex; align-items:center; gap:5px; }
+  .stat-card .sub.up{ color:var(--success-ink); }
+  .stat-card .sub.down{ color:var(--danger-ink); }
+
+  /* filter chips */
+  .chip-row{ display:flex; gap:8px; flex-wrap:wrap; margin-block-end:16px; }
+  .chip{ display:flex; align-items:center; gap:7px; padding:7px 14px; border-radius:var(--r-pill); border:1px solid var(--border); background:var(--surface); font-size:12.5px; color:var(--text-muted); font-weight:600; transition:all .15s; }
+  .chip:hover{ border-color:var(--border-strong); color:var(--text); }
+  .chip.active{ background:var(--brand); border-color:var(--brand); color:var(--brand-ink); }
+  .chip .n{ font-family:var(--font-mono); font-size:11px; opacity:.9; }
+
+  /* toolbar */
+  .toolbar{ display:flex; gap:10px; margin-block-end:14px; flex-wrap:wrap; }
+  .search-input{ flex:1; min-width:240px; display:flex; align-items:center; gap:9px; background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:9px 13px; transition:border-color .15s; }
+  .search-input:focus-within{ border-color:var(--brand); }
+  .search-input svg{ width:15px; height:15px; color:var(--text-faint); flex:none; }
+  .search-input input{ border:none; background:none; outline:none; width:100%; font-size:13px; color:var(--text); }
+  .search-input input::placeholder{ color:var(--text-faint); }
+
+  /* table */
+  .table-wrap{ overflow-x:auto; border:1px solid var(--border); border-radius:var(--r-lg); background:var(--surface); box-shadow:var(--shadow-1); }
+  table.data-table{ min-width:720px; font-size:13px; }
+  table.data-table thead th{ position:sticky; top:0; background:var(--surface-2); text-align:start; padding:11px 15px; font-size:11px; color:var(--text-muted); font-weight:700; letter-spacing:.2px; text-transform:uppercase; border-block-end:1px solid var(--border); white-space:nowrap; }
+  table.data-table th.sortable{ cursor:pointer; user-select:none; }
+  table.data-table th.sortable::after{ content:'⇅'; margin-inline-start:5px; color:var(--text-faint); font-size:10px; }
+  table.data-table tbody tr{ border-block-end:1px solid var(--border); transition:background .12s; }
+  table.data-table tbody tr:last-child{ border-block-end:none; }
+  table.data-table tbody tr.clickable:hover{ background:var(--surface-2); cursor:pointer; }
+  table.data-table td{ padding:12px 15px; vertical-align:middle; }
+  table.data-table td.num, table.data-table th.num{ text-align:end; }
+  .cell-main{ font-weight:600; }
+  .cell-sub{ font-size:11px; color:var(--text-faint); margin-block-start:2px; }
+
+  .pill{ display:inline-flex; align-items:center; gap:6px; padding:4px 11px; border-radius:var(--r-pill); font-size:11.5px; font-weight:600; white-space:nowrap; }
+  .pill::before{ content:''; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pill.draft{ background:var(--surface-3); color:var(--text-muted); }
+  .pill.pending{ background:var(--info-soft); color:var(--info-ink); }
+  .pill.posted, .pill.confirmed, .pill.active, .pill.open, .pill.paid{ background:var(--success-soft); color:var(--success-ink); }
+  .pill.reversed, .pill.cancelled, .pill.locked{ background:var(--danger-soft); color:var(--danger-ink); }
+  .pill.closed, .pill.partial{ background:var(--warning-soft); color:var(--warning-ink); }
+
+  .pager{ display:flex; align-items:center; justify-content:space-between; padding:13px 16px; border-block-start:1px solid var(--border); font-size:12px; color:var(--text-muted); flex-wrap:wrap; gap:10px; }
+  .pager-pages{ display:flex; gap:4px; }
+  .pager-pages button{ min-width:30px; height:30px; padding:0 6px; border-radius:var(--r-sm); border:1px solid var(--border); background:var(--surface); font-size:12px; color:var(--text-muted); }
+  .pager-pages button:hover{ border-color:var(--border-strong); color:var(--text); }
+  .pager-pages button.active{ background:var(--brand); border-color:var(--brand); color:var(--brand-ink); font-weight:600; }
+
+  .kebab{ width:28px; height:28px; border-radius:var(--r-sm); display:inline-flex; align-items:center; justify-content:center; color:var(--text-faint); font-size:15px; }
+  .kebab:hover{ background:var(--surface-3); color:var(--text); }
+
+  /* tabs */
+  .tabs{ display:flex; gap:4px; border-block-end:1px solid var(--border); margin-block-end:18px; }
+  .tab-btn{ padding:11px 16px; border:none; background:none; font-size:13px; font-weight:600; color:var(--text-muted); border-block-end:2px solid transparent; margin-block-end:-1px; }
+  .tab-btn:hover{ color:var(--text); }
+  .tab-btn.active{ color:var(--brand); border-block-end-color:var(--brand); }
+  .tab-panel{ display:none; }
+  .tab-panel.active{ display:block; }
+
+  /* doc detail */
+  .doc-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:18px; flex-wrap:wrap; margin-block-end:18px; }
+  .doc-title-row{ display:flex; align-items:center; gap:11px; flex-wrap:wrap; }
+  .doc-title-row h1{ font-size:21px; }
+  .summary-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:0; border:1px solid var(--border); border-radius:var(--r-lg); background:var(--surface); box-shadow:var(--shadow-1); margin-block-end:18px; overflow:hidden; }
+  .summary-cell{ padding:15px 17px; border-inline-end:1px solid var(--border); }
+  .summary-cell:last-child{ border-inline-end:none; }
+  .summary-cell .label{ font-size:11px; color:var(--text-faint); font-weight:600; }
+  .summary-cell .value{ font-size:15px; font-weight:700; margin-block-start:6px; }
+
+  .effects-panel{ display:flex; gap:13px; align-items:flex-start; background:linear-gradient(180deg, var(--brand-soft), color-mix(in srgb,var(--brand-soft) 55%, var(--surface))); border:1px solid color-mix(in srgb, var(--brand) 26%, transparent); border-radius:var(--r-lg); padding:16px 18px; margin-block-end:20px; }
+  .effects-panel .glyph{ width:34px; height:34px; border-radius:9px; background:var(--brand); color:var(--accent); display:flex; align-items:center; justify-content:center; flex:none; }
+  .effects-panel .glyph svg{ width:19px; height:19px; }
+  .effects-panel h3{ font-size:13.5px; color:var(--brand); margin-block-end:8px; font-family:var(--font-display); }
+  .effects-panel ul{ display:flex; flex-direction:column; gap:7px; }
+  .effects-panel li{ font-size:12.5px; color:var(--text); display:flex; gap:8px; align-items:flex-start; }
+  .effects-panel li::before{ content:''; width:5px; height:5px; border-radius:50%; background:var(--brand); margin-block-start:8px; flex:none; }
+  .effects-panel li b{ font-weight:700; }
+
+  .grid-2{ display:grid; grid-template-columns:2fr 1fr; gap:20px; align-items:start; }
+
+  /* side panel / drawer */
+  .overlay{ position:fixed; inset:0; background:rgba(8,18,14,.44); backdrop-filter:blur(2px); z-index:60; opacity:0; pointer-events:none; transition:opacity .2s ease; }
+  .overlay.open{ opacity:1; pointer-events:auto; }
+  .panel{
+    position:fixed; top:0; bottom:0; inset-inline-end:0; width:430px; max-width:92vw; background:var(--surface);
+    border-inline-start:1px solid var(--border); box-shadow:var(--shadow-2); z-index:61;
+    transform:translateX(-105%); transition:transform .24s cubic-bezier(.4,0,.2,1); overflow-y:auto;
+  }
+  .panel.open{ transform:translateX(0); }
+  .panel-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:10px; padding:19px 21px; border-block-end:1px solid var(--border); position:sticky; top:0; background:var(--surface); z-index:2;}
+  .panel-body{ padding:19px 21px; }
+
+  /* small info rows */
+  .kv-list{ display:flex; flex-direction:column; gap:11px; }
+  .kv-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:13px; }
+  .kv-row .k{ color:var(--text-muted); }
+  .kv-row .v{ font-weight:600; }
+
+  /* balance beam */
+  .beam-wrap{ display:flex; flex-direction:column; align-items:center; gap:8px; }
+  .beam-svg{ width:118px; height:80px; overflow:visible; }
+  .beam-group{ transform-origin:59px 24px; transition:transform .4s cubic-bezier(.34,1.15,.4,1); }
+  .beam-status{ font-size:12.5px; font-weight:700; display:flex; align-items:center; gap:6px; font-family:var(--font-display); }
+  .beam-status.balanced{ color:var(--success-ink); }
+  .beam-status.unbalanced{ color:var(--warning-ink); }
+  .beam-glow{ filter:drop-shadow(0 0 7px color-mix(in srgb, var(--accent) 50%, transparent)); }
+  @keyframes idleSway{ 0%,100%{ transform:rotate(-2.5deg);} 50%{ transform:rotate(2.5deg);} }
+  .beam-idle .beam-group{ animation:idleSway 5.5s ease-in-out infinite; }
+
+  /* JE lines table */
+  .je-lines th, .je-lines td{ font-size:13px; }
+  .je-lines input{ width:100%; border:1px solid transparent; background:none; padding:7px 9px; border-radius:var(--r-sm); font-size:13px; color:var(--text); }
+  .je-lines input:hover{ border-color:var(--border); }
+  .je-lines input:focus{ border-color:var(--brand); background:var(--surface); outline:none; }
+  .je-lines .num-input{ text-align:end; font-family:var(--font-mono); }
+  .je-total-row td{ font-weight:700; background:var(--surface-2); }
+
+  .stepper{ display:flex; align-items:center; gap:5px; flex-wrap:wrap; }
+  .step{ display:flex; align-items:center; gap:6px; padding:5px 11px; border-radius:var(--r-pill); font-size:11.5px; font-weight:600; background:var(--surface-3); color:var(--text-faint); }
+  .step.done{ background:var(--success-soft); color:var(--success-ink); }
+  .step.now{ background:var(--brand); color:var(--brand-ink); }
+  .step-arrow{ color:var(--text-faint); font-size:11px; }
+
+  /* tree */
+  .tree-row{ display:flex; align-items:center; gap:9px; }
+  .tree-toggle{ width:18px; height:18px; flex:none; display:flex; align-items:center; justify-content:center; color:var(--text-faint); border-radius:4px; }
+  .tree-toggle svg{ width:10px; height:10px; transition:transform .15s ease; }
+  .tree-toggle.open svg{ transform:rotate(90deg); }
+  .tree-toggle.leaf{ visibility:hidden; }
+  .type-tag{ font-size:10.5px; padding:2px 8px; border-radius:var(--r-pill); background:var(--surface-3); color:var(--text-muted); font-weight:600; }
+
+  /* charts */
+  .chart-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); padding:20px 22px; }
+  .chart-head{ display:flex; align-items:center; justify-content:space-between; gap:12px; margin-block-end:16px; flex-wrap:wrap; }
+  .range-toggle{ display:flex; gap:2px; background:var(--surface-2); border-radius:var(--r-md); padding:3px; border:1px solid var(--border); }
+  .range-toggle button{ border:none; background:none; padding:6px 12px; border-radius:6px; font-size:11.5px; font-weight:600; color:var(--text-muted); }
+  .range-toggle button.active{ background:var(--surface); color:var(--text); box-shadow:var(--shadow-1); }
+  .legend-row{ display:flex; gap:18px; flex-wrap:wrap; margin-block-start:12px; }
+  .legend-item{ display:flex; align-items:center; gap:7px; font-size:11.5px; color:var(--text-muted); font-weight:500; }
+  .legend-item .sw{ width:10px; height:10px; border-radius:3px; }
+  .donut-wrap{ display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+  .donut{ width:152px; height:152px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; position:relative; }
+  .donut::before{ content:''; position:absolute; inset:21px; border-radius:50%; background:var(--surface); }
+  .donut-center{ position:relative; z-index:1; text-align:center; }
+  .donut-center b{ display:block; font-size:18px; font-family:var(--font-display); }
+  .donut-center span{ font-size:10px; color:var(--text-faint); }
+  .donut-legend{ display:flex; flex-direction:column; gap:9px; flex:1; min-width:180px; }
+  .donut-legend .row{ display:flex; align-items:center; gap:9px; font-size:12.5px; }
+  .donut-legend .sw{ width:10px; height:10px; border-radius:3px; flex:none; }
+  .donut-legend .name{ flex:1; color:var(--text-muted); }
+  .donut-legend .pct{ font-weight:700; font-family:var(--font-mono); }
+
+  .dash-grid{ display:grid; grid-template-columns:2fr 1fr; gap:18px; }
+  .dash-row{ display:grid; grid-template-columns:1fr 1fr; gap:18px; margin-block-start:18px; }
+  .kpi-row-3{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-block:18px; }
+  .followup-item{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:13px 0; border-block-end:1px solid var(--border); }
+  .followup-item:last-child{ border:none; }
+  .followup-item .t{ font-size:13px; font-weight:600; }
+  .followup-item .s{ font-size:11.5px; color:var(--text-faint); margin-block-start:2px; }
+  .activity-item{ display:flex; gap:11px; padding:11px 0; border-block-end:1px solid var(--border); }
+  .activity-item:last-child{ border:none; }
+  .activity-dot{ width:7px; height:7px; border-radius:50%; background:var(--brand); margin-block-start:6px; flex:none; }
+  .activity-item .t{ font-size:12.5px; }
+  .activity-item .d{ font-size:11px; color:var(--text-faint); margin-block-start:2px; }
+  .aging-table th, .aging-table td{ text-align:end; padding:8px 10px; white-space:nowrap; }
+  .aging-table th:first-child, .aging-table td:first-child{ text-align:start; padding-inline-start:0; width:99%; }
+  .aging-table th:last-child, .aging-table td:last-child{ padding-inline-end:0; }
+  .aging-table th{ font-size:10.5px; color:var(--text-faint); font-weight:600; padding-block:0 8px; border-block-end:1px solid var(--border); }
+  .aging-table td{ font-size:12.5px; border-block-end:1px solid var(--border); }
+  .aging-table tr:last-child td{ border:none; }
+  .rank-list{ display:flex; flex-direction:column; }
+  .rank-row{ display:flex; align-items:center; gap:11px; padding:10px 0; border-block-end:1px solid var(--border); }
+  .rank-row:last-child{ border:none; }
+  .rank-num{ width:22px; height:22px; border-radius:6px; background:var(--brand-soft); color:var(--brand); font-size:10.5px; font-weight:700; display:flex; align-items:center; justify-content:center; flex:none; font-family:var(--font-mono); }
+  .rank-row .name{ flex:1; font-size:12.5px; font-weight:600; }
+  .rank-row .meta{ font-size:11px; color:var(--text-faint); }
+  .rank-row .val{ font-size:12.5px; font-weight:700; }
+
+  .callout{ display:flex; gap:13px; padding:15px 17px; border-radius:var(--r-lg); border:1px solid; margin-block-end:18px; align-items:flex-start; }
+  .callout svg{ width:19px; height:19px; flex:none; margin-block-start:1px; }
+  .callout.warn{ background:var(--warning-soft); border-color:color-mix(in srgb, var(--warning) 32%, transparent); color:var(--warning-ink); }
+  .callout.ok{ background:var(--success-soft); border-color:color-mix(in srgb, var(--success) 32%, transparent); color:var(--success-ink); }
+  .callout .title{ font-size:13px; font-weight:700; }
+  .callout .desc{ font-size:12.5px; margin-block-start:3px; opacity:.92; }
+  .callout .action{ margin-inline-start:auto; align-self:center; }
+
+  .period-badge{ font-size:9.5px; padding:2px 8px; border-radius:var(--r-pill); background:var(--info-soft); color:var(--info-ink); font-weight:700; margin-inline-start:8px; }
+
+  /* toggle switch */
+  .switch{ width:38px; height:22px; border-radius:var(--r-pill); background:var(--border-strong); position:relative; flex:none; transition:background .18s ease; cursor:pointer; }
+  .switch .knob{ position:absolute; top:2px; inset-inline-start:2px; width:18px; height:18px; border-radius:50%; background:#fff; box-shadow:var(--shadow-1); transition:inset-inline-start .18s ease; }
+  .switch.on{ background:var(--brand); }
+  .switch.on .knob{ inset-inline-start:18px; }
+
+  /* reconciliation cards */
+  .recon-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:16px; }
+  .recon-card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); padding:18px 20px; }
+  .recon-card-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-block-end:14px; }
+  .recon-card-head .t{ font-size:13.5px; font-weight:700; font-family:var(--font-display); }
+  .recon-card-head .s{ font-size:11px; color:var(--text-faint); margin-block-start:2px; }
+  .recon-lines{ display:flex; flex-direction:column; gap:9px; }
+  .recon-line{ display:flex; align-items:center; justify-content:space-between; gap:10px; font-size:12.5px; }
+  .recon-line .k{ color:var(--text-muted); }
+  .recon-line .v{ font-weight:600; }
+  .recon-line.diff{ border-block-start:1px solid var(--border); padding-block-start:9px; margin-block-start:2px; }
+  .recon-line.diff .v{ color:var(--success-ink); }
+
+  /* modal */
+  .modal-wrap{ position:fixed; inset:0; z-index:80; display:none; align-items:flex-start; justify-content:center; padding:9vh 16px 16px; }
+  .modal-wrap.open{ display:flex; }
+  .modal-overlay{ position:fixed; inset:0; background:rgba(8,18,14,.5); backdrop-filter:blur(2px); }
+  .modal{ position:relative; width:660px; max-width:100%; background:var(--surface); border-radius:var(--r-lg); border:1px solid var(--border); box-shadow:var(--shadow-2); max-height:82vh; overflow:hidden; display:flex; flex-direction:column; }
+  .modal-head{ padding:17px 20px; border-block-end:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; }
+  .modal-head h3{ font-size:15.5px; }
+  .modal-body{ padding:18px 20px; overflow-y:auto; }
+  .modal-foot{ padding:15px 20px; border-block-start:1px solid var(--border); display:flex; justify-content:flex-end; gap:8px; background:var(--surface-2); }
+
+  .cmdk-input{ display:flex; align-items:center; gap:11px; padding:15px 19px; border-block-end:1px solid var(--border); }
+  .cmdk-input svg{ width:17px; height:17px; color:var(--text-faint); }
+  .cmdk-input input{ flex:1; border:none; outline:none; background:none; font-size:15px; }
+  .cmdk-list{ max-height:360px; overflow-y:auto; padding:8px; }
+  .cmdk-group-title{ font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--text-faint); font-weight:700; padding:9px 11px 5px; }
+  .cmdk-item{ display:flex; align-items:center; gap:11px; padding:10px 11px; border-radius:var(--r-md); font-size:13.5px; }
+  .cmdk-item:hover, .cmdk-item.hi{ background:var(--brand-soft); color:var(--brand); }
+  .cmdk-item svg{ width:15px; height:15px; color:var(--text-faint); flex:none; }
+  .cmdk-item .tag{ margin-inline-start:auto; font-size:10px; color:var(--text-faint); }
+
+  .field{ display:flex; flex-direction:column; gap:6px; margin-block-end:13px; }
+  .field label{ font-size:12px; font-weight:600; color:var(--text-muted); }
+  .field input, .field select{ padding:9px 11px; border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); font-size:13px; transition:border-color .15s; }
+  .field input:focus, .field select:focus{ border-color:var(--brand); outline:none; }
+  .field-row{ display:grid; grid-template-columns:1fr 1fr; gap:13px; }
+
+  .empty-state{ text-align:center; padding:60px 20px; color:var(--text-muted); }
+  .empty-state svg{ width:44px; height:44px; color:var(--text-faint); margin-block-end:14px; }
+  .empty-state h3{ font-size:15px; color:var(--text); margin-block-end:6px; }
+  .empty-state p{ font-size:13px; max-width:380px; margin-inline:auto; }
+
+  /* ============ login ============ */
+  .login-screen{ min-height:100vh; display:grid; grid-template-columns:1.05fr .95fr; }
+  .login-brand{ background:linear-gradient(155deg,var(--brand),var(--brand-strong)); color:#EAF3F0; display:flex; flex-direction:column; justify-content:center; align-items:center; gap:24px; padding:48px; position:relative; overflow:hidden; }
+  .login-brand::after{ content:''; position:absolute; inset:0; background:
+      radial-gradient(680px 340px at 22% 12%, rgba(255,255,255,.06), transparent 60%),
+      radial-gradient(560px 300px at 82% 92%, rgba(214,173,95,.14), transparent 60%);
+  }
+  .login-beam{ width:158px; height:110px; position:relative; z-index:1; }
+  .login-brand h1{ font-size:34px; letter-spacing:0; position:relative; z-index:1; color:#fff; }
+  .login-brand .tag{ font-size:13.5px; line-height:1.7; color:#C9DED7; text-align:center; max-width:300px; position:relative; z-index:1; }
+  .login-brand .lb-badge{ position:relative; z-index:1; font-family:var(--font-lat); font-size:10.5px; letter-spacing:2px; text-transform:uppercase; color:#A9Cabf; color:color-mix(in srgb,#EAF3F0 66%, transparent); }
+  .login-form-side{ display:flex; align-items:center; justify-content:center; padding:48px; background:var(--surface); }
+  .login-card{ width:100%; max-width:372px; }
+  .tenant-chip{ display:inline-flex; align-items:center; gap:9px; padding:7px 13px; border-radius:var(--r-pill); background:var(--brand-soft); border:1px solid color-mix(in srgb,var(--brand) 22%, transparent); font-size:12px; color:var(--brand); margin-block-end:22px; font-weight:600; }
+  .tenant-chip svg{ width:14px; height:14px; }
+  .tenant-chip b{ color:var(--brand); font-weight:700; }
+  .tenant-chip .ent{ font-family:var(--font-lat); font-size:9.5px; letter-spacing:1.2px; color:var(--accent-strong); background:var(--accent-soft); padding:2px 7px; border-radius:var(--r-pill); }
+  .login-card h2{ font-size:22px; margin-block-end:6px; }
+  .pin-row{ display:flex; gap:10px; direction:ltr; }
+  .pin-row input{ width:100%; text-align:center; font-family:var(--font-mono); font-size:20px; padding:12px 0; border:1px solid var(--border); border-radius:var(--r-md); background:var(--surface); }
+  .pin-row input:focus{ border-color:var(--brand); outline:none; }
+  .login-foot{ margin-block-start:24px; padding-block-start:18px; border-block-start:1px solid var(--border); font-size:11px; color:var(--text-faint); display:flex; justify-content:space-between; gap:10px; }
+
+  @media (max-width: 1080px){
+    .dash-grid{ grid-template-columns:1fr; }
+  }
+  @media (max-width: 900px){
+    .sidebar{ display:none; }
+    .stat-strip, .grid-2, .dash-row, .kpi-row-3{ grid-template-columns:1fr; }
+    .login-screen{ grid-template-columns:1fr; }
+    .login-brand{ display:none; }
+    main{ padding:22px 18px 60px; }
+  }
+</style>
+
+<div id="app" dir="rtl" lang="ar">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <circle cx="24" cy="15" r="2.4" fill="currentColor"/>
+          <path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M16 34 H32 L29 41 H19 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <div>
+        <div class="brand-name">ميزان</div>
+        <div class="brand-sub lat">Mezan ERP</div>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-link top active" data-view="dashboard" href="#">
+        <span class="dot"></span> لوحة التحكم
+      </a>
+
+      <div class="nav-group" data-group="sales">
+        <button class="nav-group-btn"><span>المبيعات</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="العملاء" href="#"><span class="dot"></span> العملاء<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="عروض الأسعار" href="#"><span class="dot"></span> عروض الأسعار<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="pattern-list" href="#"><span class="dot"></span> فواتير المبيعات<span class="nav-tag pattern">نمط</span></a>
+          <a class="nav-link" data-view="pattern-detail" href="#"><span class="dot"></span> تفاصيل مستند<span class="nav-tag pattern">نمط</span></a>
+          <a class="nav-link" data-view="soon" data-label="مرتجعات المبيعات" href="#"><span class="dot"></span> مرتجعات المبيعات<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="purchases">
+        <button class="nav-group-btn"><span>المشتريات</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="الموردون" href="#"><span class="dot"></span> الموردون<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="أوامر الشراء" href="#"><span class="dot"></span> أوامر الشراء<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="فواتير المشتريات" href="#"><span class="dot"></span> فواتير المشتريات<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="inventory">
+        <button class="nav-group-btn"><span>المخزون</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="الأصناف" href="#"><span class="dot"></span> الأصناف<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="أرصدة المخزون" href="#"><span class="dot"></span> أرصدة المخزون<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="تحويلات المخزون" href="#"><span class="dot"></span> تحويلات المخزون<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="accounting">
+        <button class="nav-group-btn"><span>المحاسبة</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="coa" href="#"><span class="dot"></span> دليل الحسابات</a>
+          <a class="nav-link" data-view="cost-centers" href="#"><span class="dot"></span> مراكز التكلفة</a>
+          <a class="nav-link" data-view="cost-center-pl" href="#"><span class="dot"></span> أرباح مراكز التكلفة</a>
+          <a class="nav-link" data-view="journals-list" href="#"><span class="dot"></span> القيود المحاسبية</a>
+          <a class="nav-link" data-view="fiscal-periods" href="#"><span class="dot"></span> الفترات المالية</a>
+          <a class="nav-link" data-view="taxes" href="#"><span class="dot"></span> الضرائب</a>
+          <a class="nav-link" data-view="exchange-rates" href="#"><span class="dot"></span> أسعار الصرف</a>
+          <a class="nav-link" data-view="revaluation" href="#"><span class="dot"></span> إعادة تقييم العملات</a>
+          <a class="nav-link" data-view="eta" href="#"><span class="dot"></span> الفاتورة الإلكترونية</a>
+          <a class="nav-link" data-view="reconciliation" href="#"><span class="dot"></span> مطابقة الأرصدة</a>
+          <a class="nav-link" data-view="reports" href="#"><span class="dot"></span> التقارير المالية</a>
+        </div>
+      </div>
+
+      <div class="nav-group" data-group="treasury">
+        <button class="nav-group-btn"><span>الخزينة</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="حسابات الخزينة" href="#"><span class="dot"></span> حسابات الخزينة<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="السندات النقدية" href="#"><span class="dot"></span> السندات النقدية<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+
+      <div class="nav-group collapsed" data-group="reports">
+        <button class="nav-group-btn"><span>التقارير</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="تقارير المبيعات" href="#"><span class="dot"></span> تقارير المبيعات<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="تقارير المخزون" href="#"><span class="dot"></span> تقارير المخزون<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+
+      <div class="nav-group collapsed" data-group="settings">
+        <button class="nav-group-btn"><span>الإعدادات</span><svg viewBox="0 0 12 12" fill="none"><path d="M3 4.5 6 8l3-3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+        <div class="nav-list">
+          <a class="nav-link" data-view="soon" data-label="عام" href="#"><span class="dot"></span> عام<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="المستخدمون" href="#"><span class="dot"></span> المستخدمون<span class="nav-tag soon">قريباً</span></a>
+          <a class="nav-link" data-view="soon" data-label="الأدوار والصلاحيات" href="#"><span class="dot"></span> الأدوار والصلاحيات<span class="nav-tag soon">قريباً</span></a>
+        </div>
+      </div>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="avatar">م.ش</div>
+      <div>
+        <div class="who">محمد الشهابي</div>
+        <div class="role">مدير المنشأة · <span class="lat">Cyag</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <header class="topbar">
+      <button class="search-btn" id="openCmdk">
+        <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <span>بحث عن صفحة، عميل، فاتورة، أو إجراء…</span>
+        <span class="kbd lat">Ctrl K</span>
+      </button>
+      <div class="topbar-spacer"></div>
+      <div class="scope-chip">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>
+        الفرع الرئيسي
+      </div>
+      <button class="icon-btn" id="themeToggle" title="تبديل المظهر" aria-label="تبديل المظهر">
+        <svg id="themeIconSun" viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="3.6" stroke="currentColor" stroke-width="1.5"/><path d="M10 2v2M10 16v2M4 4l1.4 1.4M14.6 14.6 16 16M2 10h2M16 10h2M4 16l1.4-1.4M14.6 5.4 16 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        <svg id="themeIconMoon" viewBox="0 0 20 20" fill="none" style="display:none"><path d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </button>
+      <button class="icon-btn" aria-label="الإشعارات">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span class="badge-dot"></span>
+      </button>
+      <div class="user-chip">
+        <div class="avatar" style="width:30px;height:30px;font-size:11px;">م.ش</div>
+        <div>
+          <div class="who">محمد الشهابي</div>
+          <div class="role lat">Company Admin</div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+
+      <!-- ================= DASHBOARD ================= -->
+      <section class="view active" data-view="dashboard">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Overview</div>
+            <h1 class="page-title">مرحباً، محمد · طاب يومك</h1>
+            <div class="page-desc">الجمعة، ٢١ أغسطس ٢٠٢٦ · جميع الأرقام على مستوى الشركة، بغض النظر عن نطاق الفرع المحدد أعلاه</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn sm">فاتورة جديدة</button>
+            <button class="btn sm">سند نقدي</button>
+            <button class="btn sm primary">استلام بضاعة</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card">
+            <div class="label">إجمالي الإيرادات · هذا الشهر</div>
+            <div class="value"><span class="num">86,240.00</span> <span class="unit">ج.م</span></div>
+            <div class="sub up">▲ <span class="num">12.4%</span> مقارنة بالشهر الماضي</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">المصروفات التشغيلية</div>
+            <div class="value"><span class="num">61,930.00</span> <span class="unit">ج.م</span></div>
+            <div class="sub down">▲ <span class="num">4.1%</span> مقارنة بالشهر الماضي</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">صافي الربح</div>
+            <div class="value" style="color:var(--danger-ink)"><span class="num">-18,087.50</span> <span class="unit">ج.م</span></div>
+            <div class="sub down">هامش الربح <span class="num">-643.3%</span></div>
+          </div>
+          <div class="stat-card">
+            <div class="label">السيولة النقدية</div>
+            <div class="value"><span class="num">338.00</span> <span class="unit">ج.م</span></div>
+            <div class="sub">صناديق وبنوك نشطة</div>
+          </div>
+        </div>
+
+        <div class="dash-grid">
+          <div class="chart-card">
+            <div class="chart-head">
+              <div>
+                <h3 class="card-title">أداء الفترة</h3>
+                <div class="card-hint">الخط المتقطع = الشهر الحالي (جزئي)</div>
+              </div>
+              <div class="range-toggle">
+                <button>3 أشهر</button><button class="active">6 أشهر</button><button>12 شهر</button>
+              </div>
+            </div>
+            <svg viewBox="0 0 560 210" width="100%" height="210" style="overflow:visible" preserveAspectRatio="none">
+              <line x1="0" y1="40" x2="560" y2="40" stroke="var(--border)" stroke-width="1"/>
+              <line x1="0" y1="90" x2="560" y2="90" stroke="var(--border)" stroke-width="1"/>
+              <line x1="0" y1="140" x2="560" y2="140" stroke="var(--border)" stroke-width="1"/>
+              <line x1="0" y1="190" x2="560" y2="190" stroke="var(--border)" stroke-width="1"/>
+              <path d="M0,120 L93,108 L186,96 L280,82 L373,70 L466,60 L560,44" fill="none" stroke="var(--chart-1)" stroke-opacity=".08" stroke-width="0"/>
+              <path d="M0,120 L93,108 L186,96 L280,82 L373,70 L466,60" fill="none" stroke="var(--chart-1)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M466,60 L560,44" fill="none" stroke="var(--chart-1)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 5"/>
+              <path d="M0,150 L93,146 L186,138 L280,130 L373,120 L466,108" fill="none" stroke="var(--chart-2)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M466,108 L560,132" fill="none" stroke="var(--chart-2)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 5"/>
+              <path d="M0,175 L93,172 L186,166 L280,150 L373,138 L466,150" fill="none" stroke="var(--chart-3)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M466,150 L560,182" fill="none" stroke="var(--chart-3)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="5 5"/>
+              <circle cx="466" cy="60" r="4" fill="var(--chart-1)"><title>الإيرادات · يوليو · 79,400 ج.م</title></circle>
+              <circle cx="466" cy="108" r="4" fill="var(--chart-2)"><title>المصروفات · يوليو · 58,300 ج.م</title></circle>
+              <circle cx="466" cy="150" r="4" fill="var(--chart-3)"><title>صافي الربح · يوليو · 21,100 ج.م</title></circle>
+              <circle cx="560" cy="44" r="4" fill="var(--chart-1)" stroke="var(--surface)" stroke-width="2"><title>الإيرادات · أغسطس (جزئي) · 86,240 ج.م</title></circle>
+              <circle cx="560" cy="132" r="4" fill="var(--chart-2)" stroke="var(--surface)" stroke-width="2"><title>المصروفات · أغسطس (جزئي) · 61,930 ج.م</title></circle>
+              <circle cx="560" cy="182" r="4" fill="var(--chart-3)" stroke="var(--surface)" stroke-width="2"><title>صافي الربح · أغسطس (جزئي) · -18,087.50 ج.م</title></circle>
+            </svg>
+            <div class="legend-row">
+              <div class="legend-item"><span class="sw" style="background:var(--chart-1)"></span>الإيرادات</div>
+              <div class="legend-item"><span class="sw" style="background:var(--chart-2)"></span>المصروفات</div>
+              <div class="legend-item"><span class="sw" style="background:var(--chart-3)"></span>صافي الربح</div>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <h3 class="card-title">يحتاج متابعة</h3>
+            <div class="card-hint" style="margin-block-end:8px;">أولويات اليوم</div>
+            <div class="followup-item">
+              <div><div class="t">فاتورتان متأخرتان</div><div class="s"><span class="num">939.30</span> ج.م</div></div>
+              <button class="btn sm primary">تحصيل الآن</button>
+            </div>
+            <div class="followup-item">
+              <div><div class="t">ضريبة مستحقة للسداد</div><div class="s"><span class="num">308.70</span> ج.م</div></div>
+              <button class="btn sm">سداد للمصلحة</button>
+            </div>
+            <div class="followup-item">
+              <div><div class="t">٣ أصناف تحت حد الطلب</div><div class="s">مخزون منخفض</div></div>
+              <button class="btn sm">مراجعة</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="kpi-row-3">
+          <div class="stat-card"><div class="label">مبالغ لدى العملاء</div><div class="value"><span class="num">2,782.30</span> <span class="unit">ج.م</span></div></div>
+          <div class="stat-card"><div class="label">مستحقات الموردين</div><div class="value"><span class="num">110.00</span> <span class="unit">ج.م</span></div></div>
+          <div class="stat-card"><div class="label">قيمة المخزون</div><div class="value"><span class="num">604,950.90</span> <span class="unit">ج.م</span></div></div>
+        </div>
+
+        <div class="dash-row">
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:12px;">المبالغ المتأخرة</h3>
+            <table class="aging-table">
+              <thead><tr><th>الجهة</th><th>1-30 يوم</th><th>31-60 يوم</th><th>61-90 يوم</th><th>+90 يوم</th></tr></thead>
+              <tbody>
+                <tr><td>العملاء</td><td class="num">612.30</td><td class="num">227.00</td><td class="num">100.00</td><td class="num">0.00</td></tr>
+                <tr><td>الموردون</td><td class="num">110.00</td><td class="num">0.00</td><td class="num">0.00</td><td class="num">0.00</td></tr>
+              </tbody>
+            </table>
+            <h3 class="card-title" style="margin-block:18px 10px;">النشاط الأخير</h3>
+            <div class="activity-item"><span class="activity-dot"></span><div><div class="t">اكتمل أمر التصنيع <span class="num">WO-0010</span> — الكمية المنتجة: <span class="num">2</span></div><div class="d">قبل 17 دقيقة</div></div></div>
+            <div class="activity-item"><span class="activity-dot"></span><div><div class="t">تفعيل منتج قابل للتهيئة <span class="lat">WIRE-CU</span></div><div class="d">قبل 3 ساعات</div></div></div>
+            <div class="activity-item"><span class="activity-dot"></span><div><div class="t">تحصيل دفعة من عميل — شركة الأمل للتجارة</div><div class="d">أمس</div></div></div>
+          </div>
+
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:12px;">توزيع المصروفات</h3>
+            <div class="donut-wrap">
+              <div class="donut" style="background:conic-gradient(var(--chart-1) 0 95%, var(--chart-3) 95% 100%);">
+                <div class="donut-center"><b class="num">21.4k</b><span>الإجمالي (ج.م)</span></div>
+              </div>
+              <div class="donut-legend">
+                <div class="row"><span class="sw" style="background:var(--chart-1)"></span><span class="name">تكلفة البضاعة المباعة</span><span class="pct num">95%</span></div>
+                <div class="row"><span class="sw" style="background:var(--chart-3)"></span><span class="name">هالك التصنيع</span><span class="pct num">5%</span></div>
+                <div class="row"><span class="sw" style="background:var(--chart-2)"></span><span class="name">خسارة المخزون / النقص</span><span class="pct num">0%</span></div>
+                <div class="row"><span class="sw" style="background:var(--chart-4)"></span><span class="name">خدمات خارجية ومقاولات</span><span class="pct num">0%</span></div>
+              </div>
+            </div>
+            <h3 class="card-title" style="margin-block:18px 8px;">الأصناف الأعلى مبيعاً</h3>
+            <div class="rank-list">
+              <div class="rank-row"><span class="rank-num">1</span><span class="name">سلك نحاس 2.5مم</span><span class="meta num">420 وحدة</span><span class="val num">18,900.00</span></div>
+              <div class="rank-row"><span class="rank-num">2</span><span class="name">قاطع كهرباء 32A</span><span class="meta num">310 وحدة</span><span class="val num">14,260.00</span></div>
+              <div class="rank-row"><span class="rank-num">3</span><span class="name">لوحة توزيع 12 خط</span><span class="meta num">96 وحدة</span><span class="val num">9,880.00</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PATTERN: DOCUMENT LIST (Sales Invoices) ================= -->
+      <section class="view" data-view="pattern-list">
+        <span class="badge-pattern"><svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M5 6h6M5 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> نمط قابل لإعادة الاستخدام — DocumentList، يُطبَّق على نحو ٤٠ شاشة</span>
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Sales · Invoices</div>
+            <h1 class="page-title">فواتير المبيعات</h1>
+            <div class="page-desc">مثال حي على نمط قائمة المستندات: شريط مؤشرات، رقاقات حالة، بحث وتصفية، جدول قابل للفرز، وترقيم صفحات</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">طباعة</button>
+            <button class="btn primary">فاتورة جديدة</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي الفواتير</div><div class="value"><span class="num">148</span></div></div>
+          <div class="stat-card"><div class="label">مؤكدة</div><div class="value"><span class="num">131</span></div></div>
+          <div class="stat-card"><div class="label">مدفوعة بالكامل</div><div class="value"><span class="num">94</span></div></div>
+          <div class="stat-card"><div class="label">متأخرة</div><div class="value" style="color:var(--danger-ink)"><span class="num">2</span> <span class="unit">· 939.30 ج.م</span></div></div>
+        </div>
+
+        <div class="chip-row" id="invoiceChips">
+          <button class="chip active" data-status="all">الكل <span class="n">148</span></button>
+          <button class="chip" data-status="draft">مسودة <span class="n">6</span></button>
+          <button class="chip" data-status="confirmed">مؤكد <span class="n">35</span></button>
+          <button class="chip" data-status="partial">مدفوع جزئياً <span class="n">11</span></button>
+          <button class="chip" data-status="paid">مدفوع <span class="n">94</span></button>
+          <button class="chip" data-status="cancelled">ملغي <span class="n">2</span></button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="بحث برقم الفاتورة أو اسم العميل…">
+          </div>
+          <button class="btn">تصفية النتائج
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4.5 8h7M7 12h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+          </button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="invoiceTable">
+            <thead>
+              <tr>
+                <th class="sortable">رقم الفاتورة</th>
+                <th class="sortable">التاريخ</th>
+                <th>العميل</th>
+                <th class="sortable">تاريخ الاستحقاق</th>
+                <th>الحالة</th>
+                <th class="num sortable">الإجمالي</th>
+                <th class="num">المتبقي</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="invoiceBody"></tbody>
+          </table>
+          <div class="pager">
+            <span>عرض <span class="num">1–20</span> من <span class="num">148</span> فاتورة</span>
+            <div class="pager-pages">
+              <button class="active">1</button><button>2</button><button>3</button><button>…</button><button>8</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= PATTERN: DOCUMENT DETAIL ================= -->
+      <section class="view" data-view="pattern-detail">
+        <span class="badge-pattern"><svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M5 6h6M5 9h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> نمط قابل لإعادة الاستخدام — DocumentDetail، مع لوحة تأثيرات المستند ولوحة جانبية</span>
+
+        <div class="doc-head">
+          <div>
+            <div class="doc-title-row">
+              <h1>فاتورة مبيعات <span class="num">INV-000123</span></h1>
+              <span class="pill confirmed">مؤكد</span>
+            </div>
+            <div class="page-desc" style="margin-top:7px;">شركة الأمل للتجارة · أنشئت بواسطة محمد الشهابي · <span class="num">10/08/2026</span></div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">مشاركة</button>
+            <button class="btn">طباعة</button>
+            <button class="btn primary">تحصيل دفعة</button>
+            <button class="kebab" style="border:1px solid var(--border-strong);border-radius:var(--r-md);width:37px;height:37px;">⋮</button>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-cell"><div class="label">العميل</div><div class="value">شركة الأمل للتجارة</div></div>
+          <div class="summary-cell"><div class="label">تاريخ الفاتورة</div><div class="value num">10/08/2026</div></div>
+          <div class="summary-cell"><div class="label">تاريخ الاستحقاق</div><div class="value num">10/09/2026</div></div>
+          <div class="summary-cell"><div class="label">الإجمالي</div><div class="value num">1,150.00</div></div>
+          <div class="summary-cell"><div class="label">المدفوع</div><div class="value num" style="color:var(--success-ink)">700.00</div></div>
+          <div class="summary-cell"><div class="label">المتبقي</div><div class="value num" style="color:var(--danger-ink)">450.00</div></div>
+        </div>
+
+        <div class="effects-panel">
+          <span class="glyph"><svg viewBox="0 0 20 20" fill="none"><path d="M10 2 3 5.5v5c0 4 3 6.6 7 7.5 4-.9 7-3.5 7-7.5v-5L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m7.3 10 2 2 3.4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div>
+            <h3>تأثيرات هذا المستند</h3>
+            <ul>
+              <li>تم خصم الكمية من مستودع الفرع الرئيسي — <b>3 أصناف</b></li>
+              <li>تم تسجيل قيد محاسبي وزيادة رصيد العميل المدين بمبلغ <b class="num">1,150.00 ج.م</b></li>
+              <li>لا يتم التحصيل تلقائياً — استخدم زر «تحصيل دفعة» لتسجيل السداد وربطه بالفاتورة</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <div class="tabs">
+              <button class="tab-btn active" data-tab="lines">بنود الفاتورة</button>
+              <button class="tab-btn" data-tab="je">القيود المحاسبية</button>
+              <button class="tab-btn" data-tab="attach">المرفقات</button>
+              <button class="tab-btn" data-tab="audit">سجل المراجعة</button>
+            </div>
+            <div class="tab-panel active" data-tab="lines">
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>الصنف</th><th class="num">الكمية</th><th class="num">السعر</th><th class="num">الضريبة</th><th class="num">الإجمالي</th></tr></thead>
+                  <tbody>
+                    <tr><td class="cell-main">سلك نحاس 2.5مم <div class="cell-sub lat">WIRE-CU</div></td><td class="num">20</td><td class="num">45.00</td><td class="num">126.00</td><td class="num">1,026.00</td></tr>
+                    <tr><td class="cell-main">قاطع كهرباء 32A</td><td class="num">2</td><td class="num">55.00</td><td class="num">15.40</td><td class="num">125.40</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab="je">
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>رقم القيد</th><th>الحساب</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>
+                  <tbody>
+                    <tr class="clickable" id="openJeFromInvoice"><td class="cell-main num">JE-000079</td><td>1100 — ذمم مدينة</td><td class="num">1,150.00</td><td class="num">0.00</td></tr>
+                    <tr><td></td><td>4000 — الإيرادات</td><td class="num">0.00</td><td class="num">1,010.60</td></tr>
+                    <tr><td></td><td>2200 — ضريبة القيمة المضافة مستحقة</td><td class="num">0.00</td><td class="num">139.40</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab="attach"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><path d="M14 3v5h5M7 3h8l5 5v13H7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><p>لا توجد مرفقات على هذا المستند بعد</p></div></div>
+            <div class="tab-panel" data-tab="audit"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><path d="M12 7v5l3 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg><p>سجل المراجعة يعرض كل تعديل على المستند بالتاريخ والمستخدم</p></div></div>
+          </div>
+
+          <div class="card card-pad" id="sidePanelDemo">
+            <div class="eyebrow" style="margin-block-end:8px;">SidePanel</div>
+            <h3 class="card-title" style="margin-block-end:10px;">لوحة جانبية — نقرة على العميل</h3>
+            <p style="font-size:12.5px;color:var(--text-muted);margin-block-end:14px;">انقر على اسم العميل أو صف القيد لفتح لوحة الانزلاق الجانبية للتعمق دون مغادرة الشاشة.</p>
+            <button class="btn" id="openCustomerPanel" style="width:100%;justify-content:center;">فتح لوحة العميل ⟵</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= CHART OF ACCOUNTS ================= -->
+      <section class="view" data-view="coa">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Chart of Accounts</div>
+            <h1 class="page-title">دليل الحسابات</h1>
+            <div class="page-desc">شجرة الحسابات الرئيسية والتفصيلية — انقر على أي حساب لعرض الرصيد والحركات</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn" id="expandAllBtn">توسيع الكل</button>
+            <button class="btn primary">إضافة حساب</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي الحسابات</div><div class="value"><span class="num">78</span></div></div>
+          <div class="stat-card"><div class="label">حسابات نشطة</div><div class="value"><span class="num">78</span></div></div>
+          <div class="stat-card"><div class="label">حسابات رئيسية</div><div class="value"><span class="num">9</span></div></div>
+          <div class="stat-card"><div class="label">حسابات تفصيلية</div><div class="value"><span class="num">69</span></div></div>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="بحث بالاسم أو الرقم…">
+          </div>
+          <button class="btn">تصفية النتائج</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="coaTable">
+            <thead><tr><th>اسم الحساب</th><th>النوع</th><th>الطبيعة</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="coaBody"></tbody>
+          </table>
+          <div class="pager"><span>عرض <span class="num">14</span> من <span class="num">78</span> حساب</span></div>
+        </div>
+
+        <div class="callout ok" style="margin-block-start:18px;">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v5M10 14h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <div><div class="title">دليل أرقام الحسابات</div><div class="desc">1xxx أصول · 2xxx التزامات · 3xxx حقوق ملكية · 4xxx إيرادات · 5xxx مصروفات — راعِ هذا النطاق عند إنشاء حساب جديد</div></div>
+        </div>
+      </section>
+
+      <!-- ================= JOURNAL ENTRIES — LIST ================= -->
+      <section class="view" data-view="journals-list">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Journal Entries</div>
+            <h1 class="page-title">القيود المحاسبية</h1>
+            <div class="page-desc">الدفتر المركزي لكل القيود — التلقائية من المستندات، واليدوية</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">طباعة القيود</button>
+            <button class="btn primary" id="newJeBtn">قيد جديد</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي القيود</div><div class="value"><span class="num">78</span></div></div>
+          <div class="stat-card"><div class="label">مسودة</div><div class="value"><span class="num">0</span></div></div>
+          <div class="stat-card"><div class="label">مرحل</div><div class="value" style="color:var(--success-ink)"><span class="num">78</span></div></div>
+          <div class="stat-card"><div class="label">معكوس</div><div class="value"><span class="num">0</span></div></div>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active">الكل <span class="n">78</span></button>
+          <button class="chip">مسودة <span class="n">0</span></button>
+          <button class="chip">مرحل <span class="n">78</span></button>
+          <button class="chip">معكوس <span class="n">0</span></button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="بحث برقم القيد…">
+          </div>
+          <button class="btn">تصفية النتائج</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th class="sortable">رقم القيد</th><th class="sortable">التاريخ</th><th class="sortable">الوحدة المصدر</th><th class="num sortable">إجمالي المدين</th><th>بواسطة</th><th></th></tr></thead>
+            <tbody id="jeListBody"></tbody>
+          </table>
+          <div class="pager">
+            <span>عرض <span class="num">1–25</span> من <span class="num">78</span></span>
+            <div class="pager-pages"><button class="active">1</button><button>2</button><button>3</button><button>4</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= JOURNAL ENTRY — DETAIL ================= -->
+      <section class="view" data-view="journals-detail">
+        <div class="doc-head">
+          <div>
+            <div class="doc-title-row">
+              <h1>قيد يومية <span class="num">JE-000078</span></h1>
+              <span class="pill posted">مرحل</span>
+            </div>
+            <div style="margin-block-start:10px;">
+              <div class="stepper">
+                <span class="step done">مسودة</span><span class="step-arrow">←</span>
+                <span class="step done">بانتظار الموافقة</span><span class="step-arrow">←</span>
+                <span class="step now">مرحل</span><span class="step-arrow">←</span>
+                <span class="step">معكوس</span>
+              </div>
+            </div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">فتح في صفحة كاملة</button>
+            <button class="btn">طباعة</button>
+          </div>
+        </div>
+
+        <div class="summary-grid">
+          <div class="summary-cell"><div class="label">تاريخ القيد</div><div class="value num">21/08/2026</div></div>
+          <div class="summary-cell"><div class="label">المصدر</div><div class="value">سند نقدي · <span class="num">CV-000009</span></div></div>
+          <div class="summary-cell"><div class="label">تاريخ الترحيل</div><div class="value num">21/08/2026</div></div>
+          <div class="summary-cell"><div class="label">عدد البنود</div><div class="value num">2</div></div>
+          <div class="summary-cell"><div class="label">الوحدة</div><div class="value">الخزينة</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <div class="table-wrap">
+              <table class="data-table je-lines">
+                <thead><tr><th>الحساب</th><th>الوصف</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>
+                <tbody>
+                  <tr><td class="cell-main">1300-1 — صندوق نقدي الفرع الرئيسي</td><td>تحصيل من عميل</td><td class="num">100.00</td><td class="num">0.00</td></tr>
+                  <tr><td class="cell-main">4900 — إيرادات أخرى</td><td>فائض صندوق</td><td class="num">0.00</td><td class="num">100.00</td></tr>
+                  <tr class="je-total-row"><td colspan="2">الإجمالي</td><td class="num">100.00</td><td class="num">100.00</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="tabs" style="margin-block-start:18px;">
+              <button class="tab-btn active">بنود القيد</button>
+              <button class="tab-btn">المرفقات</button>
+              <button class="tab-btn">سجل المراجعة</button>
+            </div>
+          </div>
+
+          <div class="card card-pad" style="text-align:center;">
+            <div class="eyebrow" style="margin-block-end:12px;">فحص التوازن</div>
+            <div class="beam-wrap">
+              <svg class="beam-svg" viewBox="0 0 118 80">
+                <line x1="59" y1="24" x2="59" y2="70" stroke="var(--text-faint)" stroke-width="3" stroke-linecap="round"/>
+                <path d="M43 70 L75 70 L69 77 L49 77 Z" fill="var(--text-faint)"/>
+                <g class="beam-group beam-glow">
+                  <line x1="17" y1="24" x2="101" y2="24" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+                  <circle cx="59" cy="24" r="4.5" fill="var(--accent)"/>
+                  <line x1="17" y1="24" x2="17" y2="43" stroke="var(--accent)" stroke-width="1.6"/>
+                  <line x1="101" y1="24" x2="101" y2="43" stroke="var(--accent)" stroke-width="1.6"/>
+                  <path d="M7 43 a10 7.5 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                  <path d="M91 43 a10 7.5 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                </g>
+              </svg>
+              <div class="beam-status balanced">✓ متوازن</div>
+            </div>
+            <p style="font-size:11.5px;color:var(--text-muted);margin-block-start:12px;">إجمالي المدين = إجمالي الدائن. القيد لا يُرحَّل إلا عند توازن الميزان.</p>
+            <hr style="border:none;border-block-start:1px solid var(--border);margin:18px 0;">
+            <div class="kv-list" style="text-align:start">
+              <div class="kv-row"><span class="k">إجمالي المدين</span><span class="v num">100.00 ج.م</span></div>
+              <div class="kv-row"><span class="k">إجمالي الدائن</span><span class="v num">100.00 ج.م</span></div>
+              <div class="kv-row"><span class="k">الفرق</span><span class="v num" style="color:var(--success-ink)">0.00 ج.م</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FINANCIAL REPORTS ================= -->
+      <section class="view" data-view="reports">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Financial Reports</div>
+            <h1 class="page-title">التقارير المالية</h1>
+            <div class="page-desc">سبعة تقارير محاسبية أساسية — كما في ٢١/٠٨/٢٠٢٦، الفرع الرئيسي، السنة المالية ٢٠٢٦</div>
+          </div>
+          <div class="page-actions">
+            <label style="display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--text-muted);">
+              <input type="checkbox" style="accent-color:var(--brand)"> مقارنة بالعام الماضي
+            </label>
+            <button class="btn primary">تصدير<svg viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0-3-3m3 3 3-3M3 12v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+        </div>
+
+        <div class="tabs" id="reportTabs" style="flex-wrap:wrap;">
+          <button class="tab-btn active" data-rtab="tb">ميزان المراجعة</button>
+          <button class="tab-btn" data-rtab="is">قائمة الدخل</button>
+          <button class="tab-btn" data-rtab="bs">الميزانية العمومية</button>
+          <button class="tab-btn" data-rtab="cf">التدفقات النقدية</button>
+          <button class="tab-btn" data-rtab="vat">إقرار ضريبة القيمة المضافة</button>
+          <button class="tab-btn" data-rtab="gl">دفتر الأستاذ العام</button>
+          <button class="tab-btn" data-rtab="al">دفتر حساب</button>
+        </div>
+
+        <div class="tab-panel active" data-rtab="tb">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>الحساب</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>
+              <tbody id="tbBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="is">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>البند</th><th class="num">المبلغ (ج.م)</th></tr></thead>
+              <tbody id="isBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="bs">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>البند</th><th class="num">المبلغ (ج.م)</th></tr></thead>
+              <tbody id="bsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="cf">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>البند</th><th class="num">المبلغ (ج.م)</th></tr></thead>
+              <tbody id="cfBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="vat">
+          <div class="callout ok" style="margin-block-end:16px;">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v5M10 14h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <div><div class="title">فترة الإقرار: يوليو ٢٠٢٦ · الاستحقاق ١٥/٠٨/٢٠٢٦</div><div class="desc">صافي الضريبة المستحقة للسداد لمصلحة الضرائب = ضريبة المخرجات − ضريبة المدخلات</div></div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>البند</th><th class="num">الوعاء الخاضع (ج.م)</th><th class="num">الضريبة (ج.م)</th></tr></thead>
+              <tbody id="vatBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="gl">
+          <div class="card card-pad" style="margin-block-end:16px;">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <div class="field" style="margin:0;min-width:150px;"><label>من تاريخ</label><input type="text" value="01/08/2026" class="num"></div>
+              <div class="field" style="margin:0;min-width:150px;"><label>إلى تاريخ</label><input type="text" value="21/08/2026" class="num"></div>
+              <div class="field" style="margin:0;min-width:170px;"><label>الوحدة المصدر</label><select><option>الكل</option><option>الخزينة</option><option>المبيعات</option><option>التصنيع</option></select></div>
+              <button class="btn primary" style="margin-inline-start:auto;">عرض التقرير</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>الحساب</th><th>البيان</th><th class="num">مدين</th><th class="num">دائن</th><th class="num">الرصيد الجاري</th></tr></thead>
+              <tbody id="glBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="tab-panel" data-rtab="al">
+          <div class="card card-pad" style="margin-block-end:16px;">
+            <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+              <div class="field" style="margin:0;min-width:220px;"><label>الحساب</label><select><option>1100 — ذمم مدينة</option><option>1300-1 — صندوق نقدي الفرع الرئيسي</option><option>4000 — الإيرادات</option></select></div>
+              <div class="field" style="margin:0;min-width:150px;"><label>من تاريخ</label><input type="text" value="01/08/2026" class="num"></div>
+              <div class="field" style="margin:0;min-width:150px;"><label>إلى تاريخ</label><input type="text" value="21/08/2026" class="num"></div>
+              <button class="btn primary" style="margin-inline-start:auto;">عرض التقرير</button>
+            </div>
+          </div>
+          <div class="summary-grid" style="grid-template-columns:repeat(3,1fr);">
+            <div class="summary-cell"><div class="label">رصيد أول المدة</div><div class="value num">1,910.00</div></div>
+            <div class="summary-cell"><div class="label">حركة الفترة (صافي)</div><div class="value num">872.30</div></div>
+            <div class="summary-cell"><div class="label">رصيد آخر المدة</div><div class="value num" style="color:var(--brand);">2,782.30</div></div>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>المصدر</th><th>البيان</th><th class="num">مدين</th><th class="num">دائن</th><th class="num">الرصيد الجاري</th></tr></thead>
+              <tbody id="alBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= FISCAL PERIODS ================= -->
+      <section class="view" data-view="fiscal-periods">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Fiscal Periods</div>
+            <h1 class="page-title">الفترات المالية</h1>
+            <div class="page-desc">التحكم في فتح وإغلاق وإقفال الفترات الشهرية لمنع الترحيل بأثر رجعي</div>
+          </div>
+          <div class="page-actions">
+            <select style="padding:9px 12px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);font-size:13px;color:var(--text);"><option>2026</option><option>2025</option></select>
+            <button class="btn primary">إنشاء السنة التالية</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي الفترات</div><div class="value"><span class="num">24</span></div></div>
+          <div class="stat-card"><div class="label">فترات مفتوحة</div><div class="value" style="color:var(--success-ink)"><span class="num">24</span></div></div>
+          <div class="stat-card"><div class="label">فترات مغلقة</div><div class="value"><span class="num">0</span></div></div>
+          <div class="stat-card"><div class="label">فترات مقفلة</div><div class="value"><span class="num">0</span></div></div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M10 2 2 17h16L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 8v4M10 14.5h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <div>
+            <div class="title">يحتاج انتباه — الفترة الحالية: أغسطس 2026 <span class="period-badge">الترحيل مسموح</span></div>
+            <div class="desc">7 فترات مفتوحة تجاوزت نهايتها (يناير–يوليو 2026) — يُفضّل إغلاقها لإقفال دفاتر الأشهر المنتهية</div>
+          </div>
+          <button class="btn sm action">عرض المفتوحة</button>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active">الكل <span class="n">24</span></button>
+          <button class="chip">مفتوحة <span class="n">24</span></button>
+          <button class="chip">مغلقة <span class="n">0</span></button>
+          <button class="chip">مقفلة <span class="n">0</span></button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead><tr><th>الفترة</th><th>من — إلى</th><th>الترحيل</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="fiscalBody"></tbody>
+          </table>
+          <div class="pager"><span>عرض <span class="num">1–12</span> من <span class="num">12</span></span></div>
+        </div>
+      </section>
+
+      <!-- ================= COST CENTERS ================= -->
+      <section class="view" data-view="cost-centers">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Cost Centers</div>
+            <h1 class="page-title">مراكز التكلفة</h1>
+            <div class="page-desc">أبعاد تحليلية لتتبّع أرباح ومصروفات كل قسم أو مشروع أو فرع على حِدة — مستقلة أو مرتبطة بالهيكل التنظيمي</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">إنشاء من الأقسام</button>
+            <button class="btn primary">إضافة مركز تكلفة</button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي مراكز التكلفة</div><div class="value"><span class="num">6</span></div></div>
+          <div class="stat-card"><div class="label">نشط</div><div class="value" style="color:var(--success-ink)"><span class="num">6</span></div></div>
+          <div class="stat-card"><div class="label">مرتبط</div><div class="value"><span class="num">4</span></div></div>
+          <div class="stat-card"><div class="label">مستقل</div><div class="value"><span class="num">2</span></div></div>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active">الكل <span class="n">6</span></button>
+          <button class="chip">نشط <span class="n">6</span></button>
+          <button class="chip">غير نشط <span class="n">0</span></button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="ابحث بالكود أو الاسم…">
+          </div>
+          <button class="btn">تصفية النتائج</button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="ccTable" style="min-width:820px;">
+            <thead><tr><th>الكود</th><th>الاسم</th><th>النوع</th><th>مرتبط بـ</th><th>المركز الرئيسي</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="ccBody"></tbody>
+          </table>
+          <div class="pager"><span>عرض <span class="num">6</span> من <span class="num">6</span> مركز</span></div>
+        </div>
+      </section>
+
+      <!-- ================= COST CENTER P&L ================= -->
+      <section class="view" data-view="cost-center-pl">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Cost Center P&L</div>
+            <h1 class="page-title">أرباح مراكز التكلفة</h1>
+            <div class="page-desc">قائمة الدخل مفصّلة حسب مركز التكلفة — عن الفترة من ٠١/٠١/٢٠٢٦ حتى ٢١/٠٨/٢٠٢٦</div>
+          </div>
+          <div class="page-actions">
+            <select style="padding:9px 12px;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--surface);font-size:13px;color:var(--text);"><option>السنة المالية 2026</option><option>الربع الثالث 2026</option></select>
+            <button class="btn primary">تصدير<svg viewBox="0 0 16 16" fill="none"><path d="M8 2v8m0 0-3-3m3 3 3-3M3 12v1a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+        </div>
+
+        <div class="stat-strip">
+          <div class="stat-card"><div class="label">إجمالي الإيرادات</div><div class="value"><span class="num">218,430.00</span> <span class="unit">ج.م</span></div></div>
+          <div class="stat-card"><div class="label">إجمالي المصروفات</div><div class="value"><span class="num">236,517.50</span> <span class="unit">ج.م</span></div></div>
+          <div class="stat-card"><div class="label">صافي النتيجة</div><div class="value" style="color:var(--danger-ink)"><span class="num">-18,087.50</span> <span class="unit">ج.م</span></div></div>
+          <div class="stat-card"><div class="label">أعلى مركز ربحية</div><div class="value" style="font-size:17px;">مبيعات التجزئة</div><div class="sub up">▲ <span class="num">42,180</span> ج.م</div></div>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="ccplTable" style="min-width:900px;">
+            <thead><tr><th>مركز التكلفة</th><th class="num">الإيرادات</th><th class="num">تكلفة المبيعات</th><th class="num">مجمل الربح</th><th class="num">مصروفات تشغيلية</th><th class="num">صافي الربح</th><th class="num">الهامش</th></tr></thead>
+            <tbody id="ccplBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ================= TAXES ================= -->
+      <section class="view" data-view="taxes">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Taxes</div>
+            <h1 class="page-title">الضرائب</h1>
+            <div class="page-desc">تعريف نسب الضرائب المطبَّقة على الفواتير، مع حسابات الترحيل وتصنيف الفاتورة الإلكترونية</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">مجموعات الضرائب <span class="num">(0)</span></button>
+            <button class="btn primary" id="addTaxBtn">إضافة ضريبة</button>
+          </div>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="M10 6v5M10 14h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <div><div class="title">تُستخدم هذه الضرائب عند إنشاء الفواتير</div><div class="desc">إذا لم تُحدَّد ضريبة للصنف، تُطبَّق الضريبة الافتراضية تلقائياً · <span style="color:var(--brand);font-weight:700;">الإعدادات ← الضريبة</span></div></div>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active">الكل <span class="n">3</span></button>
+          <button class="chip">نشط <span class="n">3</span></button>
+          <button class="chip">غير نشط <span class="n">0</span></button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="taxTable" style="min-width:760px;">
+            <thead><tr><th>الاسم</th><th class="num">نسبة الضريبة</th><th>النوع</th><th>النوع الفرعي (ETA)</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="taxBody"></tbody>
+          </table>
+          <div class="pager"><span>عرض <span class="num">1–3</span> من <span class="num">3</span></span></div>
+        </div>
+      </section>
+
+      <!-- ================= EXCHANGE RATES ================= -->
+      <section class="view" data-view="exchange-rates">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Exchange Rates</div>
+            <h1 class="page-title">أسعار الصرف</h1>
+            <div class="page-desc">أسعار العملات الأجنبية مقابل العملة الأساسية — تُغذّي المعاملات متعددة العملات وإعادة التقييم</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn primary" id="addRateBtn">إضافة سعر صرف</button>
+          </div>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M4 7h12M4 13h12M8 3 5 7l3 4M12 9l3 4-3 4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><div class="title">العملة الأساسية: <span class="lat">EGP</span> — الجنيه المصري</div><div class="desc">جميع الأسعار محسوبة مقابل هذه العملة (سعر وحدة العملة الأجنبية بالجنيه)</div></div>
+        </div>
+
+        <div class="chip-row">
+          <button class="chip active">الكل <span class="n">5</span></button>
+          <button class="chip">بانتظار الاعتماد <span class="n">1</span></button>
+          <button class="chip">مقفل <span class="n">2</span></button>
+        </div>
+
+        <div class="table-wrap">
+          <table class="data-table" id="rateTable" style="min-width:760px;">
+            <thead><tr><th>زوج العملات</th><th class="num">سعر الصرف</th><th class="num">تاريخ السريان</th><th>المصدر</th><th>الحالة</th><th></th></tr></thead>
+            <tbody id="rateBody"></tbody>
+          </table>
+          <div class="pager"><span>عرض <span class="num">5</span> من <span class="num">5</span></span></div>
+        </div>
+      </section>
+
+      <!-- ================= FX REVALUATION ================= -->
+      <section class="view" data-view="revaluation">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · FX Revaluation</div>
+            <h1 class="page-title">إعادة تقييم العملات الأجنبية</h1>
+            <div class="page-desc">إجراء نهاية الفترة الذي يعيد تقييم الأرصدة المفتوحة بالعملات الأجنبية بسعر الإقفال المعتمد</div>
+          </div>
+        </div>
+
+        <div class="callout warn">
+          <svg viewBox="0 0 20 20" fill="none"><path d="M10 2 2 17h16L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 8v4M10 14.5h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <div><div class="title">تُنفَّذ عادةً في آخر يوم من الشهر</div><div class="desc">تُنشئ هذه الصفحة قيداً يُحدِّث أرصدة العملاء والموردين والخزائن المفتوحة بسعر الإقفال المعتمد من مصلحة الضرائب، وتُسجِّل الفروقات كمكاسب أو خسائر فروق عملة.</div></div>
+        </div>
+
+        <div class="grid-2">
+          <div>
+            <div class="table-wrap">
+              <table class="data-table" id="revalTable" style="min-width:640px;">
+                <thead><tr><th>العملة · الرصيد المفتوح</th><th class="num">سعر الدفتر</th><th class="num">سعر الإقفال</th><th class="num">القيمة الدفترية</th><th class="num">القيمة المعاد تقييمها</th><th class="num">فرق (ربح/خسارة)</th></tr></thead>
+                <tbody id="revalBody"></tbody>
+              </table>
+            </div>
+            <div class="callout ok" style="margin-block-start:16px;">
+              <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="m6.5 10 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <div><div class="title">صافي فرق العملة: <span class="num">+1,842.50</span> ج.م (ربح)</div><div class="desc">يُرحَّل مديناً لأرصدة الأصول ودائناً لحساب «4950 — أرباح فروق عملة»</div></div>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:14px;">إعداد إعادة التقييم</h3>
+            <div class="field">
+              <label>إلى تاريخ (تاريخ القيد)</label>
+              <input type="text" value="31/08/2026" class="num">
+            </div>
+            <div style="display:flex;align-items:flex-start;gap:11px;padding:14px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);margin-block-end:14px;">
+              <span class="switch on" id="autoReverseToggle" role="switch" aria-checked="true" tabindex="0"><span class="knob"></span></span>
+              <div>
+                <div style="font-size:12.5px;font-weight:700;">العكس التلقائي</div>
+                <div style="font-size:11.5px;color:var(--text-muted);margin-block-start:3px;">أنشئ قيداً عكسياً تلقائياً بعد الترحيل (بتاريخ <span class="num">01/09/2026</span>) لحصر أثر إعادة التقييم في يوم الإقفال فقط.</div>
+              </div>
+            </div>
+            <div class="field">
+              <label>العملات المشمولة</label>
+              <div class="chip-row" style="margin:0;">
+                <button class="chip active">الكل</button>
+                <button class="chip lat">USD</button>
+                <button class="chip lat">EUR</button>
+                <button class="chip lat">SAR</button>
+                <button class="chip lat">AED</button>
+              </div>
+            </div>
+            <p style="font-size:11px;color:var(--text-faint);margin-block:6px 16px;">يُستخدَم آخر سعر صرف مُدخَل حتى تاريخ الإقفال. اترك الحقل فارغاً لإعادة تقييم كل العملات المفتوحة.</p>
+            <button class="btn primary" style="width:100%;justify-content:center;">معاينة</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= ETA E-INVOICING ================= -->
+      <section class="view" data-view="eta">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · ETA e-Invoicing</div>
+            <h1 class="page-title">الفاتورة الإلكترونية</h1>
+            <div class="page-desc">التكامل مع منظومة مصلحة الضرائب المصرية — بيانات المنشأة، ربط الأصناف، وقائمة إرسال المستندات المؤكدة</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn primary">إرسال كل الجاهز</button>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-block-end:20px;">
+          <div class="card card-pad">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-block-end:14px;">
+              <h3 class="card-title">جاهزية الربط</h3>
+              <span class="num" style="font-size:22px;font-weight:800;font-family:var(--font-display);color:var(--warning-ink);">22%</span>
+            </div>
+            <div style="height:8px;border-radius:var(--r-pill);background:var(--surface-3);overflow:hidden;margin-block-end:16px;"><div style="width:22%;height:100%;background:var(--warning);"></div></div>
+            <div class="kv-list">
+              <div class="kv-row"><span class="k">رقم التسجيل الضريبي</span><span class="pill cancelled">غير مُعبّأ</span></div>
+              <div class="kv-row"><span class="k">كود النشاط</span><span class="pill cancelled">غير مُعبّأ</span></div>
+              <div class="kv-row"><span class="k">عنوان المنشأة</span><span class="pill cancelled">غير مُعبّأ</span></div>
+              <div class="kv-row"><span class="k">أكواد الفروع لدى المصلحة</span><span class="pill posted"><span class="num">1</span></span></div>
+              <div class="kv-row"><span class="k">أكواد الأصناف</span><span class="pill posted"><span class="num">23</span></span></div>
+              <div class="kv-row"><span class="k">ربط الوحدات</span><span class="pill posted"><span class="num">4</span></span></div>
+              <div class="kv-row"><span class="k">أنواع الضريبة الفرعية</span><span class="pill posted"><span class="num">1</span></span></div>
+            </div>
+          </div>
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:14px;">إعدادات المنظومة</h3>
+            <div class="kv-list">
+              <div class="kv-row"><span class="k">البيئة</span><span class="v">بيئة الاختبار <span class="lat">(Pre-production)</span></span></div>
+              <div class="kv-row"><span class="k">طريقة التوقيع</span><span class="v">بدون توقيع <span class="lat">(v0.9)</span></span></div>
+              <div class="kv-row"><span class="k">إصدار المستند</span><span class="v num">1.0</span></div>
+              <div class="kv-row"><span class="k">الإرسال التلقائي عند التأكيد</span><span class="pill posted">مُفعّل</span></div>
+              <div class="kv-row"><span class="k">حد بيانات المشتري</span><span class="v num">25,000 ج.م</span></div>
+              <div class="kv-row"><span class="k">آخر إرسال ناجح</span><span class="v">—</span></div>
+            </div>
+            <button class="btn" style="width:100%;justify-content:center;margin-block-start:16px;" disabled>اختبار الاتصال</button>
+          </div>
+        </div>
+
+        <div class="tabs" id="etaTabs" style="flex-wrap:wrap;">
+          <button class="tab-btn active" data-etab="ready">جاهز <span class="num">(15)</span></button>
+          <button class="tab-btn" data-etab="signing">بانتظار التوقيع <span class="num">(0)</span></button>
+          <button class="tab-btn" data-etab="sent">مُرسَل <span class="num">(0)</span></button>
+          <button class="tab-btn" data-etab="accepted">مقبول <span class="num">(0)</span></button>
+          <button class="tab-btn" data-etab="errors">أخطاء <span class="num">(0)</span></button>
+          <button class="tab-btn" data-etab="excluded">مستبعد <span class="num">(0)</span></button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-input">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="ابحث برقم المستند…">
+          </div>
+        </div>
+
+        <div class="tab-panel active" data-etab="ready">
+          <div class="table-wrap">
+            <table class="data-table" id="etaTable" style="min-width:820px;">
+              <thead><tr><th>المعرّف الداخلي</th><th>النوع</th><th class="num">التاريخ</th><th class="num">الإجمالي</th><th>الحالة</th><th>المعرّف لدى المصلحة</th><th></th></tr></thead>
+              <tbody id="etaBody"></tbody>
+            </table>
+            <div class="pager"><span>عرض <span class="num">1–8</span> من <span class="num">15</span></span></div>
+          </div>
+        </div>
+        <div class="tab-panel" data-etab="signing"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20h16M6 16l10-10 2 2L8 18l-3 1 1-3Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><h3>لا مستندات بانتظار التوقيع</h3><p>ستظهر هنا المستندات التي تنتظر التوقيع الإلكتروني قبل الإرسال للمصلحة.</p></div></div>
+        <div class="tab-panel" data-etab="sent"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><path d="M3 11 21 3l-8 18-2.5-7.5L3 11Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg><h3>لا مستندات مُرسَلة</h3><p>لم يُرسَل أي مستند للمصلحة بعد — أكمِل بيانات الربط لبدء الإرسال.</p></div></div>
+        <div class="tab-panel" data-etab="accepted"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><path d="m8 12 2.5 2.5L16 9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><h3>لا مستندات مقبولة بعد</h3><p>المستندات المقبولة من المصلحة تظهر هنا مع معرّف الفاتورة الرسمي.</p></div></div>
+        <div class="tab-panel" data-etab="errors"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><path d="M12 7v6M12 16h.01" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg><h3>لا أخطاء</h3><p>المستندات التي ترفضها المصلحة تظهر هنا مع سبب الرفض لتصحيحها وإعادة الإرسال.</p></div></div>
+        <div class="tab-panel" data-etab="excluded"><div class="card empty-state"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.4"/><path d="m8 8 8 8M16 8l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg><h3>لا مستندات مستبعدة</h3><p>الإرسال التزام قانوني — الاستبعاد للحالات الاستثنائية فقط ويتطلب سبباً.</p></div></div>
+      </section>
+
+      <!-- ================= BALANCE RECONCILIATION ================= -->
+      <section class="view" data-view="reconciliation">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Accounting · Balance Reconciliation</div>
+            <h1 class="page-title">مطابقة الأرصدة</h1>
+            <div class="page-desc">لوحة تحقُّق تُطابق أرصدة دفاتر المساعدة مع حسابات المراقبة في دفتر الأستاذ، وتُبرِز أي بنود غير مرتبطة</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">تحديث<svg viewBox="0 0 16 16" fill="none"><path d="M13 3v3h-3M3 13v-3h3M12.5 6A5 5 0 0 0 4 4.5M3.5 10A5 5 0 0 0 12 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+          </div>
+        </div>
+
+        <div class="callout ok">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="m6.5 10 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <div><div class="title">جميع الأرصدة متطابقة</div><div class="desc">آخر تحديث: ٢١/٠٨/٢٠٢٦ ١١:٤٠ ص — لا توجد فروقات بين دفاتر المساعدة وحسابات المراقبة</div></div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="recon-summary">ملخص المطابقة</button>
+          <button class="tab-btn" data-tab="recon-unlinked">القيود غير المرتبطة</button>
+        </div>
+
+        <div class="tab-panel active" data-tab="recon-summary">
+          <div class="recon-grid" id="reconGrid"></div>
+        </div>
+
+        <div class="tab-panel" data-tab="recon-unlinked">
+          <div class="callout ok">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5"/><path d="m6.5 10 2.4 2.4 4.6-5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <div><div class="title">لا توجد بنود غير مخصَّصة</div><div class="desc">جميع بنود حسابات المراقبة مخصَّصة بشكل صحيح لسجلات دفاتر المساعدة</div></div>
+          </div>
+          <h3 class="card-title" style="margin-block:6px 12px;">أحدث البنود غير المخصَّصة</h3>
+          <div class="card empty-state">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h10" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+            <h3>لا توجد بنود</h3>
+            <p>ستظهر هنا أي قيود تُرحَّل إلى حساب مراقبة دون ربطها بسجل في دفتر المساعدة (مثل قيد يدوي على حساب المخزون أو النقدية مباشرة).</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================= SOON PLACEHOLDER ================= -->
+      <section class="view" data-view="soon">
+        <div class="page-header">
+          <div>
+            <div class="eyebrow">Coming soon</div>
+            <h1 class="page-title" id="soonTitle">هذه الشاشة</h1>
+            <div class="page-desc">هذه الشاشة جزء من النطاق القادم لمشروع ميزان — تم إعداد أساس النظام (القائمة، الشريط العلوي، الأنماط الأساسية) لتُبنى عليه بقية الشاشات بنفس الهوية.</div>
+          </div>
+        </div>
+        <div class="card empty-state">
+          <svg viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="currentColor" stroke-width="1.4"/><path d="M3 9h18M8 4v2M16 4v2" stroke="currentColor" stroke-width="1.4"/></svg>
+          <h3>قيد الإعداد</h3>
+          <p>ستُبنى هذه الشاشة على نمط <b>قائمة المستندات</b> أو <b>تفاصيل المستند</b> الموضّحين ضمن المحاسبة، حسب طبيعة المحتوى.</p>
+          <button class="btn primary" style="margin-block-start:16px;" data-view="dashboard">العودة للوحة التحكم</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- ============== LOGIN (own full-bleed view) ============== -->
+  <section class="view" data-view="login" style="position:fixed;inset:0;z-index:50;background:var(--surface);">
+    <div class="login-screen">
+      <div class="login-brand">
+        <svg class="login-beam beam-idle" viewBox="0 0 158 110">
+          <g class="beam-group">
+            <line x1="79" y1="32" x2="79" y2="96" stroke="#D6AD5F" stroke-width="4" stroke-linecap="round"/>
+            <path d="M55 96 L103 96 L95 104 L63 104 Z" fill="#D6AD5F"/>
+            <line x1="20" y1="32" x2="138" y2="32" stroke="#D6AD5F" stroke-width="4" stroke-linecap="round"/>
+            <circle cx="79" cy="32" r="6.5" fill="#D6AD5F"/>
+            <line x1="20" y1="32" x2="20" y2="57" stroke="#D6AD5F" stroke-width="2"/>
+            <line x1="138" y1="32" x2="138" y2="57" stroke="#D6AD5F" stroke-width="2"/>
+            <path d="M5 57 a15 11 0 0 0 30 0 Z" fill="none" stroke="#D6AD5F" stroke-width="2.5"/>
+            <path d="M123 57 a15 11 0 0 0 30 0 Z" fill="none" stroke="#D6AD5F" stroke-width="2.5"/>
+          </g>
+        </svg>
+        <h1>ميزان</h1>
+        <p class="tag">نظام تخطيط موارد المنشآت — دقة محاسبية، وضوح تشغيلي، وتوازن في كل قيد.</p>
+        <div class="lb-badge lat">Mezan ERP · 2026.8</div>
+      </div>
+      <div class="login-form-side">
+        <div class="login-card">
+          <div class="tenant-chip">
+            <svg viewBox="0 0 16 16" fill="none"><path d="M2 6.5 8 3l6 3.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6.5Z" stroke="currentColor" stroke-width="1.3"/></svg>
+            <b class="lat">Cyag</b> <span class="ent">Enterprise</span>
+          </div>
+          <h2>تسجيل الدخول</h2>
+          <p style="font-size:12.5px;color:var(--text-muted);margin-block-end:22px;">أدخل اسم المستخدم ورمز PIN الخاص بجهازك</p>
+          <div class="field">
+            <label>اسم المستخدم</label>
+            <input type="text" value="محمد الشهابي">
+          </div>
+          <div class="field">
+            <label>رمز <span class="lat">PIN</span></label>
+            <div class="pin-row">
+              <input type="password" maxlength="1" value="•">
+              <input type="password" maxlength="1" value="•">
+              <input type="password" maxlength="1" value="•">
+              <input type="password" maxlength="1" value="•">
+            </div>
+          </div>
+          <button class="btn primary" style="width:100%;justify-content:center;margin-block-start:10px;padding:11px;" id="loginBtn">دخول</button>
+          <div class="login-foot">
+            <span class="lat">Mezan 2026.8</span>
+            <span>مرخّص لـ <span class="lat">Cyag</span></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- side panels -->
+  <div class="overlay" id="overlay"></div>
+
+  <aside class="panel" id="accountPanel">
+    <div class="panel-head">
+      <div>
+        <div class="eyebrow" id="apEyebrow">حساب</div>
+        <h3 id="apName" style="font-size:16px;margin-block-start:4px;">1300-1 — صندوق نقدي الفرع الرئيسي</h3>
+      </div>
+      <button class="icon-btn" data-close-panel><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="panel-body">
+      <div class="kv-list" style="margin-block-end:16px;">
+        <div class="kv-row"><span class="k">الرصيد الطبيعي</span><span class="v">مدين</span></div>
+        <div class="kv-row"><span class="k">الحساب الرئيسي</span><span class="v">1300 — النقدية</span></div>
+        <div class="kv-row"><span class="k">عدد المراجع</span><span class="v num">42</span></div>
+        <div class="kv-row"><span class="k">النوع</span><span class="v"><span class="type-tag">أصول</span> <span class="type-tag">حساب خزينة</span></span></div>
+      </div>
+      <div class="chip-row" style="margin-block-end:14px;">
+        <button class="chip active">هذا الشهر</button><button class="chip">هذه السنة</button><button class="chip">كل الفترات</button>
+      </div>
+      <div class="summary-grid" style="grid-template-columns:1fr 1fr 1fr;margin-block-end:16px;">
+        <div class="summary-cell"><div class="label">أول المدة</div><div class="value num" style="font-size:13px;">0.00</div></div>
+        <div class="summary-cell"><div class="label">حركة الفترة</div><div class="value num" style="font-size:13px;">338.00</div></div>
+        <div class="summary-cell"><div class="label">آخر المدة</div><div class="value num" style="font-size:13px;">338.00</div></div>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active">حركات الحساب</button>
+        <button class="tab-btn">سجل التدقيق</button>
+      </div>
+      <div class="table-wrap" style="box-shadow:none;">
+        <table class="data-table" style="min-width:0;">
+          <thead><tr><th>التاريخ</th><th>رقم القيد</th><th>المصدر</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>
+          <tbody>
+            <tr><td class="num">21/08</td><td class="num" style="color:var(--brand);">JE-000078</td><td>سند نقدي</td><td class="num">100.00</td><td class="num">0.00</td></tr>
+            <tr><td class="num">14/08</td><td class="num" style="color:var(--brand);">JE-000063</td><td>سند نقدي</td><td class="num">238.00</td><td class="num">0.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <button class="btn" style="width:100%;justify-content:center;margin-block-start:14px;">فتح في صفحة كاملة</button>
+    </div>
+  </aside>
+
+  <aside class="panel" id="customerPanel">
+    <div class="panel-head">
+      <div>
+        <div class="eyebrow">عميل</div>
+        <h3 style="font-size:16px;margin-block-start:4px;">شركة الأمل للتجارة</h3>
+      </div>
+      <button class="icon-btn" data-close-panel><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="panel-body">
+      <div class="kv-list">
+        <div class="kv-row"><span class="k">الرصيد الحالي</span><span class="v num" style="color:var(--danger-ink)">2,340.00 ج.م</span></div>
+        <div class="kv-row"><span class="k">حد الائتمان</span><span class="v num">5,000.00 ج.م</span></div>
+        <div class="kv-row"><span class="k">شروط السداد</span><span class="v">30 يوم</span></div>
+        <div class="kv-row"><span class="k">الفرع</span><span class="v">الفرع الرئيسي</span></div>
+        <div class="kv-row"><span class="k">الهاتف</span><span class="v lat" dir="ltr">+20 10 1234 5678</span></div>
+      </div>
+      <h4 style="font-size:12.5px;margin-block:18px 10px;color:var(--text-muted);">آخر الفواتير</h4>
+      <div class="rank-list">
+        <div class="rank-row"><span class="name num">INV-000123</span><span class="meta">10/08</span><span class="val num">1,150.00</span></div>
+        <div class="rank-row"><span class="name num">INV-000098</span><span class="meta">28/07</span><span class="val num">610.00</span></div>
+      </div>
+    </div>
+  </aside>
+
+  <aside class="panel" id="ccPanel">
+    <div class="panel-head">
+      <div>
+        <div class="eyebrow" id="ccPanelEyebrow">مركز تكلفة</div>
+        <h3 id="ccPanelName" style="font-size:16px;margin-block-start:4px;">CC-RETAIL — مبيعات التجزئة</h3>
+      </div>
+      <button class="icon-btn" data-close-panel><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+    </div>
+    <div class="panel-body">
+      <div class="kv-list" style="margin-block-end:16px;">
+        <div class="kv-row"><span class="k">الكود</span><span class="v num" id="ccPanelCode">CC-RETAIL</span></div>
+        <div class="kv-row"><span class="k">النوع</span><span class="v" id="ccPanelType">قسم</span></div>
+        <div class="kv-row"><span class="k">مرتبط بـ</span><span class="v" id="ccPanelLink">قسم المبيعات</span></div>
+        <div class="kv-row"><span class="k">المركز الرئيسي</span><span class="v" id="ccPanelParent">—</span></div>
+        <div class="kv-row"><span class="k">الحالة</span><span class="v"><span class="pill active">نشط</span></span></div>
+      </div>
+      <div class="summary-grid" style="grid-template-columns:1fr 1fr 1fr;margin-block-end:16px;">
+        <div class="summary-cell"><div class="label">الإيرادات</div><div class="value num" style="font-size:13px;" id="ccPanelRev">96,400.00</div></div>
+        <div class="summary-cell"><div class="label">المصروفات</div><div class="value num" style="font-size:13px;" id="ccPanelExp">54,220.00</div></div>
+        <div class="summary-cell"><div class="label">صافي الربح</div><div class="value num" style="font-size:13px;color:var(--success-ink);" id="ccPanelNet">42,180.00</div></div>
+      </div>
+      <h4 style="font-size:12.5px;margin-block:4px 10px;color:var(--text-muted);">أعلى بنود المصروفات</h4>
+      <div class="rank-list">
+        <div class="rank-row"><span class="rank-num">1</span><span class="name">رواتب فريق البيع</span><span class="val num">31,500.00</span></div>
+        <div class="rank-row"><span class="rank-num">2</span><span class="name">إيجار المعرض</span><span class="val num">14,000.00</span></div>
+        <div class="rank-row"><span class="rank-num">3</span><span class="name">تسويق وإعلان</span><span class="val num">8,720.00</span></div>
+      </div>
+      <button class="btn" style="width:100%;justify-content:center;margin-block-start:16px;">فتح تقرير مركز التكلفة</button>
+    </div>
+  </aside>
+
+  <!-- command palette -->
+  <div class="modal-wrap" id="cmdkWrap">
+    <div class="modal-overlay" data-close-cmdk></div>
+    <div class="modal" style="width:580px;">
+      <div class="cmdk-input">
+        <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        <input type="text" id="cmdkInput" placeholder="ابحث عن صفحة، عميل، فاتورة، أو إجراء…">
+        <span class="kbd lat">Esc</span>
+      </div>
+      <div class="cmdk-list" id="cmdkList"></div>
+    </div>
+  </div>
+
+  <!-- new JE modal -->
+  <div class="modal-wrap" id="jeModalWrap">
+    <div class="modal-overlay" data-close-je></div>
+    <div class="modal">
+      <div class="modal-head">
+        <h3>إنشاء قيد يومي</h3>
+        <button class="icon-btn" data-close-je><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>تاريخ القيد</label><input type="text" value="22/08/2026" class="num"></div>
+          <div class="field"><label>العملة</label><select><option>EGP (العملة الأساسية)</option></select></div>
+        </div>
+        <div class="field"><label>الوصف</label><input type="text" placeholder="وصف القيد…"></div>
+
+        <div class="table-wrap" style="margin-block:12px;">
+          <table class="data-table je-lines" id="jeModalTable">
+            <thead><tr><th>الحساب</th><th>البيان</th><th class="num">مدين</th><th class="num">دائن</th><th></th></tr></thead>
+            <tbody id="jeModalBody"></tbody>
+          </table>
+        </div>
+        <button class="btn sm" id="addJeLine">+ إضافة سطر</button>
+
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-block-start:18px;gap:18px;flex-wrap:wrap;">
+          <div class="kv-list" style="flex:1;min-width:220px;">
+            <div class="kv-row"><span class="k">إجمالي المدين</span><span class="v num" id="jeSumDebit">0.00</span></div>
+            <div class="kv-row"><span class="k">إجمالي الدائن</span><span class="v num" id="jeSumCredit">0.00</span></div>
+            <div class="kv-row"><span class="k">الفرق</span><span class="v num" id="jeSumDiff">0.00</span></div>
+          </div>
+          <div class="beam-wrap">
+            <svg class="beam-svg" viewBox="0 0 118 80" style="width:92px;height:62px;">
+              <line x1="59" y1="24" x2="59" y2="70" stroke="var(--text-faint)" stroke-width="3" stroke-linecap="round"/>
+              <path d="M43 70 L75 70 L69 77 L49 77 Z" fill="var(--text-faint)"/>
+              <g class="beam-group" id="jeBeamGroup">
+                <line x1="17" y1="24" x2="101" y2="24" stroke="var(--accent)" stroke-width="3" stroke-linecap="round"/>
+                <circle cx="59" cy="24" r="4.5" fill="var(--accent)"/>
+                <line x1="17" y1="24" x2="17" y2="43" stroke="var(--accent)" stroke-width="1.6"/>
+                <line x1="101" y1="24" x2="101" y2="43" stroke="var(--accent)" stroke-width="1.6"/>
+                <path d="M7 43 a10 7.5 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+                <path d="M91 43 a10 7.5 0 0 0 20 0 Z" fill="none" stroke="var(--accent)" stroke-width="2"/>
+              </g>
+            </svg>
+            <div class="beam-status unbalanced" id="jeBeamStatus">أدخل مبالغ</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close-je>إلغاء</button>
+        <button class="btn">حفظ كمسودة</button>
+        <button class="btn primary" id="postJeBtn" disabled>ترحيل القيد</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- add/edit tax modal -->
+  <div class="modal-wrap" id="taxModalWrap">
+    <div class="modal-overlay" data-close-tax></div>
+    <div class="modal">
+      <div class="modal-head">
+        <h3>إضافة ضريبة</h3>
+        <button class="icon-btn" data-close-tax><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>اسم الضريبة</label><input type="text" value="ضريبة القيمة المضافة 14%"></div>
+          <div class="field"><label>رمز الضريبة</label><input type="text" class="lat" value="VAT14"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>نسبة الضريبة (%)</label><input type="number" class="num" value="14.00" step="0.01"></div>
+          <div class="field"><label>النوع</label><select><option>غير شاملة (تُضاف على السعر)</option><option>شاملة (متضمَّنة في السعر)</option></select></div>
+        </div>
+        <label style="display:flex;align-items:center;gap:10px;font-size:12.5px;margin-block:4px 16px;">
+          <span class="switch on" role="switch" aria-checked="true"><span class="knob"></span></span> ضريبة افتراضية
+        </label>
+
+        <h4 style="font-size:12.5px;color:var(--text-muted);margin-block:6px 10px;padding-block-start:12px;border-block-start:1px solid var(--border);">حسابات الترحيل</h4>
+        <div class="field"><label>حساب الضريبة المستحقة (المبيعات)</label><input type="text" value="2200 — ضريبة القيمة المضافة مستحقة" placeholder="تلقائي (الافتراضي 2200)"></div>
+        <div class="field"><label>حساب ضريبة المدخلات (المشتريات)</label><input type="text" value="1400 — ضريبة مدخلات" placeholder="تلقائي (الافتراضي 1400)"></div>
+
+        <h4 style="font-size:12.5px;color:var(--text-muted);margin-block:6px 10px;padding-block-start:12px;border-block-start:1px solid var(--border);">تصنيف الفاتورة الإلكترونية (ETA)</h4>
+        <div class="field">
+          <label>النوع الفرعي لضريبة القيمة المضافة</label>
+          <select>
+            <option>تلقائي (أساسي عند وجود ضريبة، غير خاضع عند 0%)</option>
+            <option>V009 — ضريبة القيمة المضافة (مبيعات أساسية)</option>
+            <option>V003 — معفاة من الضريبة</option>
+            <option>V004 — غير خاضعة للضريبة</option>
+            <option>V001 — تصدير (نسبة صفرية)</option>
+            <option>V002 — تصدير خدمات (نسبة صفرية)</option>
+          </select>
+        </div>
+        <p style="font-size:11px;color:var(--text-faint);margin-block-start:2px;">أكواد المصلحة: <span class="lat">V009</span> مبيعات أساسية · <span class="lat">V003</span> معفاة · <span class="lat">V004</span> غير خاضعة · <span class="lat">V001/V002</span> تصدير — تُحدَّد هنا مرة واحدة ويُصنَّف كل مستند تلقائياً.</p>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close-tax>إلغاء</button>
+        <button class="btn primary" data-close-tax>حفظ الضريبة</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- add exchange rate modal -->
+  <div class="modal-wrap" id="rateModalWrap">
+    <div class="modal-overlay" data-close-rate></div>
+    <div class="modal" style="width:480px;">
+      <div class="modal-head">
+        <h3>إضافة سعر صرف</h3>
+        <button class="icon-btn" data-close-rate><svg viewBox="0 0 16 16" fill="none"><path d="m3 3 10 10M13 3 3 13" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row">
+          <div class="field"><label>العملة الأجنبية</label><select><option class="lat">USD — دولار أمريكي</option><option class="lat">EUR — يورو</option><option class="lat">SAR — ريال سعودي</option><option class="lat">AED — درهم إماراتي</option></select></div>
+          <div class="field"><label>مقابل</label><input type="text" class="lat" value="EGP" disabled style="opacity:.7;"></div>
+        </div>
+        <div class="field"><label>سعر الصرف (الجنيه لكل وحدة)</label><input type="number" class="num" value="49.2500" step="0.0001"></div>
+        <div class="field-row">
+          <div class="field"><label>تاريخ السريان</label><input type="text" class="num" value="21/08/2026"></div>
+          <div class="field"><label>نوع السعر</label><select><option>قياسي</option><option>شراء</option><option>بيع</option></select></div>
+        </div>
+        <div class="field"><label>المصدر</label><select><option>يدوي</option><option>البنك المركزي المصري</option></select></div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn" data-close-rate>إلغاء</button>
+        <button class="btn primary" data-close-rate>حفظ السعر</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+  var saved = localStorage.getItem('mezan-theme');
+  // Light-first: default to explicit light unless the reviewer previously chose dark.
+  root.setAttribute('data-theme', saved === 'dark' ? 'dark' : 'light');
+  function currentIsDark(){ return root.getAttribute('data-theme') === 'dark'; }
+  function syncIcons(){
+    var dark = currentIsDark();
+    document.getElementById('themeIconSun').style.display = dark ? 'none' : '';
+    document.getElementById('themeIconMoon').style.display = dark ? '' : 'none';
+  }
+  document.getElementById('themeToggle').addEventListener('click', function(){
+    var next = currentIsDark() ? 'light' : 'dark';
+    root.setAttribute('data-theme', next);
+    localStorage.setItem('mezan-theme', next);
+    syncIcons();
+  });
+  syncIcons();
+
+  var money = function(n){
+    var neg = n < 0;
+    var v = Math.abs(n).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    return (neg ? '-' : '') + v;
+  };
+
+  function showView(name){
+    document.querySelectorAll('.view').forEach(function(v){ v.classList.remove('active'); });
+    var target = document.querySelector('.view[data-view="'+name+'"]');
+    if(target) target.classList.add('active');
+    document.querySelectorAll('.nav-link').forEach(function(l){ l.classList.remove('active'); });
+    document.querySelectorAll('.nav-link[data-view="'+name+'"]').forEach(function(l){ l.classList.add('active'); });
+    window.scrollTo(0,0);
+  }
+
+  document.querySelectorAll('[data-view]').forEach(function(el){
+    if(el.tagName === 'A' || el.tagName === 'BUTTON'){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var v = el.getAttribute('data-view');
+        if(v === 'soon'){
+          var label = el.getAttribute('data-label') || 'هذه الشاشة';
+          document.getElementById('soonTitle').textContent = label;
+        }
+        showView(v);
+      });
+    }
+  });
+
+  document.querySelectorAll('.nav-group-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      btn.closest('.nav-group').classList.toggle('collapsed');
+    });
+  });
+
+  document.querySelectorAll('.tabs').forEach(function(tabRow){
+    if(tabRow.id === 'reportTabs') return;
+    var buttons = tabRow.querySelectorAll('.tab-btn');
+    buttons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        buttons.forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        var key = btn.getAttribute('data-tab');
+        if(!key) return;
+        var panels = tabRow.parentElement.querySelectorAll('.tab-panel');
+        panels.forEach(function(p){
+          p.classList.toggle('active', p.getAttribute('data-tab') === key);
+        });
+      });
+    });
+  });
+
+  var reportTabs = document.getElementById('reportTabs');
+  if(reportTabs){
+    var rbuttons = reportTabs.querySelectorAll('.tab-btn');
+    rbuttons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        rbuttons.forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        var key = btn.getAttribute('data-rtab');
+        document.querySelectorAll('.tab-panel[data-rtab]').forEach(function(p){
+          p.classList.toggle('active', p.getAttribute('data-rtab') === key);
+        });
+      });
+    });
+  }
+
+  function openPanel(id){
+    document.getElementById('overlay').classList.add('open');
+    document.getElementById(id).classList.add('open');
+  }
+  function closeAllPanels(){
+    document.getElementById('overlay').classList.remove('open');
+    document.querySelectorAll('.panel').forEach(function(p){ p.classList.remove('open'); });
+  }
+  document.getElementById('overlay').addEventListener('click', closeAllPanels);
+  document.querySelectorAll('[data-close-panel]').forEach(function(b){ b.addEventListener('click', closeAllPanels); });
+  var cust = document.getElementById('openCustomerPanel');
+  if(cust) cust.addEventListener('click', function(){ openPanel('customerPanel'); });
+  var jeRow = document.getElementById('openJeFromInvoice');
+  if(jeRow) jeRow.addEventListener('click', function(){ showView('journals-detail'); });
+
+  var invoices = [
+    ['INV-000123','10/08/2026','شركة الأمل للتجارة','10/09/2026','confirmed',1150.00,450.00],
+    ['INV-000122','09/08/2026','مؤسسة النيل للتوزيع','09/09/2026','paid',3260.00,0.00],
+    ['INV-000121','08/08/2026','شركة الفجر الحديثة','08/09/2026','paid',980.50,0.00],
+    ['INV-000120','07/08/2026','مصنع الدلتا للصناعات الغذائية','07/09/2026','partial',5400.00,2000.00],
+    ['INV-000119','05/08/2026','شركة بيت الخبير','05/09/2026','confirmed',612.30,612.30],
+    ['INV-000118','03/08/2026','مؤسسة الوادي الأخضر','03/09/2026','paid',1840.00,0.00],
+    ['INV-000117','01/08/2026','عميل نقدي (نقطة بيع)','01/08/2026','paid',245.00,0.00],
+    ['INV-000116','29/07/2026','شركة الأمل للتجارة','29/08/2026','draft',890.00,890.00],
+    ['INV-000115','27/07/2026','مؤسسة النيل للتوزيع','27/08/2026','cancelled',0.00,0.00],
+    ['INV-000114','24/07/2026','شركة الفجر الحديثة','24/08/2026','paid',3110.00,0.00],
+    ['INV-000113','22/07/2026','مصنع الدلتا للصناعات الغذائية','22/08/2026','confirmed',227.00,227.00],
+    ['INV-000112','20/07/2026','شركة بيت الخبير','20/08/2026','paid',1425.00,0.00]
+  ];
+  var statusLabel = {draft:'مسودة', confirmed:'مؤكد', partial:'مدفوع جزئياً', paid:'مدفوع', cancelled:'ملغي'};
+  var invoiceBody = document.getElementById('invoiceBody');
+  if(invoiceBody){
+    invoices.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.setAttribute('data-status', r[4]);
+      tr.addEventListener('click', function(){ showView('pattern-detail'); });
+      tr.innerHTML =
+        '<td class="cell-main num">'+r[0]+'</td>' +
+        '<td class="num">'+r[1]+'</td>' +
+        '<td>'+r[2]+'</td>' +
+        '<td class="num">'+r[3]+'</td>' +
+        '<td><span class="pill '+r[4]+'">'+statusLabel[r[4]]+'</span></td>' +
+        '<td class="num">'+money(r[5])+'</td>' +
+        '<td class="num">'+money(r[6])+'</td>' +
+        '<td><span class="kebab">⋮</span></td>';
+      invoiceBody.appendChild(tr);
+    });
+  }
+  var invoiceChips = document.getElementById('invoiceChips');
+  if(invoiceChips){
+    invoiceChips.querySelectorAll('.chip').forEach(function(chip){
+      chip.addEventListener('click', function(){
+        invoiceChips.querySelectorAll('.chip').forEach(function(c){ c.classList.remove('active'); });
+        chip.classList.add('active');
+        var status = chip.getAttribute('data-status');
+        document.querySelectorAll('#invoiceBody tr').forEach(function(tr){
+          tr.style.display = (status === 'all' || tr.getAttribute('data-status') === status) ? '' : 'none';
+        });
+      });
+    });
+  }
+
+  var accounts = [
+    {code:'1000', name:'الأصول', type:'أصول', nature:'رئيسي', level:0},
+    {code:'1100', name:'ذمم مدينة', type:'أصول', nature:'رئيسي', level:1},
+    {code:'1200', name:'المخزون', type:'أصول', nature:'تفصيلي', level:1},
+    {code:'1300', name:'النقدية', type:'أصول', nature:'رئيسي', level:1},
+    {code:'1300-1', name:'صندوق نقدي الفرع الرئيسي', type:'أصول', nature:'تفصيلي', level:2, panel:true},
+    {code:'1310', name:'حسابات بنكية', type:'أصول', nature:'تفصيلي', level:2},
+    {code:'1400', name:'ضريبة مدخلات', type:'أصول', nature:'تفصيلي', level:1},
+    {code:'1500', name:'أصول ثابتة', type:'أصول', nature:'رئيسي', level:1},
+    {code:'1510', name:'معدات', type:'أصول', nature:'تفصيلي', level:2},
+    {code:'2000', name:'الالتزامات', type:'التزامات', nature:'رئيسي', level:0},
+    {code:'2200', name:'ضريبة القيمة المضافة مستحقة', type:'التزامات', nature:'تفصيلي', level:1},
+    {code:'3000', name:'حقوق الملكية', type:'حقوق ملكية', nature:'رئيسي', level:0},
+    {code:'4000', name:'الإيرادات', type:'إيرادات', nature:'رئيسي', level:0},
+    {code:'5000', name:'المصروفات', type:'مصروفات', nature:'رئيسي', level:0}
+  ];
+  var coaBody = document.getElementById('coaBody');
+  if(coaBody){
+    accounts.forEach(function(a){
+      var tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.addEventListener('click', function(){
+        document.getElementById('apName').textContent = a.code + ' — ' + a.name;
+        openPanel('accountPanel');
+      });
+      var toggle = a.nature === 'رئيسي' ? '<span class="tree-toggle open"><svg viewBox="0 0 8 8" fill="none"><path d="M2 1l4 3-4 3" stroke="currentColor" stroke-width="1.4"/></svg></span>' : '<span class="tree-toggle leaf"></span>';
+      tr.innerHTML =
+        '<td><div class="tree-row" style="padding-inline-start:'+(a.level*20)+'px;">'+toggle+
+          '<div><div class="cell-main">'+a.name+'</div><div class="cell-sub num">'+a.code+'</div></div></div></td>' +
+        '<td><span class="type-tag">'+a.type+'</span></td>' +
+        '<td>'+a.nature+'</td>' +
+        '<td><span class="pill active">نشط</span></td>' +
+        '<td><span class="kebab">⋮</span></td>';
+      coaBody.appendChild(tr);
+    });
+  }
+
+  var journals = [
+    ['JE-000078','21/08/2026','سند نقدي',100.00,'محمد الشهابي'],
+    ['JE-000077','20/08/2026','استلام منتج تام',4200.00,'النظام'],
+    ['JE-000076','20/08/2026','تكلفة تشغيل تصنيع',860.00,'النظام'],
+    ['JE-000075','20/08/2026','تكلفة عمالة تصنيع',1200.00,'النظام'],
+    ['JE-000074','19/08/2026','فاتورة مبيعات',1150.00,'محمد الشهابي'],
+    ['JE-000073','19/08/2026','فاتورة مشتريات',3320.00,'محمد الشهابي'],
+    ['JE-000072','18/08/2026','تسوية مخزون',210.00,'محمد الشهابي'],
+    ['JE-000071','17/08/2026','مرتجع مبيعات',340.00,'محمد الشهابي'],
+    ['JE-000070','16/08/2026','سند نقدي',238.00,'محمد الشهابي'],
+    ['JE-000069','15/08/2026','صرف مواد تصنيع',1890.00,'النظام']
+  ];
+  var jeListBody = document.getElementById('jeListBody');
+  if(jeListBody){
+    journals.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.addEventListener('click', function(){ showView('journals-detail'); });
+      tr.innerHTML =
+        '<td class="cell-main num">'+r[0]+'</td>' +
+        '<td class="num">'+r[1]+'</td>' +
+        '<td>'+r[2]+'</td>' +
+        '<td class="num">'+money(r[3])+'</td>' +
+        '<td>'+r[4]+'</td>' +
+        '<td><span class="kebab">⋮</span></td>';
+      jeListBody.appendChild(tr);
+    });
+  }
+
+  var months = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+  var fiscalBody = document.getElementById('fiscalBody');
+  if(fiscalBody){
+    months.forEach(function(m, i){
+      var tr = document.createElement('tr');
+      var badge = '';
+      if(i === 7) badge = '<span class="period-badge">الفترة الحالية</span>';
+      else if(i < 7) badge = '<span class="period-badge" style="background:var(--surface-3);color:var(--text-muted);">منتهية</span>';
+      tr.innerHTML =
+        '<td><span class="cell-main">'+m+' 2026</span>'+badge+'</td>' +
+        '<td class="num">01/'+String(i+1).padStart(2,'0')+'/2026 — '+new Date(2026,i+1,0).getDate()+'/'+String(i+1).padStart(2,'0')+'/2026</td>' +
+        '<td><span class="pill open">مسموح</span></td>' +
+        '<td><span class="pill open">مفتوحة</span></td>' +
+        '<td><button class="btn sm">إغلاق</button></td>';
+      fiscalBody.appendChild(tr);
+    });
+  }
+
+  var tb = [
+    ['1100 — ذمم مدينة', 2782.30, 0],
+    ['1200 — المخزون', 604950.90, 0],
+    ['1300-1 — صندوق نقدي الفرع الرئيسي', 338.00, 0],
+    ['1400 — ضريبة مدخلات', 4120.00, 0],
+    ['1500 — أصول ثابتة', 128400.00, 0],
+    ['2200 — ضريبة القيمة المضافة مستحقة', 0, 6390.00],
+    ['2100 — ذمم دائنة (موردون)', 0, 110.00],
+    ['3000 — حقوق الملكية', 0, 610000.00],
+    ['4000 — الإيرادات', 0, 218430.00],
+    ['5000 — المصروفات', 104339.80, 0]
+  ];
+  var tbBody = document.getElementById('tbBody');
+  if(tbBody){
+    var td=0, tc=0;
+    tb.forEach(function(r){
+      td += r[1]; tc += r[2];
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="cell-main">'+r[0]+'</td><td class="num">'+(r[1]?money(r[1]):'—')+'</td><td class="num">'+(r[2]?money(r[2]):'—')+'</td>';
+      tbBody.appendChild(tr);
+    });
+    var trTotal = document.createElement('tr');
+    trTotal.className = 'je-total-row';
+    trTotal.innerHTML = '<td>الإجمالي</td><td class="num">'+money(td)+'</td><td class="num">'+money(tc)+'</td>';
+    tbBody.appendChild(trTotal);
+  }
+
+  var isRows = [
+    ['الإيرادات', 218430.00, false],
+    ['تكلفة البضاعة المباعة', -104339.80, false],
+    ['إجمالي الربح', 114090.20, true],
+    ['مصروفات تشغيلية', -61930.00, false],
+    ['مصروفات إدارية وعمومية', -70247.70, false],
+    ['صافي الربح', -18087.50, true]
+  ];
+  var isBody = document.getElementById('isBody');
+  if(isBody){
+    isRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      if(r[2]) tr.className = 'je-total-row';
+      var color = r[1] < 0 ? 'color:var(--danger-ink);' : '';
+      tr.innerHTML = '<td class="cell-main">'+r[0]+'</td><td class="num" style="'+color+'">'+money(r[1])+'</td>';
+      isBody.appendChild(tr);
+    });
+  }
+
+  var bsRows = [
+    ['الأصول المتداولة', 612191.20, false],
+    ['الأصول الثابتة (صافي)', 128400.00, false],
+    ['إجمالي الأصول', 740591.20, true],
+    ['الالتزامات المتداولة', 6500.00, false],
+    ['حقوق الملكية', 610000.00, false],
+    ['أرباح مرحّلة (خسارة الفترة)', -18087.50, false],
+    ['إجمالي الالتزامات وحقوق الملكية', 598412.50, true]
+  ];
+  var bsBody = document.getElementById('bsBody');
+  if(bsBody){
+    bsRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      if(r[2]) tr.className = 'je-total-row';
+      var color = r[1] < 0 ? 'color:var(--danger-ink);' : '';
+      tr.innerHTML = '<td class="cell-main">'+r[0]+'</td><td class="num" style="'+color+'">'+money(r[1])+'</td>';
+      bsBody.appendChild(tr);
+    });
+  }
+
+  var pages = [
+    {label:'لوحة التحكم', view:'dashboard', group:'الصفحات'},
+    {label:'فواتير المبيعات (نمط قائمة)', view:'pattern-list', group:'الصفحات'},
+    {label:'تفاصيل مستند (نمط)', view:'pattern-detail', group:'الصفحات'},
+    {label:'دليل الحسابات', view:'coa', group:'الصفحات'},
+    {label:'مراكز التكلفة', view:'cost-centers', group:'الصفحات'},
+    {label:'أرباح مراكز التكلفة', view:'cost-center-pl', group:'الصفحات'},
+    {label:'القيود المحاسبية', view:'journals-list', group:'الصفحات'},
+    {label:'الفترات المالية', view:'fiscal-periods', group:'الصفحات'},
+    {label:'الضرائب', view:'taxes', group:'الصفحات'},
+    {label:'أسعار الصرف', view:'exchange-rates', group:'الصفحات'},
+    {label:'إعادة تقييم العملات الأجنبية', view:'revaluation', group:'الصفحات'},
+    {label:'الفاتورة الإلكترونية', view:'eta', group:'الصفحات'},
+    {label:'مطابقة الأرصدة', view:'reconciliation', group:'الصفحات'},
+    {label:'التقارير المالية', view:'reports', group:'الصفحات'},
+    {label:'إنشاء فاتورة مبيعات', view:'pattern-list', group:'إجراءات سريعة'},
+    {label:'إنشاء قيد يومية', view:'journals-list', group:'إجراءات سريعة'},
+    {label:'تسجيل الخروج', view:'login', group:'الحساب'}
+  ];
+  var cmdkWrap = document.getElementById('cmdkWrap');
+  var cmdkList = document.getElementById('cmdkList');
+  var cmdkInput = document.getElementById('cmdkInput');
+  function renderCmdk(filter){
+    filter = (filter||'').trim();
+    var groups = {};
+    pages.forEach(function(p){
+      if(filter && p.label.indexOf(filter) === -1) return;
+      groups[p.group] = groups[p.group] || [];
+      groups[p.group].push(p);
+    });
+    var html = '';
+    Object.keys(groups).forEach(function(g){
+      html += '<div class="cmdk-group-title">'+g+'</div>';
+      groups[g].forEach(function(p){
+        html += '<div class="cmdk-item" data-view="'+p.view+'"><svg viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.3"/></svg><span>'+p.label+'</span></div>';
+      });
+    });
+    cmdkList.innerHTML = html || '<div style="padding:20px;text-align:center;color:var(--text-faint);font-size:13px;">لا توجد نتائج</div>';
+    cmdkList.querySelectorAll('.cmdk-item').forEach(function(item){
+      item.addEventListener('click', function(){
+        showView(item.getAttribute('data-view'));
+        closeCmdk();
+      });
+    });
+  }
+  function openCmdk(){ cmdkWrap.classList.add('open'); cmdkInput.value=''; renderCmdk(''); cmdkInput.focus(); }
+  function closeCmdk(){ cmdkWrap.classList.remove('open'); }
+  document.getElementById('openCmdk').addEventListener('click', openCmdk);
+  document.querySelectorAll('[data-close-cmdk]').forEach(function(b){ b.addEventListener('click', closeCmdk); });
+  cmdkInput.addEventListener('input', function(){ renderCmdk(cmdkInput.value); });
+  document.addEventListener('keydown', function(e){
+    if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k'){ e.preventDefault(); openCmdk(); }
+    if(e.key === 'Escape'){ closeCmdk(); closeJeModal(); closeAllPanels(); document.querySelectorAll('.modal-wrap.open').forEach(function(m){ m.classList.remove('open'); }); }
+  });
+
+  var jeModalWrap = document.getElementById('jeModalWrap');
+  var jeModalBody = document.getElementById('jeModalBody');
+  var jeBeamGroup = document.getElementById('jeBeamGroup');
+  var jeBeamStatus = document.getElementById('jeBeamStatus');
+  var jeSumDebit = document.getElementById('jeSumDebit');
+  var jeSumCredit = document.getElementById('jeSumCredit');
+  var jeSumDiff = document.getElementById('jeSumDiff');
+  var postJeBtn = document.getElementById('postJeBtn');
+
+  function addJeLine(account, memo, debit, credit){
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input type="text" placeholder="اختر حساب…" value="'+(account||'')+'"></td>' +
+      '<td><input type="text" placeholder="وصف البند…" value="'+(memo||'')+'"></td>' +
+      '<td><input type="number" class="num-input debit" step="0.01" value="'+(debit||'')+'"></td>' +
+      '<td><input type="number" class="num-input credit" step="0.01" value="'+(credit||'')+'"></td>' +
+      '<td><span class="kebab" style="cursor:pointer;">✕</span></td>';
+    jeModalBody.appendChild(tr);
+    tr.querySelectorAll('input.num-input').forEach(function(inp){ inp.addEventListener('input', recalcJe); });
+    tr.querySelector('.kebab').addEventListener('click', function(){
+      if(jeModalBody.children.length > 2){ tr.remove(); recalcJe(); }
+    });
+  }
+  function recalcJe(){
+    var debit = 0, credit = 0;
+    jeModalBody.querySelectorAll('tr').forEach(function(tr){
+      debit += parseFloat(tr.querySelector('.debit').value) || 0;
+      credit += parseFloat(tr.querySelector('.credit').value) || 0;
+    });
+    jeSumDebit.textContent = money(debit);
+    jeSumCredit.textContent = money(credit);
+    var diff = debit - credit;
+    jeSumDiff.textContent = money(diff);
+    jeSumDiff.style.color = diff === 0 ? 'var(--success-ink)' : 'var(--danger-ink)';
+    var tilt = Math.max(-18, Math.min(18, diff * -0.4));
+    if(debit === 0 && credit === 0) tilt = 0;
+    jeBeamGroup.style.transform = 'rotate('+tilt+'deg)';
+    var balanced = diff === 0 && debit > 0;
+    jeBeamStatus.textContent = balanced ? '✓ متوازن' : (debit===0&&credit===0 ? 'أدخل مبالغ' : 'غير متوازن');
+    jeBeamStatus.className = 'beam-status ' + (balanced ? 'balanced' : 'unbalanced');
+    postJeBtn.disabled = !balanced;
+  }
+  function openJeModal(){
+    jeModalBody.innerHTML = '';
+    addJeLine('', '', '', '');
+    addJeLine('', '', '', '');
+    recalcJe();
+    jeModalWrap.classList.add('open');
+  }
+  function closeJeModal(){ jeModalWrap.classList.remove('open'); }
+  document.getElementById('newJeBtn').addEventListener('click', openJeModal);
+  document.querySelectorAll('[data-close-je]').forEach(function(b){ b.addEventListener('click', closeJeModal); });
+  document.getElementById('addJeLine').addEventListener('click', function(){ addJeLine('', '', '', ''); });
+
+  /* ---------- report: cash flow ---------- */
+  var cfRows = [
+    ['التدفقات النقدية من الأنشطة التشغيلية', null, true],
+    ['المتحصَّل من العملاء', 96420.00, false],
+    ['المدفوع للموردين والمصروفات', -94180.00, false],
+    ['ضرائب مسدَّدة', -1560.00, false],
+    ['صافي النقد من الأنشطة التشغيلية', 680.00, true],
+    ['التدفقات النقدية من الأنشطة الاستثمارية', null, true],
+    ['شراء أصول ثابتة', -6200.00, false],
+    ['صافي النقد من الأنشطة الاستثمارية', -6200.00, true],
+    ['التدفقات النقدية من الأنشطة التمويلية', null, true],
+    ['ضخ رأس مال من الشريك', 6000.00, false],
+    ['صافي النقد من الأنشطة التمويلية', 6000.00, true],
+    ['صافي التغيّر في النقدية', 480.00, true],
+    ['النقدية أول المدة', -142.00, false],
+    ['النقدية آخر المدة', 338.00, true]
+  ];
+  var cfBody = document.getElementById('cfBody');
+  if(cfBody){
+    cfRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      if(r[1] === null){
+        tr.innerHTML = '<td class="cell-main" colspan="2" style="color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;font-size:11px;padding-block:14px 6px;">'+r[0]+'</td>';
+      } else {
+        if(r[2]) tr.className = 'je-total-row';
+        var color = r[1] < 0 ? 'color:var(--danger-ink);' : '';
+        tr.innerHTML = '<td class="cell-main">'+r[0]+'</td><td class="num" style="'+color+'">'+money(r[1])+'</td>';
+      }
+      cfBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- report: VAT return ---------- */
+  var vatRows = [
+    ['المبيعات الخاضعة للضريبة (14%)', 45640.00, 6389.60, false],
+    ['المبيعات المعفاة / بنسبة صفرية', 3200.00, 0.00, false],
+    ['إجمالي ضريبة المخرجات', 48840.00, 6389.60, true],
+    ['المشتريات الخاضعة للضريبة (14%)', 29430.00, 4120.20, false],
+    ['إجمالي ضريبة المدخلات', 29430.00, 4120.20, true],
+    ['صافي الضريبة المستحقة للسداد', null, 2269.40, true]
+  ];
+  var vatBody = document.getElementById('vatBody');
+  if(vatBody){
+    vatRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      if(r[3]) tr.className = 'je-total-row';
+      tr.innerHTML = '<td class="cell-main">'+r[0]+'</td>' +
+        '<td class="num">'+(r[1]===null?'—':money(r[1]))+'</td>' +
+        '<td class="num">'+money(r[2])+'</td>';
+      vatBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- report: general ledger ---------- */
+  var glRows = [
+    ['21/08','JE-000078','1300-1 — صندوق نقدي','تحصيل من عميل',100.00,0,'438.00'],
+    ['21/08','JE-000078','4900 — إيرادات أخرى','فائض صندوق',0,100.00,'—'],
+    ['20/08','JE-000077','1200 — المخزون','استلام منتج تام',4200.00,0,'602,425.90'],
+    ['20/08','JE-000077','1250 — إنتاج تحت التشغيل','تحويل تكلفة',0,4200.00,'—'],
+    ['19/08','JE-000074','1100 — ذمم مدينة','فاتورة مبيعات INV-000123',1150.00,0,'2,782.30'],
+    ['19/08','JE-000074','4000 — الإيرادات','إيراد مبيعات',0,1010.60,'—'],
+    ['19/08','JE-000074','2200 — ض.ق.م مستحقة','ضريبة مخرجات',0,139.40,'—'],
+    ['18/08','JE-000072','1200 — المخزون','تسوية مخزون (نقص)',0,210.00,'598,435.90']
+  ];
+  var glBody = document.getElementById('glBody');
+  if(glBody){
+    glRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td class="num">'+r[0]+'</td>' +
+        '<td class="num" style="color:var(--brand);">'+r[1]+'</td>' +
+        '<td class="cell-main">'+r[2]+'</td>' +
+        '<td>'+r[3]+'</td>' +
+        '<td class="num">'+(r[4]?money(r[4]):'—')+'</td>' +
+        '<td class="num">'+(r[5]?money(r[5]):'—')+'</td>' +
+        '<td class="num">'+r[6]+'</td>';
+      glBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- report: account ledger (1100 — ذمم مدينة) ---------- */
+  var alRows = [
+    ['01/08','—','رصيد أول المدة','رصيد مُدوَّر',0,0,'1,910.00'],
+    ['05/08','JE-000061','فاتورة مبيعات','INV-000119',612.30,0,'2,522.30'],
+    ['09/08','JE-000068','تحصيل من عميل','CV-000012',0,700.00,'1,822.30'],
+    ['13/08','JE-000072','فاتورة مبيعات','INV-000113',227.00,0,'2,049.30'],
+    ['19/08','JE-000074','فاتورة مبيعات','INV-000123',1150.00,0,'3,199.30'],
+    ['20/08','JE-000076','تحصيل من عميل','CV-000014',0,417.00,'2,782.30']
+  ];
+  var alBody = document.getElementById('alBody');
+  if(alBody){
+    alRows.forEach(function(r){
+      var tr = document.createElement('tr');
+      var isOpen = r[1] === '—';
+      if(isOpen) tr.className = 'je-total-row';
+      tr.innerHTML = '<td class="num">'+r[0]+'</td>' +
+        '<td class="num" style="'+(isOpen?'':'color:var(--brand);')+'">'+r[1]+'</td>' +
+        '<td class="cell-main">'+r[2]+'</td>' +
+        '<td>'+r[3]+'</td>' +
+        '<td class="num">'+(r[4]?money(r[4]):'—')+'</td>' +
+        '<td class="num">'+(r[5]?money(r[5]):'—')+'</td>' +
+        '<td class="num">'+r[6]+'</td>';
+      alBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- cost centers ---------- */
+  var costCenters = [
+    {code:'CC-RETAIL', name:'مبيعات التجزئة', type:'قسم', link:'قسم المبيعات', parent:'—', rev:'96,400.00', exp:'54,220.00', net:'42,180.00'},
+    {code:'CC-WHOLE', name:'مبيعات الجملة', type:'قسم', link:'قسم المبيعات', parent:'—', rev:'82,030.00', exp:'71,900.00', net:'10,130.00'},
+    {code:'CC-PROD', name:'خط الإنتاج — الكابلات', type:'مشروع', link:'مصنع الفرع الرئيسي', parent:'—', rev:'40,000.00', exp:'63,410.00', net:'-23,410.00'},
+    {code:'CC-ADMIN', name:'الإدارة العامة', type:'عام', link:'بدون ربط', parent:'—', rev:'0.00', exp:'38,120.00', net:'-38,120.00'},
+    {code:'CC-DELIV', name:'التوصيل والشحن', type:'قسم', link:'قسم العمليات', parent:'CC-ADMIN — الإدارة العامة', rev:'0.00', exp:'6,867.50', net:'-6,867.50'},
+    {code:'CC-MKT', name:'التسويق', type:'عام', link:'بدون ربط', parent:'CC-ADMIN — الإدارة العامة', rev:'0.00', exp:'2,000.00', net:'-2,000.00'}
+  ];
+  var ccBody = document.getElementById('ccBody');
+  if(ccBody){
+    costCenters.forEach(function(c){
+      var tr = document.createElement('tr');
+      tr.className = 'clickable';
+      tr.addEventListener('click', function(){
+        document.getElementById('ccPanelName').textContent = c.code + ' — ' + c.name;
+        document.getElementById('ccPanelCode').textContent = c.code;
+        document.getElementById('ccPanelType').textContent = c.type;
+        document.getElementById('ccPanelLink').textContent = c.link;
+        document.getElementById('ccPanelParent').textContent = c.parent;
+        document.getElementById('ccPanelRev').textContent = c.rev;
+        document.getElementById('ccPanelExp').textContent = c.exp;
+        var net = document.getElementById('ccPanelNet');
+        net.textContent = c.net;
+        net.style.color = c.net.indexOf('-') === 0 ? 'var(--danger-ink)' : 'var(--success-ink)';
+        openPanel('ccPanel');
+      });
+      var linkCell = c.link === 'بدون ربط' ? '<span style="color:var(--text-faint);">مستقل</span>' : c.link;
+      tr.innerHTML =
+        '<td class="cell-main num">'+c.code+'</td>' +
+        '<td class="cell-main">'+c.name+'</td>' +
+        '<td><span class="type-tag">'+c.type+'</span></td>' +
+        '<td>'+linkCell+'</td>' +
+        '<td>'+(c.parent === '—' ? '<span style="color:var(--text-faint);">—</span>' : c.parent)+'</td>' +
+        '<td><span class="pill active">نشط</span></td>' +
+        '<td><span class="kebab">⋮</span></td>';
+      ccBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- cost center P&L ---------- */
+  var ccpl = [
+    ['مبيعات التجزئة', 96400.00, 48200.00, 48200.00, 6020.00, 42180.00, 43.8],
+    ['مبيعات الجملة', 82030.00, 64180.00, 17850.00, 7720.00, 10130.00, 12.3],
+    ['خط الإنتاج — الكابلات', 40000.00, 58610.00, -18610.00, 4800.00, -23410.00, -58.5],
+    ['الإدارة العامة', 0.00, 0.00, 0.00, 38120.00, -38120.00, null],
+    ['التوصيل والشحن', 0.00, 0.00, 0.00, 6867.50, -6867.50, null],
+    ['التسويق', 0.00, 0.00, 0.00, 2000.00, -2000.00, null]
+  ];
+  var ccplBody = document.getElementById('ccplBody');
+  if(ccplBody){
+    var tRev=0,tCogs=0,tGp=0,tOpex=0,tNet=0;
+    ccpl.forEach(function(r){
+      tRev+=r[1]; tCogs+=r[2]; tGp+=r[3]; tOpex+=r[4]; tNet+=r[5];
+      var tr = document.createElement('tr');
+      var netColor = r[5] < 0 ? 'color:var(--danger-ink);' : 'color:var(--success-ink);';
+      var marginTxt = r[6] === null ? '—' : (r[6] > 0 ? '+' : '') + r[6].toFixed(1) + '%';
+      tr.innerHTML =
+        '<td class="cell-main">'+r[0]+'</td>' +
+        '<td class="num">'+money(r[1])+'</td>' +
+        '<td class="num">'+money(r[2])+'</td>' +
+        '<td class="num">'+money(r[3])+'</td>' +
+        '<td class="num">'+money(r[4])+'</td>' +
+        '<td class="num" style="'+netColor+'font-weight:700;">'+money(r[5])+'</td>' +
+        '<td class="num" style="'+netColor+'">'+marginTxt+'</td>';
+      ccplBody.appendChild(tr);
+    });
+    var tr = document.createElement('tr');
+    tr.className = 'je-total-row';
+    tr.innerHTML = '<td>الإجمالي</td><td class="num">'+money(tRev)+'</td><td class="num">'+money(tCogs)+'</td><td class="num">'+money(tGp)+'</td><td class="num">'+money(tOpex)+'</td><td class="num" style="color:var(--danger-ink);">'+money(tNet)+'</td><td class="num">-8.3%</td>';
+    ccplBody.appendChild(tr);
+  }
+
+  /* ---------- taxes ---------- */
+  var taxes = [
+    {name:'ضريبة القيمة المضافة 14%', code:'VAT14', rate:'14.00', type:'غير شاملة', eta:'V009 · أساسي', def:true},
+    {name:'ضريبة الجدول 5%', code:'TBL5', rate:'5.00', type:'غير شاملة', eta:'V009 · أساسي', def:false},
+    {name:'معفاة من الضريبة', code:'EXEMPT', rate:'0.00', type:'—', eta:'V003 · معفاة', def:false}
+  ];
+  var taxBody = document.getElementById('taxBody');
+  if(taxBody){
+    taxes.forEach(function(t){
+      var tr = document.createElement('tr');
+      var badge = t.def ? ' <span class="nav-tag pattern" style="margin-inline-start:6px;">الافتراضي</span>' : '';
+      tr.innerHTML =
+        '<td><div class="cell-main">'+t.name+badge+'</div><div class="cell-sub lat">'+t.code+'</div></td>' +
+        '<td class="num">'+t.rate+'%</td>' +
+        '<td>'+t.type+'</td>' +
+        '<td><span class="type-tag lat" style="direction:ltr;">'+t.eta+'</span></td>' +
+        '<td><span class="pill active">نشط</span></td>' +
+        '<td><button class="btn sm" data-open-tax>تعديل</button></td>';
+      taxBody.appendChild(tr);
+    });
+    taxBody.querySelectorAll('[data-open-tax]').forEach(function(b){
+      b.addEventListener('click', function(e){ e.stopPropagation(); openTaxModal(); });
+    });
+  }
+
+  /* ---------- exchange rates ---------- */
+  var rates = [
+    {pair:'USD / EGP', rate:'49.2500', date:'21/08/2026', src:'يدوي', status:'active', label:'معتمد'},
+    {pair:'EUR / EGP', rate:'53.8100', date:'21/08/2026', src:'البنك المركزي', status:'active', label:'معتمد'},
+    {pair:'SAR / EGP', rate:'13.1300', date:'20/08/2026', src:'يدوي', status:'locked', label:'مقفل'},
+    {pair:'AED / EGP', rate:'13.4100', date:'20/08/2026', src:'يدوي', status:'locked', label:'مقفل'},
+    {pair:'GBP / EGP', rate:'62.4000', date:'21/08/2026', src:'يدوي', status:'pending', label:'بانتظار الاعتماد'}
+  ];
+  var rateBody = document.getElementById('rateBody');
+  if(rateBody){
+    rates.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="cell-main lat" style="direction:ltr;">'+r.pair+'</td>' +
+        '<td class="num">'+r.rate+'</td>' +
+        '<td class="num">'+r.date+'</td>' +
+        '<td>'+r.src+'</td>' +
+        '<td><span class="pill '+r.status+'">'+r.label+'</span></td>' +
+        '<td><span class="kebab">⋮</span></td>';
+      rateBody.appendChild(tr);
+    });
+  }
+
+  /* ---------- FX revaluation preview ---------- */
+  var reval = [
+    ['USD · عملاء (2,400)', '48.6000', '49.2500', 116640.00, 118200.00, 1560.00],
+    ['EUR · موردون (900)', '53.4000', '53.8100', 48060.00, 48429.00, -369.00],
+    ['SAR · خزينة (5,200)', '13.0100', '13.1300', 67652.00, 68276.00, 624.00],
+    ['AED · عملاء (1,300)', '13.3800', '13.4100', 17394.00, 17433.00, 39.00]
+  ];
+  var revalBody = document.getElementById('revalBody');
+  if(revalBody){
+    reval.forEach(function(r){
+      var tr = document.createElement('tr');
+      var diffColor = r[5] < 0 ? 'color:var(--danger-ink);' : 'color:var(--success-ink);';
+      var diffTxt = (r[5] > 0 ? '+' : '') + money(r[5]);
+      tr.innerHTML =
+        '<td class="cell-main">'+r[0]+'</td>' +
+        '<td class="num">'+r[1]+'</td>' +
+        '<td class="num">'+r[2]+'</td>' +
+        '<td class="num">'+money(r[3])+'</td>' +
+        '<td class="num">'+money(r[4])+'</td>' +
+        '<td class="num" style="'+diffColor+'font-weight:700;">'+diffTxt+'</td>';
+      revalBody.appendChild(tr);
+    });
+  }
+
+  /* auto-reverse toggle */
+  var arToggle = document.getElementById('autoReverseToggle');
+  if(arToggle){
+    function flipAr(){
+      var on = arToggle.classList.toggle('on');
+      arToggle.setAttribute('aria-checked', on ? 'true' : 'false');
+    }
+    arToggle.addEventListener('click', flipAr);
+    arToggle.addEventListener('keydown', function(e){ if(e.key===' '||e.key==='Enter'){ e.preventDefault(); flipAr(); } });
+  }
+
+  /* ---------- ETA submissions ---------- */
+  var etaDocs = [
+    ['INV-000014','فاتورة','19/08/2026','1,150.00'],
+    ['INV-000013','فاتورة','18/08/2026','3,260.00'],
+    ['SRT-000001','إشعار خصم','18/08/2026','340.00'],
+    ['INV-000012','فاتورة','15/08/2026','980.50'],
+    ['INV-000011','فاتورة','13/08/2026','5,400.00'],
+    ['INV-000010','فاتورة','11/08/2026','612.30'],
+    ['SRT-000002','إشعار إضافة','09/08/2026','120.00'],
+    ['INV-000009','فاتورة','07/08/2026','1,840.00']
+  ];
+  var etaBody = document.getElementById('etaBody');
+  if(etaBody){
+    etaDocs.forEach(function(r){
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="cell-main num" style="color:var(--brand);">'+r[0]+'</td>' +
+        '<td><span class="type-tag">'+r[1]+'</span></td>' +
+        '<td class="num">'+r[2]+'</td>' +
+        '<td class="num">'+r[3]+'</td>' +
+        '<td><span class="pill pending">في قائمة الإرسال</span></td>' +
+        '<td><span style="color:var(--text-faint);">—</span></td>' +
+        '<td><button class="btn sm primary">إرسال</button></td>';
+      etaBody.appendChild(tr);
+    });
+  }
+
+  /* ETA sub-tabs */
+  var etaTabs = document.getElementById('etaTabs');
+  if(etaTabs){
+    var ebuttons = etaTabs.querySelectorAll('.tab-btn');
+    ebuttons.forEach(function(btn){
+      btn.addEventListener('click', function(){
+        ebuttons.forEach(function(b){ b.classList.remove('active'); });
+        btn.classList.add('active');
+        var key = btn.getAttribute('data-etab');
+        document.querySelectorAll('.tab-panel[data-etab]').forEach(function(p){
+          p.classList.toggle('active', p.getAttribute('data-etab') === key);
+        });
+      });
+    });
+  }
+
+  /* ---------- reconciliation summary cards ---------- */
+  var reconData = [
+    {t:'تقييم المخزون مقابل دفتر الأستاذ', s:'حساب المراقبة 1200 — المخزون', src:'قيمة المخزون', srcVal:'602,425.90', gl:'602,425.90'},
+    {t:'الخزينة مقابل دفتر الأستاذ (EGP)', s:'حساب المراقبة 1300 — النقدية', src:'رصيد المعاملات', srcVal:'338.00', gl:'338.00'},
+    {t:'ذمم العملاء مقابل دفتر الأستاذ', s:'حساب المراقبة 1100 — ذمم مدينة', src:'إجمالي أرصدة العملاء', srcVal:'2,782.30', gl:'2,782.30'},
+    {t:'ذمم الموردين مقابل دفتر الأستاذ', s:'حساب المراقبة 2100 — ذمم دائنة', src:'إجمالي أرصدة الموردين', srcVal:'110.00', gl:'110.00'}
+  ];
+  var reconGrid = document.getElementById('reconGrid');
+  if(reconGrid){
+    reconData.forEach(function(c){
+      var div = document.createElement('div');
+      div.className = 'recon-card';
+      div.innerHTML =
+        '<div class="recon-card-head"><div><div class="t">'+c.t+'</div><div class="s">'+c.s+'</div></div><span class="pill posted">متطابق</span></div>' +
+        '<div class="recon-lines">' +
+          '<div class="recon-line"><span class="k">'+c.src+'</span><span class="v num">'+c.srcVal+' ج.م</span></div>' +
+          '<div class="recon-line"><span class="k">رصيد دفتر الأستاذ</span><span class="v num">'+c.gl+' ج.م</span></div>' +
+          '<div class="recon-line diff"><span class="k">الفارق</span><span class="v num">0.00 ج.م ✓</span></div>' +
+        '</div>';
+      reconGrid.appendChild(div);
+    });
+  }
+
+  /* ---------- tax + rate modals ---------- */
+  var taxModalWrap = document.getElementById('taxModalWrap');
+  function openTaxModal(){ taxModalWrap.classList.add('open'); }
+  function closeTaxModal(){ taxModalWrap.classList.remove('open'); }
+  var addTaxBtn = document.getElementById('addTaxBtn');
+  if(addTaxBtn) addTaxBtn.addEventListener('click', openTaxModal);
+  document.querySelectorAll('[data-close-tax]').forEach(function(b){ b.addEventListener('click', closeTaxModal); });
+
+  var rateModalWrap = document.getElementById('rateModalWrap');
+  function openRateModal(){ rateModalWrap.classList.add('open'); }
+  function closeRateModal(){ rateModalWrap.classList.remove('open'); }
+  var addRateBtn = document.getElementById('addRateBtn');
+  if(addRateBtn) addRateBtn.addEventListener('click', openRateModal);
+  document.querySelectorAll('[data-close-rate]').forEach(function(b){ b.addEventListener('click', closeRateModal); });
+
+  var loginBtn = document.getElementById('loginBtn');
+  if(loginBtn) loginBtn.addEventListener('click', function(e){ e.preventDefault(); showView('dashboard'); });
+
+  showView('login');
+})();
+</script>

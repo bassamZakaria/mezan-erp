@@ -6,6 +6,12 @@
 
 ---
 
+## v1 Scope (2026-08-22)
+
+**v1 = Electron desktop app only (SQLite).** Descoped for now: the HR module, the POS module (including the net-new POS selling screen), and the entire cloud/SaaS website edition. Path chosen = **Path A**: SQLite-only for now, but the repository ports + Drizzle abstraction and the Hono app layer are kept so the website + Postgres can be added later additively. The Postgres dialect, the dual-engine conformance suite, and Postgres CI are deferred, not built now. **LAN multi-till stays** — it's desktop/offline and satisfies the one-license-multiple-devices requirement. The core business loop is unchanged: journal entries, sales & purchase invoices, treasury vouchers, print.
+
+---
+
 ## 1. Executive summary
 
 ### What is being built

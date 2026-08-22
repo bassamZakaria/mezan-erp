@@ -22,6 +22,9 @@ import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
 import { LandedCostsScreen } from "./screens/LandedCostsScreen";
 import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
 import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
+import { SalesQuotesScreen } from "./screens/SalesQuotesScreen";
+import { PriceListsScreen } from "./screens/PriceListsScreen";
+import { PromotionsScreen } from "./screens/PromotionsScreen";
 import { CostCenterPnLScreen } from "./screens/CostCenterPnLScreen";
 import { ExchangeRatesScreen } from "./screens/ExchangeRatesScreen";
 import { FxRevaluationScreen } from "./screens/FxRevaluationScreen";
@@ -77,6 +80,9 @@ import { RoleEditorPage } from "./pages/RoleEditorPage";
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
   "sales-invoices": SalesInvoicesScreen,
+  quotes: SalesQuotesScreen,
+  "price-lists": PriceListsScreen,
+  promotions: PromotionsScreen,
   customers: CustomersScreen,
   vendors: SuppliersScreen,
   "purchase-orders": PurchaseOrdersScreen,

@@ -139,6 +139,18 @@ export * from "./purchase-returns/index.js";
 export * from "./landed-costs/index.js";
 export * from "./installments/index.js";
 
+// --- credit-control/ — credit-limit warn/block enforcement (phase5/full-sales) ---
+export * from "./credit-control/index.js";
+
+// --- price-lists/ — قوائم الأسعار (phase5/full-sales) ---
+export * from "./price-lists/index.js";
+
+// --- sales-quotes/ — عروض الأسعار (phase5/full-sales) ---
+export * from "./sales-quotes/index.js";
+
+// --- promotions/ — العروض, discount/pricing rules engine (phase5/full-sales) ---
+export * from "./promotions/index.js";
+
 // --- accounting depth cluster (phase9/accounting-depth) ---
 // exchange-rates/ — FX master data + base-currency conversion + strict rate policy
 export * from "./exchange-rates/index.js";

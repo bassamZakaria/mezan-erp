@@ -6,15 +6,15 @@ import {
 } from "./sequences.js";
 
 describe("sequence definitions", () => {
-  it("encodes the 25 document-type sequences from catalog 09 plus SALES_RETURN (phase5/6 fix — see sequences.ts)", () => {
-    expect(SEQUENCE_DEFINITIONS).toHaveLength(26);
+  it("encodes the 25 document-type sequences from catalog 09 plus SALES_RETURN and SALES_QUOTE", () => {
+    expect(SEQUENCE_DEFINITIONS).toHaveLength(27);
   });
 
   it("has unique codes and unique prefixes", () => {
     const codes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.code));
     const prefixes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.prefix));
-    expect(codes.size).toBe(26);
-    expect(prefixes.size).toBe(26);
+    expect(codes.size).toBe(27);
+    expect(prefixes.size).toBe(27);
   });
 
   it("matches the catalog's next-number previews", () => {

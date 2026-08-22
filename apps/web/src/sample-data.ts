@@ -18,9 +18,11 @@ export const navGroups: NavGroup[] = [
     label: "المبيعات",
     items: [
       { key: "customers", label: "العملاء" },
-      { key: "quotes", label: "عروض الأسعار", tag: { label: "قريباً", tone: "soon" } },
+      { key: "quotes", label: "عروض الأسعار" },
       { key: "sales-invoices", label: "فواتير المبيعات", tag: { label: "نمط", tone: "pattern" } },
       { key: "sales-returns", label: "مرتجعات المبيعات" },
+      { key: "price-lists", label: "قوائم الأسعار" },
+      { key: "promotions", label: "العروض" },
     ],
   },
   {

@@ -36,6 +36,9 @@ import {
   type SalesReturnLine,
   type PurchaseReturnLine,
   type LandedCostLine,
+  type PriceListRepository,
+  type PromotionRepository,
+  createSalesInvoiceCustomerExposureHook,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -65,6 +68,9 @@ import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
+import { createPriceListsRoutes } from "./price-lists-routes.js";
+import { createPromotionsRoutes } from "./promotions-routes.js";
+import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
 import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-revaluation-routes.js";
@@ -194,8 +200,27 @@ export interface CreateAppOptions {
    */
   readonly gl?: GlRoutesDeps;
 
-  /** Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when supplied. */
+  /**
+   * Sales invoices (docs/catalog/01). Mounted under `/sales-invoices` when
+   * supplied. When `creditControl` isn't already set on these deps AND both
+   * `settingsStore` and `customerStore` are also supplied, `createApp` wires
+   * a REAL credit-control check automatically (tenant settings' الرقابة
+   * الائتمانية + the customer's own الحد الائتماني + their live-invoice
+   * exposure via `createSalesInvoiceCustomerExposureHook`) — omit either
+   * store to get exactly today's behaviour (no credit check at all).
+   */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
+  readonly priceListRepo?: PriceListRepository;
+  /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
+  readonly promotionRepo?: PromotionRepository;
+  /**
+   * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
+   * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
+   * `salesInvoices`'s repo/numbering/gl/stock when both are supplied and the
+   * caller didn't already set `invoice` themselves.
+   */
+  readonly salesQuotes?: SalesQuoteRoutesDeps;
   /** Mounts `/exchange-rates` (docs/catalog/04 "أسعار الصرف") when present. */
   readonly exchangeRateRepo?: ExchangeRateRepository;
   /** Mounts `/cost-center-pl` (docs/catalog/04 "أرباح مراكز التكلفة") when present. */
@@ -339,7 +364,54 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/", createAllocationRoutes(options.vouchers, options.resolveAuthContext));
   }
   if (options.salesInvoices) {
-    app.route("/sales-invoices", createSalesInvoicesRoutes(options.salesInvoices, options.resolveAuthContext));
+    const salesInvoices = options.salesInvoices;
+    // Auto-wire credit control (docs/catalog/01/09 §"الرقابة الائتمانية") when
+    // the caller supplied the tenant-settings + customer stores but didn't
+    // already hand-wire `creditControl` themselves.
+    const creditControl =
+      salesInvoices.creditControl ??
+      (options.settingsStore && options.customerStore
+        ? {
+            exposure: createSalesInvoiceCustomerExposureHook(salesInvoices.repo),
+            getCreditLimit: async (customerId: string) => {
+              const customer = await options.customerStore?.findById(customerId);
+              return customer?.creditLimit ?? Money.zero();
+            },
+            getPolicy: async () => {
+              const settings = await options.settingsStore?.get();
+              return {
+                enabled: settings?.creditControlEnabled ?? false,
+                mode: settings?.creditControlMode ?? "WARNING",
+              };
+            },
+          }
+        : undefined);
+    app.route(
+      "/sales-invoices",
+      createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
+    );
+  }
+  if (options.priceListRepo) {
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
+  }
+  if (options.promotionRepo) {
+    app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+  }
+  if (options.salesQuotes) {
+    const salesQuotes = options.salesQuotes;
+    // Auto-wire "إنشاء من عرض سعر" (convert to invoice) from the salesInvoices
+    // deps when both are supplied and the caller didn't already set it.
+    const invoice =
+      salesQuotes.invoice ??
+      (options.salesInvoices
+        ? {
+            repo: options.salesInvoices.repo,
+            numbering: options.salesInvoices.numbering,
+            gl: options.salesInvoices.gl,
+            stock: options.salesInvoices.stock,
+          }
+        : undefined);
+    app.route("/sales-quotes", createSalesQuotesRoutes({ ...salesQuotes, invoice }, options.resolveAuthContext));
   }
   if (options.salesReturns) {
     app.route(

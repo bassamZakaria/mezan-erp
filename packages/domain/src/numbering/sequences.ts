@@ -58,6 +58,7 @@ export const SEQUENCE_DEFINITIONS = [
   // PURCHASE_RETURN/LANDED_COST/INSTALLMENT_PLAN were captured but its sales
   // counterpart was not.
   { code: "SALES_RETURN", labelAr: "مرتجع مبيعات", prefix: "SRT-", padLength: 6, annualReset: false },
+  { code: "SALES_QUOTE", labelAr: "عرض سعر", prefix: "QT-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

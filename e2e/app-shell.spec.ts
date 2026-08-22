@@ -1,8 +1,9 @@
 import { test, expect } from "@playwright/test";
+import { loginAsDemoUser } from "./support/auth";
 
 test.describe("App shell", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
   });
 
   test("renders RTL with Arabic lang/dir on the document root", async ({ page }) => {

@@ -1,12 +1,13 @@
 import { test, expect } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
+import { loginAsDemoUser } from "./support/auth";
 
 const SCREENSHOT_DIR = "e2e-results/screenshots";
 
 test.describe("Theme toggle", () => {
   test.beforeEach(async ({ page }) => {
     await mkdir(SCREENSHOT_DIR, { recursive: true });
-    await page.goto("/");
+    await loginAsDemoUser(page);
   });
 
   test("defaults to the light palette with no explicit [data-theme]", async ({ page }) => {
@@ -47,7 +48,13 @@ test.describe("Theme toggle", () => {
     await page.getByRole("button", { name: "تبديل المظهر" }).click();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
 
+    // useTheme() only mounts inside AppShell, and a reload drops App.tsx's
+    // in-memory login state — so the login screen briefly shows with no
+    // [data-theme] attribute (it isn't part of AppShell). The stored
+    // "mezan:theme" preference reapplies once logged back in.
     await page.reload();
+    await expect(page.locator("html")).not.toHaveAttribute("data-theme", "dark");
+    await loginAsDemoUser(page);
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   });
 });

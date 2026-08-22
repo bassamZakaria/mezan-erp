@@ -1,9 +1,11 @@
 import { test, expect } from "@playwright/test";
+import { loginAsDemoUser } from "./support/auth";
+import { clickSidebarItem } from "./support/nav";
 
 /**
  * DocumentList primitive, exercised via the Sales Invoices screen (the
- * pattern-gallery demo, apps/web/src/screens/SalesInvoicesScreen.tsx) — the
- * default screen on load. 7 demo invoices, page size 5.
+ * pattern-gallery demo, apps/web/src/screens/SalesInvoicesScreen.tsx).
+ * 7 demo invoices, page size 5.
  */
 
 function invoiceNumbers(page: import("@playwright/test").Page) {
@@ -12,7 +14,8 @@ function invoiceNumbers(page: import("@playwright/test").Page) {
 
 test.describe("DocumentList — Sales Invoices", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
+    await clickSidebarItem(page, "فواتير المبيعات");
     await expect(page.getByRole("heading", { name: "فواتير المبيعات" })).toBeVisible();
   });
 

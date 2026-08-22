@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem } from "./support/nav";
 
 /**
@@ -13,7 +14,7 @@ function treeRow(page: Page, nameAr: string) {
 
 test.describe("Chart of Accounts", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
     await clickSidebarItem(page, "دليل الحسابات");
     await expect(page.getByRole("heading", { name: "دليل الحسابات" })).toBeVisible();
   });

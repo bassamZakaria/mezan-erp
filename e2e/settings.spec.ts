@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import { loginAsDemoUser } from "./support/auth";
 import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
 
 /**
@@ -9,7 +10,7 @@ import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
 
 test.describe("Settings — general", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
     await clickSidebarItem(page, "عام");
     await expect(page.getByRole("heading", { name: "الإعدادات" })).toBeVisible();
@@ -55,7 +56,7 @@ test.describe("Settings — general", () => {
 
 test.describe("Settings — branches", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
     await clickSidebarItem(page, "الفروع");
     await expect(page.getByRole("heading", { name: "الفروع", exact: true })).toBeVisible();
@@ -94,7 +95,7 @@ test.describe("Settings — branches", () => {
 
 test.describe("Settings — warehouses", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/");
+    await loginAsDemoUser(page);
     await expandSidebarGroup(page, "الإعدادات");
     await clickSidebarItem(page, "المستودعات");
     await expect(page.getByRole("heading", { name: "المستودعات" })).toBeVisible();

@@ -16,7 +16,7 @@ export const navGroups: NavGroup[] = [
     key: "sales",
     label: "المبيعات",
     items: [
-      { key: "customers", label: "العملاء", tag: { label: "قريباً", tone: "soon" } },
+      { key: "customers", label: "العملاء" },
       { key: "quotes", label: "عروض الأسعار", tag: { label: "قريباً", tone: "soon" } },
       { key: "sales-invoices", label: "فواتير المبيعات", tag: { label: "نمط", tone: "pattern" } },
       { key: "sales-returns", label: "مرتجعات المبيعات", tag: { label: "قريباً", tone: "soon" } },
@@ -26,7 +26,7 @@ export const navGroups: NavGroup[] = [
     key: "purchases",
     label: "المشتريات",
     items: [
-      { key: "vendors", label: "الموردون", tag: { label: "قريباً", tone: "soon" } },
+      { key: "vendors", label: "الموردون" },
       { key: "purchase-orders", label: "أوامر الشراء", tag: { label: "قريباً", tone: "soon" } },
       { key: "purchase-invoices", label: "فواتير المشتريات", tag: { label: "قريباً", tone: "soon" } },
     ],

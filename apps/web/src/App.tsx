@@ -3,6 +3,8 @@ import { AppShell } from "@mezan/ui";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
+import { CustomersScreen } from "./screens/CustomersScreen";
+import { SuppliersScreen } from "./screens/SuppliersScreen";
 import { commandItems, demoUser, navGroups, topNavItem } from "./sample-data";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
@@ -14,6 +16,8 @@ import { FirstRunWizard } from "./login/FirstRunWizard";
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
   "sales-invoices": SalesInvoicesScreen,
+  customers: CustomersScreen,
+  vendors: SuppliersScreen,
   coa: ChartOfAccountsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,

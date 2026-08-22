@@ -93,5 +93,25 @@ export {
   type UpdateWarehouseDTO,
 } from "./warehouse.js";
 
+export {
+  etaBuyerTypeSchema,
+  customerSchema,
+  createCustomerSchema,
+  updateCustomerSchema,
+  type EtaBuyerTypeDTO,
+  type CustomerDTO,
+  type CreateCustomerDTO,
+  type UpdateCustomerDTO,
+} from "./customers.js";
+
+export {
+  supplierSchema,
+  createSupplierSchema,
+  updateSupplierSchema,
+  type SupplierDTO,
+  type CreateSupplierDTO,
+  type UpdateSupplierDTO,
+} from "./suppliers.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

@@ -6,6 +6,8 @@ import {
   createSqliteSettingsStore,
   createSqliteBranchStore,
   createSqliteWarehouseStore,
+  createSqliteCustomerRepository,
+  createSqliteSupplierRepository,
 } from "@mezan/persistence";
 import { seedStandardChartOfAccounts } from "@mezan/domain";
 
@@ -24,7 +26,17 @@ if ((await accountRepo.list()).length === 0) {
   await seedStandardChartOfAccounts(accountRepo);
 }
 
-const app = createApp(uow, { settingsStore, branchStore, warehouseStore, accounts: { repo: accountRepo } });
+const customerStore = createSqliteCustomerRepository(process.env.MEZAN_CUSTOMERS_DB ?? ":memory:");
+const supplierStore = createSqliteSupplierRepository(process.env.MEZAN_SUPPLIERS_DB ?? ":memory:");
+
+const app = createApp(uow, {
+  settingsStore,
+  branchStore,
+  warehouseStore,
+  accounts: { repo: accountRepo },
+  customerStore,
+  supplierStore,
+});
 const port = Number(process.env.PORT ?? 3000);
 
 serve({ fetch: app.fetch, port }, (info) => {
@@ -33,5 +45,8 @@ serve({ fetch: app.fetch, port }, (info) => {
   console.log(`[server] try: GET /accounts/tree (x-permissions: accounting.coa.view)`);
   console.log(
     `[server] try: GET/PUT /settings , GET/POST/PUT /branches , GET/POST/PUT /warehouses (x-permissions: admin.settings.view / admin.branches.view / admin.warehouses.view, etc.)`,
+  );
+  console.log(
+    `[server] try: GET/POST/PATCH /customers , GET/POST/PATCH /suppliers (x-permissions: sales.customer.view / purchases.supplier.view, etc.)`,
   );
 });

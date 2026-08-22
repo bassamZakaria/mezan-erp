@@ -15,6 +15,12 @@ export const glJournalLineSchema = z.object({
   debit: z.string(),
   credit: z.string(),
   memo: z.string().nullish(),
+  /** Optional cost-center dimension ("مركز التكلفة") for the Cost Center P&L report. */
+  costCenterId: z.string().nullish(),
+  /** Original transaction currency of a multi-currency line; debit/credit stay base-currency. */
+  currency: z.string().nullish(),
+  /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
+  fxRate: z.string().nullish(),
 });
 
 /** Create (and post) a journal entry. */

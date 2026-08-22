@@ -114,3 +114,12 @@ export {
   createStandaloneSqliteFollowUpStore,
   type SqliteFollowUpStoreHandle,
 } from "./follow-up-store.js";
+export {
+  createSqliteExchangeRateRepository,
+  type SqliteExchangeRateRepositoryHandle,
+} from "./exchange-rate-repository.js";
+export {
+  createSqliteEtaStore,
+  type SqliteEtaStoreHandle,
+  type EtaConfigStore,
+} from "./eta-store.js";

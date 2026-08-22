@@ -138,3 +138,15 @@ export * from "./sales-returns/index.js";
 export * from "./purchase-returns/index.js";
 export * from "./landed-costs/index.js";
 export * from "./installments/index.js";
+
+// --- accounting depth cluster (phase9/accounting-depth) ---
+// exchange-rates/ — FX master data + base-currency conversion + strict rate policy
+export * from "./exchange-rates/index.js";
+// fx-revaluation/ — period-end FX revaluation with auto-reverse
+export * from "./fx-revaluation/index.js";
+// cost-center-pl/ — أرباح مراكز التكلفة (Cost Center P&L)
+export * from "./cost-center-pl/index.js";
+// reconciliation/ — مطابقة الأرصدة (sub-ledger vs GL control account)
+export * from "./reconciliation/index.js";
+// eta/ — الفاتورة الإلكترونية (ETA e-invoicing) config + submission queue
+export * from "./eta/index.js";

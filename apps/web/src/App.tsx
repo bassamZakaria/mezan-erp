@@ -22,6 +22,11 @@ import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
 import { LandedCostsScreen } from "./screens/LandedCostsScreen";
 import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
 import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
+import { CostCenterPnLScreen } from "./screens/CostCenterPnLScreen";
+import { ExchangeRatesScreen } from "./screens/ExchangeRatesScreen";
+import { FxRevaluationScreen } from "./screens/FxRevaluationScreen";
+import { ReconciliationScreen } from "./screens/ReconciliationScreen";
+import { EtaScreen } from "./screens/EtaScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -64,7 +69,12 @@ const ROUTABLE_SCREENS = {
   "installment-follow-ups": InstallmentFollowUpsScreen,
   items: ItemsScreen,
   "cost-centers": CostCentersScreen,
+  "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,
+  "exchange-rates": ExchangeRatesScreen,
+  revaluation: FxRevaluationScreen,
+  reconciliation: ReconciliationScreen,
+  eta: EtaScreen,
   taxes: TaxesScreen,
   "treasury-accounts": TreasuryAccountsScreen,
   "treasury-vouchers": TreasuryVouchersScreen,

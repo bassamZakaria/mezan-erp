@@ -11,6 +11,8 @@ import {
   type AccountLedgerLine,
   type JournalListFilter,
   type LedgerRepository,
+  type PostedLine,
+  type PostedLineFilter,
 } from "@mezan/domain";
 
 /**
@@ -41,16 +43,20 @@ CREATE TABLE IF NOT EXISTS journal_entry (
 CREATE INDEX IF NOT EXISTS idx_journal_entry_date ON journal_entry(date);
 CREATE INDEX IF NOT EXISTS idx_journal_entry_status ON journal_entry(status);
 CREATE TABLE IF NOT EXISTS journal_line (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  entry_id   TEXT NOT NULL REFERENCES journal_entry(id),
-  line_no    INTEGER NOT NULL,
-  account_id TEXT NOT NULL,
-  debit      INTEGER NOT NULL,
-  credit     INTEGER NOT NULL,
-  memo       TEXT
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  entry_id      TEXT NOT NULL REFERENCES journal_entry(id),
+  line_no       INTEGER NOT NULL,
+  account_id    TEXT NOT NULL,
+  debit         INTEGER NOT NULL,
+  credit        INTEGER NOT NULL,
+  memo          TEXT,
+  cost_center_id TEXT,
+  currency      TEXT,
+  fx_rate       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_journal_line_entry ON journal_line(entry_id);
 CREATE INDEX IF NOT EXISTS idx_journal_line_account ON journal_line(account_id);
+CREATE INDEX IF NOT EXISTS idx_journal_line_cost_center ON journal_line(cost_center_id);
 CREATE TABLE IF NOT EXISTS sequence_counter (
   code   TEXT NOT NULL,
   period TEXT NOT NULL,
@@ -78,6 +84,9 @@ interface LineRow {
   debit: bigint;
   credit: bigint;
   memo: string | null;
+  cost_center_id: string | null;
+  currency: string | null;
+  fx_rate: string | null;
 }
 
 /**
@@ -130,14 +139,14 @@ class SqliteLedgerRepository implements LedgerRepository {
       WHERE id = @id
     `);
     this.insertLine = sqlite.prepare(`
-      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo)
-      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo)
+      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate)
+      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate)
     `);
     this.selectEntryById = sqlite.prepare(`SELECT * FROM journal_entry WHERE id = ?`);
     this.selectEntryByNo = sqlite.prepare(`SELECT * FROM journal_entry WHERE entry_no = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_no, account_id, debit, credit, memo FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
+        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
   }
@@ -152,6 +161,9 @@ class SqliteLedgerRepository implements LedgerRepository {
         debit: line.debit.toScaledNumber(),
         credit: line.credit.toScaledNumber(),
         memo: line.memo ?? null,
+        cost_center_id: line.costCenterId ?? null,
+        currency: line.currency ?? null,
+        fx_rate: line.fxRate ?? null,
       });
     });
   }
@@ -265,6 +277,65 @@ class SqliteLedgerRepository implements LedgerRepository {
     }));
   }
 
+  async listLines(filter: PostedLineFilter = {}): Promise<readonly PostedLine[]> {
+    const clauses = ["je.status IN ('posted', 'reversed')"];
+    const params: unknown[] = [];
+    if (filter.fromDate) {
+      clauses.push("je.date >= ?");
+      params.push(filter.fromDate);
+    }
+    if (filter.toDate) {
+      clauses.push("je.date <= ?");
+      params.push(filter.toDate);
+    }
+    if (filter.costCenterId !== undefined) {
+      clauses.push("jl.cost_center_id = ?");
+      params.push(filter.costCenterId);
+    }
+    if (filter.accountIds && filter.accountIds.length > 0) {
+      clauses.push(`jl.account_id IN (${filter.accountIds.map(() => "?").join(", ")})`);
+      params.push(...filter.accountIds);
+    }
+    const rows = this.sqlite
+      .prepare(
+        `SELECT je.id AS entry_id, je.entry_no AS entry_no, je.date AS date, je.source AS source,
+                jl.account_id AS account_id, jl.cost_center_id AS cost_center_id,
+                jl.currency AS currency, jl.fx_rate AS fx_rate, jl.memo AS memo,
+                jl.debit AS debit, jl.credit AS credit
+           FROM journal_line jl
+           JOIN journal_entry je ON je.id = jl.entry_id
+          WHERE ${clauses.join(" AND ")}
+          ORDER BY je.date, je.id, jl.line_no`,
+      )
+      .safeIntegers()
+      .all(...params) as Array<{
+      entry_id: string;
+      entry_no: string | null;
+      date: string;
+      source: string;
+      account_id: string;
+      cost_center_id: string | null;
+      currency: string | null;
+      fx_rate: string | null;
+      memo: string | null;
+      debit: bigint;
+      credit: bigint;
+    }>;
+    return rows.map((r) => ({
+      entryId: r.entry_id,
+      entryNo: r.entry_no,
+      date: r.date,
+      source: r.source as PostedLine["source"],
+      accountId: r.account_id,
+      costCenterId: r.cost_center_id,
+      currency: r.currency,
+      fxRate: r.fx_rate,
+      memo: r.memo,
+      debit: Money.fromScaled(r.debit),
+      credit: Money.fromScaled(r.credit),
+    }));
+  }
+
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
     this.sqlite.exec("BEGIN IMMEDIATE");
     try {
@@ -284,6 +355,9 @@ class SqliteLedgerRepository implements LedgerRepository {
       debit: Money.fromScaled(l.debit),
       credit: Money.fromScaled(l.credit),
       memo: l.memo,
+      costCenterId: l.cost_center_id,
+      currency: l.currency,
+      fxRate: l.fx_rate,
     }));
     return {
       id: row.id,

@@ -76,3 +76,5 @@ export {
   createJournalGlHook,
   createDocumentWorkflowGate,
 } from "./journal-document.js";
+
+export { createInventoryStockHook } from "./inventory-stock-hook.js";

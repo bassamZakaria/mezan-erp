@@ -345,5 +345,77 @@ export {
   type SalesInvoiceListQueryDTO,
 } from "./sales-invoice.js";
 
+export {
+  salesReturnReasonSchema,
+  salesReturnLineSchema,
+  createSalesReturnSchema,
+  salesReturnRequestedQtySchema,
+  buildSalesReturnFromInvoiceSchema,
+  salesReturnDocumentSchema,
+  type SalesReturnReasonDTO,
+  type SalesReturnLineDTO,
+  type CreateSalesReturnDTO,
+  type BuildSalesReturnFromInvoiceDTO,
+  type SalesReturnDocumentDTO,
+} from "./sales-returns.js";
+
+export {
+  purchaseReturnReasonSchema,
+  purchaseReturnLineSchema,
+  createPurchaseReturnSchema,
+  purchaseReturnRequestedQtySchema,
+  buildPurchaseReturnFromInvoiceSchema,
+  purchaseReturnDocumentSchema,
+  type PurchaseReturnReasonDTO,
+  type PurchaseReturnLineDTO,
+  type CreatePurchaseReturnDTO,
+  type BuildPurchaseReturnFromInvoiceDTO,
+  type PurchaseReturnDocumentDTO,
+} from "./purchase-returns.js";
+
+export {
+  landedCostTypeSchema,
+  landedCostDistributionMethodSchema,
+  landedCostItemEntrySchema,
+  landedCostTargetSchema,
+  createLandedCostSchema,
+  landedCostLineSchema,
+  landedCostDocumentSchema,
+  type LandedCostTypeDTO,
+  type LandedCostDistributionMethodDTO,
+  type LandedCostItemEntryDTO,
+  type LandedCostTargetDTO,
+  type CreateLandedCostDTO,
+  type LandedCostLineDTO,
+  type LandedCostDocumentDTO,
+} from "./landed-costs.js";
+
+export {
+  installmentFrequencySchema,
+  installmentLineStatusSchema,
+  createInstallmentPlanSchema,
+  installmentLineSchema,
+  installmentPlanDocumentSchema,
+  processOverdueInstallmentsSchema,
+  processOverdueInstallmentsResultSchema,
+  followUpTypeSchema,
+  followUpStatusSchema,
+  createFollowUpSchema,
+  completeFollowUpSchema,
+  collectionFollowUpSchema,
+  type InstallmentFrequencyDTO,
+  type InstallmentLineStatusDTO,
+  type CreateInstallmentPlanDTO,
+  type InstallmentLineDTO,
+  type InstallmentPlanDocumentDTO,
+  type ProcessOverdueInstallmentsDTO,
+  type ProcessOverdueInstallmentsResultDTO,
+  type FollowUpTypeDTO,
+  type FollowUpStatusDTO,
+  type CreateFollowUpDTO,
+  type CompleteFollowUpDTO,
+  type CollectionFollowUpDTO,
+} from "./installments.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

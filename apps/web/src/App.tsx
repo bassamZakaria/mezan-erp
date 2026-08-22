@@ -17,6 +17,11 @@ import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
+import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
+import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
+import { LandedCostsScreen } from "./screens/LandedCostsScreen";
+import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
+import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -52,6 +57,11 @@ const ROUTABLE_SCREENS = {
   "purchase-invoices": PurchaseInvoicesScreen,
   coa: ChartOfAccountsScreen,
   journals: JournalsScreen,
+  "sales-returns": SalesReturnsScreen,
+  "purchase-returns": PurchaseReturnsScreen,
+  "landed-costs": LandedCostsScreen,
+  "installment-plans": InstallmentPlansScreen,
+  "installment-follow-ups": InstallmentFollowUpsScreen,
   items: ItemsScreen,
   "cost-centers": CostCentersScreen,
   "fiscal-periods": FiscalPeriodsScreen,

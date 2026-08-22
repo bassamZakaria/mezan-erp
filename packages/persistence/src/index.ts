@@ -87,3 +87,30 @@ export {
   type SqlitePurchasingStores,
 } from "./purchasing-stores.js";
 export { createSqliteSalesInvoiceStore, type SqliteSalesInvoiceStoreHandle } from "./sales-invoice-store.js";
+export {
+  createSqliteDocumentStore,
+  createStandaloneSqliteDocumentStore,
+  ensureDocumentTable,
+  type SqliteDocumentStoreHandle,
+} from "./document-store.js";
+export {
+  createSqliteSalesReturnStore,
+  createStandaloneSqliteSalesReturnStore,
+} from "./sales-return-store.js";
+export {
+  createSqlitePurchaseReturnStore,
+  createStandaloneSqlitePurchaseReturnStore,
+} from "./purchase-return-store.js";
+export {
+  createSqliteLandedCostStore,
+  createStandaloneSqliteLandedCostStore,
+} from "./landed-cost-store.js";
+export {
+  createSqliteInstallmentPlanStore,
+  createStandaloneSqliteInstallmentPlanStore,
+} from "./installment-plan-store.js";
+export {
+  createSqliteFollowUpStore,
+  createStandaloneSqliteFollowUpStore,
+  type SqliteFollowUpStoreHandle,
+} from "./follow-up-store.js";

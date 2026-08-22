@@ -20,3 +20,7 @@ export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
 export { createUsersRoutes } from "./users-routes.js";
+export { createTaxRatesRoutes } from "./tax-rates-routes.js";
+export { createCostCentersRoutes } from "./cost-centers-routes.js";
+export { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
+export { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";

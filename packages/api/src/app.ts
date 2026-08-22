@@ -16,6 +16,10 @@ import {
   type SupplierRepository,
   type ItemRepository,
   type Entitlements,
+  type TaxRateRepository,
+  type CostCenterRepository,
+  type TreasuryAccountRepository,
+  type FiscalPeriodRepository,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -31,6 +35,10 @@ import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
+import { createTaxRatesRoutes } from "./tax-rates-routes.js";
+import { createCostCentersRoutes } from "./cost-centers-routes.js";
+import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
+import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -127,6 +135,14 @@ export interface CreateAppOptions {
   readonly customerStore?: CustomerRepository;
   /** Mounts `/suppliers` (docs/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
   readonly supplierStore?: SupplierRepository;
+  /** Mounts `/tax-rates` (docs/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
+  readonly taxRateRepo?: TaxRateRepository;
+  /** Mounts `/cost-centers` (docs/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
+  readonly costCenterRepo?: CostCenterRepository;
+  /** Mounts `/treasury-accounts` (docs/catalog/04 "حسابات الخزينة") when present — omit it for no `/treasury-accounts` route. */
+  readonly treasuryAccountRepo?: TreasuryAccountRepository;
+  /** Mounts `/fiscal-periods` (docs/catalog/04 "الفترات المالية") when present — omit it for no `/fiscal-periods` route. */
+  readonly fiscalPeriodRepo?: FiscalPeriodRepository;
   /**
    * Resolves the caller's AuthContext for the settings/branches/warehouses/
    * customers/suppliers routes. Defaults to `headerAuthContextResolver` (see
@@ -178,6 +194,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.accounts) {
     app.route("/accounts", createAccountsRouter(options.accounts.repo, options.accounts.resolveAuthContext));
+  }
+  if (options.taxRateRepo) {
+    app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, options.resolveAuthContext));
+  }
+  if (options.costCenterRepo) {
+    app.route("/cost-centers", createCostCentersRoutes(options.costCenterRepo, options.resolveAuthContext));
+  }
+  if (options.treasuryAccountRepo) {
+    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, options.resolveAuthContext));
+  }
+  if (options.fiscalPeriodRepo) {
+    app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, options.resolveAuthContext));
   }
 
   if (options.items) {

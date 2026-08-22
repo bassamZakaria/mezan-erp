@@ -1,0 +1,52 @@
+import { z } from "zod";
+
+/**
+ * Wire contract for treasury accounts (docs/catalog/04 "حسابات الخزينة").
+ * Money (opening balance) crosses the wire as an exact decimal string, never
+ * a float — the domain re-parses it via `Money.fromMajor`.
+ */
+export const treasuryAccountTypeSchema = z.enum(["cash", "bank"]);
+export const treasuryAccountStatusSchema = z.enum(["active", "inactive"]);
+
+export const treasuryAccountSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  type: treasuryAccountTypeSchema,
+  currency: z.string().min(1),
+  branchId: z.string().min(1),
+  glAccountId: z.string().nullable(),
+  openingBalance: z.string(),
+  openingBalanceDate: z.string().nullable(),
+  status: treasuryAccountStatusSchema,
+});
+
+export const createTreasuryAccountSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string().min(1),
+  type: treasuryAccountTypeSchema.optional(),
+  currency: z.string().min(1).optional(),
+  branchId: z.string().min(1),
+  glAccountId: z.string().nullable().optional(),
+  openingBalance: z.string().optional(),
+  openingBalanceDate: z.string().nullable().optional(),
+});
+
+/** All fields optional — a PATCH applies only what's supplied. Also used for "إضافة رصيد افتتاحي". */
+export const updateTreasuryAccountSchema = z.object({
+  name: z.string().min(1).optional(),
+  type: treasuryAccountTypeSchema.optional(),
+  currency: z.string().min(1).optional(),
+  branchId: z.string().min(1).optional(),
+  glAccountId: z.string().nullable().optional(),
+  openingBalance: z.string().optional(),
+  openingBalanceDate: z.string().nullable().optional(),
+  status: treasuryAccountStatusSchema.optional(),
+});
+
+export type TreasuryAccountTypeDTO = z.infer<typeof treasuryAccountTypeSchema>;
+export type TreasuryAccountStatusDTO = z.infer<typeof treasuryAccountStatusSchema>;
+export type TreasuryAccountDTO = z.infer<typeof treasuryAccountSchema>;
+export type CreateTreasuryAccountDTO = z.infer<typeof createTreasuryAccountSchema>;
+export type UpdateTreasuryAccountDTO = z.infer<typeof updateTreasuryAccountSchema>;

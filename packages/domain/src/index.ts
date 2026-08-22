@@ -99,3 +99,9 @@ export * from "./items/index.js";
 // --- Phase 1: Users & Roles / Permissions ---
 export * from "./roles/index.js";
 export * from "./users/index.js";
+
+// --- accounting/treasury master-data cluster (phase1/accounting-master) ---
+export * from "./tax-rates/index.js";
+export * from "./cost-centers/index.js";
+export * from "./treasury-accounts/index.js";
+export * from "./fiscal-periods/index.js";

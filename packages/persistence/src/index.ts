@@ -48,3 +48,19 @@ export {
   type SqliteItemStoreHandle,
 } from "./item-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
+export {
+  createSqliteTaxRateRepository,
+  type SqliteTaxRateRepositoryHandle,
+} from "./tax-rate-repository.js";
+export {
+  createSqliteCostCenterRepository,
+  type SqliteCostCenterRepositoryHandle,
+} from "./cost-center-repository.js";
+export {
+  createSqliteTreasuryAccountRepository,
+  type SqliteTreasuryAccountRepositoryHandle,
+} from "./treasury-account-repository.js";
+export {
+  createSqliteFiscalPeriodRepository,
+  type SqliteFiscalPeriodRepositoryHandle,
+} from "./fiscal-period-repository.js";

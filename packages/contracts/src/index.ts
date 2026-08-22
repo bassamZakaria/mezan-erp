@@ -40,5 +40,16 @@ export {
   type LicensePayloadDTO,
 } from "./entitlements.js";
 
+export {
+  deviceSessionSchema,
+  connectDeviceRequestSchema,
+  lanStatusSchema,
+  lanSessionsListSchema,
+  type DeviceSessionDTO,
+  type ConnectDeviceRequestDTO,
+  type LanStatusDTO,
+  type LanSessionsListDTO,
+} from "./lan.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

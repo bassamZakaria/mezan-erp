@@ -1,12 +1,15 @@
 import { app, BrowserWindow } from "electron";
 import Database from "better-sqlite3";
 import { createApp } from "@mezan/api";
+import { SeatSessionRegistry } from "@mezan/domain";
 import { createSqliteUnitOfWork, type SqliteUnitOfWorkHandle } from "@mezan/persistence";
 import { registerHonoOverIpc } from "./ipc.js";
 import { createWindow } from "./window.js";
 import { initAutoUpdater } from "./updater.js";
 import { backupThenMigrate, scheduleBackups } from "./backup-hooks.js";
 import { defaultDbPath, isDev } from "./env.js";
+import { resolveDesktopEntitlements } from "./entitlements.js";
+import { startLanHost, type LanHostHandle } from "./lan-host.js";
 
 /**
  * Electron main process entry point.
@@ -29,6 +32,7 @@ import { defaultDbPath, isDev } from "./env.js";
 let uow: SqliteUnitOfWorkHandle | undefined;
 let backupConn: Database.Database | undefined;
 let disposeBackupSchedule: (() => void) | undefined;
+let lanHost: LanHostHandle | undefined;
 
 app.whenReady().then(async () => {
   const dbPath = isDev() ? ":memory:" : defaultDbPath();
@@ -49,8 +53,18 @@ app.whenReady().then(async () => {
     disposeBackupSchedule = scheduleBackups({ sqlite: backupConn, appVersion: app.getVersion() });
   }
 
-  const honoApp = createApp(uow);
+  // Same shared Hono app both mounts serve (docs/plan.md §2.2): the IPC
+  // bridge below (no port, host-local only) and, when the license carries
+  // `lan.multi_till`, a LAN-visible socket for other tills/tablets in the
+  // shop (§6.3.3). `/lan/sessions` seat enforcement lives on this one app
+  // instance in both cases — see @mezan/api's lan/routes.ts.
+  const entitlements = resolveDesktopEntitlements();
+  const seatRegistry = new SeatSessionRegistry(entitlements.seats);
+  const honoApp = createApp(uow, {
+    lan: { resolveEntitlements: () => entitlements, registry: seatRegistry },
+  });
   registerHonoOverIpc(honoApp);
+  lanHost = startLanHost({ app: honoApp, entitlements });
 
   createWindow();
   initAutoUpdater();
@@ -65,6 +79,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("will-quit", () => {
+  void lanHost?.close();
   disposeBackupSchedule?.();
   backupConn?.close();
   uow?.close();

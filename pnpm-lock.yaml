@@ -50,9 +50,18 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@hono/node-server':
+        specifier: ^1.13.7
+        version: 1.19.17(hono@4.13.3)
       '@mezan/api':
         specifier: workspace:*
         version: link:../../packages/api
+      '@mezan/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
+      '@mezan/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
       '@mezan/persistence':
         specifier: workspace:*
         version: link:../../packages/persistence

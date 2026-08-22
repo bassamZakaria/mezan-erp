@@ -78,3 +78,6 @@ export * from "./permissions/index.js";
 export * from "./workflow/index.js";
 export * from "./entitlements/index.js";
 export * from "./licensing/index.js";
+
+// --- LAN multi-till (phase0/lan-multitill) ---
+export * from "./lan/index.js";

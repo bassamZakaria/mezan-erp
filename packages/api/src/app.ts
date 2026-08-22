@@ -4,10 +4,13 @@ import {
   postJournalEntry,
   UnbalancedEntryError,
   InvalidJournalEntryError,
+  SeatSessionRegistry,
   type JournalEntry,
   type UnitOfWork,
 } from "@mezan/domain";
 import { createJournalEntrySchema } from "@mezan/contracts";
+import { createLanRoutes } from "./lan/routes.js";
+import type { EntitlementsResolver } from "./module-gate.js";
 
 /** Wire representation of an entry — money as decimal strings, byte-stable. */
 function serialize(entry: JournalEntry) {
@@ -24,6 +27,22 @@ function serialize(entry: JournalEntry) {
   };
 }
 
+export interface CreateAppOptions {
+  /**
+   * Mounts `/lan/*` (docs/plan.md §2.6/§6.3.3) on this same app instance when
+   * present. Desktop passes this so the SAME app answers both over IPC
+   * (host-local) and a LAN socket (till/tablet clients) — omit it and the app
+   * behaves exactly as before (no `/lan` routes at all), which is what
+   * apps/server and every existing caller/test still gets by default.
+   */
+  readonly lan?: {
+    readonly resolveEntitlements: EntitlementsResolver;
+    /** Pass a shared instance to persist seat state across app.fetch() calls; defaults to a fresh, empty registry. */
+    readonly registry?: SeatSessionRegistry;
+    readonly sseHeartbeatMs?: number;
+  };
+}
+
 /**
  * The ONE Hono app. A Hono app is a `(Request) => Promise<Response>` function,
  * so this exact instance is mounted two ways with no code difference:
@@ -32,7 +51,7 @@ function serialize(entry: JournalEntry) {
  *     (Electron main-process shape).
  * Routes carry no business logic — they validate, call the domain, serialize.
  */
-export function createApp(uow: UnitOfWork) {
+export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   const app = new Hono();
 
   app.post("/journal-entries", async (c) => {
@@ -83,6 +102,18 @@ export function createApp(uow: UnitOfWork) {
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
   });
+
+  if (options.lan) {
+    const registry = options.lan.registry ?? new SeatSessionRegistry(0);
+    app.route(
+      "/lan",
+      createLanRoutes({
+        resolveEntitlements: options.lan.resolveEntitlements,
+        registry,
+        sseHeartbeatMs: options.lan.sseHeartbeatMs,
+      }),
+    );
+  }
 
   return app;
 }

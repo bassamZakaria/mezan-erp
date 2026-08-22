@@ -1,0 +1,10 @@
+{
+  "name": "@mezan/desktop-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@mezan/api": "workspace:*",
+    "@mezan/persistence": "workspace:*"
+  }
+}

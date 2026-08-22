@@ -135,7 +135,11 @@ importers:
         specifier: ^3.24.1
         version: 3.25.76
 
-  packages/domain: {}
+  packages/domain:
+    dependencies:
+      '@noble/ed25519':
+        specifier: ^3.1.0
+        version: 3.1.0
 
   packages/persistence:
     dependencies:
@@ -822,6 +826,9 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [glibc]
+
+  '@noble/ed25519@3.1.0':
+    resolution: {integrity: sha512-pfcObRY3CtvwfaG9Mt5XqZdKmAQppl37tHUeuBhDUbiwJBCVY4/A4lbMvb1xKhMDx96AqAqZpMWuBX1HulhX4g==}
 
   '@noble/hashes@1.4.0':
     resolution: {integrity: sha512-V1JJ1WTRUqHHrOSh597hURcMqVKVGL/ea3kv0gSnEdsEZ0/+VyPghM1lMNGc00z7CIQorSvbKpuJkxvuHbvdbg==}
@@ -3321,6 +3328,8 @@ snapshots:
 
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
+
+  '@noble/ed25519@3.1.0': {}
 
   '@noble/hashes@1.4.0': {}
 

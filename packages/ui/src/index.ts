@@ -66,3 +66,13 @@ export { Topbar, type TopbarProps } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
 export { BrandMark } from "./shell/BrandMark";
 export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem } from "./shell/types";
+
+export {
+  TrendChart,
+  DonutChart,
+  type TrendChartProps,
+  type TrendChartSeries,
+  type DonutChartProps,
+  type DonutSegment,
+  type ChartRangeOption,
+} from "./primitives/charts";

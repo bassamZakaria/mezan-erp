@@ -1,0 +1,24 @@
+import type Database from "better-sqlite3";
+import { createBackup, type BackupResult } from "./backup-service.js";
+
+/**
+ * Runs one "pre-migration" backup. Wired to run before any schema-changing
+ * startup step — currently that's just `createSqliteUnitOfWork`'s idempotent
+ * `CREATE TABLE IF NOT EXISTS`, but this is the seam docs/plan.md §2.3
+ * requires ("Desktop upgrades run migrations on launch, after an automatic
+ * pre-migration backup ... with a rollback-to-backup path if anything
+ * throws") for once a real migration runner lands. Call this, then run
+ * migrations, then — only on failure — restore from `result.archivePath`.
+ */
+export async function runPreMigrationBackup(params: {
+  sqlite: Database.Database;
+  backupsDir: string;
+  appVersion: string;
+}): Promise<BackupResult> {
+  return createBackup({
+    sqlite: params.sqlite,
+    backupsDir: params.backupsDir,
+    appVersion: params.appVersion,
+    reason: "pre-migration",
+  });
+}

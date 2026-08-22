@@ -6,3 +6,7 @@ allowBuilds:
   esbuild: true
   # electron: skeleton only — never launched in Phase 0; skip the binary download.
   electron: false
+  # electron-winstaller: only needed by `electron-builder`'s Windows target at
+  # package time (apps/desktop/electron-builder.yml), which CI never runs —
+  # packaging/signing is deferred (see PR description). Skip its build script.
+  electron-winstaller: false

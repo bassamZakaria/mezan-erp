@@ -198,6 +198,44 @@ export const rankListDateRangeOptions = [
   { value: "12", label: "12 أشهر" },
 ] as const;
 
+/**
+ * Maps a range-chip value ("month"/"3"/"6"/"12") to a month count. The demo
+ * data below only has one month's worth of rows, so wider ranges scale the
+ * "هذا الشهر" figures up proportionally — a stand-in for the real
+ * `?dateFrom=&dateTo=`-filtered aggregation the documented endpoints do.
+ */
+function monthsForRange(range: string): number {
+  return range === "month" ? 1 : Number(range) || 1;
+}
+
+/** الأصناف الأعلى مبيعاً, scoped to a range chip's value — same source as `topItems`. */
+export function topItemsForRange(range: string): TopItemRow[] {
+  const scale = monthsForRange(range);
+  return topItems.map((row) => ({
+    ...row,
+    qty: Math.round(row.qty * scale),
+    revenueIncTax: Math.round(row.revenueIncTax * scale * 100) / 100,
+  }));
+}
+
+/** أعلى العملاء مبيعاً, scoped to a range chip's value — same source as `topCustomers`. */
+export function topCustomersForRange(range: string): TopCustomerRow[] {
+  const scale = monthsForRange(range);
+  return topCustomers.map((row) => ({
+    ...row,
+    invoiceCount: Math.round(row.invoiceCount * scale),
+    revenueIncTax: Math.round(row.revenueIncTax * scale * 100) / 100,
+  }));
+}
+
+/** توزيع المصروفات, scoped to a range chip's value — same source as `expenseBreakdown`. */
+export function expenseBreakdownForRange(range: string): typeof expenseBreakdown {
+  const scale = monthsForRange(range);
+  const segments = expenseBreakdown.segments.map((segment) => ({ ...segment, value: Math.round(segment.value * scale) }));
+  const total = segments.reduce((sum, segment) => sum + segment.value, 0);
+  return { centerLabel: `${(total / 1000).toFixed(1)} ألف`, centerSub: expenseBreakdown.centerSub, segments };
+}
+
 /** 14% — matches settings/sample-data.ts's sampleSettings.defaultTaxRate for the excl.-tax toggle. */
 export const DEFAULT_TAX_RATE = 14;
 

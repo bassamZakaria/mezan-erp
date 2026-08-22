@@ -28,17 +28,22 @@ export interface PartnerBase {
   readonly active: boolean;
 }
 
-/** Common validation reasons shared by createCustomer/createCustomerFromPatch and their supplier mirrors. */
+/**
+ * Common validation reasons shared by createCustomer/createCustomerFromPatch and their
+ * supplier mirrors. Reasons are Arabic sentences (not English identifiers) because they
+ * are surfaced as-is in the Arabic RTL UI (`InvalidCustomerError`/`InvalidSupplierError`
+ * build their `.message` by joining this array) — see `packages/domain/src/customers/customer.ts`.
+ */
 export function validatePartnerBase(partner: PartnerBase): string[] {
   const reasons: string[] = [];
-  if (partner.id.trim() === "") reasons.push("id is required");
+  if (partner.id.trim() === "") reasons.push("المعرف مطلوب");
   if (!/^[A-Za-z0-9_-]{1,30}$/.test(partner.code)) {
-    reasons.push("code must be 1-30 alphanumeric/-/_ characters");
+    reasons.push("الكود يجب أن يتكون من 1 إلى 30 حرفًا/رقمًا أو - أو _");
   }
-  if (partner.nameAr.trim() === "") reasons.push("nameAr is required");
+  if (partner.nameAr.trim() === "") reasons.push("الاسم بالعربية مطلوب");
   if (!Number.isInteger(partner.paymentTermsDays) || partner.paymentTermsDays < 0) {
-    reasons.push("paymentTermsDays must be a non-negative integer");
+    reasons.push("مدة السداد يجب أن تكون رقمًا صحيحًا غير سالب");
   }
-  if (partner.currency.trim() === "") reasons.push("currency is required");
+  if (partner.currency.trim() === "") reasons.push("العملة مطلوبة");
   return reasons;
 }

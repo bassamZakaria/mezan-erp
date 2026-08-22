@@ -118,6 +118,14 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
 
   async function handleSave() {
     setFormError(null);
+    if (draft.fullName.trim() === "") {
+      setFormError("الاسم الكامل مطلوب.");
+      return;
+    }
+    if (draft.email.trim() === "") {
+      setFormError("البريد الإلكتروني مطلوب.");
+      return;
+    }
     setSaving(true);
     const result = await onSave(draft, editingId);
     setSaving(false);

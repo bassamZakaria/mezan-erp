@@ -8,7 +8,7 @@ import {
   dashboardFooterDisclaimer,
   dashboardGreetingName,
   DEFAULT_TAX_RATE,
-  expenseBreakdown,
+  expenseBreakdownForRange,
   expenseBreakdownRangeOptions,
   followUpItems,
   kpiTiles,
@@ -17,8 +17,8 @@ import {
   recentActivity,
   revenueTrendForRange,
   revenueTrendRangeOptions,
-  topCustomers,
-  topItems,
+  topCustomersForRange,
+  topItemsForRange,
 } from "./dashboard-sample-data";
 
 type TaxMode = "inc" | "exc";
@@ -47,11 +47,15 @@ export function DashboardScreen() {
 
   const trend = useMemo(() => revenueTrendForRange(Number(trendRange)), [trendRange]);
 
+  const rangedItems = useMemo(() => topItemsForRange(itemsRange), [itemsRange]);
   const sortedItems = useMemo(() => {
-    const rows = [...topItems];
+    const rows = [...rangedItems];
     rows.sort((a, b) => (itemsSort === "value" ? b.revenueIncTax - a.revenueIncTax : b.qty - a.qty));
     return rows;
-  }, [itemsSort]);
+  }, [rangedItems, itemsSort]);
+
+  const rangedCustomers = useMemo(() => topCustomersForRange(customersRange), [customersRange]);
+  const rangedExpenseBreakdown = useMemo(() => expenseBreakdownForRange(expenseRange), [expenseRange]);
 
   return (
     <div className="flex flex-col gap-[22px]">
@@ -193,9 +197,9 @@ export function DashboardScreen() {
           <DonutChart
             title="توزيع المصروفات"
             hint="نسبة كل فئة"
-            segments={expenseBreakdown.segments}
-            centerLabel={expenseBreakdown.centerLabel}
-            centerSub={expenseBreakdown.centerSub}
+            segments={rangedExpenseBreakdown.segments}
+            centerLabel={rangedExpenseBreakdown.centerLabel}
+            centerSub={rangedExpenseBreakdown.centerSub}
             rangeOptions={[...expenseBreakdownRangeOptions]}
             activeRange={expenseRange}
             onRangeChange={setExpenseRange}
@@ -270,7 +274,7 @@ export function DashboardScreen() {
         </div>
 
         <ol className="mt-[14px] grid grid-cols-1 gap-[9px] sm:grid-cols-2">
-          {topCustomers.map((row, index) => (
+          {rangedCustomers.map((row, index) => (
             <li key={row.key} className="flex items-center gap-[10px] text-[12.5px]">
               <span className="flex h-[20px] w-[20px] flex-none items-center justify-center rounded-full bg-surface-3 text-[11px] font-bold text-ink-muted">
                 {index + 1}

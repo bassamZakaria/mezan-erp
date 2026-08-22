@@ -7,7 +7,7 @@ import type { Role } from "./role.js";
 export class UnknownPermissionError extends Error {
   readonly code = "UNKNOWN_PERMISSION";
   constructor(readonly permission: string) {
-    super(`Unknown permission code: ${permission}`);
+    super(`صلاحية غير معروفة: ${permission}`);
     this.name = "UnknownPermissionError";
   }
 }
@@ -15,7 +15,7 @@ export class UnknownPermissionError extends Error {
 export class UnlicensedPermissionError extends Error {
   readonly code = "UNLICENSED_PERMISSION";
   constructor(readonly permission: string) {
-    super(`Permission ${permission} belongs to a module not licensed for this tenant`);
+    super(`الصلاحية "${permission}" تابعة لوحدة غير مرخصة لهذا المستأجر`);
     this.name = "UnlicensedPermissionError";
   }
 }
@@ -23,7 +23,7 @@ export class UnlicensedPermissionError extends Error {
 export class DuplicateRoleCodeError extends Error {
   readonly code = "DUPLICATE_ROLE_CODE";
   constructor(readonly roleCode: string) {
-    super(`A role with code ${roleCode} already exists`);
+    super(`يوجد دور بالفعل بالكود "${roleCode}"`);
     this.name = "DuplicateRoleCodeError";
   }
 }
@@ -31,7 +31,7 @@ export class DuplicateRoleCodeError extends Error {
 export class SystemRoleImmutableError extends Error {
   readonly code = "SYSTEM_ROLE_IMMUTABLE";
   constructor(readonly roleId: string) {
-    super(`Role ${roleId} is a system role and cannot be modified`);
+    super(`الدور "${roleId}" هو دور نظام ولا يمكن تعديله`);
     this.name = "SystemRoleImmutableError";
   }
 }
@@ -39,7 +39,7 @@ export class SystemRoleImmutableError extends Error {
 export class RoleNotFoundError extends Error {
   readonly code = "ROLE_NOT_FOUND";
   constructor(readonly roleId: string) {
-    super(`Role ${roleId} was not found`);
+    super(`الدور "${roleId}" غير موجود`);
     this.name = "RoleNotFoundError";
   }
 }
@@ -47,7 +47,7 @@ export class RoleNotFoundError extends Error {
 export class RoleInUseError extends Error {
   readonly code = "ROLE_IN_USE";
   constructor(readonly roleId: string) {
-    super(`Role ${roleId} is assigned to one or more users and cannot be deleted`);
+    super(`الدور "${roleId}" مُسند إلى مستخدم واحد أو أكثر ولا يمكن حذفه`);
     this.name = "RoleInUseError";
   }
 }

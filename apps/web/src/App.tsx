@@ -22,6 +22,7 @@ import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
   commandItems,
   demoBranches,
+  demoCompanyName,
   demoEmployees,
   demoEntitlements,
   demoRoles,
@@ -167,6 +168,7 @@ export function App() {
       navGroups={groups}
       user={demoUser}
       commandItems={commandItems}
+      tenantName={demoCompanyName}
       scopeLabel="الفرع الرئيسي"
       notificationCount={3}
     >

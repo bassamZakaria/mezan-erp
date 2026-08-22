@@ -48,13 +48,13 @@ describe("CustomersScreen", () => {
     expect(screen.getByText("عميل تجريبي")).toBeInTheDocument();
   });
 
-  it("shows a domain validation error instead of adding an invalid customer", () => {
+  it("shows an Arabic domain validation error instead of adding an invalid customer", () => {
     render(<CustomersScreen />);
     fireEvent.click(screen.getByRole("button", { name: "إضافة عميل" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة عميل" });
     // Leave the required Arabic name empty and try to save.
     fireEvent.click(within(dialog).getByRole("button", { name: "إضافة عميل" }));
-    expect(within(dialog).getByText(/Invalid customer/)).toBeInTheDocument();
+    expect(within(dialog).getByText("الاسم بالعربية مطلوب")).toBeInTheDocument();
   });
 
   it("edits an existing customer from the detail view without clobbering its credit limit", () => {

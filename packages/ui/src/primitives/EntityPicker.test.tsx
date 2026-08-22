@@ -10,6 +10,17 @@ const options: EntityPickerOption[] = [
 ];
 
 describe("EntityPicker", () => {
+  it("associates the label with the input via htmlFor/id, even without an explicit id prop", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" />);
+    expect(screen.getByLabelText("العميل")).toBe(screen.getByRole("combobox"));
+  });
+
+  it("uses a caller-supplied id instead of generating one", () => {
+    render(<EntityPicker value={null} onChange={() => {}} options={options} label="العميل" id="picker-customer" />);
+    const input = screen.getByLabelText("العميل");
+    expect(input).toHaveAttribute("id", "picker-customer");
+  });
+
   it("shows the selected value as a placeholder when closed", () => {
     render(<EntityPicker value={options[0] ?? null} onChange={() => {}} options={options} label="العميل" />);
     expect(screen.getByRole("combobox")).toHaveAttribute("placeholder", "شركة الأمل للتجارة");

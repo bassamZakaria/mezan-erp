@@ -128,7 +128,7 @@ test.describe("Suppliers", () => {
 
     await form.getByRole("button", { name: "إضافة مورد", exact: true }).click();
 
-    await expect(form.getByRole("alert")).toContainText("nameAr is required");
+    await expect(form.getByRole("alert")).toContainText("الاسم بالعربية مطلوب");
     await expect(form).toBeVisible();
     await expect(page.getByText("عرض 5 من 5 مورد")).toBeVisible();
   });

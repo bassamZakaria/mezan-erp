@@ -50,4 +50,13 @@ describe("CostCentersScreen", () => {
     expect(within(panel).getByText("بدون مركز رئيسي")).toBeInTheDocument();
     expect(within(panel).getByText(/المراكز الفرعية/)).toBeInTheDocument();
   });
+
+  it("associates the parent-picker label with its combobox input", () => {
+    render(<CostCentersScreen />);
+    fireEvent.click(screen.getByRole("button", { name: "إضافة مركز تكلفة" }));
+    const dialog = screen.getByRole("dialog", { name: "إضافة مركز تكلفة" });
+    const picker = within(dialog).getByLabelText("المركز الرئيسي");
+    expect(picker).toHaveAttribute("role", "combobox");
+    expect(picker.tagName).toBe("INPUT");
+  });
 });

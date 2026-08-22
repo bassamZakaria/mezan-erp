@@ -27,7 +27,7 @@ export interface Customer extends PartnerBase {
 export class InvalidCustomerError extends Error {
   readonly code = "INVALID_CUSTOMER";
   constructor(readonly reasons: readonly string[]) {
-    super(`Invalid customer: ${reasons.join("; ")}`);
+    super(reasons.join("، "));
     this.name = "InvalidCustomerError";
   }
 }
@@ -57,10 +57,10 @@ export interface CreateCustomerInput {
 function validate(customer: Customer): string[] {
   const reasons = validatePartnerBase(customer);
   if (!ETA_BUYER_TYPES.includes(customer.etaBuyerType)) {
-    reasons.push(`etaBuyerType must be one of ${ETA_BUYER_TYPES.join(", ")}`);
+    reasons.push("نوع عميل الفاتورة الإلكترونية غير صالح");
   }
   if (customer.creditLimit.scaled < 0n) {
-    reasons.push("creditLimit cannot be negative");
+    reasons.push("حد الائتمان لا يمكن أن يكون سالبًا");
   }
   return reasons;
 }

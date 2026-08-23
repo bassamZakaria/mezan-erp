@@ -128,6 +128,7 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
       "report-installments-overview",
       "report-installments-overdue",
       "report-van-sales",
+      "report-make-vs-buy",
     ],
   },
   {

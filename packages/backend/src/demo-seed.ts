@@ -77,6 +77,41 @@ const ITEMS = [
   { id: "ITEM-DEMO-2", code: "IT-0002", nameAr: "زيت عباد الشمس ١ لتر", nameEn: "Sunflower Oil 1L", salePrice: "95", costPrice: "72" },
   { id: "ITEM-DEMO-3", code: "IT-0003", nameAr: "سكر أبيض ١ كجم", nameEn: "White Sugar 1kg", salePrice: "42", costPrice: "31" },
   { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205" },
+  { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "خليط شاي بالسكر ١ كجم", nameEn: "Sweetened Tea Blend 1kg", salePrice: "150", costPrice: "108.60" },
+  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع ١ كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00" },
+];
+
+/**
+ * قوائم المواد (BOMs) for the two manufactured items above — demo data for
+ * the make-vs-buy report. Both BOMs cost their tea/sugar lines at the SAME
+ * purchase history `PURCHASE_INVOICES` below records, so the report's
+ * material-cost rollup is checkable by hand against real numbers.
+ */
+const BOMS = [
+  {
+    id: "BOM-DEMO-1",
+    productItemId: "ITEM-DEMO-5",
+    standardQty: "10",
+    unit: "PCS",
+    laborCost: "50",
+    overheadCost: "30",
+    lines: [
+      { itemId: "ITEM-DEMO-4", qty: "4" },
+      { itemId: "ITEM-DEMO-3", qty: "6" },
+    ],
+  },
+  {
+    id: "BOM-DEMO-2",
+    productItemId: "ITEM-DEMO-6",
+    standardQty: "10",
+    unit: "PCS",
+    laborCost: "40",
+    overheadCost: "20",
+    lines: [
+      { itemId: "ITEM-DEMO-4", qty: "5" },
+      { itemId: "ITEM-DEMO-3", qty: "5" },
+    ],
+  },
 ];
 
 const COST_CENTERS = [
@@ -108,6 +143,12 @@ const PURCHASE_INVOICES = [
       { itemId: "ITEM-DEMO-2", qty: "300", unitCost: "72" },
       { itemId: "ITEM-DEMO-4", qty: "80", unitCost: "205" },
     ],
+  },
+  {
+    id: "PI-DEMO-3",
+    supplierId: "SUPP-DEMO-1",
+    date: "2026-07-28",
+    lines: [{ itemId: "ITEM-DEMO-5", qty: "50", unitCost: "130" }],
   },
 ];
 
@@ -196,6 +237,10 @@ export async function seedDemoTenant(app: App): Promise<void> {
       lines: invoice.lines.map((line) => ({ ...line, kind: "inventory", taxRatePercent: VAT_PERCENT })),
     });
     await step(app, "POST", `/purchases/invoices/${invoice.id}/confirm`, {});
+  }
+
+  for (const bom of BOMS) {
+    await step(app, "POST", "/manufacturing/boms", bom);
   }
 
   for (const invoice of SALES_INVOICES) {

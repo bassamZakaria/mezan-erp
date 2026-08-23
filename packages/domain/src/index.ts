@@ -191,3 +191,22 @@ export * from "./hr/index.js";
 
 // --- notifications/ — قواعد الإشعارات rules engine (w8/notifications) ---
 export * from "./notifications/index.js";
+
+// --- settings/print-template-config.js — the 9-tab print-template designer's persisted shape (w8/print-migration) ---
+export { DEFAULT_PRINT_TEMPLATE_CONFIG } from "./settings/print-template-config.js";
+export type {
+  PrintPageSize,
+  LogoPosition,
+  LogoSize,
+  PrintIdentityConfig,
+  PrintHeaderConfig,
+  PrintContentConfig,
+  PrintColumnsConfig,
+  PrintTotalsConfig,
+  PrintFooterConfig,
+  PrintWatermarkConfig,
+  PrintPosReceiptConfig,
+  PrintTemplateOverride,
+  PrintTemplateConfig,
+  PrintTemplateConfigRepository,
+} from "./settings/print-template-config.js";

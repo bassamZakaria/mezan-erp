@@ -727,6 +727,110 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
   });
 });
 
+/**
+ * w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox. Proves
+ * the `/workflow` routes are really mounted over the persisted SQLite stores,
+ * AND that `documentWorkflowGate` (create-backend.ts) is bound to the SAME
+ * store: configuring a chain for SALES_RETURN_CONFIRM actually holds a real
+ * sales-return confirm بانتظار الموافقة instead of a config with no effect.
+ */
+describe("createBackend — workflow/approvals (w8/workflow-ui)", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+
+  it("mounts /workflow/configs and /workflow/requests", async () => {
+    const app = await newBackend();
+    const configs = await app.fetch(new Request("http://local/workflow/configs", { headers: ADMIN }));
+    expect(configs.status).toBe(200);
+    expect((await configs.json()) as unknown[]).toEqual([]);
+
+    const pending = await app.fetch(new Request("http://local/workflow/requests/pending", { headers: ADMIN }));
+    expect(pending.status).toBe(200);
+    expect((await pending.json()) as unknown[]).toEqual([]);
+  });
+
+  it("holds a real sales-return confirm بانتظار الموافقة once a chain is configured for SALES_RETURN_CONFIRM", async () => {
+    const app = await newBackend();
+
+    const draft = await post(
+      app,
+      "/sales-returns",
+      {
+        id: "SRWF1",
+        date: "2026-08-21",
+        memo: "",
+        lines: [
+          {
+            itemId: "ITEM1",
+            warehouseId: "WH1",
+            customerId: "CUST1",
+            sourceInvoiceId: "INV1",
+            sourceInvoiceNumber: "INV-000014",
+            reason: "DEFECTIVE",
+            availableQty: "5",
+            qty: "2",
+            unitPrice: "100",
+            unitCost: "60",
+            taxAmount: "28",
+          },
+        ],
+      },
+      { "x-permissions": "sales.return.create" },
+    );
+    expect(draft.status).toBe(201);
+
+    // No config yet: confirm grants immediately (unchanged default behavior).
+    const confirmedNoConfig = await post(app, "/sales-returns/SRWF1/confirm", {}, { "x-permissions": "sales.return.confirm" });
+    expect(((await confirmedNoConfig.json()) as { held: boolean }).held).toBe(false);
+
+    // Configure a one-step chain for a SECOND draft's action type.
+    const configRes = await post(
+      app,
+      "/workflow/configs",
+      { actionType: "SALES_RETURN_CONFIRM", steps: [{ role: "FINANCE_MANAGER", description: "مراجعة مالية" }] },
+      ADMIN,
+    );
+    expect(configRes.status).toBe(201);
+
+    const draft2 = await post(
+      app,
+      "/sales-returns",
+      {
+        id: "SRWF2",
+        date: "2026-08-21",
+        memo: "",
+        lines: [
+          {
+            itemId: "ITEM1",
+            warehouseId: "WH1",
+            customerId: "CUST1",
+            sourceInvoiceId: "INV1",
+            sourceInvoiceNumber: "INV-000014",
+            reason: "DEFECTIVE",
+            availableQty: "5",
+            qty: "1",
+            unitPrice: "100",
+            unitCost: "60",
+            taxAmount: "14",
+          },
+        ],
+      },
+      { "x-permissions": "sales.return.create" },
+    );
+    expect(draft2.status).toBe(201);
+
+    const confirmed = await post(
+      app,
+      "/sales-returns/SRWF2/confirm",
+      {},
+      { "x-permissions": "sales.return.confirm", "x-user-id": "clerk" },
+    );
+    expect(confirmed.status).toBe(200);
+    const body = (await confirmed.json()) as { document: { status: string }; held: boolean };
+    expect(body.held).toBe(true);
+    expect(body.document.status).toBe("pending");
+  });
+});
+
 describe("createBackend — phase9/accounting-depth: reconciliation, inventory-ops document layer", () => {
   const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
 

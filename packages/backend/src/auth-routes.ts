@@ -26,11 +26,13 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
 
 async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> {
   let permissions: string[];
+  let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
     permissions = ["*"];
   } else if (user.roleId) {
     const role = await deps.uow.roles.findById(user.roleId);
     permissions = role ? [...role.permissions] : [];
+    roleCode = role?.code ?? null;
   } else {
     permissions = [];
   }
@@ -40,6 +42,7 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
     email: user.email,
     isCompanyAdmin: user.isCompanyAdmin,
     permissions,
+    roleCode,
     branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
     warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
     tenantName: await tenantName(deps.settings),

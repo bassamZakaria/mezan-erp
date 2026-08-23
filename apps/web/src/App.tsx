@@ -91,6 +91,9 @@ import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { NotificationRulesPage } from "./settings/NotificationRulesPage";
 import { useNotificationsBell } from "./notifications/NotificationsBell";
+import { DataMigrationPage } from "./settings/DataMigrationPage";
+import { WorkflowConfigPage } from "./settings/WorkflowConfigPage";
+import { ApprovalsInboxScreen } from "./screens/ApprovalsInboxScreen";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
@@ -108,6 +111,7 @@ import {
   useCreateRole,
   useCreateUser,
   useDeleteRole,
+  usePendingApprovalCount,
   useRoles,
   useSetUserStatus,
   useUpdateRole,
@@ -188,6 +192,9 @@ const ROUTABLE_SCREENS = {
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
   "notification-rules": NotificationRulesPage,
+  "settings-data-migration": DataMigrationPage,
+  "settings-workflow": WorkflowConfigPage,
+  approvals: ApprovalsInboxScreen,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,
@@ -250,6 +257,8 @@ export function App() {
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
+  const pendingApprovalCountQuery = usePendingApprovalCount();
+  const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const roles = rolesQuery.data ?? [];
   const users = usersQuery.data ?? [];
   const createUser = useCreateUser();
@@ -282,13 +291,17 @@ export function App() {
         ...group,
         items: group.items.map((item) => {
           const key = item.key;
+          // الموافقات carries a global pending-count badge (docs/catalog/09
+          // §الموافقات inbox nav item) — a real count off /workflow/requests/
+          // pending-count, not a placeholder.
+          const tag = key === "approvals" && pendingApprovalCount > 0 ? { label: String(pendingApprovalCount), tone: "pattern" as const } : item.tag;
           if (isRoutable(key) || key === "users" || key === "roles") {
-            return { ...item, onClick: () => navigate(key as ScreenKey) };
+            return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
           }
-          return item;
+          return { ...item, tag };
         }),
       })),
-    [navigate],
+    [navigate, pendingApprovalCount],
   );
 
   const routedCommandItems: CommandItem[] = useMemo(() => {

@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  WorkflowConfigDTO,
+  CreateWorkflowConfigDTO,
+  UpdateWorkflowConfigDTO,
+  ApprovalRequestDTO,
+  SubmitApprovalRequestDTO,
+  DecideApprovalRequestDTO,
   AccountDTO,
   ActivityDTO,
   AddAttributeValueDTO,
@@ -174,6 +180,7 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  PrintTemplateConfigDTO,
   DepartmentDTO,
   CreateDepartmentDTO,
   UpdateDepartmentDTO,
@@ -3948,5 +3955,343 @@ export function useMarkAllNotificationsRead() {
       if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر تحديد الكل كمقروء."));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* قوالب الطباعة (Print Templates) — docs/catalog/09 §"قوالب الطباعة"    */
+/* ------------------------------------------------------------------ */
+
+/** The tenant's saved print-template config, or the shared default if none was saved yet. */
+export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PrintTemplateConfigDTO, ApiError>({
+    queryKey: ["print-template-config"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/print-template-config");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قالب الطباعة.");
+      return res.json<PrintTemplateConfigDTO>();
+    },
+  });
+}
+
+export function useSavePrintTemplateConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PrintTemplateConfigDTO, ApiError, PrintTemplateConfigDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/print-template-config", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ قالب الطباعة."));
+      return res.json<PrintTemplateConfigDTO>();
+    },
+    onSuccess: (config) => queryClient.setQueryData(["print-template-config"], config),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* نقل البيانات (Data Migration wizard) — docs/catalog/09 §"نقل البيانات" */
+/* ------------------------------------------------------------------ */
+
+export interface DataMigrationRowErrorDTO {
+  readonly rowNumber: number;
+  readonly reasons: readonly string[];
+}
+
+export interface DataMigrationStepResultDTO {
+  readonly validCount: number;
+  readonly errors: readonly DataMigrationRowErrorDTO[];
+  readonly createdIds?: readonly string[];
+}
+
+/** Registered-record counts for every one of the 13 wizard steps, driving each step's badge/checkmark. */
+export interface DataMigrationStatusDTO {
+  readonly departments: number;
+  readonly employees: number;
+  readonly treasuryAccounts: number;
+  readonly suppliers: number;
+  readonly customers: number;
+  readonly items: number;
+  readonly itemUnits: number;
+  readonly assetCategories: number;
+  readonly assets: number;
+  readonly salesInvoices: number;
+  readonly salesReturns: number;
+  readonly purchaseInvoices: number;
+  readonly purchaseReturns: number;
+}
+
+/** The 9 master-data step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit for. */
+export type DataMigrationMasterStep =
+  | "departments"
+  | "employees"
+  | "treasury-accounts"
+  | "suppliers"
+  | "customers"
+  | "items"
+  | "item-units"
+  | "asset-categories"
+  | "assets";
+
+export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<DataMigrationStatusDTO, ApiError>({
+    queryKey: ["data-migration", "status"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/data-migration/status");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل حالة نقل البيانات.");
+      return res.json<DataMigrationStatusDTO>();
+    },
+  });
+}
+
+/** Dry-run (no persistence) validation for one master-data step's parsed rows. */
+export function useDataMigrationPreview(step: DataMigrationMasterStep) {
+  const { request } = useApi();
+  return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/data-migration/${step}/preview`, { method: "POST", body: JSON.stringify({ rows }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      return res.json<DataMigrationStepResultDTO>();
+    },
+  });
+}
+
+/** All-or-nothing commit for one master-data step's parsed rows — nothing persists unless every row validates. */
+export function useDataMigrationCommit(step: DataMigrationMasterStep) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/data-migration/${step}/commit`, { method: "POST", body: JSON.stringify({ rows }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      return res.json<DataMigrationStepResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+  });
+}
+
+/** The 4 historical-document steps (10-13) reuse `/sales/historical-import` and `/purchases/historical-import` directly. */
+export type HistoricalImportKind = "sales" | "purchases";
+export type HistoricalImportDocType = "SALES_INVOICE" | "SALES_RETURN" | "PURCHASE_INVOICE" | "PURCHASE_RETURN";
+
+export interface HistoricalImportRowDTO {
+  readonly rowNumber: number;
+  readonly docType: HistoricalImportDocType;
+  readonly documentNumber: string;
+  readonly partyId: string;
+  readonly date: string;
+  readonly dueDate?: string | null;
+  readonly itemId?: string | null;
+  readonly description?: string | null;
+  readonly qty: string;
+  readonly unitCost: string;
+  readonly amountPaid: string;
+}
+
+interface HistoricalImportBatchWire {
+  readonly rows: {
+    rowNumber: number;
+    docType: HistoricalImportDocType;
+    documentNumber: string;
+    supplierId?: string;
+    customerId?: string;
+    date: string;
+    dueDate?: string | null;
+    itemId?: string | null;
+    description?: string | null;
+    qty: string;
+    unitCost: string;
+    amountPaid: string;
+  }[];
+}
+
+function toHistoricalImportWireBody(kind: HistoricalImportKind, rows: readonly HistoricalImportRowDTO[]): HistoricalImportBatchWire {
+  return {
+    rows: rows.map((r) => ({
+      rowNumber: r.rowNumber,
+      docType: r.docType,
+      documentNumber: r.documentNumber,
+      ...(kind === "sales" ? { customerId: r.partyId } : { supplierId: r.partyId }),
+      date: r.date,
+      dueDate: r.dueDate,
+      itemId: r.itemId,
+      description: r.description,
+      qty: r.qty,
+      unitCost: r.unitCost,
+      amountPaid: r.amountPaid,
+    })),
+  };
+}
+
+export interface HistoricalImportGroupDTO {
+  readonly documentNumber: string;
+  readonly docType: HistoricalImportDocType;
+  readonly lineCount: number;
+  readonly total: string;
+  readonly amountPaid: string;
+  readonly remainingBalance: string;
+  readonly settled: boolean;
+}
+
+export interface HistoricalImportResultDTO {
+  readonly groups: readonly HistoricalImportGroupDTO[];
+  readonly errors: readonly DataMigrationRowErrorDTO[];
+  readonly archivedIds?: readonly string[];
+}
+
+export function useHistoricalImportPreview(kind: HistoricalImportKind) {
+  const { request } = useApi();
+  return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/${kind}/historical-import/preview`, {
+        method: "POST",
+        body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      return res.json<HistoricalImportResultDTO>();
+    },
+  });
+}
+
+export function useHistoricalImportCommit(kind: HistoricalImportKind) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/${kind}/historical-import/commit`, {
+        method: "POST",
+        body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      return res.json<HistoricalImportResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox    */
+/* (docs/catalog/09 §سير العمل), off the real /workflow API.             */
+/* -------------------------------------------------------------------- */
+
+/** إعدادات الموافقات — the persisted approval-chain config per action type. */
+export function useWorkflowConfigs(): UseQueryResult<WorkflowConfigDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WorkflowConfigDTO[], ApiError>({
+    queryKey: ["workflow-configs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/workflow/configs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات سير العمل.");
+      return res.json<WorkflowConfigDTO[]>();
+    },
+  });
+}
+
+export function useCreateWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkflowConfigDTO, ApiError, CreateWorkflowConfigDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/workflow/configs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      return res.json<WorkflowConfigDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+export function useUpdateWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkflowConfigDTO, ApiError, { id: string; body: UpdateWorkflowConfigDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/workflow/configs/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      return res.json<WorkflowConfigDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+export function useDeleteWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/workflow/configs/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف سير العمل."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+/**
+ * الموافقات inbox — pending approvals whose CURRENT step's role the signed-in
+ * user holds (server-side filter off `x-role-code`; a tenant admin sees
+ * every pending request). Polled every 30s so the shell's pending-count
+ * badge and the inbox list itself stay live without a manual refresh.
+ */
+export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ApprovalRequestDTO[], ApiError>({
+    queryKey: ["workflow-requests", "pending"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/pending");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموافقات المعلّقة.");
+      return res.json<ApprovalRequestDTO[]>();
+    },
+  });
+}
+
+/** The shell's global pending-count badge on the الموافقات nav item. */
+export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<number, ApiError>({
+    queryKey: ["workflow-requests", "pending-count"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/pending-count");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عدد الموافقات المعلّقة.");
+      const body = await res.json<{ count: number }>();
+      return body.count;
+    },
+  });
+}
+
+/** Submits a new approval request for a gateable action type (POST /workflow/requests). */
+export function useSubmitApproval() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ApprovalRequestDTO, ApiError, SubmitApprovalRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/workflow/requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إرسال طلب الموافقة."));
+      return res.json<ApprovalRequestDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-requests"] });
+    },
+  });
+}
+
+/** موافقة / رفض / طلب تعديل — the inbox's three per-row actions (POST /workflow/requests/:id/decide). */
+export function useDecideApproval() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ApprovalRequestDTO, ApiError, { id: string; body: DecideApprovalRequestDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/workflow/requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تنفيذ القرار."));
+      return res.json<ApprovalRequestDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-requests"] });
+    },
   });
 }

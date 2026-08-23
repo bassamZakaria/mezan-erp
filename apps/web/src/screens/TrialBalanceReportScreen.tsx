@@ -1,40 +1,33 @@
 import { useState } from "react";
 import { ReportRunner } from "@mezan/ui";
-import {
-  createTrialBalanceReport,
-  runReport,
-  sampleReportAccounts,
-  sampleReportJournalEntries,
-  type RunReportOutcome,
-  type TrialBalanceContext,
-  type TrialBalanceParams,
-  type TrialBalanceRow,
-} from "@mezan/domain";
+import { createTrialBalanceReport, type TrialBalanceRow } from "@mezan/domain";
+import { useFinancialReport } from "../data/financial-reports-hooks";
 
 /**
- * ميزان المراجعة (docs/catalog/08-reports.md) wired end to end over the
- * report engine's sample GL data (@mezan/domain/reports/sample-gl-data.ts) —
- * the one example report proving the `ReportDefinition` abstraction. The
- * other 32 catalog reports become thin `ReportDefinition`s later; nothing
- * about this screen is trial-balance-specific except the definition + the
- * data it aggregates over.
+ * ميزان المراجعة (docs/catalog/08-reports.md), wired to `GET
+ * /financial-reports/trial-balance` — the report engine's `ReportDefinition`
+ * (`createTrialBalanceReport`) only supplies the UI metadata (title, param
+ * fields, columns); the rows/groups/totals/reconciliation all come from the
+ * live posted general ledger via `useFinancialReport`, never a fixture.
  */
 
-const TODAY = "2026-08-22";
+const TODAY = new Date().toISOString().slice(0, 10);
 const definition = createTrialBalanceReport(TODAY);
-const context: TrialBalanceContext = { accounts: sampleReportAccounts, journalEntries: sampleReportJournalEntries };
+
+function toStringParams(defaults: object): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(defaults).map(([key, value]) => [key, value === null || value === undefined ? "" : String(value)]),
+  );
+}
 
 export function TrialBalanceReportScreen() {
-  const [params, setParams] = useState<Record<string, string>>({ asOfDate: definition.defaultParams.asOfDate });
-  const [outcome, setOutcome] = useState<RunReportOutcome<TrialBalanceParams, TrialBalanceRow> | null>(null);
+  const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
+  const [hasRun, setHasRun] = useState<boolean>(!definition.onDemand);
 
-  function handleRun() {
-    setOutcome(runReport(definition, params, context));
-  }
+  const query = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", params, { enabled: hasRun });
 
-  const fieldErrors =
-    outcome && !outcome.ok ? Object.fromEntries(outcome.errors.map((e) => [e.field, e.message])) : undefined;
-  const result = outcome && outcome.ok ? { rows: outcome.rows, groups: outcome.groups, grandTotals: outcome.grandTotals, reconciliation: outcome.reconciliation } : null;
+  const fieldErrors = query.error && "status" in query.error && query.error.status === 400 ? { _root: query.error.message } : undefined;
+  const result = query.data ?? null;
 
   return (
     <ReportRunner
@@ -46,7 +39,8 @@ export function TrialBalanceReportScreen() {
       onParamsChange={setParams}
       fieldErrors={fieldErrors}
       onDemand={definition.onDemand}
-      onRun={handleRun}
+      onRun={() => setHasRun(true)}
+      loading={query.isFetching}
       result={result}
       columns={definition.columns}
       rowKey={definition.rowKey}

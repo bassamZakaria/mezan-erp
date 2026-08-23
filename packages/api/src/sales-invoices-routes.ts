@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  type AllocatableInvoiceRepository,
   Money,
   Qty,
   SalesInvoiceService,
@@ -64,6 +65,7 @@ export interface SalesInvoiceRoutesDeps {
   /** Credit control on confirm (docs/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   readonly audit?: AuditSink;
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -217,6 +219,7 @@ export function createSalesInvoicesRoutes(
       creditControl: deps.creditControl,
       audit: deps.audit,
       events: deps.events,
+      allocatable: deps.allocatable,
       now: deps.now,
       actor: getAuthContext(c)?.userId ?? "system",
     };

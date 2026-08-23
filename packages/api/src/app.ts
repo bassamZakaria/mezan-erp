@@ -20,6 +20,7 @@ import {
   type ItemSpecificationRepository,
   type ItemSpecificationUsageCounter,
   type EventCode,
+  type AllocatableInvoiceRepository,
   type ApiKeyRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
@@ -490,6 +491,7 @@ export interface CreateAppOptions {
     /** GL posting engine deps — the invoice confirm builds a JE and posts it here. */
     readonly gl: JournalPostingDeps;
     readonly accounts: PurchaseGlAccounts;
+    readonly allocatable?: AllocatableInvoiceRepository;
     /**
      * A static policy value. Omit it (and supply `settingsStore`) to instead
      * derive the 3-gate procurement strictness policy from the LIVE tenant
@@ -948,6 +950,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           gl: glPort,
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
+          allocatable: purchases.allocatable,
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,

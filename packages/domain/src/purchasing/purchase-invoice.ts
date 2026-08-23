@@ -12,6 +12,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
@@ -118,6 +119,12 @@ export interface ConfirmPurchaseInvoiceDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
+  /**
+   * Payables sub-ledger. Without it a confirmed invoice never becomes an
+   * allocatable open invoice, so AP has no supplier dimension and voucher
+   * allocation sees nothing to allocate against.
+   */
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly now?: () => string;
 }
 
@@ -386,6 +393,19 @@ export async function confirmPurchaseInvoice(
 
   const confirmed: PurchaseInvoice = { ...invoice, status: "confirmed" };
   await deps.invoices.update(confirmed);
+
+  if (deps.allocatable) {
+    await deps.allocatable.save({
+      id: confirmed.id,
+      invoiceNo: confirmed.number,
+      kind: "purchase",
+      partyId: confirmed.supplierId,
+      date: confirmed.date,
+      total: purchaseInvoiceTotal(confirmed),
+      allocated: Money.zero(),
+    });
+  }
+
   return { invoice: confirmed, posting };
 }
 

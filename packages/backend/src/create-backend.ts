@@ -725,6 +725,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       stock: stockService,
       gl: salesInvoiceGl,
       accounts: PURCHASE_GL_ACCOUNTS,
+      allocatable: vouchers.invoices,
     },
     salesInvoices: {
       repo: salesInvoices,
@@ -733,6 +734,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       stock: createSalesInvoiceStockHook(stockService),
       audit: auditSink,
       events: salesInvoiceEventBridge,
+      allocatable: vouchers.invoices,
     },
     cheques: {
       cheques,

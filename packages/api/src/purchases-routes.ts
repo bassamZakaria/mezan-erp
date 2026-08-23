@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import {
+  type AllocatableInvoiceRepository,
   Money,
   Qty,
   NextNumberService,
@@ -82,6 +83,7 @@ export interface PurchasesRoutesDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
+  readonly allocatable?: AllocatableInvoiceRepository;
   /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
   readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
@@ -437,6 +439,7 @@ export function createPurchasesRoutes(
         stock: deps.stock,
         gl: deps.gl,
         accounts: deps.accounts,
+        allocatable: deps.allocatable,
         now: deps.now,
       });
       return c.json(serializeInvoice(invoice));

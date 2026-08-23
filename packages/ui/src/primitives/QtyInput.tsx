@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 
 export interface QtyInputProps {
   value: number;
@@ -29,6 +30,7 @@ export function QtyInput({
   className,
   ...aria
 }: QtyInputProps) {
+  const { t } = useUiTranslation();
   const [draft, setDraft] = useState<string | null>(null);
 
   function clamp(n: number): number {
@@ -58,7 +60,7 @@ export function QtyInput({
         type="button"
         disabled={disabled || value <= min}
         onClick={() => stepBy(-1)}
-        aria-label="إنقاص الكمية"
+        aria-label={t("ui.qty.decrease")}
         className="flex h-[26px] w-[26px] items-center justify-center rounded-sm text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
       >
         &minus;
@@ -82,7 +84,7 @@ export function QtyInput({
         type="button"
         disabled={disabled || value >= max}
         onClick={() => stepBy(1)}
-        aria-label="زيادة الكمية"
+        aria-label={t("ui.qty.increase")}
         className="flex h-[26px] w-[26px] items-center justify-center rounded-sm text-ink-muted transition-colors hover:bg-surface-2 hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
       >
         +

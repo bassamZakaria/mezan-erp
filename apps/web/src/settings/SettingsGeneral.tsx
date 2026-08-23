@@ -1,7 +1,9 @@
 import { useState } from "react";
-import { DocumentDetail, Button, StatusPill } from "@mezan/ui";
-import { updateSettings, InvalidSettingsError, type TenantSettings } from "@mezan/domain";
-import { sampleSettings } from "./sample-data";
+import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
+import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
+import { useSettings, useUpdateSettings } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
+import { LOCALES, LOCALE_ENDONYM, type Locale } from "@mezan/ui";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
 /**
@@ -11,9 +13,9 @@ import { TextField, NumberField, SelectField, ToggleField, MultiChipField, Secti
  * inventory / purchase / treasury policy flags (grouped into one "Policies"
  * tab here rather than 4 separate ones, to keep the nav shallow).
  *
- * Demo-data only (matches the rest of apps/web): edits live in local state
- * and "حفظ الإعدادات" re-validates the whole draft through the domain's
- * `updateSettings`, exactly the rule the real API applies server-side.
+ * Real data: edits live in a local draft buffer and "حفظ الإعدادات" PUTs the
+ * whole draft to /settings — the server re-validates it through the domain's
+ * `updateSettings` and returns 422 on an invalid combination.
  */
 
 const WEEKDAY_OPTIONS = [
@@ -36,24 +38,31 @@ const CURRENCY_OPTIONS = [
   { value: "JOD", label: "JOD" },
 ];
 
-export function SettingsGeneral() {
-  const [draft, setDraft] = useState<TenantSettings>(sampleSettings);
+function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
+  const updateSettingsMutation = useUpdateSettings();
+  const { setLocale } = useAppTranslation();
+  const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function patch(p: Partial<TenantSettings>) {
+  function patch(p: Partial<TenantSettingsDTO>) {
     setDraft((prev) => ({ ...prev, ...p }));
     setDirty(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
     try {
-      const validated = updateSettings(draft, {});
-      setDraft(validated);
+      const saved = await updateSettingsMutation.mutateAsync(draft as UpdateTenantSettingsDTO);
+      setDraft(saved);
       setDirty(false);
       setError(null);
+      // The tenant's default language IS the UI language — saving it here must
+      // switch the interface, or the setting silently does nothing.
+      if ((LOCALES as readonly string[]).includes(saved.language)) {
+        setLocale(saved.language as Locale);
+      }
     } catch (err) {
-      setError(err instanceof InvalidSettingsError ? err.message : "تعذر حفظ الإعدادات");
+      setError(err instanceof Error ? err.message : "تعذر حفظ الإعدادات");
     }
   }
 
@@ -82,12 +91,8 @@ export function SettingsGeneral() {
                 <SelectField
                   label="اللغة الافتراضية"
                   value={draft.language}
-                  onChange={(v) => patch({ language: v as TenantSettings["language"] })}
-                  options={[
-                    { value: "ar", label: "العربية" },
-                    { value: "en", label: "English" },
-                    { value: "de", label: "Deutsch" },
-                  ]}
+                  onChange={(v) => patch({ language: v as TenantSettingsDTO["language"] })}
+                  options={LOCALES.map((l) => ({ value: l, label: LOCALE_ENDONYM[l] }))}
                 />
                 <MultiChipField
                   label="العملات الإضافية"
@@ -98,7 +103,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="سياسة غياب سعر الصرف"
                   value={draft.fxRateMissingPolicy}
-                  onChange={(v) => patch({ fxRateMissingPolicy: v as TenantSettings["fxRateMissingPolicy"] })}
+                  onChange={(v) => patch({ fxRateMissingPolicy: v as TenantSettingsDTO["fxRateMissingPolicy"] })}
                   options={[
                     { value: "STRICT", label: "صارم — رفض المستند إذا لم يوجد سعر صرف" },
                     { value: "ALLOW_MISSING", label: "السماح بالمتابعة بدون سعر صرف" },
@@ -111,7 +116,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="اتجاه الواجهة"
                   value={draft.direction}
-                  onChange={(v) => patch({ direction: v as TenantSettings["direction"] })}
+                  onChange={(v) => patch({ direction: v as TenantSettingsDTO["direction"] })}
                   options={[
                     { value: "RTL", label: "RTL" },
                     { value: "LTR", label: "LTR" },
@@ -121,7 +126,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="نظام الأرقام"
                   value={draft.dateNumerals}
-                  onChange={(v) => patch({ dateNumerals: v as TenantSettings["dateNumerals"] })}
+                  onChange={(v) => patch({ dateNumerals: v as TenantSettingsDTO["dateNumerals"] })}
                   options={[
                     { value: "western", label: "أرقام غربية (0, 1, 2, 3)" },
                     { value: "arabic", label: "أرقام عربية (٠, ١, ٢, ٣)" },
@@ -220,7 +225,7 @@ export function SettingsGeneral() {
               <SelectField
                 label="طريقة حساب الضريبة"
                 value={draft.taxCalculation}
-                onChange={(v) => patch({ taxCalculation: v as TenantSettings["taxCalculation"] })}
+                onChange={(v) => patch({ taxCalculation: v as TenantSettingsDTO["taxCalculation"] })}
                 options={[
                   { value: "EXCLUSIVE", label: "غير شاملة (تضاف على السعر)" },
                   { value: "INCLUSIVE", label: "شاملة (مضمنة في السعر)" },
@@ -229,7 +234,7 @@ export function SettingsGeneral() {
               <SelectField
                 label="إهلاك شهر الاقتناء"
                 value={draft.depreciationProrate}
-                onChange={(v) => patch({ depreciationProrate: v as TenantSettings["depreciationProrate"] })}
+                onChange={(v) => patch({ depreciationProrate: v as TenantSettingsDTO["depreciationProrate"] })}
                 options={[
                   { value: "DAILY", label: "يومي (نسبة الأيام) — IFRS" },
                   { value: "FULL_MONTH", label: "شهر كامل" },
@@ -259,7 +264,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="وضع الرقابة"
                   value={draft.creditControlMode}
-                  onChange={(v) => patch({ creditControlMode: v as TenantSettings["creditControlMode"] })}
+                  onChange={(v) => patch({ creditControlMode: v as TenantSettingsDTO["creditControlMode"] })}
                   options={[
                     { value: "WARNING", label: "تحذير فقط (WARNING)" },
                     { value: "BLOCK", label: "منع تام (BLOCK)" },
@@ -319,4 +324,23 @@ export function SettingsGeneral() {
       ]}
     />
   );
+}
+
+export function SettingsGeneral() {
+  const query = useSettings();
+
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الإعدادات.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
+  if (!query.data) return null;
+
+  return <SettingsForm initial={query.data} />;
 }

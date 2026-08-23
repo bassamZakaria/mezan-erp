@@ -81,6 +81,31 @@ export function NumberField({ label, value, onChange, hint, min, max, step, disa
   );
 }
 
+export interface TextAreaFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  hint?: string;
+  disabled?: boolean;
+  rows?: number;
+}
+
+export function TextAreaField({ label, value, onChange, placeholder, hint, disabled, rows = 3 }: TextAreaFieldProps) {
+  return (
+    <Field label={label} hint={hint}>
+      <textarea
+        value={value}
+        placeholder={placeholder}
+        disabled={disabled}
+        rows={rows}
+        onChange={(e) => onChange(e.target.value)}
+        className={cn(controlClass, "resize-y")}
+      />
+    </Field>
+  );
+}
+
 export interface SelectOption {
   value: string;
   label: string;

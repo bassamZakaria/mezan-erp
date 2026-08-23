@@ -1,51 +1,101 @@
 import { useMemo, useState } from "react";
-import { DocumentList, DocumentDetail, StatusPill, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import { varianceOf, type PhysicalCount, type PhysicalCountStatus } from "@mezan/domain";
-import { useInventoryOpsStore } from "../store/useInventoryOpsStore";
-import { sharedInventoryOpsStore } from "../store/shared-inventory-ops-store";
-import { demoWarehouses } from "../sample-data";
-import { demoItems } from "../items-sample-data";
-import { TextField, SelectField } from "../settings/form-controls";
+import { DocumentList, DocumentDetail, StatusPill, Card, Button, trimMoneyString, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
+import {
+  useCancelPhysicalCount,
+  useCompletePhysicalCount,
+  useGenerateAdjustmentFromCount,
+  usePhysicalCounts,
+  useRecordPhysicalCounts,
+  useStartPhysicalCount,
+  useStockBalance,
+} from "../data/inventory-ops-hooks";
+import { useItems, useWarehouses, ApiError } from "../data/hooks";
+import { TextField, SelectField, ToggleField } from "../settings/form-controls";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/catalog/03: start → record counts →
- * complete → generate the reconciling stock adjustment. Seeded empty (see
- * inventory-ops-sample-data.ts) so the list opens on the catalog's real empty
- * state; starting a new count is fully interactive against the seeded
- * stock-balance data.
+ * complete → generate the reconciling stock adjustment, backed by
+ * `/inventory/physical-counts`.
  */
 
-const STATUS_LABEL: Record<PhysicalCountStatus, string> = {
+const STATUS_LABEL: Record<PhysicalCountStatusDTO, string> = {
   IN_PROGRESS: "قيد التنفيذ",
   COMPLETED: "مكتمل",
   ADJUSTMENT_GENERATED: "تم إنشاء التسوية",
   CANCELLED: "ملغي",
 };
-const STATUS_TONE: Record<PhysicalCountStatus, PillTone> = {
+const STATUS_TONE: Record<PhysicalCountStatusDTO, PillTone> = {
   IN_PROGRESS: "warning",
   COMPLETED: "info",
   ADJUSTMENT_GENERATED: "success",
   CANCELLED: "neutral",
 };
 
-function warehouseLabel(id: string): string {
-  return demoWarehouses.find((w) => w.id === id)?.name ?? id;
+/**
+ * Variance figures are computed by the API from the snapshot the count took
+ * when it opened (and withheld entirely while a blind count is open), so the
+ * screen only ever formats the exact decimal strings it is handed — it never
+ * recomputes counted − system itself.
+ */
+function signedDisplay(value: string | null, digits = 2): string {
+  if (value === null) return "—";
+  const trimmed = trimMoneyString(value, digits);
+  return trimmed.startsWith("-") ? trimmed : `+${trimmed}`;
 }
-function itemLabel(id: string): string {
-  const item = demoItems.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
+
+function qtyDisplay(value: string | null, digits = 2): string {
+  return value === null ? "—" : trimMoneyString(value, digits);
+}
+
+function varianceTone(value: string | null): string {
+  if (value === null) return "text-ink-muted";
+  if (value.startsWith("-")) return "text-danger-ink";
+  return Number.parseInt(value.split(".")[0] ?? "0", 10) === 0 && !/[1-9]/.test(value.split(".")[1] ?? "")
+    ? "text-ink-muted"
+    : "text-success-ink";
+}
+
+const QTY_SCALE = 1_000_000n;
+
+/** Exact decimal string → scaled bigint (1e-6), the wire scale. Null when unparseable. */
+function toScaled(value: string): bigint | null {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return null;
+  const frac = ((match[3] ?? "") + "000000").slice(0, 6);
+  const abs = BigInt(match[2] ?? "0") * QTY_SCALE + BigInt(frac);
+  return match[1] === "-" ? -abs : abs;
+}
+
+function fromScaled(value: bigint): string {
+  const negative = value < 0n;
+  const abs = negative ? -value : value;
+  return `${negative ? "-" : ""}${abs / QTY_SCALE}.${(abs % QTY_SCALE).toString().padStart(6, "0")}`;
 }
 
 export function PhysicalCountsScreen() {
-  const store = useInventoryOpsStore(sharedInventoryOpsStore);
+  const query = usePhysicalCounts();
+  const itemsQuery = useItems();
+  const warehousesQuery = useWarehouses();
 
   const [mode, setMode] = useState<"list" | "new" | "count" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeCountId, setActiveCountId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
 
-  const counts = store.physicalCounts;
+  const counts = useMemo(() => query.data ?? [], [query.data]);
+  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  const warehouseLabel = useMemo(() => {
+    const map = new Map(warehouses.map((w) => [w.id, w.name]));
+    return (id: string) => map.get(id) ?? id;
+  }, [warehouses]);
+  const itemLabel = useMemo(() => {
+    const map = new Map(items.map((i) => [i.id, `${i.nameAr} (${i.code})`]));
+    return (id: string) => map.get(id) ?? id;
+  }, [items]);
 
   const stats = useMemo(() => {
     const c = { all: counts.length, IN_PROGRESS: 0, COMPLETED: 0, ADJUSTMENT_GENERATED: 0, CANCELLED: 0 };
@@ -63,14 +113,25 @@ export function PhysicalCountsScreen() {
     return rows;
   }, [counts, statusFilter, search]);
 
-  const selected = selectedId ? counts.find((c) => c.id === selectedId) ?? null : null;
-  const active = activeCountId ? counts.find((c) => c.id === activeCountId) ?? null : null;
+  const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
+  const active = activeCountId ? (counts.find((c) => c.id === activeCountId) ?? null) : null;
 
-  const columns: DocumentListColumn<PhysicalCount>[] = [
+  const columns: DocumentListColumn<PhysicalCountDTO>[] = [
     { key: "countNo", header: "الجرد", sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },
     { key: "warehouse", header: "المستودع", render: (c) => <span className="text-ink">{warehouseLabel(c.warehouseId)}</span> },
     { key: "date", header: "التاريخ", render: (c) => <span className="mz-num text-ink-muted">{c.date}</span> },
     { key: "lines", header: "عدد الأصناف", align: "end", render: (c) => <span className="mz-num">{c.lines.length}</span> },
+    {
+      key: "variance",
+      header: "صافي قيمة الفرق",
+      align: "end",
+      render: (c) =>
+        c.variance ? (
+          <span className={`mz-num font-semibold ${varianceTone(c.variance.netValue)}`}>{signedDisplay(c.variance.netValue)}</span>
+        ) : (
+          <span className="text-[11.5px] text-ink-faint">{c.blind ? "جرد أعمى" : "—"}</span>
+        ),
+    },
     { key: "status", header: "الحالة", render: (c) => <StatusPill label={STATUS_LABEL[c.status]} tone={STATUS_TONE[c.status]} /> },
   ];
 
@@ -82,7 +143,7 @@ export function PhysicalCountsScreen() {
   if (mode === "new") {
     return (
       <NewCountView
-        store={store}
+        warehouses={warehouses}
         onStarted={(id) => {
           setActiveCountId(id);
           setMode("count");
@@ -95,8 +156,9 @@ export function PhysicalCountsScreen() {
   if (mode === "count" && active) {
     return (
       <CountEntryView
-        store={store}
         count={active}
+        itemLabel={itemLabel}
+        warehouseLabel={warehouseLabel}
         onDone={() => {
           setActiveCountId(null);
           setMode("list");
@@ -106,12 +168,23 @@ export function PhysicalCountsScreen() {
   }
 
   if (mode === "detail" && selected) {
-    return <CountDetailView store={store} count={selected} onBack={() => setMode("list")} onResume={() => { setActiveCountId(selected.id); setMode("count"); }} />;
+    return (
+      <CountDetailView
+        count={selected}
+        itemLabel={itemLabel}
+        warehouseLabel={warehouseLabel}
+        onBack={() => setMode("list")}
+        onResume={() => {
+          setActiveCountId(selected.id);
+          setMode("count");
+        }}
+      />
+    );
   }
 
   return (
     <div className="w-full">
-      <DocumentList<PhysicalCount>
+      <DocumentList<PhysicalCountDTO>
         eyebrow="Inventory · Physical Counts"
         title="الجرد الفعلي"
         description="قيد التنفيذ ← مكتمل ← تم إنشاء التسوية — جلسة جرد تُطابق المخزون الفعلي مع النظام"
@@ -134,7 +207,7 @@ export function PhysicalCountsScreen() {
           { key: "CANCELLED", label: "ملغي", count: stats.CANCELLED },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم الجرد..."
@@ -149,7 +222,15 @@ export function PhysicalCountsScreen() {
             عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{stats.all}</span> جرد
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام</div>}
+        emptyState={
+          <div className="p-8 text-center text-sm text-ink-muted">
+            {query.isLoading
+              ? "جارِ التحميل…"
+              : query.isError
+                ? (query.error?.message ?? "تعذّر تحميل عمليات الجرد.")
+                : "لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام"}
+          </div>
+        }
       />
     </div>
   );
@@ -160,34 +241,44 @@ export function PhysicalCountsScreen() {
 /* -------------------------------------------------------------------- */
 
 function NewCountView({
-  store,
+  warehouses,
   onStarted,
   onCancel,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
+  warehouses: { id: string; name: string }[];
   onStarted: (id: string) => void;
   onCancel: () => void;
 }) {
-  const [warehouseId, setWarehouseId] = useState(demoWarehouses[0]?.id ?? "");
+  const start = useStartPhysicalCount();
+  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
   const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
+  const [blind, setBlind] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const warehouseOptions = useMemo(() => demoWarehouses.map((w) => ({ value: w.id, label: w.name })), []);
+  const balanceQuery = useStockBalance(warehouseId || undefined);
+  const warehouseOptions = useMemo(() => warehouses.map((w) => ({ value: w.id, label: w.name })), [warehouses]);
   const itemIds = useMemo(
-    () => store.stockBalance.filter((r) => !r.onHand.isZero()).map((r) => r.itemId),
-    [store.stockBalance],
+    () => (balanceQuery.data ?? []).filter((r) => Number(r.onHand) !== 0).map((r) => r.itemId),
+    [balanceQuery.data],
   );
 
   async function handleStart() {
     if (warehouseId === "" || itemIds.length === 0) return;
-    setBusy(true);
     setError(null);
-    const result = await store.startCount({ warehouseId, date, memo: memo.trim() || undefined, itemIds });
-    setBusy(false);
-    if (result.ok && result.value) onStarted(result.value.id);
-    else setError(result.error ?? "تعذر بدء الجرد.");
+    try {
+      const count = await start.mutateAsync({
+        id: crypto.randomUUID(),
+        warehouseId,
+        date,
+        memo: memo.trim() === "" ? undefined : memo.trim(),
+        itemIds,
+        blind,
+      });
+      onStarted(count.id);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "تعذر بدء الجرد.");
+    }
   }
 
   return (
@@ -200,6 +291,12 @@ function NewCountView({
         <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
         <TextField label="التاريخ *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
         <TextField label="ملاحظات" value={memo} onChange={setMemo} placeholder="ملاحظات الجرد..." />
+        <ToggleField
+          label="جرد أعمى"
+          checked={blind}
+          onChange={setBlind}
+          hint="يُخفي كميات النظام عن القائم بالجرد حتى إنهاء الجلسة — الرصيد يُلتقط عند الفتح في الحالتين."
+        />
         <p className="text-[11.5px] text-ink-faint">سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية ({itemIds.length} صنف).</p>
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -208,7 +305,7 @@ function NewCountView({
         ) : null}
         <div className="flex items-center justify-end gap-[9px]">
           <Button onClick={onCancel}>إلغاء</Button>
-          <Button variant="primary" disabled={busy || itemIds.length === 0} onClick={handleStart}>
+          <Button variant="primary" disabled={start.isPending || itemIds.length === 0} onClick={handleStart}>
             إضافة
           </Button>
         </div>
@@ -222,39 +319,44 @@ function NewCountView({
 /* -------------------------------------------------------------------- */
 
 function CountEntryView({
-  store,
   count,
+  itemLabel,
+  warehouseLabel,
   onDone,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
-  count: PhysicalCount;
+  count: PhysicalCountDTO;
+  itemLabel: (id: string) => string;
+  warehouseLabel: (id: string) => string;
   onDone: () => void;
 }) {
-  const [counted, setCounted] = useState<Record<string, number>>(() =>
-    Object.fromEntries(count.lines.map((l) => [l.itemId, l.countedQty ? Number(l.countedQty.toString()) : Number(l.systemQty.toString())])),
+  const recordCounts = useRecordPhysicalCounts();
+  const complete = useCompletePhysicalCount();
+  const blindOpen = count.blind && count.status === "IN_PROGRESS";
+  const [counted, setCounted] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      count.lines.map((l) => [l.itemId, l.countedQty ?? (count.blind ? "0" : (l.systemQty ?? "0"))]),
+    ),
   );
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const allCounted = count.lines.every((l) => counted[l.itemId] !== undefined && counted[l.itemId] !== null);
+  const allCounted = count.lines.every((l) => toScaled(counted[l.itemId] ?? "") !== null);
   const isInProgress = count.status === "IN_PROGRESS";
+  const busy = recordCounts.isPending || complete.isPending;
 
   async function handleComplete() {
-    setBusy(true);
     setError(null);
-    const record = await store.recordCounts(
-      count.id,
-      count.lines.map((l) => ({ itemId: l.itemId, countedQty: counted[l.itemId] ?? Number(l.systemQty.toString()) })),
-    );
-    if (!record.ok) {
-      setBusy(false);
-      setError(record.error ?? "تعذر حفظ الكميات المعدودة.");
-      return;
+    try {
+      await recordCounts.mutateAsync({
+        id: count.id,
+        body: {
+          entries: count.lines.map((l) => ({ itemId: l.itemId, countedQty: counted[l.itemId] ?? "0" })),
+        },
+      });
+      await complete.mutateAsync(count.id);
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "تعذر حفظ الكميات المعدودة.");
     }
-    const completed = await store.completeCount(count.id);
-    setBusy(false);
-    if (completed.ok) onDone();
-    else setError(completed.error ?? "تعذر إنهاء الجرد.");
   }
 
   return (
@@ -280,39 +382,57 @@ function CountEntryView({
         </div>
       ) : null}
 
+      {blindOpen ? (
+        <div className="mb-[16px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink-muted">
+          جرد أعمى — كميات النظام والفروقات مخفية حتى إنهاء الجرد.
+        </div>
+      ) : null}
+
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[560px] border-collapse text-[13px]">
             <thead>
               <tr>
                 <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">النظام</th>
+                {blindOpen ? null : (
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">النظام</th>
+                )}
                 <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">المعدود</th>
-                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الفرق</th>
+                {blindOpen ? null : (
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الفرق</th>
+                )}
               </tr>
             </thead>
             <tbody>
               {count.lines.map((l) => {
-                const value = counted[l.itemId] ?? Number(l.systemQty.toString());
-                const diff = value - Number(l.systemQty.toString());
+                const value = counted[l.itemId] ?? "0";
+                const systemScaled = l.systemQty === null ? null : toScaled(l.systemQty);
+                const countedScaled = toScaled(value);
+                const diff =
+                  systemScaled !== null && countedScaled !== null ? fromScaled(countedScaled - systemScaled) : null;
                 return (
                   <tr key={l.itemId} className="border-b border-border last:border-b-0">
                     <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
-                    <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty.toString()}</td>
+                    {blindOpen ? null : (
+                      <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.systemQty)}</td>
+                    )}
                     <td className="px-[15px] py-[8px] text-end">
                       <input
                         type="number"
                         aria-label={`الكمية المعدودة لصنف ${itemLabel(l.itemId)}`}
                         value={value}
                         min={0}
+                        step="any"
                         disabled={!isInProgress}
-                        onChange={(e) => setCounted((prev) => ({ ...prev, [l.itemId]: e.target.valueAsNumber || 0 }))}
+                        onChange={(e) => setCounted((prev) => ({ ...prev, [l.itemId]: e.target.value }))}
                         className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand disabled:bg-surface-3"
                       />
                     </td>
-                    <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${diff === 0 ? "text-ink-muted" : diff > 0 ? "text-success-ink" : "text-danger-ink"}`}>
-                      {diff > 0 ? `+${diff}` : diff}
-                    </td>
+                    {blindOpen ? null : (
+                      <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(diff)}`}>
+                        {signedDisplay(diff)}
+                      </td>
+                    )}
                   </tr>
                 );
               })}
@@ -329,25 +449,28 @@ function CountEntryView({
 /* -------------------------------------------------------------------- */
 
 function CountDetailView({
-  store,
   count,
+  itemLabel,
+  warehouseLabel,
   onBack,
   onResume,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
-  count: PhysicalCount;
+  count: PhysicalCountDTO;
+  itemLabel: (id: string) => string;
+  warehouseLabel: (id: string) => string;
   onBack: () => void;
   onResume: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const generate = useGenerateAdjustmentFromCount();
   const [error, setError] = useState<string | null>(null);
 
   async function handleGenerate() {
-    setBusy(true);
     setError(null);
-    const result = await store.generateAdjustmentFromCount(count.id);
-    setBusy(false);
-    if (!result.ok) setError(result.error ?? "تعذر توليد التسوية.");
+    try {
+      await generate.mutateAsync({ id: count.id, body: { adjustmentId: crypto.randomUUID() } });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "تعذر توليد التسوية.");
+    }
   }
 
   return (
@@ -361,7 +484,7 @@ function CountDetailView({
             <Button onClick={onBack}>رجوع</Button>
             {count.status === "IN_PROGRESS" ? <Button variant="primary" onClick={onResume}>متابعة الجرد</Button> : null}
             {count.status === "COMPLETED" ? (
-              <Button variant="primary" disabled={busy} onClick={handleGenerate}>
+              <Button variant="primary" disabled={generate.isPending} onClick={handleGenerate}>
                 توليد تسوية
               </Button>
             ) : null}
@@ -371,6 +494,31 @@ function CountDetailView({
           { label: "المستودع", value: warehouseLabel(count.warehouseId) },
           { label: "التاريخ", value: <span className="mz-num">{count.date}</span> },
           { label: "عدد الأصناف", value: <span className="mz-num">{count.lines.length}</span> },
+          { label: "نوع الجرد", value: count.blind ? "جرد أعمى" : "جرد ظاهر" },
+          {
+            label: "أصناف بها فروقات",
+            value: (
+              <span className="mz-num">
+                {count.variance ? count.variance.overLines + count.variance.shortLines : "—"}
+              </span>
+            ),
+          },
+          {
+            label: "قيمة الزيادة",
+            value: <span className="mz-num text-success-ink">{count.variance ? trimMoneyString(count.variance.overValue) : "—"}</span>,
+          },
+          {
+            label: "قيمة العجز",
+            value: <span className="mz-num text-danger-ink">{count.variance ? trimMoneyString(count.variance.shortValue) : "—"}</span>,
+          },
+          {
+            label: "صافي قيمة الفرق",
+            value: (
+              <span className={`mz-num font-semibold ${varianceTone(count.variance?.netValue ?? null)}`}>
+                {signedDisplay(count.variance?.netValue ?? null)}
+              </span>
+            ),
+          },
           { label: "التسوية الناتجة", value: count.generatedAdjustmentId ? "تم إنشاؤها" : "—" },
         ]}
         tabs={[
@@ -385,29 +533,32 @@ function CountDetailView({
                   </div>
                 ) : null}
                 <div className="overflow-x-auto">
-                  <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                  <table className="w-full min-w-[760px] border-collapse text-[13px]">
                     <thead>
                       <tr>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">النظام</th>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">المعدود</th>
                         <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الفرق</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">تكلفة الوحدة</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">قيمة الفرق</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {count.lines.map((l) => {
-                        const variance = varianceOf(l);
-                        return (
-                          <tr key={l.itemId} className="border-b border-border last:border-b-0">
-                            <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
-                            <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty.toString()}</td>
-                            <td className="px-[15px] py-[11px] text-end mz-num">{l.countedQty ? l.countedQty.toString() : "—"}</td>
-                            <td className="px-[15px] py-[11px] text-end mz-num font-semibold">
-                              {variance ? (variance.isNegative() ? variance.toString() : `+${variance.toString()}`) : "—"}
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {count.lines.map((l) => (
+                        <tr key={l.itemId} className="border-b border-border last:border-b-0">
+                          <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
+                          <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.systemQty)}</td>
+                          <td className="px-[15px] py-[11px] text-end mz-num">{qtyDisplay(l.countedQty)}</td>
+                          <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(l.varianceQty)}`}>
+                            {signedDisplay(l.varianceQty)}
+                          </td>
+                          <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.unitCost)}</td>
+                          <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(l.varianceValue)}`}>
+                            {signedDisplay(l.varianceValue)}
+                          </td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>

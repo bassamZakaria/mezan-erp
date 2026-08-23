@@ -2,6 +2,14 @@
 
 > Source of truth: `docs/catalog/01-*.md` through `10-verification.md` (125 real screens, cross-checked complete by the verification pass) and `docs/plan.md` (architecture, Phases 0–3 draft). This document extends that plan to cover **every** catalog feature, phases it, and turns it into candidate GitHub issues. Nothing here is committed or created on GitHub yet — review first.
 
+> **Build-status note (2026-08-23, `main` @ `7b65887`):** this document is the *plan*, not a status
+> record — it is kept as-written so the original phasing stays auditable. For what actually exists,
+> read `docs/tasks.md` (per-item) and `docs/plan.md` §"Build status". Two deltas worth flagging
+> against the sequencing below: **Phase 10 (Platform & config) was moved up in priority here but is
+> the least-built phase in reality** — the engines (workflow gate, numbering, audit) exist, none of
+> the admin UIs do, and there is no notification *rules* engine at all, only an event bus. And the
+> **8 domain hub pages** named in the pattern note below were never built.
+
 ---
 
 ## 1. Scope model

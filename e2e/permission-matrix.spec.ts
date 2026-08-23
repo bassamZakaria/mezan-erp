@@ -16,7 +16,7 @@ import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
  *   - sensitive: sales.invoice.view_cost ("s" flag)
  *   - platform-admin-only: admin.modules.manage ("p" flag)
  *
- * demoEntitlements (apps/web/src/sample-data.ts) activates every
+ * demoEntitlements (the seeded tenant) activates every
  * entitlement-gated catalog module (sales/purchases/inventory/field/
  * accounting/treasury/hr/pos/crm/installments/financial_papers→cheques/
  * manufacturing/assets/notifications) on top of the always-licensed core

@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { QueryClientProvider } from "@tanstack/react-query";
+import { AppI18nProvider } from "../i18n";
 import { ApiProvider } from "./ApiContext";
 import { createQueryClient } from "./queryClient";
 import type { Session } from "./session";
@@ -13,17 +14,20 @@ export interface AppProvidersProps {
 }
 
 /**
- * The app-wide data providers: TanStack Query + the {@link ApiProvider} that
- * holds the session and the transport. Wraps the whole app in main.tsx; tests
- * render it with a fake `transport` (and optionally a seeded `initialSession`).
+ * The app-wide providers: the interface language (which also owns the document
+ * direction), TanStack Query, and the {@link ApiProvider} that holds the
+ * session and the transport. Wraps the whole app in main.tsx; tests render it
+ * with a fake `transport` (and optionally a seeded `initialSession`).
  */
 export function AppProviders({ children, transport, initialSession }: AppProvidersProps) {
   const [queryClient] = useState(createQueryClient);
   return (
-    <QueryClientProvider client={queryClient}>
-      <ApiProvider transport={transport} initialSession={initialSession}>
-        {children}
-      </ApiProvider>
-    </QueryClientProvider>
+    <AppI18nProvider>
+      <QueryClientProvider client={queryClient}>
+        <ApiProvider transport={transport} initialSession={initialSession}>
+          {children}
+        </ApiProvider>
+      </QueryClientProvider>
+    </AppI18nProvider>
   );
 }

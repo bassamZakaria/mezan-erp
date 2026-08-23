@@ -1,0 +1,137 @@
+import { cn } from "../lib/cn";
+
+/**
+ * Presentational shape for one row — @mezan/ui has no dependency on
+ * @mezan/contracts/@mezan/domain (see Topbar/CommandPalette), so this is a
+ * local, minimal projection of the real `NotificationDTO` the web app's data
+ * hooks fetch; the consumer maps its DTOs onto this shape.
+ */
+export interface NotificationPanelItem {
+  id: string;
+  title: string;
+  body: string;
+  /** Pre-formatted relative time, e.g. "قبل 17 دقيقة" — formatting is the consumer's job. */
+  timeLabel: string;
+  read: boolean;
+  priority?: "low" | "normal" | "high" | "urgent";
+}
+
+export interface NotificationsPanelProps {
+  open: boolean;
+  onClose: () => void;
+  items: NotificationPanelItem[];
+  unreadCount: number;
+  tab: "all" | "unread";
+  onTabChange: (tab: "all" | "unread") => void;
+  onMarkAllRead: () => void;
+  onItemClick: (id: string) => void;
+  onViewAll?: () => void;
+  loading?: boolean;
+}
+
+const PRIORITY_DOT_CLASS: Record<NonNullable<NotificationPanelItem["priority"]>, string> = {
+  low: "bg-ink-faint",
+  normal: "bg-brand",
+  high: "bg-warning",
+  urgent: "bg-danger",
+};
+
+/** NotificationsPanel — the top-bar bell's dropdown (docs/catalog/09 §الإشعارات): الكل/غير مقروء tabs, mark-all-read, a scrollable list. */
+export function NotificationsPanel({
+  open,
+  onClose,
+  items,
+  unreadCount,
+  tab,
+  onTabChange,
+  onMarkAllRead,
+  onItemClick,
+  onViewAll,
+  loading,
+}: NotificationsPanelProps) {
+  if (!open) return null;
+
+  return (
+    <>
+      <div aria-hidden="true" onClick={onClose} className="fixed inset-0 z-[70]" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="الإشعارات"
+        className="absolute end-0 top-[calc(100%+8px)] z-[71] flex max-h-[70vh] w-[380px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
+      >
+        <div className="flex items-center justify-between border-b border-border px-[16px] py-[13px]">
+          <div className="flex items-center gap-[8px]">
+            <h3 className="font-display text-[14px] font-bold text-ink">الإشعارات</h3>
+            {unreadCount > 0 ? (
+              <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[1px] text-[11px] font-bold text-brand">{unreadCount}</span>
+            ) : null}
+          </div>
+          <button type="button" onClick={onMarkAllRead} className="text-[11.5px] font-semibold text-brand hover:underline">
+            تحديد الكل كمقروء
+          </button>
+        </div>
+
+        <div className="flex gap-[6px] border-b border-border px-[16px] py-[9px]">
+          {(["all", "unread"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onTabChange(key)}
+              className={cn(
+                "rounded-pill px-[11px] py-[5px] text-[12px] font-semibold transition-colors",
+                tab === key ? "bg-brand text-brand-ink" : "bg-surface-2 text-ink-muted hover:text-ink",
+              )}
+            >
+              {key === "all" ? "الكل" : `غير مقروء${unreadCount > 0 ? ` ${unreadCount}` : ""}`}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">جارِ التحميل…</p>
+          ) : items.length === 0 ? (
+            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">لا توجد إشعارات</p>
+          ) : (
+            items.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => onItemClick(item.id)}
+                className={cn(
+                  "flex w-full items-start gap-[10px] border-b border-border px-[16px] py-[12px] text-start transition-colors hover:bg-surface-2",
+                  !item.read && "bg-brand-soft/30",
+                )}
+              >
+                <span
+                  aria-hidden
+                  className={cn("mt-[6px] h-[7px] w-[7px] flex-none rounded-full", item.priority ? PRIORITY_DOT_CLASS[item.priority] : "bg-ink-faint", item.read && "opacity-0")}
+                />
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-baseline justify-between gap-[8px]">
+                    <span className={cn("truncate text-[13px]", item.read ? "font-medium text-ink-muted" : "font-bold text-ink")}>{item.title}</span>
+                    <span className="mz-lat flex-none text-[10.5px] text-ink-faint">{item.timeLabel}</span>
+                  </span>
+                  <span className="mt-[2px] block text-[11.5px] text-ink-muted">{item.body}</span>
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+
+        {onViewAll ? (
+          <div className="border-t border-border p-[10px]">
+            <button
+              type="button"
+              onClick={onViewAll}
+              className="w-full rounded-md py-[8px] text-center text-[12.5px] font-semibold text-brand hover:bg-brand-soft"
+            >
+              عرض جميع الإشعارات
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </>
+  );
+}

@@ -54,10 +54,9 @@ function visibleRows(nodes: readonly AccountTreeNode[], level: number, expanded:
  * Client-side mirror of the hierarchy rules `@mezan/domain`'s
  * `createAccount`/`updateAccount` enforce (packages/domain/src/accounts) —
  * unique code, a parent must exist and be a header account, no reparent
- * cycles, a header with children can't become postable. apps/web has no live
- * API wiring yet (see SalesInvoicesScreen — every Phase-0 screen is
- * sample-data-driven), so this keeps the same validation messages the real
- * API returns without importing the whole domain package into the web bundle.
+ * cycles, a header with children can't become postable. The server
+ * re-validates on save; this runs first so the form shows the same messages
+ * inline without importing the whole domain package into the web bundle.
  */
 function validateDraft(draft: AccountDraft, existing: AccountDTO[], editingId: string | null): string | null {
   if (!editingId && existing.some((a) => a.code === draft.code.trim())) {

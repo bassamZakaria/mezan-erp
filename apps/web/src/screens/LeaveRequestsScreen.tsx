@@ -1,0 +1,171 @@
+import { useState } from "react";
+import { Button, Card, DocumentList, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import type { LeaveRequestDTO, LeaveRequestStatusDTO } from "@mezan/contracts";
+import { SelectField, TextField } from "../settings/form-controls";
+import { ApiError, useDecideLeaveRequest, useEmployees, useLeaveRequestCounts, useLeaveRequests } from "../data/hooks";
+import { LEAVE_STATUS_LABEL, LEAVE_STATUS_TONE, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
+
+/** طلبات الإجازات (Leave Requests — admin) — docs/catalog/06 §"طلبات الإجازات". Manager list with employee/status/date filters plus approve/reject, which route through the workflow gate configured for the leave type. */
+
+const STATUS_CHIPS: Array<{ key: string; label: string }> = [
+  { key: "", label: "الكل" },
+  ...(Object.keys(LEAVE_STATUS_LABEL) as LeaveRequestStatusDTO[]).map((code) => ({ key: code, label: LEAVE_STATUS_LABEL[code] })),
+];
+
+export function LeaveRequestsScreen() {
+  const [employeeId, setEmployeeId] = useState("");
+  const [status, setStatus] = useState("");
+  const [leaveType, setLeaveType] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+
+  const employeesQuery = useEmployees();
+  const employees = employeesQuery.data ?? [];
+  const query = useLeaveRequests({ employeeId: employeeId || null, status: status || null, leaveType: leaveType || null, from: from || null, to: to || null });
+  const countsQuery = useLeaveRequestCounts();
+  const decideRequest = useDecideLeaveRequest();
+
+  const [decidingId, setDecidingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+  const [banner, setBanner] = useState<string | null>(null);
+
+  const requests = query.data ?? [];
+  const counts = countsQuery.data;
+  const employeeName = (id: string) => {
+    const employee = employees.find((e) => e.id === id);
+    if (!employee) return id;
+    return [employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ").trim() || `${employee.firstName} ${employee.lastName}`.trim();
+  };
+
+  async function decide(request: LeaveRequestDTO, decision: "approved" | "rejected") {
+    if (decidingId) return;
+    setDecidingId(request.id);
+    setRowError(null);
+    setBanner(null);
+    try {
+      const result = await decideRequest.mutateAsync({ id: request.id, decision });
+      if (result.held) {
+        setBanner(
+          `الطلب ${request.number} بانتظار سلسلة الموافقات${result.requiredRole ? ` — الدور المطلوب: ${result.requiredRole}` : ""}.`,
+        );
+      }
+    } catch (err) {
+      setRowError(err instanceof ApiError ? err.message : "تعذّر اتخاذ القرار على طلب الإجازة.");
+    } finally {
+      setDecidingId(null);
+    }
+  }
+
+  const columns: DocumentListColumn<LeaveRequestDTO>[] = [
+    { key: "number", header: "رقم الطلب", render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
+    { key: "employee", header: "اسم الموظف", render: (r) => <span className="font-semibold text-ink">{employeeName(r.employeeId)}</span> },
+    { key: "leaveType", header: "نوع الإجازة", render: (r) => <span className="text-ink">{LEAVE_TYPE_LABEL[r.leaveType]}</span> },
+    {
+      key: "period",
+      header: "الفترة",
+      render: (r) => (
+        <span className="mz-num text-ink">
+          {r.startDate} — {r.endDate}
+        </span>
+      ),
+    },
+    { key: "days", header: "عدد الأيام", align: "end", render: (r) => <span className="mz-num text-ink">{r.days}</span> },
+    { key: "status", header: "الحالة", render: (r) => <StatusPill label={LEAVE_STATUS_LABEL[r.status]} tone={LEAVE_STATUS_TONE[r.status]} /> },
+    {
+      key: "actions",
+      header: "",
+      align: "end",
+      render: (r) =>
+        r.status === "pending" ? (
+          <div className="flex items-center justify-end gap-[6px]">
+            <Button size="sm" variant="primary" disabled={decidingId !== null} onClick={() => decide(r, "approved")}>
+              موافقة
+            </Button>
+            <Button size="sm" disabled={decidingId !== null} onClick={() => decide(r, "rejected")}>
+              رفض
+            </Button>
+          </div>
+        ) : null,
+    },
+  ];
+
+  return (
+    <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل طلبات الإجازات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      {rowError ? (
+        <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
+      {banner ? (
+        <div role="status" className="mb-[14px] rounded-md border border-border bg-surface-muted px-[12px] py-[10px] text-[12.5px] text-ink">
+          {banner}
+        </div>
+      ) : null}
+
+      <DocumentList<LeaveRequestDTO>
+        eyebrow="HR · Leave Requests"
+        title="طلبات الإجازات"
+        description="مراجعة طلبات إجازات الموظفين والموافقة عليها أو رفضها"
+        stats={[
+          { label: "الإجمالي", value: <span className="mz-num">{counts?.total ?? 0}</span> },
+          { label: "بانتظار الموافقة", value: <span className="mz-num">{counts?.pending ?? 0}</span> },
+          { label: "موافق عليه", value: <span className="mz-num">{counts?.approved ?? 0}</span> },
+          { label: "مرفوض", value: <span className="mz-num">{counts?.rejected ?? 0}</span> },
+          { label: "ملغى", value: <span className="mz-num">{counts?.cancelled ?? 0}</span> },
+        ]}
+        statusChips={STATUS_CHIPS.map((chip) => ({
+          key: chip.key,
+          label: chip.label,
+          count: chip.key === "" ? requests.length : requests.filter((r) => r.status === chip.key).length,
+        }))}
+        activeStatusKey={status}
+        onStatusChange={setStatus}
+        filterBarExtra={
+          <div className="flex flex-wrap items-end gap-[10px]">
+            <div className="min-w-[200px]">
+              <SelectField
+                label="الموظف"
+                value={employeeId}
+                onChange={setEmployeeId}
+                options={[{ value: "", label: "كل الموظفين" }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
+              />
+            </div>
+            <div className="min-w-[180px]">
+              <SelectField
+                label="نوع الإجازة"
+                value={leaveType}
+                onChange={setLeaveType}
+                options={[{ value: "", label: "كل الأنواع" }, ...LEAVE_TYPE_OPTIONS]}
+              />
+            </div>
+            <div className="min-w-[150px]">
+              <TextField label="من تاريخ" value={from} onChange={setFrom} placeholder="YYYY-MM-DD" />
+            </div>
+            <div className="min-w-[150px]">
+              <TextField label="إلى تاريخ" value={to} onChange={setTo} placeholder="YYYY-MM-DD" />
+            </div>
+          </div>
+        }
+        columns={columns}
+        rows={requests}
+        rowKey={(r) => r.id}
+        page={1}
+        pageCount={1}
+        pageSummary={
+          <>
+            عرض <span className="mz-num">{requests.length}</span> طلب إجازة
+          </>
+        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد نتائج مطابقة للفلتر الحالي</div>}
+      />
+    </div>
+  );
+}

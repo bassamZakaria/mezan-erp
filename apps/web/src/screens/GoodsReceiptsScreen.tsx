@@ -16,6 +16,7 @@ import {
 import type { GoodsReceiptDTO, GoodsReceiptStatusDTO } from "@mezan/contracts";
 import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceipts, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
 import { TextField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 const STATUS_LABEL: Record<GoodsReceiptStatusDTO, string> = {
   draft: "مسودة",
@@ -156,6 +157,7 @@ export function GoodsReceiptsScreen() {
   const [statusFilter, setStatusFilter] = useState<GoodsReceiptStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  useScreenIntent(() => openCreate());
   const [pickedOrder, setPickedOrder] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [formError, setFormError] = useState<string | null>(null);

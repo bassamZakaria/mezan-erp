@@ -8,7 +8,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { CostLayer } from "./cost-layer.js";
-import type { StockMovement } from "./movement.js";
+import type { StockMovement, StockSourceDocType } from "./movement.js";
 
 /** Append-only stock-ledger store: movements are never updated or deleted. */
 export interface StockLedgerRepository {
@@ -19,6 +19,15 @@ export interface StockLedgerRepository {
   listByWarehouse(warehouseId: string): Promise<readonly StockMovement[]>;
   /** Every distinct (itemId, warehouseId) that has at least one movement. */
   listPositions(): Promise<readonly { itemId: string; warehouseId: string }[]>;
+  /**
+   * Every movement originating from one source-document type, in ledger order.
+   * Optional: an implementation that omits it still serves the posted-document
+   * read model (posted-stock-documents.ts) through a full-ledger scan, so this
+   * is purely the indexed fast path.
+   */
+  listBySourceDocType?(sourceDocType: StockSourceDocType): Promise<readonly StockMovement[]>;
+  /** Every movement originating from ONE source document. Optional, as above. */
+  listBySourceDoc?(sourceDocId: string): Promise<readonly StockMovement[]>;
 }
 
 /** Immutable cost-layer store. Layers are created on receipt and drawn down on issue. */

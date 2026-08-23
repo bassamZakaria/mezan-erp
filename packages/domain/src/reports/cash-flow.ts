@@ -114,7 +114,7 @@ export function createCashFlowReport(
         to: params.periodTo,
       });
 
-      const cashAccounts = ctx.accounts.filter((a) => !a.isHeader && isCashAccount(a));
+      const cashAccounts = ctx.accounts.filter((a) => !a.isHeader && isCashAccount(a, ctx.cashAccountIds));
       const cashIds = new Set(cashAccounts.map((a) => a.id));
 
       const openingBalances = netBalancesByAccount(ctx.journalEntries, { to: dayBefore(params.periodFrom) });
@@ -131,7 +131,7 @@ export function createCashFlowReport(
       for (const account of ctx.accounts) {
         if (account.isHeader || cashIds.has(account.id)) continue;
         const net = moneyToNumber(periodBalances.get(account.id) ?? Money.zero());
-        const section = classifyAccount(account);
+        const section = classifyAccount(account, ctx.cashAccountIds);
         if (section === "revenue" || section === "expense") {
           netIncome += -net;
           continue;

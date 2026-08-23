@@ -13,6 +13,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
   DocumentGlHook,
@@ -74,6 +75,12 @@ export interface SalesInvoiceServiceDeps {
   /** Optional credit-control check on confirm; when omitted, no credit check runs at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   readonly audit?: AuditSink;
+  /**
+   * Receivables sub-ledger. Without it a confirmed invoice never becomes an
+   * allocatable open invoice, so voucher allocation and every per-customer
+   * balance silently see nothing.
+   */
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
@@ -258,6 +265,18 @@ export class SalesInvoiceService {
       await this.deps.repo.update(next);
       return next;
     });
+
+    if (this.deps.allocatable) {
+      await this.deps.allocatable.save({
+        id: confirmed.id,
+        invoiceNo: confirmed.docNo ?? confirmed.id,
+        kind: "sales",
+        partyId: confirmed.customerId,
+        date: confirmed.date,
+        total: totals.grandTotal,
+        allocated: Money.zero(),
+      });
+    }
 
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);

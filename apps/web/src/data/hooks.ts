@@ -1,7 +1,15 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  WorkflowConfigDTO,
+  CreateWorkflowConfigDTO,
+  UpdateWorkflowConfigDTO,
+  ApprovalRequestDTO,
+  SubmitApprovalRequestDTO,
+  DecideApprovalRequestDTO,
   AccountDTO,
   ActivityDTO,
+  AddAttributeValueDTO,
+  AddTemplateAttributeDTO,
   AllocationSummaryDTO,
   AssetCategoryDTO,
   AssetDTO,
@@ -9,8 +17,15 @@ import type {
   BankStatementStatusDTO,
   BootstrapAdminRequestDTO,
   BootstrapSeedResultDTO,
+  CreateItemCategoryDTO,
+  CreateItemUnitDTO,
+  ItemCategoryDTO,
+  ItemUnitDTO,
+  UpdateItemCategoryDTO,
+  UpdateItemUnitDTO,
   BounceChequeDTO,
   BranchDTO,
+  EntitlementsDTO,
   ChequeDirectionDTO,
   ChequeDTO,
   ChequeStatusDTO,
@@ -23,17 +38,20 @@ import type {
   ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CostCenterDTO,
+  CostCenterPnLReportDTO,
   CreateAccountDTO,
   CreateActivityDTO,
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
   CreateBomDTO,
+  CreateBranchDTO,
   CreateChequeDTO,
   CreateConfigInstanceDTO,
   CreateCostCenterDTO,
   CreateCustomerDTO,
   CreateDepreciationRunDTO,
+  CreateExchangeRateDTO,
   CreateFollowUpDTO,
   CreateGlJournalEntryDTO,
   CreateGoodsReceiptDTO,
@@ -44,6 +62,7 @@ import type {
   CreateOpportunityDTO,
   CreatePipelineStageDTO,
   CreatePriceListDTO,
+  CreateProductTemplateDTO,
   CreateProjectDTO,
   CreatePromotionDTO,
   CreatePurchaseInvoiceDTO,
@@ -55,20 +74,36 @@ import type {
   CreateSalesInvoiceDTO,
   CreateSalesQuoteDTO,
   CreateSalesReturnDTO,
+  CreateStockAdjustmentDTO,
+  CreateStockTransferDTO,
   CreateSupplierDTO,
   CreateTaxRateDTO,
   CreateTreasuryAccountDTO,
   CreateUserDTO,
   CreateVoucherDTO,
+  CreateWarehouseDTO,
   CreateWorkOrderDTO,
+  CreateWritedownRunDTO,
   CustomerDTO,
   DashboardSummaryDTO,
   DepositChequeDTO,
   DepreciationRunDTO,
   DocumentStatusDTO,
+  EtaConfigDTO,
+  EtaReadinessDTO,
+  EtaSubmissionDTO,
+  EtaSubmissionStatusDTO,
+  ExchangeRateDTO,
+  ExcludeEtaSubmissionDTO,
   FiscalPeriodDTO,
   FollowUpStatusDTO,
+  FxRevaluationPostResultDTO,
+  FxRevaluationPreviewDTO,
+  FxRevaluationRequestDTO,
+  GenerateAdjustmentFromCountDTO,
   GenerateFiscalYearDTO,
+  GenerateVariantsDTO,
+  GenerateVariantsResultDTO,
   GlJournalListQueryDTO,
   GoodsReceiptDTO,
   ImportBankStatementDTO,
@@ -83,15 +118,24 @@ import type {
   MatchSummaryDTO,
   MaterialFormulaDTO,
   MoveOpportunityStageDTO,
+  NotificationDTO,
+  NotificationRuleDTO,
+  NotificationTriggerCatalogDTO,
+  CreateNotificationRuleDTO,
+  UpdateNotificationRuleDTO,
   OpenInvoiceDTO,
   OpenVanTripDTO,
   OpportunityDTO,
+  PhysicalCountDTO,
+  PhysicalCountStatusDTO,
   PipelineStageDTO,
   PreviewConfigInstanceDTO,
   PriceListDTO,
   PricingMethodDTO,
   ProcessOverdueInstallmentsDTO,
   ProcessOverdueInstallmentsResultDTO,
+  ProductTemplateDTO,
+  ProductTemplateVariantDTO,
   ProjectDTO,
   PromotionDTO,
   PurchaseInvoiceDTO,
@@ -99,6 +143,8 @@ import type {
   PurchaseReturnDocumentDTO,
   PurchaseRfqDTO,
   ReceiveProductDTO,
+  ReconciliationReportDTO,
+  RecordPhysicalCountEntriesDTO,
   RecordVanCashMovementDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
@@ -110,22 +156,31 @@ import type {
   SalesReturnDocumentDTO,
   SessionDTO,
   SettleVanTripDTO,
+  StartPhysicalCountDTO,
   StatementColumnMappingDTO,
   StatementLineDTO,
+  StockAdjustmentDocumentDTO,
+  StockBalanceRowDTO,
+  StockTransferDocumentDTO,
   SupplierDTO,
   TaxRateDTO,
+  TenantSettingsDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
+  UpdateBranchDTO,
   UpdateCostCenterDTO,
   UpdateCustomerDTO,
+  UpdateEtaConfigDTO,
   UpdateItemDTO,
   UpdateProjectDTO,
   UpdateRoleDTO,
   UpdateSupplierDTO,
   UpdateTaxRateDTO,
+  UpdateTenantSettingsDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
+  UpdateWarehouseDTO,
   UpsertConfigurableProductDTO,
   UserDTO,
   VanTripDTO,
@@ -133,6 +188,38 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  PrintTemplateConfigDTO,
+  DepartmentDTO,
+  CreateDepartmentDTO,
+  UpdateDepartmentDTO,
+  JobTitleDTO,
+  CreateJobTitleDTO,
+  UpdateJobTitleDTO,
+  EmployeeDTO,
+  CreateEmployeeDTO,
+  UpdateEmployeeDTO,
+  TransitionEmployeeDTO,
+  ContractDTO,
+  CreateContractDTO,
+  HolidayDTO,
+  CreateHolidayDTO,
+  UpdateHolidayDTO,
+  LeaveRequestDTO,
+  CreateLeaveRequestDTO,
+  AttendanceEntryDTO,
+  AttendanceSummaryDTO,
+  RecordAttendanceDTO,
+  CorrectAttendanceDTO,
+  LeavePolicyDTO,
+  CreateLeavePolicyDTO,
+  UpdateLeavePolicyDTO,
+  LeavePolicyPresetDTO,
+  LeaveBalanceDTO,
+  UpsertLeaveBalanceDTO,
+  LeaveAccrualBatchDTO,
+  RunLeaveAccrualDTO,
+  HrDashboardSummaryDTO,
+  WritedownRunDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
@@ -208,11 +295,57 @@ export function useLogin() {
 /** First-run wizard "seed base data" step — idempotently seeds an empty DB and returns what exists. */
 export function useBootstrapSeed() {
   const { request } = useApi();
+  const queryClient = useQueryClient();
   return useMutation<BootstrapSeedResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/bootstrap/seed", { method: "POST", body: JSON.stringify({}) });
       if (!res.ok) throw new ApiError(res.status, "تعذّرت تهيئة البيانات الأساسية.");
       return res.json<BootstrapSeedResultDTO>();
+    },
+    onSuccess: (counts) => queryClient.setQueryData(["bootstrap", "status"], counts),
+  });
+}
+
+/** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
+export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
+  const { request } = useApi();
+  return useQuery<{ name: string }, ApiError>({
+    queryKey: ["tenant"],
+    queryFn: async () => {
+      const res = await request("/tenant");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات المنشأة.");
+      return res.json<{ name: string }>();
+    },
+  });
+}
+
+/** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
+export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+  const { request } = useApi();
+  return useQuery<BootstrapSeedResultDTO, ApiError>({
+    queryKey: ["bootstrap", "status"],
+    queryFn: async () => {
+      const res = await request("/bootstrap/status");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر قراءة حالة البيانات الأساسية.");
+      return res.json<BootstrapSeedResultDTO>();
+    },
+  });
+}
+
+/**
+ * The tenant's live entitlements (plan / licensed modules / seats) — the same
+ * object `/roles` validates permission grants against, so the role editor
+ * offers exactly what the server would accept. Ungated: the login screen
+ * reads it before a session exists.
+ */
+export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
+  const { request } = useApi();
+  return useQuery<EntitlementsDTO, ApiError>({
+    queryKey: ["entitlements"],
+    queryFn: async () => {
+      const res = await request("/entitlements");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات الترخيص.");
+      return res.json<EntitlementsDTO>();
     },
   });
 }
@@ -778,7 +911,42 @@ export function useDeleteRole() {
   });
 }
 
-/** الفروع (docs/catalog/09) — read-only list, used by the branch typeahead on real-data forms. */
+/* -------------------------------------------------------------------- */
+/* الإعدادات — عام (Tenant Settings) (docs/catalog/09)                    */
+/* -------------------------------------------------------------------- */
+
+/** إعدادات المنشأة (docs/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
+export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsDTO, ApiError>({
+    queryKey: ["settings"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات.");
+      return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export function useUpdateSettings() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TenantSettingsDTO, ApiError, UpdateTenantSettingsDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/settings", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الإعدادات."));
+      return res.json<TenantSettingsDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الفروع (docs/catalog/09)                                              */
+/* -------------------------------------------------------------------- */
+
+/** الفروع (docs/catalog/09 §"إدارة الفروع") — list, used by the branch typeahead on real-data forms. */
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
@@ -789,6 +957,32 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفروع.");
       return res.json<BranchDTO[]>();
     },
+  });
+}
+
+export function useCreateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, CreateBranchDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/branches", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
+  });
+}
+
+export function useUpdateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, { id: string; patch: UpdateBranchDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/branches/${id}`, { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تعديل الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
   });
 }
 
@@ -1048,7 +1242,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   });
 }
 
-/** المستودعات (docs/catalog/09) — read-only here; a picker dependency for other real-data screens (e.g. sales invoices). */
+/** المستودعات (docs/catalog/09 §"إدارة المستودعات") — list, create, edit; also a picker dependency for other real-data screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
@@ -1059,6 +1253,32 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستودعات.");
       return res.json<WarehouseDTO[]>();
     },
+  });
+}
+
+export function useCreateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, CreateWarehouseDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/warehouses", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
+  });
+}
+
+export function useUpdateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, { id: string; patch: UpdateWarehouseDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تعديل المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
   });
 }
 
@@ -1775,6 +1995,160 @@ export function usePostDepreciationRun() {
 }
 
 // ---------------------------------------------------------------------------
+// Inventory aging-based write-down batch (docs/tasks.md Phase 4) — inv/labels-templates-writedown
+// ---------------------------------------------------------------------------
+
+export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WritedownRunDTO[], ApiError>({
+    queryKey: ["writedown-runs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/inventory/writedown-runs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات هبوط قيمة المخزون.");
+      return res.json<WritedownRunDTO[]>();
+    },
+  });
+}
+
+export function useCreateWritedownRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WritedownRunDTO, ApiError, CreateWritedownRunDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/writedown-runs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء عملية هبوط قيمة المخزون."));
+      return res.json<WritedownRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
+  });
+}
+
+export function usePostWritedownRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WritedownRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/writedown-runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل عملية هبوط قيمة المخزون."));
+      return res.json<WritedownRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Product Templates (docs/catalog/03-inventory.md §"قوالب المنتجات") — inv/labels-templates-writedown
+// ---------------------------------------------------------------------------
+
+export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ProductTemplateDTO[], ApiError>({
+    queryKey: ["product-templates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/inventory/product-templates");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوالب المنتجات.");
+      return res.json<ProductTemplateDTO[]>();
+    },
+  });
+}
+
+export function useCreateProductTemplate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, CreateProductTemplateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/product-templates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء قالب المنتج."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useTemplateVariants(templateId: string | null): UseQueryResult<ProductTemplateVariantDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ProductTemplateVariantDTO[], ApiError>({
+    queryKey: ["product-template-variants", templateId],
+    enabled: session !== null && templateId !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/product-templates/${templateId}/variants`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المتغيرات.");
+      return res.json<ProductTemplateVariantDTO[]>();
+    },
+  });
+}
+
+export function useAddTemplateAttribute() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; body: AddTemplateAttributeDTO }>({
+    mutationFn: async ({ templateId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الخاصية."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useDeleteTemplateAttribute() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string }>({
+    mutationFn: async ({ templateId, attributeId }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الخاصية."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useAddAttributeValue() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; body: AddAttributeValueDTO }>({
+    mutationFn: async ({ templateId, attributeId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القيمة."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useDeleteAttributeValue() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; value: string }>({
+    mutationFn: async ({ templateId, attributeId, value }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values/${encodeURIComponent(value)}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف القيمة."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useGenerateVariants() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<GenerateVariantsResultDTO, ApiError, { templateId: string; body: GenerateVariantsDTO }>({
+    mutationFn: async ({ templateId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/variants/generate`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر توليد المتغيرات."));
+      return res.json<GenerateVariantsResultDTO>();
+    },
+    onSuccess: (_data, { templateId }) => {
+      queryClient.invalidateQueries({ queryKey: ["product-template-variants", templateId] });
+      queryClient.invalidateQueries({ queryKey: ["product-templates"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Field/Van Sales (docs/catalog/07 "رحلات المندوبين") — phase11/crm-projects-assets-field
 // ---------------------------------------------------------------------------
 
@@ -2371,6 +2745,419 @@ export function useUpdateTaxRate() {
   });
 }
 
+/* -------------------------------------------------------------------- */
+/* أسعار الصرف — Exchange Rates (docs/catalog/04)                        */
+/* -------------------------------------------------------------------- */
+
+export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ExchangeRateDTO[], ApiError>({
+    queryKey: ["exchange-rates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/exchange-rates");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أسعار الصرف.");
+      return res.json<ExchangeRateDTO[]>();
+    },
+  });
+}
+
+export function useCreateExchangeRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة سعر الصرف."));
+      return res.json<ExchangeRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
+  });
+}
+
+export function useApproveExchangeRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ExchangeRateDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/exchange-rates/${id}/approve`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اعتماد سعر الصرف."));
+      return res.json<ExchangeRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04)               */
+/* -------------------------------------------------------------------- */
+
+/** Groups posted revenue/expense by the cost-center dimension over `[fromDate, toDate]`. */
+export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResult<CostCenterPnLReportDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<CostCenterPnLReportDTO, ApiError>({
+    queryKey: ["cost-center-pl", fromDate, toDate],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/cost-center-pl?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرباح مراكز التكلفة.");
+      return res.json<CostCenterPnLReportDTO>();
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04)       */
+/* -------------------------------------------------------------------- */
+
+export function useFxRevaluationPreview() {
+  const { request } = useApi();
+  return useMutation<FxRevaluationPreviewDTO, ApiError, FxRevaluationRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/revaluation/preview", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حساب إعادة التقييم."));
+      return res.json<FxRevaluationPreviewDTO>();
+    },
+  });
+}
+
+export function useFxRevaluationPost() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<FxRevaluationPostResultDTO, ApiError, FxRevaluationRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/revaluation/post", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل إعادة التقييم."));
+      return res.json<FxRevaluationPostResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04)             */
+/* -------------------------------------------------------------------- */
+
+export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ReconciliationReportDTO, ApiError>({
+    queryKey: ["reconciliation"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/reconciliation");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مطابقة الأرصدة.");
+      return res.json<ReconciliationReportDTO>();
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الفاتورة الإلكترونية — ETA e-Invoicing (docs/catalog/04)              */
+/* -------------------------------------------------------------------- */
+
+export interface EtaConfigResponse {
+  readonly config: EtaConfigDTO;
+  readonly readiness: EtaReadinessDTO;
+}
+
+export function useEtaConfig(): UseQueryResult<EtaConfigResponse, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EtaConfigResponse, ApiError>({
+    queryKey: ["eta-config"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/config");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات الفاتورة الإلكترونية.");
+      return res.json<EtaConfigResponse>();
+    },
+  });
+}
+
+export function useUpdateEtaConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaConfigResponse, ApiError, UpdateEtaConfigDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/eta/config", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ إعدادات الفاتورة الإلكترونية."));
+      return res.json<EtaConfigResponse>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-config"] }),
+  });
+}
+
+export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResult<EtaSubmissionDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EtaSubmissionDTO[], ApiError>({
+    queryKey: ["eta-submissions", status ?? "all"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قائمة الإرسال.");
+      return res.json<EtaSubmissionDTO[]>();
+    },
+  });
+}
+
+/** `submission` is null when the server queued it offline instead of submitting (202 — see `queuedOffline`). */
+export interface SubmitEtaSubmissionResult {
+  readonly submission: EtaSubmissionDTO | null;
+  readonly queuedOffline: boolean;
+}
+
+export function useSubmitEtaSubmission() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SubmitEtaSubmissionResult, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/eta/submissions/${id}/submit`, { method: "POST" });
+      // 202 (EtaOfflineError — the stubbed online transmit refusing offline) is a
+      // non-fatal, still-queued outcome, not an error — its body has no submission.
+      if (res.status === 202) return { submission: null, queuedOffline: true };
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستند."));
+      return { submission: await res.json<EtaSubmissionDTO>(), queuedOffline: false };
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export interface SubmitAllReadyEtaResult {
+  readonly submitted: readonly EtaSubmissionDTO[];
+  readonly queued: readonly string[];
+}
+
+export function useSubmitAllReadyEta() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SubmitAllReadyEtaResult, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/eta/submissions/submit-all", { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستندات الجاهزة."));
+      return res.json<SubmitAllReadyEtaResult>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+export function useExcludeEtaSubmission() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; body: ExcludeEtaSubmissionDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استبعاد المستند."));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* تسويات وتحويلات وجرد المخزون — Inventory Ops document layer (docs/catalog/03) */
+/* -------------------------------------------------------------------- */
+
+interface DocumentStatusFilter {
+  readonly status?: DocumentStatusDTO;
+}
+
+export function useStockAdjustments(filter: DocumentStatusFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockAdjustmentDocumentDTO[], ApiError>({
+    queryKey: ["stock-adjustments", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-adjustments${filter.status ? `?status=${filter.status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تسويات المخزون.");
+      return res.json<StockAdjustmentDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreateStockAdjustment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تسوية المخزون."));
+      return res.json<StockAdjustmentDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
+  });
+}
+
+export function useConfirmStockAdjustment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: StockAdjustmentDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/stock-adjustments/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تأكيد تسوية المخزون."));
+      return res.json<{ document: StockAdjustmentDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+export function useStockTransfers(filter: DocumentStatusFilter = {}): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockTransferDocumentDTO[], ApiError>({
+    queryKey: ["stock-transfers", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-transfers${filter.status ? `?status=${filter.status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تحويلات المخزون.");
+      return res.json<StockTransferDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreateStockTransfer() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تحويل المخزون."));
+      return res.json<StockTransferDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
+  });
+}
+
+export function useConfirmStockTransfer() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: StockTransferDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/stock-transfers/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تأكيد تحويل المخزون."));
+      return res.json<{ document: StockTransferDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["stock-transfers"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+interface PhysicalCountFilter {
+  readonly status?: PhysicalCountStatusDTO;
+  readonly warehouseId?: string;
+}
+
+export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryResult<PhysicalCountDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PhysicalCountDTO[], ApiError>({
+    queryKey: ["physical-counts", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter.status) params.set("status", filter.status);
+      if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+      const qs = params.toString();
+      const res = await request(`/inventory/physical-counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوائم الجرد.");
+      return res.json<PhysicalCountDTO[]>();
+    },
+  });
+}
+
+export function useStartPhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر بدء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useRecordPhysicalCountEntries() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, { id: string; body: RecordPhysicalCountEntriesDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الكميات المجرودة."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useCompletePhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useCancelPhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useGenerateAdjustmentFromCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<
+    { count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null },
+    ApiError,
+    { id: string; body: GenerateAdjustmentFromCountDTO }
+  >({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تسوية الجرد."));
+      return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["physical-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] });
+      queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+export interface StockBalanceFilter {
+  readonly warehouseId?: string;
+}
+
+/** أرصدة المخزون (docs/catalog/03) — cross-warehouse rollup, one row per item (packages/api/src/inventory-routes.ts's `/inventory/stock-balance`). */
+export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult<StockBalanceRowDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockBalanceRowDTO[], ApiError>({
+    queryKey: ["stock-balance", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-balance${filter.warehouseId ? `?warehouseId=${filter.warehouseId}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل رصيد المخزون.");
+      const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
+      return body.rows;
+    },
+  });
+}
+
 /**
  * The `/rfqs/:id/comparison` per-item/per-supplier price grid (packages/api/src/rfq-routes.ts) —
  * the server-computed equivalent of `@mezan/domain`'s `compareRfqQuotes`, but over the wire
@@ -2797,5 +3584,1176 @@ export function useCancelFollowUp() {
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HR master data (docs/catalog/06 "الموارد البشرية") — hr/master-data
+// ---------------------------------------------------------------------------
+
+export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<DepartmentDTO[], ApiError>({
+    queryKey: ["hr-departments"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/departments");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأقسام.");
+      return res.json<DepartmentDTO[]>();
+    },
+  });
+}
+
+export function useCreateDepartment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepartmentDTO, ApiError, CreateDepartmentDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/departments", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القسم."));
+      return res.json<DepartmentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
+  });
+}
+
+export function useUpdateDepartment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepartmentDTO, ApiError, { id: string; body: UpdateDepartmentDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/departments/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل القسم."));
+      return res.json<DepartmentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
+  });
+}
+
+export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<JobTitleDTO[], ApiError>({
+    queryKey: ["hr-job-titles"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/job-titles");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المسميات الوظيفية.");
+      return res.json<JobTitleDTO[]>();
+    },
+  });
+}
+
+export function useCreateJobTitle() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JobTitleDTO, ApiError, CreateJobTitleDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/job-titles", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المسمى الوظيفي."));
+      return res.json<JobTitleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
+  });
+}
+
+export function useUpdateJobTitle() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JobTitleDTO, ApiError, { id: string; body: UpdateJobTitleDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/job-titles/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المسمى الوظيفي."));
+      return res.json<JobTitleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
+  });
+}
+
+export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EmployeeDTO[], ApiError>({
+    queryKey: ["hr-employees"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/employees");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموظفين.");
+      return res.json<EmployeeDTO[]>();
+    },
+  });
+}
+
+export function useEmployeeContracts(employeeId: string | null): UseQueryResult<ContractDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ContractDTO[], ApiError>({
+    queryKey: ["hr-employee-contracts", employeeId],
+    enabled: session !== null && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/employees/${employeeId}/contracts`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عقود الموظف.");
+      return res.json<ContractDTO[]>();
+    },
+  });
+}
+
+export function useCreateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, CreateEmployeeDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/employees", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useUpdateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, { id: string; body: UpdateEmployeeDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/employees/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useTransitionEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, { id: string; body: TransitionEmployeeDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/employees/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحديث حالة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useTerminateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء خدمة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ContractDTO[], ApiError>({
+    queryKey: ["hr-contracts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/contracts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العقود.");
+      return res.json<ContractDTO[]>();
+    },
+  });
+}
+
+export function useCreateContract() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ContractDTO, ApiError, CreateContractDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/contracts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العقد."));
+      return res.json<ContractDTO>();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["hr-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-employee-contracts", variables.employeeId] });
+    },
+  });
+}
+
+export function useTerminateContract() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ContractDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/contracts/${id}/terminate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء العقد."));
+      return res.json<ContractDTO>();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["hr-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-employee-contracts", data.employeeId] });
+    },
+  });
+}
+
+export function useHolidays(year: number): UseQueryResult<HolidayDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<HolidayDTO[], ApiError>({
+    queryKey: ["hr-holidays", year],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/holidays?year=${year}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإجازات الرسمية.");
+      return res.json<HolidayDTO[]>();
+    },
+  });
+}
+
+export function useCreateHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HolidayDTO, ApiError, CreateHolidayDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/holidays", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الإجازة."));
+      return res.json<HolidayDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export function useUpdateHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HolidayDTO, ApiError, { id: string; body: UpdateHolidayDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/holidays/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الإجازة."));
+      return res.json<HolidayDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export function useDeleteHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/holidays/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الإجازة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export interface MyLeaveDTO {
+  readonly employeeId: string | null;
+  readonly requests: LeaveRequestDTO[];
+}
+
+export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<MyLeaveDTO, ApiError>({
+    queryKey: ["hr-my-leave"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-requests/me");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إجازاتي.");
+      return res.json<MyLeaveDTO>();
+    },
+  });
+}
+
+export function useCreateLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, CreateLeaveRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+  });
+}
+
+export function useCancelLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+  });
+}
+
+export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<HrDashboardSummaryDTO, ApiError>({
+    queryKey: ["hr-dashboard"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/dashboard");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل لوحة الموارد البشرية.");
+      return res.json<HrDashboardSummaryDTO>();
+    },
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* قواعد الإشعارات / Notification rules (docs/catalog/09) + top-bar panel */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The honest trigger catalog behind the rule builder: which event codes this
+ * build actually publishes, and which channels actually send.
+ */
+export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCatalogDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<NotificationTriggerCatalogDTO, ApiError>({
+    queryKey: ["notification-triggers"],
+    enabled: session !== null,
+    retry: false,
+    queryFn: async () => {
+      const res = await request("/notification-rules/triggers");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل أحداث الإشعارات."));
+      return res.json<NotificationTriggerCatalogDTO>();
+    },
+  });
+}
+
+export function useNotificationRules(): UseQueryResult<NotificationRuleDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<NotificationRuleDTO[], ApiError>({
+    queryKey: ["notification-rules"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/notification-rules");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل قواعد الإشعارات."));
+      return res.json<NotificationRuleDTO[]>();
+    },
+  });
+}
+
+export function useCreateNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, CreateNotificationRuleDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/notification-rules", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useUpdateNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, { id: string; body: UpdateNotificationRuleDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/notification-rules/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useSetNotificationRuleActive() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, { id: string; active: boolean }>({
+    mutationFn: async ({ id, active }) => {
+      const res = await request(`/notification-rules/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث حالة القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useDeleteNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/notification-rules/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر حذف القاعدة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+/** The current user's own notifications (top-bar bell panel) — real data off `/notifications`. */
+export function useNotifications(status?: "unread" | "read"): UseQueryResult<NotificationDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<NotificationDTO[], ApiError>({
+    queryKey: ["notifications", status ?? "all"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}&limit=50` : "?limit=50";
+      const res = await request(`/notifications${qs}`);
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل الإشعارات."));
+      return res.json<NotificationDTO[]>();
+    },
+  });
+}
+
+export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<number, ApiError>({
+    queryKey: ["notifications", "unread-count"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/notifications/unread-count");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل عدد الإشعارات."));
+      const body = await res.json<{ count: number }>();
+      return body.count;
+    },
+  });
+}
+
+export function useMarkNotificationRead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/notifications/${id}/read`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث الإشعار."));
+      return res.json<NotificationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/notifications/read-all", { method: "POST" });
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر تحديد الكل كمقروء."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* قوالب الطباعة (Print Templates) — docs/catalog/09 §"قوالب الطباعة"    */
+/* ------------------------------------------------------------------ */
+
+/** The tenant's saved print-template config, or the shared default if none was saved yet. */
+export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PrintTemplateConfigDTO, ApiError>({
+    queryKey: ["print-template-config"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/print-template-config");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قالب الطباعة.");
+      return res.json<PrintTemplateConfigDTO>();
+    },
+  });
+}
+
+export function useSavePrintTemplateConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PrintTemplateConfigDTO, ApiError, PrintTemplateConfigDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/print-template-config", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ قالب الطباعة."));
+      return res.json<PrintTemplateConfigDTO>();
+    },
+    onSuccess: (config) => queryClient.setQueryData(["print-template-config"], config),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* نقل البيانات (Data Migration wizard) — docs/catalog/09 §"نقل البيانات" */
+/* ------------------------------------------------------------------ */
+
+export interface DataMigrationRowErrorDTO {
+  readonly rowNumber: number;
+  readonly reasons: readonly string[];
+}
+
+export interface DataMigrationStepResultDTO {
+  readonly validCount: number;
+  readonly errors: readonly DataMigrationRowErrorDTO[];
+  readonly createdIds?: readonly string[];
+}
+
+/** Registered-record counts for every one of the 13 wizard steps, driving each step's badge/checkmark. */
+export interface DataMigrationStatusDTO {
+  readonly departments: number;
+  readonly employees: number;
+  readonly treasuryAccounts: number;
+  readonly suppliers: number;
+  readonly customers: number;
+  readonly items: number;
+  readonly itemUnits: number;
+  readonly assetCategories: number;
+  readonly assets: number;
+  readonly salesInvoices: number;
+  readonly salesReturns: number;
+  readonly purchaseInvoices: number;
+  readonly purchaseReturns: number;
+}
+
+/** The 9 master-data step ids `createDataMigrationRoutes` (packages/api) exposes preview/commit for. */
+export type DataMigrationMasterStep =
+  | "departments"
+  | "employees"
+  | "treasury-accounts"
+  | "suppliers"
+  | "customers"
+  | "items"
+  | "item-units"
+  | "asset-categories"
+  | "assets";
+
+export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<DataMigrationStatusDTO, ApiError>({
+    queryKey: ["data-migration", "status"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/data-migration/status");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل حالة نقل البيانات.");
+      return res.json<DataMigrationStatusDTO>();
+    },
+  });
+}
+
+/** Dry-run (no persistence) validation for one master-data step's parsed rows. */
+export function useDataMigrationPreview(step: DataMigrationMasterStep) {
+  const { request } = useApi();
+  return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/data-migration/${step}/preview`, { method: "POST", body: JSON.stringify({ rows }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      return res.json<DataMigrationStepResultDTO>();
+    },
+  });
+}
+
+/** All-or-nothing commit for one master-data step's parsed rows — nothing persists unless every row validates. */
+export function useDataMigrationCommit(step: DataMigrationMasterStep) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/data-migration/${step}/commit`, { method: "POST", body: JSON.stringify({ rows }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      return res.json<DataMigrationStepResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+  });
+}
+
+/** The 4 historical-document steps (10-13) reuse `/sales/historical-import` and `/purchases/historical-import` directly. */
+export type HistoricalImportKind = "sales" | "purchases";
+export type HistoricalImportDocType = "SALES_INVOICE" | "SALES_RETURN" | "PURCHASE_INVOICE" | "PURCHASE_RETURN";
+
+export interface HistoricalImportRowDTO {
+  readonly rowNumber: number;
+  readonly docType: HistoricalImportDocType;
+  readonly documentNumber: string;
+  readonly partyId: string;
+  readonly date: string;
+  readonly dueDate?: string | null;
+  readonly itemId?: string | null;
+  readonly description?: string | null;
+  readonly qty: string;
+  readonly unitCost: string;
+  readonly amountPaid: string;
+}
+
+interface HistoricalImportBatchWire {
+  readonly rows: {
+    rowNumber: number;
+    docType: HistoricalImportDocType;
+    documentNumber: string;
+    supplierId?: string;
+    customerId?: string;
+    date: string;
+    dueDate?: string | null;
+    itemId?: string | null;
+    description?: string | null;
+    qty: string;
+    unitCost: string;
+    amountPaid: string;
+  }[];
+}
+
+function toHistoricalImportWireBody(kind: HistoricalImportKind, rows: readonly HistoricalImportRowDTO[]): HistoricalImportBatchWire {
+  return {
+    rows: rows.map((r) => ({
+      rowNumber: r.rowNumber,
+      docType: r.docType,
+      documentNumber: r.documentNumber,
+      ...(kind === "sales" ? { customerId: r.partyId } : { supplierId: r.partyId }),
+      date: r.date,
+      dueDate: r.dueDate,
+      itemId: r.itemId,
+      description: r.description,
+      qty: r.qty,
+      unitCost: r.unitCost,
+      amountPaid: r.amountPaid,
+    })),
+  };
+}
+
+export interface HistoricalImportGroupDTO {
+  readonly documentNumber: string;
+  readonly docType: HistoricalImportDocType;
+  readonly lineCount: number;
+  readonly total: string;
+  readonly amountPaid: string;
+  readonly remainingBalance: string;
+  readonly settled: boolean;
+}
+
+export interface HistoricalImportResultDTO {
+  readonly groups: readonly HistoricalImportGroupDTO[];
+  readonly errors: readonly DataMigrationRowErrorDTO[];
+  readonly archivedIds?: readonly string[];
+}
+
+export function useHistoricalImportPreview(kind: HistoricalImportKind) {
+  const { request } = useApi();
+  return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/${kind}/historical-import/preview`, {
+        method: "POST",
+        body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      return res.json<HistoricalImportResultDTO>();
+    },
+  });
+}
+
+export function useHistoricalImportCommit(kind: HistoricalImportKind) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
+    mutationFn: async (rows) => {
+      const res = await request(`/${kind}/historical-import/commit`, {
+        method: "POST",
+        body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      return res.json<HistoricalImportResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox    */
+/* (docs/catalog/09 §سير العمل), off the real /workflow API.             */
+/* -------------------------------------------------------------------- */
+
+/** إعدادات الموافقات — the persisted approval-chain config per action type. */
+export function useWorkflowConfigs(): UseQueryResult<WorkflowConfigDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WorkflowConfigDTO[], ApiError>({
+    queryKey: ["workflow-configs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/workflow/configs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات سير العمل.");
+      return res.json<WorkflowConfigDTO[]>();
+    },
+  });
+}
+
+export function useCreateWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkflowConfigDTO, ApiError, CreateWorkflowConfigDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/workflow/configs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      return res.json<WorkflowConfigDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+export function useUpdateWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkflowConfigDTO, ApiError, { id: string; body: UpdateWorkflowConfigDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/workflow/configs/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      return res.json<WorkflowConfigDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+export function useDeleteWorkflowConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/workflow/configs/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف سير العمل."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
+  });
+}
+
+/**
+ * الموافقات inbox — pending approvals whose CURRENT step's role the signed-in
+ * user holds (server-side filter off `x-role-code`; a tenant admin sees
+ * every pending request). Polled every 30s so the shell's pending-count
+ * badge and the inbox list itself stay live without a manual refresh.
+ */
+export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ApprovalRequestDTO[], ApiError>({
+    queryKey: ["workflow-requests", "pending"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/pending");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموافقات المعلّقة.");
+      return res.json<ApprovalRequestDTO[]>();
+    },
+  });
+}
+
+/** The shell's global pending-count badge on the الموافقات nav item. */
+export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<number, ApiError>({
+    queryKey: ["workflow-requests", "pending-count"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/pending-count");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عدد الموافقات المعلّقة.");
+      const body = await res.json<{ count: number }>();
+      return body.count;
+    },
+  });
+}
+
+/** Submits a new approval request for a gateable action type (POST /workflow/requests). */
+export function useSubmitApproval() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ApprovalRequestDTO, ApiError, SubmitApprovalRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/workflow/requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إرسال طلب الموافقة."));
+      return res.json<ApprovalRequestDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-requests"] });
+    },
+  });
+}
+
+/** موافقة / رفض / طلب تعديل — the inbox's three per-row actions (POST /workflow/requests/:id/decide). */
+export function useDecideApproval() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ApprovalRequestDTO, ApiError, { id: string; body: DecideApprovalRequestDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/workflow/requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تنفيذ القرار."));
+      return res.json<ApprovalRequestDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflow-requests"] });
+    },
+  });
+}
+
+
+/* -------------------------------------------------------------------- */
+/* كتالوجات الأصناف — units + categories (docs/catalog/03)               */
+/* -------------------------------------------------------------------- */
+
+/** وحدات القياس — the unit records an item's `baseUnitCode` resolves against. */
+export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemUnitDTO[], ApiError>({
+    queryKey: ["item-units"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-units");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل وحدات القياس.");
+      return res.json<ItemUnitDTO[]>();
+    },
+  });
+}
+
+export function useCreateItemUnit() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemUnitDTO, ApiError, CreateItemUnitDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/item-units", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة وحدة القياس."));
+      return res.json<ItemUnitDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
+  });
+}
+
+export function useUpdateItemUnit() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemUnitDTO, ApiError, { code: string; patch: UpdateItemUnitDTO }>({
+    mutationFn: async ({ code, patch }) => {
+      const res = await request(`/item-units/${code}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل وحدة القياس."));
+      return res.json<ItemUnitDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
+  });
+}
+
+/** تصنيفات الأصناف — the category records an item's `categoryId` resolves against. */
+export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemCategoryDTO[], ApiError>({
+    queryKey: ["item-categories"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-categories");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تصنيفات الأصناف.");
+      return res.json<ItemCategoryDTO[]>();
+    },
+  });
+}
+
+export function useCreateItemCategory() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemCategoryDTO, ApiError, CreateItemCategoryDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/item-categories", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة التصنيف."));
+      return res.json<ItemCategoryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
+  });
+}
+
+export function useUpdateItemCategory() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemCategoryDTO, ApiError, { id: string; patch: UpdateItemCategoryDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/item-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل التصنيف."));
+      return res.json<ItemCategoryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* الحضور والانصراف / الإجازات — attendance, policies, balances, accrual */
+/* ------------------------------------------------------------------ */
+
+export interface AttendanceFilters {
+  readonly employeeId?: string | null;
+  readonly from?: string | null;
+  readonly to?: string | null;
+  readonly status?: string | null;
+}
+
+function attendanceQueryString(filters: AttendanceFilters): string {
+  const params = new URLSearchParams();
+  if (filters.employeeId) params.set("employeeId", filters.employeeId);
+  if (filters.from) params.set("from", filters.from);
+  if (filters.to) params.set("to", filters.to);
+  if (filters.status) params.set("status", filters.status);
+  const query = params.toString();
+  return query === "" ? "" : `?${query}`;
+}
+
+export function useAttendance(filters: AttendanceFilters): UseQueryResult<AttendanceEntryDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<AttendanceEntryDTO[], ApiError>({
+    queryKey: ["hr-attendance", filters],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سجل الحضور.");
+      return res.json<AttendanceEntryDTO[]>();
+    },
+  });
+}
+
+export function useAttendanceSummary(employeeId: string | null, from: string, to: string): UseQueryResult<AttendanceSummaryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<AttendanceSummaryDTO, ApiError>({
+    queryKey: ["hr-attendance-summary", employeeId, from, to],
+    enabled: session !== null && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/attendance/summary?employeeId=${encodeURIComponent(employeeId ?? "")}&from=${from}&to=${to}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل ملخص الحضور.");
+      return res.json<AttendanceSummaryDTO>();
+    },
+  });
+}
+
+export function useRecordAttendance() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AttendanceEntryDTO, ApiError, RecordAttendanceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/attendance", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الحضور."));
+      return res.json<AttendanceEntryDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance-summary"] });
+    },
+  });
+}
+
+export function useCorrectAttendance() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AttendanceEntryDTO, ApiError, { id: string; body: CorrectAttendanceDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/attendance/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل سجل الحضور."));
+      return res.json<AttendanceEntryDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance-summary"] });
+    },
+  });
+}
+
+export function useLeavePolicies(): UseQueryResult<LeavePolicyDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeavePolicyDTO[], ApiError>({
+    queryKey: ["hr-leave-policies"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-policies");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سياسات الإجازات.");
+      return res.json<LeavePolicyDTO[]>();
+    },
+  });
+}
+
+export function useLeavePolicyPresets(): UseQueryResult<LeavePolicyPresetDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeavePolicyPresetDTO[], ApiError>({
+    queryKey: ["hr-leave-policy-presets"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-policies/presets");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات الجاهزة.");
+      return res.json<LeavePolicyPresetDTO[]>();
+    },
+  });
+}
+
+export function useCreateLeavePolicy() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeavePolicyDTO, ApiError, CreateLeavePolicyDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-policies", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة سياسة الإجازة."));
+      return res.json<LeavePolicyDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useUpdateLeavePolicy() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeavePolicyDTO, ApiError, { id: string; body: UpdateLeavePolicyDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/leave-policies/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل سياسة الإجازة."));
+      return res.json<LeavePolicyDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useDeleteLeavePolicy() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/leave-policies/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف سياسة الإجازة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useApplyLeavePolicyPreset() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeavePolicyDTO[], ApiError, string>({
+    mutationFn: async (presetCode) => {
+      const res = await request("/hr/leave-policies/apply-preset", { method: "POST", body: JSON.stringify({ presetCode }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تطبيق الإعداد الجاهز."));
+      return res.json<LeavePolicyDTO[]>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useLeaveBalances(employeeId: string | null, year: number): UseQueryResult<LeaveBalanceDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveBalanceDTO[], ApiError>({
+    queryKey: ["hr-leave-balances", employeeId, year],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams({ year: String(year) });
+      if (employeeId) params.set("employeeId", employeeId);
+      const res = await request(`/hr/leave-balances?${params.toString()}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرصدة الإجازات.");
+      return res.json<LeaveBalanceDTO[]>();
+    },
+  });
+}
+
+export function useUpsertLeaveBalance() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveBalanceDTO, ApiError, UpsertLeaveBalanceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-balances", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ رصيد الإجازة."));
+      return res.json<LeaveBalanceDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] }),
+  });
+}
+
+export function useLeaveAccrualBatches(runType: string | null): UseQueryResult<LeaveAccrualBatchDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveAccrualBatchDTO[], ApiError>({
+    queryKey: ["hr-leave-accrual-batches", runType],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/leave-accrual-batches${runType ? `?runType=${runType}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل دورات الاستحقاق.");
+      return res.json<LeaveAccrualBatchDTO[]>();
+    },
+  });
+}
+
+export interface RunLeaveAccrualResultDTO {
+  readonly batch: LeaveAccrualBatchDTO;
+  readonly created: boolean;
+}
+
+export function useRunLeaveAccrual() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RunLeaveAccrualResultDTO, ApiError, RunLeaveAccrualDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-accrual-batches/run", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تشغيل دورة الاستحقاق."));
+      return res.json<RunLeaveAccrualResultDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-accrual-batches"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] });
+    },
+  });
+}
+
+export interface LeaveRequestFilters {
+  readonly employeeId?: string | null;
+  readonly status?: string | null;
+  readonly leaveType?: string | null;
+  readonly from?: string | null;
+  readonly to?: string | null;
+}
+
+export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<LeaveRequestDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveRequestDTO[], ApiError>({
+    queryKey: ["hr-leave-requests", filters],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.employeeId) params.set("employeeId", filters.employeeId);
+      if (filters.status) params.set("status", filters.status);
+      if (filters.leaveType) params.set("leaveType", filters.leaveType);
+      if (filters.from) params.set("from", filters.from);
+      if (filters.to) params.set("to", filters.to);
+      const query = params.toString();
+      const res = await request(`/hr/leave-requests${query === "" ? "" : `?${query}`}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات الإجازات.");
+      return res.json<LeaveRequestDTO[]>();
+    },
+  });
+}
+
+export interface LeaveRequestCountsDTO {
+  readonly total: number;
+  readonly pending: number;
+  readonly approved: number;
+  readonly rejected: number;
+  readonly cancelled: number;
+}
+
+export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveRequestCountsDTO, ApiError>({
+    queryKey: ["hr-leave-request-counts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-requests/counts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل ملخص طلبات الإجازات.");
+      return res.json<LeaveRequestCountsDTO>();
+    },
+  });
+}
+
+export interface DecideLeaveRequestResultDTO {
+  readonly held: boolean;
+  readonly workflowRequestId: string | null;
+  readonly requiredRole?: string | null;
+  readonly request: LeaveRequestDTO;
+}
+
+export function useDecideLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DecideLeaveRequestResultDTO, ApiError, { id: string; decision: "approved" | "rejected"; comment?: string | null }>({
+    mutationFn: async ({ id, decision, comment }) => {
+      const path = decision === "approved" ? "approve" : "reject";
+      const res = await request(`/hr/leave-requests/${id}/${path}`, { method: "POST", body: JSON.stringify({ decision, comment: comment ?? null }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اتخاذ القرار على طلب الإجازة."));
+      return res.json<DecideLeaveRequestResultDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-request-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] });
+    },
   });
 }

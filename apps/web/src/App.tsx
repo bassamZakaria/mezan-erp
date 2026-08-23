@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
-import type { RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
+import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
@@ -61,12 +61,27 @@ import {
 } from "./screens/reports/InventoryReportsScreens";
 import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
 import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
+import { VanSalesReportScreen } from "./screens/reports/FieldSalesReportsScreens";
 import { LeadsScreen } from "./screens/LeadsScreen";
 import { OpportunitiesScreen } from "./screens/OpportunitiesScreen";
 import { PipelineScreen } from "./screens/PipelineScreen";
 import { PipelineStagesScreen } from "./screens/PipelineStagesScreen";
 import { ActivitiesScreen } from "./screens/ActivitiesScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
+import { HrDashboardScreen } from "./screens/HrDashboardScreen";
+import { EmployeesScreen } from "./screens/EmployeesScreen";
+import { DepartmentsScreen } from "./screens/DepartmentsScreen";
+import { JobTitlesScreen } from "./screens/JobTitlesScreen";
+import { ContractsScreen } from "./screens/ContractsScreen";
+import { HolidaysScreen } from "./screens/HolidaysScreen";
+import { MyLeaveScreen } from "./screens/MyLeaveScreen";
+import { AttendanceScreen } from "./screens/AttendanceScreen";
+import { PayrollRunsScreen } from "./screens/PayrollRunsScreen";
+import { EmployeeAdvancesScreen } from "./screens/EmployeeAdvancesScreen";
+import { LeaveRequestsScreen } from "./screens/LeaveRequestsScreen";
+import { LeavePoliciesScreen } from "./screens/LeavePoliciesScreen";
+import { LeaveBalancesScreen } from "./screens/LeaveBalancesScreen";
+import { LeaveAccrualBatchesScreen } from "./screens/LeaveAccrualBatchesScreen";
 import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
@@ -75,40 +90,76 @@ import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
 import { StockTransfersScreen } from "./screens/StockTransfersScreen";
 import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
 import { StockBalanceScreen } from "./screens/StockBalanceScreen";
+import { WritedownRunsScreen } from "./screens/WritedownRunsScreen";
+import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
+import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
+import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
+import { NotificationRulesPage } from "./settings/NotificationRulesPage";
+import { useNotificationsBell } from "./notifications/NotificationsBell";
+import { DataMigrationPage } from "./settings/DataMigrationPage";
+import { WorkflowConfigPage } from "./settings/WorkflowConfigPage";
+import { ApprovalsInboxScreen } from "./screens/ApprovalsInboxScreen";
+import { AuditLogScreen } from "./screens/AuditLogScreen";
+import { SequencesPage } from "./settings/SequencesPage";
+import { BarcodeConfigPage } from "./settings/BarcodeConfigPage";
+import { ProfilePage } from "./settings/ProfilePage";
+import { ApiKeysPage } from "./settings/ApiKeysPage";
+import { WebhooksPage } from "./settings/WebhooksPage";
+import { SalesHubScreen } from "./screens/hubs/SalesHubScreen";
+import { PurchasesHubScreen } from "./screens/hubs/PurchasesHubScreen";
+import { InventoryHubScreen } from "./screens/hubs/InventoryHubScreen";
+import { AccountingHubScreen } from "./screens/hubs/AccountingHubScreen";
+import { TreasuryHubScreen } from "./screens/hubs/TreasuryHubScreen";
+import { CrmHubScreen } from "./screens/hubs/CrmHubScreen";
+import { AssetsHubScreen } from "./screens/hubs/AssetsHubScreen";
+import { ManufacturingHubScreen } from "./screens/hubs/ManufacturingHubScreen";
+import { ProductionDashboardScreen } from "./screens/hubs/ProductionDashboardScreen";
+import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
+import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import {
-  commandItems,
-  demoBranches,
-  demoEmployees,
-  demoEntitlements,
-  demoWarehouses,
-  navGroups,
-  topNavItem,
-} from "./sample-data";
+import { buildCommandItems, buildNavGroups, buildTopNavItem } from "./nav-config";
+import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
-import type { ShellUser } from "@mezan/ui";
+import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
+  useBranches,
   useCreateRole,
   useCreateUser,
   useDeleteRole,
+  useEmployees,
+  useEntitlements,
+  useJobTitles,
+  usePendingApprovalCount,
   useRoles,
   useSetUserStatus,
   useUpdateRole,
   useUpdateUser,
   useUsers,
+  useWarehouses,
 } from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
+import { NavigationProvider, type ScreenIntent } from "./navigation";
 
-/** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
+/** Every nav-item key this shell routes to. A key here without a nav entry is unreachable; a nav entry without a key here is a dead click. */
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
+  "sales-hub": SalesHubScreen,
+  "purchases-hub": PurchasesHubScreen,
+  "inventory-hub": InventoryHubScreen,
+  "accounting-hub": AccountingHubScreen,
+  "treasury-hub": TreasuryHubScreen,
+  "crm-hub": CrmHubScreen,
+  "assets-hub": AssetsHubScreen,
+  "manufacturing-hub": ManufacturingHubScreen,
+  "production-dashboard": ProductionDashboardScreen,
+  status: SystemStatusScreen,
   "sales-invoices": SalesInvoicesScreen,
   quotes: SalesQuotesScreen,
   "price-lists": PriceListsScreen,
@@ -135,6 +186,10 @@ const ROUTABLE_SCREENS = {
   "stock-transfers": StockTransfersScreen,
   "stock-adjustments": StockAdjustmentsScreen,
   "physical-counts": PhysicalCountsScreen,
+  "product-templates": ProductTemplatesScreen,
+  "item-specifications": ItemSpecificationsScreen,
+  labels: LabelPrintingScreen,
+  "writedown-runs": WritedownRunsScreen,
   "cost-centers": CostCentersScreen,
   "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,
@@ -166,11 +221,22 @@ const ROUTABLE_SCREENS = {
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,
   "report-installments-overdue": InstallmentsOverdueReportScreen,
+  "report-van-sales": VanSalesReportScreen,
   "financial-reports": FinancialReportsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  "notification-rules": NotificationRulesPage,
+  "settings-data-migration": DataMigrationPage,
+  "settings-workflow": WorkflowConfigPage,
+  "settings-sequences": SequencesPage,
+  "settings-barcode": BarcodeConfigPage,
+  "settings-profile": ProfilePage,
+  "settings-api-keys": ApiKeysPage,
+  "settings-webhooks": WebhooksPage,
+  audit: AuditLogScreen,
+  approvals: ApprovalsInboxScreen,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,
@@ -181,6 +247,20 @@ const ROUTABLE_SCREENS = {
   "asset-register": AssetRegisterScreen,
   "depreciation-runs": DepreciationRunsScreen,
   "van-trips": VanTripsScreen,
+  "hr-dashboard": HrDashboardScreen,
+  employees: EmployeesScreen,
+  departments: DepartmentsScreen,
+  "job-titles": JobTitlesScreen,
+  contracts: ContractsScreen,
+  holidays: HolidaysScreen,
+  "my-leave": MyLeaveScreen,
+  attendance: AttendanceScreen,
+  payroll: PayrollRunsScreen,
+  advances: EmployeeAdvancesScreen,
+  "leave-requests": LeaveRequestsScreen,
+  "leave-policies": LeavePoliciesScreen,
+  "leave-balances": LeaveBalancesScreen,
+  "leave-accrual-batches": LeaveAccrualBatchesScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;
@@ -191,7 +271,7 @@ type RoutableKey = keyof typeof ROUTABLE_SCREENS;
  * own small state machine alongside the routable-screen lookup instead.
  */
 type UsersRolesView = "users" | "roles" | "role-editor";
-type ScreenKey = RoutableKey | UsersRolesView;
+export type ScreenKey = RoutableKey | UsersRolesView;
 
 function isRoutable(key: string): key is RoutableKey {
   return key in ROUTABLE_SCREENS;
@@ -201,8 +281,16 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO
   return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
-/** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
-type AppMode = "login" | "wizard" | "app";
+/** The header's branch-scope chip, resolved from the session's real scope against the live branch list. */
+function scopeLabelFor(
+  branchScope: ScopeSelectionDTO,
+  branches: readonly BranchDTO[],
+  t: (key: AppTranslationKey, params?: Record<string, string | number>) => string,
+): string {
+  if (branchScope === ALL_SCOPE) return t("shell.scope.allBranches");
+  if (branchScope.length === 1) return branches.find((b) => b.id === branchScope[0])?.name ?? branchScope[0]!;
+  return t("shell.scope.branchCount", { count: branchScope.length });
+}
 
 function initialsFor(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
@@ -214,24 +302,54 @@ function initialsFor(fullName: string): string {
 }
 
 export function App() {
-  const { session } = useApi();
-  const [mode, setMode] = useState<AppMode>("login");
+  const { session, setSession } = useApi();
+  const { t } = useAppTranslation();
+  const [showWizard, setShowWizard] = useState(false);
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
+  const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
+
+  const navigate = useCallback((screen: ScreenKey, intent?: ScreenIntent) => {
+    setActiveScreen(screen);
+    setPendingIntent(intent ?? null);
+  }, []);
+  const clearIntent = useCallback(() => setPendingIntent(null), []);
+  const navigation = useMemo(() => ({ navigate, intent: pendingIntent, clearIntent }), [navigate, pendingIntent, clearIntent]);
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
+  const branchesQuery = useBranches();
+  const warehousesQuery = useWarehouses();
+  const entitlementsQuery = useEntitlements();
+  const employeesQuery = useEmployees();
+  const jobTitlesQuery = useJobTitles();
+  const pendingApprovalCountQuery = usePendingApprovalCount();
+  const pendingApprovalCount = pendingApprovalCountQuery.data ?? 0;
   const roles = rolesQuery.data ?? [];
   const users = usersQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const entitlements = entitlementsQuery.data ?? null;
+  // The user form links a login to its HR employee record (docs/catalog/09 §الموظف المرتبط).
+  const employees = useMemo(() => {
+    const jobTitleById = new Map((jobTitlesQuery.data ?? []).map((j) => [j.id, j.nameAr ?? j.name]));
+    return (employeesQuery.data ?? []).map((e) => ({
+      id: e.id,
+      name: `${e.firstNameAr ?? e.firstName} ${e.lastNameAr ?? e.lastName}`.trim(),
+      position: (e.jobTitleId ? jobTitleById.get(e.jobTitleId) : null) ?? "—",
+    }));
+  }, [employeesQuery.data, jobTitlesQuery.data]);
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const setUserStatus = useSetUserStatus();
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
+  const notificationsBell = useNotificationsBell();
+  const { branchOptions, warehouseOptions, selection, setBranch, setWarehouse } = useScopeSelector();
 
-  const allBranchIds = demoBranches.map((b) => b.id);
-  const allWarehouseIds = demoWarehouses.map((w) => w.id);
+  const allBranchIds = branches.map((b) => b.id);
+  const allWarehouseIds = warehouses.map((w) => w.id);
 
   const usersByRoleId = useMemo(() => {
     const map = new Map<string, number>();
@@ -241,30 +359,61 @@ export function App() {
     return map;
   }, [users]);
 
-  // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
-  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات, المستخدمون,
-  // الأدوار) to switch screens; every other item keeps whatever static
-  // onClick/href sample-data.ts gave it — mostly none, they're "قريباً"
-  // placeholders.
   const groups: NavGroup[] = useMemo(
     () =>
-      navGroups.map((group) => ({
+      buildNavGroups(t).map((group) => ({
         ...group,
         items: group.items.map((item) => {
           const key = item.key;
+          // الموافقات carries a global pending-count badge (docs/catalog/09
+          // §الموافقات inbox nav item) — a real count off /workflow/requests/
+          // pending-count, not a placeholder.
+          const tag = key === "approvals" && pendingApprovalCount > 0 ? { label: String(pendingApprovalCount), tone: "pattern" as const } : item.tag;
           if (isRoutable(key) || key === "users" || key === "roles") {
-            return { ...item, onClick: () => setActiveScreen(key as ScreenKey) };
+            return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
           }
-          return item;
+          return { ...item, tag };
         }),
       })),
-    [],
+    [navigate, pendingApprovalCount, t],
+  );
+
+  const routedCommandItems: CommandItem[] = useMemo(() => {
+    const targets: Record<string, () => void> = {
+      "cmd-invoice": () => navigate("sales-invoices", "create"),
+      "cmd-receipt": () => navigate("treasury-vouchers", "create"),
+      "cmd-coa": () => navigate("coa"),
+      "cmd-journals": () => navigate("journals"),
+    };
+    return buildCommandItems(t).map((item) => {
+      const onSelect = targets[item.id];
+      return onSelect ? { ...item, onSelect } : item;
+    });
+  }, [navigate, t]);
+
+  const userMenuItems: UserMenuItem[] = useMemo(
+    () => [
+      { key: "users", label: t("shell.menu.users"), onSelect: () => navigate("users") },
+      { key: "roles", label: t("shell.menu.roles"), onSelect: () => navigate("roles") },
+      { key: "settings", label: t("shell.menu.settings"), onSelect: () => navigate("settings-general") },
+      {
+        key: "sign-out",
+        label: t("shell.menu.signOut"),
+        tone: "danger",
+        onSelect: () => {
+          setActiveScreen("dashboard");
+          setSession(null);
+        },
+      },
+    ],
+    [navigate, setSession, t],
   );
 
   const routedTopNavItem = useMemo(() => {
+    const topNavItem = buildTopNavItem(t);
     const key = topNavItem.key;
-    return isRoutable(key) ? { ...topNavItem, onClick: () => setActiveScreen(key) } : topNavItem;
-  }, []);
+    return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
+  }, [navigate, t]);
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
@@ -318,31 +467,53 @@ export function App() {
     }
   }
 
-  if (mode === "wizard") {
-    return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
+  // Checked before the session gate on purpose: the wizard's admin step
+  // establishes a session mid-flow, so a session-first gate would unmount the
+  // wizard before its remaining steps run.
+  if (showWizard) {
+    return (
+      <FirstRunWizard
+        onFinish={() => setShowWizard(false)}
+        onCancel={() => {
+          setSession(null);
+          setShowWizard(false);
+        }}
+      />
+    );
   }
 
-  if (mode === "login" || !session) {
-    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  if (!session) {
+    return <LoginScreen onStartWizard={() => setShowWizard(true)} />;
   }
 
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
   const shellUser: ShellUser = {
     name: session.fullName,
-    role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
+    role: session.isCompanyAdmin ? t("shell.user.role.companyAdmin") : t("shell.user.role.member"),
     initials: initialsFor(session.fullName),
   };
+  const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 
   return (
+    <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
       navGroups={groups}
       user={shellUser}
-      commandItems={commandItems}
+      commandItems={routedCommandItems}
       tenantName={session.tenantName}
-      scopeLabel="الفرع الرئيسي"
-      notificationCount={3}
+      scopeLabel={scopeLabel}
+      userMenuItems={userMenuItems}
+      notificationCount={notificationsBell.unreadCount}
+      onToggleNotifications={notificationsBell.onToggle}
+      notificationsPanel={notificationsBell.panel}
+      branchOptions={branchOptions}
+      warehouseOptions={warehouseOptions}
+      selectedBranchId={selection.branchId}
+      selectedWarehouseId={selection.warehouseId}
+      onSelectBranch={setBranch}
+      onSelectWarehouse={setWarehouse}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 
@@ -350,9 +521,9 @@ export function App() {
         <UsersPage
           users={users}
           roles={roles}
-          branches={demoBranches}
-          warehouses={demoWarehouses}
-          employees={demoEmployees}
+          branches={branches}
+          warehouses={warehouses}
+          employees={employees}
           onSave={handleSaveUser}
           onToggleStatus={handleToggleUserStatus}
         />
@@ -374,14 +545,15 @@ export function App() {
         />
       ) : null}
 
-      {activeScreen === "role-editor" ? (
+      {activeScreen === "role-editor" && entitlements ? (
         <RoleEditorPage
           role={editingRole}
-          entitlements={demoEntitlements}
+          entitlements={entitlements}
           onSave={handleSaveRole}
           onCancel={() => setActiveScreen("roles")}
         />
       ) : null}
     </AppShell>
+    </NavigationProvider>
   );
 }

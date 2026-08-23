@@ -3,8 +3,8 @@ import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
-import { Topbar } from "./Topbar";
-import type { CommandItem, NavGroup, NavItem, ShellUser } from "./types";
+import { Topbar, type TopbarScopeOption } from "./Topbar";
+import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 export interface AppShellProps {
   activeNavKey?: string;
@@ -15,15 +15,26 @@ export interface AppShellProps {
   tenantName?: string;
   scopeLabel?: string;
   notificationCount?: number;
+  onToggleNotifications?: () => void;
+  notificationsPanel?: ReactNode;
+  userMenuItems?: UserMenuItem[];
   brandName?: string;
   brandSub?: string;
   children: ReactNode;
   className?: string;
+  /** Working-branch / warehouse selectors, forwarded straight to `<Topbar>` — see its own props doc. */
+  branchOptions?: readonly TopbarScopeOption[];
+  warehouseOptions?: readonly TopbarScopeOption[];
+  selectedBranchId?: string | null;
+  selectedWarehouseId?: string | null;
+  onSelectBranch?: (branchId: string | null) => void;
+  onSelectWarehouse?: (warehouseId: string | null) => void;
 }
 
 /**
- * AppShell — the RTL app frame: Sidebar + Topbar + a Ctrl K command palette,
- * wired together. Wraps the routed page content passed as `children`.
+ * AppShell — the app frame: Sidebar + Topbar + a Ctrl K command palette, wired
+ * together. Wraps the routed page content passed as `children`. Its layout is
+ * direction-agnostic: the active locale's `dir` on <html> mirrors it.
  */
 export function AppShell({
   activeNavKey,
@@ -34,10 +45,19 @@ export function AppShell({
   tenantName,
   scopeLabel,
   notificationCount,
+  onToggleNotifications,
+  notificationsPanel,
+  userMenuItems,
   brandName,
   brandSub,
   children,
   className,
+  branchOptions,
+  warehouseOptions,
+  selectedBranchId,
+  selectedWarehouseId,
+  onSelectBranch,
+  onSelectWarehouse,
 }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -64,7 +84,16 @@ export function AppShell({
           theme={theme}
           onToggleTheme={toggleTheme}
           notificationCount={notificationCount}
+          onToggleNotifications={onToggleNotifications}
+          notificationsPanel={notificationsPanel}
+          userMenuItems={userMenuItems}
           user={user}
+          branchOptions={branchOptions}
+          warehouseOptions={warehouseOptions}
+          selectedBranchId={selectedBranchId}
+          selectedWarehouseId={selectedWarehouseId}
+          onSelectBranch={onSelectBranch}
+          onSelectWarehouse={onSelectWarehouse}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
       </div>

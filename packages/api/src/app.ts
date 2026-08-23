@@ -15,6 +15,19 @@ import {
   type CustomerRepository,
   type SupplierRepository,
   type ItemRepository,
+  type ItemUnitRepository,
+  type ItemCategoryRepository,
+  type ItemSpecificationRepository,
+  type ItemSpecificationUsageCounter,
+  type EventCode,
+  type AllocatableInvoiceRepository,
+  type ApiKeyRepository,
+  type BarcodeConfigRepository,
+  type AuditQueryPort,
+  type AuditSink,
+  type WebhookDeliveryRepository,
+  type WebhookRepository,
+  type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
   type CostCenterRepository,
@@ -45,6 +58,9 @@ import {
   type HistoricalPurchaseArchiveRepository,
   type HistoricalImportGlPostingPort,
   type HistoricalImportGlAccounts,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
@@ -55,10 +71,17 @@ import {
   type LandedCostLine,
   type PriceListRepository,
   type PromotionRepository,
+  type NotificationRuleRepository,
+  type NotificationRepository,
   createSalesInvoiceCustomerExposureHook,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   type PhysicalCountService,
+  type PrintTemplateConfigRepository,
+  type DepartmentRepository,
+  type EmployeeRepository,
+  type AssetCategoryRepository,
+  type AssetRepository,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -72,6 +95,8 @@ import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
+import { createItemCategoriesRoutes, createItemUnitsRoutes } from "./item-catalog-routes.js";
+import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -91,8 +116,13 @@ import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createManufacturingRoutes } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
+import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
+import { createDataMigrationRoutes, type DataMigrationTransactor } from "./data-migration-routes.js";
+import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
+import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
+import { createNotificationsRoutes } from "./notifications-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
@@ -104,6 +134,7 @@ import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
+import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
@@ -112,15 +143,35 @@ import {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+import {
+  createInventoryWritedownRoutes,
+  type InventoryWritedownRoutesDeps,
+} from "./inventory-writedown-routes.js";
+import {
+  createProductTemplatesRoutes,
+  type ProductTemplatesRoutesDeps,
+} from "./product-templates-routes.js";
+import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
+import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
+import { createLabelLayoutsRouter } from "./label-routes.js";
+import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
+import { createAuditRoutes } from "./audit-routes.js";
+import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
+import { createProfileRoutes } from "./profile-routes.js";
+import { createApiKeysRoutes } from "./api-keys-routes.js";
+import { createWebhooksRoutes } from "./webhooks-routes.js";
 
 /**
- * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
- * the default entitlements the `/roles` route validates grants against when
- * the mounting app does not supply its own `resolveEntitlements`. Phase 1 has
- * no real session/login wiring yet — apps/server / apps/desktop override this
- * once real auth + a real entitlements source land.
+ * Modules this build can actually serve, used as the default entitlements the
+ * `/roles` route validates grants against and as what `GET /entitlements`
+ * reports. Listing a module here makes its permissions grantable, so an
+ * unimplemented domain must stay out: `pos` has no domain, routes or
+ * persistence anywhere in this repo. Ids are ENTITLEMENT ids, not catalog
+ * ids — the catalog's `cheques` module is the `financial_papers` entitlement
+ * (packages/domain/src/permissions/module-licensing.ts).
  */
-const DEMO_ACTIVE_MODULES = [
+const DEFAULT_ACTIVE_MODULES = [
+  "dashboard",
   "sales",
   "purchases",
   "inventory",
@@ -129,20 +180,22 @@ const DEMO_ACTIVE_MODULES = [
   "installments",
   "financial_papers",
   "crm",
-  "pos",
   "hr",
   "manufacturing",
   "assets",
-  "notifications",
-  "loyalty",
   "field",
+  "workflow",
+  "audit",
+  "transactions",
+  "admin",
+  "notifications",
   "projects",
 ];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEMO_ACTIVE_MODULES,
+    activeModules: DEFAULT_ACTIVE_MODULES,
     features: {},
     seats: 10,
     expiresAt: null,
@@ -199,6 +252,50 @@ export interface CreateAppOptions {
     readonly repo: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
+  /**
+   * Mounts `/item-units` and `/item-categories` (docs/catalog/03 §"وحدة
+   * القياس" / §"تصنيفات الأصناف") when present — the item master-data
+   * catalogs an item's `baseUnitCode` / `categoryId` resolve against.
+   */
+  readonly itemCatalog?: {
+    readonly units: ItemUnitRepository;
+    readonly categories: ItemCategoryRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/item-specifications` (المواصفات — the reusable specification /
+   * attribute registry) when present. `usage` counts what binds to a
+   * specification; it drives the الاستخدام column and the delete guard, and is
+   * supplied by the composition root because only it knows the consumers.
+   */
+  readonly itemSpecifications?: {
+    readonly repo: ItemSpecificationRepository;
+    readonly usage: ItemSpecificationUsageCounter;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
+  readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/barcode-config` when present. */
+  readonly barcodeConfigStore?: BarcodeConfigRepository;
+  /** Shared audit sink for profile security events and API-key/webhook writes. */
+  readonly auditSink?: AuditSink;
+  /** Mounts `/api-keys` when present. */
+  readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/webhooks` when present. */
+  readonly webhooks?: {
+    readonly webhooks: WebhookRepository;
+    readonly deliveries: WebhookDeliveryRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/audit` — the read-only audit query surface — when present. */
+  readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
+  readonly labelLayouts?: {
+    readonly repo: LabelLayoutRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/financial-reports` (the 7 statements over the live posted ledger) when present. */
+  readonly financialReports?: FinancialReportsRoutesDeps;
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
@@ -248,6 +345,21 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
+   * Mounts `/inventory/writedown-runs` (docs/tasks.md Phase 4 "Aging-based
+   * inventory write-down batch") when present: a manually-triggered,
+   * per-period-idempotent monthly provisioning job that posts Dr write-down
+   * expense / Cr the 1190-style contra-asset provision for slow-moving
+   * stock, through the REAL GL posting engine. Never touches an item's
+   * recorded WAC/cost layers.
+   */
+  readonly inventoryWritedown?: InventoryWritedownRoutesDeps;
+  /**
+   * Mounts `/inventory/product-templates` (docs/catalog/03-inventory.md
+   * §"قوالب المنتجات") when present: attribute-driven templates + the
+   * variant/SKU generator (creates REAL Items).
+   */
+  readonly productTemplates?: ProductTemplatesRoutesDeps;
+  /**
    * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
    * when present — omit it for no `/gl` routes. Bundles its own ledger,
    * account/period lookups and numbering engine (all connection-shared for
@@ -265,10 +377,35 @@ export interface CreateAppOptions {
    * store to get exactly today's behaviour (no credit check at all).
    */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /**
+   * Mounts the historical sales-document import (docs/catalog/01 §"استيراد
+   * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
+   * when present — omit it for no such routes. `gl`/`accounts` are optional:
+   * omit them to archive documents without ever posting a remaining-balance
+   * journal entry.
+   */
+  readonly salesHistoricalImport?: {
+    readonly archives: HistoricalSalesArchiveRepository;
+    readonly gl?: HistoricalSalesImportGlPostingPort;
+    readonly accounts?: HistoricalSalesImportGlAccounts;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
   /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
   readonly priceListRepo?: PriceListRepository;
   /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
   readonly promotionRepo?: PromotionRepository;
+  /** Mounts `/notification-rules` (docs/catalog/09 §قواعد الإشعارات) when present. */
+  readonly notificationRuleRepo?: NotificationRuleRepository;
+  /**
+   * The event codes this deployment really publishes onto the event bus —
+   * what `/notification-rules/triggers` reports as `emitted`. The composition
+   * root derives it from its own bridge wiring; omit it and every trigger is
+   * honestly reported as not-yet-emitted.
+   */
+  readonly emittedEventCodes?: readonly EventCode[];
+  /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
+  readonly notificationRepo?: NotificationRepository;
   /**
    * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -314,6 +451,12 @@ export interface CreateAppOptions {
    */
   readonly crm?: CrmRoutesDeps;
   /**
+   * Mounts HR master data (docs/catalog/06 "الموارد البشرية") under `/hr`
+   * when present: departments, job titles, employees, contracts, holidays,
+   * the HR dashboard, and the leave-request slice backing إجازاتي (My Leave).
+   */
+  readonly hr?: HrRoutesDeps;
+  /**
    * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
    * when present. Creating a project auto-creates its linked `PRJ-{code}`
    * cost center via the real cost-centers domain.
@@ -348,6 +491,7 @@ export interface CreateAppOptions {
     /** GL posting engine deps — the invoice confirm builds a JE and posts it here. */
     readonly gl: JournalPostingDeps;
     readonly accounts: PurchaseGlAccounts;
+    readonly allocatable?: AllocatableInvoiceRepository;
     /**
      * A static policy value. Omit it (and supply `settingsStore`) to instead
      * derive the 3-gate procurement strictness policy from the LIVE tenant
@@ -363,6 +507,8 @@ export interface CreateAppOptions {
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number;
     readonly resolveAuthContext?: AuthContextResolver;
+    /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
+    readonly audit?: AuditSink;
     readonly now?: () => string;
   };
   /**
@@ -414,6 +560,45 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
+   * Mounts the 9-tab print-template designer's persisted config (docs/catalog/09
+   * §"قوالب الطباعة") under `/print-template-config` when present — GET
+   * returns the tenant's saved config or the shared default, PUT validates
+   * and saves. Omit for no such routes.
+   */
+  readonly printTemplateConfig?: {
+    readonly repo: PrintTemplateConfigRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts the Data Migration wizard's 9 master-data steps (docs/catalog/09
+   * §"نقل البيانات", steps 1-9 — الأقسام through الأصول الثابتة) under
+   * `/data-migration` when present. The 4 historical-document steps (10-13)
+   * are NOT here — they reuse `/purchases/historical-import` and the sibling
+   * `/sales/historical-import` mount directly. Omit for no such routes.
+   */
+  readonly dataMigration?: {
+    readonly departments: DepartmentRepository;
+    readonly employees: EmployeeRepository;
+    readonly treasuryAccounts: TreasuryAccountRepository;
+    readonly suppliers: SupplierRepository;
+    readonly customers: CustomerRepository;
+    readonly items: ItemRepository;
+    readonly assetCategories: AssetCategoryRepository;
+    readonly assets: AssetRepository;
+    readonly branches: BranchRepository;
+    /** Optional — enables the item opening-balance step (`/data-migration/opening-balances`). */
+    readonly warehouses?: WarehouseRepository;
+    readonly stockAdjustments?: DocumentService<StockAdjustmentDocLine>;
+    readonly transact?: DataMigrationTransactor;
+    readonly historicalCounts?: () => Promise<{
+      salesInvoices: number;
+      salesReturns: number;
+      purchaseInvoices: number;
+      purchaseReturns: number;
+    }>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
    * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
    * present. The caller builds the `DocumentService` (repo + numbering + GL
    * hook + `createInventoryStockHook` + workflow gate) — omit it for no
@@ -455,12 +640,19 @@ export interface CreateAppOptions {
   /**
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/catalog/09 §الأدوار — only licensed-module permissions are
-   * grantable). Defaults to a broad demo entitlements set (`DEMO_ACTIVE_MODULES`)
-   * since there is no real per-tenant entitlements source wired up yet.
+   * grantable), and that `GET /entitlements` reports. Defaults to
+   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+  /**
+   * Mounts `/workflow` (docs/catalog/09 §سير العمل — إعدادات الموافقات
+   * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
+   * over the persisted `GateConfig` per action type, `/workflow/requests` for
+   * submitting/listing/deciding approval instances.
+   */
+  readonly workflow?: WorkflowRoutesDeps;
 }
 
 /**
@@ -539,6 +731,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.crm) {
     app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
   }
+  if (options.hr) {
+    app.route("/hr", createHrRoutes(options.hr, options.resolveAuthContext));
+  }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));
   }
@@ -576,11 +771,29 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
     );
   }
+  if (options.salesHistoricalImport) {
+    app.route(
+      "/sales/historical-import",
+      createSalesHistoricalImportRoutes(
+        options.salesHistoricalImport,
+        options.salesHistoricalImport.resolveAuthContext ?? options.resolveAuthContext,
+      ),
+    );
+  }
   if (options.priceListRepo) {
     app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
   }
   if (options.promotionRepo) {
     app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+  }
+  if (options.notificationRuleRepo) {
+    app.route(
+      "/notification-rules",
+      createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext, options.emittedEventCodes),
+    );
+  }
+  if (options.notificationRepo) {
+    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, options.resolveAuthContext));
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;
@@ -640,6 +853,31 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
+  }
+  if (options.itemCatalog) {
+    app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));
+    app.route(
+      "/item-categories",
+      createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
+    );
+  }
+  if (options.itemSpecifications) {
+    app.route(
+      "/item-specifications",
+      createItemSpecificationsRoutes(options.itemSpecifications, options.itemSpecifications.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+  if (options.barcodeConfigStore) {
+    app.route("/barcode-config", createBarcodeConfigRoutes({ store: options.barcodeConfigStore }, options.resolveAuthContext));
+  }
+  if (options.sequences) {
+    app.route("/sequences", createSequencesRoutes(options.sequences, options.sequences.resolveAuthContext));
+  }
+  if (options.audit) {
+    app.route("/audit", createAuditRoutes(options.audit.store, options.audit.resolveAuthContext));
+  }
+  if (options.labelLayouts) {
+    app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, options.labelLayouts.resolveAuthContext));
   }
   if (options.inventory) {
     app.route(
@@ -714,9 +952,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           gl: glPort,
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
+          allocatable: purchases.allocatable,
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,
+          audit: purchases.audit ?? options.auditSink,
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? options.resolveAuthContext,
@@ -776,6 +1016,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.reports) {
     app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
   }
+  if (options.financialReports) {
+    app.route("/financial-reports", createFinancialReportsRoutes(options.financialReports, options.resolveAuthContext));
+  }
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
@@ -794,9 +1037,49 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
     );
   }
+  if (options.inventoryWritedown) {
+    app.route(
+      "/inventory/writedown-runs",
+      createInventoryWritedownRoutes(options.inventoryWritedown, options.resolveAuthContext),
+    );
+  }
+  if (options.productTemplates) {
+    app.route(
+      "/inventory/product-templates",
+      createProductTemplatesRoutes(options.productTemplates, options.resolveAuthContext),
+    );
+  }
+
+  /**
+   * The live entitlements the roles engine validates every grant against —
+   * exposed so the role editor offers exactly the licensed modules/permissions
+   * the server would accept, instead of its own client-side copy.
+   */
+  app.get("/entitlements", async (c) => {
+    const entitlements = await resolveEntitlements(c);
+    if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
+    return c.json(entitlements);
+  });
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
   app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
+  app.route("/profile", createProfileRoutes(uow, hasher, options.resolveAuthContext, options.auditSink));
+  if (options.apiKeys) {
+    app.route(
+      "/api-keys",
+      createApiKeysRoutes(options.apiKeys.repo, hasher, options.apiKeys.resolveAuthContext ?? options.resolveAuthContext, options.auditSink),
+    );
+  }
+  if (options.webhooks) {
+    app.route(
+      "/webhooks",
+      createWebhooksRoutes(
+        { webhooks: options.webhooks.webhooks, deliveries: options.webhooks.deliveries },
+        options.webhooks.resolveAuthContext ?? options.resolveAuthContext,
+        options.auditSink,
+      ),
+    );
+  }
 
   app.post("/journal-entries", async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());
@@ -847,6 +1130,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return c.json(serialize(entry));
   });
 
+  if (options.printTemplateConfig) {
+    app.route(
+      "/print-template-config",
+      createPrintTemplateConfigRoutes(options.printTemplateConfig, options.printTemplateConfig.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+  if (options.dataMigration) {
+    app.route(
+      "/data-migration",
+      createDataMigrationRoutes(options.dataMigration, options.dataMigration.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+
   if (options.lan) {
     const registry = options.lan.registry ?? new SeatSessionRegistry(0);
     app.route(
@@ -857,6 +1153,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         sseHeartbeatMs: options.lan.sseHeartbeatMs,
       }),
     );
+  }
+
+  if (options.workflow) {
+    app.route("/workflow", createWorkflowRoutes(options.workflow, options.resolveAuthContext));
   }
 
   return app;

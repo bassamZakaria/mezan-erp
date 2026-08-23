@@ -18,8 +18,8 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
-import { categoryLabel, demoItemCategories, demoUnits, unitLabel } from "../items-sample-data";
-import { useAccounts, useCreateItem, useItems, useUpdateItem } from "../data/hooks";
+import { useAccounts, useCreateItem, useItemCategories, useItemUnits, useItems, useUpdateItem } from "../data/hooks";
+import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 
 const TYPE_LABEL: Record<ItemTypeDTO, string> = { stock: "منتج مخزون", service: "خدمة" };
@@ -122,10 +122,9 @@ function draftFromItem(item: ItemDTO): ItemDraft {
  * enforce (packages/domain/src/items) — unique code, non-blank name,
  * positive/unique alternate-unit conversions, non-blank/unique barcodes, a
  * service item can't track inventory, batch/expiry tracking requires
- * trackInventory. apps/web has no live API wiring yet (every Phase-0/1 screen
- * is sample-data-driven, see ChartOfAccountsScreen), so this keeps the same
- * validation messages the real API would return without importing the whole
- * domain package into the web bundle.
+ * trackInventory. The server re-validates on save; this runs first so the form
+ * shows the same messages inline without importing the whole domain package
+ * into the web bundle.
  */
 function validateDraft(draft: ItemDraft, existing: ItemDTO[], editingId: string | null): string | null {
   if (!editingId && existing.some((i) => i.code === draft.code)) {
@@ -196,8 +195,12 @@ export function ItemsScreen() {
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
+  const unitsQuery = useItemUnits();
+  const categoriesQuery = useItemCategories();
   const items = query.data ?? [];
   const glAccounts = accountsQuery.data ?? [];
+  const itemUnits = unitsQuery.data ?? [];
+  const itemCategories = categoriesQuery.data ?? [];
 
   function glAccountLabel(id: string | null): string {
     if (!id) return "الافتراضي حسب نوع الصنف";
@@ -252,8 +255,8 @@ export function ItemsScreen() {
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
-    () => [NO_CATEGORY_OPTION, ...demoItemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
-    [],
+    () => [NO_CATEGORY_OPTION, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
+    [itemCategories],
   );
   const glOptions: EntityPickerOption[] = useMemo(
     () => [DEFAULT_GL_OPTION, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
@@ -329,7 +332,7 @@ export function ItemsScreen() {
         </div>
       ),
     },
-    { key: "unit", header: "وحدة", render: (row) => unitLabel(row.baseUnitCode) },
+    { key: "unit", header: "وحدة", render: (row) => unitLabel(row.baseUnitCode, itemUnits) },
     { key: "salePrice", header: "سعر البيع", align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
     { key: "costPrice", header: "سعر التكلفة", align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
     { key: "status", header: "الحالة", render: (row) => <StatusPill label={STATUS_LABEL[row.status]} tone={STATUS_TONE[row.status]} /> },
@@ -404,7 +407,7 @@ export function ItemsScreen() {
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
-          options={demoUnits.map((u) => ({ value: u.code, label: `${u.labelAr} (${u.code})` }))}
+          options={itemUnits.map((u) => ({ value: u.code, label: `${u.nameAr} (${u.code})` }))}
         />
 
         <EntityPicker
@@ -600,7 +603,7 @@ export function ItemsScreen() {
           <Card className="grid grid-cols-1 gap-0 overflow-hidden sm:grid-cols-2">
             {[
               ["نوع الصنف", TYPE_LABEL[item.type]],
-              ["التصنيف", categoryLabel(item.categoryId)],
+              ["التصنيف", categoryLabel(item.categoryId, itemCategories)],
               ["الماركة", item.brand ?? "—"],
               ["طريقة التكلفة", COSTING_LABEL[item.costingMethod]],
               ["تتبع المخزون", item.trackInventory ? "نعم" : "لا"],
@@ -624,7 +627,7 @@ export function ItemsScreen() {
             <Card className="p-[14px_16px]">
               <div className="text-[11px] font-semibold text-ink-faint">الوحدة الأساسية</div>
               <div className="mt-[5px] text-[13.5px] font-bold text-ink">
-                {unitLabel(item.baseUnitCode)} ({item.baseUnitCode})
+                {unitLabel(item.baseUnitCode, itemUnits)} ({item.baseUnitCode})
               </div>
             </Card>
             <div>
@@ -747,7 +750,7 @@ export function ItemsScreen() {
           title={`${item.code} — ${item.nameAr}`}
           statusLabel={STATUS_LABEL[item.status]}
           statusTone={STATUS_TONE[item.status]}
-          subtitle={`${TYPE_LABEL[item.type]} · ${categoryLabel(item.categoryId)}`}
+          subtitle={`${TYPE_LABEL[item.type]} · ${categoryLabel(item.categoryId, itemCategories)}`}
           actions={
             <>
               <Button
@@ -765,8 +768,8 @@ export function ItemsScreen() {
           }
           summary={[
             { label: "نوع الصنف", value: TYPE_LABEL[item.type] },
-            { label: "التصنيف", value: categoryLabel(item.categoryId) },
-            { label: "الوحدة", value: unitLabel(item.baseUnitCode) },
+            { label: "التصنيف", value: categoryLabel(item.categoryId, itemCategories) },
+            { label: "الوحدة", value: unitLabel(item.baseUnitCode, itemUnits) },
             { label: "طريقة التكلفة", value: COSTING_LABEL[item.costingMethod] },
             { label: "سعر البيع", value: <Money value={Number(item.salePrice ?? 0)} /> },
             { label: "سعر التكلفة", value: <Money value={Number(item.costPrice ?? 0)} /> },
@@ -829,7 +832,7 @@ export function ItemsScreen() {
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
               <option value="all">كل التصنيفات</option>
-              {demoItemCategories.map((c) => (
+              {itemCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nameAr}
                 </option>
@@ -845,9 +848,9 @@ export function ItemsScreen() {
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
               <option value="all">كل الوحدات</option>
-              {demoUnits.map((u) => (
+              {itemUnits.map((u) => (
                 <option key={u.code} value={u.code}>
-                  {u.labelAr}
+                  {u.nameAr}
                 </option>
               ))}
             </select>

@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import {
+  type AllocatableInvoiceRepository,
   Money,
   Qty,
   NextNumberService,
@@ -45,6 +46,7 @@ import {
   type PurchasePolicy,
   type PurchaseStockPostingPort,
   type CostLayerRepository,
+  type AuditSink,
 } from "@mezan/domain";
 import {
   createPurchaseOrderSchema,
@@ -82,6 +84,7 @@ export interface PurchasesRoutesDeps {
   readonly stock: PurchaseStockPostingPort;
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
+  readonly allocatable?: AllocatableInvoiceRepository;
   /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
   readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
@@ -95,6 +98,8 @@ export interface PurchasesRoutesDeps {
   readonly layers?: CostLayerRepository;
   /** GL reversal hook for cancelling a confirmed purchase invoice. Required together with `layers`. */
   readonly glReverse?: PurchaseGlReversalPort;
+  /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
+  readonly audit?: AuditSink;
   readonly now?: () => string;
 }
 
@@ -266,7 +271,11 @@ export function createPurchasesRoutes(
 
   app.post("/orders/:id/confirm", gate("purchases.order.confirm"), async (c) => {
     try {
-      const order = await confirmPurchaseOrder(c.req.param("id"), { orders: deps.orders });
+      const order = await confirmPurchaseOrder(c.req.param("id"), {
+        orders: deps.orders,
+        audit: deps.audit,
+        actor: actor(c),
+      });
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -275,7 +284,11 @@ export function createPurchasesRoutes(
 
   app.post("/orders/:id/cancel", gate("purchases.order.cancel"), async (c) => {
     try {
-      const order = await cancelPurchaseOrder(c.req.param("id"), { orders: deps.orders });
+      const order = await cancelPurchaseOrder(c.req.param("id"), {
+        orders: deps.orders,
+        audit: deps.audit,
+        actor: actor(c),
+      });
       return c.json(serializeOrder(order));
     } catch (err) {
       return handleDomainError(c, err);
@@ -336,6 +349,8 @@ export function createPurchasesRoutes(
         receipts: deps.receipts,
         orders: deps.orders,
         stock: deps.stock,
+        audit: deps.audit,
+        actor: actor(c),
         now: deps.now,
       });
       return c.json(serializeReceipt(receipt));
@@ -354,6 +369,8 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           policy: await resolvePolicy(),
+          audit: deps.audit,
+          actor: actor(c),
           now: deps.now,
         });
         return c.json(serializeReceipt(receipt));
@@ -437,6 +454,9 @@ export function createPurchasesRoutes(
         stock: deps.stock,
         gl: deps.gl,
         accounts: deps.accounts,
+        allocatable: deps.allocatable,
+        audit: deps.audit,
+        actor: actor(c),
         now: deps.now,
       });
       return c.json(serializeInvoice(invoice));
@@ -456,6 +476,8 @@ export function createPurchasesRoutes(
           glReverse,
           layers,
           policy: await resolvePolicy(),
+          audit: deps.audit,
+          actor: actor(c),
           now: deps.now,
         });
         return c.json(serializeInvoice(invoice));

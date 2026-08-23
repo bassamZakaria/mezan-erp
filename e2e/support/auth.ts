@@ -5,7 +5,7 @@ import type { Page } from "@playwright/test";
  * (apps/web/src/login/LoginScreen.tsx — App.tsx's `mode === "login"`).
  * Every screen this suite exercises lives behind it, so every spec goes
  * through here first. The demo PIN (1234) is hardcoded sample data
- * (login-sample-data.ts's DEMO_LOGIN_PIN) — not a secret.
+ * (packages/backend/src/seed.ts's SEED_ADMIN_PIN) — not a secret.
  */
 export async function loginAsDemoUser(page: Page): Promise<void> {
   await page.goto("/");

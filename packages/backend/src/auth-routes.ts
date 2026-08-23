@@ -10,7 +10,7 @@ import {
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
-import { SEED_TENANT_NAME, seedIfEmpty, type SeedStores } from "./seed.js";
+import { SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
   readonly uow: UnitOfWork;
@@ -26,11 +26,13 @@ async function tenantName(settings: SettingsRepository): Promise<string> {
 
 async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> {
   let permissions: string[];
+  let roleCode: string | null = null;
   if (user.isCompanyAdmin) {
     permissions = ["*"];
   } else if (user.roleId) {
     const role = await deps.uow.roles.findById(user.roleId);
     permissions = role ? [...role.permissions] : [];
+    roleCode = role?.code ?? null;
   } else {
     permissions = [];
   }
@@ -40,6 +42,7 @@ async function toSession(user: User, deps: AuthRoutesDeps): Promise<SessionDTO> 
     email: user.email,
     isCompanyAdmin: user.isCompanyAdmin,
     permissions,
+    roleCode,
     branchScope: user.branchScope === ALL_SCOPE ? "*" : [...user.branchScope],
     warehouseScope: user.warehouseScope === ALL_SCOPE ? "*" : [...user.warehouseScope],
     tenantName: await tenantName(deps.settings),
@@ -77,6 +80,16 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     return c.json(await toSession(user, deps));
+  });
+
+  /** Pre-login tenant identity for the login screen / first-run wizard header. */
+  app.get("/tenant", async (c) => {
+    return c.json({ name: await tenantName(deps.settings) });
+  });
+
+  /** What base data already exists — the same counts `/bootstrap/seed` returns, without seeding. */
+  app.get("/bootstrap/status", async (c) => {
+    return c.json(await currentCounts(deps.seedStores));
   });
 
   app.post("/bootstrap/seed", async (c) => {

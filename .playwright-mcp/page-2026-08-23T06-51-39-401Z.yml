@@ -1,0 +1,384 @@
+- generic [ref=f34e3]:
+  - complementary [ref=f34e4]:
+    - generic [ref=f34e12]:
+      - generic [ref=f34e13]: ميزان
+      - generic [ref=f34e14]: Mezan ERP
+    - navigation [ref=f34e15]:
+      - list [ref=f34e16]:
+        - listitem [ref=f34e17]:
+          - button "لوحة التحكم" [ref=f34e19] [cursor=pointer]
+      - generic [ref=f34e22]:
+        - button "سير العمل" [expanded] [ref=f34e23] [cursor=pointer]
+        - list [ref=f34e27]:
+          - listitem [ref=f34e28]:
+            - button "الموافقات" [ref=f34e29] [cursor=pointer]
+      - generic [ref=f34e32]:
+        - button "المبيعات" [expanded] [ref=f34e33] [cursor=pointer]
+        - list [ref=f34e37]:
+          - listitem [ref=f34e38]:
+            - button "نظرة عامة" [ref=f34e39] [cursor=pointer]
+          - listitem [ref=f34e42]:
+            - button "العملاء" [ref=f34e43] [cursor=pointer]
+          - listitem [ref=f34e46]:
+            - button "عروض الأسعار" [ref=f34e47] [cursor=pointer]
+          - listitem [ref=f34e50]:
+            - button "فواتير المبيعات نمط" [ref=f34e51] [cursor=pointer]:
+              - generic [ref=f34e53]: فواتير المبيعات
+              - generic [ref=f34e54]: نمط
+          - listitem [ref=f34e55]:
+            - button "مرتجعات المبيعات" [ref=f34e56] [cursor=pointer]
+          - listitem [ref=f34e59]:
+            - button "قوائم الأسعار" [ref=f34e60] [cursor=pointer]
+          - listitem [ref=f34e63]:
+            - button "العروض" [ref=f34e64] [cursor=pointer]
+      - generic [ref=f34e67]:
+        - button "المشتريات" [expanded] [ref=f34e68] [cursor=pointer]
+        - list [ref=f34e72]:
+          - listitem [ref=f34e73]:
+            - button "نظرة عامة" [ref=f34e74] [cursor=pointer]
+          - listitem [ref=f34e77]:
+            - button "الموردون" [ref=f34e78] [cursor=pointer]
+          - listitem [ref=f34e81]:
+            - button "طلبات عروض الأسعار" [ref=f34e82] [cursor=pointer]
+          - listitem [ref=f34e85]:
+            - button "أوامر الشراء" [ref=f34e86] [cursor=pointer]
+          - listitem [ref=f34e89]:
+            - button "استلام البضائع" [ref=f34e90] [cursor=pointer]
+          - listitem [ref=f34e93]:
+            - button "فواتير المشتريات" [ref=f34e94] [cursor=pointer]
+          - listitem [ref=f34e97]:
+            - button "مرتجعات المشتريات" [ref=f34e98] [cursor=pointer]
+          - listitem [ref=f34e101]:
+            - button "التكاليف الإضافية" [ref=f34e102] [cursor=pointer]
+      - generic [ref=f34e105]:
+        - button "المخزون" [expanded] [ref=f34e106] [cursor=pointer]
+        - list [ref=f34e110]:
+          - listitem [ref=f34e111]:
+            - button "نظرة عامة" [ref=f34e112] [cursor=pointer]
+          - listitem [ref=f34e115]:
+            - button "الأصناف" [ref=f34e116] [cursor=pointer]
+          - listitem [ref=f34e119]:
+            - button "أرصدة المخزون" [ref=f34e120] [cursor=pointer]
+          - listitem [ref=f34e123]:
+            - button "تحويلات المخزون" [ref=f34e124] [cursor=pointer]
+          - listitem [ref=f34e127]:
+            - button "تسويات المخزون" [ref=f34e128] [cursor=pointer]
+          - listitem [ref=f34e131]:
+            - button "الجرد الفعلي" [ref=f34e132] [cursor=pointer]
+          - listitem [ref=f34e135]:
+            - button "منتجات قابلة للتهيئة" [ref=f34e136] [cursor=pointer]
+          - listitem [ref=f34e139]:
+            - button "قوالب المنتجات" [ref=f34e140] [cursor=pointer]
+          - listitem [ref=f34e143]:
+            - button "المواصفات" [ref=f34e144] [cursor=pointer]
+          - listitem [ref=f34e147]:
+            - button "طباعة الملصقات" [ref=f34e148] [cursor=pointer]
+          - listitem [ref=f34e151]:
+            - button "هبوط قيمة المخزون" [ref=f34e152] [cursor=pointer]
+      - generic [ref=f34e155]:
+        - button "التصنيع" [expanded] [ref=f34e156] [cursor=pointer]
+        - list [ref=f34e160]:
+          - listitem [ref=f34e161]:
+            - button "نظرة عامة" [ref=f34e162] [cursor=pointer]
+          - listitem [ref=f34e165]:
+            - button "لوحة الإنتاج" [ref=f34e166] [cursor=pointer]
+          - listitem [ref=f34e169]:
+            - button "أوامر التصنيع" [ref=f34e170] [cursor=pointer]
+          - listitem [ref=f34e173]:
+            - button "قوائم المواد" [ref=f34e174] [cursor=pointer]
+          - listitem [ref=f34e177]:
+            - button "التصنيع المخصص" [ref=f34e178] [cursor=pointer]
+      - generic [ref=f34e181]:
+        - button "المحاسبة" [expanded] [ref=f34e182] [cursor=pointer]
+        - list [ref=f34e186]:
+          - listitem [ref=f34e187]:
+            - button "نظرة عامة" [ref=f34e188] [cursor=pointer]
+          - listitem [ref=f34e191]:
+            - button "دليل الحسابات" [ref=f34e192] [cursor=pointer]
+          - listitem [ref=f34e195]:
+            - button "مراكز التكلفة" [ref=f34e196] [cursor=pointer]
+          - listitem [ref=f34e199]:
+            - button "أرباح مراكز التكلفة" [ref=f34e200] [cursor=pointer]
+          - listitem [ref=f34e203]:
+            - button "القيود المحاسبية" [ref=f34e204] [cursor=pointer]
+          - listitem [ref=f34e207]:
+            - button "الفترات المالية" [ref=f34e208] [cursor=pointer]
+          - listitem [ref=f34e211]:
+            - button "الضرائب" [ref=f34e212] [cursor=pointer]
+          - listitem [ref=f34e215]:
+            - button "أسعار الصرف" [ref=f34e216] [cursor=pointer]
+          - listitem [ref=f34e219]:
+            - button "إعادة تقييم العملات الأجنبية" [ref=f34e220] [cursor=pointer]
+          - listitem [ref=f34e223]:
+            - button "مطابقة الأرصدة" [ref=f34e224] [cursor=pointer]
+          - listitem [ref=f34e227]:
+            - button "الفاتورة الإلكترونية" [ref=f34e228] [cursor=pointer]
+          - listitem [ref=f34e231]:
+            - button "ميزان المراجعة نمط" [ref=f34e232] [cursor=pointer]:
+              - generic [ref=f34e234]: ميزان المراجعة
+              - generic [ref=f34e235]: نمط
+          - listitem [ref=f34e236]:
+            - button "التقارير المالية نمط" [ref=f34e237] [cursor=pointer]:
+              - generic [ref=f34e239]: التقارير المالية
+              - generic [ref=f34e240]: نمط
+      - generic [ref=f34e241]:
+        - button "الخزينة" [expanded] [ref=f34e242] [cursor=pointer]
+        - list [ref=f34e246]:
+          - listitem [ref=f34e247]:
+            - button "نظرة عامة" [ref=f34e248] [cursor=pointer]
+          - listitem [ref=f34e251]:
+            - button "حسابات الخزينة" [ref=f34e252] [cursor=pointer]
+          - listitem [ref=f34e255]:
+            - button "السندات النقدية" [ref=f34e256] [cursor=pointer]
+          - listitem [ref=f34e259]:
+            - button "تسوية كشوف البنك" [ref=f34e260] [cursor=pointer]
+      - generic [ref=f34e263]:
+        - button "الأوراق المالية" [expanded] [ref=f34e264] [cursor=pointer]
+        - list [ref=f34e268]:
+          - listitem [ref=f34e269]:
+            - button "سجل الشيكات" [ref=f34e270] [cursor=pointer]
+      - generic [ref=f34e273]:
+        - button "إدارة علاقات العملاء" [expanded] [ref=f34e274] [cursor=pointer]
+        - list [ref=f34e278]:
+          - listitem [ref=f34e279]:
+            - button "نظرة عامة" [ref=f34e280] [cursor=pointer]
+          - listitem [ref=f34e283]:
+            - button "العملاء المحتملون" [ref=f34e284] [cursor=pointer]
+          - listitem [ref=f34e287]:
+            - button "الفرص" [ref=f34e288] [cursor=pointer]
+          - listitem [ref=f34e291]:
+            - button "خط المبيعات" [ref=f34e292] [cursor=pointer]
+          - listitem [ref=f34e295]:
+            - button "مراحل خط المبيعات" [ref=f34e296] [cursor=pointer]
+          - listitem [ref=f34e299]:
+            - button "الأنشطة" [ref=f34e300] [cursor=pointer]
+      - generic [ref=f34e303]:
+        - button "الموارد البشرية" [expanded] [ref=f34e304] [cursor=pointer]
+        - list [ref=f34e308]:
+          - listitem [ref=f34e309]:
+            - button "لوحة الموارد البشرية" [ref=f34e310] [cursor=pointer]
+          - listitem [ref=f34e313]:
+            - button "الموظفون" [ref=f34e314] [cursor=pointer]
+          - listitem [ref=f34e317]:
+            - button "الأقسام" [ref=f34e318] [cursor=pointer]
+          - listitem [ref=f34e321]:
+            - button "المسميات الوظيفية" [ref=f34e322] [cursor=pointer]
+          - listitem [ref=f34e325]:
+            - button "العقود" [ref=f34e326] [cursor=pointer]
+          - listitem [ref=f34e329]:
+            - button "الإجازات الرسمية" [ref=f34e330] [cursor=pointer]
+          - listitem [ref=f34e333]:
+            - button "إجازاتي" [ref=f34e334] [cursor=pointer]
+      - generic [ref=f34e337]:
+        - button "المشاريع" [expanded] [ref=f34e338] [cursor=pointer]
+        - list [ref=f34e342]:
+          - listitem [ref=f34e343]:
+            - button "المشاريع والمقاولات" [ref=f34e344] [cursor=pointer]
+      - generic [ref=f34e347]:
+        - button "الأصول الثابتة" [expanded] [ref=f34e348] [cursor=pointer]
+        - list [ref=f34e352]:
+          - listitem [ref=f34e353]:
+            - button "نظرة عامة" [ref=f34e354] [cursor=pointer]
+          - listitem [ref=f34e357]:
+            - button "سجل الأصول" [ref=f34e358] [cursor=pointer]
+          - listitem [ref=f34e361]:
+            - button "الإهلاك" [ref=f34e362] [cursor=pointer]
+          - listitem [ref=f34e365]:
+            - button "تصنيفات الأصول" [ref=f34e366] [cursor=pointer]
+      - generic [ref=f34e369]:
+        - button "المبيعات الميدانية" [expanded] [ref=f34e370] [cursor=pointer]
+        - list [ref=f34e374]:
+          - listitem [ref=f34e375]:
+            - button "رحلات المندوبين" [ref=f34e376] [cursor=pointer]
+      - generic [ref=f34e379]:
+        - button "الأقساط" [expanded] [ref=f34e380] [cursor=pointer]
+        - list [ref=f34e384]:
+          - listitem [ref=f34e385]:
+            - button "خطط الأقساط" [ref=f34e386] [cursor=pointer]
+          - listitem [ref=f34e389]:
+            - button "متابعة التحصيل" [ref=f34e390] [cursor=pointer]
+      - generic [ref=f34e393]:
+        - button "التقارير" [expanded] [ref=f34e394] [cursor=pointer]
+        - list [ref=f34e398]:
+          - listitem [ref=f34e399]:
+            - button "المبيعات حسب الفترة" [ref=f34e400] [cursor=pointer]
+          - listitem [ref=f34e403]:
+            - button "المبيعات حسب الصنف" [ref=f34e404] [cursor=pointer]
+          - listitem [ref=f34e407]:
+            - button "المبيعات حسب العميل" [ref=f34e408] [cursor=pointer]
+          - listitem [ref=f34e411]:
+            - button "أفضل المنتجات" [ref=f34e412] [cursor=pointer]
+          - listitem [ref=f34e415]:
+            - button "المشتريات حسب الفترة" [ref=f34e416] [cursor=pointer]
+          - listitem [ref=f34e419]:
+            - button "المشتريات حسب المورد" [ref=f34e420] [cursor=pointer]
+          - listitem [ref=f34e423]:
+            - button "المشتريات حسب الصنف" [ref=f34e424] [cursor=pointer]
+          - listitem [ref=f34e427]:
+            - button "مستويات المخزون" [ref=f34e428] [cursor=pointer]
+          - listitem [ref=f34e431]:
+            - button "حركة المخزون" [ref=f34e432] [cursor=pointer]
+          - listitem [ref=f34e435]:
+            - button "سجل المخزون" [ref=f34e436] [cursor=pointer]
+          - listitem [ref=f34e439]:
+            - button "تقييم المخزون" [ref=f34e440] [cursor=pointer]
+          - listitem [ref=f34e443]:
+            - button "أعمار المخزون" [ref=f34e444] [cursor=pointer]
+          - listitem [ref=f34e447]:
+            - button "أصناف بطيئة الحركة" [ref=f34e448] [cursor=pointer]
+          - listitem [ref=f34e451]:
+            - button "انحراف تقييم المخزون" [ref=f34e452] [cursor=pointer]
+          - listitem [ref=f34e455]:
+            - button "أعمار ديون العملاء" [ref=f34e456] [cursor=pointer]
+          - listitem [ref=f34e459]:
+            - button "أعمار ديون الموردين" [ref=f34e460] [cursor=pointer]
+          - listitem [ref=f34e463]:
+            - button "نظرة عامة على الأقساط" [ref=f34e464] [cursor=pointer]
+          - listitem [ref=f34e467]:
+            - button "الأقساط المتأخرة" [ref=f34e468] [cursor=pointer]
+      - button "الإعدادات" [ref=f34e472] [cursor=pointer]
+      - button "النظام" [ref=f34e477] [cursor=pointer]
+    - generic [ref=f34e481]:
+      - generic [ref=f34e482]: م.ا
+      - generic [ref=f34e483]:
+        - generic [ref=f34e484]: محمد الشهابي
+        - generic [ref=f34e485]: مدير الشركة
+  - generic [ref=f34e486]:
+    - banner [ref=f34e487]:
+      - button "بحث عن صفحة، عميل، فاتورة، أو إجراء… Ctrl K" [ref=f34e488] [cursor=pointer]:
+        - generic [ref=f34e492]: بحث عن صفحة، عميل، فاتورة، أو إجراء…
+        - generic [ref=f34e493]: Ctrl K
+      - generic [ref=f34e494]: Cyag
+      - generic [ref=f34e498]: كل الفروع
+      - combobox "الفرع الحالي" [ref=f34e504] [cursor=pointer]:
+        - option "كل الفروع" [selected]
+        - option "الفرع الرئيسي"
+      - combobox "المخزن الحالي" [ref=f34e509] [cursor=pointer]:
+        - option "كل المخازن" [selected]
+        - option "المستودع الرئيسي"
+      - button "تبديل المظهر" [ref=f34e510] [cursor=pointer]
+      - button "الإشعارات" [ref=f34e515] [cursor=pointer]
+      - button "م.ا محمد الشهابي مدير الشركة" [ref=f34e520] [cursor=pointer]:
+        - generic [ref=f34e521]: م.ا
+        - generic [ref=f34e522]:
+          - generic [ref=f34e523]: محمد الشهابي
+          - generic [ref=f34e524]: مدير الشركة
+    - main [ref=f34e525]:
+      - generic [ref=f34e526]:
+        - generic [ref=f34e527]:
+          - generic [ref=f34e528]:
+            - generic [ref=f34e529]: Overview
+            - heading "مرحباً، محمد · طاب يومك" [level=1] [ref=f34e530]
+            - paragraph [ref=f34e531]: الأرقام محسوبة من القيود المحاسبية المرحلة · على مستوى الشركة
+          - generic [ref=f34e532]:
+            - button "فاتورة جديدة" [ref=f34e533] [cursor=pointer]
+            - button "سند نقدي" [ref=f34e534] [cursor=pointer]
+            - button "استلام بضاعة" [ref=f34e535] [cursor=pointer]
+            - button "فاتورة مشتريات جديدة" [ref=f34e536] [cursor=pointer]
+            - button "أمر شراء جديد" [ref=f34e537] [cursor=pointer]
+            - button "عرض سعر" [ref=f34e538] [cursor=pointer]
+        - group "نطاق الفترة" [ref=f34e539]:
+          - button "هذا الشهر" [pressed] [ref=f34e540] [cursor=pointer]
+          - button "هذا العام" [ref=f34e541] [cursor=pointer]
+          - button "كل الفترات" [ref=f34e542] [cursor=pointer]
+        - generic [ref=f34e543]:
+          - generic [ref=f34e544]:
+            - generic [ref=f34e545]: إجمالي الإيرادات
+            - generic [ref=f34e547]:
+              - generic [ref=f34e548]: 26,610.00
+              - generic [ref=f34e549]: ج.م
+            - generic [ref=f34e550]: من المبيعات المرحلة
+          - generic [ref=f34e551]:
+            - generic [ref=f34e552]: المصروفات التشغيلية
+            - generic [ref=f34e554]:
+              - generic [ref=f34e555]: 20,360.00
+              - generic [ref=f34e556]: ج.م
+            - generic [ref=f34e557]: من القيود المرحلة
+          - generic [ref=f34e558]:
+            - generic [ref=f34e559]: صافي الربح
+            - generic [ref=f34e561]:
+              - generic [ref=f34e562]: 6,250.00
+              - generic [ref=f34e563]: ج.م
+            - generic [ref=f34e564]: الإيرادات − المصروفات
+          - generic [ref=f34e565]:
+            - generic [ref=f34e566]: السيولة النقدية
+            - generic [ref=f34e568]:
+              - generic [ref=f34e569]: "0.00"
+              - generic [ref=f34e570]: ج.م
+            - generic [ref=f34e571]: أرصدة الصناديق والبنوك
+        - generic [ref=f34e572]:
+          - generic [ref=f34e573]: على مستوى الشركة
+          - generic [ref=f34e574]:
+            - generic [ref=f34e575]:
+              - generic [ref=f34e576]: مبالغ لدى العملاء
+              - generic [ref=f34e578]:
+                - generic [ref=f34e579]: 30,335.40
+                - generic [ref=f34e580]: ج.م
+            - generic [ref=f34e581]:
+              - generic [ref=f34e582]: مستحقات الموردين
+              - generic [ref=f34e584]:
+                - generic [ref=f34e585]: 92,910.00
+                - generic [ref=f34e586]: ج.م
+            - generic [ref=f34e587]:
+              - generic [ref=f34e588]: قيمة المخزون
+              - generic [ref=f34e590]:
+                - generic [ref=f34e591]: 61,140.00
+                - generic [ref=f34e592]: ج.م
+        - generic [ref=f34e593]:
+          - generic [ref=f34e594]:
+            - heading "بيانات النظام" [level=3] [ref=f34e595]
+            - generic [ref=f34e596]: إجماليات مسجّلة فعلياً
+            - generic [ref=f34e597]:
+              - generic [ref=f34e598]:
+                - term [ref=f34e599]: حسابات دليل الحسابات
+                - definition [ref=f34e600]: "48"
+              - generic [ref=f34e601]:
+                - term [ref=f34e602]: العملاء
+                - definition [ref=f34e603]: "3"
+              - generic [ref=f34e604]:
+                - term [ref=f34e605]: الموردون
+                - definition [ref=f34e606]: "2"
+              - generic [ref=f34e607]:
+                - term [ref=f34e608]: الأصناف
+                - definition [ref=f34e609]: "4"
+              - generic [ref=f34e610]:
+                - term [ref=f34e611]: القيود المحاسبية
+                - definition [ref=f34e612]: "5"
+              - generic [ref=f34e613]:
+                - term [ref=f34e614]: المستخدمون
+                - definition [ref=f34e615]: "1"
+          - generic [ref=f34e616]:
+            - heading "النشاط الأخير" [level=3] [ref=f34e617]
+            - generic [ref=f34e618]: أحدث القيود المرحلة
+            - list [ref=f34e619]:
+              - listitem [ref=f34e620]:
+                - generic [ref=f34e622]:
+                  - generic [ref=f34e623]: فاتورة مبيعات INV-000003 — مجموعة الفجر التجارية
+                  - generic [ref=f34e624]:
+                    - generic [ref=f34e625]: 2026-08-18
+                    - generic [ref=f34e626]: · JE-000005
+              - listitem [ref=f34e627]:
+                - generic [ref=f34e629]:
+                  - generic [ref=f34e630]: فاتورة مبيعات INV-000002 — مؤسسة النور للمقاولات
+                  - generic [ref=f34e631]:
+                    - generic [ref=f34e632]: 2026-08-11
+                    - generic [ref=f34e633]: · JE-000004
+              - listitem [ref=f34e634]:
+                - generic [ref=f34e636]:
+                  - generic [ref=f34e637]: فاتورة مبيعات INV-000001 — شركة الأمل للتجارة
+                  - generic [ref=f34e638]:
+                    - generic [ref=f34e639]: 2026-08-04
+                    - generic [ref=f34e640]: · JE-000003
+              - listitem [ref=f34e641]:
+                - generic [ref=f34e643]:
+                  - generic [ref=f34e644]: فاتورة مشتريات PI-000002
+                  - generic [ref=f34e645]:
+                    - generic [ref=f34e646]: 2026-07-21
+                    - generic [ref=f34e647]: · JE-000002
+              - listitem [ref=f34e648]:
+                - generic [ref=f34e650]:
+                  - generic [ref=f34e651]: فاتورة مشتريات PI-000001
+                  - generic [ref=f34e652]:
+                    - generic [ref=f34e653]: 2026-07-06
+                    - generic [ref=f34e654]: · JE-000001
+        - paragraph [ref=f34e655]: جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة

@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 import { Card, StatusPill, type PillTone } from "./atoms";
 
 /**
@@ -35,6 +36,7 @@ export interface AccountTreeProps {
 }
 
 function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; expanded: boolean; onClick: () => void }) {
+  const { t } = useUiTranslation();
   if (!hasChildren) {
     return <span aria-hidden className="inline-block h-[18px] w-[18px] flex-none" />;
   }
@@ -42,7 +44,7 @@ function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; 
     <button
       type="button"
       aria-expanded={expanded}
-      aria-label={expanded ? "طي" : "توسيع"}
+      aria-label={expanded ? t("ui.accountTree.collapse") : t("ui.accountTree.expand")}
       onClick={(event) => {
         event.stopPropagation();
         onClick();
@@ -57,6 +59,7 @@ function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; 
 }
 
 export function AccountTree({ rows, onToggle, onRowClick, rowActions, emptyState, className }: AccountTreeProps) {
+  const { t } = useUiTranslation();
   return (
     <Card className={cn("overflow-hidden", className)}>
       <div className="overflow-x-auto">
@@ -64,16 +67,16 @@ export function AccountTree({ rows, onToggle, onRowClick, rowActions, emptyState
           <thead>
             <tr>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                اسم الحساب
+                {t("ui.accountTree.col.name")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                النوع
+                {t("ui.accountTree.col.type")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                الطبيعة
+                {t("ui.accountTree.col.nature")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                الحالة
+                {t("ui.accountTree.col.status")}
               </th>
               {rowActions ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[11px]" /> : null}
             </tr>

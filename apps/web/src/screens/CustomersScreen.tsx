@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -11,9 +11,28 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES } from "@mezan/domain";
-import type { CustomerDTO, EtaBuyerTypeDTO } from "@mezan/contracts";
-import { useCreateCustomer, useCustomers, useUpdateCustomer } from "../data/hooks";
+import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR } from "@mezan/domain";
+import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import {
+  useCreateCustomer,
+  useCustomers,
+  useSalesInvoices,
+  useSalesReturns,
+  useUpdateCustomer,
+  useVouchers,
+} from "../data/hooks";
+import {
+  MONEY_RECONCILIATION_TOLERANCE,
+  agingBucketsFor,
+  moneyFromNumber,
+  moneyToNumber,
+  multiplyMoney,
+  parseMoney,
+  sumActiveAllocations,
+  sumMoney,
+  useCustomerAging,
+  useVoucherAllocations,
+} from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 
 /**
@@ -21,10 +40,15 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
  * Customer master)". List + detail (DocumentList/DocumentDetail) + add/edit
  * form (SidePanel), backed by the real `/customers` API.
  *
- * The invoices/statement rollup and the running "مديونية العميل" balance are
- * Phase-2 (document) work — the الفواتير/كشف حساب/المرفقات tabs below render
- * as explicit stubs; only the customer master record itself (incl. its
- * `openingBalance`) is real.
+ * الفواتير reads `GET /sales-invoices?customerId=…`. كشف حساب builds a running
+ * AR balance from every movement this build records against the customer —
+ * opening balance, live sales invoices, confirmed sales returns, and confirmed
+ * treasury vouchers split over the invoices they were allocated onto — and
+ * reconciles the closing figure against `GET /reports/aging/customers`.
+ *
+ * There is NO attachments tab: this build has no file-storage subsystem of any
+ * kind (no upload route, no blob store, no attachment table), so an attachments
+ * tab would be a navigational dead end rather than an empty collection.
  */
 
 const ETA_BUYER_TYPE_LABEL: Record<EtaBuyerTypeDTO, string> = {
@@ -33,16 +57,353 @@ const ETA_BUYER_TYPE_LABEL: Record<EtaBuyerTypeDTO, string> = {
   individual: "فرد",
 };
 
+const INVOICE_STATUS_TONE: Record<SalesInvoiceStatusDTO, PillTone> = {
+  draft: "neutral",
+  pending: "warning",
+  confirmed: "success",
+  partially_paid: "warning",
+  paid: "success",
+  cancelled: "danger",
+  reversed: "danger",
+};
+
 function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-function StubTab({ label }: { label: string }) {
+function isoToDisplay(date: string): string {
+  return date.split("-").reverse().join("/");
+}
+
+function TabMessage({ title, body }: { title: string; body: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-[8px] rounded-lg border border-dashed border-border p-[36px] text-center">
-      <StatusPill label="قريباً" tone="info" />
-      <p className="text-[12.5px] text-ink-muted">
-        تبويب "{label}" يُعرض فور ربط المستندات (فواتير المبيعات) بسجل العميل — المرحلة الثانية.
+    <div className="rounded-lg border border-border bg-surface p-[22px_24px]">
+      <p className="text-[13.5px] font-semibold text-ink">{title}</p>
+      <div className="mt-[8px] max-w-[70ch] text-[12.5px] leading-[1.9] text-ink-muted">{body}</div>
+    </div>
+  );
+}
+
+function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <Card className="p-[18px_20px]">
+      <p className="text-[13px] font-semibold text-danger-ink">{message}</p>
+      <Button size="sm" className="mt-[10px]" onClick={onRetry}>
+        إعادة المحاولة
+      </Button>
+    </Card>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
+      <div className="text-[11px] font-semibold text-ink-faint">{label}</div>
+      <div className="mt-[5px] text-[14.5px] font-bold text-ink">{value}</div>
+    </div>
+  );
+}
+
+/** فواتير العميل — `GET /sales-invoices?customerId=…`, the customer's own invoice ledger. */
+function CustomerInvoicesTab({ customerId }: { customerId: string }) {
+  const query = useSalesInvoices({ customerId });
+  const invoices = useMemo(
+    () => [...(query.data ?? [])].sort((a, b) => (a.date === b.date ? a.id.localeCompare(b.id) : b.date.localeCompare(a.date))),
+    [query.data],
+  );
+
+  if (query.isError) return <TabError message="تعذّر تحميل فواتير العميل." onRetry={() => query.refetch()} />;
+  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل الفواتير…</p>;
+  if (invoices.length === 0) {
+    return (
+      <TabMessage
+        title="لا توجد فواتير مبيعات مسجّلة لهذا العميل"
+        body="أول فاتورة تُصدر لهذا العميل من شاشة «فواتير المبيعات» ستظهر هنا فور حفظها."
+      />
+    );
+  }
+
+  const live = invoices.filter((inv) => SALES_INVOICE_ACTIVE_STATUSES.has(inv.status));
+  const invoiced = sumMoney(live.map((inv) => inv.totals.grandTotal));
+  const collected = sumMoney(live.map((inv) => inv.amountPaid));
+
+  return (
+    <div className="flex flex-col gap-[16px]">
+      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
+        <MiniStat label="عدد الفواتير" value={<span className="mz-num">{invoices.length}</span>} />
+        <MiniStat label="فواتير سارية" value={<span className="mz-num">{live.length}</span>} />
+        <MiniStat label="إجمالي الفواتير السارية" value={<MoneyValue value={moneyToNumber(invoiced)} showUnit={false} />} />
+        <MiniStat label="المحصّل" value={<MoneyValue value={moneyToNumber(collected)} showUnit={false} />} />
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
+          <thead>
+            <tr className="border-b border-border text-ink-muted">
+              <th className="p-[10px] text-start font-semibold">رقم الفاتورة</th>
+              <th className="p-[10px] text-start font-semibold">التاريخ</th>
+              <th className="p-[10px] text-start font-semibold">الاستحقاق</th>
+              <th className="p-[10px] text-start font-semibold">الحالة</th>
+              <th className="p-[10px] text-end font-semibold">الإجمالي</th>
+              <th className="p-[10px] text-end font-semibold">المحصّل</th>
+              <th className="p-[10px] text-end font-semibold">المتبقي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((inv) => (
+              <tr key={inv.id} className="border-b border-border last:border-b-0">
+                <td className="mz-num p-[10px] font-semibold text-ink">{inv.docNo ?? "—"}</td>
+                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.date)}</td>
+                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.dueDate)}</td>
+                <td className="p-[10px]">
+                  <StatusPill label={SALES_INVOICE_STATUS_LABELS_AR[inv.status]} tone={INVOICE_STATUS_TONE[inv.status]} />
+                </td>
+                <td className="p-[10px] text-end text-ink">
+                  <MoneyValue value={num(inv.totals.grandTotal)} showUnit={false} />
+                </td>
+                <td className="p-[10px] text-end text-ink-muted">
+                  <MoneyValue value={num(inv.amountPaid)} showUnit={false} />
+                </td>
+                <td className="p-[10px] text-end font-semibold text-ink">
+                  <MoneyValue value={num(inv.remainingBalance)} showUnit={false} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+interface StatementRow {
+  readonly key: string;
+  readonly date: string | null;
+  readonly label: string;
+  readonly note: string | null;
+  readonly reference: string;
+  readonly debit: bigint;
+  readonly credit: bigint;
+}
+
+/**
+ * كشف حساب العميل — a dated AR movement ledger over every document this build
+ * records against the customer.
+ *
+ * Collections are taken from the voucher allocation sub-ledger first: a
+ * confirmed sales invoice is written into it on confirmation, so an allocation
+ * (`GET /vouchers/:id/allocations`) carries both the invoice it settles and —
+ * through its voucher — a date and a GL posting. The cumulative `amountPaid`
+ * counter that `POST /sales-invoices/:id/payments` bumps carries no date and is
+ * used only for invoices the sub-ledger has no allocation for, labelled as such
+ * on the invoice's own row.
+ */
+function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
+  const invoicesQuery = useSalesInvoices({ customerId: customer.id });
+  const returnsQuery = useSalesReturns();
+  const vouchersQuery = useVouchers();
+  const agingQuery = useCustomerAging();
+
+  const customerVouchers = useMemo(
+    () =>
+      (vouchersQuery.data ?? []).filter(
+        (voucher) => voucher.customerId === customer.id && (voucher.status === "confirmed" || voucher.status === "posted"),
+      ),
+    [vouchersQuery.data, customer.id],
+  );
+  const allocationsQuery = useVoucherAllocations(customerVouchers.map((voucher) => voucher.id));
+
+  const rows = useMemo<StatementRow[]>(() => {
+    const allocations = allocationsQuery.data ?? [];
+    const activeAllocations = allocations.filter((alloc) => alloc.status === "active");
+    const allocatedInvoiceIds = new Set(activeAllocations.map((alloc) => alloc.invoiceId));
+    const invoiceLabels = new Map((invoicesQuery.data ?? []).map((inv) => [inv.id, inv.docNo ?? inv.id]));
+
+    const opening = parseMoney(customer.openingBalance);
+    const built: StatementRow[] = [
+      {
+        key: "opening",
+        date: null,
+        label: "رصيد افتتاحي",
+        note: null,
+        reference: "سجل العميل",
+        debit: opening > 0n ? opening : 0n,
+        credit: opening < 0n ? -opening : 0n,
+      },
+    ];
+
+    for (const inv of invoicesQuery.data ?? []) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const counterPaid = parseMoney(inv.amountPaid);
+      const hasAllocations = allocatedInvoiceIds.has(inv.id);
+      built.push({
+        key: `inv-${inv.id}`,
+        date: inv.date,
+        label: "فاتورة مبيعات",
+        note:
+          counterPaid === 0n
+            ? null
+            : hasAllocations
+              ? "المحصّل على الفاتورة مُدرج من سندات القبض المخصصة عليها"
+              : "تحصيل مسجّل على الفاتورة نفسها — مبلغ تراكمي بلا تاريخ",
+        reference: inv.docNo ?? inv.id,
+        debit: parseMoney(inv.totals.grandTotal),
+        credit: hasAllocations ? 0n : counterPaid,
+      });
+    }
+
+    for (const doc of returnsQuery.data ?? []) {
+      if (doc.status !== "confirmed") continue;
+      const mine = doc.lines.filter((line) => line.customerId === customer.id);
+      if (mine.length === 0) continue;
+      const amount = mine.reduce<bigint>(
+        (total, line) => total + multiplyMoney(line.qty, line.unitPrice) + parseMoney(line.taxAmount),
+        0n,
+      );
+      built.push({
+        key: `ret-${doc.id}`,
+        date: doc.date,
+        label: "مرتجع مبيعات",
+        note: null,
+        reference: doc.docNo ?? doc.id,
+        debit: 0n,
+        credit: amount,
+      });
+    }
+
+    for (const voucher of customerVouchers) {
+      if (voucher.direction === "transfer") continue;
+      const isReceipt = voucher.direction === "receipt";
+      const label = isReceipt ? "سند قبض" : "سند صرف";
+      const voucherRef = voucher.docNo ?? voucher.id;
+      const mine = activeAllocations.filter((alloc) => alloc.voucherId === voucher.id);
+      for (const alloc of mine) {
+        const amount = parseMoney(alloc.amount);
+        built.push({
+          key: `alloc-${alloc.id}`,
+          date: voucher.date,
+          label,
+          note: `مخصص على الفاتورة ${invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId}`,
+          reference: voucherRef,
+          debit: isReceipt ? 0n : amount,
+          credit: isReceipt ? amount : 0n,
+        });
+      }
+      const remainder = parseMoney(voucher.amount) - sumActiveAllocations(mine);
+      if (remainder !== 0n) {
+        const amount = remainder < 0n ? -remainder : remainder;
+        const towardsCredit = remainder > 0n ? isReceipt : !isReceipt;
+        built.push({
+          key: `vch-${voucher.id}`,
+          date: voucher.date,
+          label,
+          note: "غير مخصص على فاتورة — تحت حساب العميل",
+          reference: voucherRef,
+          debit: towardsCredit ? 0n : amount,
+          credit: towardsCredit ? amount : 0n,
+        });
+      }
+    }
+
+    return built.sort((a, b) => {
+      if (a.date === null) return -1;
+      if (b.date === null) return 1;
+      return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
+    });
+  }, [customer.openingBalance, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data]);
+
+  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError;
+  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading;
+
+  if (isError) {
+    return (
+      <TabError
+        message="تعذّر تحميل حركة حساب العميل."
+        onRetry={() => {
+          invoicesQuery.refetch();
+          returnsQuery.refetch();
+          vouchersQuery.refetch();
+          allocationsQuery.refetch();
+        }}
+      />
+    );
+  }
+  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل كشف الحساب…</p>;
+
+  const closing = rows.reduce<bigint>((total, row) => total + row.debit - row.credit, 0n);
+  const totalDebit = rows.reduce<bigint>((total, row) => total + row.debit, 0n);
+  const totalCredit = rows.reduce<bigint>((total, row) => total + row.credit, 0n);
+  const agingRow = agingQuery.data?.rows.find((r) => r.customerId === customer.id);
+  const agingTotal = moneyFromNumber(agingBucketsFor(agingRow).total);
+  const agingKnown = agingQuery.isSuccess;
+  const matchesAging = (closing > agingTotal ? closing - agingTotal : agingTotal - closing) <= MONEY_RECONCILIATION_TOLERANCE;
+
+  let running = 0n;
+
+  return (
+    <div className="flex flex-col gap-[16px]">
+      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
+        <MiniStat label="رصيد افتتاحي" value={<MoneyValue value={num(customer.openingBalance)} showUnit={false} />} />
+        <MiniStat label="إجمالي المدين" value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
+        <MiniStat label="إجمالي الدائن" value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
+        <MiniStat label="الرصيد الختامي" value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
+      </div>
+
+      {agingKnown ? (
+        <div className="flex flex-wrap items-center gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
+          <StatusPill label={matchesAging ? "مطابق لتقرير أعمار الديون" : "يختلف عن تقرير أعمار الديون"} tone={matchesAging ? "success" : "warning"} />
+          <span className="text-[12px] text-ink-muted">
+            رصيد التقرير <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
+            {matchesAging
+              ? " — محسوب من أرصدة الفواتير السارية."
+              : " — التقرير يحتسب أرصدة الفواتير السارية من عدّاد «المحصّل» على الفاتورة فقط: لا يخصم تخصيصات سندات القبض، ولا يشمل الرصيد الافتتاحي ولا مرتجعات المبيعات."}
+          </span>
+        </div>
+      ) : null}
+
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
+          <thead>
+            <tr className="border-b border-border text-ink-muted">
+              <th className="p-[10px] text-start font-semibold">التاريخ</th>
+              <th className="p-[10px] text-start font-semibold">الحركة</th>
+              <th className="p-[10px] text-start font-semibold">المرجع</th>
+              <th className="p-[10px] text-end font-semibold">مدين</th>
+              <th className="p-[10px] text-end font-semibold">دائن</th>
+              <th className="p-[10px] text-end font-semibold">الرصيد</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              running += row.debit - row.credit;
+              return (
+                <tr key={row.key} className="border-b border-border last:border-b-0">
+                  <td className="mz-num p-[10px] text-ink-muted">{row.date === null ? "—" : isoToDisplay(row.date)}</td>
+                  <td className="p-[10px] text-ink">
+                    {row.label}
+                    {row.note ? <div className="mt-[3px] text-[11px] text-ink-faint">{row.note}</div> : null}
+                  </td>
+                  <td className="mz-num p-[10px] text-ink-muted">{row.reference}</td>
+                  <td className="p-[10px] text-end text-ink">
+                    {row.debit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.debit)} showUnit={false} />}
+                  </td>
+                  <td className="p-[10px] text-end text-ink">
+                    {row.credit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.credit)} showUnit={false} />}
+                  </td>
+                  <td className="p-[10px] text-end font-semibold text-ink">
+                    <MoneyValue value={moneyToNumber(running)} showUnit={false} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
+        التحصيل يُقرأ أولاً من دفتر تخصيص السندات: كل تخصيص يظهر بتاريخ سنده وبرقم الفاتورة المخصص عليها، وما لم يُخصَّص من السند يظهر
+        كدفعة تحت حساب العميل بتاريخ السند نفسه. أما التحصيل المُسجَّل مباشرة على الفاتورة عبر عدّاد «المحصّل» فهو مبلغ تراكمي بلا تاريخ،
+        ولا يُستخدم إلا للفواتير التي لا تخصيص عليها — ويظهر عندئذٍ في خانة «دائن» الخاصة بفاتورته مع بيان ذلك. القيود اليومية المُرحَّلة
+        مباشرة على حساب الذمم المدينة (1105) لا ترتبط بعميل بعينه ولا تظهر في هذا الكشف.
       </p>
     </div>
   );
@@ -168,9 +529,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
             </div>
           ),
         },
-        { key: "invoices", label: "الفواتير", content: <StubTab label="الفواتير" /> },
-        { key: "statement", label: "كشف حساب", content: <StubTab label="كشف حساب" /> },
-        { key: "attachments", label: "المرفقات", content: <StubTab label="المرفقات" /> },
+        { key: "invoices", label: "الفواتير", content: <CustomerInvoicesTab customerId={customer.id} /> },
+        { key: "statement", label: "كشف حساب", content: <CustomerStatementTab customer={customer} /> },
       ]}
     />
   );

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import {
+  Money,
   Qty,
   type PhysicalCount,
   type PhysicalCountLine,
@@ -23,6 +24,7 @@ CREATE TABLE IF NOT EXISTS physical_count (
   date                   TEXT NOT NULL,
   memo                   TEXT NOT NULL,
   status                 TEXT NOT NULL,
+  blind                  INTEGER NOT NULL DEFAULT 0,
   lines_json             TEXT NOT NULL,
   created_at             TEXT NOT NULL,
   completed_at           TEXT,
@@ -39,6 +41,7 @@ interface CountRow {
   date: string;
   memo: string;
   status: string;
+  blind: number;
   lines_json: string;
   created_at: string;
   completed_at: string | null;
@@ -48,6 +51,7 @@ interface CountRow {
 interface WireLine {
   itemId: string;
   systemQty: string;
+  unitCost?: string;
   countedQty: string | null;
 }
 
@@ -55,6 +59,7 @@ function lineToWire(line: PhysicalCountLine): WireLine {
   return {
     itemId: line.itemId,
     systemQty: line.systemQty.toString(),
+    unitCost: line.unitCost.toString(),
     countedQty: line.countedQty ? line.countedQty.toString() : null,
   };
 }
@@ -63,6 +68,7 @@ function lineFromWire(wire: WireLine): PhysicalCountLine {
   return {
     itemId: wire.itemId,
     systemQty: Qty.fromMajor(wire.systemQty),
+    unitCost: wire.unitCost ? Money.fromMajor(wire.unitCost) : Money.zero(),
     countedQty: wire.countedQty ? Qty.fromMajor(wire.countedQty) : null,
   };
 }
@@ -75,6 +81,7 @@ function toRow(count: PhysicalCount): Record<string, unknown> {
     date: count.date,
     memo: count.memo,
     status: count.status,
+    blind: count.blind ? 1 : 0,
     lines_json: JSON.stringify(count.lines.map(lineToWire)),
     created_at: count.createdAt,
     completed_at: count.completedAt,
@@ -91,11 +98,23 @@ function fromRow(row: CountRow): PhysicalCount {
     date: row.date,
     memo: row.memo,
     status: row.status as PhysicalCountStatus,
+    blind: row.blind === 1,
     lines: wireLines.map(lineFromWire),
     createdAt: row.created_at,
     completedAt: row.completed_at,
     generatedAdjustmentId: row.generated_adjustment_id,
   };
+}
+
+/**
+ * `blind` was added after the table shipped; CREATE TABLE IF NOT EXISTS will
+ * not add it to an existing database, so widen it in place.
+ */
+function addMissingColumns(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(physical_count)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "blind")) {
+    sqlite.exec(`ALTER TABLE physical_count ADD COLUMN blind INTEGER NOT NULL DEFAULT 0`);
+  }
 }
 
 class SqlitePhysicalCountStore implements PhysicalCountRepository {
@@ -105,16 +124,17 @@ class SqlitePhysicalCountStore implements PhysicalCountRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.sqlite.exec(CREATE_TABLE);
+    addMissingColumns(sqlite);
     this.insert = sqlite.prepare(`
       INSERT INTO physical_count
-        (id, count_no, warehouse_id, date, memo, status, lines_json, created_at, completed_at, generated_adjustment_id)
+        (id, count_no, warehouse_id, date, memo, status, blind, lines_json, created_at, completed_at, generated_adjustment_id)
       VALUES
-        (@id, @count_no, @warehouse_id, @date, @memo, @status, @lines_json, @created_at, @completed_at, @generated_adjustment_id)
+        (@id, @count_no, @warehouse_id, @date, @memo, @status, @blind, @lines_json, @created_at, @completed_at, @generated_adjustment_id)
     `);
     this.upsert = sqlite.prepare(`
       UPDATE physical_count SET
         count_no = @count_no, warehouse_id = @warehouse_id, date = @date, memo = @memo,
-        status = @status, lines_json = @lines_json, completed_at = @completed_at,
+        status = @status, blind = @blind, lines_json = @lines_json, completed_at = @completed_at,
         generated_adjustment_id = @generated_adjustment_id
       WHERE id = @id
     `);

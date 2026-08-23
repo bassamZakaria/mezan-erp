@@ -39,10 +39,12 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "CUSTOMER_REFUND", labelAr: "استرداد عميل", prefix: "CRF-", padLength: 6, annualReset: false },
   { code: "DELIVERY_ORDER", labelAr: "أمر توصيل", prefix: "DLV-", padLength: 6, annualReset: false },
   { code: "EMPLOYEE", labelAr: "موظف", prefix: "EMP-", padLength: 4, annualReset: false },
+  { code: "EMPLOYEE_ADVANCE", labelAr: "سلفة موظف", prefix: "ADV-", padLength: 6, annualReset: false },
   { code: "GOODS_RECEIPT", labelAr: "استلام بضاعة", prefix: "GR-", padLength: 6, annualReset: false },
   { code: "INSTALLMENT_PLAN", labelAr: "خطة أقساط", prefix: "IP-", padLength: 6, annualReset: false },
   { code: "JOURNAL_ENTRY", labelAr: "قيد محاسبي", prefix: "JE-", padLength: 6, annualReset: false },
   { code: "LANDED_COST", labelAr: "تكلفة إضافية", prefix: "LC-", padLength: 6, annualReset: false },
+  { code: "LEAVE_ACCRUAL_BATCH", labelAr: "دورة استحقاق إجازات", prefix: "LAB-", padLength: 6, annualReset: false },
   { code: "LEAVE_REQUEST", labelAr: "طلب إجازة", prefix: "LR-", padLength: 6, annualReset: false },
   { code: "PAYMENT_DISBURSEMENT", labelAr: "سند صرف", prefix: "PAY-", padLength: 6, annualReset: false },
   { code: "PAYMENT_RECEIPT", labelAr: "سند تحصيل", prefix: "REC-", padLength: 6, annualReset: false },
@@ -68,6 +70,30 @@ export const SEQUENCE_DEFINITIONS = [
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];
+
+/**
+ * Admin-editable subset of a {@link SequenceDefinition} — prefix, pad length
+ * and the fiscal-year-reset flag (`/settings/sequences`). The counter value
+ * itself is deliberately not part of this shape: it is read-only surface,
+ * guarded separately (see `NextNumberService`'s doc comment).
+ */
+export type SequenceOverride = Partial<
+  Pick<SequenceDefinition, "prefix" | "padLength" | "annualReset">
+>;
+
+/** Merge an admin override onto a base definition — override fields win. */
+export function applySequenceOverride(
+  base: SequenceDefinition,
+  override: SequenceOverride | null | undefined,
+): SequenceDefinition {
+  if (!override) return base;
+  return {
+    ...base,
+    ...(override.prefix !== undefined ? { prefix: override.prefix } : {}),
+    ...(override.padLength !== undefined ? { padLength: override.padLength } : {}),
+    ...(override.annualReset !== undefined ? { annualReset: override.annualReset } : {}),
+  };
+}
 
 const BY_CODE: ReadonlyMap<string, SequenceDefinition> = new Map(
   SEQUENCE_DEFINITIONS.map((d) => [d.code, d]),

@@ -5,7 +5,7 @@ import { clickSidebarItem } from "./support/nav";
 /**
  * Accounting master-data screens, covered together in one spec:
  *  - Taxes (apps/web/src/screens/TaxesScreen.tsx) — 2 demo tax rates
- *    (accounting-treasury-sample-data.ts): VAT14 (active, default, GL
+ *    (the seeded accounting master data): VAT14 (active, default, GL
  *    2200/1400, ETA V009) and WHT1 (inactive, no GL/ETA overrides). The
  *    add/edit form has two mapping sections: "حسابات الترحيل" (GL posting
  *    accounts) and "تصنيف الفاتورة الإلكترونية (ETA)" (VAT sub-type).

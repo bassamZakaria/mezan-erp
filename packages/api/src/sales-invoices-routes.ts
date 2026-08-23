@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  type AllocatableInvoiceRepository,
   Money,
   Qty,
   SalesInvoiceService,
@@ -64,6 +65,7 @@ export interface SalesInvoiceRoutesDeps {
   /** Credit control on confirm (docs/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   readonly audit?: AuditSink;
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -199,6 +201,20 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   POST /:id/cancel           cancel a draft            (sales.invoice.delete_draft)
  *   POST /:id/payments         record a collection       (sales.invoice.edit)
  */
+/**
+ * A gate step names a ROLE code, never a permission code. The company-admin
+ * wildcard still short-circuits, but a role-gated step is otherwise satisfied
+ * only by a caller who actually holds that role.
+ */
+function gateActorRoles(c: Context): string[] {
+  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
+  if (permissions.includes("*")) return ["*"];
+  return (c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function createSalesInvoicesRoutes(
   deps: SalesInvoiceRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
@@ -217,6 +233,7 @@ export function createSalesInvoicesRoutes(
       creditControl: deps.creditControl,
       audit: deps.audit,
       events: deps.events,
+      allocatable: deps.allocatable,
       now: deps.now,
       actor: getAuthContext(c)?.userId ?? "system",
     };
@@ -310,7 +327,7 @@ export function createSalesInvoicesRoutes(
       const result = await svc.confirm(c.req.param("id"), {
         requestId: parsed.data.requestId,
         actor: ctx?.userId,
-        actorRoles: ctx?.permissions ? [...ctx.permissions] : undefined,
+        actorRoles: gateActorRoles(c),
       });
       return c.json({
         ...serialize(result.invoice, totalsFor(svc, result.invoice)),

@@ -1,5 +1,7 @@
 import { Hono, type Context } from "hono";
 import {
+  Money,
+  type AllocatableInvoiceRepository,
   runReport,
   createSalesByPeriodReport,
   createSalesByItemReport,
@@ -19,6 +21,17 @@ import {
   createAgingSuppliersReport,
   createInstallmentsOverviewReport,
   createInstallmentsOverdueReport,
+  createVanSalesReport,
+  createTrialBalanceReport,
+  createIncomeStatementReport,
+  createBalanceSheetReport,
+  createCashFlowReport,
+  createVatReturnReport,
+  createGeneralLedgerReport,
+  createAccountLedgerReport,
+  OUTPUT_VAT_ACCOUNT_ID,
+  INPUT_VAT_ACCOUNT_ID,
+  type GlReportContext,
   type SalesInvoiceRepository,
   type PurchaseInvoiceRepository,
   type CustomerRepository,
@@ -30,6 +43,10 @@ import {
   type WacSnapshotRepository,
   type DocumentRepository,
   type InstallmentLine,
+  type LedgerRepository,
+  type AccountRepository,
+  type VanTripRepository,
+  type EmployeeRepository,
   type RunReportOutcome,
 } from "@mezan/domain";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -45,6 +62,8 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
  */
 export interface ReportsRoutesDeps {
   readonly salesInvoices: SalesInvoiceRepository;
+  /** Allocation sub-ledger — lets the aging reports deduct what has actually been settled. */
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   readonly customers: CustomerRepository;
   readonly suppliers: SupplierRepository;
@@ -54,6 +73,22 @@ export interface ReportsRoutesDeps {
   readonly costLayers: CostLayerRepository;
   readonly wacSnapshots: WacSnapshotRepository;
   readonly installmentPlans: DocumentRepository<InstallmentLine>;
+  /**
+   * القوائم المالية data source (docs/catalog/08 — الميزان/قائمة الدخل/الميزانية/
+   * التدفقات/الإقرار الضريبي/الأستاذ العام/دفتر حساب). The seven financial
+   * statements aggregate over the SAME posted GL the journal/dashboard read —
+   * `ledger` supplies the posted entries, `accounts` the chart to classify them.
+   */
+  readonly ledger: LedgerRepository;
+  readonly accounts: AccountRepository;
+  /**
+   * مبيعات المندوبين data source. Optional: the van-sales report route is only
+   * mounted when a composition actually wires field sales, so an app without
+   * van trips serves no van-sales report at all rather than an empty one.
+   */
+  readonly vanTrips?: VanTripRepository;
+  /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
+  readonly employees?: EmployeeRepository;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
@@ -64,6 +99,23 @@ function todayIso(deps: ReportsRoutesDeps): string {
 
 function firstOfMonth(today: string): string {
   return `${today.slice(0, 7)}-01`;
+}
+
+function firstOfYear(today: string): string {
+  return `${today.slice(0, 4)}-01-01`;
+}
+
+/**
+ * The GL context every financial statement reads: the real posted journal
+ * entries plus the chart of accounts to classify them. Only `posted` entries
+ * feed the statements — drafts/pending/reversed never reach a report.
+ */
+async function loadGlContext(deps: ReportsRoutesDeps): Promise<GlReportContext> {
+  const [accounts, journalEntries] = await Promise.all([
+    deps.accounts.list(),
+    deps.ledger.list({ status: "posted" }),
+  ]);
+  return { accounts, journalEntries };
 }
 
 function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
@@ -93,6 +145,15 @@ async function loadAllLayers(deps: ReportsRoutesDeps) {
   return lists.flat();
 }
 
+async function settledByInvoiceId(
+  deps: ReportsRoutesDeps,
+  kind: "sales" | "purchase",
+): Promise<ReadonlyMap<string, Money>> {
+  if (!deps.allocatable) return new Map();
+  const open = await deps.allocatable.listOpen({ kind });
+  return new Map(open.map((i) => [i.id, i.allocated]));
+}
+
 export function createReportsRoutes(
   deps: ReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
@@ -112,14 +173,22 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
@@ -149,7 +218,11 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/purchases/by-item", gate("purchases.invoice.view"), async (c) => {
@@ -220,7 +293,11 @@ export function createReportsRoutes(
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+    );
   });
 
   // --- الأقساط ---------------------------------------------------------
@@ -235,6 +312,84 @@ export function createReportsRoutes(
     const definition = createInstallmentsOverdueReport(todayIso(deps));
     const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
+  });
+
+  // --- المبيعات الميدانية ------------------------------------------------
+
+  if (deps.vanTrips) {
+    const vanTrips = deps.vanTrips;
+    app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
+      const today = todayIso(deps);
+      const definition = createVanSalesReport(firstOfMonth(today), today);
+      const [trips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));
+    });
+  }
+
+  // --- القوائم المالية — Financial statements (docs/catalog/08) -------------
+  // The seven statements below all compute from the REAL posted GL (loadGlContext),
+  // never a fixture ledger. Each recreates the SAME `ReportDefinition` the web
+  // screen renders through, so params/columns/reconciliation can never drift.
+
+  app.get("/accounting/trial-balance", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createTrialBalanceReport(today);
+    const ctx = await loadGlContext(deps);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  app.get("/accounting/income-statement", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createIncomeStatementReport({ periodFrom: firstOfYear(today), periodTo: today });
+    const ctx = await loadGlContext(deps);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  app.get("/accounting/balance-sheet", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createBalanceSheetReport(today);
+    const ctx = await loadGlContext(deps);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  app.get("/accounting/cash-flow", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createCashFlowReport({ periodFrom: firstOfYear(today), periodTo: today });
+    const ctx = await loadGlContext(deps);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  app.get("/accounting/vat-return", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createVatReturnReport({ periodFrom: firstOfYear(today), periodTo: today });
+    const ctx = await loadGlContext(deps);
+    // Resolve the VAT control accounts from the real chart (standard COA codes
+    // 2200 output / 1400 input), falling back to the fixture ids if absent.
+    const outputVatAccountId = ctx.accounts.find((a) => a.code === "2200")?.id ?? OUTPUT_VAT_ACCOUNT_ID;
+    const inputVatAccountId = ctx.accounts.find((a) => a.code === "1400")?.id ?? INPUT_VAT_ACCOUNT_ID;
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { ...ctx, outputVatAccountId, inputVatAccountId }),
+    );
+  });
+
+  app.get("/accounting/general-ledger", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createGeneralLedgerReport({ periodFrom: firstOfYear(today), periodTo: today });
+    const ctx = await loadGlContext(deps);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  app.get("/accounting/account-ledger", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const ctx = await loadGlContext(deps);
+    const firstPostable = ctx.accounts.find((a) => !a.isHeader);
+    const definition = createAccountLedgerReport(ctx.accounts, {
+      accountId: firstPostable?.id ?? "",
+      periodFrom: firstOfYear(today),
+      periodTo: today,
+    });
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
   });
 
   return app;

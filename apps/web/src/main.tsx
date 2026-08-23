@@ -4,11 +4,9 @@ import { App } from "./App";
 import { AppProviders } from "./data/AppProviders";
 import "./index.css";
 
-// Direction is derived from the active locale, never hardcoded and never read
-// from a stored tenant value (docs/plan.md §2.1 — the source app stored a wrong
-// "direction": "LTR"). ar => rtl is the v1 default.
-document.documentElement.setAttribute("dir", "rtl");
-document.documentElement.setAttribute("lang", "ar");
+// `lang` and `dir` on <html> are stamped by AppI18nProvider from the active
+// locale (docs/plan.md §2.1 — direction is derived, never stored). index.html's
+// ar/rtl attributes are only the pre-mount default.
 
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found");

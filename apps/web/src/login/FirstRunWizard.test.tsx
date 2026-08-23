@@ -5,11 +5,18 @@ import { fireEvent, screen } from "@testing-library/react";
 import { FirstRunWizard } from "./FirstRunWizard";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
+const EMPTY_COUNTS = { accounts: 0, taxRates: 0, branches: 0, warehouses: 0, fiscalPeriods: 0, users: 0 };
+const SEEDED_COUNTS = { accounts: 30, taxRates: 1, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1 };
+
 function wizardTransport() {
+  let counts = EMPTY_COUNTS;
   return stubTransport({
-    "POST /bootstrap/seed": () => ({
-      body: { accounts: 30, taxRates: 1, branches: 1, warehouses: 1, fiscalPeriods: 12, users: 1 },
-    }),
+    "GET /tenant": () => ({ body: { name: "Cyag" } }),
+    "GET /bootstrap/status": () => ({ body: counts }),
+    "POST /bootstrap/seed": () => {
+      counts = SEEDED_COUNTS;
+      return { body: counts };
+    },
     "POST /bootstrap/admin": () => ({ status: 201, body: testAdminSession }),
   });
 }
@@ -65,7 +72,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     expect(await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" })).toBeInTheDocument();
   });
 
-  it("requires every seed task done before التالي, and تشغيل الكل seeds them all for real", async () => {
+  it("requires the base data to exist before التالي, and تشغيل التهيئة seeds it for real", async () => {
     renderWizard();
     goToAdminStep();
     fillAdminForm();
@@ -73,7 +80,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
 
     expect(screen.getByRole("button", { name: "التالي" })).toBeDisabled();
-    fireEvent.click(screen.getByRole("button", { name: "تشغيل الكل" }));
+    fireEvent.click(screen.getByRole("button", { name: "تشغيل التهيئة" }));
     expect(await screen.findAllByText("جاهز")).toHaveLength(5);
     expect(screen.getByRole("button", { name: "التالي" })).toBeEnabled();
   });
@@ -85,7 +92,7 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     fillAdminForm();
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
     await screen.findByRole("heading", { name: "تهيئة البيانات الأساسية" });
-    fireEvent.click(screen.getByRole("button", { name: "تشغيل الكل" }));
+    fireEvent.click(screen.getByRole("button", { name: "تشغيل التهيئة" }));
     await screen.findAllByText("جاهز");
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 

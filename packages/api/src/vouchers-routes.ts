@@ -164,6 +164,20 @@ function handleDomainError(c: Context, err: unknown): Response {
  *   POST /allocations/:id/reverse           reverse one allocation         alloc.manage
  *   GET  /open-invoices                     open invoices for the alloc UI alloc.view
  */
+/**
+ * A gate step names a ROLE code, never a permission code. The company-admin
+ * wildcard still short-circuits, but a role-gated step is otherwise satisfied
+ * only by a caller who actually holds that role.
+ */
+function gateActorRoles(c: Context): string[] {
+  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
+  if (permissions.includes("*")) return ["*"];
+  return (c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
 export function createVouchersRoutes(
   deps: VoucherRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
@@ -265,7 +279,7 @@ export function createVouchersRoutes(
       const result = await serviceFor(c).confirmVoucher(c.req.param("id"), {
         requestId: parsed.data.requestId,
         actor: ctx?.userId,
-        actorRoles: ctx ? [...ctx.permissions] : undefined,
+        actorRoles: gateActorRoles(c),
       });
       return c.json({ ...serialize(result.document), held: result.held });
     } catch (err) {

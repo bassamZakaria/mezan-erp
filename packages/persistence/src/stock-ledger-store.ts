@@ -44,6 +44,8 @@ CREATE TABLE IF NOT EXISTS stock_movement (
 CREATE INDEX IF NOT EXISTS idx_movement_position ON stock_movement(item_id, warehouse_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_item ON stock_movement(item_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_warehouse ON stock_movement(warehouse_id, seq);
+CREATE INDEX IF NOT EXISTS idx_movement_source ON stock_movement(source_doc_type, source_doc_id, seq);
+CREATE INDEX IF NOT EXISTS idx_movement_source_doc ON stock_movement(source_doc_id, seq);
 
 CREATE TRIGGER IF NOT EXISTS stock_movement_no_update
 BEFORE UPDATE ON stock_movement
@@ -180,6 +182,8 @@ class SqliteStockLedgerStore {
   private readonly selectMovByItem: Database.Statement;
   private readonly selectMovByWarehouse: Database.Statement;
   private readonly selectPositions: Database.Statement;
+  private readonly selectMovBySourceDocType: Database.Statement;
+  private readonly selectMovBySourceDoc: Database.Statement;
   private readonly insertLayer: Database.Statement;
   private readonly selectLayers: Database.Statement;
   private readonly updateLayerRemaining: Database.Statement;
@@ -208,6 +212,12 @@ class SqliteStockLedgerStore {
     );
     this.selectPositions = sqlite.prepare(
       `SELECT DISTINCT item_id, warehouse_id FROM stock_movement ORDER BY item_id, warehouse_id`,
+    );
+    this.selectMovBySourceDocType = sqlite.prepare(
+      `SELECT * FROM stock_movement WHERE source_doc_type = ? ORDER BY occurred_at, seq`,
+    );
+    this.selectMovBySourceDoc = sqlite.prepare(
+      `SELECT * FROM stock_movement WHERE source_doc_id = ? ORDER BY occurred_at, seq`,
     );
     this.insertLayer = sqlite.prepare(`
       INSERT INTO cost_layer
@@ -270,6 +280,14 @@ class SqliteStockLedgerStore {
   async listPositions(): Promise<readonly { itemId: string; warehouseId: string }[]> {
     const rows = this.selectPositions.all() as { item_id: string; warehouse_id: string }[];
     return rows.map((r) => ({ itemId: r.item_id, warehouseId: r.warehouse_id }));
+  }
+
+  async listBySourceDocType(sourceDocType: StockSourceDocType): Promise<readonly StockMovement[]> {
+    return (this.selectMovBySourceDocType.all(sourceDocType) as MovementRow[]).map(toMovement);
+  }
+
+  async listBySourceDoc(sourceDocId: string): Promise<readonly StockMovement[]> {
+    return (this.selectMovBySourceDoc.all(sourceDocId) as MovementRow[]).map(toMovement);
   }
 
   // --- CostLayerRepository ---
@@ -356,6 +374,8 @@ export function createSqliteStockLedgerStore(path: SqliteConnectionInput = ":mem
     listByItem: (i) => store.listByItem(i),
     listByWarehouse: (w) => store.listByWarehouse(w),
     listPositions: () => store.listPositions(),
+    listBySourceDocType: (t) => store.listBySourceDocType(t),
+    listBySourceDoc: (id) => store.listBySourceDoc(id),
   };
   const layers: CostLayerRepository = {
     add: (l) => store.add(l),

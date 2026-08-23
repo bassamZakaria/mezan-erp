@@ -92,7 +92,7 @@ export function createBalanceSheetReport(
 
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
-        const section = classifyAccount(account);
+        const section = classifyAccount(account, ctx.cashAccountIds);
         const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
 
         // Revenue/expense don't appear on the balance sheet — they accumulate

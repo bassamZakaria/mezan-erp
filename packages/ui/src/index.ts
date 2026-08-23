@@ -14,6 +14,36 @@ export { useFormat, type UseFormatOptions, type UseFormatResult } from "./hooks/
 export { useTheme, type ThemePreference, type UseThemeResult } from "./hooks/useTheme";
 
 export {
+  DEFAULT_LOCALE,
+  I18nProvider,
+  LOCALES,
+  LOCALE_ENDONYM,
+  LOCALE_SHORT_LABEL,
+  directionOf,
+  humanizeKey,
+  interpolate,
+  isLocale,
+  loadPersistedLocale,
+  mergeCatalogs,
+  persistLocale,
+  translate,
+  uiCatalogs,
+  useTranslation,
+  useUiTranslation,
+  type Direction,
+  type I18nContextValue,
+  type I18nProviderProps,
+  type Locale,
+  type LocaleCatalogs,
+  type MissingKeyReporter,
+  type Translate,
+  type TranslationCatalog,
+  type TranslationParams,
+  type UiI18nContextValue,
+  type UiTranslationKey,
+} from "./i18n";
+
+export {
   Button,
   IconButton,
   Card,
@@ -75,10 +105,15 @@ export {
 
 export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
-export { Topbar, type TopbarProps } from "./shell/Topbar";
+export { Topbar, type TopbarProps, type ShellNotification, type TopbarScopeOption } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
+export {
+  NotificationsPanel,
+  type NotificationsPanelProps,
+  type NotificationPanelItem,
+} from "./shell/NotificationsPanel";
 export { BrandMark } from "./shell/BrandMark";
-export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem } from "./shell/types";
+export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem, UserMenuItem } from "./shell/types";
 
 export {
   TrendChart,
@@ -120,6 +155,15 @@ export {
 } from "./lib/historical-import-file";
 
 export {
+  buildDataMigrationTemplate,
+  parseDataMigrationFile,
+  type DataMigrationColumn,
+  type DataMigrationStepSpec,
+  type DataMigrationParseError,
+  type DataMigrationParseResult,
+} from "./lib/data-migration-file";
+
+export {
   DEFAULT_PRINT_TEMPLATE_CONFIG,
   resolvePrintTemplateConfig,
   type PrintTemplateConfig,
@@ -144,4 +188,13 @@ export {
 } from "./print/types";
 export { PrintView, type PrintViewProps } from "./print/PrintView";
 export { useElectronPrintToPdf, type PrintToPdfOptions, type UseElectronPrintToPdfResult } from "./print/useElectronPrintToPdf";
+export { PrintToolbar } from "./print/PrintToolbar";
+export { Barcode128, encodeCode128B, type Barcode128Props } from "./print/Barcode128";
+export {
+  LabelSheetView,
+  trimMoneyString,
+  type LabelSheetLayout,
+  type LabelSheetEntry,
+  type LabelSheetViewProps,
+} from "./print/LabelSheetView";
 export { createSampleInvoiceDocument } from "./print/sample-invoice";

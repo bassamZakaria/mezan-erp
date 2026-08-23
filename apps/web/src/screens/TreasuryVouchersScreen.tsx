@@ -30,6 +30,7 @@ import {
 import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useBranches,
   useConfirmVoucher,
   useCreateAllocation,
   useCreateVoucher,
@@ -44,8 +45,8 @@ import {
   type VoucherDetailDTO,
   type VoucherRowDTO,
 } from "../data/hooks";
-import { sampleBranches } from "../settings/sample-data";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -143,6 +144,7 @@ export function TreasuryVouchersScreen() {
   const accountsQuery = useAccounts();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
+  useScreenIntent(() => setMode("create"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
@@ -631,6 +633,7 @@ function CreateVoucherView({
 }) {
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
+  const branchesQuery = useBranches();
 
   const [type, setType] = useState<VoucherType | null>(null);
   const [draft, setDraft] = useState<CreateDraft>({
@@ -681,7 +684,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: sampleBranches[0]?.id ?? "MAIN",
+      branchId: branchesQuery.data?.[0]?.id ?? "MAIN",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

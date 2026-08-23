@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 import { Card, Chip, StatCard } from "./atoms";
 
 /**
@@ -88,7 +89,7 @@ export function DocumentList<Row>({
   onStatusChange,
   searchValue,
   onSearchChange,
-  searchPlaceholder = "بحث…",
+  searchPlaceholder,
   filterBarExtra,
   columns,
   rows,
@@ -103,6 +104,8 @@ export function DocumentList<Row>({
   emptyState,
   className,
 }: DocumentListProps<Row>) {
+  const { t } = useUiTranslation();
+  const searchLabel = searchPlaceholder ?? t("ui.search.placeholder");
   return (
     <div className={cn("w-full", className)}>
       <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
@@ -127,7 +130,7 @@ export function DocumentList<Row>({
       ) : null}
 
       {statusChips && statusChips.length > 0 ? (
-        <div className="mb-[16px] flex flex-wrap gap-[8px]" role="tablist" aria-label="تصفية حسب الحالة">
+        <div className="mb-[16px] flex flex-wrap gap-[8px]" role="tablist" aria-label={t("ui.list.statusFilter")}>
           {statusChips.map((chip) => (
             <Chip
               key={chip.key}
@@ -155,8 +158,8 @@ export function DocumentList<Row>({
                 type="text"
                 value={searchValue}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={searchPlaceholder}
-                aria-label={searchPlaceholder}
+                placeholder={searchLabel}
+                aria-label={searchLabel}
                 className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
               />
             </div>
@@ -221,7 +224,7 @@ export function DocumentList<Row>({
         <div className="flex flex-wrap items-center justify-between gap-[10px] border-t border-border px-[16px] py-[13px] text-xs text-ink-muted">
           <span>{pageSummary}</span>
           {pageCount > 1 ? (
-            <nav aria-label="ترقيم الصفحات" className="flex gap-[4px]">
+            <nav aria-label={t("ui.list.pagination")} className="flex gap-[4px]">
               {getPageItems(page, pageCount).map((item, i) =>
                 item === "ellipsis" ? (
                   <span key={`ellipsis-${i}`} className="flex h-[30px] min-w-[30px] items-center justify-center text-ink-faint">

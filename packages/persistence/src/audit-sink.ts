@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import type { AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
+import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, AuditSink, AuditStream } from "@mezan/domain";
 
 /**
  * SQLite-backed AuditSink (docs/plan.md §5.7).
@@ -44,11 +44,34 @@ interface AuditRow {
   details: string | null;
 }
 
-class SqliteAuditSink implements AuditSink {
+function rowToEvent(r: AuditRow): AuditEvent {
+  return {
+    stream: r.stream as AuditStream,
+    module: r.module,
+    entityType: r.entity_type,
+    action: r.action,
+    actor: r.actor,
+    timestamp: r.timestamp,
+    severity: r.severity as AuditEvent["severity"],
+    details: r.details === null ? null : (JSON.parse(r.details) as Record<string, unknown>),
+  };
+}
+
+/** Filterable column -> SQL column, for {@link SqliteAuditSink.queryEvents}. */
+const FILTER_COLUMNS: Record<string, string> = {
+  stream: "stream",
+  module: "module",
+  action: "action",
+  actor: "actor",
+  entityType: "entity_type",
+  severity: "severity",
+};
+
+class SqliteAuditSink implements AuditSink, AuditQueryPort {
   private readonly insert: Database.Statement;
   private readonly select: Database.Statement;
 
-  constructor(sqlite: Database.Database) {
+  constructor(private readonly sqlite: Database.Database) {
     this.insert = sqlite.prepare(
       `INSERT INTO audit_event
          (stream, module, entity_type, action, actor, timestamp, severity, details)
@@ -75,20 +98,51 @@ class SqliteAuditSink implements AuditSink {
 
   async query(stream: AuditStream, limit = 100): Promise<readonly AuditEvent[]> {
     const rows = this.select.all(stream, limit) as AuditRow[];
-    return rows.map((r) => ({
-      stream: r.stream as AuditStream,
-      module: r.module,
-      entityType: r.entity_type,
-      action: r.action,
-      actor: r.actor,
-      timestamp: r.timestamp,
-      severity: r.severity as AuditEvent["severity"],
-      details: r.details === null ? null : (JSON.parse(r.details) as Record<string, unknown>),
-    }));
+    return rows.map(rowToEvent);
+  }
+
+  /**
+   * Filtered, paginated read for the audit viewer (`/audit`). Every field in
+   * {@link AuditQueryFilter} is optional and AND-combined; `from`/`to` bound
+   * `timestamp` inclusively. Newest-first, same as `query`.
+   */
+  async queryEvents(filter: AuditQueryFilter): Promise<AuditQueryResult> {
+    const conditions: string[] = [];
+    const params: Record<string, unknown> = {};
+    for (const [key, column] of Object.entries(FILTER_COLUMNS)) {
+      const value = (filter as Record<string, unknown>)[key];
+      if (value !== undefined) {
+        conditions.push(`${column} = @${key}`);
+        params[key] = value;
+      }
+    }
+    if (filter.from !== undefined) {
+      conditions.push("timestamp >= @from");
+      params.from = filter.from;
+    }
+    if (filter.to !== undefined) {
+      conditions.push("timestamp <= @to");
+      params.to = filter.to;
+    }
+    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
+    const offset = Math.max(filter.offset ?? 0, 0);
+
+    const total = (
+      this.sqlite.prepare(`SELECT COUNT(*) AS c FROM audit_event ${where}`).get(params) as { c: number }
+    ).c;
+    const rows = this.sqlite
+      .prepare(
+        `SELECT stream, module, entity_type, action, actor, timestamp, severity, details
+           FROM audit_event ${where} ORDER BY id DESC LIMIT @limit OFFSET @offset`,
+      )
+      .all({ ...params, limit, offset }) as AuditRow[];
+
+    return { events: rows.map(rowToEvent), total };
   }
 }
 
-export interface SqliteAuditSinkHandle extends AuditSink {
+export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort {
   close(): void;
   /** The raw connection, for tests asserting the append-only triggers fire. */
   readonly db: Database.Database;

@@ -21,6 +21,10 @@ export {
   type SqliteSequenceStoreHandle,
 } from "./sequence-store.js";
 export {
+  createSqliteSequenceConfigStore,
+  type SqliteSequenceConfigStoreHandle,
+} from "./sequence-config-store.js";
+export {
   createSqliteAuditSink,
   type SqliteAuditSinkHandle,
 } from "./audit-sink.js";
@@ -32,6 +36,10 @@ export {
   createSqliteSettingsStore,
   type SqliteSettingsStoreHandle,
 } from "./settings-store.js";
+export {
+  createSqliteBarcodeConfigStore,
+  type SqliteBarcodeConfigStoreHandle,
+} from "./barcode-config-store.js";
 export {
   createSqliteBranchStore,
   type SqliteBranchStoreHandle,
@@ -52,6 +60,14 @@ export {
   createSqliteItemStore,
   type SqliteItemStoreHandle,
 } from "./item-store.js";
+export {
+  createSqliteNotificationRuleStore,
+  type SqliteNotificationRuleStoreHandle,
+} from "./notification-rule-store.js";
+export {
+  createSqliteNotificationStore,
+  type SqliteNotificationStoreHandle,
+} from "./notification-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
 export {
   createSqliteTaxRateRepository,
@@ -102,6 +118,15 @@ export {
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
 export {
+  createDataMigrationTransactor,
+  type DataMigrationTransactor,
+  type DataMigrationTransactorHandle,
+} from "./data-migration-transactor.js";
+export {
+  createSqliteHistoricalSalesArchiveStore,
+  type SqliteHistoricalSalesArchiveStoreHandle,
+} from "./sales-historical-import-store.js";
+export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
   ensureDocumentTable,
@@ -135,6 +160,14 @@ export {
   createSqliteExchangeRateRepository,
   type SqliteExchangeRateRepositoryHandle,
 } from "./exchange-rate-repository.js";
+export {
+  createSqliteWorkflowConfigStore,
+  type SqliteWorkflowConfigStoreHandle,
+} from "./workflow-config-store.js";
+export {
+  createSqliteApprovalRequestStore,
+  type SqliteApprovalRequestStoreHandle,
+} from "./approval-request-store.js";
 export {
   createSqliteEtaStore,
   type SqliteEtaStoreHandle,
@@ -180,3 +213,74 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+export {
+  createSqlitePrintTemplateConfigStore,
+  type SqlitePrintTemplateConfigStoreHandle,
+} from "./print-template-config-store.js";
+
+// --- hr-store.ts — HR master data (hr/master-data) ---
+export {
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  type SqliteDepartmentRepositoryHandle,
+  type SqliteJobTitleRepositoryHandle,
+  type SqliteEmployeeRepositoryHandle,
+  type SqliteContractRepositoryHandle,
+  type SqliteHolidayRepositoryHandle,
+  type SqliteLeaveRequestRepositoryHandle,
+} from "./hr-store.js";
+
+// --- hr-payroll-store.ts — HR payroll runs, payslips and employee advances ---
+export {
+  createSqliteEmployeeAdvanceRepository,
+  createSqlitePayrollRunRepository,
+  createSqlitePayslipRepository,
+  type SqliteEmployeeAdvanceRepositoryHandle,
+  type SqlitePayrollRunRepositoryHandle,
+  type SqlitePayslipRepositoryHandle,
+} from "./hr-payroll-store.js";
+export {
+  createSqliteWritedownRunRepository,
+  type SqliteWritedownRunRepositoryHandle,
+} from "./writedown-run-store.js";
+export {
+  createSqliteProductTemplateStore,
+  type SqliteProductTemplateStoreHandle,
+} from "./product-template-store.js";
+
+export { createSqliteApiKeyStore, type SqliteApiKeyStoreHandle } from "./api-key-store.js";
+export { createSqliteWebhookStores, type SqliteWebhookStoresHandle } from "./webhook-store.js";
+
+export {
+  createSqliteLabelLayoutStore,
+  type SqliteLabelLayoutStoreHandle,
+} from "./label-layout-store.js";
+
+export {
+  createSqliteItemCatalogStore,
+  createSqliteItemCatalogStores,
+  type SqliteItemCatalogStoreHandle,
+  type SqliteItemCatalogStores,
+} from "./item-catalog-store.js";
+
+export {
+  createSqliteItemSpecificationRepository,
+  createSqliteItemSpecificationStore,
+  type SqliteItemSpecificationStoreHandle,
+} from "./item-specification-store.js";
+
+// --- hr-time-leave-store.ts — HR attendance, leave policies, balances, accrual batches ---
+export {
+  createSqliteAttendanceRepository,
+  createSqliteLeavePolicyRepository,
+  createSqliteLeaveBalanceRepository,
+  createSqliteLeaveAccrualBatchRepository,
+  type SqliteAttendanceRepositoryHandle,
+  type SqliteLeavePolicyRepositoryHandle,
+  type SqliteLeaveBalanceRepositoryHandle,
+  type SqliteLeaveAccrualBatchRepositoryHandle,
+} from "./hr-time-leave-store.js";

@@ -47,6 +47,19 @@ export {
   SameWarehouseTransferError,
 } from "./errors.js";
 
+export {
+  foldPostedAdjustments,
+  foldPostedTransfers,
+  filterPostedAdjustments,
+  filterPostedTransfers,
+  type PostedAdjustmentLine,
+  type PostedAdjustment,
+  type PostedTransferLine,
+  type PostedTransfer,
+  type PostedAdjustmentFilter,
+  type PostedTransferFilter,
+} from "./posted-stock-documents.js";
+
 export type {
   StockLedgerRepository,
   CostLayerRepository,
@@ -111,6 +124,7 @@ export {
   type PhysicalCountLine,
   type PhysicalCount,
   varianceOf,
+  revealsSystemQty,
   type PhysicalCountListFilter,
   type PhysicalCountRepository,
   type PhysicalCountNumberingHook,
@@ -126,3 +140,122 @@ export {
   type GenerateAdjustmentResult,
   PhysicalCountService,
 } from "./physical-count.js";
+
+export {
+  type PhysicalCountLineVariance,
+  type PhysicalCountVarianceSummary,
+  lineVarianceOf,
+  varianceLinesOf,
+  summarizePhysicalCountVariance,
+} from "./physical-count-variance.js";
+
+export {
+  LABEL_PAGE_SIZES,
+  type LabelPageSize,
+  type LabelLayout,
+  type LabelLayoutRepository,
+  type CreateLabelLayoutCommand,
+  type UpdateLabelLayoutCommand,
+  LabelLayoutNotFoundError,
+  DuplicateLabelLayoutCodeError,
+  InvalidLabelLayoutError,
+  createLabelLayout,
+  updateLabelLayout,
+  deleteLabelLayout,
+  labelsPerPage,
+} from "./label-layout.js";
+// --- inv/labels-templates-writedown — aging-based inventory write-down ----
+
+export {
+  DEFAULT_AGING_WRITEDOWN_POLICY,
+  periodEndDate,
+  agingDaysBetween,
+  writedownRateForAgingDays,
+  applyRateBps,
+  type AgingBand,
+} from "./aging.js";
+
+export {
+  type WritedownRunStatus,
+  type WritedownRunLine,
+  type WritedownRun,
+  type WritedownRunRepository,
+} from "./writedown-run.js";
+
+export {
+  WritedownRunNotFoundError,
+  WritedownRunNotDraftError,
+  DuplicateWritedownPeriodError,
+  NoSlowMovingStockError,
+} from "./errors.js";
+
+export { createWritedownRun, type CreateWritedownRunCommand, type CreateWritedownRunDeps } from "./create-writedown-run.js";
+
+export { postWritedownRun, type PostWritedownRunDeps } from "./post-writedown-run.js";
+
+// --- inv/labels-templates-writedown — product templates (attribute CRUD + variant/SKU generator) ---
+
+export {
+  variantKey,
+  createProductTemplateSpecificationUsage,
+  type ProductTemplateAttribute,
+  type ProductTemplateStatus,
+  type ProductTemplate,
+  type ProductTemplateRepository,
+  type ProductTemplateVariant,
+  type ProductTemplateVariantRepository,
+} from "./product-template.js";
+
+export {
+  DuplicateProductTemplateCodeError,
+  InvalidProductTemplateError,
+  ProductTemplateNotFoundError,
+  AttributeNotFoundError,
+  DuplicateAttributeNameError,
+  DuplicateAttributeValueError,
+  AttributeInUseError,
+  AttributeValueInUseError,
+  NoAttributesDefinedError,
+  EmptyVariantSelectionError,
+  InvalidVariantSelectionError,
+} from "./errors.js";
+
+export { createProductTemplate, type CreateProductTemplateCommand } from "./create-product-template.js";
+
+export {
+  addTemplateAttribute,
+  type AddTemplateAttributeCommand,
+  addAttributeValue,
+  type AddAttributeValueCommand,
+  deleteTemplateAttribute,
+  type DeleteTemplateAttributeCommand,
+  deleteAttributeValue,
+  type DeleteAttributeValueCommand,
+} from "./template-attributes.js";
+
+export {
+  generateVariants,
+  type VariantSelection,
+  type GenerateVariantsCommand,
+  type GenerateVariantsDeps,
+  type GenerateVariantsResult,
+} from "./generate-variants.js";
+
+// --- inv/labels-templates-writedown — label printing (3 preset sizes + barcode-fit validation) ---
+
+export {
+  LABEL_TEMPLATES,
+  isLabelTemplateCode,
+  getLabelTemplate,
+  type LabelTemplateCode,
+  type LabelTemplate,
+} from "./label-template.js";
+
+export { checkBarcodeFit, BARCODE_FIT_ERROR_AR, type BarcodeFitResult } from "./barcode-fit.js";
+
+export {
+  buildLabelBatch,
+  type LabelBatchLineInput,
+  type LabelBatchLine,
+  type LabelBatch,
+} from "./label-batch.js";

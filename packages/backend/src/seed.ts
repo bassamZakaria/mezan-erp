@@ -6,6 +6,7 @@ import {
   generateFiscalYear,
   saveUser,
   createPipelineStage,
+  createLabelLayout,
   ALL_SCOPE,
   type AccountRepository,
   type BranchRepository,
@@ -18,6 +19,12 @@ import {
   type Role,
   type TaxRate,
   type PipelineStageRepository,
+  type ItemUnit,
+  type ItemUnitRepository,
+  type ItemCategory,
+  type ItemCategoryRepository,
+  type CreateLabelLayoutCommand,
+  type LabelLayoutRepository,
 } from "@mezan/domain";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
@@ -51,9 +58,43 @@ export interface SeedStores {
    * seed block).
    */
   readonly pipelineStages?: PipelineStageRepository;
+  /**
+   * Optional — seeds the standard units of measure and a starter category
+   * tree (docs/catalog/03 §"وحدة القياس" / §"تصنيفات الأصناف") on an empty DB
+   * when supplied. Omit it and the item catalogs simply start empty.
+   */
+  readonly itemCatalog?: { readonly units: ItemUnitRepository; readonly categories: ItemCategoryRepository };
+  /**
+   * Optional — seeds the standard sticker-sheet geometries (docs/catalog/03
+   * §"طباعة الباركود والملصقات") on an empty DB when supplied. Configuration
+   * every tenant would otherwise have to measure by hand, not demo data; a
+   * tenant is free to edit or delete them. Omit it and the layout catalog
+   * simply starts empty.
+   */
+  readonly labelLayouts?: LabelLayoutRepository;
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
+/** The unit codes docs/catalog/03's "وحدة القياس" picker ships with. */
+const SEED_ITEM_UNITS: readonly ItemUnit[] = [
+  { code: "PCS", nameAr: "قطعة", nameEn: "Piece", status: "active" },
+  { code: "CTN", nameAr: "كرتونة", nameEn: "Carton", status: "active" },
+  { code: "BOX", nameAr: "صندوق", nameEn: "Box", status: "active" },
+  { code: "KG", nameAr: "كيلوجرام", nameEn: "Kilogram", status: "active" },
+  { code: "G", nameAr: "جرام", nameEn: "Gram", status: "active" },
+  { code: "L", nameAr: "لتر", nameEn: "Litre", status: "active" },
+  { code: "M", nameAr: "متر", nameEn: "Metre", status: "active" },
+  { code: "SVC", nameAr: "خدمة", nameEn: "Service", status: "active" },
+];
+
+/** A starter category tree (docs/catalog/03 §"تصنيفات الأصناف"); editable like any other tenant record. */
+const SEED_ITEM_CATEGORIES: readonly ItemCategory[] = [
+  { id: "cat-food", nameAr: "مواد غذائية", nameEn: "Food", parentId: null, status: "active" },
+  { id: "cat-office", nameAr: "مستلزمات مكتبية", nameEn: "Office supplies", parentId: null, status: "active" },
+  { id: "cat-spares", nameAr: "قطع غيار", nameEn: "Spare parts", parentId: null, status: "active" },
+  { id: "cat-services", nameAr: "خدمات", nameEn: "Services", parentId: null, status: "active" },
+];
+
 export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promise<boolean> {
   return (await stores.accounts.list()).length === 0;
 }
@@ -102,6 +143,11 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
     }),
   );
 
+  if (stores.itemCatalog) {
+    for (const unit of SEED_ITEM_UNITS) await stores.itemCatalog.units.create(unit);
+    for (const category of SEED_ITEM_CATEGORIES) await stores.itemCatalog.categories.create(category);
+  }
+
   await generateFiscalYear(now().getUTCFullYear(), stores.fiscalPeriods);
 
   await stores.settings.save(
@@ -143,6 +189,64 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
     stores.hasher,
   );
 
+  if (stores.labelLayouts) {
+    // Standard off-the-shelf A4 sticker sheets, described once so the label
+    // screen has something real to print onto (docs/catalog/03).
+    const seedLayouts: readonly CreateLabelLayoutCommand[] = [
+      {
+        id: "LBL-A4-24",
+        code: "A4-24",
+        nameAr: "ملصق A4 — 24 ملصقاً (63.5 × 33.9 مم)",
+        pageSize: "A4",
+        columns: 3,
+        rows: 8,
+        labelWidthMm: 63.5,
+        labelHeightMm: 33.9,
+        columnGapMm: 2.5,
+        rowGapMm: 0,
+        marginBlockMm: 12,
+        marginInlineMm: 7,
+        barcodeHeightMm: 10,
+      },
+      {
+        id: "LBL-A4-14",
+        code: "A4-14",
+        nameAr: "ملصق A4 — 14 ملصقاً (99.1 × 38.1 مم)",
+        pageSize: "A4",
+        columns: 2,
+        rows: 7,
+        labelWidthMm: 99.1,
+        labelHeightMm: 38.1,
+        columnGapMm: 2.5,
+        rowGapMm: 0,
+        marginBlockMm: 15,
+        marginInlineMm: 4.5,
+        showUnit: true,
+        barcodeHeightMm: 12,
+      },
+      {
+        id: "LBL-A4-40",
+        code: "A4-40",
+        nameAr: "ملصق A4 — 40 ملصقاً (48.5 × 25.4 مم)",
+        pageSize: "A4",
+        columns: 4,
+        rows: 10,
+        labelWidthMm: 48.5,
+        labelHeightMm: 25.4,
+        columnGapMm: 0,
+        rowGapMm: 0,
+        marginBlockMm: 20,
+        marginInlineMm: 7.5,
+        showPrice: false,
+        showBarcodeText: false,
+        barcodeHeightMm: 8,
+      },
+    ];
+    for (const layout of seedLayouts) {
+      await createLabelLayout(layout, stores.labelLayouts);
+    }
+  }
+
   if (stores.pipelineStages) {
     // Seed values only (docs/catalog/06 "مراحل خط المبيعات") — the same 7
     // stages/probabilities/win-loss flags the reference system ships with.
@@ -172,7 +276,8 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   return currentCounts(stores);
 }
 
-async function currentCounts(stores: SeedStores): Promise<BootstrapSeedResultDTO> {
+/** Current tenant counts WITHOUT seeding — what the first-run wizard reads to show which base data already exists. */
+export async function currentCounts(stores: SeedStores): Promise<BootstrapSeedResultDTO> {
   const [accounts, taxRates, branches, warehouses, fiscalPeriods, users] = await Promise.all([
     stores.accounts.list(),
     stores.taxRates.list(),

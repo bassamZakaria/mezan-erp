@@ -27,6 +27,16 @@ import {
   StockMovementDirection,
   StockSourceDocType,
 } from "./movement.js";
+import {
+  foldPostedAdjustments,
+  foldPostedTransfers,
+  filterPostedAdjustments,
+  filterPostedTransfers,
+  type PostedAdjustment,
+  type PostedAdjustmentFilter,
+  type PostedTransfer,
+  type PostedTransferFilter,
+} from "./posted-stock-documents.js";
 import { getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
 import { extend, unitCostOf } from "./wac-math.js";
 import { replay, checkDrift, emptyPosition, type WacPosition, type DriftReport } from "./wac.js";
@@ -759,6 +769,58 @@ export class StockLedgerService {
   /** Movements for a position in ledger order. */
   async getMovements(itemId: string, warehouseId: string): Promise<readonly StockMovement[]> {
     return this.deps.ledger.listByPosition(itemId, warehouseId);
+  }
+
+  /** Every movement in the ledger, gathered position by position. */
+  private async allMovements(): Promise<readonly StockMovement[]> {
+    const positions = await this.deps.ledger.listPositions();
+    const movements: StockMovement[] = [];
+    for (const position of positions) {
+      movements.push(...(await this.deps.ledger.listByPosition(position.itemId, position.warehouseId)));
+    }
+    return movements;
+  }
+
+  private async movementsOfSourceDocType(
+    sourceDocType: StockSourceDocType,
+  ): Promise<readonly StockMovement[]> {
+    if (this.deps.ledger.listBySourceDocType) {
+      return this.deps.ledger.listBySourceDocType(sourceDocType);
+    }
+    return (await this.allMovements()).filter((m) => m.sourceDocType === sourceDocType);
+  }
+
+  private async movementsOfSourceDoc(sourceDocId: string): Promise<readonly StockMovement[]> {
+    if (this.deps.ledger.listBySourceDoc) {
+      return this.deps.ledger.listBySourceDoc(sourceDocId);
+    }
+    return (await this.allMovements()).filter((m) => m.sourceDocId === sourceDocId);
+  }
+
+  /** Posted stock adjustments, newest first, folded out of the movement ledger. */
+  async listPostedAdjustments(
+    filter: PostedAdjustmentFilter = {},
+  ): Promise<readonly PostedAdjustment[]> {
+    const movements = await this.movementsOfSourceDocType("ADJUSTMENT");
+    return filterPostedAdjustments(foldPostedAdjustments(movements), filter);
+  }
+
+  /** One posted stock adjustment by its source-document id; null when it never posted. */
+  async getPostedAdjustment(adjustmentId: string): Promise<PostedAdjustment | null> {
+    const movements = await this.movementsOfSourceDoc(adjustmentId);
+    return foldPostedAdjustments(movements)[0] ?? null;
+  }
+
+  /** Posted stock transfers, newest first, folded out of the movement ledger. */
+  async listPostedTransfers(filter: PostedTransferFilter = {}): Promise<readonly PostedTransfer[]> {
+    const movements = await this.movementsOfSourceDocType("TRANSFER");
+    return filterPostedTransfers(foldPostedTransfers(movements), filter);
+  }
+
+  /** One posted stock transfer by its source-document id; null when it never posted. */
+  async getPostedTransfer(transferId: string): Promise<PostedTransfer | null> {
+    const movements = await this.movementsOfSourceDoc(transferId);
+    return foldPostedTransfers(movements)[0] ?? null;
   }
 
   /** Authoritative position by replaying the ledger (not the cache). */

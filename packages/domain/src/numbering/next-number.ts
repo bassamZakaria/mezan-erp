@@ -16,7 +16,9 @@
 import {
   getSequenceDefinition,
   formatSequenceNumber,
+  applySequenceOverride,
   type SequenceCode,
+  type SequenceOverride,
 } from "./sequences.js";
 
 /**
@@ -42,14 +44,29 @@ export interface NextNumberOptions {
   readonly year?: number;
 }
 
+/**
+ * Optional admin-override lookup (`/settings/sequences`'s prefix/pad-length/
+ * annual-reset edit surface). Purely additive: a `NextNumberService` built
+ * without one behaves exactly as before, reading only the compiled-in
+ * {@link SequenceDefinition}.
+ */
+export interface SequenceConfigStore {
+  getOverride(code: string): Promise<SequenceOverride | null>;
+}
+
 export class NextNumberService {
-  constructor(private readonly store: SequenceStore) {}
+  constructor(
+    private readonly store: SequenceStore,
+    private readonly configStore?: SequenceConfigStore,
+  ) {}
 
   async next(
     code: SequenceCode,
     opts: NextNumberOptions = {},
   ): Promise<NextNumberResult> {
-    const def = getSequenceDefinition(code);
+    const base = getSequenceDefinition(code);
+    const override = this.configStore ? await this.configStore.getOverride(code) : null;
+    const def = applySequenceOverride(base, override);
     const period = def.annualReset
       ? (opts.year ?? new Date().getUTCFullYear())
       : null;

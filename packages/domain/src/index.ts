@@ -33,17 +33,20 @@ export {
 } from "./money/index.js";
 export type { RoundingMode, RoundingBoundary } from "./money/index.js";
 
-// numbering/ — 25 sequence definitions + atomic NextNumber service
+// numbering/ — 31 sequence definitions + atomic NextNumber service
 export {
   SEQUENCE_DEFINITIONS,
   getSequenceDefinition,
   formatSequenceNumber,
+  applySequenceOverride,
   NextNumberService,
 } from "./numbering/index.js";
 export type {
   SequenceDefinition,
   SequenceCode,
+  SequenceOverride,
   SequenceStore,
+  SequenceConfigStore,
   NextNumberResult,
   NextNumberOptions,
 } from "./numbering/index.js";
@@ -62,6 +65,9 @@ export type {
   AuditEvent,
   AuditEventInput,
   AuditSink,
+  AuditQueryFilter,
+  AuditQueryResult,
+  AuditQueryPort,
 } from "./audit/index.js";
 
 // events/ — unified 39-event taxonomy + typed in-process EventBus
@@ -81,6 +87,9 @@ export type {
   EventHandler,
   EventBusOptions,
 } from "./events/index.js";
+
+// notifications/ — tenant-authored rules engine + per-user notification read model
+export * from "./notifications/index.js";
 
 // --- access-control cluster (phase0/access-control) ---
 export * from "./permissions/index.js";
@@ -105,6 +114,9 @@ export * from "./suppliers/index.js";
 // --- items/ — Items master data (phase1/items) ---
 export * from "./items/index.js";
 
+// --- barcode-config/ — tenant-wide barcode configuration + embedded-barcode parsing ---
+export * from "./barcode-config/index.js";
+
 // --- Phase 1: Users & Roles / Permissions ---
 export * from "./roles/index.js";
 export * from "./users/index.js";
@@ -120,6 +132,9 @@ export * from "./inventory/index.js";
 
 // --- purchasing/ — purchase chain: PO → GRN → invoice (phase3/purchase-chain) ---
 export * from "./purchasing/index.js";
+
+// --- data-migration/ — go-live CSV import preview (customers, suppliers, items, opening balances) ---
+export * from "./data-migration/index.js";
 
 // --- reports/ — Report engine abstraction (phase8/report-engine) ---
 export * from "./reports/index.js";
@@ -182,3 +197,37 @@ export * from "./fixed-assets/index.js";
 
 // --- field-sales/ — Field/Van Sales (phase11) ---
 export * from "./field-sales/index.js";
+
+// --- profile/ — self-service account profile (own name/email/phone/password/PIN) ---
+export * from "./profile/index.js";
+
+// --- api-keys/ — issued API keys, scoped from the permission catalog ---
+export * from "./api-keys/index.js";
+
+// --- webhooks/ — webhook subscriptions + delivery-attempt log ---
+export * from "./webhooks/index.js";
+
+// --- hr-shared/ — stable cross-domain seam (hr/master-data); attendance/leave/payroll depend on this, not hr/ directly ---
+export * from "./hr-shared/employee-ref.js";
+
+// --- hr/ — HR master data: employees, departments, job titles, contracts, holidays, leave requests (hr/master-data) ---
+export * from "./hr/index.js";
+
+// --- settings/print-template-config.js — the 9-tab print-template designer's persisted shape (w8/print-migration) ---
+export { DEFAULT_PRINT_TEMPLATE_CONFIG } from "./settings/print-template-config.js";
+export type {
+  PrintPageSize,
+  LogoPosition,
+  LogoSize,
+  PrintIdentityConfig,
+  PrintHeaderConfig,
+  PrintContentConfig,
+  PrintColumnsConfig,
+  PrintTotalsConfig,
+  PrintFooterConfig,
+  PrintWatermarkConfig,
+  PrintPosReceiptConfig,
+  PrintTemplateOverride,
+  PrintTemplateConfig,
+  PrintTemplateConfigRepository,
+} from "./settings/print-template-config.js";

@@ -3,6 +3,7 @@ import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput
 import {
   Money,
   Qty,
+  type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
   type SalesInvoiceLine,
@@ -33,6 +34,16 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   customer_tax_exempt    INTEGER NOT NULL,
   warehouse_id           TEXT NOT NULL,
   branch_id              TEXT NOT NULL,
+  salesperson_id         TEXT,
+  salesperson_name_ar    TEXT,
+  coupon_code            TEXT,
+  promotion_id           TEXT,
+  promotion_code         TEXT,
+  promotion_name_ar      TEXT,
+  promotion_coupon_code  TEXT,
+  promotion_discount_total INTEGER,
+  promotion_line_discounts_json TEXT,
+  promotion_applied_at   TEXT,
   currency               TEXT NOT NULL,
   notes                  TEXT,
   internal_notes         TEXT,
@@ -49,10 +60,6 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   reverses_invoice_id    TEXT REFERENCES sales_invoice(id),
   reversed_by_invoice_id TEXT REFERENCES sales_invoice(id)
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_invoice_doc_no ON sales_invoice(doc_no) WHERE doc_no IS NOT NULL;
-CREATE INDEX IF NOT EXISTS idx_sales_invoice_status ON sales_invoice(status);
-CREATE INDEX IF NOT EXISTS idx_sales_invoice_customer ON sales_invoice(customer_id);
-CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_invoice(date);
 CREATE TABLE IF NOT EXISTS sales_invoice_line (
   invoice_id           TEXT NOT NULL REFERENCES sales_invoice(id),
   line_no              INTEGER NOT NULL,
@@ -70,8 +77,51 @@ CREATE TABLE IF NOT EXISTS sales_invoice_line (
   unit_cost            INTEGER,
   PRIMARY KEY (invoice_id, line_no)
 );
+`;
+
+/**
+ * Runs only AFTER {@link addMissingColumns} has widened an older `sales_invoice`
+ * — indexing `salesperson_id` / `promotion_id` on a database created before
+ * those columns existed would otherwise fail with "no such column".
+ */
+const CREATE_INDEXES = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sales_invoice_doc_no ON sales_invoice(doc_no) WHERE doc_no IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_status ON sales_invoice(status);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_customer ON sales_invoice(customer_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_date ON sales_invoice(date);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_salesperson ON sales_invoice(salesperson_id);
+CREATE INDEX IF NOT EXISTS idx_sales_invoice_promotion ON sales_invoice(promotion_id);
 CREATE INDEX IF NOT EXISTS idx_sales_invoice_line_invoice ON sales_invoice_line(invoice_id);
 `;
+
+/**
+ * The salesperson and applied-promotion columns were added after the table
+ * shipped; CREATE TABLE IF NOT EXISTS will not add them to an existing
+ * database, so widen it in place. Every one is nullable — an invoice raised
+ * before the columns existed genuinely has no rep and no promotion, and must
+ * read back that way rather than being back-filled with an invented value.
+ */
+const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
+  ["salesperson_id", "TEXT"],
+  ["salesperson_name_ar", "TEXT"],
+  ["coupon_code", "TEXT"],
+  ["promotion_id", "TEXT"],
+  ["promotion_code", "TEXT"],
+  ["promotion_name_ar", "TEXT"],
+  ["promotion_coupon_code", "TEXT"],
+  ["promotion_discount_total", "INTEGER"],
+  ["promotion_line_discounts_json", "TEXT"],
+  ["promotion_applied_at", "TEXT"],
+];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(sales_invoice)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE sales_invoice ADD COLUMN ${name} ${type}`);
+  }
+}
 
 interface InvoiceRow {
   id: string;
@@ -85,6 +135,16 @@ interface InvoiceRow {
   customer_tax_exempt: number;
   warehouse_id: string;
   branch_id: string;
+  salesperson_id: string | null;
+  salesperson_name_ar: string | null;
+  coupon_code: string | null;
+  promotion_id: string | null;
+  promotion_code: string | null;
+  promotion_name_ar: string | null;
+  promotion_coupon_code: string | null;
+  promotion_discount_total: number | null;
+  promotion_line_discounts_json: string | null;
+  promotion_applied_at: string | null;
   currency: string;
   notes: string | null;
   internal_notes: string | null;
@@ -142,8 +202,40 @@ function toLine(row: LineRow): SalesInvoiceLine {
   };
 }
 
+/**
+ * The promotion snapshot's per-line split. Amounts are the Money value's own
+ * SCALED INTEGER rendered as a decimal string — never a JSON number, which
+ * would round-trip through an IEEE-754 double and lose exactness.
+ */
+interface PromotionLineDiscountWire {
+  readonly lineId: string;
+  readonly itemId: string;
+  readonly amountScaled: string;
+}
+
+function toAppliedPromotion(row: InvoiceRow): AppliedSalesInvoicePromotion | null {
+  if (row.promotion_id === null) return null;
+  const wire = row.promotion_line_discounts_json
+    ? (JSON.parse(row.promotion_line_discounts_json) as PromotionLineDiscountWire[])
+    : [];
+  return {
+    promotionId: row.promotion_id,
+    code: row.promotion_code ?? row.promotion_id,
+    nameAr: row.promotion_name_ar ?? row.promotion_id,
+    couponCode: row.promotion_coupon_code,
+    discountTotal: Money.fromScaled(row.promotion_discount_total ?? 0),
+    lineDiscounts: wire.map((d) => ({
+      lineId: d.lineId,
+      itemId: d.itemId,
+      amount: Money.fromScaled(BigInt(d.amountScaled)),
+    })),
+    appliedAt: row.promotion_applied_at ?? "",
+  };
+}
+
 function invoiceParams(invoice: SalesInvoice) {
   const isPercent = invoice.discount.type === "percent";
+  const promotion = invoice.appliedPromotion;
   return {
     id: invoice.id,
     doc_type: invoice.docType,
@@ -156,6 +248,26 @@ function invoiceParams(invoice: SalesInvoice) {
     customer_tax_exempt: invoice.customerTaxExempt ? 1 : 0,
     warehouse_id: invoice.warehouseId,
     branch_id: invoice.branchId,
+    salesperson_id: invoice.salespersonId,
+    salesperson_name_ar: invoice.salespersonNameAr,
+    coupon_code: invoice.couponCode,
+    promotion_id: promotion?.promotionId ?? null,
+    promotion_code: promotion?.code ?? null,
+    promotion_name_ar: promotion?.nameAr ?? null,
+    promotion_coupon_code: promotion?.couponCode ?? null,
+    promotion_discount_total: promotion ? promotion.discountTotal.toScaledNumber() : null,
+    promotion_line_discounts_json: promotion
+      ? JSON.stringify(
+          promotion.lineDiscounts.map(
+            (d): PromotionLineDiscountWire => ({
+              lineId: d.lineId,
+              itemId: d.itemId,
+              amountScaled: d.amount.scaled.toString(),
+            }),
+          ),
+        )
+      : null,
+    promotion_applied_at: promotion?.appliedAt ?? null,
     currency: invoice.currency,
     notes: invoice.notes,
     internal_notes: invoice.internalNotes,
@@ -186,13 +298,19 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     this.insertInvoice = sqlite.prepare(`
       INSERT INTO sales_invoice (
         id, doc_type, doc_no, status, date, due_date, customer_id, customer_name_ar,
-        customer_tax_exempt, warehouse_id, branch_id, currency, notes, internal_notes,
+        customer_tax_exempt, warehouse_id, branch_id, salesperson_id, salesperson_name_ar,
+        coupon_code, promotion_id, promotion_code, promotion_name_ar, promotion_coupon_code,
+        promotion_discount_total, promotion_line_discounts_json, promotion_applied_at,
+        currency, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
         reverses_invoice_id, reversed_by_invoice_id
       ) VALUES (
         @id, @doc_type, @doc_no, @status, @date, @due_date, @customer_id, @customer_name_ar,
-        @customer_tax_exempt, @warehouse_id, @branch_id, @currency, @notes, @internal_notes,
+        @customer_tax_exempt, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
+        @coupon_code, @promotion_id, @promotion_code, @promotion_name_ar, @promotion_coupon_code,
+        @promotion_discount_total, @promotion_line_discounts_json, @promotion_applied_at,
+        @currency, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
         @reverses_invoice_id, @reversed_by_invoice_id
@@ -210,6 +328,16 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         customer_tax_exempt = @customer_tax_exempt,
         warehouse_id = @warehouse_id,
         branch_id = @branch_id,
+        salesperson_id = @salesperson_id,
+        salesperson_name_ar = @salesperson_name_ar,
+        coupon_code = @coupon_code,
+        promotion_id = @promotion_id,
+        promotion_code = @promotion_code,
+        promotion_name_ar = @promotion_name_ar,
+        promotion_coupon_code = @promotion_coupon_code,
+        promotion_discount_total = @promotion_discount_total,
+        promotion_line_discounts_json = @promotion_line_discounts_json,
+        promotion_applied_at = @promotion_applied_at,
         currency = @currency,
         notes = @notes,
         internal_notes = @internal_notes,
@@ -330,7 +458,11 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       customerTaxExempt: row.customer_tax_exempt === 1,
       warehouseId: row.warehouse_id,
       branchId: row.branch_id,
+      salespersonId: row.salesperson_id,
+      salespersonNameAr: row.salesperson_name_ar,
       currency: row.currency,
+      couponCode: row.coupon_code,
+      appliedPromotion: toAppliedPromotion(row),
       notes: row.notes,
       internalNotes: row.internal_notes,
       discount: toDiscount(row),
@@ -357,6 +489,8 @@ export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":me
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addMissingColumns(sqlite);
+  sqlite.exec(CREATE_INDEXES);
   const repo = new SqliteSalesInvoiceRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

@@ -1,6 +1,6 @@
 # Mezan — Status
 
-**Updated 2026-08-23** · Branch `main` @ `e756e50` (pushed to GitHub) · v1 = Electron desktop, SQLite, real data.
+**Updated 2026-08-23** · Branch `ui-enhancements` @ `1aa6a51` (pushed) · v1 = Electron desktop, SQLite, real data.
 
 > **This is the only status document.** Everything else under `docs/` is durable
 > reference that does not go stale. Point-in-time audits live in `docs/archive/`
@@ -16,6 +16,7 @@
 | What is left to build, as issues? | `backlog.md` |
 | How do I wire a screen to data? | `web-data-wiring.md` |
 | How is anything verified now? | `testing-policy.md` |
+| Is the UX enhancement signed off? | `enhancements/meeting/2026-08-23-design-review.md` |
 | What is the plan for HR / POS / Cloud? | `deferred-plan.md` |
 | How do we parallelise the build? | `execution-plan.md` |
 | What is done and what is left? | **this file** |
@@ -29,9 +30,11 @@ Measured against the running app, not the checklist:
 |---|---|
 | Screens routed | **110** (from 129 nav entries) |
 | «قريباً» markers outside HR | **0** |
-| Read surfaces answering `pnpm smoke` | **113** |
+| Read surfaces answering `pnpm smoke` | **114** |
 | Reference screens still absent | ~22 |
-| Typecheck / lint / build | passing |
+| Typecheck / lint / build / smoke | passing |
+| UX enhancement spec (§2–§8) | built; 4 items await a human decision |
+| Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow |
 | Business-logic test execution | disabled by decision — see `testing-policy.md` |
 
 ## Verification
@@ -41,7 +44,10 @@ Automated business-logic tests are **off**. Proof is:
 1. `pnpm smoke` — boots the real backend, runs the demo seed, hits every read
    surface. Catches an unmounted route, which is the failure mode that has bitten
    this codebase repeatedly.
-2. `pnpm typecheck` and `pnpm lint` (including the RTL logical-CSS rule).
+2. `pnpm typecheck` and `pnpm lint` — the RTL logical-CSS rule, and a colour-token
+   rule that fails when a Tailwind colour class names a token that does not exist.
+   Such a class emits no CSS at all and the element silently inherits, so it
+   passes every other gate; it shipped an unreadable active tab at 1.52:1.
 3. **Driving the real UI against a seeded backend.** A live click-through found
    five user-facing defects that 2,080 passing unit tests did not.
 

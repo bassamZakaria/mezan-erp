@@ -8,6 +8,8 @@ import {
   createSqliteWarehouseStore,
   createSqliteStockLedgerStore,
   createStandaloneSqliteInstallmentPlanStore,
+  createSqliteLedgerStore,
+  createSqliteAccountRepository,
 } from "@mezan/persistence";
 import { Money, Qty, type SalesInvoice, type SalesInvoiceLine } from "@mezan/domain";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
@@ -75,7 +77,9 @@ async function newApp() {
   const warehouses = createSqliteWarehouseStore();
   const stockLedgerStore = createSqliteStockLedgerStore();
   const installmentPlans = createStandaloneSqliteInstallmentPlanStore();
-  handles.push(salesInvoices, purchaseInvoicesStore, items, customers, suppliers, warehouses, stockLedgerStore, installmentPlans);
+  const ledger = createSqliteLedgerStore();
+  const accounts = createSqliteAccountRepository();
+  handles.push(salesInvoices, purchaseInvoicesStore, items, customers, suppliers, warehouses, stockLedgerStore, installmentPlans, ledger, accounts);
 
   const deps: ReportsRoutesDeps = {
     salesInvoices,
@@ -88,6 +92,8 @@ async function newApp() {
     costLayers: stockLedgerStore.layers,
     wacSnapshots: stockLedgerStore.snapshots,
     installmentPlans,
+    ledger,
+    accounts,
     today: () => "2026-08-22",
   };
   const app = createReportsRoutes(deps);

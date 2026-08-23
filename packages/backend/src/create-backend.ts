@@ -16,6 +16,18 @@ import {
   createLandedCostDocumentType,
   LandedCostService,
   installmentPlanDocumentType,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
+  createInventoryOpsStockHook,
+  createInventoryGlPostingHook,
+  PhysicalCountService,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  computeInvoiceTotals,
+  purchaseInvoiceTotal,
+  Money,
+  type AdjustmentReason,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -59,15 +71,21 @@ import {
   createSqliteManufacturingStores,
   createSqliteRfqStores,
   createSqliteHistoricalPurchaseArchiveStore,
+  createSqliteHistoricalSalesArchiveStore,
   createStandaloneSqliteSalesReturnStore,
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
   createSqlitePrintTemplateConfigStore,
+  createSqliteInventoryOpsStore,
   createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
   createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
 } from "@mezan/persistence";
-import { EtaService, Money } from "@mezan/domain";
+import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -128,6 +146,20 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
   inputTaxPayableId: "1400",
   inventoryAccountId: "1200",
 };
+
+/**
+ * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
+ * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
+ * stock funded by owner's capital — mirroring
+ * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
+ * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
+ * move quantity/value through the stock ledger only: no dedicated inventory
+ * shrinkage/write-off leaf exists yet in the standard COA template
+ * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ */
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
+  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+}
 
 /**
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
@@ -239,15 +271,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const manufacturing = createSqliteManufacturingStores(sqlite);
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
+  const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
 
-  // --- w8/print-migration — Print Template designer config + Data Migration
-  // wizard's department/employee master-data steps (docs/catalog/09). The
-  // department/employee stores are a thin stand-in (table names
-  // `hr_departments`/`hr_employees`) for the in-flight hr/master-data
-  // branch's own persistence — reconciled once that branch lands on main. ---
+  // --- w8/print-migration — Print Template designer config (docs/catalog/09
+  // §"قوالب الطباعة"). The Data Migration wizard's department/employee steps
+  // reuse hr/master-data's own `hrDepartments`/`hrEmployees` stores below. ---
   const printTemplateConfig = createSqlitePrintTemplateConfigStore(sqlite);
-  const departments = createSqliteDepartmentRepository(sqlite);
-  const employees = createSqliteEmployeeRepository(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
@@ -256,14 +285,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
+  // Counts document layer (docs/catalog/03), on the SAME shared connection
+  // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
+  // its own — see packages/persistence/src/sqlite-connection.ts). ---
+  const inventoryOps = createSqliteInventoryOpsStore(sqlite);
+
+  // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/catalog/06 §"الموارد البشرية"). ---
+  const hrDepartments = createSqliteDepartmentRepository(sqlite);
+  const hrJobTitles = createSqliteJobTitleRepository(sqlite);
+  const hrEmployees = createSqliteEmployeeRepository(sqlite);
+  const hrContracts = createSqliteContractRepository(sqlite);
+  const hrHolidays = createSqliteHolidayRepository(sqlite);
+  const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
+
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
+    // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
+    // posts only when BOTH are present) — today that's just stock-adjustments'
+    // INITIAL_STOCK reason (createInventoryOpsStockHook below); every other stock
+    // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
+    // through a separate path and never passes `command.gl`, so this is additive.
+    gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
 
@@ -293,6 +342,74 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
     workflow: noWorkflow,
   });
+
+  // --- phase4/inventory-ops — Stock Adjustments/Transfers reuse the SAME
+  // stock-ledger engine's stock hook (postAdjustment/postTransfer post GL
+  // themselves when a mapping is given — see document-hooks.ts); Physical
+  // Count is a bespoke service that drives the SAME adjustments DocumentService
+  // (create draft → confirm) to post its reconciling adjustment. ---
+  const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
+  const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
+    repo: inventoryOps.stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    stock: inventoryOpsStockHook,
+  });
+  const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
+    repo: inventoryOps.stockTransfers,
+    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    stock: inventoryOpsStockHook,
+  });
+  const physicalCounts = new PhysicalCountService({
+    repo: inventoryOps.physicalCounts,
+    stockLedger: stockService,
+    adjustments: stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+  });
+
+  /**
+   * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/catalog/04):
+   * the SAME AR/AP/inventory control accounts the purchase/sales-return/landed-
+   * cost postings above already use (1105 trade receivables, 2100 trade
+   * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed
+   * independently of the GL (never read the ledger itself, or a mismatch could
+   * never surface) — AR from live sales invoices' outstanding balance (the
+   * SAME grandTotal-minus-amountPaid math credit-control exposure uses),
+   * inventory from the stock-ledger's own WAC snapshots. Purchase invoices
+   * don't track payments yet (purchasing/purchase-invoice.ts), so every
+   * confirmed invoice's full total is outstanding AP — matching
+   * reports/aging-suppliers.ts's own documented assumption.
+   */
+  async function resolveReconciliationControls() {
+    const [invoices, purchInvoices, snapshots] = await Promise.all([
+      salesInvoices.list(),
+      purchaseInvoices.list(),
+      stockLedger.snapshots.list(),
+    ]);
+
+    let arScaled = 0n;
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+      arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
+    }
+
+    let apScaled = 0n;
+    for (const inv of purchInvoices) {
+      if (inv.status !== "confirmed") continue;
+      apScaled += purchaseInvoiceTotal(inv).scaled;
+    }
+
+    let inventoryScaled = 0n;
+    for (const snap of snapshots) {
+      inventoryScaled += snap.totalValue.scaled;
+    }
+
+    return [
+      { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: "1200", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
+      { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: "1105", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
+      { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: "2100", naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+    ];
+  }
 
   const seedStores: SeedStores = {
     accounts,
@@ -416,6 +533,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       lossAccountId: "5900",
     },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    // --- phase4/inventory-ops ---
+    stockAdjustments: { service: stockAdjustments },
+    stockTransfers: { service: stockTransfers },
+    physicalCounts: { service: physicalCounts },
     // --- phase11/crm-projects-assets-field ---
     crm: {
       leads,
@@ -423,6 +545,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       pipelineStages,
       activities,
       customers,
+    },
+    // --- hr/master-data ---
+    hr: {
+      departments: hrDepartments,
+      jobTitles: hrJobTitles,
+      employees: hrEmployees,
+      contracts: hrContracts,
+      holidays: hrHolidays,
+      leaveRequests: hrLeaveRequests,
+      users: uow.users,
+      numbering: ledger.numbering,
     },
     projects: {
       projects,
@@ -469,8 +602,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       repo: printTemplateConfig,
     },
     dataMigration: {
-      departments,
-      employees,
+      departments: hrDepartments,
+      employees: hrEmployees,
       treasuryAccounts,
       suppliers,
       customers,
@@ -478,17 +611,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       assetCategories,
       assets,
       branches,
-      // Sales-side historical-import counts land once feat/sales-historical-import
-      // merges (a sibling in-flight branch) — the purchase side is real today.
       historicalCounts: async () => {
-        const purchaseArchives = await historicalImportArchives.list();
+        const [purchaseArchives, salesArchives] = await Promise.all([
+          historicalImportArchives.list(),
+          salesHistoricalImportArchives.list(),
+        ]);
         return {
-          salesInvoices: 0,
-          salesReturns: 0,
+          salesInvoices: salesArchives.filter((a) => a.docType === "SALES_INVOICE").length,
+          salesReturns: salesArchives.filter((a) => a.docType === "SALES_RETURN").length,
           purchaseInvoices: purchaseArchives.filter((a) => a.docType === "PURCHASE_INVOICE").length,
           purchaseReturns: purchaseArchives.filter((a) => a.docType === "PURCHASE_RETURN").length,
         };
       },
+    },
+    // gl/accounts omitted — no historical-import GL adapter yet; archives
+    // import without posting a remaining-balance journal entry.
+    salesHistoricalImport: {
+      archives: salesHistoricalImportArchives,
     },
     salesReturns: { service: salesReturns },
     purchaseReturns: { service: purchaseReturns },
@@ -505,6 +644,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       costLayers: stockLedger.layers,
       wacSnapshots: stockLedger.snapshots,
       installmentPlans,
+      // القوائم المالية read the SAME posted GL + chart of accounts every other
+      // accounting surface uses — no fixture ledger behind the statements.
+      ledger,
+      accounts,
     },
   });
 
@@ -562,13 +705,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     manufacturing,
     rfqStores,
     historicalImportArchives,
+    salesHistoricalImportArchives,
     salesReturnStore,
     purchaseReturnStore,
     landedCostStore,
+    inventoryOps,
     followUps,
     printTemplateConfig,
-    departments,
-    employees,
+    hrDepartments,
+    hrJobTitles,
+    hrEmployees,
+    hrContracts,
+    hrHolidays,
+    hrLeaveRequests,
   ];
 
   return {

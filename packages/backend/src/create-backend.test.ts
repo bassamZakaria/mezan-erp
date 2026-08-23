@@ -727,6 +727,117 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
   });
 });
 
+describe("createBackend — phase9/accounting-depth: reconciliation, inventory-ops document layer", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+
+  it("mounts /reconciliation with real AR/AP/inventory sub-ledger totals — all zero and matched on a fresh seeded DB", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: ADMIN }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: Array<{ key: string; controlAccountId: string; subLedgerBalance: string; glBalance: string; matched: boolean }>;
+      allMatched: boolean;
+    };
+    expect(body.allMatched).toBe(true);
+    expect(body.rows.map((r) => r.key).sort()).toEqual(["ap", "ar", "inventory"]);
+    for (const row of body.rows) {
+      expect(row.matched).toBe(true);
+      expect(Number(row.subLedgerBalance)).toBe(0);
+      expect(Number(row.glBalance)).toBe(0);
+    }
+  });
+
+  it("mounts /inventory/stock-adjustments — INITIAL_STOCK draft → confirm posts stock AND a real balanced GL entry", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-adj", code: "ITEM-ADJ", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+
+    const draft = await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-1",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-adj", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
+      },
+      ADMIN,
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-1/confirm", {}, ADMIN);
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { document: { status: string } };
+    expect(confirmed.document.status).toBe("confirmed");
+
+    // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's
+    // trick — see packages/api/src/stock-documents-routes.test.ts); the document's own
+    // journalEntryId field is a SEPARATE mechanism this stock hook doesn't populate.
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-1", { headers: ADMIN }));
+    expect(entry.status).toBe(200);
+    const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
+    const totalCredit = je.lines.reduce((n, l) => n + Number(l.credit), 0);
+    expect(totalDebit).toBeCloseTo(totalCredit, 6);
+    expect(totalDebit).toBe(1000); // 100 qty × 10 unit cost
+
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-adj&warehouseId=WH-MAIN", { headers: ADMIN }));
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
+  });
+
+  it("mounts /inventory/stock-transfers and /inventory/physical-counts (empty on a fresh seeded DB)", async () => {
+    const app = await newBackend();
+    for (const path of ["/inventory/stock-transfers", "/inventory/physical-counts"]) {
+      const res = await app.fetch(new Request(`http://local${path}`, { headers: ADMIN }));
+      expect(res.status, `GET ${path}`).toBe(200);
+      expect((await res.json()) as unknown[]).toEqual([]);
+    }
+  });
+
+  it("runs a physical count end to end: start → record → complete → generate adjustment, reusing the SAME stock-adjustments service", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-pc", code: "ITEM-PC", nameAr: "منتج جرد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          { id: "sa-seed", date: "2026-08-01", lines: [{ itemId: "item-pc", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "50", unitCost: "5" }] },
+          ADMIN,
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-seed/confirm", {}, ADMIN)).status).toBe(200);
+
+    const started = await post(app, "/inventory/physical-counts", { id: "pc-1", warehouseId: "WH-MAIN", date: "2026-08-22", itemIds: ["item-pc"] }, ADMIN);
+    expect(started.status).toBe(201);
+    const count = (await started.json()) as { status: string; lines: { itemId: string; systemQty: string }[] };
+    expect(count.status).toBe("IN_PROGRESS");
+    expect(count.lines[0]?.systemQty).toBe("50.000000");
+
+    const recorded = await post(app, "/inventory/physical-counts/pc-1/counts", { entries: [{ itemId: "item-pc", countedQty: "48" }] }, ADMIN);
+    expect(recorded.status).toBe(200);
+
+    const completed = await post(app, "/inventory/physical-counts/pc-1/complete", {}, ADMIN);
+    expect(completed.status).toBe(200);
+    expect(((await completed.json()) as { status: string }).status).toBe("COMPLETED");
+
+    const generated = await post(app, "/inventory/physical-counts/pc-1/generate-adjustment", { adjustmentId: "sa-from-pc-1" }, ADMIN);
+    expect(generated.status).toBe(200);
+    const result = (await generated.json()) as { count: { status: string; generatedAdjustmentId: string | null }; adjustment: { status: string; lines: unknown[] } | null };
+    expect(result.count.status).toBe("ADJUSTMENT_GENERATED");
+    expect(result.count.generatedAdjustmentId).toBe("sa-from-pc-1");
+    // The generated adjustment is already confirmed (variance -2 → OUT line) — reachable via the SAME
+    // stock-adjustments service, proving physical-counts and stock-adjustments share one DocumentService.
+    expect(result.adjustment?.status).toBe("confirmed");
+
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-pc&warehouseId=WH-MAIN", { headers: ADMIN }));
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(48); // 50 - 2 variance
+  });
+});
+
 /**
  * Regression test for the SQLite concurrency bug: `createBackend` used to open
  * one `better-sqlite3` connection PER store (~35 of them) against the SAME
@@ -894,5 +1005,210 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
       new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: ADMIN }),
     );
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(1000 - N * 5);
+  });
+
+  it("confirms a stock adjustment against a real file-backed DB with no SQLITE_BUSY — proves the inventory-ops document store shares the ONE connection", async () => {
+    // Regression coverage specifically for packages/persistence/src/inventory-ops-store.ts:
+    // createSqliteInventoryOpsStore used to always open its OWN `new Database(path)`
+    // regardless of what was passed — a SECOND writer connection onto the same
+    // on-disk file createBackend already holds open (the exact shape this describe
+    // block's header docs). It now goes through `openSqliteConnection`, so
+    // create-backend.ts passing it the shared `sqlite` connection reuses it instead.
+    const app = await newFileBackedBackend();
+    expect(
+      (await post(app, "/items", { id: "item-adj-file", code: "ITEM-ADJ-FILE", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+
+    const draft = await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-file-1",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-adj-file", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
+      },
+      ADMIN,
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-file-1/confirm", {}, ADMIN);
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { document: { status: string } };
+    expect(confirmed.document.status).toBe("confirmed");
+
+    // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's trick).
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-file-1", { headers: ADMIN }));
+    expect(entry.status).toBe(200);
+
+    const balance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-adj-file&warehouseId=WH-MAIN", { headers: ADMIN }),
+    );
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
+  });
+});
+
+/**
+ * القوائم المالية over the REAL posted GL (docs/catalog/08, docs/tasks.md:126-127).
+ * Proves the seven financial statements compute from actual posted journal
+ * entries — not the static fixture ledger the screen used to render — by seeding
+ * balanced posted entries through the real `/gl/journal-entries` poster against
+ * a FILE-BACKED SQLite DB, then reading each `/reports/accounting/*` route and
+ * asserting the figures + GL-reconciliation banners the engine returns.
+ */
+describe("createBackend — financial statements over real posted GL (file-backed)", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function newFileBackedBackend() {
+    dir = mkdtempSync(path.join(tmpdir(), "mezan-financials-test-"));
+    const handle = await createBackend({ dbPath: path.join(dir, "mezan.db") });
+    handles.push(handle);
+    return handle.app;
+  }
+
+  interface Line {
+    accountId: string;
+    debit: string;
+    credit: string;
+  }
+  function line(accountId: string, debit: string, credit: string): Line {
+    return { accountId, debit, credit };
+  }
+
+  async function postEntry(app: App, id: string, date: string, memo: string, lines: Line[]) {
+    const res = await post(app, "/gl/journal-entries", { id, date, memo, source: "manual", lines }, ADMIN);
+    expect(res.status, `post ${id}`).toBe(201);
+  }
+
+  /**
+   * Five balanced posted entries over the seeded COA:
+   *  E1 capital injection, E2 credit sale + 14% output VAT, E3 credit purchase +
+   *  14% input VAT, E4 COGS, E5 cash operating expense.
+   */
+  async function seedLedger(app: App) {
+    await postEntry(app, "je-cap", "2026-02-01", "رأس المال", [line("1300-1", "200000", "0"), line("3100", "0", "200000")]);
+    await postEntry(app, "je-sale", "2026-03-01", "مبيعات آجلة (ض.ق.م 14%)", [
+      line("1105", "114000", "0"),
+      line("4100", "0", "100000"),
+      line("2200", "0", "14000"),
+    ]);
+    await postEntry(app, "je-purch", "2026-03-05", "مشتريات آجلة (ض.ق.م 14%)", [
+      line("1200", "80000", "0"),
+      line("1400", "11200", "0"),
+      line("2100", "0", "91200"),
+    ]);
+    await postEntry(app, "je-cogs", "2026-03-06", "تكلفة البضاعة المباعة", [line("5100", "60000", "0"), line("1200", "0", "60000")]);
+    await postEntry(app, "je-opex", "2026-04-01", "مصروفات تشغيلية نقدية", [line("5200", "5000", "0"), line("1300-1", "0", "5000")]);
+  }
+
+  interface ReportBody {
+    rows: { code?: string; nameAr?: string; debit?: number; credit?: number; amount?: number; side?: string; rate?: number; tax?: number; balance?: number }[];
+    grandTotals: Record<string, number>;
+    reconciliation: { labelAr: string; reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean } | null;
+  }
+  async function getReport(app: App, apiPath: string): Promise<ReportBody> {
+    const res = await app.fetch(new Request(`http://local/reports${apiPath}`, { headers: ADMIN }));
+    expect(res.status, `GET /reports${apiPath}`).toBe(200);
+    return (await res.json()) as ReportBody;
+  }
+
+  it("trial balance nets to zero (Σ debit = Σ credit) over the real posted entries", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/trial-balance?asOfDate=2026-12-31");
+    expect(body.grandTotals.debit).toBeCloseTo(405200, 2);
+    expect(body.grandTotals.credit).toBeCloseTo(405200, 2);
+    expect(body.reconciliation?.labelAr).toBe("إجمالي المدين = إجمالي الدائن");
+    expect(body.reconciliation?.withinTolerance).toBe(true);
+    // A specific real balance: cash drawer = 200000 − 5000 = 195000 debit.
+    const cash = body.rows.find((r) => r.code === "1300-1");
+    expect(cash?.debit).toBeCloseTo(195000, 2);
+  });
+
+  it("income statement computes net income = revenue − COGS − opex from real entries", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/income-statement?periodFrom=2026-01-01&periodTo=2026-12-31");
+    // revenue 100000 − cogs 60000 − opex 5000 = 35000
+    expect(body.grandTotals.amount).toBeCloseTo(35000, 2);
+    const revenue = body.rows.find((r) => r.code === "4100");
+    expect(revenue?.amount).toBeCloseTo(100000, 2);
+    const cogs = body.rows.find((r) => r.code === "5100");
+    expect(cogs?.amount).toBeCloseTo(-60000, 2);
+  });
+
+  it("balance sheet balances (assets = liabilities + equity) with real retained earnings", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/balance-sheet?asOfDate=2026-12-31");
+    expect(body.reconciliation?.labelAr).toBe("الأصول = الالتزامات + حقوق الملكية");
+    expect(body.reconciliation?.withinTolerance).toBe(true);
+    // assets 340200 = liabilities 105200 + equity (200000 capital + 35000 retained)
+    expect(body.reconciliation?.reportTotal).toBeCloseTo(340200, 2);
+    expect(body.reconciliation?.referenceTotal).toBeCloseTo(340200, 2);
+    const retained = body.rows.find((r) => r.nameAr?.includes("الأرباح المحتجزة"));
+    expect(retained?.amount).toBeCloseTo(35000, 2);
+  });
+
+  it("cash flow ties out (opening + net change = closing) from real cash movements", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/cash-flow?periodFrom=2026-01-01&periodTo=2026-12-31");
+    expect(body.reconciliation?.labelAr).toBe("الرصيد الافتتاحي + صافي التغيير = الرصيد الختامي");
+    expect(body.reconciliation?.withinTolerance).toBe(true);
+    expect(body.reconciliation?.reportTotal).toBeCloseTo(body.reconciliation?.referenceTotal ?? NaN, 2);
+  });
+
+  it("VAT return derives output/input tax by rate from the real VAT postings", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/vat-return?periodFrom=2026-01-01&periodTo=2026-12-31");
+    const output = body.rows.find((r) => r.side === "output" && r.rate === 14);
+    const input = body.rows.find((r) => r.side === "input" && r.rate === 14);
+    expect(output?.tax).toBeCloseTo(14000, 2);
+    expect(input?.tax).toBeCloseTo(11200, 2);
+  });
+
+  it("general ledger dumps every real posted line, balanced (Σ debit = Σ credit)", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/general-ledger?periodFrom=2026-01-01&periodTo=2026-12-31");
+    // 5 entries × their lines = 12 posted lines total.
+    expect(body.rows.length).toBe(12);
+    // GL sums RAW line debits (unlike the trial balance's per-account net):
+    // 200000 + 114000 + 80000 + 11200 + 60000 + 5000 = 470200, debit = credit.
+    expect(body.grandTotals.debit).toBeCloseTo(470200, 2);
+    expect(body.grandTotals.credit).toBeCloseTo(470200, 2);
+    expect(body.reconciliation?.withinTolerance).toBe(true);
+  });
+
+  it("account ledger's closing running balance equals the account's real GL net", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    const body = await getReport(app, "/accounting/account-ledger?accountId=1300-1&periodFrom=2026-01-01&periodTo=2026-12-31");
+    expect(body.reconciliation?.withinTolerance).toBe(true);
+    // opening row + capital 200000 in + opex 5000 out → closing 195000
+    const closing = body.rows[body.rows.length - 1];
+    expect(closing?.balance).toBeCloseTo(195000, 2);
+  });
+
+  it("statements read only POSTED entries — a draft entry never reaches the trial balance", async () => {
+    const app = await newFileBackedBackend();
+    await seedLedger(app);
+    // A draft (created, not posted) must not move any statement.
+    const draft = await post(
+      app,
+      "/gl/journal-entries/draft",
+      { id: "je-draft", date: "2026-05-01", memo: "مسودة", source: "manual", lines: [line("1300-1", "9999", "0"), line("4100", "0", "9999")] },
+      ADMIN,
+    );
+    expect(draft.status).toBe(201);
+    const body = await getReport(app, "/accounting/trial-balance?asOfDate=2026-12-31");
+    // Unchanged — the draft's 9999 is excluded.
+    expect(body.grandTotals.debit).toBeCloseTo(405200, 2);
   });
 });

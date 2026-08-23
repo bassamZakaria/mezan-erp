@@ -102,6 +102,10 @@ export {
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
 export {
+  createSqliteHistoricalSalesArchiveStore,
+  type SqliteHistoricalSalesArchiveStoreHandle,
+} from "./sales-historical-import-store.js";
+export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
   ensureDocumentTable,
@@ -184,9 +188,19 @@ export {
   createSqlitePrintTemplateConfigStore,
   type SqlitePrintTemplateConfigStoreHandle,
 } from "./print-template-config-store.js";
+
+// --- hr-store.ts — HR master data (hr/master-data) ---
 export {
   createSqliteDepartmentRepository,
-  type SqliteDepartmentRepositoryHandle,
+  createSqliteJobTitleRepository,
   createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  type SqliteDepartmentRepositoryHandle,
+  type SqliteJobTitleRepositoryHandle,
   type SqliteEmployeeRepositoryHandle,
-} from "./hr-master-data-store.js";
+  type SqliteContractRepositoryHandle,
+  type SqliteHolidayRepositoryHandle,
+  type SqliteLeaveRequestRepositoryHandle,
+} from "./hr-store.js";

@@ -2,7 +2,7 @@
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import type { AccountDTO, CustomerDTO, OpenInvoiceDTO, SupplierDTO, TreasuryAccountDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
+import type { AccountDTO, BranchDTO, CustomerDTO, OpenInvoiceDTO, SupplierDTO, TreasuryAccountDTO, VoucherAllocationDTO, VoucherDTO } from "@mezan/contracts";
 import { TreasuryVouchersScreen } from "./TreasuryVouchersScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 import type { VoucherDetailDTO, VoucherRowDTO } from "../data/hooks";
@@ -32,6 +32,9 @@ const customers: CustomerDTO[] = [
   },
 ];
 const suppliers: SupplierDTO[] = [];
+const branches: BranchDTO[] = [
+  { id: "MAIN", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+];
 
 function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
   return {
@@ -93,6 +96,7 @@ function renderScreen() {
     "GET /treasury-accounts": () => ({ body: treasuryAccounts }),
     "GET /accounts": () => ({ body: accounts }),
     "GET /open-invoices": () => ({ body: openInvoices }),
+    "GET /branches": () => ({ body: branches }),
     "POST /vouchers": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       const created = voucher({ ...body, id: `cv-${nextSeq}`, docNo: null, status: "draft", confirmedAt: null, journalEntryId: null });

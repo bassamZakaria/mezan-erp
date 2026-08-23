@@ -45,6 +45,9 @@ import {
   type HistoricalPurchaseArchiveRepository,
   type HistoricalImportGlPostingPort,
   type HistoricalImportGlAccounts,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
@@ -98,6 +101,7 @@ import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
 import { createDataMigrationRoutes } from "./data-migration-routes.js";
+import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
@@ -111,6 +115,7 @@ import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
+import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
@@ -272,6 +277,20 @@ export interface CreateAppOptions {
    * store to get exactly today's behaviour (no credit check at all).
    */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /**
+   * Mounts the historical sales-document import (docs/catalog/01 §"استيراد
+   * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
+   * when present — omit it for no such routes. `gl`/`accounts` are optional:
+   * omit them to archive documents without ever posting a remaining-balance
+   * journal entry.
+   */
+  readonly salesHistoricalImport?: {
+    readonly archives: HistoricalSalesArchiveRepository;
+    readonly gl?: HistoricalSalesImportGlPostingPort;
+    readonly accounts?: HistoricalSalesImportGlAccounts;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
   /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
   readonly priceListRepo?: PriceListRepository;
   /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
@@ -320,6 +339,12 @@ export interface CreateAppOptions {
    * present: leads, opportunities, pipeline stages, activities.
    */
   readonly crm?: CrmRoutesDeps;
+  /**
+   * Mounts HR master data (docs/catalog/06 "الموارد البشرية") under `/hr`
+   * when present: departments, job titles, employees, contracts, holidays,
+   * the HR dashboard, and the leave-request slice backing إجازاتي (My Leave).
+   */
+  readonly hr?: HrRoutesDeps;
   /**
    * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
    * when present. Creating a project auto-creates its linked `PRJ-{code}`
@@ -581,6 +606,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.crm) {
     app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
   }
+  if (options.hr) {
+    app.route("/hr", createHrRoutes(options.hr, options.resolveAuthContext));
+  }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));
   }
@@ -616,6 +644,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/sales-invoices",
       createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
+    );
+  }
+  if (options.salesHistoricalImport) {
+    app.route(
+      "/sales/historical-import",
+      createSalesHistoricalImportRoutes(
+        options.salesHistoricalImport,
+        options.salesHistoricalImport.resolveAuthContext ?? options.resolveAuthContext,
+      ),
     );
   }
   if (options.priceListRepo) {

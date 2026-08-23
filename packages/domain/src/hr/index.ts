@@ -1,17 +1,8 @@
-/**
- * hr/ — thin master-data slice of the HR module (docs/catalog/06 "الأقسام" /
- * "الموظفون"), scoped here to just Department + Employee: what the Data
- * Migration wizard's steps 1-2 need to import. Copied from the in-progress
- * hr/master-data branch (owner of the full HR module) rather than
- * reimplemented, specifically so this reconciles cleanly once that branch
- * lands on main — same file contents, same export names. Full HR (job
- * titles, contracts, holidays, leave requests/accrual, payroll) stays on
- * hr/master-data and is NOT duplicated here.
- */
-
 export type { Department, DepartmentRepository } from "./department.js";
-export type { CreateDepartmentCommand } from "./create-department.js";
-export { createDepartment, updateDepartment } from "./create-department.js";
+export { createDepartment, updateDepartment, type CreateDepartmentCommand } from "./create-department.js";
+
+export type { JobTitle, JobTitleRepository } from "./job-title.js";
+export { createJobTitle, updateJobTitle, type CreateJobTitleCommand } from "./create-job-title.js";
 
 export type {
   Employee,
@@ -35,16 +26,67 @@ export {
   ALLOWED_EMPLOYEE_TRANSITIONS,
   canTransitionEmployee,
 } from "./employee.js";
+export { createEmployee, updateEmployee, type CreateEmployeeCommand, type EmployeeEditableFields } from "./create-employee.js";
+export { transitionEmployee, terminateEmployee } from "./transition-employee.js";
 
-export type { CreateEmployeeCommand, EmployeeEditableFields } from "./create-employee.js";
-export { createEmployee, updateEmployee } from "./create-employee.js";
+export type {
+  Contract,
+  ContractRepository,
+  ContractType,
+  PayBasis,
+  PayFrequency,
+  ContractStatus,
+  ContractLineItem,
+  LeaveEntitlementOverrides,
+  ContractTypeDefinition,
+} from "./contract.js";
+export {
+  CONTRACT_TYPE_DEFINITIONS,
+  getContractTypeLabel,
+  CONTRACT_EXPIRING_SOON_WINDOW_DAYS,
+  isContractExpiringSoon,
+} from "./contract.js";
+export { createContract, terminateContract, type CreateContractCommand } from "./create-contract.js";
 
-export { transitionEmployee } from "./transition-employee.js";
+export type { Holiday, HolidayRepository } from "./holiday.js";
+export { createHoliday, updateHoliday, listHolidaysForYear, type CreateHolidayCommand } from "./holiday.js";
+
+export type {
+  LeaveRequest,
+  LeaveRequestRepository,
+  LeaveType,
+  LeaveRequestStatus,
+  LeaveTypeDefinition,
+  LeaveRequestStatusDefinition,
+} from "./leave-request.js";
+export {
+  LEAVE_TYPE_DEFINITIONS,
+  getLeaveTypeLabel,
+  LEAVE_REQUEST_STATUS_DEFINITIONS,
+  getLeaveRequestStatusLabel,
+  ALLOWED_LEAVE_REQUEST_TRANSITIONS,
+  canTransitionLeaveRequest,
+  createLeaveRequest,
+  decideLeaveRequest,
+  cancelLeaveRequest,
+  type CreateLeaveRequestCommand,
+} from "./leave-request.js";
 
 export {
   DepartmentNotFoundError,
   InvalidDepartmentError,
+  JobTitleNotFoundError,
+  InvalidJobTitleError,
   EmployeeNotFoundError,
   InvalidEmployeeError,
   InvalidEmployeeTransitionError,
+  UserNotLinkedToEmployeeError,
+  ContractNotFoundError,
+  InvalidContractError,
+  ContractNotActiveError,
+  HolidayNotFoundError,
+  InvalidHolidayError,
+  LeaveRequestNotFoundError,
+  InvalidLeaveRequestError,
+  InvalidLeaveRequestTransitionError,
 } from "./errors.js";

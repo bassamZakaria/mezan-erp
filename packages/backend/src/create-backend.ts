@@ -31,6 +31,7 @@ import {
   type StockTransferDocLine,
   EventBus,
   NotificationRulesEngine,
+  WebhookDispatcher,
   type DocumentEventPublisher,
   type DocumentEventType,
   type EventCode,
@@ -121,6 +122,7 @@ import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
 import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-transport.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -459,6 +461,27 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   });
 
+  // --- Webhook dispatcher — the SECOND subscriber on the same bus. It POSTs a
+  // signed body to every enabled subscription matching the fired code, retries
+  // with bounded backoff, and records each attempt. Deliberately detached: the
+  // handler returns immediately so a slow or broken receiver can never delay
+  // or fail the confirm that emitted the event. ---
+  const webhookDispatcher = new WebhookDispatcher({
+    webhooks: webhookStores.webhooks,
+    deliveries: webhookStores.deliveries,
+    transport: createFetchWebhookTransport(),
+    signature: createHmacWebhookSigner(),
+    generateId: () => randomUUID(),
+    onError: (error, context) => {
+      console.error(`[webhooks] dispatch failed for "${context.event.code}"`, error);
+    },
+  });
+  eventBus.subscribeAll((event) => {
+    void webhookDispatcher.handle(event).catch((error: unknown) => {
+      console.error(`[webhooks] dispatcher rejected handling "${event.code}"`, error);
+    });
+  });
+
   // --- w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox
   // (docs/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
   // `resolveConfig` behind `createDocumentWorkflowGate` below — a tenant that
@@ -727,6 +750,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       accounts: PURCHASE_GL_ACCOUNTS,
       allocatable: vouchers.invoices,
+      audit: auditSink,
     },
     salesInvoices: {
       repo: salesInvoices,

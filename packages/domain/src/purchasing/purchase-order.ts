@@ -9,6 +9,7 @@
 import { Money, Qty } from "../money/index.js";
 import { extend } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
+import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import type { PurchaseOrderStatus } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
@@ -73,12 +74,15 @@ export interface CreatePurchaseOrderCommand {
   readonly lines: readonly PurchaseOrderLineInput[];
 }
 
-export interface PurchaseOrderDeps {
+export interface PurchaseOrderDeps extends PurchaseAuditDeps {
   readonly orders: PurchaseOrderRepository;
   readonly numbering: NextNumberService;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
 }
+
+export type ConfirmPurchaseOrderDeps = Pick<PurchaseOrderDeps, "orders" | "audit" | "actor">;
+export type CancelPurchaseOrderDeps = ConfirmPurchaseOrderDeps;
 
 function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
@@ -186,7 +190,7 @@ export async function createPurchaseOrder(
  */
 export async function confirmPurchaseOrder(
   id: string,
-  deps: Pick<PurchaseOrderDeps, "orders">,
+  deps: ConfirmPurchaseOrderDeps,
 ): Promise<PurchaseOrder> {
   const order = await deps.orders.findById(id);
   if (!order) throw new PurchaseOrderNotFoundError(id);
@@ -197,13 +201,20 @@ export async function confirmPurchaseOrder(
   }
   const sent: PurchaseOrder = { ...order, status: "sent" };
   await deps.orders.update(sent);
+  await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CONFIRM", {
+    orderId: sent.id,
+    number: sent.number,
+    supplierId: sent.supplierId,
+    status: sent.status,
+    total: purchaseOrderTotal(sent).toString(),
+  });
   return sent;
 }
 
 /** إلغاء (Cancel): a draft or sent order → ملغي. */
 export async function cancelPurchaseOrder(
   id: string,
-  deps: Pick<PurchaseOrderDeps, "orders">,
+  deps: CancelPurchaseOrderDeps,
 ): Promise<PurchaseOrder> {
   const order = await deps.orders.findById(id);
   if (!order) throw new PurchaseOrderNotFoundError(id);
@@ -214,6 +225,13 @@ export async function cancelPurchaseOrder(
   }
   const cancelled: PurchaseOrder = { ...order, status: "cancelled" };
   await deps.orders.update(cancelled);
+  await recordPurchaseAudit(deps, "PURCHASE_ORDER", "CANCEL", {
+    orderId: cancelled.id,
+    number: cancelled.number,
+    supplierId: cancelled.supplierId,
+    status: cancelled.status,
+    previousStatus: order.status,
+  });
   return cancelled;
 }
 

@@ -20,6 +20,13 @@ export {
 } from "./types.js";
 
 export {
+  recordPurchaseAudit,
+  type PurchaseAuditDeps,
+  type PurchaseAuditAction,
+  type PurchaseAuditEntityType,
+} from "./audit.js";
+
+export {
   PurchaseOrderNotFoundError,
   GoodsReceiptNotFoundError,
   PurchaseInvoiceNotFoundError,
@@ -58,6 +65,8 @@ export {
   type PurchaseOrderLineInput,
   type CreatePurchaseOrderCommand,
   type PurchaseOrderDeps,
+  type ConfirmPurchaseOrderDeps,
+  type CancelPurchaseOrderDeps,
 } from "./purchase-order.js";
 
 export {

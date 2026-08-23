@@ -48,10 +48,9 @@ export interface WebhooksRoutesDeps {
 
 /**
  * الويب هوك (settings §Webhooks) — register a target URL + subscribed events,
- * enable/disable, and read recent delivery attempts. This mounts the
- * subscription registry and the delivery-attempt LOG only — no dispatcher
- * runs here (see `webhooks/index.ts` doc comment); `POST /:id/deliveries` is
- * the write side a future dispatcher would call after each real HTTP attempt.
+ * enable/disable, and read recent delivery attempts. The sending itself is
+ * `WebhookDispatcher`'s job (wired onto the event bus in the composition
+ * root); these routes are the registry plus the read side of its attempt log.
  * Gated with `admin.settings.*` — same rationale as `api-keys-routes.ts`.
  * `secret` (the HMAC signing key) is returned in the clear ONLY on create,
  * exactly like the API key's plaintext value.
@@ -144,9 +143,9 @@ export function createWebhooksRoutes(
   });
 
   /**
-   * Internal recorder for a real dispatcher's delivery outcomes — not called
-   * by anything today (no dispatcher exists), but the write side needs to
-   * exist for the delivery log to ever be real once one does.
+   * Out-of-process recorder for a delivery outcome. The in-process dispatcher
+   * calls `recordWebhookDelivery` directly; this exists for an edition that
+   * runs the sender elsewhere.
    */
   app.post("/:id/deliveries", gate("admin.settings.edit"), async (c) => {
     const body = (await c.req.json()) as {

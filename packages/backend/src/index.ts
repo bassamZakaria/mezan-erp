@@ -11,3 +11,4 @@ export {
 export { createAuthRoutes, type AuthRoutesDeps } from "./auth-routes.js";
 export { createDashboardRoutes, type DashboardDeps } from "./dashboard-routes.js";
 export { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
+export { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-transport.js";

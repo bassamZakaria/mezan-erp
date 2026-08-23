@@ -18,6 +18,7 @@ import {
   type PurchaseOrder,
   type PurchaseOrderRepository,
 } from "./purchase-order.js";
+import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type GoodsReceiptStatus,
@@ -101,14 +102,14 @@ export interface CreateGoodsReceiptDeps {
   readonly now?: () => string;
 }
 
-export interface ConfirmGoodsReceiptDeps {
+export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly now?: () => string;
 }
 
-export interface CancelGoodsReceiptDeps {
+export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
@@ -317,6 +318,15 @@ export async function confirmGoodsReceipt(
 
   const confirmed: GoodsReceipt = { ...receipt, status: "confirmed" };
   await deps.receipts.update(confirmed);
+  await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CONFIRM", {
+    receiptId: confirmed.id,
+    number: confirmed.number,
+    supplierId: confirmed.supplierId,
+    purchaseOrderId: confirmed.purchaseOrderId,
+    warehouseId: confirmed.warehouseId,
+    status: confirmed.status,
+    totalCost: goodsReceiptTotalCost(confirmed).toString(),
+  });
   return confirmed;
 }
 
@@ -373,6 +383,15 @@ export async function cancelGoodsReceipt(
 
   const cancelled: GoodsReceipt = { ...receipt, status: "cancelled" };
   await deps.receipts.update(cancelled);
+  await recordPurchaseAudit(deps, "GOODS_RECEIPT", "CANCEL", {
+    receiptId: cancelled.id,
+    number: cancelled.number,
+    supplierId: cancelled.supplierId,
+    purchaseOrderId: cancelled.purchaseOrderId,
+    warehouseId: cancelled.warehouseId,
+    status: cancelled.status,
+    previousStatus: receipt.status,
+  });
   return cancelled;
 }
 

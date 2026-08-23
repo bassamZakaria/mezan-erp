@@ -507,6 +507,8 @@ export interface CreateAppOptions {
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number;
     readonly resolveAuthContext?: AuthContextResolver;
+    /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
+    readonly audit?: AuditSink;
     readonly now?: () => string;
   };
   /**
@@ -954,6 +956,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,
+          audit: purchases.audit ?? options.auditSink,
           now: purchases.now,
         },
         purchases.resolveAuthContext ?? options.resolveAuthContext,

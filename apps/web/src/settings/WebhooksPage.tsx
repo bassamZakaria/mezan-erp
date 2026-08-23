@@ -21,10 +21,9 @@ import { TextField, SectionCard } from "./form-controls";
  * events (the SAME 39-event catalog `events/catalog.ts` defines, not a
  * parallel vocabulary), enable/disable, and show recent delivery attempts.
  *
- * No dispatcher runs here (see `webhooks/index.ts` doc comment) — this
- * screen only manages the subscription and reads whatever delivery attempts
- * a real dispatcher would have recorded via `POST /webhooks/:id/deliveries`.
- * Zero deliveries is the honest, expected state until one exists.
+ * The delivery tab reads the real attempts `WebhookDispatcher` recorded — one
+ * row per try, so a retried-then-abandoned delivery shows all of its attempts
+ * with the failure reason, not just the last one.
  */
 
 const CATEGORY_LABELS: Readonly<Record<EventCategory, string>> = {
@@ -137,12 +136,13 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
               </div>
             ) : (
               <Card className="overflow-x-auto p-0">
-                <table className="w-full min-w-[520px] border-collapse text-[12.5px]">
+                <table className="w-full min-w-[680px] border-collapse text-[12.5px]">
                   <thead>
                     <tr className="border-b border-border text-ink-muted">
                       <th className="p-[10px] text-start font-semibold">الحدث</th>
                       <th className="p-[10px] text-start font-semibold">الحالة</th>
                       <th className="p-[10px] text-start font-semibold">رمز الاستجابة</th>
+                      <th className="p-[10px] text-start font-semibold">التفاصيل</th>
                       <th className="p-[10px] text-end font-semibold">وقت المحاولة</th>
                     </tr>
                   </thead>
@@ -154,6 +154,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
                           <td className="p-[10px] text-ink">{DOMAIN_EVENT_CATALOG.find((e) => e.code === d.eventCode)?.labelAr ?? d.eventCode}</td>
                           <td className="p-[10px]"><StatusPill label={status.label} tone={status.tone} /></td>
                           <td className="mz-num p-[10px] text-ink-muted">{d.statusCode ?? "—"}</td>
+                          <td className="mz-lat p-[10px] text-[11.5px] text-ink-muted">{d.errorMessage ?? "—"}</td>
                           <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(d.attemptedAt, { style: "long" })}</td>
                         </tr>
                       );

@@ -1,11 +1,11 @@
 /**
  * Webhook subscriptions (settings §Webhooks) — a tenant-registered HTTP
- * target that a real dispatcher would call on the events it subscribes to
- * (drawn from the SAME unified event catalog `events/catalog.ts` already
- * defines — not a parallel event vocabulary).
+ * target `WebhookDispatcher` calls on the events it subscribes to (drawn from
+ * the SAME unified event catalog `events/catalog.ts` already defines — not a
+ * parallel event vocabulary).
  *
- * `secret` is kept in the clear in storage (unlike `ApiKey.keyHash`) because a
- * real dispatcher needs it on every delivery to HMAC-sign the payload so the
+ * `secret` is kept in the clear in storage (unlike `ApiKey.keyHash`) because the
+ * dispatcher needs it on every delivery to HMAC-sign the payload so the
  * receiver can verify authenticity — a one-way hash cannot serve that. The API
  * still only ever returns it in the create response, never afterwards.
  */

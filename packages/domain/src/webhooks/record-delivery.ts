@@ -12,11 +12,10 @@ export interface RecordWebhookDeliveryCommand {
 }
 
 /**
- * Records the outcome of one delivery attempt. This is the write side a real
- * dispatcher would call after POSTing the signed payload to `targetUrl` — no
- * dispatcher exists yet (see webhooks/index.ts doc comment); this only
- * persists the record so the subscription's delivery history is real once one
- * does.
+ * Records the outcome of one delivery attempt — the write side
+ * `WebhookDispatcher` calls after each POST of the signed payload to
+ * `targetUrl` (dispatcher.ts), so every retry leaves its own row in the
+ * subscription's delivery history.
  */
 export async function recordWebhookDelivery(
   cmd: RecordWebhookDeliveryCommand,

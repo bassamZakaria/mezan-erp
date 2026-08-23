@@ -17,6 +17,7 @@ import { extend, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
+import { recordPurchaseAudit, type PurchaseAuditDeps } from "./audit.js";
 import {
   DEFAULT_PURCHASE_POLICY,
   type PurchaseGlAccounts,
@@ -113,7 +114,7 @@ export interface CreatePurchaseInvoiceDeps {
   readonly now?: () => string;
 }
 
-export interface ConfirmPurchaseInvoiceDeps {
+export interface ConfirmPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly invoices: PurchaseInvoiceRepository;
   readonly receipts?: GoodsReceiptRepository;
   readonly stock: PurchaseStockPostingPort;
@@ -134,7 +135,7 @@ export interface ConfirmPurchaseInvoiceResult {
   readonly posting: PurchaseGlPosting;
 }
 
-export interface CancelPurchaseInvoiceDeps {
+export interface CancelPurchaseInvoiceDeps extends PurchaseAuditDeps {
   readonly invoices: PurchaseInvoiceRepository;
   readonly stock: PurchaseStockPostingPort;
   readonly glReverse: PurchaseGlReversalPort;
@@ -406,6 +407,15 @@ export async function confirmPurchaseInvoice(
     });
   }
 
+  await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CONFIRM", {
+    invoiceId: confirmed.id,
+    number: confirmed.number,
+    supplierId: confirmed.supplierId,
+    receiptId: confirmed.receiptId,
+    status: confirmed.status,
+    total: purchaseInvoiceTotal(confirmed).toString(),
+  });
+
   return { invoice: confirmed, posting };
 }
 
@@ -466,5 +476,14 @@ export async function cancelPurchaseInvoice(
 
   const cancelled: PurchaseInvoice = { ...invoice, status: "cancelled" };
   await deps.invoices.update(cancelled);
+  await recordPurchaseAudit(deps, "PURCHASE_INVOICE", "CANCEL", {
+    invoiceId: cancelled.id,
+    number: cancelled.number,
+    supplierId: cancelled.supplierId,
+    receiptId: cancelled.receiptId,
+    status: cancelled.status,
+    previousStatus: invoice.status,
+    total: purchaseInvoiceTotal(cancelled).toString(),
+  });
   return cancelled;
 }

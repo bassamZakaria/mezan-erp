@@ -1,10 +1,22 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Chip, Money, StatCard } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
+import { useNavigation } from "../navigation";
+import type { ScreenKey } from "../App";
+import type { ScreenIntent } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
 
-/** Quick-action launchers (UI affordances, not data) — wired to their create flows in the follow-up sweep. */
-const quickActions = ["فاتورة جديدة", "سند نقدي", "استلام بضاعة", "فاتورة مشتريات جديدة", "أمر شراء جديد", "عرض سعر"];
+type QuickAction = { label: string; screen: ScreenKey; intent?: ScreenIntent; primary?: boolean };
+
+/** Quick-action launchers: each navigates to its screen and opens that screen's create flow. */
+const quickActions: QuickAction[] = [
+  { label: "فاتورة جديدة", screen: "sales-invoices", intent: "create" },
+  { label: "سند نقدي", screen: "treasury-vouchers", intent: "create" },
+  { label: "استلام بضاعة", screen: "goods-receipts", intent: "create", primary: true },
+  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices", intent: "create" },
+  { label: "أمر شراء جديد", screen: "purchase-orders", intent: "create" },
+  { label: "عرض سعر", screen: "quotes", intent: "create" },
+];
 
 const RANGE_OPTIONS = [
   { value: "month", label: "هذا الشهر" },
@@ -43,6 +55,7 @@ function num(value: string | undefined): number {
  */
 export function DashboardScreen() {
   const { session } = useApi();
+  const { navigate } = useNavigation();
   const [range, setRange] = useState<RangeValue>("month");
   const dates = useMemo(() => rangeToDates(range), [range]);
   const query = useDashboardSummary(dates);
@@ -73,9 +86,14 @@ export function DashboardScreen() {
           </p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((label, index) => (
-            <Button key={label} size="sm" variant={index === 2 ? "primary" : "default"}>
-              {label}
+          {quickActions.map((action) => (
+            <Button
+              key={action.label}
+              size="sm"
+              variant={action.primary ? "primary" : "default"}
+              onClick={() => navigate(action.screen, action.intent)}
+            >
+              {action.label}
             </Button>
           ))}
         </div>

@@ -1,7 +1,8 @@
 import { cn } from "../lib/cn";
 import { IconButton } from "../primitives/atoms";
+import { TopbarMenu } from "./TopbarMenu";
 import type { ThemePreference } from "../hooks/useTheme";
-import type { ShellUser } from "./types";
+import type { NotificationItem, ShellUser, UserMenuItem } from "./types";
 
 export interface TopbarProps {
   onOpenCommandPalette: () => void;
@@ -10,7 +11,10 @@ export interface TopbarProps {
   scopeLabel?: string;
   theme: ThemePreference;
   onToggleTheme: () => void;
+  /** Defaults to `notifications.length`; pass explicitly only to override the badge. */
   notificationCount?: number;
+  notifications?: NotificationItem[];
+  userMenuItems?: UserMenuItem[];
   user: ShellUser;
   className?: string;
 }
@@ -23,7 +27,9 @@ export function Topbar({
   scopeLabel,
   theme,
   onToggleTheme,
-  notificationCount = 0,
+  notifications = [],
+  notificationCount = notifications.length,
+  userMenuItems = [],
   user,
   className,
 }: TopbarProps) {
@@ -90,25 +96,102 @@ export function Topbar({
         )}
       </IconButton>
 
-      <IconButton aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}>
-        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
-          <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-        {notificationCount > 0 ? (
-          <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
-        ) : null}
-      </IconButton>
+      <TopbarMenu
+        label="الإشعارات"
+        trigger={(triggerProps) => (
+          <IconButton {...triggerProps} aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}>
+            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
+              <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+              <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
+            </svg>
+            {notificationCount > 0 ? (
+              <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
+            ) : null}
+          </IconButton>
+        )}
+      >
+        {(close) => (
+          <>
+            <div className="border-b border-border px-[14px] py-[11px] text-[12.5px] font-bold text-ink">الإشعارات</div>
+            {notifications.length === 0 ? (
+              <p className="px-[14px] py-[22px] text-center text-[12.5px] text-ink-muted">لا توجد تنبيهات بعد.</p>
+            ) : (
+              <ul className="max-h-[340px] overflow-y-auto py-[4px]">
+                {notifications.map((note) => (
+                  <li key={note.key}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      disabled={!note.onSelect}
+                      onClick={() => {
+                        note.onSelect?.();
+                        close();
+                      }}
+                      className="flex w-full items-start gap-[9px] px-[14px] py-[10px] text-start transition-colors hover:bg-surface-2 disabled:cursor-default disabled:hover:bg-transparent"
+                    >
+                      <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-danger" />
+                      <span className="min-w-0">
+                        <span className="block text-[12.5px] font-semibold text-ink">{note.title}</span>
+                        {note.detail ? <span className="mt-[1px] block text-[11.5px] text-ink-muted">{note.detail}</span> : null}
+                        {note.actionLabel ? <span className="mt-[3px] block text-[11px] font-semibold text-brand">{note.actionLabel}</span> : null}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </>
+        )}
+      </TopbarMenu>
 
-      <button type="button" className="flex items-center gap-[9px] rounded-pill border border-border bg-surface py-[5px] pe-[12px] ps-[6px] transition-colors hover:border-border-strong">
-        <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-brand to-brand-strong font-display text-[11px] font-bold text-brand-ink">
-          {user.initials}
-        </span>
-        <span className="text-start">
-          <span className="block text-[12.5px] font-bold leading-[1.2] text-ink">{user.name}</span>
-          <span className="mz-lat block text-[10px] text-ink-faint">{user.role}</span>
-        </span>
-      </button>
+      <TopbarMenu
+        label={user.name}
+        trigger={(triggerProps) => (
+          <button
+            {...triggerProps}
+            type="button"
+            className="flex items-center gap-[9px] rounded-pill border border-border bg-surface py-[5px] pe-[12px] ps-[6px] transition-colors hover:border-border-strong"
+          >
+            <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-brand to-brand-strong font-display text-[11px] font-bold text-brand-ink">
+              {user.initials}
+            </span>
+            <span className="text-start">
+              <span className="block text-[12.5px] font-bold leading-[1.2] text-ink">{user.name}</span>
+              <span className="mz-lat block text-[10px] text-ink-faint">{user.role}</span>
+            </span>
+          </button>
+        )}
+        panelClassName="w-[232px]"
+      >
+        {(close) => (
+          <>
+            <div className="border-b border-border px-[14px] py-[11px]">
+              <div className="text-[12.5px] font-bold text-ink">{user.name}</div>
+              <div className="mz-lat text-[11px] text-ink-faint">{user.role}</div>
+            </div>
+            <ul className="py-[4px]">
+              {userMenuItems.map((item) => (
+                <li key={item.key}>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    onClick={() => {
+                      item.onSelect();
+                      close();
+                    }}
+                    className={cn(
+                      "w-full px-[14px] py-[8px] text-start text-[12.5px] transition-colors hover:bg-surface-2",
+                      item.tone === "danger" ? "text-danger-ink" : "text-ink",
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </TopbarMenu>
     </header>
   );
 }

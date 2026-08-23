@@ -46,6 +46,7 @@ import {
 } from "../data/hooks";
 import { sampleBranches } from "../settings/sample-data";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -143,6 +144,7 @@ export function TreasuryVouchersScreen() {
   const accountsQuery = useAccounts();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
+  useScreenIntent(() => setMode("create"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");

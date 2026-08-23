@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import type { RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
@@ -91,7 +91,7 @@ import {
   topNavItem,
 } from "./sample-data";
 import { useApi } from "./data/ApiContext";
-import type { ShellUser } from "@mezan/ui";
+import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
   useCreateRole,
   useCreateUser,
@@ -105,6 +105,7 @@ import {
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
+import { NavigationProvider, type ScreenIntent } from "./navigation";
 
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
@@ -191,7 +192,7 @@ type RoutableKey = keyof typeof ROUTABLE_SCREENS;
  * own small state machine alongside the routable-screen lookup instead.
  */
 type UsersRolesView = "users" | "roles" | "role-editor";
-type ScreenKey = RoutableKey | UsersRolesView;
+export type ScreenKey = RoutableKey | UsersRolesView;
 
 function isRoutable(key: string): key is RoutableKey {
   return key in ROUTABLE_SCREENS;
@@ -214,10 +215,18 @@ function initialsFor(fullName: string): string {
 }
 
 export function App() {
-  const { session } = useApi();
+  const { session, setSession } = useApi();
   const [mode, setMode] = useState<AppMode>("login");
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
+  const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
+
+  const navigate = useCallback((screen: ScreenKey, intent?: ScreenIntent) => {
+    setActiveScreen(screen);
+    setPendingIntent(intent ?? null);
+  }, []);
+  const clearIntent = useCallback(() => setPendingIntent(null), []);
+  const navigation = useMemo(() => ({ navigate, intent: pendingIntent, clearIntent }), [navigate, pendingIntent, clearIntent]);
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
@@ -253,18 +262,50 @@ export function App() {
         items: group.items.map((item) => {
           const key = item.key;
           if (isRoutable(key) || key === "users" || key === "roles") {
-            return { ...item, onClick: () => setActiveScreen(key as ScreenKey) };
+            return { ...item, onClick: () => navigate(key as ScreenKey) };
           }
           return item;
         }),
       })),
-    [],
+    [navigate],
+  );
+
+  const routedCommandItems: CommandItem[] = useMemo(() => {
+    const targets: Record<string, () => void> = {
+      "cmd-invoice": () => navigate("sales-invoices", "create"),
+      "cmd-receipt": () => navigate("treasury-vouchers", "create"),
+      "cmd-coa": () => navigate("coa"),
+      "cmd-journals": () => navigate("journals"),
+    };
+    return commandItems.map((item) => {
+      const onSelect = targets[item.id];
+      return onSelect ? { ...item, onSelect } : item;
+    });
+  }, [navigate]);
+
+  const userMenuItems: UserMenuItem[] = useMemo(
+    () => [
+      { key: "users", label: "المستخدمون", onSelect: () => navigate("users") },
+      { key: "roles", label: "الأدوار", onSelect: () => navigate("roles") },
+      { key: "settings", label: "الإعدادات العامة", onSelect: () => navigate("settings-general") },
+      {
+        key: "sign-out",
+        label: "تسجيل الخروج",
+        tone: "danger",
+        onSelect: () => {
+          setSession(null);
+          setActiveScreen("dashboard");
+          setMode("login");
+        },
+      },
+    ],
+    [navigate, setSession],
   );
 
   const routedTopNavItem = useMemo(() => {
     const key = topNavItem.key;
-    return isRoutable(key) ? { ...topNavItem, onClick: () => setActiveScreen(key) } : topNavItem;
-  }, []);
+    return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
+  }, [navigate]);
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
@@ -334,15 +375,16 @@ export function App() {
   };
 
   return (
+    <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
       navGroups={groups}
       user={shellUser}
-      commandItems={commandItems}
+      commandItems={routedCommandItems}
       tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
-      notificationCount={3}
+      userMenuItems={userMenuItems}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 
@@ -383,5 +425,6 @@ export function App() {
         />
       ) : null}
     </AppShell>
+    </NavigationProvider>
   );
 }

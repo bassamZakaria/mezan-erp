@@ -11,6 +11,7 @@ import {
   useSendSalesQuote,
   type SalesQuoteRecord,
 } from "../data/hooks";
+import { useScreenIntent } from "../navigation";
 
 type QuoteStatus = SalesQuoteRecord["status"];
 
@@ -63,6 +64,10 @@ export function SalesQuotesScreen() {
   const convert = useConvertSalesQuoteToInvoice();
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  useScreenIntent(() => {
+    resetForm();
+    setPanel("create");
+  });
   const [statusFilter, setStatusFilter] = useState<"all" | QuoteStatus>("all");
   const [customerId, setCustomerId] = useState("");
   const [expiryDate, setExpiryDate] = useState(new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10));

@@ -40,6 +40,7 @@ import {
 } from "../data/hooks";
 import { unitLabel } from "../items-sample-data";
 import { SelectField, NumberField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm SidePanel form with live
@@ -661,6 +662,7 @@ export function SalesInvoicesScreen() {
   const [statusFilter, setStatusFilter] = useState<"all" | SalesInvoiceStatusDTO>("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  useScreenIntent(() => setPanelOpen(true));
 
   const today = new Date().toISOString().slice(0, 10);
   const selected = selectedId ? (invoices.find((inv) => inv.id === selectedId) ?? null) : null;

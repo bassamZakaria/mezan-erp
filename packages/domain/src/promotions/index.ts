@@ -23,3 +23,14 @@ export {
   type FreeGoodsLine,
   type PromotionApplicationResult,
 } from "./engine.js";
+export {
+  aggregatePromotionUsage,
+  type AggregatePromotionUsageInput,
+  type PromotionUsageCatalogEntry,
+  type PromotionUsageInvoice,
+  type PromotionUsageInvoiceLine,
+  type PromotionUsageLineDiscount,
+  type PromotionUsageReturn,
+  type PromotionUsageReturnLine,
+  type PromotionUsageRow,
+} from "./usage.js";

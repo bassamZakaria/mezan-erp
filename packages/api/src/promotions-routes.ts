@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import {
   Money,
   Qty,
+  aggregatePromotionUsage,
+  SALES_INVOICE_ACTIVE_STATUSES,
   createPromotion,
   evaluateBestPromotion,
   extendLine,
@@ -10,9 +12,14 @@ import {
   DuplicatePromotionError,
   InvalidPromotionError,
   PromotionNotFoundError,
+  type FrameworkDocument,
   type Promotion,
   type PromotionLineInput,
   type PromotionRepository,
+  type PromotionUsageInvoice,
+  type PromotionUsageReturn,
+  type SalesInvoiceRepository,
+  type SalesReturnLine,
 } from "@mezan/domain";
 import { createPromotionSchema, evaluatePromotionsQuerySchema, updatePromotionSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -64,13 +71,26 @@ function parseMoneyNullish(value: string | null | undefined): Money | null | und
 }
 
 /**
+ * Data sources `/report` aggregates real usage from. Both are optional: a
+ * composition that wires neither serves a catalogue-only report (every counter
+ * genuinely zero because nothing recorded a promotion) rather than a fabricated
+ * one.
+ */
+export interface PromotionsRoutesUsageDeps {
+  readonly salesInvoices?: SalesInvoiceRepository;
+  /** Read-only slice of the sales-return document service/repo — only `list()` is needed. */
+  readonly salesReturns?: { list(): Promise<readonly FrameworkDocument<SalesReturnLine>[]> };
+}
+
+/**
  * Promotion routes (docs/catalog/01 §"العروض"): list, get one, create, edit,
- * deactivate, a cart-preview `/evaluate`, and a `/report` usage stub. Every
+ * deactivate, a cart-preview `/evaluate`, and `/report` usage aggregation. Every
  * CRUD route is permission-gated via `sales.promotion.view` / `.manage`.
  */
 export function createPromotionsRoutes(
   repo: PromotionRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  usage: PromotionsRoutesUsageDeps = {},
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -82,28 +102,71 @@ export function createPromotionsRoutes(
     return c.json(promotions.map(serialize));
   });
 
+  /**
+   * تقرير استخدام العروض — real usage off confirmed sales invoices.
+   *
+   * `dateFrom`/`dateTo` filter DOCUMENTS, not the promotion's own window: the
+   * question this answers is "what did this campaign grant during the period",
+   * so a promotion that has since expired or been deactivated still reports
+   * the discount it granted while it was live. Every figure is read from each
+   * invoice's own snapshot, never re-derived from the current promotion.
+   */
   app.get("/report", gate("sales.promotion.view"), async (c) => {
     const dateFrom = c.req.query("dateFrom");
     const dateTo = c.req.query("dateTo");
     const promotions = await repo.list();
-    const inRange = promotions.filter((p) => {
-      if (dateFrom && p.endDate < dateFrom) return false;
-      if (dateTo && p.startDate > dateTo) return false;
-      return p.active;
-    });
-    // No invoice/POS usage-tracking is wired up yet (sales invoices don't yet
-    // record which promotion/coupon they applied), so every row is an honest
-    // zero stub rather than a fabricated number. Real usage aggregation is
-    // follow-up work once that link exists.
-    return c.json(
-      inRange.map((p) => ({
+
+    const invoices: PromotionUsageInvoice[] = (await usage.salesInvoices?.list())?.map((inv) => ({
+      id: inv.id,
+      date: inv.date,
+      live: SALES_INVOICE_ACTIVE_STATUSES.has(inv.status),
+      lines: inv.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
+      promotion: inv.appliedPromotion
+        ? {
+            promotionId: inv.appliedPromotion.promotionId,
+            code: inv.appliedPromotion.code,
+            nameAr: inv.appliedPromotion.nameAr,
+            discountTotal: inv.appliedPromotion.discountTotal,
+            lineDiscounts: inv.appliedPromotion.lineDiscounts.map((d) => ({ itemId: d.itemId, amount: d.amount })),
+          }
+        : null,
+    })) ?? [];
+
+    const returns: PromotionUsageReturn[] = [];
+    for (const doc of (await usage.salesReturns?.list()) ?? []) {
+      const sourceInvoiceId = doc.lines[0]?.sourceInvoiceId;
+      if (!sourceInvoiceId) continue;
+      returns.push({
+        sourceInvoiceId,
+        date: doc.date,
+        live: doc.status === "confirmed",
+        lines: doc.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
+      });
+    }
+
+    const rows = aggregatePromotionUsage({
+      catalog: promotions.map((p) => ({
         id: p.id,
         code: p.code,
         nameAr: p.nameAr,
-        usageCount: 0,
-        discountGranted: "0.000000",
-        reversedDiscount: "0.000000",
-        netDiscount: "0.000000",
+        startDate: p.startDate,
+        endDate: p.endDate,
+      })),
+      invoices,
+      returns,
+      dateFrom,
+      dateTo,
+    });
+
+    return c.json(
+      rows.map((row) => ({
+        id: row.id,
+        code: row.code,
+        nameAr: row.nameAr,
+        usageCount: row.usageCount,
+        discountGranted: row.discountGranted.toString(),
+        reversedDiscount: row.reversedDiscount.toString(),
+        netDiscount: row.netDiscount.toString(),
       })),
     );
   });

@@ -145,6 +145,8 @@ function serializeReceipt(r: GoodsReceipt) {
       description: l.description,
       qty: l.qty.toString(),
       unitCost: l.unitCost.toString(),
+      batchNo: l.batchNo ?? null,
+      expiryDate: l.expiryDate ?? null,
     })),
     status: r.status,
     invoiced: r.invoiced,
@@ -174,6 +176,8 @@ function serializeInvoice(inv: PurchaseInvoice) {
       qty: l.qty.toString(),
       unitCost: l.unitCost.toString(),
       taxRatePercent: l.taxRatePercent,
+      batchNo: l.batchNo ?? null,
+      expiryDate: l.expiryDate ?? null,
     })),
     status: inv.status,
     subtotal: purchaseInvoiceSubtotal(inv).toString(),
@@ -339,6 +343,8 @@ export function createPurchasesRoutes(
             description: l.description,
             qty: Qty.fromMajor(l.qty),
             unitCost: Money.fromMajor(l.unitCost),
+            batchNo: l.batchNo,
+            expiryDate: l.expiryDate,
           })),
         },
         {
@@ -420,6 +426,8 @@ export function createPurchasesRoutes(
           qty: Qty.fromMajor(l.qty),
           unitCost: Money.fromMajor(l.unitCost),
           taxRatePercent: l.taxRatePercent ?? 0,
+          batchNo: l.batchNo ?? null,
+          expiryDate: l.expiryDate ?? null,
         }));
       } else if (parsed.data.receiptId) {
         const receipt = await deps.receipts.findById(parsed.data.receiptId);

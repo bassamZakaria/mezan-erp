@@ -75,6 +75,8 @@ export const goodsReceiptLineSchema = z.object({
   description: z.string().nullable(),
   qty: decimalString,
   unitCost: decimalString,
+  batchNo: z.string().nullable(),
+  expiryDate: z.string().nullable(),
 });
 
 export const goodsReceiptSchema = z.object({
@@ -99,6 +101,8 @@ export const createGoodsReceiptLineSchema = z.object({
   description: z.string().nullable().optional(),
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
+  batchNo: z.string().min(1).nullable().optional(),
+  expiryDate: isoDate.nullable().optional(),
 });
 
 export const createGoodsReceiptSchema = z.object({
@@ -123,6 +127,8 @@ export const purchaseInvoiceLineSchema = z.object({
   qty: decimalString,
   unitCost: decimalString,
   taxRatePercent: z.number(),
+  batchNo: z.string().nullable(),
+  expiryDate: z.string().nullable(),
 });
 
 export const purchaseInvoiceSchema = z.object({
@@ -153,6 +159,8 @@ export const createPurchaseInvoiceLineSchema = z.object({
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
   taxRatePercent: z.number().min(0).optional(),
+  batchNo: z.string().min(1).nullable().optional(),
+  expiryDate: isoDate.nullable().optional(),
 });
 
 export const createPurchaseInvoiceSchema = z.object({

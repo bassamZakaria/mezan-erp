@@ -15,6 +15,7 @@ import {
   createInventoryLedgerReport,
   createInventoryValuationReport,
   createInventoryAgingReport,
+  createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
   createAgingCustomersReport,
@@ -261,6 +262,12 @@ export function createReportsRoutes(
 
   app.get("/inventory/aging", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryAgingReport(todayIso(deps));
+    const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
+  });
+
+  app.get("/inventory/expiring", gate("inventory.stock.view"), async (c) => {
+    const definition = createInventoryExpiringReport(todayIso(deps));
     const [items, warehouses, layers] = await Promise.all([deps.items.list(), deps.warehouses.findAll(), loadAllLayers(deps)]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, warehouses, layers }));
   });

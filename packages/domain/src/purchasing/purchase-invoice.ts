@@ -53,6 +53,10 @@ export interface PurchaseInvoiceLine {
   readonly qty: Qty;
   readonly unitCost: Money;
   readonly taxRatePercent: number;
+  /** Supplier lot this delivery arrived under. Absent for non-tracked goods. */
+  readonly batchNo?: string | null;
+  /** ISO-8601 expiry of the received goods; drives FEFO consumption. Absent for non-perishables. */
+  readonly expiryDate?: string | null;
 }
 
 export interface PurchaseInvoice {
@@ -89,6 +93,8 @@ export interface PurchaseInvoiceLineInput {
   readonly qty: Qty;
   readonly unitCost: Money;
   readonly taxRatePercent?: number;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface CreatePurchaseInvoiceCommand {
@@ -235,6 +241,8 @@ export function buildInvoiceLinesFromReceipt(
     qty: l.qty,
     unitCost: l.unitCost,
     taxRatePercent: resolveTaxRate(l.itemId),
+    batchNo: l.batchNo,
+    expiryDate: l.expiryDate,
   }));
 }
 
@@ -250,6 +258,8 @@ function normalizeLines(
       qty: l.qty,
       unitCost: l.unitCost,
       taxRatePercent: l.taxRatePercent ?? 0,
+      batchNo: l.batchNo ?? null,
+      expiryDate: l.expiryDate ?? null,
     };
   });
 }
@@ -372,7 +382,13 @@ export async function confirmPurchaseInvoice(
   if (!invoice.receiptId) {
     const stockLines = invoice.lines
       .filter((l) => l.kind === "inventory" && l.itemId !== null)
-      .map((l) => ({ itemId: l.itemId as string, qty: l.qty, unitCost: l.unitCost }));
+      .map((l) => ({
+        itemId: l.itemId as string,
+        qty: l.qty,
+        unitCost: l.unitCost,
+        batchNo: l.batchNo,
+        expiryDate: l.expiryDate,
+      }));
     if (stockLines.length > 0) {
       await deps.stock.postReceipt({
         receiptId: invoice.id,

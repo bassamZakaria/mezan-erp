@@ -108,6 +108,13 @@ export {
   type AgeBucket,
 } from "./inventory-aging.js";
 export {
+  createInventoryExpiringReport,
+  type InventoryExpiringContext,
+  type InventoryExpiringParams,
+  type InventoryExpiringRow,
+  type ExpiryWindow,
+} from "./inventory-expiring.js";
+export {
   createInventorySlowMovingReport,
   type InventorySlowMovingContext,
   type InventorySlowMovingParams,

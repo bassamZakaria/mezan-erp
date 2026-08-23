@@ -121,6 +121,7 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
       "report-inventory-ledger",
       "report-inventory-valuation",
       "report-inventory-aging",
+      "report-inventory-expiring",
       "report-inventory-slow-moving",
       "report-inventory-drift",
       "report-aging-customers",

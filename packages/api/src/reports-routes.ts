@@ -17,6 +17,7 @@ import {
   createInventoryAgingReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
+  createMakeVsBuyReport,
   createAgingCustomersReport,
   createAgingSuppliersReport,
   createInstallmentsOverviewReport,
@@ -37,6 +38,7 @@ import {
   type CustomerRepository,
   type SupplierRepository,
   type ItemRepository,
+  type BomRepository,
   type WarehouseRepository,
   type StockLedgerRepository,
   type CostLayerRepository,
@@ -68,6 +70,13 @@ export interface ReportsRoutesDeps {
   readonly customers: CustomerRepository;
   readonly suppliers: SupplierRepository;
   readonly items: ItemRepository;
+  /**
+   * التصنيع أم الشراء data source. Optional: the make-vs-buy report route is
+   * only mounted when a composition wires the manufacturing module's BOMs,
+   * so an app without manufacturing serves no make-vs-buy report at all
+   * rather than an empty one.
+   */
+  readonly boms?: BomRepository;
   readonly warehouses: WarehouseRepository;
   readonly stockLedger: StockLedgerRepository;
   readonly costLayers: CostLayerRepository;
@@ -281,6 +290,20 @@ export function createReportsRoutes(
     ]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { snapshots, movements, items, warehouses }));
   });
+
+  // --- التصنيع أم الشراء -----------------------------------------------
+
+  if (deps.boms) {
+    const boms = deps.boms;
+    app.get("/manufacturing/make-vs-buy", gate("manufacturing.bom.view"), async (c) => {
+      const definition = createMakeVsBuyReport();
+      const [items, bomList, invoices] = await Promise.all([deps.items.list(), boms.list(), deps.purchaseInvoices.list()]);
+      return respond(
+        c,
+        runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, boms: bomList, purchaseInvoices: invoices }),
+      );
+    });
+  }
 
   // --- أعمار الديون ---------------------------------------------------
 

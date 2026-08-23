@@ -708,6 +708,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
     },
     vouchers: {
+      audit: auditSink,
       documents: vouchers.documents,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,

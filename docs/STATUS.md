@@ -96,10 +96,15 @@ again" bugs.
 - **i18n and the language switcher** — not started. Every string is an inline
   Arabic literal and `lang` is hardcoded. Held back deliberately while ~30 screens
   were under construction; now unblocked.
-- **Reports** — 20 operational reports are routed. Missing: sales-by-salesperson,
-  promotions, make-vs-buy. The two POS reports wait on POS. (Van sales is **not**
-  missing — `field-van-sales.ts`, the `/field/van-sales` route, the screen and
-  the `report-van-sales` nav entry all exist. Expiring-soon (FEFO) is now built.)
+- **Reports — complete apart from POS.** 23 operational reports are routed. The
+  four that were listed as missing are built: expiring-soon (FEFO), make-vs-buy,
+  sales-by-salesperson and promotions. Only the two POS reports remain, waiting
+  on POS. (Van sales was never missing — this file was wrong.)
+
+  Three of those four were blocked on claims in this file that turned out to be
+  false. Make-vs-buy needed no schema change: `bomCostEstimate` already rolls up
+  a BOM and purchase history is already read the same way `purchases-by-item`
+  reads it. Only FEFO and the invoice fields needed real schema work.
 - **WhatsApp settings** — the reference itself only exposes a module-gated stub.
 
 ## Known defects and open decisions
@@ -154,10 +159,16 @@ bridges for it was declined.
    batch and expiry, so it is built — and FEFO consumption landed with it,
    because costing is weighted-average and the layer draw never enters
    valuation.)
-4. **Promotions are never persisted to documents.** The engine computes
-   discounts through an `/evaluate` preview only, so the promotions report
-   cannot count usage. Writing the applied promotion onto the invoice at confirm
-   is the prerequisite.
+4. ~~**Promotions are never persisted to documents.**~~ **Done.** The invoice
+   stores a value snapshot of the promotion it applied — not a foreign key, so a
+   campaign edited or switched off later cannot retroactively change what a
+   historical invoice says it granted. It is evaluated server-side at confirm
+   against the invoice's real lines, so a browser can name a coupon but never a
+   discount. The report counts real usage, and a return reverses pro-rata.
+
+   One decision this surfaced and did **not** take: the promotion discount
+   reduces the revenue credit rather than posting to a contra-revenue
+   "discounts granted" account. That is a chart-of-accounts call.
 5. ~~**`AuditEvent` has no branch field.**~~ **Done** — `branchId` is recorded
    from the scope the shell already sends, filterable in the viewer. Historical
    rows stay null: the table is append-only by trigger, so a back-fill is

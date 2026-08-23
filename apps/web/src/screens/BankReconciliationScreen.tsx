@@ -179,8 +179,8 @@ export function BankReconciliationScreen() {
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[220px]">
-              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">حساب الخزينة</div>
               <EntityPicker
+                label="حساب الخزينة"
                 value={bankAccounts.map((a) => ({ id: a.id, label: a.name })).find((o) => o.id === treasuryAccountId) ?? null}
                 onChange={(o) => setTreasuryAccountId(o?.id ?? "")}
                 options={bankAccounts.map((a) => ({ id: a.id, label: a.name }))}
@@ -376,8 +376,8 @@ function ImportStatementDialog({
     <SidePanel open={open} onClose={onClose} title="استيراد كشف بنك">
       <div className="flex flex-col gap-4 p-5">
         <div>
-          <div className="mb-[6px] text-[12.5px] font-semibold text-ink">حساب الخزينة *</div>
           <EntityPicker
+            label="حساب الخزينة *"
             value={bankOptions.find((o) => o.id === treasuryAccountId) ?? null}
             onChange={(o) => setTreasuryAccountId(o?.id ?? "")}
             options={bankOptions}

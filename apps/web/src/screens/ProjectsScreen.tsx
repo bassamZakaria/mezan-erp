@@ -356,7 +356,7 @@ export function ProjectsScreen() {
           <TextField label="تاريخ الانتهاء" value={draft.endDate} onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))} placeholder="YYYY-MM-DD" />
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الميزانية (EGP)</div>
-            <MoneyInput value={draft.budget} onChange={(v) => setDraft((d) => ({ ...d, budget: v }))} />
+            <MoneyInput aria-label="الميزانية (EGP)" value={draft.budget} onChange={(v) => setDraft((d) => ({ ...d, budget: v }))} />
           </div>
           <TextField label="عنوان الموقع" value={draft.siteAddress} onChange={(v) => setDraft((d) => ({ ...d, siteAddress: v }))} />
           <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />

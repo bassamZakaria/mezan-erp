@@ -496,10 +496,10 @@ export function ItemsScreen() {
         </FieldGroup>
 
         <Field label="سعر البيع">
-          <MoneyInput value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
+          <MoneyInput aria-label="سعر البيع" value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
         <Field label="سعر التكلفة">
-          <MoneyInput value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
+          <MoneyInput aria-label="سعر التكلفة" value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
         </Field>
         <NumberField label="نسبة الضريبة %" value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 

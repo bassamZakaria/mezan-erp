@@ -389,7 +389,7 @@ export function LeadsScreen() {
           />
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
-            <MoneyInput value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
+            <MoneyInput aria-label="القيمة المتوقعة" value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
           </div>
           <TextField
             label="الاهتمام"
@@ -454,6 +454,7 @@ export function LeadsScreen() {
                 <div>
                   <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
                   <MoneyInput
+                    aria-label="القيمة المتوقعة"
                     value={convertDraft.opportunityExpectedValue}
                     onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityExpectedValue: v } : d))}
                   />

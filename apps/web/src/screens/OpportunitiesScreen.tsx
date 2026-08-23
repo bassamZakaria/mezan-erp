@@ -103,8 +103,8 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
 
       <TextField label="العنوان *" value={draft.title} onChange={(v) => setDraft((d) => ({ ...d, title: v }))} />
       <div>
-        <div className="mb-[6px] text-[12.5px] font-semibold text-ink">العميل *</div>
         <EntityPicker
+          label="العميل *"
           value={customerOptions.find((o) => o.id === draft.customerId) ?? null}
           onChange={(o) => setDraft((d) => ({ ...d, customerId: o?.id ?? "" }))}
           options={customerOptions}
@@ -119,7 +119,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
       />
       <div>
         <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
-        <MoneyInput value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
+        <MoneyInput aria-label="القيمة المتوقعة" value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
       </div>
       <NumberField label="الاحتمالية %" value={draft.probability} min={0} max={100} onChange={(v) => setDraft((d) => ({ ...d, probability: v }))} />
       <TextField

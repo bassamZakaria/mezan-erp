@@ -520,6 +520,7 @@ export function VanTripsScreen() {
                         <div key={line.itemId} className="flex items-center justify-between gap-[10px]">
                           <span className="text-[12.5px] text-ink">{itemName(line.itemId)}</span>
                           <QtyInput
+                            aria-label={`الكمية المعدودة — ${itemName(line.itemId)}`}
                             value={settleCounts[line.itemId] ?? 0}
                             onChange={(v) => setSettleCounts((c) => ({ ...c, [line.itemId]: v }))}
                           />
@@ -704,7 +705,7 @@ export function VanTripsScreen() {
               </div>
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الكمية</div>
-                <QtyInput value={stockQty} onChange={setStockQty} min={1} />
+                <QtyInput value={stockQty} onChange={setStockQty} min={1} aria-label="الكمية" />
               </div>
               <Button type="button" disabled={stockItemId === ""} onClick={addStockRow}>
                 إضافة

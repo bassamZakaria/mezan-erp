@@ -312,7 +312,7 @@ export function TreasuryAccountsScreen() {
             <div className="flex flex-col gap-[12px]">
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الرصيد الافتتاحي</div>
-                <MoneyInput value={draft.openingBalance} onChange={(v) => setDraft((d) => ({ ...d, openingBalance: v }))} />
+                <MoneyInput aria-label="الرصيد الافتتاحي" value={draft.openingBalance} onChange={(v) => setDraft((d) => ({ ...d, openingBalance: v }))} />
               </div>
               <TextField
                 label="تاريخ الرصيد الافتتاحي"

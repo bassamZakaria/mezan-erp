@@ -348,7 +348,7 @@ export function AssetRegisterScreen() {
               />
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">تكلفة الاقتناء *</div>
-                <MoneyInput value={draft.acquisitionCost} onChange={(v) => setDraft((d) => ({ ...d, acquisitionCost: v }))} />
+                <MoneyInput aria-label="تكلفة الاقتناء *" value={draft.acquisitionCost} onChange={(v) => setDraft((d) => ({ ...d, acquisitionCost: v }))} />
               </div>
               <TextField
                 label="تاريخ بدء الإهلاك"
@@ -376,7 +376,7 @@ export function AssetRegisterScreen() {
               />
               <div>
                 <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتبقية</div>
-                <MoneyInput value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
+                <MoneyInput aria-label="القيمة المتبقية" value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
               </div>
             </div>
           </div>

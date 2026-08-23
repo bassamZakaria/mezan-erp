@@ -78,8 +78,29 @@ export interface DocumentStockPlan {
   readonly sourceDocType: string;
   readonly sourceDocId: string;
   readonly sourceDocNumber: string | null;
+  /** Source warehouse for a single-warehouse plan (adjustment); source leg of a transfer plan. */
   readonly warehouseId: string;
   readonly lines: readonly DocumentStockLine[];
+  /**
+   * Present only on a two-warehouse (transfer) plan: the destination warehouse.
+   * `warehouseId` above is the source leg. Absent for a single-warehouse
+   * (adjustment) plan — the stock hook dispatches on its presence.
+   */
+  readonly toWarehouseId?: string;
+  /**
+   * Present only on an adjustment plan: the {@link AdjustmentReason} code
+   * (kept as a plain string here so the document framework stays decoupled
+   * from the inventory module — see docs/catalog/03). Drives reason-aware
+   * direction validation and GL account routing at the stock-hook adapter.
+   */
+  readonly reason?: string;
+  /**
+   * The document's own date (`FrameworkDocument.date`), so the stock hook can
+   * date the resulting ledger movements (and any GL entry they post) into the
+   * document's period instead of defaulting to wall-clock "now" — the same
+   * date `buildGlPosting` already threads through for GL-native documents.
+   */
+  readonly date?: string;
 }
 
 export interface DocumentStockHook {

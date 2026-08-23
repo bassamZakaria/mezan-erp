@@ -40,3 +40,8 @@ export {
   createBankReconciliationRoutes,
   type BankReconciliationRoutesDeps,
 } from "./bank-reconciliation-routes.js";
+export {
+  createStockAdjustmentsRoutes,
+  createStockTransfersRoutes,
+  createPhysicalCountsRoutes,
+} from "./stock-documents-routes.js";

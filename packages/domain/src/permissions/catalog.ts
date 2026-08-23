@@ -48,7 +48,7 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "dashboard", labelAr: "لوحة التحكم", count: 2 },
   { id: "sales", labelAr: "المبيعات", count: 29 },
   { id: "purchases", labelAr: "المشتريات", count: 34 },
-  { id: "inventory", labelAr: "المخزون", count: 12 },
+  { id: "inventory", labelAr: "المخزون", count: 15 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
   { id: "accounting", labelAr: "المحاسبة", count: 17 },
   { id: "treasury", labelAr: "الخزينة", count: 26 },
@@ -163,6 +163,9 @@ const ROWS: readonly Row[] = [
   ["inventory.adjustment.confirm", "inventory.adjustment.view"],
   ["inventory.valuation.view", "inventory.stock.view"],
   ["inventory.valuation.rebuild", "inventory.valuation.view"],
+  ["inventory.count.view"],
+  ["inventory.count.create", "inventory.count.view"],
+  ["inventory.count.confirm", "inventory.count.view"],
 
   // 5. field (van sales) — 4
   ["field.van_trip.view"],

@@ -1,0 +1,1066 @@
+<title>Mezan Enhanced</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=Reem+Kufi:wght@500;600;700&family=Tajawal:wght@400;500;700;800&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#F2EFE9;
+    --surface:#FFFFFF;
+    --surface-2:#F7F4ED;
+    --surface-3:#EDE7DA;
+    --border:#E6E0D2;
+    --border-strong:#D3CBB6;
+    --text:#14231E;
+    --text-muted:#57685F;
+    --text-faint:#8B9189;
+
+    --chrome:#0B3A34;
+    --chrome-2:#072B27;
+    --chrome-text:#E4F1EC;
+    --chrome-muted:#8FB0A6;
+    --chrome-border:rgba(255,255,255,.09);
+    --chrome-hover:rgba(255,255,255,.06);
+
+    --brand:#0C463E;
+    --brand-strong:#073029;
+    --brand-soft:#E2EFEA;
+    --brand-ink:#FFFFFF;
+
+    --accent:#B0862F;
+    --accent-strong:#8A6620;
+    --accent-soft:#F3E9CF;
+    --accent-bright:#CB9E3D;
+
+    --success:#2C8A57; --success-soft:#E1F1E8; --success-ink:#1C6B41;
+    --warning:#B0791F; --warning-soft:#F7ECD3; --warning-ink:#845812;
+    --danger:#C0402F;  --danger-soft:#F8E4DF;  --danger-ink:#8F2A1E;
+    --info:#2F6690;    --info-soft:#E1EAF2;    --info-ink:#234E6E;
+
+    --chart-1:#0E7C69; --chart-2:#C05A2E; --chart-3:#B0862F; --chart-4:#3B6EA5;
+
+    --shadow-1:0 1px 2px rgba(20,45,36,.07), 0 1px 1px rgba(20,45,36,.04);
+    --shadow-2:0 22px 48px -22px rgba(12,40,32,.30), 0 6px 16px -8px rgba(12,40,32,.14);
+    --shadow-chrome:0 0 0 1px rgba(0,0,0,.04), 8px 0 30px -18px rgba(7,43,39,.55);
+
+    --r-sm:5px; --r-md:8px; --r-lg:14px; --r-pill:999px;
+
+    --font-body:'IBM Plex Sans Arabic','Segoe UI',Tahoma,sans-serif;
+    --font-disp:'Tajawal','IBM Plex Sans Arabic',sans-serif;
+    --font-sig:'Reem Kufi','Tajawal',sans-serif;
+    --font-lat:'IBM Plex Sans','IBM Plex Sans Arabic',sans-serif;
+    --font-mono:'IBM Plex Mono','IBM Plex Sans Arabic',monospace;
+
+    color-scheme:light;
+  }
+
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0A1310; --surface:#101C18; --surface-2:#152420; --surface-3:#1C2C27;
+      --border:#243530; --border-strong:#33473F;
+      --text:#E9EFEA; --text-muted:#9DB0A6; --text-faint:#6A7A70;
+      --chrome:#081310; --chrome-2:#050D0B; --chrome-text:#E4F1EC; --chrome-muted:#83A79B;
+      --chrome-border:rgba(255,255,255,.07); --chrome-hover:rgba(255,255,255,.05);
+      --brand:#3FB39E; --brand-strong:#57C9B3; --brand-soft:#0F2A25; --brand-ink:#06110D;
+      --accent:#D8B25F; --accent-strong:#E7C77C; --accent-soft:#2B2412; --accent-bright:#E7C77C;
+      --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+      --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+      --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+      --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+      --chart-1:#2FB49A; --chart-2:#D2723F; --chart-3:#D8B25F; --chart-4:#5A94CC;
+      --shadow-1:0 1px 2px rgba(0,0,0,.5);
+      --shadow-2:0 24px 50px -22px rgba(0,0,0,.7), 0 6px 16px -8px rgba(0,0,0,.4);
+      --shadow-chrome:0 0 0 1px rgba(0,0,0,.5), 8px 0 30px -18px rgba(0,0,0,.7);
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0A1310; --surface:#101C18; --surface-2:#152420; --surface-3:#1C2C27;
+    --border:#243530; --border-strong:#33473F;
+    --text:#E9EFEA; --text-muted:#9DB0A6; --text-faint:#6A7A70;
+    --chrome:#081310; --chrome-2:#050D0B; --chrome-text:#E4F1EC; --chrome-muted:#83A79B;
+    --chrome-border:rgba(255,255,255,.07); --chrome-hover:rgba(255,255,255,.05);
+    --brand:#3FB39E; --brand-strong:#57C9B3; --brand-soft:#0F2A25; --brand-ink:#06110D;
+    --accent:#D8B25F; --accent-strong:#E7C77C; --accent-soft:#2B2412; --accent-bright:#E7C77C;
+    --success:#4CB07D; --success-soft:#123626; --success-ink:#84D6A9;
+    --warning:#D9A24C; --warning-soft:#38290F; --warning-ink:#EBBE7B;
+    --danger:#E37B67;  --danger-soft:#3A1712;  --danger-ink:#F0A796;
+    --info:#6FA3CC;    --info-soft:#12293A;    --info-ink:#9EC7E7;
+    --chart-1:#2FB49A; --chart-2:#D2723F; --chart-3:#D8B25F; --chart-4:#5A94CC;
+    --shadow-1:0 1px 2px rgba(0,0,0,.5);
+    --shadow-2:0 24px 50px -22px rgba(0,0,0,.7), 0 6px 16px -8px rgba(0,0,0,.4);
+    --shadow-chrome:0 0 0 1px rgba(0,0,0,.5), 8px 0 30px -18px rgba(0,0,0,.7);
+    color-scheme:dark;
+  }
+
+  *,*::before,*::after{ box-sizing:border-box; }
+  html,body{ margin:0; padding:0; }
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:var(--font-body); font-size:14px; line-height:1.6;
+    -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  }
+  h1,h2,h3,h4{ margin:0; font-family:var(--font-disp); font-weight:700; text-wrap:balance; letter-spacing:-.01em; }
+  p{ margin:0; } a{ color:inherit; text-decoration:none; }
+  ul{ list-style:none; margin:0; padding:0; }
+  button,input,select,textarea{ font:inherit; color:inherit; }
+  button{ cursor:pointer; background:none; border:none; }
+  table{ border-collapse:collapse; width:100%; }
+  ::selection{ background:var(--accent-soft); color:var(--text); }
+  :focus-visible{ outline:2px solid var(--accent); outline-offset:2px; border-radius:var(--r-sm); }
+
+  .lat{ font-family:var(--font-lat); direction:ltr; unicode-bidi:isolate; }
+  .num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; direction:ltr; unicode-bidi:isolate; display:inline-block; }
+  td.num,th.num{ display:table-cell; }
+  .sig{ font-family:var(--font-sig); }
+
+  @media (prefers-reduced-motion: reduce){
+    *{ animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; }
+  }
+  @keyframes rise{ from{ opacity:0; transform:translateY(7px); } to{ opacity:1; transform:none; } }
+
+  /* ============================= SHELL ============================= */
+  #app{ direction:rtl; display:flex; min-height:100vh; }
+
+  .sidebar{
+    width:264px; flex:none; align-self:stretch;
+    background:linear-gradient(190deg,var(--chrome),var(--chrome-2));
+    color:var(--chrome-text);
+    display:flex; flex-direction:column;
+    height:100vh; position:sticky; top:0; overflow-y:auto;
+    box-shadow:var(--shadow-chrome);
+  }
+  .brand{ display:flex; align-items:center; gap:11px; padding:18px 18px 16px; }
+  .brand-mark{ width:40px; height:40px; flex:none; border-radius:11px;
+    background:radial-gradient(120% 120% at 30% 20%, rgba(203,158,61,.22), transparent 60%), rgba(255,255,255,.05);
+    border:1px solid var(--chrome-border);
+    display:flex; align-items:center; justify-content:center; color:var(--accent-bright); }
+  .brand-mark svg{ width:25px; height:25px; }
+  .brand-name{ font-family:var(--font-sig); font-size:21px; font-weight:700; line-height:1; }
+  .brand-sub{ font-family:var(--font-sig); font-size:9.5px; color:var(--chrome-muted); letter-spacing:2.5px; text-transform:uppercase; margin-block-start:3px; }
+
+  .company{ margin:2px 12px 8px; padding:9px 11px; border-radius:var(--r-md);
+    background:var(--chrome-hover); border:1px solid var(--chrome-border);
+    display:flex; align-items:center; gap:9px; }
+  .company .co-badge{ width:26px; height:26px; border-radius:7px; flex:none; background:linear-gradient(150deg,var(--accent),var(--accent-strong)); color:#1c1405; font-weight:800; font-size:13px; display:flex; align-items:center; justify-content:center; }
+  .company .co-name{ font-weight:600; font-size:13px; }
+  .company .co-scope{ font-size:10.5px; color:var(--chrome-muted); }
+  .company .chev{ margin-inline-start:auto; color:var(--chrome-muted); }
+
+  .nav{ flex:1; padding:6px 12px 16px; }
+  .nav-group{ font-family:var(--font-sig); font-size:10px; letter-spacing:1.8px; text-transform:uppercase; color:var(--chrome-muted); padding:14px 10px 6px; }
+  .nav-item{ display:flex; align-items:center; gap:11px; width:100%; text-align:start;
+    padding:9px 11px; border-radius:var(--r-md); color:var(--chrome-text); position:relative;
+    font-size:13.5px; font-weight:500; opacity:.86; transition:background .14s, opacity .14s; }
+  .nav-item svg{ width:18px; height:18px; flex:none; opacity:.9; }
+  .nav-item .count{ margin-inline-start:auto; font-family:var(--font-mono); font-size:11px; color:var(--chrome-muted); }
+  .nav-item:hover{ background:var(--chrome-hover); opacity:1; }
+  .nav-item.active{ background:rgba(255,255,255,.08); opacity:1; color:#fff; }
+  .nav-item.active::before{ content:""; position:absolute; inset-inline-start:-12px; inset-block:6px; width:3px; border-radius:0 3px 3px 0; background:var(--accent-bright); }
+  .nav-item.active .count{ color:var(--accent-bright); }
+
+  .side-foot{ padding:12px; border-block-start:1px solid var(--chrome-border); display:flex; align-items:center; gap:10px; }
+  .avatar{ width:34px; height:34px; border-radius:50%; flex:none; background:linear-gradient(150deg,var(--accent),var(--accent-strong)); color:#1c1405; font-weight:800; display:flex; align-items:center; justify-content:center; font-size:13px; }
+  .side-foot .who{ font-size:13px; font-weight:600; line-height:1.2; }
+  .side-foot .role{ font-size:11px; color:var(--chrome-muted); }
+  .theme-btn{ margin-inline-start:auto; width:34px; height:34px; border-radius:var(--r-md); border:1px solid var(--chrome-border); color:var(--chrome-text); display:flex; align-items:center; justify-content:center; }
+  .theme-btn:hover{ background:var(--chrome-hover); }
+  .theme-btn svg{ width:17px; height:17px; }
+
+  .main-col{ flex:1; min-width:0; display:flex; flex-direction:column; }
+
+  /* ---- topbar ---- */
+  .topbar{ position:sticky; top:0; z-index:20; display:flex; align-items:center; gap:14px;
+    padding:12px 26px; background:color-mix(in srgb, var(--bg) 82%, transparent);
+    backdrop-filter:saturate(1.4) blur(10px); border-block-end:1px solid var(--border); }
+  .cmd{ position:relative; flex:1; max-width:560px; }
+  .cmd-input{ display:flex; align-items:center; gap:10px; width:100%; padding:9px 13px;
+    background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--r-md);
+    color:var(--text-faint); box-shadow:var(--shadow-1); transition:border-color .14s, box-shadow .14s; }
+  .cmd-input:hover,.cmd.open .cmd-input{ border-color:var(--accent); }
+  .cmd-input svg{ width:17px; height:17px; flex:none; }
+  .cmd-input span{ flex:1; font-size:13px; }
+  kbd{ font-family:var(--font-mono); font-size:11px; padding:2px 6px; border-radius:5px;
+    background:var(--surface-3); border:1px solid var(--border-strong); color:var(--text-muted); box-shadow:0 1px 0 var(--border-strong); }
+  .cmd-menu{ position:absolute; inset-inline:0; top:calc(100% + 7px); background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--r-md); box-shadow:var(--shadow-2); padding:6px; display:none; }
+  .cmd.open .cmd-menu{ display:block; animation:rise .16s ease both; }
+  .cmd-menu .grp{ font-family:var(--font-sig); font-size:10px; letter-spacing:1.4px; text-transform:uppercase; color:var(--text-faint); padding:8px 10px 4px; }
+  .cmd-opt{ display:flex; align-items:center; gap:10px; width:100%; text-align:start; padding:9px 10px; border-radius:6px; font-size:13.5px; color:var(--text); }
+  .cmd-opt:hover,.cmd-opt.hl{ background:var(--surface-2); }
+  .cmd-opt svg{ width:16px; height:16px; color:var(--text-muted); }
+  .cmd-opt .hint{ margin-inline-start:auto; }
+
+  .top-actions{ display:flex; align-items:center; gap:8px; margin-inline-start:auto; }
+  .icon-btn{ width:37px; height:37px; border-radius:var(--r-md); border:1px solid var(--border-strong); background:var(--surface); color:var(--text-muted); display:flex; align-items:center; justify-content:center; box-shadow:var(--shadow-1); }
+  .icon-btn:hover{ color:var(--text); border-color:var(--accent); }
+  .icon-btn svg{ width:18px; height:18px; }
+  .icon-btn.dot{ position:relative; }
+  .icon-btn.dot::after{ content:""; position:absolute; top:8px; inset-inline-end:9px; width:7px; height:7px; border-radius:50%; background:var(--danger); border:2px solid var(--surface); }
+
+  .content{ padding:26px; max-width:1240px; width:100%; margin-inline:auto; }
+  .view{ display:none; }
+  .view.active{ display:block; }
+  .view.active > *{ animation:rise .4s ease both; }
+  .view.active > *:nth-child(2){ animation-delay:.05s; }
+  .view.active > *:nth-child(3){ animation-delay:.1s; }
+  .view.active > *:nth-child(4){ animation-delay:.15s; }
+  .view.active > *:nth-child(5){ animation-delay:.2s; }
+
+  /* ---- page header + fulcrum rule (signature) ---- */
+  .page-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-block-end:18px; }
+  .eyebrow{ font-family:var(--font-sig); font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--accent-strong); margin-block-end:7px; }
+  .page-title{ font-size:26px; font-weight:800; }
+  .page-desc{ color:var(--text-muted); font-size:13px; margin-block-start:6px; max-width:64ch; }
+  .fulcrum{ position:relative; height:1px; background:var(--border-strong); margin:4px 0 20px; }
+  .fulcrum::before{ content:""; position:absolute; inset-inline-start:0; top:-3px; width:34px; height:7px; border-radius:99px; background:linear-gradient(90deg,var(--accent),transparent); }
+  .fulcrum::after{ content:""; position:absolute; inset-inline-start:44px; top:-4px; width:0; height:0; border-inline:5px solid transparent; border-block-end:9px solid var(--accent); }
+  .page-actions{ display:flex; gap:8px; flex:none; }
+
+  .btn{ display:inline-flex; align-items:center; gap:7px; padding:9px 15px; border-radius:var(--r-md);
+    border:1px solid var(--border-strong); background:var(--surface); color:var(--text); font-weight:600; font-size:13px;
+    box-shadow:var(--shadow-1); transition:border-color .14s, transform .06s, background .14s; }
+  .btn:hover{ border-color:var(--accent); }
+  .btn:active{ transform:translateY(1px); }
+  .btn.sm{ padding:6px 11px; font-size:12.5px; }
+  .btn svg{ width:15px; height:15px; }
+  .btn.primary{ background:linear-gradient(160deg,var(--brand),var(--brand-strong)); color:var(--brand-ink); border-color:transparent; }
+  .btn.primary:hover{ filter:brightness(1.08); }
+  .btn.gold{ background:linear-gradient(160deg,var(--accent),var(--accent-strong)); color:#1c1405; border-color:transparent; }
+
+  /* ---- cards ---- */
+  .card{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); }
+  .card-pad{ padding:18px; }
+  .card-title{ font-size:15px; font-weight:700; }
+  .card-hint{ font-size:12px; color:var(--text-faint); }
+
+  /* ---- KPI strip with micro-beam ---- */
+  .kpi-strip{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-block-end:18px; }
+  .kpi{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md); padding:15px 16px; box-shadow:var(--shadow-1); transition:transform .12s, box-shadow .12s; }
+  .kpi:hover{ transform:translateY(-2px); box-shadow:var(--shadow-2); }
+  .kpi .k-label{ font-size:12px; color:var(--text-muted); }
+  .kpi .k-val{ font-family:var(--font-mono); font-size:24px; font-weight:600; letter-spacing:-.02em; margin-block:6px 4px; }
+  .kpi .k-val .unit{ font-family:var(--font-body); font-size:12px; color:var(--text-faint); font-weight:500; }
+  .k-delta{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; }
+  .k-delta .mbeam{ width:18px; height:12px; }
+  .k-delta.up{ color:var(--success-ink); } .k-delta.down{ color:var(--danger-ink); } .k-delta.flat{ color:var(--text-muted); }
+
+  /* ---- dashboard grids ---- */
+  .dash-hero{ display:grid; grid-template-columns:1.55fr 1fr; gap:16px; margin-block-end:18px; }
+  .beam-card{ padding:20px 22px; position:relative; overflow:hidden; }
+  .beam-card .bh{ display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-block-end:6px; }
+  .beam-verdict{ text-align:center; margin-block-start:2px; }
+  .beam-verdict .net{ font-family:var(--font-mono); font-size:30px; font-weight:600; letter-spacing:-.02em; }
+  .beam-verdict .net.pos{ color:var(--success-ink); } .beam-verdict .net.neg{ color:var(--danger-ink); }
+  .beam-verdict .cap{ font-size:12px; color:var(--text-muted); }
+  .beam-stage{ display:block; width:100%; height:210px; }
+  .beam-pans{ display:flex; justify-content:space-between; padding:0 6px; margin-block-start:2px; }
+  .pan-label{ text-align:center; }
+  .pan-label .p-name{ font-size:12px; color:var(--text-muted); }
+  .pan-label .p-val{ font-family:var(--font-mono); font-size:15px; font-weight:600; }
+
+  .followups{ display:flex; flex-direction:column; }
+  .followups .fu-head{ display:flex; align-items:baseline; justify-content:space-between; margin-block-end:12px; }
+  .fu{ display:flex; align-items:center; gap:12px; padding:11px 0; border-block-start:1px solid var(--border); }
+  .fu:first-of-type{ border-block-start:none; }
+  .fu .fu-ic{ width:34px; height:34px; border-radius:9px; flex:none; display:flex; align-items:center; justify-content:center; }
+  .fu .fu-ic svg{ width:17px; height:17px; }
+  .fu-ic.warn{ background:var(--warning-soft); color:var(--warning-ink); }
+  .fu-ic.dang{ background:var(--danger-soft); color:var(--danger-ink); }
+  .fu-ic.info{ background:var(--info-soft); color:var(--info-ink); }
+  .fu .t{ font-size:13.5px; font-weight:600; } .fu .s{ font-size:12px; color:var(--text-muted); }
+  .fu .btn{ margin-inline-start:auto; }
+
+  .dash-row3{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-block-end:18px; }
+  .dash-row2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+
+  /* aging heat matrix */
+  .aging{ font-size:12.5px; }
+  .aging th{ text-align:start; padding:7px 8px; color:var(--text-muted); font-weight:600; font-size:11.5px; }
+  .aging td{ padding:5px 6px; }
+  .heat{ display:block; text-align:center; padding:8px 4px; border-radius:6px; font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:12.5px; }
+  .heat.z{ color:var(--text-faint); background:var(--surface-2); }
+
+  /* donut */
+  .donut-wrap{ display:flex; align-items:center; gap:20px; }
+  .donut{ width:120px; height:120px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; position:relative;
+    background:conic-gradient(var(--chart-1) 0 62%, var(--chart-2) 62% 82%, var(--chart-3) 82% 94%, var(--chart-4) 94% 100%); }
+  .donut::after{ content:""; position:absolute; inset:15px; border-radius:50%; background:var(--surface); }
+  .donut-center{ position:relative; z-index:1; text-align:center; }
+  .donut-center b{ font-family:var(--font-mono); font-size:18px; font-weight:600; display:block; }
+  .donut-center span{ font-size:10px; color:var(--text-faint); }
+  .donut-legend{ flex:1; display:flex; flex-direction:column; gap:9px; }
+  .dl-row{ display:flex; align-items:center; gap:9px; font-size:12.5px; }
+  .sw{ width:11px; height:11px; border-radius:3px; flex:none; }
+  .dl-row .nm{ flex:1; } .dl-row .pc{ font-family:var(--font-mono); color:var(--text-muted); }
+
+  .rank{ display:flex; flex-direction:column; gap:2px; }
+  .rank-row{ display:flex; align-items:center; gap:11px; padding:8px 4px; border-radius:7px; }
+  .rank-row:hover{ background:var(--surface-2); }
+  .rank-n{ width:22px; height:22px; border-radius:6px; flex:none; background:var(--brand-soft); color:var(--brand); font-family:var(--font-mono); font-weight:600; font-size:12px; display:flex; align-items:center; justify-content:center; }
+  .rank-row .nm{ flex:1; font-size:13px; font-weight:500; }
+  .rank-row .mt{ font-family:var(--font-mono); font-size:11.5px; color:var(--text-faint); }
+  .rank-row .vl{ font-family:var(--font-mono); font-size:13px; font-weight:600; }
+
+  /* ---- chips + toolbar ---- */
+  .chips{ display:flex; flex-wrap:wrap; gap:8px; margin-block-end:14px; }
+  .chip{ display:inline-flex; align-items:center; gap:7px; padding:7px 13px; border-radius:var(--r-pill);
+    border:1px solid var(--border-strong); background:var(--surface); font-size:12.5px; font-weight:600; color:var(--text-muted); transition:.14s; }
+  .chip .n{ font-family:var(--font-mono); font-size:11px; padding:1px 6px; border-radius:99px; background:var(--surface-3); color:var(--text-muted); }
+  .chip:hover{ border-color:var(--accent); color:var(--text); }
+  .chip.active{ background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+  .chip.active .n{ background:rgba(255,255,255,.2); color:#fff; }
+
+  .toolbar{ display:flex; gap:10px; margin-block-end:14px; }
+  .search{ flex:1; max-width:420px; display:flex; align-items:center; gap:9px; padding:9px 13px; background:var(--surface); border:1px solid var(--border-strong); border-radius:var(--r-md); box-shadow:var(--shadow-1); }
+  .search svg{ width:17px; height:17px; color:var(--text-faint); flex:none; }
+  .search input{ flex:1; border:none; background:none; outline:none; font-size:13px; }
+
+  /* ---- data table ---- */
+  .table-wrap{ background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); box-shadow:var(--shadow-1); overflow:hidden; }
+  .tscroll{ overflow-x:auto; }
+  .dt{ font-size:13px; }
+  .dt thead th{ position:sticky; top:0; background:var(--surface-2); text-align:start; font-weight:600; font-size:11.5px; letter-spacing:.3px;
+    color:var(--text-muted); padding:11px 14px; border-block-end:1px solid var(--border); white-space:nowrap; }
+  .dt thead th.sortable{ cursor:pointer; }
+  .dt thead th.sortable::after{ content:"⇅"; font-size:10px; color:var(--text-faint); margin-inline-start:5px; }
+  .dt tbody td{ padding:9px 14px; border-block-start:1px solid var(--border); white-space:nowrap; }
+  .dt tbody tr{ transition:background .1s; }
+  .dt tbody tr:nth-child(even){ background:color-mix(in srgb, var(--surface-2) 55%, transparent); }
+  .dt tbody tr:hover{ background:var(--surface-2); }
+  .dt .cell-main{ font-weight:600; }
+  .dt .cell-sub{ font-size:11px; color:var(--text-faint); margin-block-start:1px; }
+  .row-act{ opacity:0; transition:opacity .12s; }
+  .dt tbody tr:hover .row-act{ opacity:1; }
+  .link-cell{ color:var(--brand); font-weight:600; cursor:pointer; }
+  .dt tfoot td{ padding:11px 14px; border-block-start:2px solid var(--border-strong); font-weight:700; background:var(--surface-2); }
+
+  .pill{ display:inline-flex; align-items:center; gap:5px; padding:3px 10px; border-radius:var(--r-pill); font-size:11.5px; font-weight:600; }
+  .pill::before{ content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .pill.paid{ background:var(--success-soft); color:var(--success-ink); }
+  .pill.confirmed{ background:var(--info-soft); color:var(--info-ink); }
+  .pill.partial{ background:var(--warning-soft); color:var(--warning-ink); }
+  .pill.draft{ background:var(--surface-3); color:var(--text-muted); }
+  .pill.overdue{ background:var(--danger-soft); color:var(--danger-ink); }
+
+  .pager{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-block-start:1px solid var(--border); font-size:12.5px; color:var(--text-muted); }
+  .pager .pp{ display:flex; gap:5px; }
+  .pager .pp button{ min-width:30px; height:30px; border-radius:7px; border:1px solid var(--border-strong); font-family:var(--font-mono); font-size:12px; color:var(--text-muted); }
+  .pager .pp button.active{ background:var(--brand); color:var(--brand-ink); border-color:var(--brand); }
+
+  /* ---- document detail ---- */
+  .doc-head{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-block-end:16px; }
+  .doc-title-row{ display:flex; align-items:center; gap:11px; }
+  .doc-title-row h1{ font-size:23px; font-weight:800; }
+  .summary-grid{ display:grid; grid-template-columns:repeat(6,1fr); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; margin-block-end:16px; }
+  .sc{ background:var(--surface); padding:13px 15px; }
+  .sc .label{ font-size:11px; color:var(--text-muted); } .sc .value{ font-size:15px; font-weight:700; font-family:var(--font-mono); margin-block-start:4px; }
+  .sc .value.ar{ font-family:var(--font-disp); }
+
+  .effects{ display:flex; gap:14px; padding:16px 18px; margin-block-end:18px;
+    background:linear-gradient(180deg,var(--brand-soft),transparent); border:1px solid var(--border); border-inline-start:3px solid var(--accent); border-radius:var(--r-lg); }
+  .effects .glyph{ width:38px; height:38px; flex:none; border-radius:10px; background:var(--surface); border:1px solid var(--border); color:var(--brand); display:flex; align-items:center; justify-content:center; }
+  .effects .glyph svg{ width:20px; height:20px; }
+  .effects h3{ font-size:14px; margin-block-end:7px; }
+  .effects ul{ display:flex; flex-direction:column; gap:5px; font-size:13px; color:var(--text-muted); }
+  .effects li{ padding-inline-start:16px; position:relative; }
+  .effects li::before{ content:""; position:absolute; inset-inline-start:0; top:9px; width:5px; height:5px; border-radius:50%; background:var(--accent); }
+  .effects b{ color:var(--text); }
+
+  .grid-2{ display:grid; grid-template-columns:1.7fr 1fr; gap:16px; align-items:start; }
+  .tabs{ display:flex; gap:4px; border-block-end:1px solid var(--border); margin-block-end:0; }
+  .tab-btn{ padding:10px 14px; font-size:13px; font-weight:600; color:var(--text-muted); border-block-end:2px solid transparent; margin-block-end:-1px; }
+  .tab-btn.active{ color:var(--brand); border-block-end-color:var(--accent); }
+  .tab-panel{ display:none; padding-block-start:14px; } .tab-panel.active{ display:block; }
+
+  .mini-note{ font-size:12.5px; color:var(--text-muted); line-height:1.7; }
+
+  /* ---- report / statement ---- */
+  .range-toggle{ display:inline-flex; border:1px solid var(--border-strong); border-radius:var(--r-md); overflow:hidden; }
+  .range-toggle button{ padding:7px 14px; font-size:12.5px; font-weight:600; color:var(--text-muted); border-inline-start:1px solid var(--border); }
+  .range-toggle button:first-child{ border-inline-start:none; }
+  .range-toggle button.active{ background:var(--brand); color:var(--brand-ink); }
+
+  .stmt{ font-size:13px; }
+  .stmt th{ text-align:start; padding:11px 16px; font-size:11.5px; color:var(--text-muted); font-weight:600; border-block-end:1px solid var(--border); background:var(--surface-2); }
+  .stmt th.num{ text-align:end; }
+  .stmt td{ padding:9px 16px; border-block-start:1px solid var(--border); }
+  .stmt td.num{ text-align:end; }
+  .stmt tr.section td{ font-family:var(--font-disp); font-weight:700; background:var(--surface-2); font-size:13px; }
+  .stmt tr.total td{ font-weight:700; border-block-start:2px solid var(--border-strong); }
+  .stmt tr.grand td{ font-weight:800; background:var(--brand-soft); color:var(--brand); border-block:2px solid var(--brand); }
+  .stmt .indent{ padding-inline-start:34px; color:var(--text-muted); }
+  .vbeam{ display:inline-flex; align-items:center; gap:6px; justify-content:flex-end; width:100%; }
+  .vbeam .vb-num{ font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:12.5px; }
+  .vbeam .vb-num.up{ color:var(--success-ink); } .vbeam .vb-num.down{ color:var(--danger-ink); }
+
+  .toast{ position:fixed; inset-block-end:24px; inset-inline-start:50%; transform:translateX(50%) translateY(200%);
+    background:var(--brand-strong); color:#fff; padding:11px 18px; border-radius:var(--r-md); box-shadow:var(--shadow-2); font-size:13px; font-weight:600; z-index:60;
+    opacity:0; visibility:hidden; transition:transform .3s cubic-bezier(.2,.8,.2,1), opacity .2s, visibility .3s; }
+  .toast.show{ transform:translateX(50%) translateY(0); opacity:1; visibility:visible; }
+
+  /* ---- side panel ---- */
+  .scrim{ position:fixed; inset:0; background:rgba(8,20,16,.45); backdrop-filter:blur(2px); z-index:40; opacity:0; pointer-events:none; transition:opacity .2s; }
+  .scrim.show{ opacity:1; pointer-events:auto; }
+  .side-panel{ position:fixed; inset-block:0; inset-inline-end:0; width:380px; max-width:90vw; z-index:50;
+    background:var(--surface); border-inline-start:1px solid var(--border); box-shadow:var(--shadow-2);
+    transform:translateX(-110%); transition:transform .26s cubic-bezier(.2,.8,.2,1); display:flex; flex-direction:column; }
+  .side-panel.show{ transform:translateX(0); }
+  .sp-head{ display:flex; align-items:center; justify-content:space-between; padding:16px 18px; border-block-end:1px solid var(--border); }
+  .sp-body{ padding:18px; overflow-y:auto; display:flex; flex-direction:column; gap:16px; }
+  .sp-close{ width:32px; height:32px; border-radius:8px; border:1px solid var(--border-strong); display:flex; align-items:center; justify-content:center; color:var(--text-muted); }
+
+  @media (max-width:1080px){
+    .kpi-strip{ grid-template-columns:repeat(2,1fr); }
+    .dash-hero,.grid-2,.dash-row2{ grid-template-columns:1fr; }
+    .dash-row3{ grid-template-columns:1fr; }
+    .summary-grid{ grid-template-columns:repeat(3,1fr); }
+  }
+  @media (max-width:760px){
+    .sidebar{ position:fixed; inset-inline-start:-280px; z-index:70; transition:inset-inline-start .24s; }
+    .sidebar.open{ inset-inline-start:0; }
+    .summary-grid{ grid-template-columns:repeat(2,1fr); }
+    .kpi-strip{ grid-template-columns:1fr 1fr; }
+    .content{ padding:16px; }
+    .page-actions{ display:none; }
+  }
+</style>
+
+<div id="app">
+  <!-- ============================ SIDEBAR ============================ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 48 48" fill="none" aria-hidden="true">
+          <line x1="24" y1="8" x2="24" y2="34" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <line x1="10" y1="15" x2="38" y2="15" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          <circle cx="24" cy="15" r="2.4" fill="currentColor"/>
+          <path d="M10 15 L4.5 26 A7 7 0 0 0 15.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M38 15 L32.5 26 A7 7 0 0 0 43.5 26 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+          <path d="M16 34 H32 L29 41 H19 Z" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <div>
+        <div class="brand-name">ميزان</div>
+        <div class="brand-sub">Mezan ERP</div>
+      </div>
+    </div>
+
+    <button class="company">
+      <span class="co-badge">C</span>
+      <div>
+        <div class="co-name"><span class="lat">Cyag</span></div>
+        <div class="co-scope">الفرع الرئيسي · كل الفروع</div>
+      </div>
+      <span class="chev"><svg viewBox="0 0 16 16" width="14" height="14" fill="none"><path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    </button>
+
+    <nav class="nav" id="nav">
+      <div class="nav-group">الرئيسية</div>
+      <button class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M3 10.5 10 4l7 6.5M5 9v7h10V9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        لوحة التحكم
+      </button>
+      <div class="nav-group">المبيعات</div>
+      <button class="nav-item" data-view="invoices">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M5 3h10v14l-2.5-1.5L10 17l-2.5-1.5L5 17V3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8 7h4M8 10h4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+        فواتير المبيعات <span class="count">148</span>
+      </button>
+      <button class="nav-item" data-view="invoices">
+        <svg viewBox="0 0 20 20" fill="none"><circle cx="7" cy="15" r="1.6" stroke="currentColor" stroke-width="1.4"/><circle cx="15" cy="15" r="1.6" stroke="currentColor" stroke-width="1.4"/><path d="M2 3h2l2 9h9l2-6H6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        العملاء
+      </button>
+      <div class="nav-group">المحاسبة</div>
+      <button class="nav-item" data-view="report">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M4 16V8M8 16V4M12 16v-6M16 16v-9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+        القوائم المالية
+      </button>
+      <button class="nav-item" data-view="invoices">
+        <svg viewBox="0 0 20 20" fill="none"><rect x="3" y="3" width="14" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3 8h14M8 8v9" stroke="currentColor" stroke-width="1.5"/></svg>
+        دليل الحسابات
+      </button>
+      <div class="nav-group">المخزون</div>
+      <button class="nav-item" data-view="invoices">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M3 7l7-4 7 4v6l-7 4-7-4V7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M3 7l7 4 7-4M10 11v6" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        الأصناف والمخازن
+      </button>
+    </nav>
+
+    <div class="side-foot">
+      <span class="avatar">م</span>
+      <div>
+        <div class="who">محمد الشهابي</div>
+        <div class="role">مدير المنشأة</div>
+      </div>
+      <button class="theme-btn" id="themeBtn" title="تبديل السمة" aria-label="تبديل السمة">
+        <svg id="themeIcon" viewBox="0 0 20 20" fill="none"><path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <div class="main-col">
+    <!-- ============================ TOPBAR ============================ -->
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="القائمة" style="display:none">
+        <svg viewBox="0 0 20 20" fill="none"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+      </button>
+      <div class="cmd" id="cmd">
+        <button class="cmd-input" id="cmdInput" aria-haspopup="listbox">
+          <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+          <span>ابحث أو نفّذ أمراً… فاتورة، عميل، قيد، تقرير</span>
+          <kbd>⌘K</kbd>
+        </button>
+        <div class="cmd-menu" id="cmdMenu" role="listbox">
+          <div class="grp">انتقال سريع</div>
+          <button class="cmd-opt" data-view="dashboard"><svg viewBox="0 0 20 20" fill="none"><path d="M3 10.5 10 4l7 6.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg> لوحة التحكم <kbd class="hint">g d</kbd></button>
+          <button class="cmd-opt" data-view="invoices"><svg viewBox="0 0 20 20" fill="none"><path d="M5 3h10v14l-2.5-1.5L10 17l-2.5-1.5L5 17Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg> فواتير المبيعات <kbd class="hint">g i</kbd></button>
+          <button class="cmd-opt" data-view="detail"><svg viewBox="0 0 20 20" fill="none"><rect x="4" y="3" width="12" height="14" rx="2" stroke="currentColor" stroke-width="1.5"/></svg> فاتورة <span class="lat">INV-000123</span></button>
+          <button class="cmd-opt" data-view="report"><svg viewBox="0 0 20 20" fill="none"><path d="M4 16V8M9 16V4M14 16v-7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> قائمة الدخل <kbd class="hint">g r</kbd></button>
+          <div class="grp">إنشاء</div>
+          <button class="cmd-opt" data-toast="أُنشئت مسودة فاتورة جديدة"><svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> فاتورة مبيعات جديدة <kbd class="hint">⌘N</kbd></button>
+          <button class="cmd-opt" data-toast="فُتح نموذج استلام البضاعة"><svg viewBox="0 0 20 20" fill="none"><path d="M10 4v12M4 10h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg> استلام بضاعة</button>
+        </div>
+      </div>
+      <div class="top-actions">
+        <button class="icon-btn dot" aria-label="التنبيهات"><svg viewBox="0 0 20 20" fill="none"><path d="M6 8a4 4 0 1 1 8 0c0 4 1.5 5 1.5 5h-11S6 12 6 8Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M8.5 16a1.5 1.5 0 0 0 3 0" stroke="currentColor" stroke-width="1.5"/></svg></button>
+        <button class="btn primary sm" data-toast="أُنشئت مسودة فاتورة جديدة">فاتورة جديدة</button>
+      </div>
+    </header>
+
+    <div class="content">
+      <!-- ======================= DASHBOARD ======================= -->
+      <section class="view active" data-view="dashboard">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">نظرة عامة</div>
+            <h1 class="page-title">مساء الخير، محمد</h1>
+            <div class="page-desc">الجمعة، ٢٢ أغسطس ٢٠٢٦ · الأرقام على مستوى الشركة بغض النظر عن الفرع المحدد أعلاه</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn sm">سند نقدي</button>
+            <button class="btn sm">استلام بضاعة</button>
+            <button class="btn sm gold" data-toast="أُنشئت مسودة فاتورة جديدة">فاتورة جديدة</button>
+          </div>
+        </div>
+        <div class="fulcrum"></div>
+
+        <div class="kpi-strip">
+          <div class="kpi">
+            <div class="k-label">إجمالي الإيرادات · أغسطس</div>
+            <div class="k-val">86,240<span class="unit"> ج.م</span></div>
+            <div class="k-delta up">
+              <svg class="mbeam" viewBox="0 0 18 12" fill="none"><line x1="9" y1="2" x2="9" y2="4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="7" x2="16" y2="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 11h4l-1.2-2.4H8.2Z" fill="currentColor"/></svg>
+              <span class="num">12.4%</span> عن يوليو
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="k-label">المصروفات التشغيلية</div>
+            <div class="k-val">61,930<span class="unit"> ج.م</span></div>
+            <div class="k-delta down">
+              <svg class="mbeam" viewBox="0 0 18 12" fill="none"><line x1="9" y1="2" x2="9" y2="4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="3" x2="16" y2="7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 11h4l-1.2-2.4H8.2Z" fill="currentColor"/></svg>
+              <span class="num">4.1%</span> عن يوليو
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="k-label">صافي الربح</div>
+            <div class="k-val" style="color:var(--success-ink)">24,310<span class="unit"> ج.م</span></div>
+            <div class="k-delta up">
+              <svg class="mbeam" viewBox="0 0 18 12" fill="none"><line x1="9" y1="2" x2="9" y2="4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/><line x1="2" y1="7" x2="16" y2="3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M7 11h4l-1.2-2.4H8.2Z" fill="currentColor"/></svg>
+              هامش <span class="num">28.2%</span>
+            </div>
+          </div>
+          <div class="kpi">
+            <div class="k-label">السيولة النقدية</div>
+            <div class="k-val">143,880<span class="unit"> ج.م</span></div>
+            <div class="k-delta flat">صناديق وبنوك نشطة · <span class="num">4</span></div>
+          </div>
+        </div>
+
+        <div class="dash-hero">
+          <div class="card beam-card">
+            <div class="bh">
+              <div>
+                <div class="eyebrow">ميزان الشهر</div>
+                <h3 class="card-title">الإيرادات في كفّة، المصروفات في كفّة</h3>
+              </div>
+              <div class="range-toggle">
+                <button class="active">أغسطس</button><button>الربع</button><button>السنة</button>
+              </div>
+            </div>
+            <svg class="beam-stage" viewBox="0 0 560 210" aria-label="ميزان يميل نحو الربح">
+              <!-- base + column -->
+              <path d="M230 196 H330 L318 205 H242 Z" fill="var(--brand)" opacity=".9"/>
+              <rect x="274" y="96" width="12" height="104" rx="3" fill="var(--brand)"/>
+              <!-- fulcrum triangle -->
+              <path d="M280 84 L296 104 H264 Z" fill="var(--accent)"/>
+              <!-- rotating beam group -->
+              <g id="beamGroup" style="transform-box:view-box; transform-origin:280px 92px; transition:transform 1.1s cubic-bezier(.2,.9,.25,1)">
+                <line x1="120" y1="92" x2="440" y2="92" stroke="var(--brand-strong)" stroke-width="6" stroke-linecap="round"/>
+                <circle cx="280" cy="92" r="7" fill="var(--accent)"/>
+                <!-- revenue pan (start side = right in RTL) -->
+                <line x1="440" y1="92" x2="440" y2="120" stroke="var(--border-strong)" stroke-width="2"/>
+                <path d="M410 120 A30 30 0 0 0 470 120 Z" fill="var(--chart-1)" opacity=".18" stroke="var(--chart-1)" stroke-width="2"/>
+                <text x="440" y="115" text-anchor="middle" font-family="Reem Kufi" font-size="11" fill="var(--chart-1)">إيرادات</text>
+                <!-- expense pan -->
+                <line x1="120" y1="92" x2="120" y2="120" stroke="var(--border-strong)" stroke-width="2"/>
+                <path d="M92 120 A28 28 0 0 0 148 120 Z" fill="var(--chart-2)" opacity=".18" stroke="var(--chart-2)" stroke-width="2"/>
+                <text x="120" y="115" text-anchor="middle" font-family="Reem Kufi" font-size="11" fill="var(--chart-2)">مصروفات</text>
+              </g>
+            </svg>
+            <div class="beam-pans">
+              <div class="pan-label"><div class="p-name">الإيرادات</div><div class="p-val" style="color:var(--chart-1)">86,240</div></div>
+              <div class="beam-verdict">
+                <div class="net pos">+24,310 <span style="font-size:14px">ج.م</span></div>
+                <div class="cap">يميل الميزان نحو الربح هذا الشهر</div>
+              </div>
+              <div class="pan-label"><div class="p-name">المصروفات</div><div class="p-val" style="color:var(--chart-2)">61,930</div></div>
+            </div>
+          </div>
+
+          <div class="card card-pad followups">
+            <div class="fu-head">
+              <h3 class="card-title">يحتاج متابعة</h3>
+              <span class="card-hint">أولويات اليوم</span>
+            </div>
+            <div class="fu">
+              <span class="fu-ic dang"><svg viewBox="0 0 20 20" fill="none"><path d="M10 3 2 17h16L10 3Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M10 8v4M10 14.5v.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></span>
+              <div><div class="t">فاتورتان متأخرتان</div><div class="s"><span class="num">939.30</span> ج.م · شركة الأمل</div></div>
+              <button class="btn sm gold" data-toast="فُتحت شاشة التحصيل">تحصيل</button>
+            </div>
+            <div class="fu">
+              <span class="fu-ic warn"><svg viewBox="0 0 20 20" fill="none"><rect x="3" y="5" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M3 9h14" stroke="currentColor" stroke-width="1.5"/></svg></span>
+              <div><div class="t">ضريبة القيمة المضافة مستحقة</div><div class="s"><span class="num">3,308.70</span> ج.م · حتى ٣٠ أغسطس</div></div>
+              <button class="btn sm">سداد</button>
+            </div>
+            <div class="fu">
+              <span class="fu-ic info"><svg viewBox="0 0 20 20" fill="none"><path d="M3 7l7-4 7 4v6l-7 4-7-4V7Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg></span>
+              <div><div class="t">٣ أصناف تحت حد الطلب</div><div class="s">سلك نحاس ٢.٥مم وغيره</div></div>
+              <button class="btn sm">مراجعة</button>
+            </div>
+            <div class="fu">
+              <span class="fu-ic info"><svg viewBox="0 0 20 20" fill="none"><path d="M4 10a6 6 0 1 1 12 0 6 6 0 0 1-12 0Z" stroke="currentColor" stroke-width="1.5"/><path d="M10 7v3l2 1.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg></span>
+              <div><div class="t">أمر تصنيع بانتظار الاعتماد</div><div class="s"><span class="lat">WO-0011</span> · لوحة توزيع ١٢ خط</div></div>
+              <button class="btn sm">اعتماد</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="dash-row2">
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:12px">المبالغ المتأخرة حسب العمر</h3>
+            <table class="aging">
+              <thead><tr><th>الجهة</th><th>١–٣٠ يوم</th><th>٣١–٦٠</th><th>٦١–٩٠</th><th>+٩٠ يوم</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td>العملاء</td>
+                  <td><span class="heat" style="background:var(--warning-soft);color:var(--warning-ink)">612.30</span></td>
+                  <td><span class="heat" style="background:var(--warning-soft);color:var(--warning-ink)">227.00</span></td>
+                  <td><span class="heat" style="background:var(--danger-soft);color:var(--danger-ink)">100.00</span></td>
+                  <td><span class="heat z">0.00</span></td>
+                </tr>
+                <tr>
+                  <td>الموردون</td>
+                  <td><span class="heat" style="background:var(--warning-soft);color:var(--warning-ink)">110.00</span></td>
+                  <td><span class="heat z">0.00</span></td>
+                  <td><span class="heat z">0.00</span></td>
+                  <td><span class="heat z">0.00</span></td>
+                </tr>
+              </tbody>
+            </table>
+            <h3 class="card-title" style="margin-block:20px 12px">الأصناف الأعلى مبيعاً</h3>
+            <div class="rank">
+              <div class="rank-row"><span class="rank-n">1</span><span class="nm">سلك نحاس ٢.٥مم <span class="lat" style="color:var(--text-faint);font-size:11px">WIRE-CU</span></span><span class="mt">420 وحدة</span><span class="vl">18,900</span></div>
+              <div class="rank-row"><span class="rank-n">2</span><span class="nm">قاطع كهرباء 32A</span><span class="mt">310 وحدة</span><span class="vl">14,260</span></div>
+              <div class="rank-row"><span class="rank-n">3</span><span class="nm">لوحة توزيع ١٢ خط</span><span class="mt">96 وحدة</span><span class="vl">9,880</span></div>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <h3 class="card-title" style="margin-block-end:14px">توزيع المصروفات</h3>
+            <div class="donut-wrap">
+              <div class="donut"><div class="donut-center"><b>61.9k</b><span>الإجمالي ج.م</span></div></div>
+              <div class="donut-legend">
+                <div class="dl-row"><span class="sw" style="background:var(--chart-1)"></span><span class="nm">تكلفة البضاعة المباعة</span><span class="pc">62%</span></div>
+                <div class="dl-row"><span class="sw" style="background:var(--chart-2)"></span><span class="nm">رواتب وأجور</span><span class="pc">20%</span></div>
+                <div class="dl-row"><span class="sw" style="background:var(--chart-3)"></span><span class="nm">إيجار ومرافق</span><span class="pc">12%</span></div>
+                <div class="dl-row"><span class="sw" style="background:var(--chart-4)"></span><span class="nm">مصروفات أخرى</span><span class="pc">6%</span></div>
+              </div>
+            </div>
+            <h3 class="card-title" style="margin-block:22px 12px">النشاط الأخير</h3>
+            <div class="rank">
+              <div class="rank-row"><span class="rank-n" style="background:var(--success-soft);color:var(--success-ink)">✓</span><span class="nm">تحصيل دفعة — شركة الأمل للتجارة</span><span class="mt">قبل ١٧ د</span></div>
+              <div class="rank-row"><span class="rank-n" style="background:var(--info-soft);color:var(--info-ink)">i</span><span class="nm">اكتمل أمر التصنيع <span class="lat">WO-0010</span></span><span class="mt">قبل ٣ س</span></div>
+              <div class="rank-row"><span class="rank-n" style="background:var(--brand-soft);color:var(--brand)">م</span><span class="nm">أنشأ محمد فاتورة <span class="lat">INV-000123</span></span><span class="mt">أمس</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= INVOICES LIST ======================= -->
+      <section class="view" data-view="invoices">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">المبيعات · الفواتير</div>
+            <h1 class="page-title">فواتير المبيعات</h1>
+            <div class="page-desc">شريط مؤشرات، رقاقات حالة تصفّي القائمة، بحث فوري، وجدول كثيف قابل للفرز</div>
+          </div>
+          <div class="page-actions">
+            <button class="btn"><svg viewBox="0 0 16 16" fill="none"><path d="M4 6V3h8v3M4 11h8v3H4zM4 6h8v5H4z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg> طباعة</button>
+            <button class="btn gold" data-toast="أُنشئت مسودة فاتورة جديدة">فاتورة جديدة</button>
+          </div>
+        </div>
+        <div class="fulcrum"></div>
+
+        <div class="kpi-strip">
+          <div class="kpi"><div class="k-label">إجمالي الفواتير</div><div class="k-val">148</div><div class="k-delta flat">هذا الشهر <span class="num">31</span></div></div>
+          <div class="kpi"><div class="k-label">مؤكدة</div><div class="k-val">131</div><div class="k-delta up"><span class="num">88%</span> من الإجمالي</div></div>
+          <div class="kpi"><div class="k-label">مدفوعة بالكامل</div><div class="k-val" style="color:var(--success-ink)">94</div><div class="k-delta flat"><span class="num">63.5%</span></div></div>
+          <div class="kpi"><div class="k-label">متأخرة</div><div class="k-val" style="color:var(--danger-ink)">2</div><div class="k-delta down"><span class="num">939.30</span> ج.م</div></div>
+        </div>
+
+        <div class="chips" id="chips">
+          <button class="chip active" data-status="all">الكل <span class="n">148</span></button>
+          <button class="chip" data-status="draft">مسودة <span class="n">6</span></button>
+          <button class="chip" data-status="confirmed">مؤكد <span class="n">35</span></button>
+          <button class="chip" data-status="partial">مدفوع جزئياً <span class="n">11</span></button>
+          <button class="chip" data-status="paid">مدفوع <span class="n">94</span></button>
+          <button class="chip" data-status="overdue">متأخر <span class="n">2</span></button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search">
+            <svg viewBox="0 0 20 20" fill="none"><circle cx="9" cy="9" r="6" stroke="currentColor" stroke-width="1.6"/><path d="m17 17-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input type="text" placeholder="بحث برقم الفاتورة أو اسم العميل…  (اضغط / )" id="invSearch">
+          </div>
+          <button class="btn"><svg viewBox="0 0 16 16" fill="none"><path d="M2 4h12M4.5 8h7M7 12h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg> تصفية</button>
+        </div>
+
+        <div class="table-wrap">
+          <div class="tscroll">
+            <table class="dt" id="invTable">
+              <thead>
+                <tr>
+                  <th class="sortable">رقم الفاتورة</th>
+                  <th class="sortable">التاريخ</th>
+                  <th>العميل</th>
+                  <th class="sortable">الاستحقاق</th>
+                  <th>الحالة</th>
+                  <th class="num sortable">الإجمالي</th>
+                  <th class="num">المتبقي</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="invBody"></tbody>
+              <tfoot>
+                <tr><td colspan="5">إجمالي الصفحة</td><td class="num">42,918.50</td><td class="num" style="color:var(--danger-ink)">3,721.30</td><td></td></tr>
+              </tfoot>
+            </table>
+          </div>
+          <div class="pager">
+            <span>عرض <span class="num">1–8</span> من <span class="num">148</span> فاتورة</span>
+            <div class="pp"><button class="active">1</button><button>2</button><button>3</button><button>…</button><button>19</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= INVOICE DETAIL ======================= -->
+      <section class="view" data-view="detail">
+        <div class="doc-head">
+          <div>
+            <div class="eyebrow">المبيعات · فاتورة</div>
+            <div class="doc-title-row">
+              <h1>فاتورة مبيعات <span class="num">INV-000123</span></h1>
+              <span class="pill confirmed">مؤكد</span>
+            </div>
+            <div class="page-desc" style="margin-block-start:6px">شركة الأمل للتجارة · أنشأها محمد الشهابي · <span class="num">10/08/2026</span></div>
+          </div>
+          <div class="page-actions">
+            <button class="btn">مشاركة</button>
+            <button class="btn">طباعة</button>
+            <button class="btn gold" data-toast="فُتحت شاشة تحصيل الدفعة">تحصيل دفعة</button>
+          </div>
+        </div>
+        <div class="fulcrum"></div>
+
+        <div class="summary-grid">
+          <div class="sc"><div class="label">العميل</div><div class="value ar">شركة الأمل</div></div>
+          <div class="sc"><div class="label">تاريخ الفاتورة</div><div class="value">10/08/2026</div></div>
+          <div class="sc"><div class="label">الاستحقاق</div><div class="value">10/09/2026</div></div>
+          <div class="sc"><div class="label">الإجمالي</div><div class="value">1,150.00</div></div>
+          <div class="sc"><div class="label">المدفوع</div><div class="value" style="color:var(--success-ink)">700.00</div></div>
+          <div class="sc"><div class="label">المتبقي</div><div class="value" style="color:var(--danger-ink)">450.00</div></div>
+        </div>
+
+        <div class="effects">
+          <span class="glyph"><svg viewBox="0 0 20 20" fill="none"><path d="M10 2 3 5.5v5c0 4 3 6.6 7 7.5 4-.9 7-3.5 7-7.5v-5L10 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="m7.3 10 2 2 3.4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <div>
+            <h3>ماذا فعل هذا المستند؟</h3>
+            <ul>
+              <li>خصم الكمية من مستودع الفرع الرئيسي — <b>صنفان</b></li>
+              <li>سجّل قيداً محاسبياً وزاد رصيد العميل المدين بمبلغ <b class="num">1,150.00 ج.م</b></li>
+              <li>لا يُحصَّل تلقائياً — استخدم «تحصيل دفعة» لتسجيل السداد وربطه بالفاتورة</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card" style="padding:16px 18px">
+            <div class="tabs" id="tabs">
+              <button class="tab-btn active" data-tab="lines">بنود الفاتورة</button>
+              <button class="tab-btn" data-tab="je">القيود المحاسبية</button>
+              <button class="tab-btn" data-tab="audit">سجل المراجعة</button>
+            </div>
+            <div class="tab-panel active" data-tab="lines">
+              <div class="tscroll">
+                <table class="dt">
+                  <thead><tr><th>الصنف</th><th class="num">الكمية</th><th class="num">السعر</th><th class="num">الضريبة</th><th class="num">الإجمالي</th></tr></thead>
+                  <tbody>
+                    <tr><td class="cell-main">سلك نحاس ٢.٥مم<div class="cell-sub lat">WIRE-CU</div></td><td class="num">20</td><td class="num">45.00</td><td class="num">126.00</td><td class="num">1,026.00</td></tr>
+                    <tr><td class="cell-main">قاطع كهرباء 32A<div class="cell-sub lat">BRK-32A</div></td><td class="num">2</td><td class="num">55.00</td><td class="num">15.40</td><td class="num">125.40</td></tr>
+                  </tbody>
+                  <tfoot><tr><td colspan="4">الإجمالي شامل الضريبة</td><td class="num">1,150.00</td></tr></tfoot>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab="je">
+              <div class="tscroll">
+                <table class="dt">
+                  <thead><tr><th>القيد</th><th>الحساب</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>
+                  <tbody>
+                    <tr class="clickable"><td class="link-cell num" id="openJe">JE-000079</td><td>1100 — ذمم مدينة</td><td class="num">1,150.00</td><td class="num">0.00</td></tr>
+                    <tr><td></td><td>4000 — الإيرادات</td><td class="num">0.00</td><td class="num">1,010.60</td></tr>
+                    <tr><td></td><td>2200 — ض.ق.م مستحقة</td><td class="num">0.00</td><td class="num">139.40</td></tr>
+                  </tbody>
+                  <tfoot><tr><td colspan="2">التوازن</td><td class="num">1,150.00</td><td class="num">1,150.00</td></tr></tfoot>
+                </table>
+              </div>
+            </div>
+            <div class="tab-panel" data-tab="audit">
+              <p class="mini-note">يعرض سجل المراجعة كل تعديل على المستند بالتاريخ والمستخدم — من الإنشاء إلى التأكيد إلى كل دفعة محصّلة.</p>
+            </div>
+          </div>
+
+          <div class="card card-pad">
+            <div class="eyebrow" style="margin-block-end:8px">لوحة جانبية</div>
+            <h3 class="card-title" style="margin-block-end:8px">تعمّق دون مغادرة الشاشة</h3>
+            <p class="mini-note" style="margin-block-end:14px">انقر على العميل أو رقم القيد لفتح لوحة جانبية منزلقة، مع الإبقاء على الفاتورة في مكانها.</p>
+            <button class="btn" id="openPanel" style="width:100%;justify-content:center">فتح لوحة العميل ⟵</button>
+            <div style="margin-block-start:16px;padding-block-start:16px;border-block-start:1px solid var(--border)">
+              <div class="k-label" style="margin-block-end:8px">رصيد العميل</div>
+              <div class="k-val" style="font-size:22px;color:var(--danger-ink)">2,340.00<span class="unit"> ج.م مدين</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======================= REPORT (INCOME STATEMENT) ======================= -->
+      <section class="view" data-view="report">
+        <div class="page-head">
+          <div>
+            <div class="eyebrow">المحاسبة · القوائم المالية</div>
+            <h1 class="page-title">قائمة الدخل</h1>
+            <div class="page-desc">عن الفترة من ١ يناير حتى ٣١ أغسطس ٢٠٢٦ · مقارنة بالفترة المماثلة، مع مؤشر ميلان لكل بند</div>
+          </div>
+          <div class="page-actions">
+            <div class="range-toggle"><button>الشهر</button><button class="active">حتى تاريخه</button><button>السنة</button></div>
+            <button class="btn">تصدير <span class="lat">PDF</span></button>
+          </div>
+        </div>
+        <div class="fulcrum"></div>
+
+        <div class="table-wrap">
+          <div class="tscroll">
+            <table class="stmt">
+              <thead>
+                <tr><th>البند</th><th class="num">٢٠٢٦ حتى تاريخه</th><th class="num">٢٠٢٥ للفترة نفسها</th><th class="num">التغيّر</th></tr>
+              </thead>
+              <tbody>
+                <tr class="section"><td colspan="4">الإيرادات</td></tr>
+                <tr><td class="indent">مبيعات بضاعة</td><td class="num">612,400.00</td><td class="num">548,900.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="8" x2="16" y2="3" stroke="var(--success)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num up">11.6%</span></span></td></tr>
+                <tr><td class="indent">إيرادات خدمات</td><td class="num">88,150.00</td><td class="num">74,200.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="9" x2="16" y2="3" stroke="var(--success)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num up">18.8%</span></span></td></tr>
+                <tr class="total"><td>إجمالي الإيرادات</td><td class="num">700,550.00</td><td class="num">623,100.00</td>
+                  <td class="num"><span class="vbeam"><span class="vb-num up">12.4%</span></span></td></tr>
+
+                <tr class="section"><td colspan="4">تكلفة المبيعات</td></tr>
+                <tr><td class="indent">تكلفة البضاعة المباعة</td><td class="num">401,300.00</td><td class="num">372,800.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="4" x2="16" y2="8" stroke="var(--danger)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num down">7.6%</span></span></td></tr>
+                <tr class="total"><td>مجمل الربح</td><td class="num">299,250.00</td><td class="num">250,300.00</td>
+                  <td class="num"><span class="vbeam"><span class="vb-num up">19.6%</span></span></td></tr>
+
+                <tr class="section"><td colspan="4">المصروفات التشغيلية</td></tr>
+                <tr><td class="indent">رواتب وأجور</td><td class="num">118,900.00</td><td class="num">104,500.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="4" x2="16" y2="8" stroke="var(--danger)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num down">13.8%</span></span></td></tr>
+                <tr><td class="indent">إيجار ومرافق</td><td class="num">42,000.00</td><td class="num">42,000.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="6" x2="16" y2="6" stroke="var(--text-faint)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num">0.0%</span></span></td></tr>
+                <tr><td class="indent">مصروفات أخرى</td><td class="num">33,650.00</td><td class="num">31,100.00</td>
+                  <td class="num"><span class="vbeam"><svg width="16" height="11" viewBox="0 0 18 12" fill="none"><line x1="2" y1="5" x2="16" y2="7" stroke="var(--danger)" stroke-width="1.6" stroke-linecap="round"/></svg><span class="vb-num down">8.2%</span></span></td></tr>
+                <tr class="total"><td>إجمالي المصروفات التشغيلية</td><td class="num">194,550.00</td><td class="num">177,600.00</td>
+                  <td class="num"><span class="vbeam"><span class="vb-num down">9.5%</span></span></td></tr>
+
+                <tr class="grand"><td>صافي الربح</td><td class="num">104,700.00</td><td class="num">72,700.00</td>
+                  <td class="num"><span class="vbeam"><span class="vb-num up" style="color:var(--brand)">44.0%</span></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <!-- side panel + scrim -->
+  <div class="scrim" id="scrim"></div>
+  <aside class="side-panel" id="sidePanel" aria-hidden="true">
+    <div class="sp-head">
+      <h3 class="card-title">شركة الأمل للتجارة</h3>
+      <button class="sp-close" id="spClose" aria-label="إغلاق">✕</button>
+    </div>
+    <div class="sp-body">
+      <div class="summary-grid" style="grid-template-columns:1fr 1fr">
+        <div class="sc"><div class="label">الرصيد</div><div class="value" style="color:var(--danger-ink)">2,340.00</div></div>
+        <div class="sc"><div class="label">حد الائتمان</div><div class="value">10,000.00</div></div>
+        <div class="sc"><div class="label">آخر معاملة</div><div class="value">10/08/2026</div></div>
+        <div class="sc"><div class="label">التصنيف</div><div class="value ar">عميل مميّز</div></div>
+      </div>
+      <div>
+        <div class="eyebrow" style="margin-block-end:10px">آخر الفواتير</div>
+        <div class="rank">
+          <div class="rank-row"><span class="nm lat">INV-000123</span><span class="pill partial" style="font-size:10px">جزئي</span><span class="vl">1,150.00</span></div>
+          <div class="rank-row"><span class="nm lat">INV-000111</span><span class="pill paid" style="font-size:10px">مدفوع</span><span class="vl">2,480.00</span></div>
+          <div class="rank-row"><span class="nm lat">INV-000098</span><span class="pill overdue" style="font-size:10px">متأخر</span><span class="vl">489.30</span></div>
+        </div>
+      </div>
+      <button class="btn primary" style="justify-content:center">فتح كشف حساب العميل</button>
+    </div>
+  </aside>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+  var app = document.getElementById('app');
+
+  /* ---------- theme ---------- */
+  var sun = '<path d="M10 3v2M10 15v2M3 10h2M15 10h2M5 5l1.4 1.4M13.6 13.6 15 15M15 5l-1.4 1.4M6.4 13.6 5 15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><circle cx="10" cy="10" r="3.2" stroke="currentColor" stroke-width="1.5"/>';
+  var moon = '<path d="M16 11.5A6.5 6.5 0 0 1 8.5 4a6.5 6.5 0 1 0 7.5 7.5Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>';
+  function prefDark(){ return window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches; }
+  function isDark(){ var t = root.getAttribute('data-theme'); return t ? t==='dark' : prefDark(); }
+  function syncIcon(){ document.getElementById('themeIcon').innerHTML = isDark() ? sun : moon; }
+  document.getElementById('themeBtn').addEventListener('click', function(){
+    root.setAttribute('data-theme', isDark() ? 'light' : 'dark'); syncIcon();
+  });
+  syncIcon();
+
+  /* ---------- view switching ---------- */
+  function show(view){
+    document.querySelectorAll('.view').forEach(function(v){ v.classList.toggle('active', v.getAttribute('data-view')===view); });
+    document.querySelectorAll('#nav .nav-item').forEach(function(n){ n.classList.toggle('active', n.getAttribute('data-view')===view); });
+    document.querySelector('.content').scrollTo?.(0,0);
+    window.scrollTo(0,0);
+    if(view==='dashboard') tiltBeam();
+    document.getElementById('sidebar').classList.remove('open');
+  }
+  document.querySelectorAll('[data-view]').forEach(function(el){
+    if(el.classList.contains('view')) return;
+    el.addEventListener('click', function(){ show(el.getAttribute('data-view')); closeCmd(); });
+  });
+
+  /* ---------- balance beam tilt ---------- */
+  function tiltBeam(){
+    var g = document.getElementById('beamGroup'); if(!g) return;
+    g.style.transform='rotate(0deg)';
+    requestAnimationFrame(function(){ requestAnimationFrame(function(){ g.style.transform='rotate(9deg)'; }); });
+  }
+  setTimeout(tiltBeam, 120);
+
+  /* ---------- invoices table ---------- */
+  var invoices = [
+    ['INV-000123','10/08/2026','شركة الأمل للتجارة','10/09/2026','partial','1,150.00','450.00'],
+    ['INV-000122','09/08/2026','مؤسسة النور للكهرباء','09/09/2026','paid','2,480.00','0.00'],
+    ['INV-000121','08/08/2026','شركة البناء الحديث','08/09/2026','confirmed','7,320.00','7,320.00'],
+    ['INV-000120','07/08/2026','ورشة الصفا','22/07/2026','overdue','489.30','489.30'],
+    ['INV-000119','06/08/2026','شركة الأمل للتجارة','06/09/2026','paid','12,900.00','0.00'],
+    ['INV-000118','05/08/2026','مقاولات المستقبل','05/09/2026','confirmed','9,640.00','9,640.00'],
+    ['INV-000117','04/08/2026','مؤسسة النور للكهرباء','20/07/2026','overdue','450.00','450.00'],
+    ['INV-000116','03/08/2026','عميل نقدي','03/08/2026','draft','8,089.20','0.00']
+  ];
+  var stMap = { paid:['مدفوع','paid'], confirmed:['مؤكد','confirmed'], partial:['جزئي','partial'], draft:['مسودة','draft'], overdue:['متأخر','overdue'] };
+  var body = document.getElementById('invBody');
+  function renderInv(filter){
+    body.innerHTML='';
+    invoices.filter(function(r){ return filter==='all'||r[4]===filter; }).forEach(function(r){
+      var st = stMap[r[4]];
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="cell-main link-cell go-detail"><span class="num">'+r[0]+'</span></td>'+
+        '<td class="num">'+r[1]+'</td>'+
+        '<td>'+r[2]+'</td>'+
+        '<td class="num">'+r[3]+'</td>'+
+        '<td><span class="pill '+st[1]+'">'+st[0]+'</span></td>'+
+        '<td class="num">'+r[5]+'</td>'+
+        '<td class="num" style="color:'+(r[6]==='0.00'?'var(--text-faint)':'var(--danger-ink)')+'">'+r[6]+'</td>'+
+        '<td><button class="btn sm row-act">عرض</button></td>';
+      body.appendChild(tr);
+    });
+    body.querySelectorAll('.go-detail, .row-act').forEach(function(el){ el.addEventListener('click', function(){ show('detail'); }); });
+  }
+  renderInv('all');
+  document.getElementById('chips').addEventListener('click', function(e){
+    var c = e.target.closest('.chip'); if(!c) return;
+    this.querySelectorAll('.chip').forEach(function(x){ x.classList.remove('active'); });
+    c.classList.add('active'); renderInv(c.getAttribute('data-status'));
+  });
+
+  /* ---------- tabs ---------- */
+  var tabs = document.getElementById('tabs');
+  if(tabs) tabs.addEventListener('click', function(e){
+    var b = e.target.closest('.tab-btn'); if(!b) return;
+    var t = b.getAttribute('data-tab');
+    tabs.querySelectorAll('.tab-btn').forEach(function(x){ x.classList.toggle('active', x===b); });
+    document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.toggle('active', p.getAttribute('data-tab')===t); });
+  });
+
+  /* ---------- side panel ---------- */
+  var scrim=document.getElementById('scrim'), panel=document.getElementById('sidePanel');
+  function openPanel(){ scrim.classList.add('show'); panel.classList.add('show'); panel.setAttribute('aria-hidden','false'); }
+  function closePanel(){ scrim.classList.remove('show'); panel.classList.remove('show'); panel.setAttribute('aria-hidden','true'); }
+  ['openPanel','openJe'].forEach(function(id){ var el=document.getElementById(id); if(el) el.addEventListener('click', openPanel); });
+  document.getElementById('spClose').addEventListener('click', closePanel);
+  scrim.addEventListener('click', closePanel);
+
+  /* ---------- command bar ---------- */
+  var cmd=document.getElementById('cmd');
+  function openCmd(){ cmd.classList.add('open'); } function closeCmd(){ cmd.classList.remove('open'); }
+  document.getElementById('cmdInput').addEventListener('click', function(){ cmd.classList.toggle('open'); });
+  document.addEventListener('click', function(e){ if(!cmd.contains(e.target)) closeCmd(); });
+
+  /* ---------- toast ---------- */
+  var toast=document.getElementById('toast'), tt;
+  function showToast(msg){ toast.textContent=msg; toast.classList.add('show'); clearTimeout(tt); tt=setTimeout(function(){ toast.classList.remove('show'); },2200); }
+  document.querySelectorAll('[data-toast]').forEach(function(el){ el.addEventListener('click', function(){ showToast(el.getAttribute('data-toast')); closeCmd(); }); });
+
+  /* ---------- keyboard-first ---------- */
+  var gPending=false;
+  document.addEventListener('keydown', function(e){
+    var typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='k'){ e.preventDefault(); openCmd(); return; }
+    if((e.metaKey||e.ctrlKey) && e.key.toLowerCase()==='n'){ e.preventDefault(); showToast('أُنشئت مسودة فاتورة جديدة'); return; }
+    if(e.key==='Escape'){ closeCmd(); closePanel(); }
+    if(typing) return;
+    if(e.key==='/'){ e.preventDefault(); var s=document.getElementById('invSearch'); if(s){ show('invoices'); s.focus(); } return; }
+    if(e.key.toLowerCase()==='g'){ gPending=true; setTimeout(function(){ gPending=false; },700); return; }
+    if(gPending){ var m={d:'dashboard',i:'invoices',r:'report'}; if(m[e.key.toLowerCase()]){ show(m[e.key.toLowerCase()]); } gPending=false; }
+  });
+
+  /* ---------- mobile menu ---------- */
+  var mq=window.matchMedia('(max-width:760px)');
+  function syncMenu(){ document.getElementById('menuBtn').style.display = mq.matches?'flex':'none'; }
+  mq.addEventListener('change', syncMenu); syncMenu();
+  document.getElementById('menuBtn').addEventListener('click', function(){ document.getElementById('sidebar').classList.toggle('open'); });
+})();
+</script>

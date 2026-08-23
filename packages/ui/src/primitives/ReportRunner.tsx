@@ -78,6 +78,13 @@ export interface ReportRunnerProps<Row> {
   chart?: ReactNode;
   formatOptions?: UseFormatOptions;
   exportBaseFilename?: string;
+  /**
+   * Whether to render the grand-total row. Per-group subtotals stay on
+   * regardless — the balance sheet turns this off because summing its asset
+   * section against its liabilities+equity section yields no useful figure.
+   * Defaults to true.
+   */
+  showGrandTotal?: boolean;
   className?: string;
 }
 
@@ -174,6 +181,7 @@ export function ReportRunner<Row>({
   chart,
   formatOptions,
   exportBaseFilename,
+  showGrandTotal = true,
   className,
 }: ReportRunnerProps<Row>) {
   const fmt = useFormat(formatOptions);
@@ -277,7 +285,7 @@ export function ReportRunner<Row>({
                   {result.groups.map((group) => (
                     <SectionRows key={group.key} group={group} columns={columns} rowKey={rowKey} totalColumns={totalColumns} fmt={fmt} showHeader={result.groups.length > 1 || group.label !== ""} />
                   ))}
-                  {totalColumns.size > 0 ? (
+                  {showGrandTotal && totalColumns.size > 0 ? (
                     <tr className="border-t-2 border-border-strong bg-surface-2 font-bold">
                       {columns.map((col, i) => (
                         <td key={col.key} className={cn("px-[15px] py-[12px]", col.align === "end" ? "text-end" : "text-start")}>

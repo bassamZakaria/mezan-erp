@@ -55,9 +55,13 @@ export function createHrAttendanceRoutes(
 
     const employeeIdsParam = c.req.query("employeeIds");
     const departmentId = c.req.query("departmentId");
-    const employeeIds = employeeIdsParam
-      ? employeeIdsParam.split(",").filter(Boolean)
-      : (await deps.employees.list({ departmentId: departmentId ?? undefined, activeOnly: true })).map((e) => e.id);
+    let employeeIds: string[];
+    if (employeeIdsParam) {
+      employeeIds = employeeIdsParam.split(",").filter(Boolean);
+    } else {
+      const active = await deps.employees.listActive();
+      employeeIds = (departmentId ? active.filter((e) => e.departmentId === departmentId) : active).map((e) => e.id);
+    }
 
     const weekendDays = await resolveWeekendDays(deps.settings);
     const grid = await getMonthlyGrid(employeeIds, year, month, weekendDays, { records: deps.records });

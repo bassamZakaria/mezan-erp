@@ -200,7 +200,6 @@ export {
   type SqliteLeaveRequestRepositoryHandle,
 } from "./hr-store.js";
 // --- hr-time-leave stores (hr/time-leave) ---
-export { createSqliteEmployeeRefRepository, type SqliteEmployeeRefRepositoryHandle } from "./hr-employee-ref-store.js";
 export {
   createSqliteAttendanceRecordRepository,
   type SqliteAttendanceRecordRepositoryHandle,

@@ -13,7 +13,7 @@ import type {
 /** SQLite-backed Leave Request store (docs/catalog "طلبات الإجازات"). The approval-chain state (steps/decisions) is stored as JSON text, mirroring `depreciation_run.lines`. */
 
 const CREATE_TABLE = `
-CREATE TABLE IF NOT EXISTS hr_leave_request (
+CREATE TABLE IF NOT EXISTS hr_leave_application (
   id                  TEXT PRIMARY KEY,
   request_no          TEXT NOT NULL,
   employee_id         TEXT NOT NULL,
@@ -33,8 +33,8 @@ CREATE TABLE IF NOT EXISTS hr_leave_request (
   created_at          TEXT NOT NULL,
   decided_at          TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_hr_leave_request_employee ON hr_leave_request(employee_id);
-CREATE INDEX IF NOT EXISTS idx_hr_leave_request_status ON hr_leave_request(status);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_application_employee ON hr_leave_application(employee_id);
+CREATE INDEX IF NOT EXISTS idx_hr_leave_application_status ON hr_leave_application(status);
 `;
 
 interface LeaveApplicationRow {
@@ -90,7 +90,7 @@ export function createSqliteLeaveApplicationRepository(path: SqliteConnectionInp
   sqlite.exec(CREATE_TABLE);
 
   const upsert: Database.Statement = sqlite.prepare(`
-    INSERT INTO hr_leave_request (
+    INSERT INTO hr_leave_application (
       id, request_no, employee_id, leave_type_code, start_date, end_date, half_day, days, reason,
       status, gate_action_type, workflow_request_id, steps, current_step_index, decisions, submitted_by,
       created_at, decided_at
@@ -105,7 +105,7 @@ export function createSqliteLeaveApplicationRepository(path: SqliteConnectionInp
       decisions = excluded.decisions,
       decided_at = excluded.decided_at
   `);
-  const selectById: Database.Statement = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE id = ?`);
+  const selectById: Database.Statement = sqlite.prepare(`SELECT * FROM hr_leave_application WHERE id = ?`);
 
   function write(request: LeaveApplication): void {
     upsert.run({
@@ -151,7 +151,7 @@ export function createSqliteLeaveApplicationRepository(path: SqliteConnectionInp
         params.push(filter.leaveTypeCode);
       }
       const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-      const rows = sqlite.prepare(`SELECT * FROM hr_leave_request ${where} ORDER BY created_at DESC`).all(...params) as LeaveApplicationRow[];
+      const rows = sqlite.prepare(`SELECT * FROM hr_leave_application ${where} ORDER BY created_at DESC`).all(...params) as LeaveApplicationRow[];
       return rows.map(toRequest);
     },
     async create(request) {

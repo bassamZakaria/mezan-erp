@@ -18,7 +18,6 @@ import {
   type Role,
   type TaxRate,
   type PipelineStageRepository,
-  type EmployeeRef,
 } from "@mezan/domain";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
@@ -52,14 +51,6 @@ export interface SeedStores {
    * seed block).
    */
   readonly pipelineStages?: PipelineStageRepository;
-  /**
-   * Optional — seeds one demo employee (EMP-0001 أحمد محمود, matching
-   * docs/catalog/06's captured demo tenant) into the hr-time-leave employee
-   * directory on an empty DB, so Attendance/Leave Requests/Leave Accrual
-   * have something to point at locally. Just the narrow write op this seed
-   * needs — not the full `EmployeeDirectory` read port.
-   */
-  readonly hrEmployeeRef?: { upsert(ref: EmployeeRef): Promise<void> };
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
@@ -176,16 +167,6 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
       const created = await createPipelineStage(stage, existing, stores.pipelineStages);
       existing = [...existing, created];
     }
-  }
-
-  if (stores.hrEmployeeRef) {
-    await stores.hrEmployeeRef.upsert({
-      id: "EMP-0001",
-      code: "EMP-0001",
-      nameAr: "أحمد محمود",
-      departmentId: null,
-      active: true,
-    });
   }
 
   return currentCounts(stores);

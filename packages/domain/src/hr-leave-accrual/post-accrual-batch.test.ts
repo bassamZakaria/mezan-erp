@@ -8,7 +8,7 @@ import type { JournalPostingDeps } from "../gl/index.js";
 import { InMemoryLedgerRepository, InMemorySequenceStore } from "../gl/test-helpers/in-memory-ledger-repository.js";
 import { applyLeavePolicyPreset } from "../hr-leave-policies/index.js";
 import { createInMemoryLeavePolicyRepository } from "../hr-leave-policies/test-helpers/in-memory-leave-policy-repository.js";
-import { createInMemoryEmployeeDirectory } from "../hr-shared/test-helpers/in-memory-employee-directory.js";
+import { createInMemoryEmployeeDirectory, employeeRefFixture } from "../hr-shared/test-helpers/in-memory-employee-directory.js";
 import { createAccrualBatch } from "./create-accrual-batch.js";
 import { postAccrualBatch } from "./post-accrual-batch.js";
 import { LeaveAccrualBatchNotDraftError } from "./errors.js";
@@ -37,7 +37,7 @@ async function harness(dailyRate: () => Promise<Money>) {
 
   const policies = createInMemoryLeavePolicyRepository();
   await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-  const employees = createInMemoryEmployeeDirectory([{ id: "emp-1", code: "emp-1", nameAr: "emp-1", departmentId: null, active: true }]);
+  const employees = createInMemoryEmployeeDirectory([employeeRefFixture({ id: "emp-1" })]);
   const batches = createInMemoryAccrualBatchRepository();
 
   const createDeps = { batches, employees, policies, dailyRate };

@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { createDefaultSettings } from "@mezan/domain";
-import { createSqliteAttendanceRecordRepository, createSqliteEmployeeRefRepository, createSqliteSettingsStore } from "@mezan/persistence";
+import { createDefaultSettings, type EmployeeDirectory, type EmployeeRef } from "@mezan/domain";
+import { createSqliteAttendanceRecordRepository, createSqliteSettingsStore } from "@mezan/persistence";
 import { createHrAttendanceRoutes } from "./hr-attendance-routes.js";
 
 const closers: { close(): void }[] = [];
@@ -15,12 +15,45 @@ function req(path: string, init: RequestInit & { permissions?: string } = {}) {
   return new Request(`http://local${path}`, { ...init, headers });
 }
 
+const EMPLOYEE_1: EmployeeRef = {
+  id: "emp-1",
+  code: "EMP-0001",
+  fullNameAr: "أحمد",
+  fullNameEn: "Ahmed",
+  departmentId: null,
+  jobTitleId: null,
+  branchId: "branch-1",
+  managerId: null,
+  hireDate: "2025-01-01",
+  status: "active",
+  workerCategory: "staff",
+  overtimeEligibility: "inherit_department",
+  standardWorkHours: null,
+  probationEndDate: null,
+  priorServiceYears: 0,
+  requireSelfieAtClockIn: false,
+  requireBiometricAtClockIn: false,
+};
+
+function fakeEmployeeDirectory(seed: readonly EmployeeRef[]): EmployeeDirectory {
+  return {
+    async findById(id) {
+      return seed.find((e) => e.id === id) ?? null;
+    },
+    async list() {
+      return [...seed];
+    },
+    async listActive() {
+      return seed.filter((e) => e.status === "active");
+    },
+  };
+}
+
 async function newApp() {
   const records = createSqliteAttendanceRecordRepository();
-  const employees = createSqliteEmployeeRefRepository();
+  const employees = fakeEmployeeDirectory([EMPLOYEE_1]);
   const settings = createSqliteSettingsStore();
-  closers.push(records, employees, settings);
-  await employees.upsert({ id: "emp-1", code: "EMP-0001", nameAr: "أحمد", departmentId: null, active: true });
+  closers.push(records, settings);
   await settings.save(createDefaultSettings());
   let seq = 0;
   return { app: createHrAttendanceRoutes({ records, employees, settings, idGen: () => `rec-${++seq}` }), records };

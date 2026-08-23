@@ -83,13 +83,12 @@ import {
   createSqliteContractRepository,
   createSqliteHolidayRepository,
   createSqliteLeaveRequestRepository,
-  createSqliteEmployeeRefRepository,
   createSqliteAttendanceRecordRepository,
   createSqliteLeavePolicyRepository,
   createSqliteLeaveApplicationRepository,
   createSqliteLeaveAccrualBatchRepository,
 } from "@mezan/persistence";
-import { EtaService, createAccrualCreditSource } from "@mezan/domain";
+import { EtaService, createAccrualCreditSource, createEmployeeDirectory } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -123,7 +122,8 @@ const FIXED_ASSETS_GL_ACCOUNTS = {
  */
 const HR_LEAVE_ACCRUAL_GL_ACCOUNTS = {
   leaveExpenseAccountId: "5300",
-  accruedLeaveLiabilityAccountId: "2250",
+  // 2180 (Accrued Leave Liability) is hr/master-data's leaf, shared rather than duplicated.
+  accruedLeaveLiabilityAccountId: "2180",
 };
 
 /**
@@ -280,7 +280,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const vanTrips = createSqliteVanTripRepository(sqlite);
 
   // --- hr/time-leave — الحضور والانصراف, طلبات الإجازات, سياسات الإجازات, استحقاقات الإجازات. ---
-  const hrEmployeeRef = createSqliteEmployeeRefRepository(sqlite);
   const hrAttendanceRecords = createSqliteAttendanceRecordRepository(sqlite);
   const hrLeavePolicies = createSqliteLeavePolicyRepository(sqlite);
   const hrLeaveApplications = createSqliteLeaveApplicationRepository(sqlite);
@@ -314,6 +313,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrContracts = createSqliteContractRepository(sqlite);
   const hrHolidays = createSqliteHolidayRepository(sqlite);
   const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
+  // hr-time-leave's EmployeeDirectory port, adapted from hr/master-data's real Employee repository (no separate employee table).
+  const hrEmployeeRef = createEmployeeDirectory(hrEmployees);
 
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
@@ -437,7 +438,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     uow,
     hasher,
     pipelineStages,
-    hrEmployeeRef,
   };
   await seedIfEmpty(seedStores);
 

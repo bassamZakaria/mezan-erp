@@ -1,9 +1,8 @@
 import { describe, it, expect, afterEach } from "vitest";
-import type { Account, JournalPostingDeps } from "@mezan/domain";
+import type { Account, EmployeeDirectory, EmployeeRef, JournalPostingDeps } from "@mezan/domain";
 import { applyLeavePolicyPreset, Money } from "@mezan/domain";
 import {
   createSqliteAccountRepository,
-  createSqliteEmployeeRefRepository,
   createSqliteFiscalPeriodRepository,
   createSqliteLeaveAccrualBatchRepository,
   createSqliteLeavePolicyRepository,
@@ -20,6 +19,40 @@ function account(id: string, overrides: Partial<Account> = {}): Account {
   return { id, code: id, nameAr: id, nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active", ...overrides };
 }
 
+const EMPLOYEE_1: EmployeeRef = {
+  id: "emp-1",
+  code: "EMP-0001",
+  fullNameAr: "a",
+  fullNameEn: "a",
+  departmentId: null,
+  jobTitleId: null,
+  branchId: "branch-1",
+  managerId: null,
+  hireDate: "2025-01-01",
+  status: "active",
+  workerCategory: "staff",
+  overtimeEligibility: "inherit_department",
+  standardWorkHours: null,
+  probationEndDate: null,
+  priorServiceYears: 0,
+  requireSelfieAtClockIn: false,
+  requireBiometricAtClockIn: false,
+};
+
+function fakeEmployeeDirectory(seed: readonly EmployeeRef[]): EmployeeDirectory {
+  return {
+    async findById(id) {
+      return seed.find((e) => e.id === id) ?? null;
+    },
+    async list() {
+      return [...seed];
+    },
+    async listActive() {
+      return seed.filter((e) => e.status === "active");
+    },
+  };
+}
+
 function req(path: string, init: RequestInit & { permissions?: string } = {}) {
   const headers = new Headers(init.headers);
   if (init.permissions !== undefined) headers.set("x-permissions", init.permissions);
@@ -29,18 +62,17 @@ function req(path: string, init: RequestInit & { permissions?: string } = {}) {
 
 async function newApp() {
   const batches = createSqliteLeaveAccrualBatchRepository();
-  const employees = createSqliteEmployeeRefRepository();
+  const employees = fakeEmployeeDirectory([EMPLOYEE_1]);
   const policies = createSqliteLeavePolicyRepository();
   const ledger = createSqliteLedgerStore();
   const accounts = createSqliteAccountRepository();
   const periods = createSqliteFiscalPeriodRepository();
-  closers.push(batches, employees, policies, ledger, accounts, periods);
+  closers.push(batches, policies, ledger, accounts, periods);
 
   await accounts.create(account("5300", { type: "expense", naturalBalance: "debit" }));
   await accounts.create(account("2250", { type: "liability", naturalBalance: "credit" }));
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
   await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-  await employees.upsert({ id: "emp-1", code: "EMP-0001", nameAr: "a", departmentId: null, active: true });
 
   const gl: JournalPostingDeps = { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-01T12:00:00.000Z", actor: "tester" };
 

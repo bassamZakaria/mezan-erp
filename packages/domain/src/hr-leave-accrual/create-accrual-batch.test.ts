@@ -2,19 +2,15 @@ import { describe, it, expect } from "vitest";
 import { Money } from "../money/index.js";
 import { applyLeavePolicyPreset } from "../hr-leave-policies/index.js";
 import { createInMemoryLeavePolicyRepository } from "../hr-leave-policies/test-helpers/in-memory-leave-policy-repository.js";
-import { createInMemoryEmployeeDirectory } from "../hr-shared/test-helpers/in-memory-employee-directory.js";
+import { createInMemoryEmployeeDirectory, employeeRefFixture } from "../hr-shared/test-helpers/in-memory-employee-directory.js";
 import { createAccrualBatch } from "./create-accrual-batch.js";
 import { DuplicateAccrualPeriodError, NoAccruableEmployeesError } from "./errors.js";
 import { createInMemoryAccrualBatchRepository } from "./test-helpers/in-memory-accrual-batch-repository.js";
 
-function employee(id: string) {
-  return { id, code: id, nameAr: id, departmentId: null, active: true };
-}
-
 async function baseDeps(dailyRate: (id: string) => Promise<Money> = async () => Money.zero()) {
   const policies = createInMemoryLeavePolicyRepository();
   await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-  const employees = createInMemoryEmployeeDirectory([employee("emp-1"), employee("emp-2")]);
+  const employees = createInMemoryEmployeeDirectory([employeeRefFixture({ id: "emp-1" }), employeeRefFixture({ id: "emp-2" })]);
   const batches = createInMemoryAccrualBatchRepository();
   return { batches, employees, policies, dailyRate };
 }

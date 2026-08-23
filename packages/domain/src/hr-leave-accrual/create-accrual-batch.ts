@@ -1,5 +1,5 @@
 import { Money } from "../money/index.js";
-import type { EmployeeDirectory } from "../hr-shared/index.js";
+import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
 import type { LeavePolicyRepository } from "../hr-leave-policies/index.js";
 import type { LeaveAccrualBatch, LeaveAccrualBatchRepository, LeaveAccrualLine, LeaveAccrualRunType } from "./accrual-batch.js";
 import { DuplicateAccrualPeriodError, NoAccruableEmployeesError } from "./errors.js";
@@ -50,7 +50,7 @@ export async function createAccrualBatch(
   }
 
   const month = Number(period.slice(5, 7));
-  const employees = await deps.employees.list({ activeOnly: true });
+  const employees = await deps.employees.listActive();
   const effectivePolicies = (await deps.policies.listEffective(cmd.runDate)).filter(
     (p) => p.accrualFrequency !== "NONE",
   );

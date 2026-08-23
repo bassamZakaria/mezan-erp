@@ -1,13 +1,46 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { Money, createAccrualBatch, applyLeavePolicyPreset } from "@mezan/domain";
+import { Money, createAccrualBatch, applyLeavePolicyPreset, type EmployeeDirectory, type EmployeeRef } from "@mezan/domain";
 import { createSqliteLeaveAccrualBatchRepository } from "./hr-leave-accrual-store.js";
 import { createSqliteLeavePolicyRepository } from "./hr-leave-policy-store.js";
-import { createSqliteEmployeeRefRepository } from "./hr-employee-ref-store.js";
 
 const handles: { close(): void }[] = [];
 afterEach(() => {
   for (const h of handles.splice(0)) h.close();
 });
+
+const EMPLOYEE_1: EmployeeRef = {
+  id: "emp-1",
+  code: "EMP-0001",
+  fullNameAr: "a",
+  fullNameEn: "a",
+  departmentId: null,
+  jobTitleId: null,
+  branchId: "branch-1",
+  managerId: null,
+  hireDate: "2025-01-01",
+  status: "active",
+  workerCategory: "staff",
+  overtimeEligibility: "inherit_department",
+  standardWorkHours: null,
+  probationEndDate: null,
+  priorServiceYears: 0,
+  requireSelfieAtClockIn: false,
+  requireBiometricAtClockIn: false,
+};
+
+function fakeEmployeeDirectory(): EmployeeDirectory {
+  return {
+    async findById(id) {
+      return id === EMPLOYEE_1.id ? EMPLOYEE_1 : null;
+    },
+    async list() {
+      return [EMPLOYEE_1];
+    },
+    async listActive() {
+      return [EMPLOYEE_1];
+    },
+  };
+}
 
 describe("SqliteLeaveAccrualBatchRepository", () => {
   it("round-trips a draft batch, including per-line Money values", async () => {
@@ -15,11 +48,9 @@ describe("SqliteLeaveAccrualBatchRepository", () => {
     handles.push(batches);
     const policies = createSqliteLeavePolicyRepository();
     handles.push(policies);
-    const employees = createSqliteEmployeeRefRepository();
-    handles.push(employees);
+    const employees = fakeEmployeeDirectory();
 
     await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-    await employees.upsert({ id: "emp-1", code: "EMP-0001", nameAr: "a", departmentId: null, active: true });
 
     const created = await createAccrualBatch(
       { id: "b1", runDate: "2026-08-01", runType: "MANUAL" },
@@ -36,10 +67,8 @@ describe("SqliteLeaveAccrualBatchRepository", () => {
     handles.push(batches);
     const policies = createSqliteLeavePolicyRepository();
     handles.push(policies);
-    const employees = createSqliteEmployeeRefRepository();
-    handles.push(employees);
+    const employees = fakeEmployeeDirectory();
     await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-    await employees.upsert({ id: "emp-1", code: "EMP-0001", nameAr: "a", departmentId: null, active: true });
     const deps = { batches, employees, policies, dailyRate: async () => Money.zero() };
 
     const first = await createAccrualBatch(
@@ -62,10 +91,8 @@ describe("SqliteLeaveAccrualBatchRepository", () => {
     handles.push(batches);
     const policies = createSqliteLeavePolicyRepository();
     handles.push(policies);
-    const employees = createSqliteEmployeeRefRepository();
-    handles.push(employees);
+    const employees = fakeEmployeeDirectory();
     await applyLeavePolicyPreset({ source: "PRESET_EG_LAW_12_2003", idPrefix: "p12" }, { policies });
-    await employees.upsert({ id: "emp-1", code: "EMP-0001", nameAr: "a", departmentId: null, active: true });
     const deps = { batches, employees, policies, dailyRate: async () => Money.zero() };
 
     await createAccrualBatch({ id: "b1", runDate: "2026-08-01", runType: "MANUAL" }, deps);

@@ -188,3 +188,12 @@ export * from "./hr-shared/employee-ref.js";
 
 // --- hr/ — HR master data: employees, departments, job titles, contracts, holidays, leave requests (hr/master-data) ---
 export * from "./hr/index.js";
+
+// --- hr-attendance/ — الحضور والانصراف (hr/time-leave) ---
+export * from "./hr-attendance/index.js";
+// --- hr-leave-policies/ — سياسات الإجازات (hr/time-leave) ---
+export * from "./hr-leave-policies/index.js";
+// --- hr-leave-requests/ — طلبات الإجازات، مسار اعتماد سير العمل الكامل (hr/time-leave) ---
+export * from "./hr-leave-requests/index.js";
+// --- hr-leave-accrual/ — استحقاقات الإجازات (hr/time-leave) ---
+export * from "./hr-leave-accrual/index.js";

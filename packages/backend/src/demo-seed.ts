@@ -79,6 +79,36 @@ const ITEMS = [
   { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205" },
 ];
 
+/**
+ * Sales reps. A salesperson on an invoice is an HR employee id — the same
+ * concept a van trip's crew references — so the reps المبيعات حسب المندوب
+ * groups by are real employee records, created through `/hr/employees`.
+ */
+const SALESPEOPLE = [
+  { id: "EMP-DEMO-1", firstName: "Kareem", lastName: "Adel", firstNameAr: "كريم", lastNameAr: "عادل", hireDate: "2024-03-01" },
+  { id: "EMP-DEMO-2", firstName: "Salma", lastName: "Fouad", firstNameAr: "سلمى", lastNameAr: "فؤاد", hireDate: "2025-01-15" },
+];
+
+/**
+ * A live campaign covering the seeded sales window. `requiresCoupon` is false
+ * so the engine picks it up on any qualifying invoice — the seeded promoted
+ * invoice therefore earns its discount from the real engine, not a literal.
+ */
+const PROMOTIONS = [
+  {
+    id: "PROMO-DEMO-1",
+    code: "SUMMER10",
+    nameAr: "خصم الصيف ١٠٪",
+    nameEn: "Summer 10%",
+    type: "percentage" as const,
+    percentValue: 10,
+    minInvoiceValue: "2000",
+    scope: { type: "item" as const, ids: ["ITEM-DEMO-4"] },
+    startDate: "2026-08-19",
+    endDate: "2026-12-31",
+  },
+];
+
 const COST_CENTERS = [
   { id: "CC-DEMO-1", code: "CC-100", nameAr: "المبيعات", nameEn: "Sales" },
   { id: "CC-DEMO-2", code: "CC-200", nameAr: "الإدارة", nameEn: "Administration" },
@@ -111,10 +141,17 @@ const PURCHASE_INVOICES = [
   },
 ];
 
+/**
+ * INV-DEMO-2 is deliberately left without a rep so المبيعات حسب المندوب has a
+ * real «غير محدد» row to show — an unattributed sale must be visible, not
+ * silently dropped. INV-DEMO-4 is priced past SUMMER10's minimum on a scoped
+ * item, so the engine grants a discount on it at confirm.
+ */
 const SALES_INVOICES = [
   {
     id: "INV-DEMO-1",
     customerId: "CUST-DEMO-1",
+    salespersonId: "EMP-DEMO-1",
     date: "2026-08-04",
     dueDate: "2026-09-03",
     lines: [
@@ -125,6 +162,7 @@ const SALES_INVOICES = [
   {
     id: "INV-DEMO-2",
     customerId: "CUST-DEMO-2",
+    salespersonId: null,
     date: "2026-08-11",
     dueDate: "2026-09-25",
     lines: [{ itemId: "ITEM-DEMO-2", qty: "90", unitPrice: "95" }],
@@ -132,6 +170,7 @@ const SALES_INVOICES = [
   {
     id: "INV-DEMO-3",
     customerId: "CUST-DEMO-3",
+    salespersonId: "EMP-DEMO-2",
     date: "2026-08-18",
     dueDate: "2026-09-02",
     lines: [
@@ -139,9 +178,24 @@ const SALES_INVOICES = [
       { itemId: "ITEM-DEMO-1", qty: "15", unitPrice: "180" },
     ],
   },
+  {
+    id: "INV-DEMO-4",
+    customerId: "CUST-DEMO-1",
+    salespersonId: "EMP-DEMO-1",
+    date: "2026-08-20",
+    dueDate: "2026-09-19",
+    lines: [{ itemId: "ITEM-DEMO-4", qty: "20", unitPrice: "260" }],
+  },
 ];
 
 const VAT_PERCENT = 14;
+
+function salespersonNameOf(employeeId: string | null): string | null {
+  if (employeeId === null) return null;
+  const person = SALESPEOPLE.find((p) => p.id === employeeId);
+  if (!person) throw new Error(`[demo-seed] unknown salesperson ${employeeId}`);
+  return `${person.firstNameAr} ${person.lastNameAr}`;
+}
 
 function itemNameOf(itemId: string): string {
   const item = ITEMS.find((i) => i.id === itemId);
@@ -178,6 +232,12 @@ export async function seedDemoTenant(app: App): Promise<void> {
       inventoryAccountId: ACCOUNTS.inventory,
     });
   }
+  for (const person of SALESPEOPLE) {
+    await step(app, "POST", "/hr/employees", { ...person, branchId: BRANCH_ID });
+  }
+  for (const promotion of PROMOTIONS) {
+    await step(app, "POST", "/promotions", { ...promotion, requiresCoupon: false, active: true });
+  }
   for (const costCenter of COST_CENTERS) {
     await step(app, "POST", "/cost-centers", { ...costCenter, branchId: BRANCH_ID });
   }
@@ -207,6 +267,8 @@ export async function seedDemoTenant(app: App): Promise<void> {
       customerNameAr: CUSTOMERS.find((c) => c.id === invoice.customerId)?.nameAr ?? invoice.customerId,
       warehouseId: WAREHOUSE_ID,
       branchId: BRANCH_ID,
+      salespersonId: invoice.salespersonId,
+      salespersonNameAr: salespersonNameOf(invoice.salespersonId),
       currency: "EGP",
       arAccountId: ACCOUNTS.receivable,
       taxAccountId: ACCOUNTS.outputVat,

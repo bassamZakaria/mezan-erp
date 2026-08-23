@@ -21,6 +21,7 @@ import {
   DuplicateJournalEntryError,
   NegativeStockError,
   CreditLimitExceededError,
+  type AppliedSalesInvoicePromotion,
   type SalesInvoice,
   type SalesInvoiceDiscount,
   type SalesInvoiceTotals,
@@ -28,6 +29,7 @@ import {
   type SalesInvoiceStockHook,
   type SalesInvoiceServiceDeps,
   type SalesInvoiceCreditControlDeps,
+  type SalesInvoicePromotionHook,
   type CreateSalesInvoiceCommand,
   type DocumentNumberingHook,
   type DocumentGlHook,
@@ -64,6 +66,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly workflow?: DocumentWorkflowGate;
   /** Credit control on confirm (docs/catalog/01/09 §"الرقابة الائتمانية"); omit for no check at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
+  /** Evaluates promotions on confirm (docs/catalog/01 §"العروض"); omit and no invoice records one. */
+  readonly promotions?: SalesInvoicePromotionHook;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
@@ -95,10 +99,28 @@ function serializeCreditWarning(warning: CreditCheckResult | null) {
   };
 }
 
+function serializeAppliedPromotion(promotion: AppliedSalesInvoicePromotion | null) {
+  if (!promotion) return null;
+  return {
+    promotionId: promotion.promotionId,
+    code: promotion.code,
+    nameAr: promotion.nameAr,
+    couponCode: promotion.couponCode,
+    discountTotal: promotion.discountTotal.toString(),
+    lineDiscounts: promotion.lineDiscounts.map((d) => ({
+      lineId: d.lineId,
+      itemId: d.itemId,
+      amount: d.amount.toString(),
+    })),
+    appliedAt: promotion.appliedAt,
+  };
+}
+
 function serializeTotals(totals: SalesInvoiceTotals) {
   return {
     grossTotal: totals.grossTotal.toString(),
     lineDiscountTotal: totals.lineDiscountTotal.toString(),
+    promotionDiscountTotal: totals.promotionDiscountTotal.toString(),
     invoiceDiscountTotal: totals.invoiceDiscountTotal.toString(),
     subtotal: totals.subtotal.toString(),
     taxableTotal: totals.taxableTotal.toString(),
@@ -121,7 +143,11 @@ function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals) {
     customerTaxExempt: invoice.customerTaxExempt,
     warehouseId: invoice.warehouseId,
     branchId: invoice.branchId,
+    salespersonId: invoice.salespersonId,
+    salespersonNameAr: invoice.salespersonNameAr,
     currency: invoice.currency,
+    couponCode: invoice.couponCode,
+    appliedPromotion: serializeAppliedPromotion(invoice.appliedPromotion),
     notes: invoice.notes,
     internalNotes: invoice.internalNotes,
     discount: serializeDiscount(invoice.discount),
@@ -231,6 +257,7 @@ export function createSalesInvoicesRoutes(
       stock: deps.stock,
       workflow: deps.workflow,
       creditControl: deps.creditControl,
+      promotions: deps.promotions,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,
@@ -259,6 +286,9 @@ export function createSalesInvoicesRoutes(
       customerTaxExempt: d.customerTaxExempt,
       warehouseId: d.warehouseId,
       branchId: d.branchId,
+      salespersonId: d.salespersonId ?? null,
+      salespersonNameAr: d.salespersonNameAr ?? null,
+      couponCode: d.couponCode ?? null,
       currency: d.currency,
       notes: d.notes ?? null,
       internalNotes: d.internalNotes ?? null,

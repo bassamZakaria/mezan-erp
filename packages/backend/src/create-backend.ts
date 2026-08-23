@@ -23,7 +23,7 @@ import {
   PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
-  computeInvoiceTotals,
+  salesInvoiceTotals,
   purchaseInvoiceTotal,
   Money,
   type AdjustmentReason,
@@ -531,7 +531,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     async (docId) => {
       const invoice = await salesInvoices.findById(docId);
       if (!invoice) return {};
-      const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+      const totals = salesInvoiceTotals(invoice);
       return { customerName: invoice.customerNameAr, amount: totals.grandTotal.toString() };
     },
   );
@@ -611,7 +611,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let arScaled = 0n;
     for (const inv of invoices) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
-      const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+      const totals = salesInvoiceTotals(inv);
       arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
     }
 

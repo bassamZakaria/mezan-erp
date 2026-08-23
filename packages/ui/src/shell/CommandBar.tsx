@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
+import { Kbd, modKeyLabel } from "../primitives/Kbd";
 import type { CommandItem } from "./types";
 
 export interface CommandBarProps {
@@ -112,9 +113,7 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
           }}
           className="min-w-0 flex-1 border-none bg-transparent text-sm text-chrome-ink outline-none placeholder:text-chrome-ink-muted"
         />
-        <span className="mz-lat flex-none rounded-sm border border-chrome-border bg-chrome-active px-[6px] py-[2px] font-mono text-2xs text-chrome-ink-muted">
-          Ctrl K
-        </span>
+        <Kbd keys={[modKeyLabel(), "K"]} tone="chrome" />
       </div>
 
       {open ? (
@@ -149,9 +148,7 @@ export function CommandBar({ items, placeholder, className }: CommandBarProps) {
                       {item.icon ? <span className="flex-none text-ink-faint">{item.icon}</span> : null}
                       <span className="flex-1 truncate">{item.label}</span>
                       {item.hint ? (
-                        <span className="mz-lat ms-auto flex-none rounded-sm border border-border-strong bg-surface-3 px-[6px] py-[1px] font-mono text-2xs text-ink-muted">
-                          {item.hint}
-                        </span>
+                        <Kbd keys={item.hint} className="ms-auto" />
                       ) : null}
                     </button>
                   );

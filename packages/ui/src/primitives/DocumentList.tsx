@@ -1,7 +1,8 @@
-import type { ReactNode } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Card, Chip, StatCard } from "./atoms";
+import { FulcrumRule } from "../shell/FulcrumRule";
 
 /**
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
@@ -15,6 +16,13 @@ export interface DocumentListColumn<Row> {
   header: ReactNode;
   align?: "start" | "end";
   sortable?: boolean;
+  /**
+   * Figure column — mono + `tabular-nums` so digits line up. Defaults to true
+   * for `align: "end"`; pass `false` for an end-aligned column of prose.
+   */
+  numeric?: boolean;
+  /** Renders this column's cell in the faint total footer. Omit for no footer cell. */
+  total?: (rows: readonly Row[]) => ReactNode;
   render: (row: Row) => ReactNode;
 }
 
@@ -54,6 +62,11 @@ export interface DocumentListProps<Row> {
   rows: Row[];
   rowKey: (row: Row) => string;
   onRowClick?: (row: Row) => void;
+  /**
+   * Trailing action revealed on the hovered (or keyboard-focused) row.
+   * Defaults to a "عرض" button wired to `onRowClick` when that is present.
+   */
+  rowAction?: (row: Row) => ReactNode;
   sort?: DocumentListSort;
   onSortChange?: (key: string) => void;
   page: number;
@@ -95,6 +108,7 @@ export function DocumentList<Row>({
   rows,
   rowKey,
   onRowClick,
+  rowAction,
   sort,
   onSortChange,
   page,
@@ -106,20 +120,20 @@ export function DocumentList<Row>({
 }: DocumentListProps<Row>) {
   const { t } = useUiTranslation();
   const searchLabel = searchPlaceholder ?? t("ui.search.placeholder");
+  const showRowAction = Boolean(rowAction ?? onRowClick);
+  const footerColumns = columns.filter((col) => col.total);
+  const totalLabelIndex = columns.findIndex((col) => !col.total);
   return (
     <div className={cn("w-full", className)}>
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {eyebrow ? (
-            <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">
-              {eyebrow}
-            </div>
-          ) : null}
+          {eyebrow ? <div className="mz-eyebrow">{eyebrow}</div> : null}
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
       </div>
+      <FulcrumRule />
 
       {stats && stats.length > 0 ? (
         <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
@@ -168,34 +182,55 @@ export function DocumentList<Row>({
         </div>
       ) : null}
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] border-collapse text-[13px]">
+      <Card className="overflow-hidden rounded-md">
+        <div className="max-h-[min(68vh,760px)] overflow-auto">
+          <table className="w-full min-w-[720px] border-separate border-spacing-0 text-sm">
             <thead>
               <tr>
                 {columns.map((col) => {
                   const isSorted = sort?.key === col.key;
+                  const sortColumn = col.sortable ? () => onSortChange?.(col.key) : undefined;
                   return (
                     <th
                       key={col.key}
                       scope="col"
                       aria-sort={isSorted ? (sort?.direction === "asc" ? "ascending" : "descending") : undefined}
+                      tabIndex={col.sortable ? 0 : undefined}
+                      title={col.sortable ? t("ui.list.sortColumn") : undefined}
                       className={cn(
-                        "whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted",
+                        "sticky top-0 z-20 whitespace-nowrap border-b border-border bg-surface-2 px-[14px] py-[9px] text-[11.5px] font-bold uppercase tracking-[0.3px] text-ink-muted",
                         col.align === "end" ? "text-end" : "text-start",
-                        col.sortable && "cursor-pointer select-none",
+                        col.sortable && "cursor-pointer select-none hover:text-ink",
                       )}
-                      onClick={col.sortable ? () => onSortChange?.(col.key) : undefined}
+                      onClick={sortColumn}
+                      onKeyDown={
+                        sortColumn
+                          ? (e: KeyboardEvent<HTMLTableCellElement>) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                sortColumn();
+                              }
+                            }
+                          : undefined
+                      }
                     >
                       {col.header}
                       {col.sortable ? (
-                        <span aria-hidden className="ms-[5px] text-[10px] text-ink-faint">
+                        <span
+                          aria-hidden
+                          className={cn("ms-[5px] text-[10px]", isSorted ? "text-accent-strong" : "text-ink-faint")}
+                        >
                           {isSorted ? (sort?.direction === "asc" ? "▲" : "▼") : "⇅"}
                         </span>
                       ) : null}
                     </th>
                   );
                 })}
+                {showRowAction ? (
+                  <th scope="col" className="sticky top-0 z-20 w-px border-b border-border bg-surface-2 px-[14px] py-[9px]">
+                    <span className="sr-only">{t("ui.list.rowAction")}</span>
+                  </th>
+                ) : null}
               </tr>
             </thead>
             <tbody>
@@ -203,19 +238,67 @@ export function DocumentList<Row>({
                 <tr
                   key={rowKey(row)}
                   className={cn(
-                    "border-b border-border last:border-b-0 transition-colors",
+                    "group/row h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)]",
                     onRowClick && "cursor-pointer hover:bg-surface-2",
                   )}
                   onClick={onRowClick ? () => onRowClick(row) : undefined}
                 >
                   {columns.map((col) => (
-                    <td key={col.key} className={cn("px-[15px] py-[12px] align-middle", col.align === "end" ? "text-end" : "text-start")}>
+                    <td
+                      key={col.key}
+                      className={cn(
+                        "px-[14px] py-[6px] align-middle",
+                        col.align === "end" ? "text-end" : "text-start",
+                        (col.numeric ?? col.align === "end") && "font-mono tabular-nums",
+                      )}
+                    >
                       {col.render(row)}
                     </td>
                   ))}
+                  {showRowAction ? (
+                    <td className="w-px px-[14px] py-[6px] text-end align-middle">
+                      <span className="inline-flex opacity-0 transition-opacity duration-150 focus-within:opacity-100 group-hover/row:opacity-100 motion-reduce:transition-none">
+                        {rowAction ? (
+                          rowAction(row)
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onRowClick?.(row);
+                            }}
+                            className="inline-flex items-center rounded-sm border border-border-strong bg-surface px-[9px] py-[3px] text-2xs font-semibold text-ink-muted transition-colors hover:border-brand hover:text-brand"
+                          >
+                            {t("ui.list.rowAction")}
+                          </button>
+                        )}
+                      </span>
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
+            {rows.length > 0 && footerColumns.length > 0 ? (
+              <tfoot>
+                <tr>
+                  {columns.map((col, i) => (
+                    <td
+                      key={col.key}
+                      className={cn(
+                        "sticky bottom-0 z-10 whitespace-nowrap border-t border-border-strong bg-surface-2 px-[14px] py-[8px] text-xs font-bold text-ink-muted",
+                        col.align === "end" ? "text-end" : "text-start",
+                        (col.numeric ?? col.align === "end") && "font-mono tabular-nums",
+                      )}
+                    >
+                      {col.total ? col.total(rows) : i === totalLabelIndex ? t("ui.list.pageTotal") : null}
+                    </td>
+                  ))}
+                  {showRowAction ? (
+                    <td className="sticky bottom-0 z-10 border-t border-border-strong bg-surface-2 px-[14px] py-[8px]" />
+                  ) : null}
+                </tr>
+              </tfoot>
+            ) : null}
           </table>
 
           {rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}

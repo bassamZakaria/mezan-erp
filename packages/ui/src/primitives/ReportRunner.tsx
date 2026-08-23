@@ -3,6 +3,8 @@ import { cn } from "../lib/cn";
 import { useFormat, type UseFormatOptions } from "../hooks/useFormat";
 import { buildReportExport, downloadReportExport, type ReportExportFormat } from "../lib/report-export";
 import { Button, Card, Money } from "./atoms";
+import { VarianceBeam } from "./beams";
+import { FulcrumRule } from "../shell/FulcrumRule";
 import { useUiTranslation } from "../i18n";
 
 /**
@@ -18,7 +20,7 @@ import { useUiTranslation } from "../i18n";
  * upstream and handed this component render-ready `result`.
  */
 
-export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent";
+export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance";
 
 export interface ReportRunnerColumn<Row> {
   readonly key: string;
@@ -94,6 +96,12 @@ function formatCell(value: string | number | null, format: ReportRunnerColumnFor
   if (format === "money" && typeof value === "number") return <Money value={value} currencyLabel={fmt.currencyLabel} />;
   if (format === "qty" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}</span>;
   if (format === "percent" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}%</span>;
+  if (format === "variance" && typeof value === "number")
+    return (
+      <VarianceBeam value={value}>
+        <span className="mz-num">{value > 0 ? `+${fmt.number(value)}` : fmt.number(value)}%</span>
+      </VarianceBeam>
+    );
   if (format === "date" && typeof value === "string") return <span className="mz-num">{fmt.date(value)}</span>;
   return String(value);
 }
@@ -209,9 +217,9 @@ export function ReportRunner<Row>({
 
   return (
     <div className={cn("w-full", className)}>
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {eyebrow ? <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">{eyebrow}</div> : null}
+          {eyebrow ? <div className="mz-eyebrow">{eyebrow}</div> : null}
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
@@ -224,6 +232,7 @@ export function ReportRunner<Row>({
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {paramFields.length > 0 ? (
         <Card className="mb-[16px] flex flex-wrap items-end gap-[16px] p-[14px_16px]">
@@ -265,9 +274,9 @@ export function ReportRunner<Row>({
 
           {chart ? <div className="mb-[16px]">{chart}</div> : null}
 
-          <Card className="overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[560px] border-collapse text-[13px]">
+          <Card className="overflow-hidden rounded-md">
+            <div className="max-h-[min(68vh,760px)] overflow-auto">
+              <table className="w-full min-w-[560px] border-separate border-spacing-0 text-sm">
                 <thead>
                   <tr>
                     {columns.map((col) => (
@@ -275,7 +284,7 @@ export function ReportRunner<Row>({
                         key={col.key}
                         scope="col"
                         className={cn(
-                          "whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted",
+                          "sticky top-0 z-20 whitespace-nowrap border-b border-border bg-surface-2 px-[14px] py-[9px] text-[11.5px] font-bold uppercase tracking-[0.3px] text-ink-muted",
                           col.align === "end" ? "text-end" : "text-start",
                         )}
                       >
@@ -289,9 +298,15 @@ export function ReportRunner<Row>({
                     <SectionRows key={group.key} group={group} columns={columns} rowKey={rowKey} totalColumns={totalColumns} fmt={fmt} showHeader={result.groups.length > 1 || group.label !== ""} />
                   ))}
                   {showGrandTotal && totalColumns.size > 0 ? (
-                    <tr className="border-t-2 border-border-strong bg-surface-2 font-bold">
+                    <tr className="font-bold">
                       {columns.map((col, i) => (
-                        <td key={col.key} className={cn("px-[15px] py-[12px]", col.align === "end" ? "text-end" : "text-start")}>
+                        <td
+                          key={col.key}
+                          className={cn(
+                            "border-t-2 border-border-strong bg-surface-2 px-[14px] py-[9px]",
+                            col.align === "end" ? "text-end tabular-nums" : "text-start",
+                          )}
+                        >
                           {i === 0 ? t("ui.report.grandTotal") : totalColumns.has(col.key) ? formatCell(result.grandTotals[col.key] ?? 0, col.format, fmt) : ""}
                         </td>
                       ))}
@@ -327,25 +342,37 @@ function SectionRows<Row>({
   return (
     <>
       {showHeader ? (
-        <tr className="bg-surface-3">
-          <td colSpan={columns.length} className="px-[15px] py-[8px] text-[11.5px] font-bold text-ink">
+        <tr>
+          <td colSpan={columns.length} className="bg-surface-3 px-[14px] py-[7px] font-display text-[12.5px] font-bold text-ink">
             {group.label}
           </td>
         </tr>
       ) : null}
       {group.rows.map((row) => (
-        <tr key={rowKey(row)} className="border-b border-border last:border-b-0">
+        <tr key={rowKey(row)} className="h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)] hover:bg-surface-2">
           {columns.map((col) => (
-            <td key={col.key} className={cn("px-[15px] py-[12px] align-middle", col.align === "end" ? "text-end" : "text-start")}>
+            <td
+              key={col.key}
+              className={cn(
+                "px-[14px] py-[6px] align-middle",
+                col.align === "end" ? "text-end font-mono tabular-nums" : "text-start",
+              )}
+            >
               {formatCell(col.value(row), col.format, fmt)}
             </td>
           ))}
         </tr>
       ))}
       {showHeader && totalColumns.size > 0 ? (
-        <tr className="border-b border-border bg-surface-2/60 font-semibold">
+        <tr className="font-semibold">
           {columns.map((col, i) => (
-            <td key={col.key} className={cn("px-[15px] py-[9px]", col.align === "end" ? "text-end" : "text-start")}>
+            <td
+              key={col.key}
+              className={cn(
+                "border-y border-border bg-[color-mix(in_srgb,var(--surface-2)_80%,transparent)] px-[14px] py-[7px]",
+                col.align === "end" ? "text-end font-mono tabular-nums" : "text-start",
+              )}
+            >
               {i === 0 ? t("ui.report.groupTotal", { label: group.label }) : totalColumns.has(col.key) ? formatCell(group.totals[col.key] ?? 0, col.format, fmt) : ""}
             </td>
           ))}

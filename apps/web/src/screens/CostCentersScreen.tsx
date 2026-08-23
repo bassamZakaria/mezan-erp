@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AccountTree, Button, Card, EntityPicker, IconButton, StatCard, StatusPill, SidePanel, type AccountTreeRow, type EntityPickerOption, type PillTone } from "@mezan/ui";
+import { FulcrumRule, AccountTree, Button, Card, EntityPicker, IconButton, StatCard, StatusPill, SidePanel, type AccountTreeRow, type EntityPickerOption, type PillTone } from "@mezan/ui";
 import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
 import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mezan/contracts";
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
@@ -193,9 +193,9 @@ export function CostCentersScreen() {
           </Button>
         </Card>
       ) : null}
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Cost Centers</div>
+          <div className="mz-eyebrow">Accounting · Cost Centers</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">مراكز التكلفة</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">
             مراكز التكلفة تتيح لك معرفة أرباح ومصروفات كل قسم أو مشروع على حدة
@@ -208,6 +208,7 @@ export function CostCentersScreen() {
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <StatCard label="إجمالي مراكز التكلفة" value={<span className="mz-num">{totalCount}</span>} />

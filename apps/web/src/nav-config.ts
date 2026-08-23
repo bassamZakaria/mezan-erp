@@ -1,4 +1,4 @@
-import type { CommandItem, NavGroup, NavItem } from "@mezan/ui";
+import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
 import type { AppTranslationKey } from "./i18n";
 
 /**
@@ -155,10 +155,11 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
 ];
 
 const commandItemSpecs = [
-  { id: "cmd-invoice", groupKey: "command.group.quickActions", hint: "N" },
+  { id: "cmd-invoice", groupKey: "command.group.quickActions", hint: `${modKeyLabel()}+N` },
   { id: "cmd-receipt", groupKey: "command.group.quickActions" },
   { id: "cmd-coa", groupKey: "command.group.goTo" },
   { id: "cmd-journals", groupKey: "command.group.goTo" },
+  { id: "cmd-shortcuts", groupKey: "command.group.goTo", hint: "?" },
 ] as const satisfies readonly { id: string; groupKey: AppTranslationKey; hint?: string }[];
 
 export function buildTopNavItem(t: Translate): NavItem {

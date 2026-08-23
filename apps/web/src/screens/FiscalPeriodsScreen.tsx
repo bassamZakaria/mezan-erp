@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
   useClosePeriod,
@@ -164,9 +164,9 @@ export function FiscalPeriodsScreen() {
           </Button>
         </Card>
       ) : null}
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Fiscal Periods</div>
+          <div className="mz-eyebrow">Accounting · Fiscal Periods</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">الفترات المالية</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">تحكم في إغلاق وقفل الفترات المالية الشهرية لمنع الترحيل بعد إقفال الحسابات</p>
         </div>
@@ -192,6 +192,7 @@ export function FiscalPeriodsScreen() {
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {actionError ? (
         <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

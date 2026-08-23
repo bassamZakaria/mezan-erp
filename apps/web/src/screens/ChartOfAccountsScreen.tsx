@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
+  FulcrumRule,
   AccountTree,
   Button,
   Card,
@@ -247,9 +248,9 @@ export function ChartOfAccountsScreen() {
 
   return (
     <div className="w-full">
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">
+          <div className="mz-eyebrow">
             Accounting · Chart of Accounts
           </div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">دليل الحسابات</h1>
@@ -266,6 +267,7 @@ export function ChartOfAccountsScreen() {
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">

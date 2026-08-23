@@ -1,6 +1,7 @@
 import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useFormat } from "../hooks/useFormat";
+import { MicroBeam } from "./beams";
 
 /* ------------------------------------------------------------------ */
 /* Button                                                              */
@@ -185,28 +186,33 @@ export interface StatCardProps {
   valueTone?: "default" | "danger";
 }
 
+const statSubToneClass = {
+  up: "text-success-ink",
+  down: "text-danger-ink",
+  neutral: "text-ink-muted",
+} as const;
+
+/**
+ * Spec §5 — a data surface, so the tighter 8px radius (not the 14px chrome
+ * radius): muted label, large mono `tabular-nums` value, and a delta line led
+ * by a directional micro-beam so the trend reads before the number.
+ */
 export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "default" }: StatCardProps) {
   return (
-    <Card className="relative overflow-hidden p-[16px_18px]">
-      <div className="text-[11.5px] font-semibold text-ink-muted">{label}</div>
+    <Card className="relative overflow-hidden rounded-md p-[15px_16px] transition-[transform,box-shadow] duration-150 hover:-translate-y-[2px] hover:shadow-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+      <div className="text-xs font-semibold text-ink-muted">{label}</div>
       <div
         className={cn(
-          "mt-2 flex items-baseline gap-[5px] font-display text-[25px] font-bold tracking-tight",
+          "mt-[6px] flex items-baseline gap-[5px] font-mono text-[24px] font-semibold tabular-nums tracking-[-0.02em]",
           valueTone === "danger" ? "text-danger-ink" : "text-ink",
         )}
       >
         {value}
       </div>
       {sub ? (
-        <div
-          className={cn(
-            "mt-[6px] flex items-center gap-[5px] text-[11px]",
-            subTone === "up" && "text-success-ink",
-            subTone === "down" && "text-danger-ink",
-            subTone === "neutral" && "text-ink-faint",
-          )}
-        >
-          {sub}
+        <div className={cn("mt-[7px] flex items-center gap-[6px] text-xs font-semibold", statSubToneClass[subTone])}>
+          <MicroBeam direction={subTone === "neutral" ? "level" : subTone} />
+          <span className="min-w-0 truncate">{sub}</span>
         </div>
       ) : null}
     </Card>

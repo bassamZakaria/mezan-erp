@@ -9,6 +9,12 @@ type NavigationValue = {
   navigate: (screen: ScreenKey, intent?: ScreenIntent) => void;
   intent: ScreenIntent | null;
   clearIntent: () => void;
+  /**
+   * Called by `useScreenIntent` while a screen is mounted, so ⌘N can tell
+   * whether the screen on display has a create flow of its own. Returns the
+   * deregistration.
+   */
+  registerIntentTarget?: () => () => void;
 };
 
 const NavigationContext = createContext<NavigationValue | null>(null);
@@ -35,9 +41,11 @@ export function useNavigation(): NavigationValue {
  * is unambiguously this screen's.
  */
 export function useScreenIntent(onIntent: (intent: ScreenIntent) => void): void {
-  const { intent, clearIntent } = useNavigation();
+  const { intent, clearIntent, registerIntentTarget } = useNavigation();
   const handler = useRef(onIntent);
   handler.current = onIntent;
+
+  useEffect(() => registerIntentTarget?.(), [registerIntentTarget]);
 
   useEffect(() => {
     if (!intent) return;

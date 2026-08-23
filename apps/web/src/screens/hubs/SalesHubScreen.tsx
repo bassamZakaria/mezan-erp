@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { Button, Card, Money, StatCard } from "@mezan/ui";
+import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCustomers, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
@@ -52,7 +52,7 @@ export function SalesHubScreen() {
     <div className="flex flex-col gap-[22px]">
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
-          <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">Sales</div>
+          <div className="mz-eyebrow">Sales</div>
           <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">المبيعات</h1>
           <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">فواتير وعروض أسعار وعملاء المبيعات — من البيانات الفعلية المسجّلة</p>
         </div>
@@ -63,6 +63,9 @@ export function SalesHubScreen() {
             </Button>
           ))}
         </div>
+      </div>
+      <div className="-mt-[18px] -mb-[22px]">
+        <FulcrumRule />
       </div>
 
       {isError ? (

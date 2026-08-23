@@ -63,6 +63,15 @@ export {
 } from "./primitives/atoms";
 
 export {
+  MicroBeam,
+  VarianceBeam,
+  beamDirectionOf,
+  type BeamDirection,
+  type MicroBeamProps,
+  type VarianceBeamProps,
+} from "./primitives/beams";
+
+export {
   DocumentList,
   type DocumentListProps,
   type DocumentListColumn,
@@ -84,6 +93,7 @@ export {
   type DocumentStatusStep,
 } from "./primitives/DocumentStatusStepper";
 
+export { Kbd, modKeyLabel, type KbdProps, type KbdTone } from "./primitives/Kbd";
 export { SidePanel, type SidePanelProps } from "./primitives/SidePanel";
 export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";

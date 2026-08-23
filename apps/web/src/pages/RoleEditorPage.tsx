@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, PermissionMatrix, type PermissionMatrixItem, type PermissionMatrixModule } from "@mezan/ui";
+import { FulcrumRule, Button, Card, PermissionMatrix, type PermissionMatrixItem, type PermissionMatrixModule } from "@mezan/ui";
 import {
   getPermission,
   isPlatformAdminOnly,
@@ -113,9 +113,9 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
 
   return (
     <div className="w-full">
-      <div className="mb-[18px] flex flex-wrap items-start justify-between gap-[14px]">
+      <div className="mb-[16px] flex flex-wrap items-start justify-between gap-[14px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Settings · Roles</div>
+          <div className="mz-eyebrow">Settings · Roles</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{role ? "تعديل الدور" : "دور جديد"}</h1>
         </div>
         <div className="flex gap-[9px]">
@@ -125,6 +125,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {formError ? (
         <div className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[9px] text-[12.5px] text-danger-ink">

@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  FulcrumRule,
   DocumentList,
   DocumentDetail,
   DocumentStatusStepper,
@@ -182,14 +183,15 @@ export function StockAdjustmentsScreen() {
   if (mode === "reason") {
     return (
       <div className="w-full">
-        <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+        <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
           <div>
-            <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Inventory · New Stock Adjustment</div>
+            <div className="mz-eyebrow">Inventory · New Stock Adjustment</div>
             <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">اختر سبب التسوية</h1>
             <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">السبب يحدد طريقة إدخال البيانات</p>
           </div>
           <Button onClick={() => setMode("list")}>إلغاء</Button>
         </div>
+        <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-4">
           {ADJUSTMENT_REASON_DEFINITIONS.map((def) => (
             <button
@@ -491,9 +493,9 @@ function CreateAdjustmentView({
 
   return (
     <div className="w-full">
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Inventory · New Stock Adjustment</div>
+          <div className="mz-eyebrow">Inventory · New Stock Adjustment</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? "الرصيد الافتتاحي" : `تسوية — ${reason.labelAr}`}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
@@ -503,6 +505,7 @@ function CreateAdjustmentView({
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

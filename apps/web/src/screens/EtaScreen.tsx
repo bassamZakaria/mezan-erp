@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
 import { getEtaStatusLabel, getEtaDocumentTypeLabel } from "@mezan/domain";
 import { useEtaConfig, useEtaSubmissions, useExcludeEtaSubmission, useSubmitAllReadyEta, useSubmitEtaSubmission } from "../data/hooks";
@@ -91,14 +91,15 @@ export function EtaScreen() {
 
   return (
     <div className="w-full">
-      <div className="mb-[18px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · ETA e-Invoicing</div>
+          <div className="mz-eyebrow">Accounting · ETA e-Invoicing</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">الفاتورة الإلكترونية</h1>
           <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">قائمة إرسال المستندات المؤكدة إلى مصلحة الضرائب المصرية. الإرسال الفعلي متاح فقط عند الاتصال (موقوف في هذه النسخة) — تُبنى الحمولة وتُدرج في قائمة الإرسال دون اتصال.</p>
         </div>
         <Button variant="primary" onClick={submitAll}>إرسال كل الجاهز</Button>
       </div>
+      <FulcrumRule />
 
       {readiness ? (
         <Card className="mb-[16px] p-[16px_18px]">

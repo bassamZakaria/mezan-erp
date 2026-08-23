@@ -3,6 +3,7 @@ import {
   DocumentList,
   Money as MoneyDisplay,
   StatusPill,
+  VarianceBeam,
   Chip,
   Card,
   Button,
@@ -581,7 +582,11 @@ export function VanTripsScreen() {
                           <td className="p-[6px] text-ink">{itemName(line.itemId)}</td>
                           <td className="mz-num p-[6px] text-ink">{toMajor(line.expectedQty)}</td>
                           <td className="mz-num p-[6px] text-ink">{toMajor(line.countedQty)}</td>
-                          <td className="mz-num p-[6px] text-ink">{toMajor(line.varianceQty)}</td>
+                          <td className="p-[6px]">
+                            <VarianceBeam value={toMajor(line.varianceQty)}>
+                              <span className="mz-num">{toMajor(line.varianceQty)}</span>
+                            </VarianceBeam>
+                          </td>
                         </tr>
                       ))}
                     </tbody>

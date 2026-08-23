@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
-import { Card, StatusPill, type PillTone } from "./atoms";
+import { StatusPill, type PillTone } from "./atoms";
+import { FulcrumRule } from "../shell/FulcrumRule";
 import { useUiTranslation } from "../i18n";
 
 /**
@@ -66,25 +67,26 @@ export function DocumentDetail({
 
   return (
     <div className={cn("w-full", className)}>
-      <div className="mb-[18px] flex flex-wrap items-start justify-between gap-[18px]">
+      <div className="mb-[14px] flex flex-wrap items-start justify-between gap-[18px]">
         <div>
           <div className="flex flex-wrap items-center gap-[11px]">
-            <h1 className="font-display text-[21px] font-bold text-ink">{title}</h1>
+            <h1 className="font-display text-xl font-bold text-ink">{title}</h1>
             {statusLabel ? <StatusPill label={statusLabel} tone={statusTone} /> : null}
           </div>
           {subtitle ? <div className="mt-[7px] text-[12.5px] text-ink-muted">{subtitle}</div> : null}
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
       </div>
+      <FulcrumRule />
 
       {summary && summary.length > 0 ? (
-        <Card className="mb-[18px] grid grid-cols-2 overflow-hidden sm:grid-cols-3 lg:grid-cols-6">
+        <div className="mb-[16px] grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border shadow-1 sm:grid-cols-3 lg:grid-cols-6">
           {summary.map((item, i) => (
-            <div key={i} className="border-e border-border p-[15px_17px] last:border-e-0">
-              <div className="text-[11px] font-semibold text-ink-faint">{item.label}</div>
+            <div key={i} className="bg-surface p-[13px_15px]">
+              <div className="text-[11px] font-semibold text-ink-muted">{item.label}</div>
               <div
                 className={cn(
-                  "mt-[6px] text-[15px] font-bold",
+                  "mt-[5px] font-display text-[15px] font-bold tabular-nums",
                   item.valueTone === "success" && "text-success-ink",
                   item.valueTone === "danger" && "text-danger-ink",
                 )}
@@ -93,15 +95,15 @@ export function DocumentDetail({
               </div>
             </div>
           ))}
-        </Card>
+        </div>
       ) : null}
 
       {effects && effects.length > 0 ? (
         <div
-          className="mb-[20px] flex items-start gap-[13px] rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]"
-          style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 55%, var(--surface)))" }}
+          className="mb-[18px] flex items-start gap-[13px] rounded-md border border-border border-s-[3px] border-s-accent p-[15px_17px]"
+          style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 30%, var(--surface)))" }}
         >
-          <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[9px] bg-brand text-accent">
+          <span className="flex h-[36px] w-[36px] flex-none items-center justify-center rounded-md border border-border bg-surface text-brand">
             <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[19px] w-[19px]">
               <path
                 d="M10 2 3 5.5v5c0 4 3 6.6 7 7.5 4-.9 7-3.5 7-7.5v-5L10 2Z"
@@ -112,13 +114,13 @@ export function DocumentDetail({
               <path d="m7.3 10 2 2 3.4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </span>
-          <div>
-            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{effectsTitle ?? t("ui.documentDetail.effects")}</h3>
-            <ul className="flex flex-col gap-[7px]">
+          <div className="min-w-0">
+            <h3 className="mb-[7px] font-display text-sm font-bold text-ink">{effectsTitle ?? t("ui.documentDetail.effects")}</h3>
+            <ul className="flex flex-col gap-[6px]">
               {effects.map((effect, i) => (
-                <li key={i} className="flex items-start gap-[8px] text-[12.5px] text-ink">
-                  <span aria-hidden className="mt-[8px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                  {effect}
+                <li key={i} className="flex items-start gap-[9px] text-[12.5px] text-ink-muted">
+                  <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-accent" />
+                  <span className="min-w-0 [&_b]:font-semibold [&_b]:text-ink">{effect}</span>
                 </li>
               ))}
             </ul>

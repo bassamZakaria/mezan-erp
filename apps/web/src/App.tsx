@@ -146,6 +146,8 @@ import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 import { NavigationProvider, type ScreenIntent } from "./navigation";
+import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
+import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 
 /** Every nav-item key this shell routes to. A key here without a nav entry is unreachable; a nav entry without a key here is a dead click. */
 const ROUTABLE_SCREENS = {
@@ -264,6 +266,10 @@ const ROUTABLE_SCREENS = {
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;
+
+/** Where ⌘N goes when the screen on display has no create flow of its own. */
+const DEFAULT_CREATE_SCREEN = "sales-invoices" satisfies RoutableKey;
+
 /**
  * المستخدمون / الأدوار aren't stateless ROUTABLE_SCREENS entries — the role
  * editor needs the in-flight `editingRole` (create vs. edit), and all three
@@ -308,13 +314,24 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  // How many mounted screens accept a "create" intent. Only one routable
+  // screen is mounted at a time, so > 0 means "this screen can create".
+  const [intentTargets, setIntentTargets] = useState(0);
 
   const navigate = useCallback((screen: ScreenKey, intent?: ScreenIntent) => {
     setActiveScreen(screen);
     setPendingIntent(intent ?? null);
   }, []);
   const clearIntent = useCallback(() => setPendingIntent(null), []);
-  const navigation = useMemo(() => ({ navigate, intent: pendingIntent, clearIntent }), [navigate, pendingIntent, clearIntent]);
+  const registerIntentTarget = useCallback(() => {
+    setIntentTargets((n) => n + 1);
+    return () => setIntentTargets((n) => n - 1);
+  }, []);
+  const navigation = useMemo(
+    () => ({ navigate, intent: pendingIntent, clearIntent, registerIntentTarget }),
+    [navigate, pendingIntent, clearIntent, registerIntentTarget],
+  );
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
@@ -384,6 +401,7 @@ export function App() {
       "cmd-receipt": () => navigate("treasury-vouchers", "create"),
       "cmd-coa": () => navigate("coa"),
       "cmd-journals": () => navigate("journals"),
+      "cmd-shortcuts": () => setShortcutsOpen(true),
     };
     return buildCommandItems(t).map((item) => {
       const onSelect = targets[item.id];
@@ -414,6 +432,21 @@ export function App() {
     const key = topNavItem.key;
     return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
   }, [navigate, t]);
+
+  const createOnCurrentScreen = useCallback(() => {
+    // A screen that wired `useScreenIntent` opens its own create flow;
+    // anywhere else ⌘N falls back to the app's primary create action — the
+    // same one the command bar lists first.
+    navigate(intentTargets > 0 ? activeScreen : DEFAULT_CREATE_SCREEN, "create");
+  }, [activeScreen, intentTargets, navigate]);
+
+  const { moduleJumps } = useGlobalShortcuts({
+    navGroups: groups,
+    topNavItem: routedTopNavItem,
+    onCreate: createOnCurrentScreen,
+    onShowHelp: () => setShortcutsOpen(true),
+    disabled: !session || showWizard || shortcutsOpen,
+  });
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
@@ -553,6 +586,7 @@ export function App() {
           onCancel={() => setActiveScreen("roles")}
         />
       ) : null}
+      <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} moduleJumps={moduleJumps} />
     </AppShell>
     </NavigationProvider>
   );

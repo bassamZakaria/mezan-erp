@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Button, Card, Money as MoneyDisplay, SidePanel, StatCard } from "@mezan/ui";
+import { FulcrumRule, Button, Card, Money as MoneyDisplay, SidePanel, StatCard } from "@mezan/ui";
 import type { OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
 import { SelectField } from "../settings/form-controls";
 import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
@@ -54,9 +54,9 @@ export function PipelineScreen() {
 
   return (
     <div className="w-full">
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">CRM · Pipeline</div>
+          <div className="mz-eyebrow">CRM · Pipeline</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">خط المبيعات</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">عرض الفرص المفتوحة مجمعة حسب مرحلة خط المبيعات</p>
         </div>
@@ -64,6 +64,7 @@ export function PipelineScreen() {
           إضافة فرصة
         </Button>
       </div>
+      <FulcrumRule />
 
       {(stagesQuery.isError || opportunitiesQuery.isError) ? (
         <Card className="mb-[18px] p-[18px_20px]">

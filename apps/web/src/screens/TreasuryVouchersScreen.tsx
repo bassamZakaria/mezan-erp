@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  FulcrumRule,
   DocumentList,
   DocumentDetail,
   DocumentStatusStepper,
@@ -745,13 +746,14 @@ function CreateVoucherView({
   if (!type || !def) {
     return (
       <div className="w-full">
-        <div className="mb-[22px] flex items-end justify-between gap-[18px]">
+        <div className="mb-[16px] flex items-end justify-between gap-[18px]">
           <div>
-            <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Treasury · New Voucher</div>
+            <div className="mz-eyebrow">Treasury · New Voucher</div>
             <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">اختر نوع السند</h1>
           </div>
           <Button onClick={onDone}>إلغاء</Button>
         </div>
+        <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-3">
           {VOUCHER_TYPE_DEFINITIONS.map((d) => (
             <button
@@ -778,9 +780,9 @@ function CreateVoucherView({
 
   return (
     <div className="w-full">
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Treasury · New Voucher</div>
+          <div className="mz-eyebrow">Treasury · New Voucher</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{def.labelAr}</h1>
           <button type="button" onClick={() => setType(null)} className="mt-[6px] text-[12px] text-brand underline">
             تغيير نوع السند
@@ -793,6 +795,7 @@ function CreateVoucherView({
           </Button>
         </div>
       </div>
+      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

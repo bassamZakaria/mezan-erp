@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn } from "@mezan/ui";
 import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
 
@@ -39,14 +39,15 @@ export function ReconciliationScreen() {
 
   return (
     <div className="w-full">
-      <div className="mb-[18px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Reconciliation</div>
+          <div className="mz-eyebrow">Accounting · Reconciliation</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">مطابقة الأرصدة</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">مطابقة أرصدة دفاتر المساعدة مع حسابات المراقبة في دفتر الأستاذ، ورصد البنود غير المرتبطة</p>
         </div>
         <Button onClick={() => query.refetch()}>تحديث</Button>
       </div>
+      <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[16px] p-[18px_20px]">

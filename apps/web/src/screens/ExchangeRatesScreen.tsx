@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DocumentList, StatusPill, Chip, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 
@@ -75,14 +75,15 @@ export function ExchangeRatesScreen() {
 
   return (
     <div className="w-full">
-      <div className="mb-[18px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Exchange Rates</div>
+          <div className="mz-eyebrow">Accounting · Exchange Rates</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">أسعار الصرف</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">العملة الأساسية: EGP — جميع الأسعار محسوبة مقابل هذه العملة</p>
         </div>
         <Button variant="primary" onClick={() => setAdding((v) => !v)}>إضافة سعر صرف</Button>
       </div>
+      <FulcrumRule />
 
       {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 

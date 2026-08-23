@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DocumentList, StatCard, Chip, Button, type DocumentListColumn } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatCard, Chip, Button, VarianceBeam, type DocumentListColumn } from "@mezan/ui";
 import type { FxRevaluationDetailDTO } from "@mezan/contracts";
 import { nextDay } from "@mezan/domain";
 import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
@@ -58,18 +58,28 @@ export function FxRevaluationScreen() {
     { key: "rate", header: "سعر الإقفال", render: (d) => <span className="mz-num">{fmt(d.closingRate, 4)}</span> },
     { key: "booked", header: "القيمة الدفترية", render: (d) => <span className="mz-num">{fmt(d.bookedBase)}</span> },
     { key: "revalued", header: "بعد التقييم", render: (d) => <span className="mz-num">{fmt(d.revaluedBase)}</span> },
-    { key: "gl", header: "الفرق (ربح/خسارة)", render: (d) => <span className={`mz-num font-bold ${Number(d.gainLoss) < 0 ? "text-danger-ink" : "text-success-ink"}`}>{fmt(d.gainLoss)}</span> },
+    {
+      key: "gl",
+      header: "الفرق (ربح/خسارة)",
+      align: "end",
+      render: (d) => (
+        <VarianceBeam value={Number(d.gainLoss)} className="font-bold">
+          <span className="mz-num">{fmt(d.gainLoss)}</span>
+        </VarianceBeam>
+      ),
+    },
   ];
 
   const p = previewMutation.data ?? null;
 
   return (
     <div className="w-full">
-      <div className="mb-[18px]">
-        <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · FX Revaluation</div>
+      <div className="mb-[16px]">
+        <div className="mz-eyebrow">Accounting · FX Revaluation</div>
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">إعادة تقييم العملات الأجنبية</h1>
         <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">تنشئ هذه الصفحة قيداً يحدّث أرصدة العملاء والموردين والخزائن المفتوحة بسعر الإقفال المعتمد، وتسجل الفروقات كمكاسب أو خسائر فروق عملة. تُعكس تلقائياً في اليوم التالي.</p>
       </div>
+      <FulcrumRule />
 
       <div className="mb-[18px] rounded-lg border border-border bg-surface p-[16px_18px]">
         <div className="flex flex-wrap items-end gap-[16px]">

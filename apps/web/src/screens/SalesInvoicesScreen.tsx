@@ -734,6 +734,7 @@ export function SalesInvoicesScreen() {
       header: "الرصيد المتبقي",
       align: "end",
       render: (inv) => <MoneyDisplay value={toMajor(inv.remainingBalance)} />,
+      total: (rows) => <MoneyDisplay value={rows.reduce((sum, inv) => sum + toMajor(inv.remainingBalance), 0)} />,
     },
     {
       key: "status",

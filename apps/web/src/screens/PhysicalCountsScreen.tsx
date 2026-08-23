@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, DocumentDetail, StatusPill, Card, Button, trimMoneyString, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { FulcrumRule, DocumentList, DocumentDetail, StatusPill, VarianceBeam, Card, Button, trimMoneyString, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
   useCancelPhysicalCount,
@@ -46,14 +46,6 @@ function signedDisplay(value: string | null, digits = 2): string {
 
 function qtyDisplay(value: string | null, digits = 2): string {
   return value === null ? "—" : trimMoneyString(value, digits);
-}
-
-function varianceTone(value: string | null): string {
-  if (value === null) return "text-ink-muted";
-  if (value.startsWith("-")) return "text-danger-ink";
-  return Number.parseInt(value.split(".")[0] ?? "0", 10) === 0 && !/[1-9]/.test(value.split(".")[1] ?? "")
-    ? "text-ink-muted"
-    : "text-success-ink";
 }
 
 const QTY_SCALE = 1_000_000n;
@@ -127,7 +119,9 @@ export function PhysicalCountsScreen() {
       align: "end",
       render: (c) =>
         c.variance ? (
-          <span className={`mz-num font-semibold ${varianceTone(c.variance.netValue)}`}>{signedDisplay(c.variance.netValue)}</span>
+          <VarianceBeam value={Number(c.variance.netValue)} className="font-semibold">
+            <span className="mz-num">{signedDisplay(c.variance.netValue)}</span>
+          </VarianceBeam>
         ) : (
           <span className="text-[11.5px] text-ink-faint">{c.blind ? "جرد أعمى" : "—"}</span>
         ),
@@ -283,10 +277,11 @@ function NewCountView({
 
   return (
     <div className="w-full max-w-[560px]">
-      <div className="mb-[18px]">
-        <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Inventory · New Physical Count</div>
+      <div className="mb-[16px]">
+        <div className="mz-eyebrow">Inventory · New Physical Count</div>
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">جرد جديد</h1>
       </div>
+      <FulcrumRule />
       <Card className="flex flex-col gap-[14px] p-[18px]">
         <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
         <TextField label="التاريخ *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
@@ -361,9 +356,9 @@ function CountEntryView({
 
   return (
     <div className="w-full">
-      <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
+      <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Inventory · Physical Count</div>
+          <div className="mz-eyebrow">Inventory · Physical Count</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{count.countNo} — {warehouseLabel(count.warehouseId)}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
@@ -375,6 +370,7 @@ function CountEntryView({
           ) : null}
         </div>
       </div>
+      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -429,8 +425,10 @@ function CountEntryView({
                       />
                     </td>
                     {blindOpen ? null : (
-                      <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(diff)}`}>
-                        {signedDisplay(diff)}
+                      <td className="px-[15px] py-[11px] text-end font-semibold">
+                        <VarianceBeam value={Number(diff ?? 0)}>
+                          <span className="mz-num">{signedDisplay(diff)}</span>
+                        </VarianceBeam>
                       </td>
                     )}
                   </tr>
@@ -514,9 +512,9 @@ function CountDetailView({
           {
             label: "صافي قيمة الفرق",
             value: (
-              <span className={`mz-num font-semibold ${varianceTone(count.variance?.netValue ?? null)}`}>
-                {signedDisplay(count.variance?.netValue ?? null)}
-              </span>
+              <VarianceBeam value={Number(count.variance?.netValue ?? 0)} className="font-semibold">
+                <span className="mz-num">{signedDisplay(count.variance?.netValue ?? null)}</span>
+              </VarianceBeam>
             ),
           },
           { label: "التسوية الناتجة", value: count.generatedAdjustmentId ? "تم إنشاؤها" : "—" },
@@ -550,12 +548,16 @@ function CountDetailView({
                           <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
                           <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.systemQty)}</td>
                           <td className="px-[15px] py-[11px] text-end mz-num">{qtyDisplay(l.countedQty)}</td>
-                          <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(l.varianceQty)}`}>
-                            {signedDisplay(l.varianceQty)}
+                          <td className="px-[15px] py-[11px] text-end font-semibold">
+                            <VarianceBeam value={Number(l.varianceQty ?? 0)}>
+                              <span className="mz-num">{signedDisplay(l.varianceQty)}</span>
+                            </VarianceBeam>
                           </td>
                           <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.unitCost)}</td>
-                          <td className={`px-[15px] py-[11px] text-end mz-num font-semibold ${varianceTone(l.varianceValue)}`}>
-                            {signedDisplay(l.varianceValue)}
+                          <td className="px-[15px] py-[11px] text-end font-semibold">
+                            <VarianceBeam value={Number(l.varianceValue ?? 0)}>
+                              <span className="mz-num">{signedDisplay(l.varianceValue)}</span>
+                            </VarianceBeam>
                           </td>
                         </tr>
                       ))}

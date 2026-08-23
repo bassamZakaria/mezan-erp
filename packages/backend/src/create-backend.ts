@@ -605,6 +605,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       costLayers: stockLedger.layers,
       wacSnapshots: stockLedger.snapshots,
       installmentPlans,
+      // القوائم المالية read the SAME posted GL + chart of accounts every other
+      // accounting surface uses — no fixture ledger behind the statements.
+      ledger,
+      accounts,
     },
   });
 

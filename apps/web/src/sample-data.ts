@@ -43,10 +43,10 @@ export const navGroups: NavGroup[] = [
     label: "المخزون",
     items: [
       { key: "items", label: "الأصناف" },
-      { key: "stock-balance", label: "أرصدة المخزون", tag: { label: "قريباً", tone: "soon" } },
-      { key: "stock-transfers", label: "تحويلات المخزون", tag: { label: "قريباً", tone: "soon" } },
-      { key: "stock-adjustments", label: "تسويات المخزون", tag: { label: "قريباً", tone: "soon" } },
-      { key: "physical-counts", label: "الجرد الفعلي", tag: { label: "قريباً", tone: "soon" } },
+      { key: "stock-balance", label: "أرصدة المخزون" },
+      { key: "stock-transfers", label: "تحويلات المخزون" },
+      { key: "stock-adjustments", label: "تسويات المخزون" },
+      { key: "physical-counts", label: "الجرد الفعلي" },
       { key: "configurable-products", label: "منتجات قابلة للتهيئة" },
     ],
   },
@@ -74,6 +74,7 @@ export const navGroups: NavGroup[] = [
       { key: "reconciliation", label: "مطابقة الأرصدة" },
       { key: "eta", label: "الفاتورة الإلكترونية" },
       { key: "trial-balance-report", label: "ميزان المراجعة", tag: { label: "نمط", tone: "pattern" } },
+      { key: "financial-reports", label: "التقارير المالية", tag: { label: "نمط", tone: "pattern" } },
     ],
   },
   {

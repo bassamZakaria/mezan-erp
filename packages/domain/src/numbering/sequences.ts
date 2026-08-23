@@ -48,6 +48,7 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "PAYMENT_RECEIPT", labelAr: "سند تحصيل", prefix: "REC-", padLength: 6, annualReset: false },
   { code: "PAYROLL_RUN", labelAr: "دورة رواتب", prefix: "PR-", padLength: 6, annualReset: false },
   { code: "PAYSLIP", labelAr: "قسيمة راتب", prefix: "PS-", padLength: 6, annualReset: false },
+  { code: "PHYSICAL_COUNT", labelAr: "جرد فعلي", prefix: "CNT-", padLength: 6, annualReset: false },
   { code: "POS_SALE", labelAr: "مبيعة نقطة بيع", prefix: "POS-", padLength: 8, annualReset: false },
   { code: "PURCHASE_INVOICE", labelAr: "فاتورة مشتريات", prefix: "PI-", padLength: 6, annualReset: false },
   { code: "PURCHASE_ORDER", labelAr: "أمر شراء", prefix: "PO-", padLength: 6, annualReset: false },
@@ -62,6 +63,8 @@ export const SEQUENCE_DEFINITIONS = [
   { code: "SALES_QUOTE", labelAr: "عرض سعر", prefix: "QT-", padLength: 6, annualReset: false },
   // Added by phase11/manufacturing:
   { code: "WORK_ORDER", labelAr: "أمر تصنيع", prefix: "WO-", padLength: 4, annualReset: false },
+  { code: "STOCK_ADJUSTMENT", labelAr: "تسوية مخزون", prefix: "ADJ-", padLength: 6, annualReset: false },
+  { code: "STOCK_TRANSFER", labelAr: "تحويل مخزون", prefix: "TRF-", padLength: 6, annualReset: false },
 ] as const satisfies readonly SequenceDefinition[];
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];

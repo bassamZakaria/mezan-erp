@@ -76,3 +76,53 @@ export {
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,
 } from "./stock-ledger-service.js";
+
+// --- phase4/inventory-ops — document layer on top of the engine above -----
+
+export {
+  type StockAdjustmentDocLine,
+  type StockAdjustmentDocument,
+  adjustmentHeaderOf,
+  stockAdjustmentDocumentType,
+} from "./stock-adjustment-document.js";
+
+export {
+  type StockTransferDocLine,
+  type StockTransferDocument,
+  transferHeaderOf,
+  stockTransferDocumentType,
+} from "./stock-transfer-document.js";
+
+export {
+  type AdjustmentGlAccounts,
+  createInventoryOpsStockHook,
+  createInventoryGlPostingHook,
+} from "./document-hooks.js";
+
+export {
+  type StockBalanceRow,
+  type StockBalanceRollupOptions,
+  rollupStockBalance,
+} from "./stock-balance.js";
+
+export {
+  PHYSICAL_COUNT_STATUSES,
+  type PhysicalCountStatus,
+  type PhysicalCountLine,
+  type PhysicalCount,
+  varianceOf,
+  type PhysicalCountListFilter,
+  type PhysicalCountRepository,
+  type PhysicalCountNumberingHook,
+  type StockBalanceReader,
+  PhysicalCountNotFoundError,
+  DuplicatePhysicalCountError,
+  InvalidPhysicalCountError,
+  InvalidPhysicalCountStatusError,
+  type PhysicalCountServiceDeps,
+  type StartPhysicalCountCommand,
+  type RecordCountedQtyEntry,
+  type GenerateAdjustmentCommand,
+  type GenerateAdjustmentResult,
+  PhysicalCountService,
+} from "./physical-count.js";

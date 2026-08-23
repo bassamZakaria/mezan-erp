@@ -23,6 +23,7 @@ import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
 import { BankReconciliationScreen } from "./screens/BankReconciliationScreen";
 import { ChequesScreen } from "./screens/ChequesScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
+import { FinancialReportsScreen } from "./screens/FinancialReportsScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
 import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
@@ -70,6 +71,10 @@ import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
 import { VanTripsScreen } from "./screens/VanTripsScreen";
+import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
+import { StockTransfersScreen } from "./screens/StockTransfersScreen";
+import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
+import { StockBalanceScreen } from "./screens/StockBalanceScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -126,6 +131,10 @@ const ROUTABLE_SCREENS = {
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
   "configurable-products": ConfigurableProductsScreen,
+  "stock-balance": StockBalanceScreen,
+  "stock-transfers": StockTransfersScreen,
+  "stock-adjustments": StockAdjustmentsScreen,
+  "physical-counts": PhysicalCountsScreen,
   "cost-centers": CostCentersScreen,
   "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,
@@ -157,6 +166,7 @@ const ROUTABLE_SCREENS = {
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,
   "report-installments-overdue": InstallmentsOverdueReportScreen,
+  "financial-reports": FinancialReportsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,

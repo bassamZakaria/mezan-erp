@@ -48,6 +48,9 @@ export const navGroups: NavGroup[] = [
       { key: "stock-adjustments", label: "تسويات المخزون" },
       { key: "physical-counts", label: "الجرد الفعلي" },
       { key: "configurable-products", label: "منتجات قابلة للتهيئة" },
+      { key: "product-templates", label: "قوالب المنتجات" },
+      { key: "labels", label: "طباعة الملصقات" },
+      { key: "writedown-runs", label: "هبوط قيمة المخزون" },
     ],
   },
   {

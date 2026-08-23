@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tan
 import type {
   AccountDTO,
   ActivityDTO,
+  AddAttributeValueDTO,
+  AddTemplateAttributeDTO,
   AllocationSummaryDTO,
   AssetCategoryDTO,
   AssetDTO,
@@ -47,6 +49,7 @@ import type {
   CreateOpportunityDTO,
   CreatePipelineStageDTO,
   CreatePriceListDTO,
+  CreateProductTemplateDTO,
   CreateProjectDTO,
   CreatePromotionDTO,
   CreatePurchaseInvoiceDTO,
@@ -67,6 +70,7 @@ import type {
   CreateVoucherDTO,
   CreateWarehouseDTO,
   CreateWorkOrderDTO,
+  CreateWritedownRunDTO,
   CustomerDTO,
   DashboardSummaryDTO,
   DepositChequeDTO,
@@ -85,6 +89,8 @@ import type {
   FxRevaluationRequestDTO,
   GenerateAdjustmentFromCountDTO,
   GenerateFiscalYearDTO,
+  GenerateVariantsDTO,
+  GenerateVariantsResultDTO,
   GlJournalListQueryDTO,
   GoodsReceiptDTO,
   ImportBankStatementDTO,
@@ -110,6 +116,8 @@ import type {
   PricingMethodDTO,
   ProcessOverdueInstallmentsDTO,
   ProcessOverdueInstallmentsResultDTO,
+  ProductTemplateDTO,
+  ProductTemplateVariantDTO,
   ProjectDTO,
   PromotionDTO,
   PurchaseInvoiceDTO,
@@ -180,6 +188,7 @@ import type {
   LeaveRequestDTO,
   CreateLeaveRequestDTO,
   HrDashboardSummaryDTO,
+  WritedownRunDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
@@ -1904,6 +1913,160 @@ export function usePostDepreciationRun() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] });
       queryClient.invalidateQueries({ queryKey: ["assets"] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Inventory aging-based write-down batch (docs/tasks.md Phase 4) — inv/labels-templates-writedown
+// ---------------------------------------------------------------------------
+
+export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WritedownRunDTO[], ApiError>({
+    queryKey: ["writedown-runs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/inventory/writedown-runs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات هبوط قيمة المخزون.");
+      return res.json<WritedownRunDTO[]>();
+    },
+  });
+}
+
+export function useCreateWritedownRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WritedownRunDTO, ApiError, CreateWritedownRunDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/writedown-runs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء عملية هبوط قيمة المخزون."));
+      return res.json<WritedownRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
+  });
+}
+
+export function usePostWritedownRun() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WritedownRunDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/writedown-runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل عملية هبوط قيمة المخزون."));
+      return res.json<WritedownRunDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Product Templates (docs/catalog/03-inventory.md §"قوالب المنتجات") — inv/labels-templates-writedown
+// ---------------------------------------------------------------------------
+
+export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ProductTemplateDTO[], ApiError>({
+    queryKey: ["product-templates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/inventory/product-templates");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوالب المنتجات.");
+      return res.json<ProductTemplateDTO[]>();
+    },
+  });
+}
+
+export function useCreateProductTemplate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, CreateProductTemplateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/product-templates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء قالب المنتج."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useTemplateVariants(templateId: string | null): UseQueryResult<ProductTemplateVariantDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ProductTemplateVariantDTO[], ApiError>({
+    queryKey: ["product-template-variants", templateId],
+    enabled: session !== null && templateId !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/product-templates/${templateId}/variants`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المتغيرات.");
+      return res.json<ProductTemplateVariantDTO[]>();
+    },
+  });
+}
+
+export function useAddTemplateAttribute() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; body: AddTemplateAttributeDTO }>({
+    mutationFn: async ({ templateId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الخاصية."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useDeleteTemplateAttribute() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string }>({
+    mutationFn: async ({ templateId, attributeId }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الخاصية."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useAddAttributeValue() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; body: AddAttributeValueDTO }>({
+    mutationFn: async ({ templateId, attributeId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القيمة."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useDeleteAttributeValue() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; value: string }>({
+    mutationFn: async ({ templateId, attributeId, value }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values/${encodeURIComponent(value)}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف القيمة."));
+      return res.json<ProductTemplateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
+  });
+}
+
+export function useGenerateVariants() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<GenerateVariantsResultDTO, ApiError, { templateId: string; body: GenerateVariantsDTO }>({
+    mutationFn: async ({ templateId, body }) => {
+      const res = await request(`/inventory/product-templates/${templateId}/variants/generate`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر توليد المتغيرات."));
+      return res.json<GenerateVariantsResultDTO>();
+    },
+    onSuccess: (_data, { templateId }) => {
+      queryClient.invalidateQueries({ queryKey: ["product-template-variants", templateId] });
+      queryClient.invalidateQueries({ queryKey: ["product-templates"] });
     },
   });
 }

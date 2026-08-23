@@ -68,6 +68,10 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
 
   // --- 5000 المصروفات (Expenses) ---
   { id: "5000", code: "5000", nameAr: "المصروفات", nameEn: "Expenses", type: "expense", naturalBalance: "debit", parentId: null, isHeader: true },
+  // Counterpart to 1190 above: the aging-based inventory write-down batch
+  // debits this expense account and credits the 1190 contra-asset provision
+  // — the write-down never touches the item's recorded WAC/cost layers.
+  { id: "5060", code: "5060", nameAr: "مصروف هبوط قيمة المخزون", nameEn: "Inventory Write-down Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.

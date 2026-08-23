@@ -2,7 +2,7 @@
 
 > Grounded in `docs/backlog.md` (phase table, §3) and re-verified against the code on `main` on 2026-08-23 (`git rev-parse --short HEAD` = `7b65887`). ✅ = implemented (domain + persistence + API + backend mount, and generally a real-data web screen); 🟡 = implemented but with known follow-up work; ⬜ = not started — either deferred by product decision (`docs/backlog.md` §1) or an outright gap, stated per line.
 >
-> **Verification gate:** `pnpm test` → 306 files / 2078 tests passing · `pnpm typecheck` and `pnpm lint` passing · 28 Playwright specs under `e2e/` · 49 domain modules · 33 mounted API route prefixes · 74 web components. A line only carries ✅ if a file implementing it was found; several Phase 4/10/11/12 lines were corrected downward in this pass.
+> **Verification gate:** `pnpm test` → 316 files / 2150 tests passing (`inv/labels-templates-writedown`: +10 files / +72 tests for label printing, product templates, and the aging write-down batch) · `pnpm typecheck` and `pnpm lint` passing · 28 Playwright specs under `e2e/` · 49 domain modules · 33 mounted API route prefixes · 74 web components. A line only carries ✅ if a file implementing it was found; several Phase 4/10/11/12 lines were corrected downward in this pass.
 
 ## Phase 0 — Foundations (desktop)
 
@@ -62,9 +62,9 @@
 - ✅ Physical Counts
 - ✅ Inventory Valuation report + GL reconciliation card
 - ✅ Inventory valuation drift detection/rebuild tool
-- ⬜ Aging-based inventory write-down batch — no implementation in any layer
-- ⬜ Label Printing (3 sizes + barcode-fit validation) — no implementation in any layer
-- ⬜ Product Templates (attribute CRUD + variant generator) — no implementation in any layer
+- ✅ Aging-based inventory write-down batch — manual, per-period-idempotent monthly job (`packages/domain/src/inventory/{aging,writedown-run,create-writedown-run,post-writedown-run}.ts`); posts Dr 5060 write-down expense / Cr 1190 contra-asset provision for slow-moving stock via the real GL posting engine, never touching recorded WAC/cost layers; `/inventory/writedown-runs` (`packages/api/src/inventory-writedown-routes.ts`), mounted in `create-backend.ts`; web screen `apps/web/src/screens/WritedownRunsScreen.tsx`
+- ✅ Label Printing (3 sizes + barcode-fit validation) — `THERMAL_40x30`/`SHELF_50x25`/`PRODUCT_100x50` presets + `checkBarcodeFit`/`buildLabelBatch` (`packages/domain/src/inventory/{label-template,barcode-fit,label-batch}.ts`, exact message "الباركود لا يناسب هذا القالب"); stateless client-side builder (no persistence, matching the reference screen) — `apps/web/src/screens/LabelPrintingScreen.tsx` renders barcodes via bwip-js and prints through the existing `window.print()`/`@page` pipeline
+- ✅ Product Templates (attribute CRUD + variant generator) — attribute add/delete + value add/delete guarded against in-use variants, Cartesian variant/SKU generator creating real `Item`s (`packages/domain/src/inventory/{product-template,create-product-template,template-attributes,generate-variants}.ts`); `/inventory/product-templates` (`packages/api/src/product-templates-routes.ts`); web screen `apps/web/src/screens/ProductTemplatesScreen.tsx`
 - ✅ Configurable Products (formulas, sandboxed expression evaluator, waste %)
 - ⬜ Inventory Hub + Warehouse detail hub — no hub screens exist; nav goes straight to the list screens
 - 🟡 Stock Balance / Transfers / Adjustments / Physical Counts run the real domain **in the browser** (`apps/web/src/store/inventory-ops-store.ts`) against in-memory repositories, and there is no backend counterpart to wire them to: `packages/api/src/app.ts:779-795` mounts `/stock-adjustments`, `/stock-transfers` and `/physical-counts` only when `createBackend` supplies those deps, and it never does — all three return **404 on the running server** (only `/inventory/stock-balance` answers)

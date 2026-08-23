@@ -199,3 +199,11 @@ export {
   type SqliteHolidayRepositoryHandle,
   type SqliteLeaveRequestRepositoryHandle,
 } from "./hr-store.js";
+export {
+  createSqliteWritedownRunRepository,
+  type SqliteWritedownRunRepositoryHandle,
+} from "./writedown-run-store.js";
+export {
+  createSqliteProductTemplateStore,
+  type SqliteProductTemplateStoreHandle,
+} from "./product-template-store.js";

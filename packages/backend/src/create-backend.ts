@@ -83,6 +83,8 @@ import {
   createSqliteContractRepository,
   createSqliteHolidayRepository,
   createSqliteLeaveRequestRepository,
+  createSqliteWritedownRunRepository,
+  createSqliteProductTemplateStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -109,6 +111,17 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+};
+
+/**
+ * GL accounts the inventory aging-based write-down batch posts to
+ * (docs/tasks.md Phase 4 "Aging-based inventory write-down batch",
+ * packages/domain/src/accounts/coa-template.ts): 5060 the write-down expense,
+ * 1190 the contra-asset provision.
+ */
+const INVENTORY_WRITEDOWN_GL_ACCOUNTS = {
+  writedownExpenseAccountId: "5060",
+  provisionAccountId: "1190",
 };
 
 /**
@@ -263,6 +276,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const assets = createSqliteAssetRepository(sqlite);
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
   const vanTrips = createSqliteVanTripRepository(sqlite);
+
+  // --- inv/labels-templates-writedown — the aging-based inventory write-down batch. ---
+  const writedownRuns = createSqliteWritedownRunRepository(sqlite);
+
+  // --- inv/labels-templates-writedown — Product Templates (attribute CRUD + variant generator). ---
+  const productTemplateStore = createSqliteProductTemplateStore(sqlite);
 
   // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
@@ -562,6 +581,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
     },
+    inventoryWritedown: {
+      runs: writedownRuns,
+      wacSnapshots: stockLedger.snapshots,
+      stockLedger: stockLedger.ledger,
+      gl: salesInvoiceGl,
+      accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
+    },
+    productTemplates: {
+      templates: productTemplateStore.templates,
+      variants: productTemplateStore.variants,
+      items,
+    },
     fieldSales: {
       trips: vanTrips,
       stock: stockService,
@@ -670,6 +701,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assets,
     depreciationRuns,
     vanTrips,
+    writedownRuns,
+    productTemplateStore,
     manufacturing,
     rfqStores,
     historicalImportArchives,

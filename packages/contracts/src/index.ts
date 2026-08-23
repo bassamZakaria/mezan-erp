@@ -909,5 +909,46 @@ export {
   type HistoricalSalesArchiveDTO,
 } from "./sales-historical-import.js";
 
+export {
+  writedownRunStatusSchema,
+  writedownRunLineSchema,
+  writedownRunSchema,
+  createWritedownRunSchema,
+  type WritedownRunStatusDTO,
+  type WritedownRunLineDTO,
+  type WritedownRunDTO,
+  type CreateWritedownRunDTO,
+} from "./inventory-writedown.js";
+
+export {
+  productTemplateStatusSchema,
+  productTemplateAttributeSchema,
+  productTemplateSchema,
+  createProductTemplateSchema,
+  addTemplateAttributeSchema,
+  addAttributeValueSchema,
+  productTemplateVariantSchema,
+  generateVariantsSchema,
+  generateVariantsResultSchema,
+  type ProductTemplateStatusDTO,
+  type ProductTemplateAttributeDTO,
+  type ProductTemplateDTO,
+  type CreateProductTemplateDTO,
+  type AddTemplateAttributeDTO,
+  type AddAttributeValueDTO,
+  type ProductTemplateVariantDTO,
+  type GenerateVariantsDTO,
+  type GenerateVariantsResultDTO,
+} from "./product-templates.js";
+
+export {
+  labelTemplateCodeSchema,
+  labelTemplateSchema,
+  labelBatchLineInputSchema,
+  type LabelTemplateCodeDTO,
+  type LabelTemplateDTO,
+  type LabelBatchLineInputDTO,
+} from "./label-printing.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

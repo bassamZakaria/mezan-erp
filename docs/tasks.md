@@ -1,6 +1,8 @@
 # Mezan — Task Checklist
 
-> Grounded in `docs/backlog.md` (phase table, §3) and the actual state of the repo as of 2026-08-23 (see `docs/plan.md` §"Build status"). ✅ = implemented (domain + persistence + API + backend mount, and generally a real-data web screen); 🟡 = implemented but with known follow-up work; ⬜ = not started (deferred by product decision, per `docs/backlog.md` §1).
+> Grounded in `docs/backlog.md` (phase table, §3) and re-verified against the code on `main` on 2026-08-23 (`git rev-parse --short HEAD` = `7b65887`). ✅ = implemented (domain + persistence + API + backend mount, and generally a real-data web screen); 🟡 = implemented but with known follow-up work; ⬜ = not started — either deferred by product decision (`docs/backlog.md` §1) or an outright gap, stated per line.
+>
+> **Verification gate:** `pnpm test` → 305 files / 2071 tests passing · `pnpm typecheck` and `pnpm lint` passing · 24 Playwright specs under `e2e/` · 51 domain modules · 32 mounted API route prefixes · 74 web components. A line only carries ✅ if a file implementing it was found; several Phase 4/10/11/12 lines were corrected downward in this pass.
 
 ## Phase 0 — Foundations (desktop)
 
@@ -45,11 +47,11 @@
 ## Phase 3 — Core Sales & Purchases documents
 
 - ✅ Sales Invoices (create/edit, lifecycle, stock deduction + AR posting, effects explainer, detail tabs)
-- ✅ Sales Hub
+- ⬜ Sales Hub — no hub screen (the reference app's hub pages were unlinked too; see `docs/digest.md`)
 - ✅ Purchase Orders (create/edit, confirm/send)
 - ✅ Goods Receipts (create-from-PO, confirm)
 - ✅ Purchase Invoices (manual + from-receipt, lifecycle, effects explainer)
-- ✅ Purchases Hub
+- ⬜ Purchases Hub — no hub screen (the reference app's hub pages were unlinked too; see `docs/digest.md`)
 - ✅ Procurement happy-path integration coverage
 
 ## Phase 4 — Inventory operations
@@ -60,11 +62,12 @@
 - ✅ Physical Counts
 - ✅ Inventory Valuation report + GL reconciliation card
 - ✅ Inventory valuation drift detection/rebuild tool
-- ✅ Aging-based inventory write-down batch
-- ✅ Label Printing (3 sizes + barcode-fit validation)
-- ✅ Product Templates (attribute CRUD + variant generator)
+- ⬜ Aging-based inventory write-down batch — no implementation in any layer
+- ⬜ Label Printing (3 sizes + barcode-fit validation) — no implementation in any layer
+- ⬜ Product Templates (attribute CRUD + variant generator) — no implementation in any layer
 - ✅ Configurable Products (formulas, sandboxed expression evaluator, waste %)
-- ✅ Inventory Hub + Warehouse detail hub
+- ⬜ Inventory Hub + Warehouse detail hub — no hub screens exist; nav goes straight to the list screens
+- 🟡 Stock Balance / Transfers / Adjustments / Physical Counts run the real domain **in the browser** (`apps/web/src/store/inventory-ops-store.ts`) against in-memory repositories — the `/inventory` API routes exist but the screens are not wired to them, so nothing persists
 
 ## Phase 5 — Full Sales
 
@@ -94,7 +97,7 @@
 - ✅ Bank statement CSV import + column mapping
 - ✅ Bank reconciliation (line matching)
 - ✅ Cash-vs-bank negative-balance policy
-- ✅ Treasury Hub
+- ⬜ Treasury Hub — no hub screen (the reference app's hub pages were unlinked too; see `docs/digest.md`)
 - ✅ Installment Plans (4 frequencies, down payment, schedule preview) — 🟡 recently mounted
 - ✅ Installment overdue batch + late penalties
 - ✅ Collection Follow-ups
@@ -107,7 +110,7 @@
 - ✅ Exchange rates (CRUD + approval/lock)
 - ✅ FX Revaluation (period-end run, auto-reversing JE)
 - ✅ Balance Reconciliation (sub-ledger vs control-account, unlinked entries)
-- ✅ Accounting Hub
+- ⬜ Accounting Hub — no hub screen (the reference app's hub pages were unlinked too; see `docs/digest.md`)
 - ✅ ETA e-invoicing (readiness tracker, config, credentials, code mapping, submission queue)
 - ✅ Opening balances for non-treasury GL accounts
 
@@ -117,7 +120,7 @@
 - ✅ Report export pipeline (XLSX + CSV, on every report)
 - ✅ GL-reconciliation banner component
 - ✅ On-demand execution pattern (General Ledger, Account Ledger)
-- ✅ Print rendering engine (A4/A5, React+CSS)
+- ✅ Print rendering engine (A4/A5, React+CSS — `packages/ui/src/print/PrintView.tsx`)
 - ✅ Arabic amount-in-words engine
 - ✅ Sales / Purchases / Inventory / Debt-aging / Installments report packs
 - ✅ Trial Balance, Income Statement, Balance Sheet, Cash Flow (indirect), VAT Return
@@ -126,21 +129,23 @@
 
 ## Phase 10 — Platform & config
 
-- ✅ Workflow/Approvals chain builder UI + `/approvals` inbox
-- ✅ Notification Rules builder + Arabic templating
-- ✅ Numbering Sequences admin screen
-- ✅ Print Templates 9-tab designer
-- ✅ Barcode Codes config + live test panel
-- ✅ Data Migration wizard (framework + entity-import steps)
-- ✅ Audit log UI, linked into nav
-- ✅ Roles & Permissions UI (role CRUD + matrix editor)
+Engine layers landed; most of the admin UIs did not. This is the largest block of overstated status in the previous revision of this file — corrected against the code on 2026-08-23.
+
+- ✅ Workflow/approvals **gate engine** (`packages/domain/src/workflow`, 26 action types) — ⬜ chain-builder UI and `/approvals` inbox: no screen exists
+- ⬜ Notification Rules builder + Arabic templating — the domain has an **event bus + event catalog** (`packages/domain/src/events`) only; no rules engine, no builder
+- ✅ Numbering **engine** (`packages/domain/src/numbering`, 25 sequence types) — ⬜ Numbering Sequences admin screen
+- ✅ Audit trail **core** (`packages/domain/src/audit`, append-only + severity taxonomy) — ⬜ audit-log UI, not in nav
+- 🟡 Print Templates — `apps/web/src/settings/PrintTemplatesPage.tsx` renders a live sample invoice through the shared `PrintView` with real `amountInWords`; the 9-tab designer is ⬜
+- ⬜ Barcode Codes config + live test panel — barcode fields exist on items; no config screen
+- ⬜ Data Migration wizard — no implementation in any layer
+- ✅ Roles & Permissions UI (role CRUD + matrix editor, `pages/RolesPage.tsx`, `PermissionMatrix`)
 - ✅ Users screen (CRUD, role assignment, branch/warehouse scoping)
-- ✅ Dashboard home (KPI tiles, trend chart, aging widget)
-- ✅ Global UX: command palette, top-bar search, notifications panel
-- ✅ Settings depth (credit-control, inventory-policy, purchase-control, treasury-policy tabs)
-- ✅ WAC drift settings panel
-- ✅ Profile screen
-- ✅ Branch 360 detail view
+- ✅ Dashboard home (KPI tiles, trend chart, aging widget, activity feed) — real `/dashboard` data
+- ✅ Command palette + top-bar search (`packages/ui/src/shell/CommandPalette.tsx`) — 🟡 palette items still come from `sample-data.ts`; ⬜ notifications panel
+- 🟡 Settings — 4 real tabs (عام / الشركة / الضرائب / السياسات) + Branches + Warehouses + Print preview; the per-domain policy depth (credit-control, inventory-policy, purchase-control, treasury-policy as their own screens) is folded into the one السياسات tab
+- ⬜ WAC drift settings panel — the drift **report** exists (`reports/inventory-drift.ts`); the settings panel does not
+- ⬜ Profile screen
+- ⬜ Branch 360 detail view
 
 ## Phase 11 — Manufacturing
 
@@ -148,7 +153,7 @@
 - ✅ Work Orders (4-stage execution: بدء العمل → صرف المواد → استلام المنتج → إكمال)
 - ✅ Work Order WIP cost accumulation + GL posting chain
 - ✅ Config Instances (custom manufacturing orders)
-- ✅ Production Dashboard
+- ⬜ Production Dashboard — no screen; work orders and BOMs have list screens only
 - 🟡 Recently mounted in the latest merge — stabilization/e2e pass still in progress
 
 ## Phase 12 — CRM + Projects + Fixed Assets + Field/Van Sales
@@ -156,12 +161,12 @@
 - ✅ Leads (6-state lifecycle)
 - ✅ Opportunities + Pipeline (kanban) + Pipeline Stages config
 - ✅ CRM Activities / My Tasks
-- ✅ CRM Hub
+- ⬜ CRM Hub — no hub screen
 - ✅ Projects (CRUD + status machine + auto cost-center creation)
 - ✅ Asset Register + Asset Categories
 - ✅ Depreciation Runs (draft→posted, daily IFRS proration)
 - ✅ Asset disposal flow
-- ✅ Assets Hub
+- ⬜ Assets Hub — no hub screen
 - ✅ Van Trip (open, stock load, in-field sales/collections, settlement)
 
 ## Phase 13 — HR & Payroll — ⬜ Deferred
@@ -180,7 +185,8 @@ Not started. Postgres dialect + dual-engine conformance suite, cloud JWT + refre
 
 ## Cross-cutting hardening (not phase-specific)
 
-- 🟡 **Real-data sweep** — retire the last `*-sample-data.ts` files (`apps/web/src/sample-data.ts`, `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`) and confirm every screen is real-data-driven per `docs/web-data-wiring.md`.
+- 🟡 **Real-data sweep** — 7 `*-sample-data.ts` files still exist (`sample-data.ts`, `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`, `inventory-ops-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`) with ~20 importers. `sample-data.ts` also still owns the nav registry, command-palette items and demo entitlements, so it cannot simply be deleted — the nav needs its own home first.
+- 🟡 **Domain-in-browser screens** — 9 screens bypass the API and run `@mezan/domain` against in-memory repositories via `apps/web/src/store/*`: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. Business rules are real; persistence is not. The matching API routes are already mounted, so this is web wiring only.
 - ✅ **SQLite write concurrency** — the cross-connection `SQLITE_BUSY` deadlock in confirm flows (stock issue + GL posting sharing one file across separate connections) is fixed on `main`; ⬜ follow-up: add a regression test exercising concurrent numbering-sequence allocation and LAN multi-till writers.
 - 🟡 **Bug-hunt sweep** — active pass looking for functional defects across the app, cross-checked against the known-defects list in `docs/backlog.md` §8 so they aren't silently reintroduced.
 - 🟡 **E2E stabilization** — several `test/e2e-*` worktrees mid-flight; needs consolidation into one green, deterministic Playwright suite.

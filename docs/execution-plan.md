@@ -7,29 +7,29 @@ The backlog is phase-ordered by domain. That is NOT the fastest build order. The
 
 ## Dependency tiers (what unblocks what)
 - **Tier 0 — Foundations** (DONE, PRs #1–#5): monorepo+CI, Money/Qty, numbering, audit, event bus, permissions, workflow gate, entitlements/licensing, Electron shell+backup, `@mezan/ui` design system + primitives.
-- **Tier 1 — Org + master data + access UI** (IN FLIGHT + next): settings foundation, LAN multi-till, chart of accounts, users&roles → then items, customers, suppliers, tax rates, cost centers, treasury accounts, fiscal periods. These are referenced by every document.
-- **Tier 2 — Shared engines** (the parallelism unlock; pulled forward from Phases 2/5/8):
+- **Tier 1 — Org + master data + access UI** (DONE): settings foundation, LAN multi-till, chart of accounts, users&roles → then items, customers, suppliers, tax rates, cost centers, treasury accounts, fiscal periods. These are referenced by every document.
+- **Tier 2 — Shared engines** (DONE — the parallelism unlock; pulled forward from Phases 2/5/8):
   - **GL posting engine** (double-entry, balanced-or-rejected, period gate) — needs COA + numbering + audit.
   - **Costing + stock-ledger engine** (WAC, immutable cost layers, stock movements) — needs items + Money.
   - **Document framework** (generic draft→confirm→post lifecycle + numbering + GL-posting hook + stock hook + workflow gate + audit + "document effects" panel) — needs GL + costing + workflow. Every document module reuses this.
   - **Report engine** (`ReportDefinition`: params → query → table/chart) — near-standalone; start early.
   - **Print pipeline** (typed `PrintTemplateConfig` + renderer + printToPDF/ESC-POS) — needs `@mezan/ui`.
-- **Tier 3 — Feature fan-out** (massively parallel once Tier 2 lands): every document module (journal entries UI, sales invoice, purchase invoice/PO/GRN, treasury vouchers, stock adjustments/transfers/counts, returns, landed costs, installments, manufacturing work orders, van trips, etc.) and every one of the 33 reports and each master/config screen — all leaves on the shared engines, so they run concurrently.
-- **Tier 4 — Platform/config UIs + polish**: workflow builder, notification-rules builder, numbering/print/barcode admin, data-migration wizard, audit-log UI, dashboards.
+- **Tier 3 — Feature fan-out** (DONE for every module except the deferred ones; 18 of the 33 catalog reports built): every document module (journal entries UI, sales invoice, purchase invoice/PO/GRN, treasury vouchers, stock adjustments/transfers/counts, returns, landed costs, installments, manufacturing work orders, van trips, etc.) and every one of the 33 reports and each master/config screen — all leaves on the shared engines, so they run concurrently.
+- **Tier 4 — Platform/config UIs + polish** (NOT STARTED, except the dashboard, users/roles and the settings tabs): workflow builder, notification-rules builder, numbering/print/barcode admin, data-migration wizard, audit-log UI. This tier is now the single largest block of unbuilt v1 scope — see `docs/tasks.md` §Phase 10.
 - **Cross-cutting, continuous**: after each phase/tier, a dedicated **UI/E2E test agent** (Playwright, web + Electron) runs in parallel with the next tier.
 
 ## Wave schedule (each row = a batch of concurrent PRs)
 | Wave | Concurrent PRs (disjoint areas to avoid conflicts) | Depends on |
 |---|---|---|
-| **W1** (in flight) | settings-foundation · LAN-multitill · chart-of-accounts · users-&-roles | Tier 0 |
-| **W2 — master data** | items · customers · suppliers · tax-rates · cost-centers · treasury-accounts+fiscal-periods · dashboard+login/first-run · **[test] Phase-0 UI/E2E** | W1 (COA, settings) |
-| **W3 — shared engines** | GL-posting-engine · costing+stock-ledger · report-engine · print-pipeline · **[test] Phase-1 UI/E2E** | W2 (items, COA) |
-| **W4 — document framework** | document-framework abstraction · journal-entries UI (first consumer, proves the framework) · **[test] W2/W3** | W3 |
-| **W5 — documents fan-out (big parallel)** | sales-invoice · purchase-invoice+PO+GRN · treasury-vouchers · stock-adjustments+transfers+counts · sales-returns · landed-costs · installments · **[test] W4** | W4 |
-| **W6 — reports fan-out (big parallel)** | financial-statements(7) · sales-reports · purchases-reports · inventory-reports · aging · POS/installment-reports · cost-center-P&L · **[test] W5** | W3 report-engine + relevant document data |
-| **W7 — remaining modules (parallel)** | full-inventory-ops · full-sales(quotes/price-lists/promotions/credit-control) · full-purchases(RFQ/returns/strictness-gates) · treasury-completion(cheques/bank-rec) · manufacturing · CRM · projects · assets · van-sales · **[test] W6** | W4/W5 |
-| **W8 — platform/config + polish** | workflow-builder · notification-rules-builder · numbering/print/barcode admin · data-migration-wizard · audit-log UI · FX/exchange-rates+revaluation · ETA e-invoicing · **[test] W7** | W2/W4 |
-| **W9 — packaging** | signing/notarization · electron-updater feed · release pipeline · full E2E suite | all |
+| **W1** ✅ done | settings-foundation · LAN-multitill · chart-of-accounts · users-&-roles | Tier 0 |
+| **W2 — master data** ✅ done | items · customers · suppliers · tax-rates · cost-centers · treasury-accounts+fiscal-periods · dashboard+login/first-run · **[test] Phase-0 UI/E2E** | W1 (COA, settings) |
+| **W3 — shared engines** ✅ done | GL-posting-engine · costing+stock-ledger · report-engine · print-pipeline · **[test] Phase-1 UI/E2E** | W2 (items, COA) |
+| **W4 — document framework** ✅ done | document-framework abstraction · journal-entries UI (first consumer, proves the framework) · **[test] W2/W3** | W3 |
+| **W5 — documents fan-out (big parallel)** ✅ done | sales-invoice · purchase-invoice+PO+GRN · treasury-vouchers · stock-adjustments+transfers+counts · sales-returns · landed-costs · installments · **[test] W4** | W4 |
+| **W6 — reports fan-out (big parallel)** 🟡 18/33 reports | financial-statements(7) · sales-reports · purchases-reports · inventory-reports · aging · POS/installment-reports · cost-center-P&L · **[test] W5** | W3 report-engine + relevant document data |
+| **W7 — remaining modules (parallel)** ✅ done | full-inventory-ops · full-sales(quotes/price-lists/promotions/credit-control) · full-purchases(RFQ/returns/strictness-gates) · treasury-completion(cheques/bank-rec) · manufacturing · CRM · projects · assets · van-sales · **[test] W6** | W4/W5 |
+| **W8 — platform/config + polish** ⬜ not started (FX/exchange-rates + ETA landed; the admin UIs did not) | workflow-builder · notification-rules-builder · numbering/print/barcode admin · data-migration-wizard · audit-log UI · FX/exchange-rates+revaluation · ETA e-invoicing · **[test] W7** | W2/W4 |
+| **W9 — packaging** ⬜ not started | signing/notarization · electron-updater feed · release pipeline · full E2E suite | all |
 
 Deferred (not in v1): Phase 13 HR/Payroll, Phase 14 POS (incl. selling screen), Phase 15 Cloud/SaaS website — planned, built later.
 
@@ -39,6 +39,14 @@ Deferred (not in v1): Phase 13 HR/Payroll, Phase 14 POS (incl. selling screen), 
 - Split concurrent batches across DISJOINT areas where possible (domain vs web vs desktop vs persistence) to minimize barrel contention.
 - Every PR: `pnpm typecheck && pnpm lint && pnpm test` (and `pnpm --filter web build` for UI) green before merge. CI re-verifies.
 - Money is scaled int64 always; domain stays pure (layer-boundary lint); RTL logical-properties only.
+
+## Status (2026-08-23, `main` @ `7b65887`)
+
+W1–W5 and W7 are merged; W6 shipped 18 of the catalog's 33 reports plus the financial-statement
+family; W8 shipped only its FX/exchange-rates and ETA rows (and those two screens still run
+in-browser rather than through their mounted API routes); W9 has not started — no signing,
+notarization, updater feed or release pipeline exists. Playwright has 24 specs, and
+`pnpm test` covers 2071 unit/component tests.
 
 ## Checkpoints
 - Report token actuals at each wave boundary (commitment tracking). Phase 0 actual ≈ 1.1M tokens → v1 tracking ~15–30M, well under the original 75–95M estimate.

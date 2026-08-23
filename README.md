@@ -56,12 +56,12 @@ Everything below has a real domain package under `packages/domain/src`, a persis
 
 - **Sales** — customers, sales quotes, sales invoices (draft → confirmed → partially paid → paid lifecycle, stock deduction + AR posting), sales returns, price lists, promotions (percentage / fixed / BXGY / bundle / coupon), credit control.
 - **Purchases** — suppliers, purchasing (RFQ → PO → GRN → purchase invoice chain), purchase returns, landed costs, historical purchase-document import, procurement strictness gates.
-- **Inventory** — items, stock balance/transfers/adjustments (8 reasons incl. opening balance), physical counts, valuation + drift detection, product templates, configurable products, label printing.
+- **Inventory** — items, stock balance/transfers/adjustments (8 reasons incl. opening balance), physical counts, valuation + drift detection, configurable products (formula-driven, sandboxed evaluator).
 - **Accounting & Treasury** — chart of accounts, journal entries (append-only, balanced-or-rejected, period-gated), cost centers + cost-center P&L, fiscal periods, tax rates, exchange rates, FX revaluation, balance reconciliation, ETA e-invoicing queue, treasury accounts, unified vouchers (10 types), bank reconciliation, cheque register (7-state), installments (plans + overdue processing + collection follow-ups).
 - **Manufacturing** — bills of materials (versioned, waste %), work orders (4-stage execution with material issue/return/waste), configurable-product order instances.
 - **CRM, Projects, Assets, Field Sales** — leads/opportunities/pipeline, projects (auto cost-center creation), fixed-asset register + categories + depreciation runs, field/van sales trips (load → sell/collect → settle).
-- **Reports** — the `ReportDefinition` abstraction plus sales/purchases/inventory/aging/installments/manufacturing report packs and the full financial-statement set (trial balance, income statement, balance sheet, cash flow, VAT return, general ledger, account ledger).
-- **Platform** — permissions engine (dependency graph, sensitive flags, three-tier visibility, branch/warehouse scoping), workflow/approvals engine (26 gateable action types), notification rules engine, numbering engine (25 sequence types), audit trail, users/roles, entitlements/licensing, LAN host.
+- **Reports** — the `ReportDefinition` abstraction plus 18 report definitions (sales, purchases, inventory, aging, installments) and the financial-statement set (trial balance, income statement, balance sheet, cash flow, VAT return, general ledger, account ledger).
+- **Platform** — permissions engine (dependency graph, sensitive flags, three-tier visibility, branch/warehouse scoping), workflow/approvals gate (26 gateable action types), domain event bus, numbering engine (25 sequence types), audit trail, users/roles, entitlements/licensing, LAN host. These are engines with API surface; several of their admin UIs are not built yet — see "What is not built" below.
 
 **Deferred, by product decision, not by gap:** HR & Payroll, POS (including the point-of-sale selling screen), and a cloud/multi-tenant website edition. The architecture (ports-first persistence, a transport-agnostic Hono app layer) keeps a future Postgres + multi-tenant edition additive rather than a rewrite, but none of that is built now.
 
@@ -74,7 +74,34 @@ Every screen is wired to the real seeded backend, not static sample arrays. The 
 3. Filters, sorts and date ranges change the query, not a local slice of a static array.
 4. Component tests use a stub transport against the same contracts the real API returns; e2e specs run against the actual seeded backend.
 
-A handful of `*-sample-data.ts` files remain as the last leg of this sweep; each is being retired screen-by-screen following that same pattern.
+Two exceptions are still open and tracked in [`docs/tasks.md`](docs/tasks.md):
+
+- **Seven `*-sample-data.ts` files remain** under `apps/web/src` (`sample-data.ts` — which still owns the nav registry and command-palette items — plus `accounts-`, `items-`, `accounting-treasury-`, `inventory-ops-`, `settings/`, and `login/login-sample-data.ts`), with roughly twenty importers.
+- **Nine screens run the real domain in the browser, not the backend**: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. They import `@mezan/domain` directly through `apps/web/src/store/*` against in-memory repositories, so the business rules are real but nothing persists to SQLite. Their API routes (`/revaluation`, `/eta`, `/cost-center-pl`, `/reconciliation`, `/exchange-rates`, inventory ops) already exist — only the web wiring is missing.
+
+## Current state (verified 2026-08-23)
+
+Measured on `main`, not estimated:
+
+| Signal | Value |
+|---|---|
+| Unit + component tests | **305 files / 2071 tests, all passing** (`pnpm test`) |
+| Typecheck / lint | **passing** (`pnpm typecheck`, `pnpm lint` incl. the RTL logical-CSS rule) |
+| Playwright e2e specs | 24 spec files under `e2e/` |
+| Domain modules | 51 under `packages/domain/src` |
+| Mounted API route prefixes | 32 in `packages/api/src/app.ts` |
+| Web screens / components | 74 non-test `.tsx` files; ~70 reachable nav entries |
+
+### What is not built
+
+Beyond the deferred modules below, these are named in the docs' phase lists but have **no implementation** — they are gaps, not decisions:
+
+- **Platform admin UIs** — approvals inbox, notification-rules builder, numbering-sequences admin screen, barcode-config screen, data-migration wizard, audit-log viewer. The engines behind approvals, numbering and audit exist in `packages/domain`; the notification *rules* engine does not (only the event bus does).
+- **Print templates** — `settings/PrintTemplatesPage.tsx` is a live preview of the default template through the shared `PrintView` renderer, not the 9-tab designer.
+- **Inventory extras** — label printing, product templates / variant generation, and the aging-based write-down batch.
+- **Navigation extras** — per-domain hub landing pages, branch 360 view, profile screen, production dashboard.
+- **Reports** — sales-by-salesperson, van-sales and POS report packs (the last depends on POS).
+- **Delivery notes** — open product decision (`docs/backlog.md` §5.2).
 
 ## How to run
 

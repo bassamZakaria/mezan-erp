@@ -6,9 +6,11 @@ import {
 } from "./sequences.js";
 
 describe("sequence definitions", () => {
-  it("encodes the 25 catalog-09 sequences plus SALES_RETURN, SALES_QUOTE and WORK_ORDER", () => {
-    expect(SEQUENCE_DEFINITIONS).toHaveLength(28);
+  it("encodes the 25 catalog-09 sequences plus SALES_RETURN, SALES_QUOTE, WORK_ORDER and the 3 phase4 inventory-ops sequences (STOCK_ADJUSTMENT, STOCK_TRANSFER, PHYSICAL_COUNT)", () => {
+    expect(SEQUENCE_DEFINITIONS).toHaveLength(31);
     expect(getSequenceDefinition("WORK_ORDER").prefix).toBe("WO-");
+    expect(getSequenceDefinition("STOCK_ADJUSTMENT").prefix).toBe("ADJ-");
+    expect(getSequenceDefinition("PHYSICAL_COUNT").prefix).toBe("CNT-");
   });
 
   it("has unique codes and unique prefixes", () => {

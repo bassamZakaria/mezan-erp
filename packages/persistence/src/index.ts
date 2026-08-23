@@ -167,3 +167,16 @@ export {
   type SqliteDepreciationRunRepositoryHandle,
 } from "./fixed-assets-store.js";
 export { createSqliteVanTripRepository, type SqliteVanTripRepositoryHandle } from "./van-trip-store.js";
+export {
+  createSqliteFrameworkDocumentStore,
+  type FrameworkDocumentStoreOptions,
+  type SqliteFrameworkDocumentStoreHandle,
+} from "./framework-document-store.js";
+export {
+  createSqlitePhysicalCountStore,
+  type SqlitePhysicalCountStoreHandle,
+} from "./physical-count-store.js";
+export {
+  createSqliteInventoryOpsStore,
+  type SqliteInventoryOpsStoreHandle,
+} from "./inventory-ops-store.js";

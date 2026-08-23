@@ -71,6 +71,10 @@ import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
 import { VanTripsScreen } from "./screens/VanTripsScreen";
+import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
+import { StockTransfersScreen } from "./screens/StockTransfersScreen";
+import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
+import { StockBalanceScreen } from "./screens/StockBalanceScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -127,6 +131,10 @@ const ROUTABLE_SCREENS = {
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
   "configurable-products": ConfigurableProductsScreen,
+  "stock-balance": StockBalanceScreen,
+  "stock-transfers": StockTransfersScreen,
+  "stock-adjustments": StockAdjustmentsScreen,
+  "physical-counts": PhysicalCountsScreen,
   "cost-centers": CostCentersScreen,
   "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,

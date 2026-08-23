@@ -1,0 +1,153 @@
+/**
+ * Stock Adjustment as a document-framework consumer (docs/catalog/03
+ * §"تسويات المخزون" — 8 reasons incl. INITIAL_STOCK opening balances). The
+ * second module to prove the framework end to end (`journal-document.ts` was
+ * the first).
+ *
+ * A stock adjustment moves quantity AND — when its reason's direction implies
+ * a value change — value: Dr/Cr posting is computed by the stock-ledger engine
+ * itself (`StockLedgerService.postAdjustment`'s `gl` option), not by a
+ * standalone `buildGlPosting` hook, because an OUT line's value depends on the
+ * moving-average cost AT THE TIME OF POSTING — state `describeEffects` (a pure
+ * function of the document) cannot read. So this type declares `buildStockPlan`
+ * only; the stock-hook adapter (`createInventoryStockHook`, document-hooks.ts)
+ * both applies the movements AND posts the balancing GL entry in one call to
+ * the engine, reusing it wholesale instead of re-deriving WAC math here.
+ *
+ * All lines of one adjustment share one warehouse + one reason — carried
+ * per-line (rather than adding header fields to the generic
+ * `FrameworkDocument`) since the framework's envelope has no type-specific
+ * header slot.
+ */
+
+import { Money, Qty } from "../money/index.js";
+import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
+import { buildEffects } from "../documents/effects.js";
+import { InvalidDocumentError } from "../documents/errors.js";
+import { ADJUSTMENT_REASONS, getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
+import type { StockMovementDirection } from "./movement.js";
+import { extend } from "./wac-math.js";
+
+/** One line of a stock-adjustment document. */
+export interface StockAdjustmentDocLine {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly reason: AdjustmentReason;
+  readonly direction: StockMovementDirection;
+  readonly qty: Qty;
+  /** Required for an IN line (receipt-time cost); ignored for OUT (moving average used at posting). */
+  readonly unitCost?: Money;
+}
+
+export type StockAdjustmentDocument = FrameworkDocument<StockAdjustmentDocLine>;
+
+const DOC_TYPE = "STOCK_ADJUSTMENT";
+
+/** The adjustment's shared header fields, read off line 0 (validated uniform across lines). */
+export function adjustmentHeaderOf(doc: StockAdjustmentDocument): {
+  warehouseId: string;
+  reason: AdjustmentReason;
+} {
+  const first = doc.lines[0];
+  if (!first) throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
+  return { warehouseId: first.warehouseId, reason: first.reason };
+}
+
+/** The stock-adjustment document type definition. Plugs into {@link DocumentService}. */
+export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustmentDocLine> = {
+  code: DOC_TYPE,
+  labelAr: "تسوية مخزون",
+  confirmedStatus: "confirmed",
+  numberingSequence: "STOCK_ADJUSTMENT",
+  gateActionType: null,
+
+  validate(doc) {
+    const { lines } = doc;
+    if (lines.length === 0) {
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, "التسوية تتطلب بنداً واحداً على الأقل.");
+    }
+    const { warehouseId, reason } = adjustmentHeaderOf(doc);
+    if (!ADJUSTMENT_REASONS.includes(reason)) {
+      throw new InvalidDocumentError(DOC_TYPE, doc.id, `سبب تسوية غير معروف: "${reason}".`);
+    }
+    const def = getAdjustmentReasonDefinition(reason);
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] as StockAdjustmentDocLine;
+      if (line.warehouseId !== warehouseId) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تكون لنفس المستودع.`);
+      }
+      if (line.reason !== reason) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: كل بنود التسوية يجب أن تحمل نفس السبب.`);
+      }
+      if (line.qty.isZero() || line.qty.isNegative()) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: الكمية يجب أن تكون موجبة.`);
+      }
+      if (def.direction !== "EITHER" && line.direction !== def.direction) {
+        throw new InvalidDocumentError(
+          DOC_TYPE,
+          doc.id,
+          `بند ${i}: السبب "${def.labelAr}" يتطلب اتجاه ${def.direction === "IN" ? "زيادة" : "نقصان"}.`,
+        );
+      }
+      if (line.direction === "IN" && !line.unitCost) {
+        throw new InvalidDocumentError(DOC_TYPE, doc.id, `بند ${i}: بند الزيادة يتطلب سعر تكلفة.`);
+      }
+    }
+  },
+
+  buildStockPlan(doc) {
+    const { warehouseId, reason } = adjustmentHeaderOf(doc);
+    return {
+      sourceDocType: "ADJUSTMENT",
+      sourceDocId: doc.id,
+      sourceDocNumber: doc.docNo,
+      warehouseId,
+      reason,
+      date: doc.date,
+      lines: doc.lines.map((l) => ({
+        itemId: l.itemId,
+        direction: l.direction,
+        qty: l.qty,
+        unitCost: l.unitCost,
+      })),
+    };
+  },
+
+  describeEffects(doc) {
+    if (doc.lines.length === 0) {
+      return buildEffects({
+        effects: [],
+        blocked: true,
+        blockedReason: "التسوية تتطلب بنداً واحداً على الأقل.",
+      });
+    }
+    const { warehouseId, reason } = adjustmentHeaderOf(doc);
+    const def = getAdjustmentReasonDefinition(reason);
+    const inLines = doc.lines.filter((l) => l.direction === "IN");
+    const outLines = doc.lines.filter((l) => l.direction === "OUT");
+    const knownInValue = Money.sum(inLines.map((l) => (l.unitCost ? extend(l.qty, l.unitCost) : Money.zero())));
+
+    const effects = [
+      {
+        kind: "stock" as const,
+        description: `يعدّل رصيد ${doc.lines.length} صنف في المستودع "${warehouseId}" (${def.labelAr})`,
+        detail:
+          inLines.length > 0 && outLines.length > 0
+            ? `${inLines.length} بند زيادة، ${outLines.length} بند نقصان`
+            : inLines.length > 0
+              ? `${inLines.length} بند زيادة`
+              : `${outLines.length} بند نقصان`,
+      },
+      {
+        kind: "gl" as const,
+        description: "يُنشئ قيداً محاسبياً موازناً لتغير قيمة المخزون (عند وجود فرق قيمة)",
+        detail:
+          outLines.length > 0
+            ? `قيمة بنود الزيادة المعروفة: ${knownInValue.toString()} — قيمة بنود النقصان تُحسب عند الترحيل بمتوسط التكلفة الحالي`
+            : `${knownInValue.toString()}`,
+      },
+    ];
+
+    return buildEffects({ effects, blocked: false });
+  },
+};

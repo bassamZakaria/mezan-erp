@@ -16,11 +16,11 @@ import {
 } from "./index.js";
 
 describe("permission catalog", () => {
-  it("has the documented 268 permissions across 19 modules, plus 2 promotion permissions added in phase5/full-sales and a new 2-permission projects module added in phase11/crm-projects-assets-field", () => {
-    expect(PERMISSIONS).toHaveLength(272);
+  it("has the documented 268 permissions plus 2 promotion permissions (phase5/full-sales), a new 2-permission projects module (phase11/crm-projects-assets-field), and 3 phase4 inventory.count.* permissions — 275 across 20 modules", () => {
+    expect(PERMISSIONS).toHaveLength(275);
     expect(MODULES).toHaveLength(20);
     const summed = MODULES.reduce((n, m) => n + m.count, 0);
-    expect(summed).toBe(272);
+    expect(summed).toBe(275);
   });
 
   it("passes integrity checks (unique codes, resolvable deps, module counts)", () => {

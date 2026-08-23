@@ -56,6 +56,9 @@ import {
   type PriceListRepository,
   type PromotionRepository,
   createSalesInvoiceCustomerExposureHook,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
+  type PhysicalCountService,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -104,6 +107,11 @@ import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
+import {
+  createStockAdjustmentsRoutes,
+  createStockTransfersRoutes,
+  createPhysicalCountsRoutes,
+} from "./stock-documents-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -217,6 +225,26 @@ export interface CreateAppOptions {
    */
   readonly inventory?: {
     readonly service: StockLedgerService;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/inventory/stock-adjustments` (docs/catalog/03 §"تسويات المخزون")
+   * — the document-layer draft/confirm CRUD built on `stockAdjustmentDocumentType`
+   * — when present. Omit it for no such route (the raw `/inventory/adjustments`
+   * engine endpoint above is unaffected either way).
+   */
+  readonly stockAdjustments?: {
+    readonly service: DocumentService<StockAdjustmentDocLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/inventory/stock-transfers` (docs/catalog/03 §"تحويلات المخزون") when present. */
+  readonly stockTransfers?: {
+    readonly service: DocumentService<StockTransferDocLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/inventory/physical-counts` (docs/catalog/03 §"الجرد الفعلي") when present. */
+  readonly physicalCounts?: {
+    readonly service: PhysicalCountService;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
@@ -747,6 +775,24 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.reports) {
     app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
+  }
+  if (options.stockAdjustments) {
+    app.route(
+      "/inventory/stock-adjustments",
+      createStockAdjustmentsRoutes(options.stockAdjustments.service, options.stockAdjustments.resolveAuthContext),
+    );
+  }
+  if (options.stockTransfers) {
+    app.route(
+      "/inventory/stock-transfers",
+      createStockTransfersRoutes(options.stockTransfers.service, options.stockTransfers.resolveAuthContext),
+    );
+  }
+  if (options.physicalCounts) {
+    app.route(
+      "/inventory/physical-counts",
+      createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
+    );
   }
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));

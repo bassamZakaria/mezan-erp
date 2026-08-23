@@ -233,3 +233,53 @@ the README's "i18n (ar/en)" claim (**there is no i18n layer at all**).
 - ⬜ `/manufacturing/dashboard` — the `GET /dashboard` route exists; no screen.
 - ⬜ 7 missing reports: sales-by-salesperson, van sales, promotions report,
   expiring-soon (FEFO), make-vs-buy, POS daily, POS shifts.
+
+## Open design decisions — not one-line fixes
+
+Two defects found during the platform-admin build that need a decision before a
+patch, because each changes a shared contract rather than one call site.
+
+### 1. Workflow `minAmount` is configurable but never read
+
+`/settings/workflow` stores and edits a minimum-amount threshold per gated
+action, and the UI presents it as enforced. Nothing reads it at confirm time:
+`DocumentWorkflowInput` (the shared type every gated document passes to
+`workflow/gate.ts`) carries no amount field, so the gate cannot see the value it
+is meant to compare against.
+
+Fixing it means extending that port, which touches **every** gated document type
+— sales invoices, sales/purchase returns, landed costs, vouchers. Options:
+
+- **Add an optional `amount` to `DocumentWorkflowInput`.** Smallest change;
+  every existing caller keeps compiling, and a document type that omits it simply
+  can't be threshold-gated. Risk: silently unenforced for whichever types forget
+  to pass it — the same failure we are fixing.
+- **Make it required.** Forces every gated type to answer the question, so the
+  gap cannot reappear. Costs a change at each call site.
+- **Resolve the amount inside the gate** from the document id. Keeps callers
+  untouched but gives the gate a repository dependency it does not currently
+  have, weakening its purity.
+
+Until this is decided, the threshold field should be labelled as not yet enforced
+rather than presented as active.
+
+### 2. The gate expects role codes; two routes pass permission codes
+
+`GateStep.role` is a **role code** — `gate.ts`'s own doc comment, its tests, and
+the reference product's role picker all agree. But `sales-invoices-routes.ts` and
+`vouchers-routes.ts` pass `ctx.permissions` (the resolved *permission* set) as
+`actorRoles`. A role code is never a permission code, so a role-gated step
+configured through `/settings/workflow` can only be satisfied by the
+company-admin `"*"` bypass through those two handlers.
+
+The approvals endpoints resolve the real role code via `uow.users` → `uow.roles`
+and behave correctly, so the two sides currently disagree. Options:
+
+- **Fix the two routes** to resolve the actor's role before calling the gate.
+  Keeps gate semantics as documented; the approvals endpoints already prove the
+  lookup path.
+- **Let the gate accept either**, matching a step against roles *or*
+  permissions. More permissive and needs no route change, but it broadens the
+  meaning of every existing gate configuration.
+
+The first is the smaller blast radius and matches what the type already claims.

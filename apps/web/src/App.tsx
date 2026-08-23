@@ -74,6 +74,11 @@ import { JobTitlesScreen } from "./screens/JobTitlesScreen";
 import { ContractsScreen } from "./screens/ContractsScreen";
 import { HolidaysScreen } from "./screens/HolidaysScreen";
 import { MyLeaveScreen } from "./screens/MyLeaveScreen";
+import { AttendanceScreen } from "./screens/AttendanceScreen";
+import { LeaveRequestsScreen } from "./screens/LeaveRequestsScreen";
+import { LeavePoliciesScreen } from "./screens/LeavePoliciesScreen";
+import { LeaveBalancesScreen } from "./screens/LeaveBalancesScreen";
+import { LeaveAccrualBatchesScreen } from "./screens/LeaveAccrualBatchesScreen";
 import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
@@ -84,6 +89,7 @@ import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
 import { StockBalanceScreen } from "./screens/StockBalanceScreen";
 import { WritedownRunsScreen } from "./screens/WritedownRunsScreen";
 import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
+import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
 import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
@@ -137,7 +143,7 @@ import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 import { NavigationProvider, type ScreenIntent } from "./navigation";
 
-/** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
+/** Every nav-item key this shell routes to. A key here without a nav entry is unreachable; a nav entry without a key here is a dead click. */
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
   "sales-hub": SalesHubScreen,
@@ -177,6 +183,7 @@ const ROUTABLE_SCREENS = {
   "stock-adjustments": StockAdjustmentsScreen,
   "physical-counts": PhysicalCountsScreen,
   "product-templates": ProductTemplatesScreen,
+  "item-specifications": ItemSpecificationsScreen,
   labels: LabelPrintingScreen,
   "writedown-runs": WritedownRunsScreen,
   "cost-centers": CostCentersScreen,
@@ -242,6 +249,11 @@ const ROUTABLE_SCREENS = {
   contracts: ContractsScreen,
   holidays: HolidaysScreen,
   "my-leave": MyLeaveScreen,
+  attendance: AttendanceScreen,
+  "leave-requests": LeaveRequestsScreen,
+  "leave-policies": LeavePoliciesScreen,
+  "leave-balances": LeaveBalancesScreen,
+  "leave-accrual-batches": LeaveAccrualBatchesScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;
@@ -335,11 +347,6 @@ export function App() {
     return map;
   }, [users]);
 
-  // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
-  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات, المستخدمون,
-  // الأدوار) to switch screens; every other item keeps whatever static
-  // onClick/href nav-config.ts gave it — mostly none, they're "قريباً"
-  // placeholders.
   const groups: NavGroup[] = useMemo(
     () =>
       navGroups.map((group) => ({

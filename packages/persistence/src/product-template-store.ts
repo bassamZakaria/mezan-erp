@@ -77,7 +77,10 @@ function toProductTemplate(row: ProductTemplateRow): ProductTemplate {
     defaultSalePrice: row.default_sale_price === null ? null : Money.fromScaled(row.default_sale_price),
     defaultCost: row.default_cost === null ? null : Money.fromScaled(row.default_cost),
     taxRatePercent: row.tax_rate_percent,
-    attributes: JSON.parse(row.attributes) as ProductTemplateAttribute[],
+    attributes: (JSON.parse(row.attributes) as ProductTemplateAttribute[]).map((attribute) => ({
+      ...attribute,
+      specificationCode: attribute.specificationCode ?? null,
+    })),
     status: row.status as ProductTemplateStatus,
   };
 }

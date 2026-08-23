@@ -13,6 +13,8 @@ export const productTemplateAttributeSchema = z.object({
   nameAr: z.string().min(1),
   nameEn: z.string().nullable(),
   values: z.array(z.string().min(1)),
+  /** المواصفات registry code this attribute was built from, or null for a one-off attribute. */
+  specificationCode: z.string().nullable().optional(),
 });
 
 export const productTemplateSchema = z.object({
@@ -45,9 +47,15 @@ export const createProductTemplateSchema = z.object({
 });
 
 export const addTemplateAttributeSchema = z.object({
-  nameAr: z.string().min(1),
+  nameAr: z.string().min(1).optional(),
   nameEn: z.string().nullable().optional(),
-  values: z.array(z.string().min(1)).min(1),
+  values: z.array(z.string().min(1)).min(1).optional(),
+  /**
+   * Build the attribute from a المواصفات registry entry instead of typing it
+   * out: its nameAr/nameEn/values are taken from the specification, and the
+   * attribute keeps the code so the registry can count and guard its usage.
+   */
+  specificationCode: z.string().min(1).optional(),
 });
 
 export const addAttributeValueSchema = z.object({

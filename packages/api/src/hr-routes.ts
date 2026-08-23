@@ -17,6 +17,7 @@ import {
   updateHoliday,
   listHolidaysForYear,
   createLeaveRequest,
+  createUnpaidLeaveDaysProvider,
   cancelLeaveRequest,
   DepartmentNotFoundError,
   InvalidDepartmentError,
@@ -61,6 +62,22 @@ import {
   createLeaveRequestSchema,
 } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
+import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
+
+/**
+ * The hr/time-leave stores are OPTIONAL here so the composition root can adopt
+ * them in its own step: without them `createHrRoutes` simply does not mount the
+ * attendance/leave-policy/balance/accrual/admin-leave surface.
+ */
+type HrTimeLeaveDeps = Pick<HrTimeLeaveRoutesDeps, "attendance" | "leavePolicies" | "leaveBalances" | "leaveAccrualBatches" | "workflow">;
+
+/**
+ * The payroll/advance stores are OPTIONAL for the same reason: without them
+ * `createHrRoutes` does not mount the الرواتب / سلف الموظفين surface. Employees,
+ * contracts and numbering are reused from the master-data deps above.
+ */
+export type HrPayrollDeps = Omit<HrPayrollRoutesDeps, "employees" | "contracts" | "numbering">;
 
 /**
  * HR master-data routes (docs/catalog/06-crm-hr.md "الموارد البشرية" —
@@ -73,7 +90,9 @@ import { createPermissionGate, getAuthContext, headerAuthContextResolver, type A
  * exists in the 36-permission `hr` catalog module — the calendar is
  * leave/attendance-adjacent config, same shape as `/settings/leave-policies`).
  */
-export interface HrRoutesDeps {
+export interface HrRoutesDeps extends Partial<HrTimeLeaveDeps> {
+  /** Payroll runs, payslips and employee advances (docs/catalog/06 §"الرواتب"/"سلف الموظفين"). */
+  readonly payroll?: HrPayrollDeps;
   readonly departments: DepartmentRepository;
   readonly jobTitles: JobTitleRepository;
   readonly employees: EmployeeRepository;
@@ -561,6 +580,33 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       return handleDomainError(c, err);
     }
   });
+
+  // --- Attendance / leave policies / balances / accrual / admin leave requests
+  // (hr/time-leave, mounted here so every path stays under `/hr`) ------------
+
+  const { attendance, leavePolicies, leaveBalances, leaveAccrualBatches } = deps;
+  if (attendance && leavePolicies && leaveBalances && leaveAccrualBatches) {
+    app.route("/", createHrTimeLeaveRoutes({ ...deps, attendance, leavePolicies, leaveBalances, leaveAccrualBatches }, resolveAuthContext));
+  }
+
+  // --- Payroll runs, payslips and employee advances (mounted here so every
+  // path stays under `/hr`) --------------------------------------------------
+
+  if (deps.payroll) {
+    app.route(
+      "/",
+      createHrPayrollRoutes(
+        {
+          ...deps.payroll,
+          employees: deps.employees,
+          contracts: deps.contracts,
+          numbering: deps.numbering,
+          unpaidLeave: deps.payroll.unpaidLeave ?? createUnpaidLeaveDaysProvider(deps.leaveRequests),
+        },
+        resolveAuthContext,
+      ),
+    );
+  }
 
   return app;
 }

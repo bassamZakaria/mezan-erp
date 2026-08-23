@@ -7,6 +7,9 @@ import {
   InvalidNotificationRuleError,
   NotificationRuleNotFoundError,
   DOMAIN_EVENT_CATALOG,
+  IMPLEMENTED_NOTIFICATION_CHANNELS,
+  buildNotificationTriggerCatalog,
+  type EventCode,
   type NotificationRule,
   type NotificationRuleRepository,
 } from "@mezan/domain";
@@ -43,19 +46,32 @@ function handleDomainError(c: Context, err: unknown) {
 
 /**
  * قواعد الإشعارات routes (docs/catalog/09 §قواعد الإشعارات): list/create/edit/
- * delete/toggle over the 39-event catalog, plus a read-only `/events` lookup
- * the builder screen uses to populate the "الحدث" combobox. Every route is
- * permission-gated via `notifications.rule.view` / `.manage`.
+ * delete/toggle over the 39-event catalog, plus two read-only lookups the
+ * builder screen uses — `/events` for the raw "الحدث" combobox, and
+ * `/triggers` for the same catalog annotated with what this build can actually
+ * deliver (which codes something really publishes, and which channels really
+ * send). Every route is permission-gated via `notifications.rule.view` /
+ * `.manage`.
+ *
+ * `emittedEventCodes` comes from the composition root — the only place that
+ * knows which document types are bridged onto the event bus — so the honest
+ * `emitted` flag can never drift from the wiring.
  */
 export function createNotificationRulesRoutes(
   repo: NotificationRuleRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  emittedEventCodes: readonly EventCode[] = [],
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const triggers = buildNotificationTriggerCatalog(emittedEventCodes);
 
   app.get("/events", gate("notifications.rule.view"), (c) => {
     return c.json(DOMAIN_EVENT_CATALOG);
+  });
+
+  app.get("/triggers", gate("notifications.rule.view"), (c) => {
+    return c.json({ triggers, implementedChannels: IMPLEMENTED_NOTIFICATION_CHANNELS });
   });
 
   app.get("/", gate("notifications.rule.view"), async (c) => {

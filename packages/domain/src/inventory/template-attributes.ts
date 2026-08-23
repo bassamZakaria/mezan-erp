@@ -46,6 +46,8 @@ export interface AddTemplateAttributeCommand {
   readonly nameEn?: string | null;
   /** Ordered, unique value labels. Must be non-empty. */
   readonly values: readonly string[];
+  /** المواصفات registry entry this attribute is built from, when it came from the registry. */
+  readonly specificationCode?: string | null;
 }
 
 export async function addTemplateAttribute(cmd: AddTemplateAttributeCommand, deps: TemplateDeps): Promise<ProductTemplate> {
@@ -64,6 +66,7 @@ export async function addTemplateAttribute(cmd: AddTemplateAttributeCommand, dep
     nameAr: cmd.nameAr,
     nameEn: cmd.nameEn ?? null,
     values: trimmedValues,
+    specificationCode: cmd.specificationCode ?? null,
   };
   const updated: ProductTemplate = { ...template, attributes: [...template.attributes, attribute] };
   await deps.templates.update(updated);

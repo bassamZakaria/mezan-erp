@@ -1,4 +1,5 @@
 import type { CostingMethod } from "../items/item.js";
+import type { ItemSpecificationUsageCounter } from "../items/item-specification.js";
 import type { Money } from "../money/index.js";
 
 /**
@@ -19,6 +20,12 @@ export interface ProductTemplateAttribute {
   readonly nameEn: string | null;
   /** Ordered, unique (case-sensitive) value labels, e.g. ["أحمر", "أزرق"]. */
   readonly values: readonly string[];
+  /**
+   * The المواصفات registry entry (`ItemSpecification.code`) this attribute was
+   * built from, or null for a one-off attribute typed straight onto the
+   * template. Drives the registry's الاستخدام count and its delete guard.
+   */
+  readonly specificationCode?: string | null;
 }
 
 export type ProductTemplateStatus = "active" | "inactive";
@@ -66,6 +73,23 @@ export interface ProductTemplateVariant {
 export interface ProductTemplateVariantRepository {
   listByTemplate(templateId: string): Promise<readonly ProductTemplateVariant[]>;
   create(variant: ProductTemplateVariant): Promise<void>;
+}
+
+/**
+ * The المواصفات registry's usage counter, backed by product templates: how many
+ * templates bind an attribute to a given specification code.
+ */
+export function createProductTemplateSpecificationUsage(
+  templates: ProductTemplateRepository,
+): ItemSpecificationUsageCounter {
+  return {
+    async count(specificationCode) {
+      const all = await templates.list();
+      return all.filter((template) =>
+        template.attributes.some((attribute) => attribute.specificationCode === specificationCode),
+      ).length;
+    },
+  };
 }
 
 /** A stable, order-independent key for a values map — used to detect "already generated" combinations. */

@@ -107,3 +107,42 @@ export class ItemCategoryInUseError extends Error {
     this.name = "ItemCategoryInUseError";
   }
 }
+
+/** Raised when a specification code already exists (codes are unique across the registry). */
+export class DuplicateItemSpecificationCodeError extends Error {
+  readonly code = "DUPLICATE_ITEM_SPECIFICATION_CODE";
+  constructor(readonly specificationCode: string) {
+    super(`Item specification code "${specificationCode}" already exists.`);
+    this.name = "DuplicateItemSpecificationCodeError";
+  }
+}
+
+/** Raised when an operation references a specification code that does not exist. */
+export class ItemSpecificationNotFoundError extends Error {
+  readonly code = "ITEM_SPECIFICATION_NOT_FOUND";
+  constructor(readonly specificationCode: string) {
+    super(`Item specification "${specificationCode}" was not found.`);
+    this.name = "ItemSpecificationNotFoundError";
+  }
+}
+
+/** Aggregated field-validation failure for a specification. */
+export class InvalidItemSpecificationError extends Error {
+  readonly code = "INVALID_ITEM_SPECIFICATION";
+  constructor(readonly reasons: readonly string[]) {
+    super(`Invalid item specification: ${reasons.join("; ")}`);
+    this.name = "InvalidItemSpecificationError";
+  }
+}
+
+/** Raised when deleting a specification that product templates still bind to. */
+export class ItemSpecificationInUseError extends Error {
+  readonly code = "ITEM_SPECIFICATION_IN_USE";
+  constructor(
+    readonly specificationCode: string,
+    readonly referenceCount: number,
+  ) {
+    super(`Item specification "${specificationCode}" is still referenced by ${referenceCount} record(s).`);
+    this.name = "ItemSpecificationInUseError";
+  }
+}

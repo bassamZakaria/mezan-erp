@@ -17,6 +17,9 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
+  type ItemSpecificationRepository,
+  type ItemSpecificationUsageCounter,
+  type EventCode,
   type ApiKeyRepository,
   type BarcodeConfigRepository,
   type AuditQueryPort,
@@ -92,6 +95,7 @@ import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import { createItemCategoriesRoutes, createItemUnitsRoutes } from "./item-catalog-routes.js";
+import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -257,6 +261,17 @@ export interface CreateAppOptions {
     readonly categories: ItemCategoryRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
+  /**
+   * Mounts `/item-specifications` (المواصفات — the reusable specification /
+   * attribute registry) when present. `usage` counts what binds to a
+   * specification; it drives the الاستخدام column and the delete guard, and is
+   * supplied by the composition root because only it knows the consumers.
+   */
+  readonly itemSpecifications?: {
+    readonly repo: ItemSpecificationRepository;
+    readonly usage: ItemSpecificationUsageCounter;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
   /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
   readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/barcode-config` when present. */
@@ -381,6 +396,13 @@ export interface CreateAppOptions {
   readonly promotionRepo?: PromotionRepository;
   /** Mounts `/notification-rules` (docs/catalog/09 §قواعد الإشعارات) when present. */
   readonly notificationRuleRepo?: NotificationRuleRepository;
+  /**
+   * The event codes this deployment really publishes onto the event bus —
+   * what `/notification-rules/triggers` reports as `emitted`. The composition
+   * root derives it from its own bridge wiring; omit it and every trigger is
+   * honestly reported as not-yet-emitted.
+   */
+  readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
   readonly notificationRepo?: NotificationRepository;
   /**
@@ -761,7 +783,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
   }
   if (options.notificationRuleRepo) {
-    app.route("/notification-rules", createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext));
+    app.route(
+      "/notification-rules",
+      createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext, options.emittedEventCodes),
+    );
   }
   if (options.notificationRepo) {
     app.route("/notifications", createNotificationsRoutes(options.notificationRepo, options.resolveAuthContext));
@@ -830,6 +855,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/item-categories",
       createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
+    );
+  }
+  if (options.itemSpecifications) {
+    app.route(
+      "/item-specifications",
+      createItemSpecificationsRoutes(options.itemSpecifications, options.itemSpecifications.resolveAuthContext ?? options.resolveAuthContext),
     );
   }
   if (options.barcodeConfigStore) {

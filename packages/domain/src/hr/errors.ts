@@ -147,3 +147,203 @@ export class InvalidLeaveRequestTransitionError extends Error {
     this.name = "InvalidLeaveRequestTransitionError";
   }
 }
+
+/** Raised when an attendance record/correction command fails validation. */
+export class InvalidAttendanceEntryError extends Error {
+  readonly code = "INVALID_ATTENDANCE_ENTRY";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidAttendanceEntryError";
+  }
+}
+
+/** Raised when an operation references an attendance-entry id that does not exist. */
+export class AttendanceEntryNotFoundError extends Error {
+  readonly code = "ATTENDANCE_ENTRY_NOT_FOUND";
+  constructor(readonly entryId: string) {
+    super(`Attendance entry "${entryId}" was not found.`);
+    this.name = "AttendanceEntryNotFoundError";
+  }
+}
+
+/** Raised when an employee already has an attendance entry for the same day. */
+export class DuplicateAttendanceEntryError extends Error {
+  readonly code = "DUPLICATE_ATTENDANCE_ENTRY";
+  constructor(
+    readonly employeeId: string,
+    readonly date: string,
+  ) {
+    super(`Attendance for employee "${employeeId}" on "${date}" already exists.`);
+    this.name = "DuplicateAttendanceEntryError";
+  }
+}
+
+/** Raised when a leave-policy create/update command fails validation. */
+export class InvalidLeavePolicyError extends Error {
+  readonly code = "INVALID_LEAVE_POLICY";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidLeavePolicyError";
+  }
+}
+
+/** Raised when an operation references a leave-policy id that does not exist. */
+export class LeavePolicyNotFoundError extends Error {
+  readonly code = "LEAVE_POLICY_NOT_FOUND";
+  constructor(readonly policyId: string) {
+    super(`Leave policy "${policyId}" was not found.`);
+    this.name = "LeavePolicyNotFoundError";
+  }
+}
+
+/** Raised when a leave policy already exists for the same leave type. */
+export class DuplicateLeavePolicyError extends Error {
+  readonly code = "DUPLICATE_LEAVE_POLICY";
+  constructor(readonly leaveType: string) {
+    super(`A leave policy for "${leaveType}" already exists.`);
+    this.name = "DuplicateLeavePolicyError";
+  }
+}
+
+/** Raised when applying a preset code that is not one of the dated labour-law presets. */
+export class UnknownLeavePolicyPresetError extends Error {
+  readonly code = "UNKNOWN_LEAVE_POLICY_PRESET";
+  constructor(readonly presetCode: string) {
+    super(`"${presetCode}" is not a known leave-policy preset.`);
+    this.name = "UnknownLeavePolicyPresetError";
+  }
+}
+
+/** Raised when a leave-balance create/adjust command fails validation. */
+export class InvalidLeaveBalanceError extends Error {
+  readonly code = "INVALID_LEAVE_BALANCE";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidLeaveBalanceError";
+  }
+}
+
+/** Raised when an operation references a leave-balance id that does not exist. */
+export class LeaveBalanceNotFoundError extends Error {
+  readonly code = "LEAVE_BALANCE_NOT_FOUND";
+  constructor(readonly balanceId: string) {
+    super(`Leave balance "${balanceId}" was not found.`);
+    this.name = "LeaveBalanceNotFoundError";
+  }
+}
+
+/** Raised when an accrual-run command fails validation. */
+export class InvalidLeaveAccrualBatchError extends Error {
+  readonly code = "INVALID_LEAVE_ACCRUAL_BATCH";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidLeaveAccrualBatchError";
+  }
+}
+
+/** Raised when an operation references an employee-advance id that does not exist. */
+export class EmployeeAdvanceNotFoundError extends Error {
+  readonly code = "EMPLOYEE_ADVANCE_NOT_FOUND";
+  constructor(readonly advanceId: string) {
+    super(`Employee advance "${advanceId}" was not found.`);
+    this.name = "EmployeeAdvanceNotFoundError";
+  }
+}
+
+/** Raised when an advance request/recovery command fails validation. */
+export class InvalidEmployeeAdvanceError extends Error {
+  readonly code = "INVALID_EMPLOYEE_ADVANCE";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidEmployeeAdvanceError";
+  }
+}
+
+/** Raised when an advance status transition is not allowed by its state machine. */
+export class InvalidEmployeeAdvanceTransitionError extends Error {
+  readonly code = "INVALID_EMPLOYEE_ADVANCE_TRANSITION";
+  constructor(
+    readonly from: string,
+    readonly to: string,
+  ) {
+    super(`Cannot transition employee advance from "${from}" to "${to}".`);
+    this.name = "InvalidEmployeeAdvanceTransitionError";
+  }
+}
+
+/** Raised when an operation references a payroll-run id that does not exist. */
+export class PayrollRunNotFoundError extends Error {
+  readonly code = "PAYROLL_RUN_NOT_FOUND";
+  constructor(readonly runId: string) {
+    super(`Payroll run "${runId}" was not found.`);
+    this.name = "PayrollRunNotFoundError";
+  }
+}
+
+/** Raised when a payroll-run create command fails validation. */
+export class InvalidPayrollRunError extends Error {
+  readonly code = "INVALID_PAYROLL_RUN";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidPayrollRunError";
+  }
+}
+
+/** Raised when a payroll-run status transition is not allowed by its state machine. */
+export class InvalidPayrollRunTransitionError extends Error {
+  readonly code = "INVALID_PAYROLL_RUN_TRANSITION";
+  constructor(
+    readonly from: string,
+    readonly to: string,
+  ) {
+    super(`Cannot transition payroll run from "${from}" to "${to}".`);
+    this.name = "InvalidPayrollRunTransitionError";
+  }
+}
+
+/** Raised when a non-cancelled run already covers the same period + branch scope. */
+export class DuplicatePayrollPeriodError extends Error {
+  readonly code = "DUPLICATE_PAYROLL_PERIOD";
+  constructor(
+    readonly year: number,
+    readonly month: number,
+    readonly branchId: string | null,
+  ) {
+    super(`A payroll run already exists for ${year}-${String(month).padStart(2, "0")}${branchId ? ` (branch ${branchId})` : ""}.`);
+    this.name = "DuplicatePayrollPeriodError";
+  }
+}
+
+/** Raised when a run's calculation produced no payslip at all — there is nothing to post. */
+export class NoPayableEmployeesError extends Error {
+  readonly code = "NO_PAYABLE_EMPLOYEES";
+  constructor(readonly runId: string) {
+    super(`Payroll run "${runId}" produced no payslips.`);
+    this.name = "NoPayableEmployeesError";
+  }
+}
+
+/**
+ * Raised when an employee's deductions exceed their earnings for the period.
+ * Payroll refuses to compute a negative net rather than post a wrong one.
+ */
+export class NegativeNetPayError extends Error {
+  readonly code = "NEGATIVE_NET_PAY";
+  constructor(
+    readonly employeeId: string,
+    readonly gross: string,
+    readonly deductions: string,
+  ) {
+    super(`Employee "${employeeId}" has deductions (${deductions}) exceeding earnings (${gross}) for the period.`);
+    this.name = "NegativeNetPayError";
+  }
+}
+
+/** Raised when a cash disbursement is requested but no treasury voucher path is wired. */
+export class TreasuryDisbursementUnavailableError extends Error {
+  readonly code = "TREASURY_DISBURSEMENT_UNAVAILABLE";
+  constructor() {
+    super("No treasury disbursement path is configured.");
+    this.name = "TreasuryDisbursementUnavailableError";
+  }
+}

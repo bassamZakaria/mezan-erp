@@ -233,6 +233,16 @@ export {
   type SqliteHolidayRepositoryHandle,
   type SqliteLeaveRequestRepositoryHandle,
 } from "./hr-store.js";
+
+// --- hr-payroll-store.ts — HR payroll runs, payslips and employee advances ---
+export {
+  createSqliteEmployeeAdvanceRepository,
+  createSqlitePayrollRunRepository,
+  createSqlitePayslipRepository,
+  type SqliteEmployeeAdvanceRepositoryHandle,
+  type SqlitePayrollRunRepositoryHandle,
+  type SqlitePayslipRepositoryHandle,
+} from "./hr-payroll-store.js";
 export {
   createSqliteWritedownRunRepository,
   type SqliteWritedownRunRepositoryHandle,
@@ -256,3 +266,21 @@ export {
   type SqliteItemCatalogStoreHandle,
   type SqliteItemCatalogStores,
 } from "./item-catalog-store.js";
+
+export {
+  createSqliteItemSpecificationRepository,
+  createSqliteItemSpecificationStore,
+  type SqliteItemSpecificationStoreHandle,
+} from "./item-specification-store.js";
+
+// --- hr-time-leave-store.ts — HR attendance, leave policies, balances, accrual batches ---
+export {
+  createSqliteAttendanceRepository,
+  createSqliteLeavePolicyRepository,
+  createSqliteLeaveBalanceRepository,
+  createSqliteLeaveAccrualBatchRepository,
+  type SqliteAttendanceRepositoryHandle,
+  type SqliteLeavePolicyRepositoryHandle,
+  type SqliteLeaveBalanceRepositoryHandle,
+  type SqliteLeaveAccrualBatchRepositoryHandle,
+} from "./hr-time-leave-store.js";

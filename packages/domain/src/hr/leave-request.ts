@@ -1,27 +1,43 @@
+import type { GateableActionType } from "../workflow/action-types.js";
 import { InvalidLeaveRequestError, InvalidLeaveRequestTransitionError } from "./errors.js";
 
 /**
- * LeaveRequest — the minimal slice of docs/catalog/06-crm-hr.md "طلبات
- * الإجازات" needed to back إجازاتي (My Leave, employee self-service — this
- * build's actual scope). A simplified 3-type leave taxonomy (annual/sick/
- * personal, matching `Contract.leaveEntitlement`'s override fields) stands
- * in for the full leave-policy-driven type catalog (`hr.leave_policy.*`,
- * deferred — docs/deferred-plan.md HR-3 #14/15).
+ * LeaveRequest — docs/catalog/06-crm-hr.md "طلبات الإجازات". The leave-type
+ * taxonomy is the 8 types the workflow catalog's 9 granular leave gates name
+ * (docs/catalog/09 §سير العمل — HR_LEAVE_APPROVE_* minus the "all types"
+ * catch-all), so every type maps 1:1 onto its own gateable action type.
  */
 
-export type LeaveType = "annual" | "sick" | "personal";
+export type LeaveType = "annual" | "sick" | "personal" | "casual" | "maternity" | "paternity" | "unpaid" | "emergency";
 export type LeaveRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 
 export interface LeaveTypeDefinition {
   readonly code: LeaveType;
   readonly labelAr: string;
+  /** The per-type approval gate a tenant may configure a chain on. */
+  readonly gateActionType: GateableActionType;
 }
 
 export const LEAVE_TYPE_DEFINITIONS: readonly LeaveTypeDefinition[] = [
-  { code: "annual", labelAr: "إجازة سنوية" },
-  { code: "sick", labelAr: "إجازة مرضية" },
-  { code: "personal", labelAr: "إجازة شخصية" },
+  { code: "annual", labelAr: "إجازة سنوية", gateActionType: "HR_LEAVE_APPROVE_ANNUAL" },
+  { code: "sick", labelAr: "إجازة مرضية", gateActionType: "HR_LEAVE_APPROVE_SICK" },
+  { code: "personal", labelAr: "إجازة شخصية", gateActionType: "HR_LEAVE_APPROVE_PERSONAL" },
+  { code: "casual", labelAr: "إجازة عارضة", gateActionType: "HR_LEAVE_APPROVE_CASUAL" },
+  { code: "maternity", labelAr: "إجازة أمومة", gateActionType: "HR_LEAVE_APPROVE_MATERNITY" },
+  { code: "paternity", labelAr: "إجازة أبوة", gateActionType: "HR_LEAVE_APPROVE_PATERNITY" },
+  { code: "unpaid", labelAr: "إجازة بدون أجر", gateActionType: "HR_LEAVE_APPROVE_UNPAID" },
+  { code: "emergency", labelAr: "إجازة طارئة", gateActionType: "HR_LEAVE_APPROVE_EMERGENCY" },
 ] as const;
+
+/** The gate a tenant configures for this leave type; `HR_LEAVE_APPROVE_ALL` is the cross-type fallback. */
+export function leaveApprovalActionType(leaveType: LeaveType): GateableActionType {
+  return LEAVE_TYPE_DEFINITIONS.find((d) => d.code === leaveType)?.gateActionType ?? "HR_LEAVE_APPROVE_ALL";
+}
+
+/** Leave taken without pay — the day count payroll prorates the month's salary by. */
+export function isUnpaidLeaveType(leaveType: LeaveType): boolean {
+  return leaveType === "unpaid";
+}
 
 export function getLeaveTypeLabel(type: LeaveType): string {
   return LEAVE_TYPE_DEFINITIONS.find((d) => d.code === type)?.labelAr ?? type;
@@ -152,4 +168,30 @@ export function cancelLeaveRequest(request: LeaveRequest): LeaveRequest {
     throw new InvalidLeaveRequestTransitionError(request.status, "cancelled");
   }
   return { ...request, status: "cancelled" };
+}
+
+export interface LeaveRequestFilter {
+  readonly employeeId?: string | null;
+  readonly status?: LeaveRequestStatus | null;
+  readonly leaveType?: LeaveType | null;
+  /** Overlap window: keeps requests whose period intersects [from, to]. */
+  readonly from?: string | null;
+  readonly to?: string | null;
+}
+
+/** Applies the admin list's filter panel (employee / status / type / date range) to a request set. */
+export function filterLeaveRequests(requests: readonly LeaveRequest[], filter: LeaveRequestFilter): LeaveRequest[] {
+  return requests.filter((r) => {
+    if (filter.employeeId && r.employeeId !== filter.employeeId) return false;
+    if (filter.status && r.status !== filter.status) return false;
+    if (filter.leaveType && r.leaveType !== filter.leaveType) return false;
+    if (filter.from && r.endDate < filter.from) return false;
+    if (filter.to && r.startDate > filter.to) return false;
+    return true;
+  });
+}
+
+/** True when an approved leave request covers `date` ("YYYY-MM-DD") — the attendance grid's "L" day. */
+export function isOnApprovedLeave(requests: readonly LeaveRequest[], employeeId: string, date: string): boolean {
+  return requests.some((r) => r.status === "approved" && r.employeeId === employeeId && r.startDate <= date && date <= r.endDate);
 }

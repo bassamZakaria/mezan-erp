@@ -62,6 +62,8 @@ export type {
 export {
   LEAVE_TYPE_DEFINITIONS,
   getLeaveTypeLabel,
+  leaveApprovalActionType,
+  isUnpaidLeaveType,
   LEAVE_REQUEST_STATUS_DEFINITIONS,
   getLeaveRequestStatusLabel,
   ALLOWED_LEAVE_REQUEST_TRANSITIONS,
@@ -69,8 +71,152 @@ export {
   createLeaveRequest,
   decideLeaveRequest,
   cancelLeaveRequest,
+  filterLeaveRequests,
+  isOnApprovedLeave,
   type CreateLeaveRequestCommand,
+  type LeaveRequestFilter,
 } from "./leave-request.js";
+
+export type {
+  AttendanceEntry,
+  AttendanceRepository,
+  AttendanceStatus,
+  AttendanceStatusDefinition,
+  AttendanceFilter,
+  AttendanceSummary,
+  RecordAttendanceCommand,
+  CorrectAttendanceCommand,
+  ResolveAttendanceStatusInput,
+} from "./attendance.js";
+export {
+  ATTENDANCE_STATUS_DEFINITIONS,
+  NON_WORKING_ATTENDANCE_STATUSES,
+  DEFAULT_WEEKLY_OFF_DAYS,
+  getAttendanceStatusLabel,
+  workedMinutesBetween,
+  isWeeklyOffDay,
+  isHolidayDate,
+  resolveAttendanceStatus,
+  recordAttendance,
+  correctAttendance,
+  summarizeAttendance,
+} from "./attendance.js";
+
+export type {
+  LeavePolicy,
+  LeavePolicyRepository,
+  LeavePolicyPatch,
+  LeaveAccrualFrequency,
+  LeaveAccrualFrequencyDefinition,
+  LeavePolicyPreset,
+  LeavePolicyPresetLine,
+  CreateLeavePolicyCommand,
+  ApplyLeavePolicyPresetResult,
+} from "./leave-policy.js";
+export {
+  LEAVE_ACCRUAL_FREQUENCY_DEFINITIONS,
+  LEAVE_POLICY_PRESETS,
+  getLeaveAccrualFrequencyLabel,
+  createLeavePolicy,
+  updateLeavePolicy,
+  accrualDaysPerPeriod,
+  findLeavePolicyPreset,
+  applyLeavePolicyPreset,
+} from "./leave-policy.js";
+
+export type {
+  LeaveBalance,
+  LeaveBalanceRepository,
+  LeaveBalanceFilter,
+  LeaveBalancePatch,
+  CreateLeaveBalanceCommand,
+  LeaveAccrualBatch,
+  LeaveAccrualBatchRepository,
+  LeaveAccrualBatchFilter,
+  LeaveAccrualLine,
+  LeaveAccrualRunType,
+  RunLeaveAccrualCommand,
+  RunLeaveAccrualDeps,
+  RunLeaveAccrualResult,
+} from "./leave-balance.js";
+export {
+  availableLeaveDays,
+  createLeaveBalance,
+  adjustLeaveBalance,
+  accrualPeriodKey,
+  runLeaveAccrual,
+  consumeLeaveBalance,
+  createUnpaidLeaveDaysProvider,
+} from "./leave-balance.js";
+
+export type {
+  EmployeeAdvance,
+  EmployeeAdvanceRepository,
+  EmployeeAdvanceStatus,
+  EmployeeAdvanceStatusDefinition,
+  AdvanceInstallment,
+  CreateEmployeeAdvanceCommand,
+} from "./advance.js";
+export {
+  EMPLOYEE_ADVANCE_STATUS_DEFINITIONS,
+  getEmployeeAdvanceStatusLabel,
+  ALLOWED_ADVANCE_TRANSITIONS,
+  canTransitionAdvance,
+  advanceRecovered,
+  advanceOutstanding,
+  employeeOutstandingBalance,
+  buildInstallmentSchedule,
+  addMonths,
+  requestEmployeeAdvance,
+  approveEmployeeAdvance,
+  rejectEmployeeAdvance,
+  markEmployeeAdvanceDisbursed,
+  installmentsDue,
+  amountDueBy,
+  applyAdvanceRecovery,
+} from "./advance.js";
+
+export type {
+  PayrollRun,
+  PayrollRunRepository,
+  PayrollRunStatus,
+  PayrollRunStatusDefinition,
+  Payslip,
+  PayslipRepository,
+  PayslipLine,
+  PayslipLineKind,
+  PayslipLineSource,
+  PayrollGlAccounts,
+  PayrollPeriodBounds,
+  UnpaidLeaveDaysProvider,
+} from "./payroll-run.js";
+export {
+  PAYROLL_RUN_STATUS_DEFINITIONS,
+  getPayrollRunStatusLabel,
+  ALLOWED_PAYROLL_RUN_TRANSITIONS,
+  canTransitionPayrollRun,
+  PAYROLL_GL_ACCOUNTS,
+  daysInPayrollMonth,
+  payrollPeriodBounds,
+  inclusiveDays,
+} from "./payroll-run.js";
+export type {
+  CreatePayrollRunCommand,
+  PayrollCalculationDeps,
+  PayrollNumbering,
+} from "./calculate-payroll-run.js";
+export { createPayrollRun, calculatePayrollRun, cancelPayrollRun } from "./calculate-payroll-run.js";
+export type { PostPayrollRunDeps } from "./post-payroll-run.js";
+export { approvePayrollRun } from "./post-payroll-run.js";
+export type {
+  TreasuryDisbursementPort,
+  TreasuryDisbursementRequest,
+  TreasuryDisbursementResult,
+  DisbursementInput,
+  DisburseAdvanceDeps,
+  DisbursePayrollRunDeps,
+} from "./hr-disbursement.js";
+export { disburseEmployeeAdvance, disbursePayrollRun } from "./hr-disbursement.js";
 
 export {
   DepartmentNotFoundError,
@@ -89,4 +235,24 @@ export {
   LeaveRequestNotFoundError,
   InvalidLeaveRequestError,
   InvalidLeaveRequestTransitionError,
+  InvalidAttendanceEntryError,
+  AttendanceEntryNotFoundError,
+  DuplicateAttendanceEntryError,
+  InvalidLeavePolicyError,
+  LeavePolicyNotFoundError,
+  DuplicateLeavePolicyError,
+  UnknownLeavePolicyPresetError,
+  InvalidLeaveBalanceError,
+  LeaveBalanceNotFoundError,
+  InvalidLeaveAccrualBatchError,
+  EmployeeAdvanceNotFoundError,
+  InvalidEmployeeAdvanceError,
+  InvalidEmployeeAdvanceTransitionError,
+  PayrollRunNotFoundError,
+  InvalidPayrollRunError,
+  InvalidPayrollRunTransitionError,
+  DuplicatePayrollPeriodError,
+  NoPayableEmployeesError,
+  NegativeNetPayError,
+  TreasuryDisbursementUnavailableError,
 } from "./errors.js";

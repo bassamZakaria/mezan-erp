@@ -51,11 +51,31 @@ export const createNotificationRuleSchema = z.object({
 
 export const updateNotificationRuleSchema = createNotificationRuleSchema.omit({ id: true });
 
+/**
+ * The trigger catalog the rule builder reads: every catalogued event code
+ * annotated with whether THIS build actually publishes it, plus the channels
+ * that actually send. A rule bound to a non-emitted trigger, or a channel that
+ * is not implemented, can never deliver — the builder says so up front.
+ */
+export const notificationTriggerSchema = z.object({
+  code: z.string().min(1),
+  category: z.string().min(1),
+  labelAr: z.string().min(1),
+  emitted: z.boolean(),
+});
+
+export const notificationTriggerCatalogSchema = z.object({
+  triggers: z.array(notificationTriggerSchema),
+  implementedChannels: z.array(notificationChannelSchema),
+});
+
 export type NotificationPriorityDTO = z.infer<typeof notificationPrioritySchema>;
 export type NotificationChannelDTO = z.infer<typeof notificationChannelSchema>;
 export type ConditionOperatorDTO = z.infer<typeof conditionOperatorSchema>;
 export type NotificationRecipientTypeDTO = z.infer<typeof notificationRecipientTypeSchema>;
 export type NotificationConditionDTO = z.infer<typeof notificationConditionSchema>;
 export type NotificationRuleDTO = z.infer<typeof notificationRuleSchema>;
+export type NotificationTriggerDTO = z.infer<typeof notificationTriggerSchema>;
+export type NotificationTriggerCatalogDTO = z.infer<typeof notificationTriggerCatalogSchema>;
 export type CreateNotificationRuleDTO = z.infer<typeof createNotificationRuleSchema>;
 export type UpdateNotificationRuleDTO = z.infer<typeof updateNotificationRuleSchema>;

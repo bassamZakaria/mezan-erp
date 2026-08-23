@@ -12,7 +12,8 @@ import {
   useProductTemplates,
   useTemplateVariants,
 } from "../data/hooks";
-import { TextField } from "../settings/form-controls";
+import { SelectField, TextField } from "../settings/form-controls";
+import { useItemSpecifications } from "../data/item-catalog-hooks";
 
 /**
  * قوالب المنتجات (Product Templates) — docs/catalog/03-inventory.md §"قوالب
@@ -70,6 +71,7 @@ export function ProductTemplatesScreen() {
   const [attrError, setAttrError] = useState<string | null>(null);
   const [newAttrName, setNewAttrName] = useState("");
   const [newAttrValues, setNewAttrValues] = useState("");
+  const [newAttrSpecCode, setNewAttrSpecCode] = useState("");
   const [selectedCombos, setSelectedCombos] = useState<Set<string>>(new Set());
 
   const selected = selectedId ? templates.find((t) => t.id === selectedId) ?? null : null;
@@ -77,6 +79,12 @@ export function ProductTemplatesScreen() {
   const variants = variantsQuery.data ?? [];
   const existingKeys = useMemo(() => new Set(variants.map((v) => comboKey(v.values))), [variants]);
   const combos = useMemo(() => (selected ? cartesianCombinations(selected.attributes) : []), [selected]);
+
+  const specificationsQuery = useItemSpecifications();
+  const specificationOptions = useMemo(() => {
+    const selectable = (specificationsQuery.data ?? []).filter((s) => s.type === "select" && s.status === "active");
+    return [{ value: "", label: "خاصية خاصة بهذا القالب" }, ...selectable.map((s) => ({ value: s.code, label: `${s.nameAr} (${s.code})` }))];
+  }, [specificationsQuery.data]);
 
   function openCreateForm() {
     setDraft(blankCreateDraft());
@@ -109,16 +117,21 @@ export function ProductTemplatesScreen() {
 
   async function handleAddAttribute() {
     if (!selected) return;
-    const values = newAttrValues.split(",").map((v) => v.trim()).filter((v) => v !== "");
-    if (newAttrName.trim() === "" || values.length === 0) {
-      setAttrError("اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة.");
-      return;
-    }
     setAttrError(null);
     try {
-      await addAttribute.mutateAsync({ templateId: selected.id, body: { nameAr: newAttrName.trim(), values } });
+      if (newAttrSpecCode !== "") {
+        await addAttribute.mutateAsync({ templateId: selected.id, body: { specificationCode: newAttrSpecCode } });
+      } else {
+        const values = newAttrValues.split(",").map((v) => v.trim()).filter((v) => v !== "");
+        if (newAttrName.trim() === "" || values.length === 0) {
+          setAttrError("اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة.");
+          return;
+        }
+        await addAttribute.mutateAsync({ templateId: selected.id, body: { nameAr: newAttrName.trim(), values } });
+      }
       setNewAttrName("");
       setNewAttrValues("");
+      setNewAttrSpecCode("");
     } catch (err) {
       setAttrError(err instanceof ApiError ? err.message : "تعذّر إضافة الخاصية.");
     }
@@ -292,8 +305,21 @@ export function ProductTemplatesScreen() {
 
               <Card className="mt-[10px] p-[12px_14px]">
                 <div className="flex flex-col gap-[8px]">
-                  <TextField label="اسم الخاصية" value={newAttrName} onChange={setNewAttrName} placeholder="مثال: اللون" />
-                  <TextField label="القيم مفصولة بفواصل" value={newAttrValues} onChange={setNewAttrValues} placeholder="أحمر, أزرق, أخضر" />
+                  {specificationOptions.length > 1 ? (
+                    <SelectField
+                      label="من سجل المواصفات"
+                      value={newAttrSpecCode}
+                      onChange={setNewAttrSpecCode}
+                      options={specificationOptions}
+                      hint="اختر مواصفة جاهزة، أو اتركها فارغة واكتب خاصية خاصة بهذا القالب."
+                    />
+                  ) : null}
+                  {newAttrSpecCode === "" ? (
+                    <>
+                      <TextField label="اسم الخاصية" value={newAttrName} onChange={setNewAttrName} placeholder="مثال: اللون" />
+                      <TextField label="القيم مفصولة بفواصل" value={newAttrValues} onChange={setNewAttrValues} placeholder="أحمر, أزرق, أخضر" />
+                    </>
+                  ) : null}
                   <Button size="sm" onClick={() => void handleAddAttribute()}>
                     إضافة خاصية
                   </Button>

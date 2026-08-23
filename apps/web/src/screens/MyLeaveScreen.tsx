@@ -1,14 +1,11 @@
 import { useState, type FormEvent } from "react";
-import { Button, Card, SidePanel, StatusPill, type PillTone } from "@mezan/ui";
-import type { LeaveRequestDTO, LeaveRequestStatusDTO, LeaveTypeDTO } from "@mezan/contracts";
+import { Button, Card, SidePanel, StatusPill } from "@mezan/ui";
+import type { LeaveRequestDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCancelLeaveRequest, useCreateLeaveRequest, useMyLeave } from "../data/hooks";
+import { LEAVE_STATUS_LABEL, LEAVE_STATUS_TONE, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
 
 /** إجازاتي (My Leave — employee self-service) — docs/catalog/06 §"إجازاتي". Lets the logged-in user request leave and see their own leave-request history, gated on their account being linked to an HR employee record. */
-
-const LEAVE_TYPE_LABEL: Record<LeaveTypeDTO, string> = { annual: "إجازة سنوية", sick: "إجازة مرضية", personal: "الإجازة الشخصية" };
-const STATUS_LABEL: Record<LeaveRequestStatusDTO, string> = { pending: "بانتظار الموافقة", approved: "موافق عليه", rejected: "مرفوض", cancelled: "ملغى" };
-const STATUS_TONE: Record<LeaveRequestStatusDTO, PillTone> = { pending: "warning", approved: "success", rejected: "danger", cancelled: "neutral" };
 
 interface LeaveDraft {
   leaveType: LeaveTypeDTO;
@@ -134,7 +131,7 @@ export function MyLeaveScreen() {
                     </td>
                     <td className="mz-num px-[14px] py-[10px] text-end text-ink">{r.days}</td>
                     <td className="px-[14px] py-[10px]">
-                      <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} />
+                      <StatusPill label={LEAVE_STATUS_LABEL[r.status]} tone={LEAVE_STATUS_TONE[r.status]} />
                     </td>
                     <td className="px-[14px] py-[10px] text-end">
                       {r.status === "pending" || r.status === "approved" ? (
@@ -164,7 +161,7 @@ export function MyLeaveScreen() {
             label="نوع الإجازة *"
             value={draft.leaveType}
             onChange={(v) => setDraft((d) => ({ ...d, leaveType: v as LeaveTypeDTO }))}
-            options={(Object.keys(LEAVE_TYPE_LABEL) as LeaveTypeDTO[]).map((t) => ({ value: t, label: LEAVE_TYPE_LABEL[t] }))}
+            options={LEAVE_TYPE_OPTIONS}
           />
           <ToggleField
             label="نصف يوم"

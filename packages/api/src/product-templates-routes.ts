@@ -26,6 +26,8 @@ import {
   type ProductTemplateVariant,
   type ProductTemplateVariantRepository,
   type ItemRepository,
+  ItemSpecificationNotFoundError,
+  type ItemSpecificationRepository,
 } from "@mezan/domain";
 import {
   createProductTemplateSchema,
@@ -46,6 +48,12 @@ export interface ProductTemplatesRoutesDeps {
   readonly templates: ProductTemplateRepository;
   readonly variants: ProductTemplateVariantRepository;
   readonly items: ItemRepository;
+  /**
+   * المواصفات registry, when the app mounts one: an attribute may then be built
+   * from a registry entry (`specificationCode`) instead of typed out, and the
+   * registry counts/guards that binding.
+   */
+  readonly specifications?: ItemSpecificationRepository;
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
 }
@@ -80,7 +88,11 @@ function serializeVariant(variant: ProductTemplateVariant) {
 }
 
 function handleDomainError(c: Context, err: unknown) {
-  if (err instanceof ProductTemplateNotFoundError || err instanceof AttributeNotFoundError) {
+  if (
+    err instanceof ProductTemplateNotFoundError ||
+    err instanceof AttributeNotFoundError ||
+    err instanceof ItemSpecificationNotFoundError
+  ) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
   if (
@@ -147,8 +159,26 @@ export function createProductTemplatesRoutes(
     const parsed = addTemplateAttributeSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
+      const fromRegistry = parsed.data.specificationCode
+        ? await deps.specifications?.findByCode(parsed.data.specificationCode)
+        : null;
+      if (parsed.data.specificationCode && !fromRegistry) {
+        throw new ItemSpecificationNotFoundError(parsed.data.specificationCode);
+      }
+      const nameAr = fromRegistry?.nameAr ?? parsed.data.nameAr;
+      const values = parsed.data.values ?? fromRegistry?.values;
+      if (!nameAr || !values) {
+        return c.json({ error: "VALIDATION_ERROR", message: "اسم الخاصية وقيمها مطلوبة." }, 400);
+      }
       const template = await addTemplateAttribute(
-        { templateId: c.req.param("id"), attributeId: idGen(), ...parsed.data },
+        {
+          templateId: c.req.param("id"),
+          attributeId: idGen(),
+          nameAr,
+          nameEn: fromRegistry?.nameEn ?? parsed.data.nameEn,
+          values,
+          specificationCode: fromRegistry?.code ?? null,
+        },
         { templates: deps.templates, variants: deps.variants },
       );
       return c.json(serializeTemplate(template), 201);

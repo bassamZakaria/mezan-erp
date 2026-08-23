@@ -54,6 +54,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // post against without needing their own COA-template edits.
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  { id: "2190", code: "2190", nameAr: "استقطاعات ومستحقات رواتب", nameEn: "Payroll Withholdings Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
 
   // --- 3000 حقوق الملكية (Equity) ---
   { id: "3000", code: "3000", nameAr: "حقوق الملكية", nameEn: "Equity", type: "equity", naturalBalance: "credit", parentId: null, isHeader: true },
@@ -76,6 +77,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.
   { id: "5120", code: "5120", nameAr: "مصروف الرواتب", nameEn: "Salary Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5130", code: "5130", nameAr: "مساهمات صاحب العمل", nameEn: "Employer Contributions Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

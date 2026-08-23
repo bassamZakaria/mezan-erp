@@ -1,0 +1,21 @@
+- generic [ref=f33e3]:
+  - generic [ref=f33e4]:
+    - heading "ميزان" [level=1] [ref=f33e10]
+    - paragraph [ref=f33e11]: نظام تخطيط موارد المنشآت — دقة محاسبية، وضوح تشغيلي، وتوازن في كل قيد.
+    - generic [ref=f33e12]: Mezan ERP · 2026.8
+  - generic [ref=f33e14]:
+    - heading "تسجيل الدخول" [level=2] [ref=f33e15]
+    - paragraph [ref=f33e16]: أدخل اسم المستخدم ورمز PIN الخاص بجهازك
+    - generic [ref=f33e17]:
+      - generic [ref=f33e18]: اسم المستخدم
+      - textbox "اسم المستخدم" [ref=f33e19]: محمد الشهابي
+    - generic [ref=f33e20]:
+      - generic [ref=f33e21]: رمز PIN
+      - generic [ref=f33e22]:
+        - textbox "رمز PIN رقم 1" [active] [ref=f33e23]
+        - textbox "رمز PIN رقم 2" [ref=f33e24]
+        - textbox "رمز PIN رقم 3" [ref=f33e25]
+        - textbox "رمز PIN رقم 4" [ref=f33e26]
+    - button "دخول" [disabled] [ref=f33e27]
+    - generic [ref=f33e28]: Mezan 2026.8
+    - button "أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي" [ref=f33e29] [cursor=pointer]

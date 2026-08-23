@@ -1,9 +1,12 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CreateItemCategoryDTO,
+  CreateItemSpecificationDTO,
   CreateItemUnitDTO,
   ItemCategoryDTO,
+  ItemSpecificationDTO,
   ItemUnitDTO,
+  UpdateItemSpecificationDTO,
 } from "@mezan/contracts";
 import { ApiError } from "./hooks";
 import { useApi } from "./ApiContext";
@@ -85,4 +88,62 @@ export function unitLabel(units: readonly ItemUnitDTO[], code: string): string {
 export function categoryLabel(categories: readonly ItemCategoryDTO[], id: string | null): string {
   if (!id) return "بدون تصنيف";
   return categories.find((c) => c.id === id)?.nameAr ?? id;
+}
+
+/* -------------------------------------------------------------------- */
+/* المواصفات — the reusable specification registry                        */
+/* -------------------------------------------------------------------- */
+
+export function useItemSpecifications(): UseQueryResult<ItemSpecificationDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemSpecificationDTO[], ApiError>({
+    queryKey: ["item-specifications"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-specifications");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المواصفات.");
+      return res.json<ItemSpecificationDTO[]>();
+    },
+  });
+}
+
+export function useCreateItemSpecification() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemSpecificationDTO, ApiError, CreateItemSpecificationDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/item-specifications", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إضافة المواصفة."));
+      return res.json<ItemSpecificationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
+  });
+}
+
+export function useUpdateItemSpecification() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemSpecificationDTO, ApiError, { code: string; patch: UpdateItemSpecificationDTO }>({
+    mutationFn: async ({ code, patch }) => {
+      const res = await request(`/item-specifications/${encodeURIComponent(code)}`, {
+        method: "PATCH",
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر تعديل المواصفة."));
+      return res.json<ItemSpecificationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
+  });
+}
+
+export function useDeleteItemSpecification() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (code) => {
+      const res = await request(`/item-specifications/${encodeURIComponent(code)}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر حذف المواصفة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-specifications"] }),
+  });
 }

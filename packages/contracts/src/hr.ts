@@ -246,7 +246,7 @@ export const updateHolidaySchema = z.object({
 
 // --- Leave Requests (My Leave self-service) -------------------------------
 
-export const leaveTypeSchema = z.enum(["annual", "sick", "personal"]);
+export const leaveTypeSchema = z.enum(["annual", "sick", "personal", "casual", "maternity", "paternity", "unpaid", "emergency"]);
 export const leaveRequestStatusSchema = z.enum(["pending", "approved", "rejected", "cancelled"]);
 
 export const leaveRequestSchema = z.object({
@@ -272,6 +272,173 @@ export const createLeaveRequestSchema = z.object({
   startDate: z.string().min(1),
   endDate: z.string().min(1),
   reason: z.string().nullable().optional(),
+});
+
+export const decideLeaveRequestSchema = z.object({
+  decision: z.enum(["approved", "rejected"]),
+  comment: z.string().nullable().optional(),
+});
+
+// --- Attendance ------------------------------------------------------------
+
+export const attendanceStatusSchema = z.enum(["present", "late", "half_day", "absent", "on_leave", "holiday", "weekly_off"]);
+
+const timeOfDaySchema = z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/, "HH:MM");
+const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+
+export const attendanceEntrySchema = z.object({
+  id: z.string().min(1),
+  employeeId: z.string().min(1),
+  date: isoDateSchema,
+  checkIn: z.string().nullable(),
+  checkOut: z.string().nullable(),
+  workedMinutes: z.number().int(),
+  status: attendanceStatusSchema,
+  notes: z.string().nullable(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const recordAttendanceSchema = z.object({
+  id: z.string().min(1).optional(),
+  employeeId: z.string().min(1),
+  date: isoDateSchema,
+  checkIn: timeOfDaySchema.nullable().optional(),
+  checkOut: timeOfDaySchema.nullable().optional(),
+  halfDay: z.boolean().optional(),
+  notes: z.string().nullable().optional(),
+  status: attendanceStatusSchema.nullable().optional(),
+  expectedCheckIn: timeOfDaySchema.nullable().optional(),
+  graceMinutes: z.number().int().min(0).optional(),
+});
+
+export const correctAttendanceSchema = recordAttendanceSchema.omit({ id: true, employeeId: true, date: true }).partial();
+
+export const attendanceSummarySchema = z.object({
+  employeeId: z.string().min(1),
+  from: z.string().min(1),
+  to: z.string().min(1),
+  workingDays: z.number(),
+  daysPresent: z.number(),
+  daysLate: z.number(),
+  daysAbsent: z.number(),
+  halfDays: z.number(),
+  daysOnLeave: z.number(),
+  holidays: z.number(),
+  weeklyOffDays: z.number(),
+  workedMinutes: z.number(),
+  attendanceRatePercent: z.number(),
+});
+
+// --- Leave Policies --------------------------------------------------------
+
+export const leaveAccrualFrequencySchema = z.enum(["annual", "monthly", "none"]);
+
+/** Day counts cross the wire as exact decimal strings (`Qty`), never floats. */
+const qtyDaysSchema = z.string().regex(/^-?\d+(\.\d{1,6})?$/, "exact decimal");
+
+export const leavePolicySchema = z.object({
+  id: z.string().min(1),
+  leaveType: leaveTypeSchema,
+  entitlementDays: qtyDaysSchema,
+  accrualFrequency: leaveAccrualFrequencySchema,
+  carryOver: z.boolean(),
+  maxCarryOverDays: qtyDaysSchema.nullable(),
+  payoutOnTermination: z.boolean(),
+  legallyMandated: z.boolean(),
+  presetCode: z.string().nullable(),
+  active: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const createLeavePolicySchema = z.object({
+  id: z.string().min(1).optional(),
+  leaveType: leaveTypeSchema,
+  entitlementDays: qtyDaysSchema,
+  accrualFrequency: leaveAccrualFrequencySchema,
+  carryOver: z.boolean().optional(),
+  maxCarryOverDays: qtyDaysSchema.nullable().optional(),
+  payoutOnTermination: z.boolean().optional(),
+  legallyMandated: z.boolean().optional(),
+});
+
+export const updateLeavePolicySchema = z.object({
+  entitlementDays: qtyDaysSchema.optional(),
+  accrualFrequency: leaveAccrualFrequencySchema.optional(),
+  carryOver: z.boolean().optional(),
+  maxCarryOverDays: qtyDaysSchema.nullable().optional(),
+  payoutOnTermination: z.boolean().optional(),
+  legallyMandated: z.boolean().optional(),
+  active: z.boolean().optional(),
+});
+
+export const leavePolicyPresetSchema = z.object({
+  code: z.string().min(1),
+  labelAr: z.string().min(1),
+  effectiveFrom: z.string().min(1),
+  lines: z.array(
+    z.object({
+      leaveType: leaveTypeSchema,
+      entitlementDays: qtyDaysSchema,
+      accrualFrequency: leaveAccrualFrequencySchema,
+      carryOver: z.boolean(),
+      maxCarryOverDays: qtyDaysSchema.nullable(),
+      payoutOnTermination: z.boolean(),
+      legallyMandated: z.boolean(),
+      noteAr: z.string(),
+    }),
+  ),
+});
+
+export const applyLeavePolicyPresetSchema = z.object({
+  presetCode: z.string().min(1),
+});
+
+// --- Leave Balances & Accrual Batches --------------------------------------
+
+export const leaveBalanceSchema = z.object({
+  id: z.string().min(1),
+  employeeId: z.string().min(1),
+  leaveType: leaveTypeSchema,
+  year: z.number().int(),
+  entitled: qtyDaysSchema,
+  carriedOver: qtyDaysSchema,
+  used: qtyDaysSchema,
+  available: qtyDaysSchema,
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const upsertLeaveBalanceSchema = z.object({
+  employeeId: z.string().min(1),
+  leaveType: leaveTypeSchema,
+  year: z.number().int(),
+  entitled: qtyDaysSchema.optional(),
+  carriedOver: qtyDaysSchema.optional(),
+  used: qtyDaysSchema.optional(),
+});
+
+export const leaveAccrualBatchSchema = z.object({
+  id: z.string().min(1),
+  number: z.string().min(1),
+  periodKey: z.string().min(1),
+  frequency: leaveAccrualFrequencySchema,
+  runType: z.enum(["manual", "scheduled"]),
+  runDate: z.string().min(1),
+  notes: z.string().nullable(),
+  employeeCount: z.number().int(),
+  totalDays: qtyDaysSchema,
+  lines: z.array(z.object({ employeeId: z.string().min(1), leaveType: leaveTypeSchema, days: qtyDaysSchema })),
+  runBy: z.string().nullable(),
+  createdAt: z.string().min(1),
+});
+
+export const runLeaveAccrualSchema = z.object({
+  runDate: isoDateSchema,
+  frequency: z.enum(["monthly", "annual"]).optional(),
+  runType: z.enum(["manual", "scheduled"]).optional(),
+  notes: z.string().nullable().optional(),
 });
 
 // --- Dashboard -------------------------------------------------------------
@@ -329,3 +496,19 @@ export type LeaveRequestStatusDTO = z.infer<typeof leaveRequestStatusSchema>;
 export type LeaveRequestDTO = z.infer<typeof leaveRequestSchema>;
 export type CreateLeaveRequestDTO = z.infer<typeof createLeaveRequestSchema>;
 export type HrDashboardSummaryDTO = z.infer<typeof hrDashboardSummarySchema>;
+export type DecideLeaveRequestDTO = z.infer<typeof decideLeaveRequestSchema>;
+export type AttendanceStatusDTO = z.infer<typeof attendanceStatusSchema>;
+export type AttendanceEntryDTO = z.infer<typeof attendanceEntrySchema>;
+export type RecordAttendanceDTO = z.infer<typeof recordAttendanceSchema>;
+export type CorrectAttendanceDTO = z.infer<typeof correctAttendanceSchema>;
+export type AttendanceSummaryDTO = z.infer<typeof attendanceSummarySchema>;
+export type LeaveAccrualFrequencyDTO = z.infer<typeof leaveAccrualFrequencySchema>;
+export type LeavePolicyDTO = z.infer<typeof leavePolicySchema>;
+export type CreateLeavePolicyDTO = z.infer<typeof createLeavePolicySchema>;
+export type UpdateLeavePolicyDTO = z.infer<typeof updateLeavePolicySchema>;
+export type LeavePolicyPresetDTO = z.infer<typeof leavePolicyPresetSchema>;
+export type ApplyLeavePolicyPresetDTO = z.infer<typeof applyLeavePolicyPresetSchema>;
+export type LeaveBalanceDTO = z.infer<typeof leaveBalanceSchema>;
+export type UpsertLeaveBalanceDTO = z.infer<typeof upsertLeaveBalanceSchema>;
+export type LeaveAccrualBatchDTO = z.infer<typeof leaveAccrualBatchSchema>;
+export type RunLeaveAccrualDTO = z.infer<typeof runLeaveAccrualSchema>;

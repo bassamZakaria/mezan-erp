@@ -33,6 +33,7 @@ import {
   type DocumentEventPublisher,
   type DocumentEventType,
   type EventCode,
+  createProductTemplateSpecificationUsage,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -84,11 +85,16 @@ import {
   createSqlitePrintTemplateConfigStore,
   createSqliteInventoryOpsStore,
   createSqliteItemCatalogStores,
+  createSqliteItemSpecificationRepository,
   createSqliteDepartmentRepository,
   createSqliteJobTitleRepository,
   createSqliteEmployeeRepository,
   createSqliteContractRepository,
   createSqliteHolidayRepository,
+  createSqliteAttendanceRepository,
+  createSqliteLeaveAccrualBatchRepository,
+  createSqliteLeaveBalanceRepository,
+  createSqliteLeavePolicyRepository,
   createSqliteLeaveRequestRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
@@ -215,9 +221,28 @@ const LANDED_COST_GL_ACCOUNTS = {
  * has one so far: sales invoices' customerName/amount) beyond the generic
  * `documentNumber` every bridged document gets for free.
  */
+type DocumentEventMapping = Partial<Record<string, Partial<Record<DocumentEventType, EventCode>>>>;
+
+/**
+ * The event codes this build really publishes — read straight off the bridge
+ * mappings above, so `/notification-rules/triggers`' honest `emitted` flag can
+ * never drift from the wiring that produces it.
+ */
+function emittedEventCodesOf(...mappings: readonly DocumentEventMapping[]): EventCode[] {
+  const codes = new Set<EventCode>();
+  for (const mapping of mappings) {
+    for (const byType of Object.values(mapping)) {
+      for (const code of Object.values(byType ?? {})) {
+        if (code) codes.add(code);
+      }
+    }
+  }
+  return [...codes];
+}
+
 function createDocumentEventBridge(
   eventBus: EventBus,
-  mapping: Partial<Record<string, Partial<Record<DocumentEventType, EventCode>>>>,
+  mapping: DocumentEventMapping,
   enrich?: (docId: string) => Promise<Record<string, unknown>>,
 ): DocumentEventPublisher {
   return {
@@ -312,6 +337,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
+  const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
@@ -395,6 +421,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrContracts = createSqliteContractRepository(sqlite);
   const hrHolidays = createSqliteHolidayRepository(sqlite);
   const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
+  const hrAttendance = createSqliteAttendanceRepository(sqlite);
+  const hrLeavePolicies = createSqliteLeavePolicyRepository(sqlite);
+  const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
+  const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
@@ -451,18 +481,22 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // framework doesn't expose a uniform customer/amount field across every
   // document flavour) — a rule can still target them, its template just
   // won't have `{{customerName}}`/`{{amount}}` to substitute.
-  const returnsEventBridge = createDocumentEventBridge(eventBus, {
+  const returnsEventMapping = {
     SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
     PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
-  });
+  } satisfies DocumentEventMapping;
+  const returnsEventBridge = createDocumentEventBridge(eventBus, returnsEventMapping);
 
   // Sales invoices are the one document type the catalog's own email-template
   // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
   // للعميل" — docs/catalog/09 §البريد الإلكتروني), so this bridge enriches the
   // generic documentNumber with the two other named template fields.
+  const salesInvoiceEventMapping = {
+    SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" },
+  } satisfies DocumentEventMapping;
   const salesInvoiceEventBridge = createDocumentEventBridge(
     eventBus,
-    { SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" } },
+    salesInvoiceEventMapping,
     async (docId) => {
       const invoice = await salesInvoices.findById(docId);
       if (!invoice) return {};
@@ -627,6 +661,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts: { repo: accounts },
     items: { repo: items },
     itemCatalog: { units: itemCatalog.units, categories: itemCatalog.categories },
+    itemSpecifications: {
+      repo: itemSpecifications,
+      usage: createProductTemplateSpecificationUsage(productTemplateStore.templates),
+    },
     labelLayouts: { repo: labelLayouts },
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
     audit: { store: auditSink },
@@ -724,6 +762,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       contracts: hrContracts,
       holidays: hrHolidays,
       leaveRequests: hrLeaveRequests,
+      attendance: hrAttendance,
+      leavePolicies: hrLeavePolicies,
+      leaveBalances: hrLeaveBalances,
+      leaveAccrualBatches: hrLeaveAccrualBatches,
+      workflow: { configs: workflowConfigs, requests: approvalRequests },
       users: uow.users,
       numbering: ledger.numbering,
     },
@@ -749,6 +792,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       templates: productTemplateStore.templates,
       variants: productTemplateStore.variants,
       items,
+      specifications: itemSpecifications,
     },
     fieldSales: {
       trips: vanTrips,
@@ -841,6 +885,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
     },
     notificationRuleRepo: notificationRules,
+    emittedEventCodes: emittedEventCodesOf(returnsEventMapping, salesInvoiceEventMapping),
     notificationRepo: notifications,
     workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
@@ -914,6 +959,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     hrContracts,
     hrHolidays,
     hrLeaveRequests,
+    hrAttendance,
+    hrLeavePolicies,
+    hrLeaveBalances,
+    hrLeaveAccrualBatches,
     notificationRules,
     notifications,
     workflowConfigs,

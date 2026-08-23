@@ -197,6 +197,7 @@ export { postWritedownRun, type PostWritedownRunDeps } from "./post-writedown-ru
 
 export {
   variantKey,
+  createProductTemplateSpecificationUsage,
   type ProductTemplateAttribute,
   type ProductTemplateStatus,
   type ProductTemplate,

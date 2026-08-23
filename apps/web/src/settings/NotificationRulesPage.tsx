@@ -20,6 +20,7 @@ import {
   useDeleteNotificationRule,
   useNotificationRules,
   useRoles,
+  useNotificationTriggers,
   useSetNotificationRuleActive,
   useUsers,
 } from "../data/hooks";
@@ -62,6 +63,8 @@ const OPERATOR_LABEL: Record<ConditionOperator, string> = {
 };
 
 const EVENT_OPTIONS = DOMAIN_EVENT_CATALOG.map((e) => ({ value: e.code, label: `${e.labelAr} (${e.code})` }));
+const NOT_EMITTED_HINT =
+  "الأحداث المعلَّمة (لا يُطلق بعد) مسجَّلة في الكتالوج لكن لا يوجد في هذا الإصدار ما يطلقها — القاعدة المبنية عليها لن تعمل.";
 const PERMISSION_OPTIONS = PERMISSIONS.map((p) => ({ value: p.code, label: `${permissionLabel(p)} — ${p.code}` }));
 
 interface FormState {
@@ -105,6 +108,7 @@ function emptyForm(): FormState {
  */
 export function NotificationRulesPage() {
   const query = useNotificationRules();
+  const triggerCatalog = useNotificationTriggers();
   const rules = query.data ?? [];
   const create = useCreateNotificationRule();
   const setActive = useSetNotificationRuleActive();
@@ -120,6 +124,24 @@ export function NotificationRulesPage() {
     const active = rules.filter((r) => r.active).length;
     return { total: rules.length, active, inactive: rules.length - active };
   }, [rules]);
+
+  // Falls back to the static catalog until (or unless) /notification-rules/triggers answers.
+  const eventOptions = useMemo(() => {
+    const triggers = triggerCatalog.data?.triggers;
+    if (!triggers) return EVENT_OPTIONS;
+    return triggers.map((t) => ({
+      value: t.code,
+      label: `${t.labelAr} (${t.code})${t.emitted ? "" : " — لا يُطلق بعد"}`,
+    }));
+  }, [triggerCatalog.data]);
+
+  const channelOptions = useMemo(() => {
+    const implemented = triggerCatalog.data?.implementedChannels;
+    return NOTIFICATION_CHANNELS.map((c) => ({
+      value: c,
+      label: !implemented || implemented.includes(c) ? CHANNEL_LABEL[c] : `${CHANNEL_LABEL[c]} — قيد الإرسال فقط`,
+    }));
+  }, [triggerCatalog.data]);
 
   const filtered = rules.filter((r) => {
     if (statusFilter === "active") return r.active;
@@ -251,7 +273,8 @@ export function NotificationRulesPage() {
             label="الحدث *"
             value={form.eventCode}
             onChange={(v) => setForm((f) => ({ ...f, eventCode: v }))}
-            options={EVENT_OPTIONS}
+            options={eventOptions}
+            hint={triggerCatalog.data ? NOT_EMITTED_HINT : undefined}
           />
 
           <SelectField
@@ -278,7 +301,7 @@ export function NotificationRulesPage() {
             label="قنوات الإرسال *"
             value={form.channels}
             onChange={(v) => setForm((f) => ({ ...f, channels: v as NotificationChannel[] }))}
-            options={NOTIFICATION_CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABEL[c] }))}
+            options={channelOptions}
             hint="داخل التطبيق يعمل دائماً بدون اتصال؛ البريد والإشعار الفوري يُسجَّلان قيد الإرسال (queued) فقط."
           />
 

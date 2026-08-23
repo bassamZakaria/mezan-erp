@@ -39,3 +39,9 @@ export {
 export { markNotificationRead, markAllNotificationsRead } from "./actions.js";
 
 export { NotificationRulesEngine, type NotificationRulesEngineDeps } from "./engine.js";
+
+export {
+  IMPLEMENTED_NOTIFICATION_CHANNELS,
+  buildNotificationTriggerCatalog,
+  type NotificationTrigger,
+} from "./triggers.js";

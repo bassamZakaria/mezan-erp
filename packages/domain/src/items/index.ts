@@ -7,7 +7,15 @@ export type {
   EtaCodeType,
   AlternateUnit,
 } from "./item.js";
-export { DuplicateItemCodeError, ItemNotFoundError, InvalidItemError } from "./errors.js";
+export {
+  DuplicateItemCodeError,
+  ItemNotFoundError,
+  InvalidItemError,
+  DuplicateItemSpecificationCodeError,
+  ItemSpecificationNotFoundError,
+  InvalidItemSpecificationError,
+  ItemSpecificationInUseError,
+} from "./errors.js";
 export { validateAlternateUnits, validateGlAccountRefs, collectItemFieldErrors } from "./validation.js";
 export { validateNewItem, createItem, type CreateItemCommand } from "./create-item.js";
 export { updateItem, type UpdateItemCommand } from "./update-item.js";
@@ -31,3 +39,16 @@ export {
   type CreateItemCategoryCommand,
   type UpdateItemCategoryCommand,
 } from "./item-catalog.js";
+
+export {
+  ITEM_SPECIFICATION_TYPES,
+  createItemSpecification,
+  updateItemSpecification,
+  deleteItemSpecification,
+  type ItemSpecificationType,
+  type ItemSpecification,
+  type ItemSpecificationRepository,
+  type ItemSpecificationUsageCounter,
+  type CreateItemSpecificationCommand,
+  type UpdateItemSpecificationCommand,
+} from "./item-specification.js";

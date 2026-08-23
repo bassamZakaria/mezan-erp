@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 import type { CommandItem } from "./types";
 
 export interface CommandPaletteProps {
@@ -10,7 +11,8 @@ export interface CommandPaletteProps {
 }
 
 /** CommandPalette — the Ctrl K search modal. Groups items, filters by query, arrow-key navigable. */
-export function CommandPalette({ open, onOpenChange, items, placeholder = "اكتب أمراً أو ابحث…" }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, items, placeholder }: CommandPaletteProps) {
+  const { t } = useUiTranslation();
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
 
@@ -49,7 +51,7 @@ export function CommandPalette({ open, onOpenChange, items, placeholder = "اك�
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="لوحة الأوامر"
+        aria-label={t("shell.palette.title")}
         className="relative flex max-h-[82vh] w-[660px] max-w-full flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
       >
         <div className="flex items-center gap-[11px] border-b border-border px-[19px] py-[15px]">
@@ -60,7 +62,7 @@ export function CommandPalette({ open, onOpenChange, items, placeholder = "اك�
           <input
             autoFocus
             value={query}
-            placeholder={placeholder}
+            placeholder={placeholder ?? t("shell.palette.placeholder")}
             onChange={(event) => {
               setQuery(event.target.value);
               setHighlight(0);
@@ -88,7 +90,7 @@ export function CommandPalette({ open, onOpenChange, items, placeholder = "اك�
 
         <div className="max-h-[360px] overflow-y-auto p-[8px]">
           {filtered.length === 0 ? (
-            <p className="px-[11px] py-[16px] text-[13px] text-ink-faint">لا توجد نتائج مطابقة</p>
+            <p className="px-[11px] py-[16px] text-[13px] text-ink-faint">{t("shell.palette.empty")}</p>
           ) : (
             groups.map(([groupName, groupItems]) => (
               <div key={groupName}>

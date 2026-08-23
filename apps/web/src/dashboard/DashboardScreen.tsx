@@ -5,24 +5,25 @@ import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../App";
 import type { ScreenIntent } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-type QuickAction = { label: string; screen: ScreenKey; intent?: ScreenIntent; primary?: boolean };
+type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntent; primary?: boolean };
 
 /** Quick-action launchers: each navigates to its screen and opens that screen's create flow. */
 const quickActions: QuickAction[] = [
-  { label: "فاتورة جديدة", screen: "sales-invoices", intent: "create" },
-  { label: "سند نقدي", screen: "treasury-vouchers", intent: "create" },
-  { label: "استلام بضاعة", screen: "goods-receipts", intent: "create", primary: true },
-  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices", intent: "create" },
-  { label: "أمر شراء جديد", screen: "purchase-orders", intent: "create" },
-  { label: "عرض سعر", screen: "quotes", intent: "create" },
+  { labelKey: "dashboard.action.salesInvoice", screen: "sales-invoices", intent: "create" },
+  { labelKey: "dashboard.action.voucher", screen: "treasury-vouchers", intent: "create" },
+  { labelKey: "dashboard.action.goodsReceipt", screen: "goods-receipts", intent: "create", primary: true },
+  { labelKey: "dashboard.action.purchaseInvoice", screen: "purchase-invoices", intent: "create" },
+  { labelKey: "dashboard.action.purchaseOrder", screen: "purchase-orders", intent: "create" },
+  { labelKey: "dashboard.action.quote", screen: "quotes", intent: "create" },
 ];
 
 const RANGE_OPTIONS = [
-  { value: "month", label: "هذا الشهر" },
-  { value: "year", label: "هذا العام" },
-  { value: "all", label: "كل الفترات" },
-] as const;
+  { value: "month", labelKey: "dashboard.range.month" },
+  { value: "year", labelKey: "dashboard.range.year" },
+  { value: "all", labelKey: "dashboard.range.all" },
+] as const satisfies readonly { value: string; labelKey: AppTranslationKey }[];
 type RangeValue = (typeof RANGE_OPTIONS)[number]["value"];
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
@@ -54,6 +55,7 @@ function num(value: string | undefined): number {
  * yet — never fabricated numbers.
  */
 export function DashboardScreen() {
+  const { t } = useAppTranslation();
   const { session } = useApi();
   const { navigate } = useNavigation();
   const [range, setRange] = useState<RangeValue>("month");
@@ -67,81 +69,79 @@ export function DashboardScreen() {
   const netProfit = num(gl?.netProfit);
 
   const systemData = [
-    { key: "accounts", label: "حسابات دليل الحسابات", value: counts?.accounts ?? 0 },
-    { key: "customers", label: "العملاء", value: counts?.customers ?? 0 },
-    { key: "suppliers", label: "الموردون", value: counts?.suppliers ?? 0 },
-    { key: "items", label: "الأصناف", value: counts?.items ?? 0 },
-    { key: "journalEntries", label: "القيود المحاسبية", value: counts?.journalEntries ?? 0 },
-    { key: "users", label: "المستخدمون", value: counts?.users ?? 0 },
+    { key: "accounts", label: t("dashboard.systemData.accounts"), value: counts?.accounts ?? 0 },
+    { key: "customers", label: t("dashboard.systemData.customers"), value: counts?.customers ?? 0 },
+    { key: "suppliers", label: t("dashboard.systemData.suppliers"), value: counts?.suppliers ?? 0 },
+    { key: "items", label: t("dashboard.systemData.items"), value: counts?.items ?? 0 },
+    { key: "journalEntries", label: t("dashboard.systemData.journalEntries"), value: counts?.journalEntries ?? 0 },
+    { key: "users", label: t("dashboard.systemData.users"), value: counts?.users ?? 0 },
   ];
 
   return (
     <div className="flex flex-col gap-[22px]">
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
-          <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">Overview</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">مرحباً، {greetingName} · طاب يومك</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">
-            الأرقام محسوبة من القيود المحاسبية المرحلة · على مستوى الشركة
-          </p>
+          <div className="text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">{t("dashboard.eyebrow")}</div>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("dashboard.greeting", { name: greetingName })}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("dashboard.subtitle")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action) => (
             <Button
-              key={action.label}
+              key={action.labelKey}
               size="sm"
               variant={action.primary ? "primary" : "default"}
               onClick={() => navigate(action.screen, action.intent)}
             >
-              {action.label}
+              {t(action.labelKey)}
             </Button>
           ))}
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-[6px]" role="group" aria-label="نطاق الفترة">
+      <div className="flex flex-wrap gap-[6px]" role="group" aria-label={t("dashboard.range.legend")}>
         {RANGE_OPTIONS.map((opt) => (
           <Chip key={opt.value} type="button" active={range === opt.value} onClick={() => setRange(opt.value)}>
-            {opt.label}
+            {t(opt.labelKey)}
           </Chip>
         ))}
       </div>
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات لوحة التحكم.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("dashboard.error")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("dashboard.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="إجمالي الإيرادات" value={<Money value={num(gl?.revenue)} />} sub="من المبيعات المرحلة" subTone="neutral" />
-        <StatCard label="المصروفات التشغيلية" value={<Money value={num(gl?.expenses)} />} sub="من القيود المرحلة" subTone="neutral" />
+        <StatCard label={t("dashboard.kpi.revenue")} value={<Money value={num(gl?.revenue)} />} sub={t("dashboard.kpi.revenue.sub")} subTone="neutral" />
+        <StatCard label={t("dashboard.kpi.expenses")} value={<Money value={num(gl?.expenses)} />} sub={t("dashboard.kpi.expenses.sub")} subTone="neutral" />
         <StatCard
-          label="صافي الربح"
+          label={t("dashboard.kpi.netProfit")}
           value={<Money value={netProfit} />}
-          sub="الإيرادات − المصروفات"
+          sub={t("dashboard.kpi.netProfit.sub")}
           subTone={netProfit < 0 ? "down" : "up"}
           valueTone={netProfit < 0 ? "danger" : "default"}
         />
-        <StatCard label="السيولة النقدية" value={<Money value={num(gl?.cash)} />} sub="أرصدة الصناديق والبنوك" subTone="neutral" />
+        <StatCard label={t("dashboard.kpi.cash")} value={<Money value={num(gl?.cash)} />} sub={t("dashboard.kpi.cash.sub")} subTone="neutral" />
       </div>
 
       <div>
-        <div className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.8px] text-ink-faint">على مستوى الشركة</div>
+        <div className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.8px] text-ink-faint">{t("dashboard.companyWide")}</div>
         <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-3">
-          <StatCard label="مبالغ لدى العملاء" value={<Money value={num(gl?.receivables)} />} />
-          <StatCard label="مستحقات الموردين" value={<Money value={num(gl?.payables)} />} />
-          <StatCard label="قيمة المخزون" value={<Money value={num(gl?.inventoryValue)} />} />
+          <StatCard label={t("dashboard.kpi.receivables")} value={<Money value={num(gl?.receivables)} />} />
+          <StatCard label={t("dashboard.kpi.payables")} value={<Money value={num(gl?.payables)} />} />
+          <StatCard label={t("dashboard.kpi.inventoryValue")} value={<Money value={num(gl?.inventoryValue)} />} />
         </div>
       </div>
 
       <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
         <Card className="p-[18px_20px]">
-          <h3 className="font-display text-[14.5px] font-bold text-ink">بيانات النظام</h3>
-          <div className="mt-[2px] text-[11.5px] text-ink-faint">إجماليات مسجّلة فعلياً</div>
+          <h3 className="font-display text-[14.5px] font-bold text-ink">{t("dashboard.systemData")}</h3>
+          <div className="mt-[2px] text-[11.5px] text-ink-faint">{t("dashboard.systemData.sub")}</div>
           <dl className="mt-[14px] grid grid-cols-2 gap-[10px] sm:grid-cols-3">
             {systemData.map((row) => (
               <div key={row.key} className="rounded-md border border-border p-[10px_12px]">
@@ -153,8 +153,8 @@ export function DashboardScreen() {
         </Card>
 
         <Card className="p-[18px_20px]">
-          <h3 className="font-display text-[14.5px] font-bold text-ink">النشاط الأخير</h3>
-          <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">أحدث القيود المرحلة</div>
+          <h3 className="font-display text-[14.5px] font-bold text-ink">{t("dashboard.activity")}</h3>
+          <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("dashboard.activity.sub")}</div>
           {summary && summary.recentActivity.length > 0 ? (
             <ul className="flex flex-col gap-[10px]">
               {summary.recentActivity.map((entry) => (
@@ -171,14 +171,12 @@ export function DashboardScreen() {
               ))}
             </ul>
           ) : (
-            <p className="text-[12.5px] text-ink-muted">لا يوجد نشاط بعد — ستظهر القيود المرحلة هنا.</p>
+            <p className="text-[12.5px] text-ink-muted">{t("dashboard.activity.empty")}</p>
           )}
         </Card>
       </div>
 
-      <p className="text-[11px] text-ink-faint">
-        جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة
-      </p>
+      <p className="text-[11px] text-ink-faint">{t("dashboard.footnote")}</p>
     </div>
   );
 }

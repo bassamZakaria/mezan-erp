@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useFormat, type UseFormatOptions } from "../hooks/useFormat";
 import { buildReportExport, downloadReportExport, type ReportExportFormat } from "../lib/report-export";
 import { Button, Card, Money } from "./atoms";
+import { useUiTranslation } from "../i18n";
 
 /**
  * `<ReportRunner>` — the generic report UI shell (docs/plan.md §2.4): renders
@@ -108,6 +109,7 @@ function ParamField({
   onParamsChange: (params: Record<string, string>) => void;
   fieldErrors?: Record<string, string>;
 }) {
+  const { t } = useUiTranslation();
   const inputClass =
     "rounded-md border border-border bg-surface px-[11px] py-[8px] text-[12.5px] text-ink outline-none focus:border-brand";
 
@@ -127,15 +129,15 @@ function ParamField({
         <span className="flex items-center gap-[8px]">
           <input
             type="date"
-            aria-label={`${field.label} — من`}
+            aria-label={t("ui.report.rangeFrom", { label: field.label })}
             value={params[field.fromKey] ?? ""}
             onChange={(e) => set(field.fromKey, e.target.value)}
             className={inputClass}
           />
-          <span className="text-xs text-ink-faint">إلى</span>
+          <span className="text-xs text-ink-faint">{t("ui.dateRange.separator")}</span>
           <input
             type="date"
-            aria-label={`${field.label} — إلى`}
+            aria-label={t("ui.report.rangeTo", { label: field.label })}
             value={params[field.toKey] ?? ""}
             onChange={(e) => set(field.toKey, e.target.value)}
             className={inputClass}
@@ -184,6 +186,7 @@ export function ReportRunner<Row>({
   showGrandTotal = true,
   className,
 }: ReportRunnerProps<Row>) {
+  const { t } = useUiTranslation();
   const fmt = useFormat(formatOptions);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
   const totalColumns = new Set(columns.filter((c) => c.total).map((c) => c.key));
@@ -214,10 +217,10 @@ export function ReportRunner<Row>({
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <Button onClick={() => handleExport("csv")} disabled={!hasResult || result.rows.length === 0 || exporting !== null}>
-            {exporting === "csv" ? "جارٍ التصدير…" : "تصدير CSV"}
+            {exporting === "csv" ? t("ui.report.exporting") : t("ui.report.exportCsv")}
           </Button>
           <Button variant="primary" onClick={() => handleExport("xlsx")} disabled={!hasResult || result.rows.length === 0 || exporting !== null}>
-            {exporting === "xlsx" ? "جارٍ التصدير…" : "تصدير Excel"}
+            {exporting === "xlsx" ? t("ui.report.exporting") : t("ui.report.exportExcel")}
           </Button>
         </div>
       </div>
@@ -229,16 +232,16 @@ export function ReportRunner<Row>({
           ))}
           {onDemand ? (
             <Button variant="primary" onClick={onRun} disabled={loading}>
-              {loading ? "جارٍ التحميل…" : "عرض التقرير"}
+              {loading ? t("ui.report.loading") : t("ui.report.run")}
             </Button>
           ) : null}
         </Card>
       ) : null}
 
       {onDemand && !hasResult ? (
-        <Card className="p-[28px] text-center text-[13px] text-ink-muted">اختر الفلاتر ثم اضغط "عرض التقرير" لعرض النتائج.</Card>
+        <Card className="p-[28px] text-center text-[13px] text-ink-muted">{t("ui.report.prompt")}</Card>
       ) : !hasResult ? (
-        <Card className="p-[28px] text-center text-[13px] text-ink-muted">{loading ? "جارٍ التحميل…" : "لا توجد بيانات."}</Card>
+        <Card className="p-[28px] text-center text-[13px] text-ink-muted">{loading ? t("ui.report.loading") : t("ui.report.empty")}</Card>
       ) : (
         <>
           {result.reconciliation ? (
@@ -254,7 +257,7 @@ export function ReportRunner<Row>({
                 <span aria-hidden>{result.reconciliation.withinTolerance ? "=" : "≠"}</span>
                 <span>{fmt.money(result.reconciliation.referenceTotal)}</span>
                 {!result.reconciliation.withinTolerance ? (
-                  <span className="font-semibold text-danger-ink">(فرق {fmt.money(Math.abs(result.reconciliation.diff))})</span>
+                  <span className="font-semibold text-danger-ink">{t("ui.report.difference", { amount: fmt.money(Math.abs(result.reconciliation.diff)) })}</span>
                 ) : null}
               </span>
             </Card>
@@ -289,14 +292,14 @@ export function ReportRunner<Row>({
                     <tr className="border-t-2 border-border-strong bg-surface-2 font-bold">
                       {columns.map((col, i) => (
                         <td key={col.key} className={cn("px-[15px] py-[12px]", col.align === "end" ? "text-end" : "text-start")}>
-                          {i === 0 ? "الإجمالي" : totalColumns.has(col.key) ? formatCell(result.grandTotals[col.key] ?? 0, col.format, fmt) : ""}
+                          {i === 0 ? t("ui.report.grandTotal") : totalColumns.has(col.key) ? formatCell(result.grandTotals[col.key] ?? 0, col.format, fmt) : ""}
                         </td>
                       ))}
                     </tr>
                   ) : null}
                 </tbody>
               </table>
-              {result.rows.length === 0 ? <div className="p-[16px] text-center text-[12.5px] text-ink-muted">لا توجد بيانات لعرضها.</div> : null}
+              {result.rows.length === 0 ? <div className="p-[16px] text-center text-[12.5px] text-ink-muted">{t("ui.report.noRows")}</div> : null}
             </div>
           </Card>
         </>
@@ -320,6 +323,7 @@ function SectionRows<Row>({
   fmt: ReturnType<typeof useFormat>;
   showHeader: boolean;
 }) {
+  const { t } = useUiTranslation();
   return (
     <>
       {showHeader ? (
@@ -342,7 +346,7 @@ function SectionRows<Row>({
         <tr className="border-b border-border bg-surface-2/60 font-semibold">
           {columns.map((col, i) => (
             <td key={col.key} className={cn("px-[15px] py-[9px]", col.align === "end" ? "text-end" : "text-start")}>
-              {i === 0 ? `إجمالي ${group.label}` : totalColumns.has(col.key) ? formatCell(group.totals[col.key] ?? 0, col.format, fmt) : ""}
+              {i === 0 ? t("ui.report.groupTotal", { label: group.label }) : totalColumns.has(col.key) ? formatCell(group.totals[col.key] ?? 0, col.format, fmt) : ""}
             </td>
           ))}
         </tr>

@@ -14,6 +14,36 @@ export { useFormat, type UseFormatOptions, type UseFormatResult } from "./hooks/
 export { useTheme, type ThemePreference, type UseThemeResult } from "./hooks/useTheme";
 
 export {
+  DEFAULT_LOCALE,
+  I18nProvider,
+  LOCALES,
+  LOCALE_ENDONYM,
+  LOCALE_SHORT_LABEL,
+  directionOf,
+  humanizeKey,
+  interpolate,
+  isLocale,
+  loadPersistedLocale,
+  mergeCatalogs,
+  persistLocale,
+  translate,
+  uiCatalogs,
+  useTranslation,
+  useUiTranslation,
+  type Direction,
+  type I18nContextValue,
+  type I18nProviderProps,
+  type Locale,
+  type LocaleCatalogs,
+  type MissingKeyReporter,
+  type Translate,
+  type TranslationCatalog,
+  type TranslationParams,
+  type UiI18nContextValue,
+  type UiTranslationKey,
+} from "./i18n";
+
+export {
   Button,
   IconButton,
   Card,

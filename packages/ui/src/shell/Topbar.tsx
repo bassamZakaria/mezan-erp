@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "../primitives/atoms";
 import type { ThemePreference } from "../hooks/useTheme";
+import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
 import { TopbarMenu } from "./TopbarMenu";
 import type { ShellUser, UserMenuItem } from "./types";
 
@@ -89,10 +90,26 @@ export interface TopbarProps {
   allWarehousesLabel?: string;
 }
 
-/** Topbar — search launcher (Ctrl K), tenant chip, branch scope chip, theme toggle, notifications, user menu. */
+const LANGUAGE_NAME_KEY = { ar: "shell.language.name.ar", en: "shell.language.name.en" } as const;
+
+/** The language switcher — flips locale AND direction live, with no reload. */
+function LanguageToggle() {
+  const { locale, setLocale, t } = useUiTranslation();
+  const next: Locale = locale === "ar" ? "en" : "ar";
+  return (
+    <IconButton
+      aria-label={t("shell.language.switchTo", { language: t(LANGUAGE_NAME_KEY[next]) })}
+      onClick={() => setLocale(next)}
+    >
+      <span className={cn("text-[12px] font-bold", next === "en" && "mz-lat")}>{LOCALE_SHORT_LABEL[next]}</span>
+    </IconButton>
+  );
+}
+
+/** Topbar — search launcher (Ctrl K), tenant chip, branch scope chip, language + theme toggles, notifications, user menu. */
 export function Topbar({
   onOpenCommandPalette,
-  searchPlaceholder = "بحث عن صفحة، عميل، فاتورة، أو إجراء…",
+  searchPlaceholder,
   tenantName,
   scopeLabel,
   theme,
@@ -109,9 +126,10 @@ export function Topbar({
   selectedWarehouseId = null,
   onSelectBranch,
   onSelectWarehouse,
-  allBranchesLabel = "كل الفروع",
-  allWarehousesLabel = "كل المخازن",
+  allBranchesLabel,
+  allWarehousesLabel,
 }: TopbarProps) {
+  const { t } = useUiTranslation();
   const isDark = theme === "dark";
 
   return (
@@ -130,7 +148,7 @@ export function Topbar({
           <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
           <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
         </svg>
-        <span className="flex-1 truncate text-start">{searchPlaceholder}</span>
+        <span className="flex-1 truncate text-start">{searchPlaceholder ?? t("shell.search.placeholder")}</span>
         <span className="mz-lat rounded-[5px] border border-border-strong bg-surface px-[6px] py-[2px] font-mono text-[10px] text-ink-faint">
           Ctrl K
         </span>
@@ -159,10 +177,10 @@ export function Topbar({
 
       {branchOptions && branchOptions.length > 0 ? (
         <ScopeSelect
-          ariaLabel="الفرع الحالي"
+          ariaLabel={t("shell.scope.branch")}
           value={selectedBranchId}
           onChange={onSelectBranch}
-          allLabel={allBranchesLabel}
+          allLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
           options={branchOptions}
           icon={
             <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
@@ -174,10 +192,10 @@ export function Topbar({
 
       {branchOptions && branchOptions.length > 0 ? (
         <ScopeSelect
-          ariaLabel="المخزن الحالي"
+          ariaLabel={t("shell.scope.warehouse")}
           value={selectedWarehouseId}
           onChange={onSelectWarehouse}
-          allLabel={allWarehousesLabel}
+          allLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
           options={warehouseOptions}
           icon={
             <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
@@ -188,7 +206,9 @@ export function Topbar({
         />
       ) : null}
 
-      <IconButton aria-label="تبديل المظهر" onClick={onToggleTheme}>
+      <LanguageToggle />
+
+      <IconButton aria-label={t("shell.theme.toggle")} onClick={onToggleTheme}>
         {isDark ? (
           <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
             <path d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
@@ -208,7 +228,9 @@ export function Topbar({
 
       <div className="relative">
         <IconButton
-          aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}
+          aria-label={
+            notificationCount > 0 ? t("shell.notifications.withCount", { count: notificationCount }) : t("shell.notifications")
+          }
           onClick={onToggleNotifications}
         >
           <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">

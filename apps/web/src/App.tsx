@@ -122,7 +122,8 @@ import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { commandItems, navGroups, topNavItem } from "./nav-config";
+import { buildCommandItems, buildNavGroups, buildTopNavItem } from "./nav-config";
+import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
 import {
@@ -281,10 +282,14 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO
 }
 
 /** The header's branch-scope chip, resolved from the session's real scope against the live branch list. */
-function scopeLabelFor(branchScope: ScopeSelectionDTO, branches: readonly BranchDTO[]): string {
-  if (branchScope === ALL_SCOPE) return "كل الفروع";
+function scopeLabelFor(
+  branchScope: ScopeSelectionDTO,
+  branches: readonly BranchDTO[],
+  t: (key: AppTranslationKey, params?: Record<string, string | number>) => string,
+): string {
+  if (branchScope === ALL_SCOPE) return t("shell.scope.allBranches");
   if (branchScope.length === 1) return branches.find((b) => b.id === branchScope[0])?.name ?? branchScope[0]!;
-  return `${branchScope.length} فروع`;
+  return t("shell.scope.branchCount", { count: branchScope.length });
 }
 
 function initialsFor(fullName: string): string {
@@ -298,6 +303,7 @@ function initialsFor(fullName: string): string {
 
 export function App() {
   const { session, setSession } = useApi();
+  const { t } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
@@ -355,7 +361,7 @@ export function App() {
 
   const groups: NavGroup[] = useMemo(
     () =>
-      navGroups.map((group) => ({
+      buildNavGroups(t).map((group) => ({
         ...group,
         items: group.items.map((item) => {
           const key = item.key;
@@ -369,7 +375,7 @@ export function App() {
           return { ...item, tag };
         }),
       })),
-    [navigate, pendingApprovalCount],
+    [navigate, pendingApprovalCount, t],
   );
 
   const routedCommandItems: CommandItem[] = useMemo(() => {
@@ -379,20 +385,20 @@ export function App() {
       "cmd-coa": () => navigate("coa"),
       "cmd-journals": () => navigate("journals"),
     };
-    return commandItems.map((item) => {
+    return buildCommandItems(t).map((item) => {
       const onSelect = targets[item.id];
       return onSelect ? { ...item, onSelect } : item;
     });
-  }, [navigate]);
+  }, [navigate, t]);
 
   const userMenuItems: UserMenuItem[] = useMemo(
     () => [
-      { key: "users", label: "المستخدمون", onSelect: () => navigate("users") },
-      { key: "roles", label: "الأدوار", onSelect: () => navigate("roles") },
-      { key: "settings", label: "الإعدادات العامة", onSelect: () => navigate("settings-general") },
+      { key: "users", label: t("shell.menu.users"), onSelect: () => navigate("users") },
+      { key: "roles", label: t("shell.menu.roles"), onSelect: () => navigate("roles") },
+      { key: "settings", label: t("shell.menu.settings"), onSelect: () => navigate("settings-general") },
       {
         key: "sign-out",
-        label: "تسجيل الخروج",
+        label: t("shell.menu.signOut"),
         tone: "danger",
         onSelect: () => {
           setActiveScreen("dashboard");
@@ -400,13 +406,14 @@ export function App() {
         },
       },
     ],
-    [navigate, setSession],
+    [navigate, setSession, t],
   );
 
   const routedTopNavItem = useMemo(() => {
+    const topNavItem = buildTopNavItem(t);
     const key = topNavItem.key;
     return isRoutable(key) ? { ...topNavItem, onClick: () => navigate(key) } : topNavItem;
-  }, [navigate]);
+  }, [navigate, t]);
 
   async function handleSaveUser(draft: UserFormDraft, editingId: string | null) {
     const fields = {
@@ -482,10 +489,10 @@ export function App() {
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
   const shellUser: ShellUser = {
     name: session.fullName,
-    role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
+    role: session.isCompanyAdmin ? t("shell.user.role.companyAdmin") : t("shell.user.role.member"),
     initials: initialsFor(session.fullName),
   };
-  const scopeLabel = scopeLabelFor(session.branchScope, branches);
+  const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 
   return (
     <NavigationProvider value={navigation}>

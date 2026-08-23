@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "./atoms";
+import { useUiTranslation } from "../i18n";
 
 export interface SidePanelProps {
   open: boolean;
@@ -19,6 +20,7 @@ export interface SidePanelProps {
  * and not something the repo's left/right lint flags.
  */
 export function SidePanel({ open, onClose, title, description, children, className }: SidePanelProps) {
+  const { t } = useUiTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
   // `aria-hidden` is driven by this state (not directly by `open`) so closing
@@ -68,7 +70,10 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         aria-hidden={ariaHidden}
         className={cn(
           "fixed inset-y-0 end-0 z-[61] w-[430px] max-w-[92vw] overflow-y-auto border-s border-border bg-surface shadow-2 transition-transform duration-200 ease-[cubic-bezier(.4,0,.2,1)]",
-          open ? "translate-x-0" : "-translate-x-[105%]",
+          // `translate-x` is physical, so the off-screen direction MUST follow
+          // the document direction — a single sign leaves the closed panel
+          // sitting inside the viewport in the other direction.
+          open ? "translate-x-0" : "rtl:-translate-x-[105%] ltr:translate-x-[105%]",
           className,
         )}
       >
@@ -77,7 +82,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
             <h2 className="text-[15.5px] font-bold text-ink">{title}</h2>
             {description ? <p className="mt-1 text-[12px] text-ink-muted">{description}</p> : null}
           </div>
-          <IconButton aria-label="إغلاق اللوحة" onClick={onClose}>
+          <IconButton aria-label={t("ui.sidePanel.close")} onClick={onClose}>
             <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[16px] w-[16px]">
               <path d="M5 5l10 10M15 5 5 15" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
             </svg>

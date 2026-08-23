@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 
 /**
  * DocumentStatusStepper — the shared document-lifecycle stepper
@@ -28,10 +29,11 @@ export function DocumentStatusStepper({
   tone = "brand",
   className,
 }: DocumentStatusStepperProps) {
+  const { t } = useUiTranslation();
   const currentIndex = steps.findIndex((s) => s.key === currentKey);
 
   return (
-    <ol className={cn("flex flex-wrap items-center gap-[6px]", className)} aria-label="حالة المستند">
+    <ol className={cn("flex flex-wrap items-center gap-[6px]", className)} aria-label={t("ui.documentStatus.legend")}>
       {steps.map((step, i) => {
         const isDone = currentIndex >= 0 && i < currentIndex;
         const isCurrent = i === currentIndex;

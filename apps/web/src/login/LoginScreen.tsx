@@ -1,6 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { BrandMark, Button } from "@mezan/ui";
 import { useLogin } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 const PIN_LENGTH = 4;
 /** Prefilled default username = the seed admin (docs/catalog/09). The PIN is always verified against the real user store. */
@@ -17,6 +18,7 @@ export interface LoginScreenProps {
  * the session in ApiContext, which is what dismisses this screen.
  */
 export function LoginScreen({ onStartWizard }: LoginScreenProps) {
+  const { t } = useAppTranslation();
   const login = useLogin();
   const [username, setUsername] = useState(DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
@@ -50,7 +52,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     login.mutate(
       { username: username.trim(), pin: pinDigits.join("") },
       {
-        onError: (err) => setError(err.message || "تعذّر تسجيل الدخول."),
+        onError: (err) => setError(err.message || t("login.error.generic")),
       },
     );
   }
@@ -59,20 +61,20 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
     <div className="grid min-h-screen grid-cols-1 bg-surface lg:grid-cols-[1.05fr_.95fr]">
       <div className="hidden flex-col items-center justify-center gap-[24px] bg-gradient-to-br from-brand to-brand-strong p-[48px] text-brand-ink lg:flex">
         <BrandMark className="h-[88px] w-[88px] text-accent" />
-        <h1 className="font-display text-[34px] font-extrabold text-brand-ink">ميزان</h1>
+        <h1 className="font-display text-[34px] font-extrabold text-brand-ink">{t("shell.brand.name")}</h1>
         <p className="max-w-[300px] text-center text-[13.5px] leading-[1.7] text-brand-ink opacity-85">
-          نظام تخطيط موارد المنشآت — دقة محاسبية، وضوح تشغيلي، وتوازن في كل قيد.
+          {t("login.hero.tagline")}
         </p>
         <div className="mz-lat text-[10.5px] font-semibold uppercase tracking-[2px] text-brand-ink opacity-70">Mezan ERP · 2026.8</div>
       </div>
 
       <div className="flex items-center justify-center p-[48px]">
         <form onSubmit={handleSubmit} className="w-full max-w-[372px]" noValidate>
-          <h2 className="font-display text-[22px] font-bold text-ink">تسجيل الدخول</h2>
-          <p className="mb-[22px] mt-[6px] text-[12.5px] text-ink-muted">أدخل اسم المستخدم ورمز PIN الخاص بجهازك</p>
+          <h2 className="font-display text-[22px] font-bold text-ink">{t("login.title")}</h2>
+          <p className="mb-[22px] mt-[6px] text-[12.5px] text-ink-muted">{t("login.subtitle")}</p>
 
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">اسم المستخدم</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("login.username")}</span>
             <input
               type="text"
               value={username}
@@ -83,7 +85,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
           <div className="mt-[16px] flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">
-              رمز <span className="mz-lat">PIN</span>
+              {t("login.pin")} <span className="mz-lat">PIN</span>
             </span>
             <div className="flex gap-[8px]" dir="ltr">
               {pinDigits.map((digit, index) => (
@@ -96,7 +98,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                   inputMode="numeric"
                   maxLength={1}
                   value={digit}
-                  aria-label={`رمز PIN رقم ${index + 1}`}
+                  aria-label={t("login.pin.digit", { index: index + 1 })}
                   onChange={(e) => handlePinChange(index, e)}
                   onKeyDown={(e) => handlePinKeyDown(index, e)}
                   className="h-[46px] w-[46px] rounded-md border border-border bg-surface text-center text-[18px] font-bold text-ink outline-none transition-colors focus:border-brand"
@@ -112,7 +114,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
           ) : null}
 
           <Button type="submit" variant="primary" disabled={!canSubmit} className="mt-[16px] w-full justify-center py-[11px]">
-            دخول
+            {t("login.submit")}
           </Button>
 
           <div className="mt-[24px] border-t border-border pt-[18px] text-[11px] text-ink-faint">
@@ -124,7 +126,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
             onClick={onStartWizard}
             className="mt-[14px] w-full text-center text-[12px] font-semibold text-brand hover:underline"
           >
-            أول مرة على ميزان؟ ابدأ معالج الإعداد الأولي
+            {t("login.wizard")}
           </button>
         </form>
       </div>

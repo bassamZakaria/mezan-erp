@@ -1,5 +1,6 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 
 export interface EntityPickerOption {
   id: string;
@@ -29,12 +30,13 @@ export function EntityPicker({
   value,
   onChange,
   options,
-  placeholder = "بحث…",
+  placeholder,
   disabled,
-  emptyMessage = "لا توجد نتائج",
+  emptyMessage,
   id,
   className,
 }: EntityPickerProps) {
+  const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [highlight, setHighlight] = useState(0);
@@ -88,7 +90,7 @@ export function EntityPicker({
         aria-controls={listboxId}
         aria-autocomplete="list"
         disabled={disabled}
-        placeholder={value ? value.label : placeholder}
+        placeholder={value ? value.label : (placeholder ?? t("ui.search.placeholder"))}
         value={open ? query : ""}
         onFocus={() => {
           setOpen(true);
@@ -112,7 +114,7 @@ export function EntityPicker({
           className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
         >
           {filtered.length === 0 ? (
-            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage}</li>
+            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage ?? t("ui.picker.empty")}</li>
           ) : (
             filtered.map((option, index) => (
               <li key={option.id} role="option" aria-selected={value?.id === option.id}>

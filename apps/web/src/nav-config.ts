@@ -1,227 +1,185 @@
 import type { CommandItem, NavGroup, NavItem } from "@mezan/ui";
+import type { AppTranslationKey } from "./i18n";
 
 /**
  * Static shell configuration — the navigation tree, its top item, and the
  * command-palette entries. This is app structure, not tenant data: every
  * record the shell renders (branches, warehouses, users, entitlements) comes
- * from the API (see App.tsx).
+ * from the API (see App.tsx). Labels are resolved through `t` at render time
+ * so the tree re-labels itself when the language changes.
  */
 
-export const topNavItem: NavItem = { key: "dashboard", label: "لوحة التحكم" };
+type Translate = (key: AppTranslationKey) => string;
 
-export const navGroups: NavGroup[] = [
-  {
-    key: "workflow",
-    label: "سير العمل",
-    items: [{ key: "approvals", label: "الموافقات" }],
-  },
+interface NavGroupSpec {
+  readonly key: string;
+  readonly itemKeys: readonly string[];
+  readonly defaultCollapsed?: boolean;
+}
+
+const navGroupSpecs: readonly NavGroupSpec[] = [
+  { key: "workflow", itemKeys: ["approvals"] },
   {
     key: "sales",
-    label: "المبيعات",
-    items: [
-      { key: "sales-hub", label: "نظرة عامة" },
-      { key: "customers", label: "العملاء" },
-      { key: "quotes", label: "عروض الأسعار" },
-      { key: "sales-invoices", label: "فواتير المبيعات" },
-      { key: "sales-returns", label: "مرتجعات المبيعات" },
-      { key: "price-lists", label: "قوائم الأسعار" },
-      { key: "promotions", label: "العروض" },
-    ],
+    itemKeys: ["sales-hub", "customers", "quotes", "sales-invoices", "sales-returns", "price-lists", "promotions"],
   },
   {
     key: "purchases",
-    label: "المشتريات",
-    items: [
-      { key: "purchases-hub", label: "نظرة عامة" },
-      { key: "vendors", label: "الموردون" },
-      { key: "rfqs", label: "طلبات عروض الأسعار" },
-      { key: "purchase-orders", label: "أوامر الشراء" },
-      { key: "goods-receipts", label: "استلام البضائع" },
-      { key: "purchase-invoices", label: "فواتير المشتريات" },
-      { key: "purchase-returns", label: "مرتجعات المشتريات" },
-      { key: "landed-costs", label: "التكاليف الإضافية" },
+    itemKeys: [
+      "purchases-hub",
+      "vendors",
+      "rfqs",
+      "purchase-orders",
+      "goods-receipts",
+      "purchase-invoices",
+      "purchase-returns",
+      "landed-costs",
     ],
   },
   {
     key: "inventory",
-    label: "المخزون",
-    items: [
-      { key: "inventory-hub", label: "نظرة عامة" },
-      { key: "items", label: "الأصناف" },
-      { key: "stock-balance", label: "أرصدة المخزون" },
-      { key: "stock-transfers", label: "تحويلات المخزون" },
-      { key: "stock-adjustments", label: "تسويات المخزون" },
-      { key: "physical-counts", label: "الجرد الفعلي" },
-      { key: "configurable-products", label: "منتجات قابلة للتهيئة" },
-      { key: "product-templates", label: "قوالب المنتجات" },
-      { key: "item-specifications", label: "المواصفات" },
-      { key: "labels", label: "طباعة الملصقات" },
-      { key: "writedown-runs", label: "هبوط قيمة المخزون" },
+    itemKeys: [
+      "inventory-hub",
+      "items",
+      "stock-balance",
+      "stock-transfers",
+      "stock-adjustments",
+      "physical-counts",
+      "configurable-products",
+      "product-templates",
+      "item-specifications",
+      "labels",
+      "writedown-runs",
     ],
   },
   {
     key: "manufacturing",
-    label: "التصنيع",
-    items: [
-      { key: "manufacturing-hub", label: "نظرة عامة" },
-      { key: "production-dashboard", label: "لوحة الإنتاج" },
-      { key: "work-orders", label: "أوامر التصنيع" },
-      { key: "boms", label: "قوائم المواد" },
-      { key: "custom-manufacturing", label: "التصنيع المخصص" },
-    ],
+    itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "boms", "custom-manufacturing"],
   },
   {
     key: "accounting",
-    label: "المحاسبة",
-    items: [
-      { key: "accounting-hub", label: "نظرة عامة" },
-      { key: "coa", label: "دليل الحسابات" },
-      { key: "cost-centers", label: "مراكز التكلفة" },
-      { key: "cost-center-pl", label: "أرباح مراكز التكلفة" },
-      { key: "journals", label: "القيود المحاسبية" },
-      { key: "fiscal-periods", label: "الفترات المالية" },
-      { key: "taxes", label: "الضرائب" },
-      { key: "exchange-rates", label: "أسعار الصرف" },
-      { key: "revaluation", label: "إعادة تقييم العملات الأجنبية" },
-      { key: "reconciliation", label: "مطابقة الأرصدة" },
-      { key: "eta", label: "الفاتورة الإلكترونية" },
-      { key: "trial-balance-report", label: "ميزان المراجعة" },
-      { key: "financial-reports", label: "التقارير المالية" },
+    itemKeys: [
+      "accounting-hub",
+      "coa",
+      "cost-centers",
+      "cost-center-pl",
+      "journals",
+      "fiscal-periods",
+      "taxes",
+      "exchange-rates",
+      "revaluation",
+      "reconciliation",
+      "eta",
+      "trial-balance-report",
+      "financial-reports",
     ],
   },
   {
     key: "treasury",
-    label: "الخزينة",
-    items: [
-      { key: "treasury-hub", label: "نظرة عامة" },
-      { key: "treasury-accounts", label: "حسابات الخزينة" },
-      { key: "treasury-vouchers", label: "السندات النقدية" },
-      { key: "bank-reconciliation", label: "تسوية كشوف البنك" },
-    ],
+    itemKeys: ["treasury-hub", "treasury-accounts", "treasury-vouchers", "bank-reconciliation"],
   },
-  {
-    key: "financial-papers",
-    label: "الأوراق المالية",
-    items: [{ key: "cheques", label: "سجل الشيكات" }],
-  },
+  { key: "financial-papers", itemKeys: ["cheques"] },
   {
     key: "crm",
-    label: "إدارة علاقات العملاء",
-    items: [
-      { key: "crm-hub", label: "نظرة عامة" },
-      { key: "leads", label: "العملاء المحتملون" },
-      { key: "opportunities", label: "الفرص" },
-      { key: "pipeline", label: "خط المبيعات" },
-      { key: "pipeline-stages", label: "مراحل خط المبيعات" },
-      { key: "crm-activities", label: "الأنشطة" },
-    ],
+    itemKeys: ["crm-hub", "leads", "opportunities", "pipeline", "pipeline-stages", "crm-activities"],
   },
   {
     key: "hr",
-    label: "الموارد البشرية",
-    items: [
-      { key: "hr-dashboard", label: "لوحة الموارد البشرية" },
-      { key: "employees", label: "الموظفون" },
-      { key: "departments", label: "الأقسام" },
-      { key: "job-titles", label: "المسميات الوظيفية" },
-      { key: "contracts", label: "العقود" },
-      { key: "holidays", label: "الإجازات الرسمية" },
-      { key: "attendance", label: "الحضور والانصراف" },
-      { key: "payroll", label: "الرواتب" },
-      { key: "advances", label: "سلف الموظفين" },
-      { key: "leave-requests", label: "طلبات الإجازات" },
-      { key: "leave-balances", label: "أرصدة الإجازات" },
-      { key: "leave-accrual-batches", label: "استحقاقات الإجازات" },
-      { key: "leave-policies", label: "سياسات الإجازات" },
-      { key: "my-leave", label: "إجازاتي" },
+    itemKeys: [
+      "hr-dashboard",
+      "employees",
+      "departments",
+      "job-titles",
+      "contracts",
+      "holidays",
+      "attendance",
+      "payroll",
+      "advances",
+      "leave-requests",
+      "leave-balances",
+      "leave-accrual-batches",
+      "leave-policies",
+      "my-leave",
     ],
   },
-  {
-    key: "projects",
-    label: "المشاريع",
-    items: [{ key: "projects", label: "المشاريع والمقاولات" }],
-  },
-  {
-    key: "assets",
-    label: "الأصول الثابتة",
-    items: [
-      { key: "assets-hub", label: "نظرة عامة" },
-      { key: "asset-register", label: "سجل الأصول" },
-      { key: "depreciation-runs", label: "الإهلاك" },
-      { key: "asset-categories", label: "تصنيفات الأصول" },
-    ],
-  },
-  {
-    key: "field",
-    label: "المبيعات الميدانية",
-    items: [{ key: "van-trips", label: "رحلات المندوبين" }],
-  },
-  {
-    key: "installments",
-    label: "الأقساط",
-    items: [
-      { key: "installment-plans", label: "خطط الأقساط" },
-      { key: "installment-follow-ups", label: "متابعة التحصيل" },
-    ],
-  },
+  { key: "projects", itemKeys: ["projects"] },
+  { key: "assets", itemKeys: ["assets-hub", "asset-register", "depreciation-runs", "asset-categories"] },
+  { key: "field", itemKeys: ["van-trips"] },
+  { key: "installments", itemKeys: ["installment-plans", "installment-follow-ups"] },
   {
     key: "reports",
-    label: "التقارير",
-    items: [
-      { key: "report-sales-by-period", label: "المبيعات حسب الفترة" },
-      { key: "report-sales-by-item", label: "المبيعات حسب الصنف" },
-      { key: "report-sales-by-customer", label: "المبيعات حسب العميل" },
-      { key: "report-sales-top-products", label: "أفضل المنتجات" },
-      { key: "report-purchases-by-period", label: "المشتريات حسب الفترة" },
-      { key: "report-purchases-by-supplier", label: "المشتريات حسب المورد" },
-      { key: "report-purchases-by-item", label: "المشتريات حسب الصنف" },
-      { key: "report-inventory-stock-levels", label: "مستويات المخزون" },
-      { key: "report-inventory-movement", label: "حركة المخزون" },
-      { key: "report-inventory-ledger", label: "سجل المخزون" },
-      { key: "report-inventory-valuation", label: "تقييم المخزون" },
-      { key: "report-inventory-aging", label: "أعمار المخزون" },
-      { key: "report-inventory-slow-moving", label: "أصناف بطيئة الحركة" },
-      { key: "report-inventory-drift", label: "انحراف تقييم المخزون" },
-      { key: "report-aging-customers", label: "أعمار ديون العملاء" },
-      { key: "report-aging-suppliers", label: "أعمار ديون الموردين" },
-      { key: "report-installments-overview", label: "نظرة عامة على الأقساط" },
-      { key: "report-installments-overdue", label: "الأقساط المتأخرة" },
-      { key: "report-van-sales", label: "مبيعات المندوبين" },
+    itemKeys: [
+      "report-sales-by-period",
+      "report-sales-by-item",
+      "report-sales-by-customer",
+      "report-sales-top-products",
+      "report-purchases-by-period",
+      "report-purchases-by-supplier",
+      "report-purchases-by-item",
+      "report-inventory-stock-levels",
+      "report-inventory-movement",
+      "report-inventory-ledger",
+      "report-inventory-valuation",
+      "report-inventory-aging",
+      "report-inventory-slow-moving",
+      "report-inventory-drift",
+      "report-aging-customers",
+      "report-aging-suppliers",
+      "report-installments-overview",
+      "report-installments-overdue",
+      "report-van-sales",
     ],
   },
   {
     key: "settings",
-    label: "الإعدادات",
     defaultCollapsed: true,
-    items: [
-      { key: "settings-general", label: "عام" },
-      { key: "settings-branches", label: "الفروع" },
-      { key: "settings-warehouses", label: "المستودعات" },
-      { key: "settings-print", label: "قوالب الطباعة" },
-      { key: "notification-rules", label: "قواعد الإشعارات" },
-      { key: "settings-data-migration", label: "نقل البيانات" },
-      { key: "settings-workflow", label: "إعدادات الموافقات" },
-      { key: "settings-sequences", label: "تسلسلات الترقيم" },
-      { key: "settings-barcode", label: "إعدادات الباركود" },
-      { key: "settings-profile", label: "الملف الشخصي" },
-      { key: "settings-api-keys", label: "مفاتيح API" },
-      { key: "settings-webhooks", label: "الويب هوك" },
-      { key: "audit", label: "سجل المراجعة" },
-      { key: "users", label: "المستخدمون" },
-      { key: "roles", label: "الأدوار والصلاحيات" },
+    itemKeys: [
+      "settings-general",
+      "settings-branches",
+      "settings-warehouses",
+      "settings-print",
+      "notification-rules",
+      "settings-data-migration",
+      "settings-workflow",
+      "settings-sequences",
+      "settings-barcode",
+      "settings-profile",
+      "settings-api-keys",
+      "settings-webhooks",
+      "audit",
+      "users",
+      "roles",
     ],
   },
-  {
-    key: "system",
-    label: "النظام",
-    defaultCollapsed: true,
-    items: [{ key: "status", label: "حالة النظام" }],
-  },
+  { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
 ];
 
-export const commandItems: CommandItem[] = [
-  { id: "cmd-invoice", label: "فاتورة مبيعات جديدة", group: "إجراءات سريعة", hint: "N" },
-  { id: "cmd-receipt", label: "سند نقدي جديد", group: "إجراءات سريعة" },
-  { id: "cmd-coa", label: "دليل الحسابات", group: "الانتقال إلى" },
-  { id: "cmd-journals", label: "القيود المحاسبية", group: "الانتقال إلى" },
-].map((item) => ({ ...item, onSelect: () => {} }));
+const commandItemSpecs = [
+  { id: "cmd-invoice", groupKey: "command.group.quickActions", hint: "N" },
+  { id: "cmd-receipt", groupKey: "command.group.quickActions" },
+  { id: "cmd-coa", groupKey: "command.group.goTo" },
+  { id: "cmd-journals", groupKey: "command.group.goTo" },
+] as const satisfies readonly { id: string; groupKey: AppTranslationKey; hint?: string }[];
+
+export function buildTopNavItem(t: Translate): NavItem {
+  return { key: "dashboard", label: t("nav.item.dashboard") };
+}
+
+export function buildNavGroups(t: Translate): NavGroup[] {
+  return navGroupSpecs.map((group) => ({
+    key: group.key,
+    label: t(`nav.group.${group.key}` as AppTranslationKey),
+    defaultCollapsed: group.defaultCollapsed,
+    items: group.itemKeys.map((key) => ({ key, label: t(`nav.item.${key}` as AppTranslationKey) })),
+  }));
+}
+
+export function buildCommandItems(t: Translate): CommandItem[] {
+  return commandItemSpecs.map((spec) => ({
+    id: spec.id,
+    label: t(`command.item.${spec.id}` as AppTranslationKey),
+    group: t(spec.groupKey),
+    hint: "hint" in spec ? spec.hint : undefined,
+    onSelect: () => {},
+  }));
+}

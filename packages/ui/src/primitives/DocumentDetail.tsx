@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { Card, StatusPill, type PillTone } from "./atoms";
+import { useUiTranslation } from "../i18n";
 
 /**
  * DocumentDetail — header/status/actions + summary strip + the
@@ -46,7 +47,7 @@ export function DocumentDetail({
   subtitle,
   actions,
   summary,
-  effectsTitle = "تأثيرات هذا المستند",
+  effectsTitle,
   effects,
   tabs,
   activeTabKey,
@@ -54,6 +55,7 @@ export function DocumentDetail({
   aside,
   className,
 }: DocumentDetailProps) {
+  const { t } = useUiTranslation();
   const [internalTab, setInternalTab] = useState(tabs?.[0]?.key);
   const currentTab = activeTabKey ?? internalTab;
 
@@ -111,7 +113,7 @@ export function DocumentDetail({
             </svg>
           </span>
           <div>
-            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{effectsTitle}</h3>
+            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{effectsTitle ?? t("ui.documentDetail.effects")}</h3>
             <ul className="flex flex-col gap-[7px]">
               {effects.map((effect, i) => (
                 <li key={i} className="flex items-start gap-[8px] text-[12.5px] text-ink">

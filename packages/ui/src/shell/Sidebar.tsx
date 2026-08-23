@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
 import { BrandMark } from "./BrandMark";
 import type { NavGroup, NavItem, ShellUser } from "./types";
 
@@ -57,8 +58,9 @@ function NavLink({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
-/** Sidebar — RTL module navigation (brand mark, top link, collapsible groups, user footer). */
-export function Sidebar({ activeKey, topItem, groups, user, brandName = "ميزان", brandSub = "Mezan ERP", className }: SidebarProps) {
+/** Sidebar — module navigation (brand mark, top link, collapsible groups, user footer); mirrors with the document direction. */
+export function Sidebar({ activeKey, topItem, groups, user, brandName, brandSub = "Mezan ERP", className }: SidebarProps) {
+  const { t } = useUiTranslation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const group of groups) if (group.defaultCollapsed) initial[group.key] = true;
@@ -72,7 +74,7 @@ export function Sidebar({ activeKey, topItem, groups, user, brandName = "ميز�
           <BrandMark className="h-6 w-6" />
         </span>
         <div>
-          <div className="font-display text-[19px] font-extrabold leading-[1.1] text-ink">{brandName}</div>
+          <div className="font-display text-[19px] font-extrabold leading-[1.1] text-ink">{brandName ?? t("shell.brand.name")}</div>
           <div className="mz-lat mt-[1px] text-[10px] font-semibold uppercase tracking-[1.4px] text-ink-faint">{brandSub}</div>
         </div>
       </div>

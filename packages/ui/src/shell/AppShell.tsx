@@ -32,8 +32,9 @@ export interface AppShellProps {
 }
 
 /**
- * AppShell — the RTL app frame: Sidebar + Topbar + a Ctrl K command palette,
- * wired together. Wraps the routed page content passed as `children`.
+ * AppShell — the app frame: Sidebar + Topbar + a Ctrl K command palette, wired
+ * together. Wraps the routed page content passed as `children`. Its layout is
+ * direction-agnostic: the active locale's `dir` on <html> mirrors it.
  */
 export function AppShell({
   activeNavKey,

@@ -5,14 +5,27 @@ import { sqliteTable, text, integer } from "drizzle-orm/sqlite-core";
  * docs/plan.md §2.3) — never REAL/NUMERIC, which would silently degrade to
  * IEEE-754 double.
  */
-export const journalEntry = sqliteTable("journal_entry", {
+/**
+ * NOTE: these two tables back ONLY the legacy `postJournalEntrySpike` /
+ * `uow.journal` code path (the original "journal-posting spike"), which is
+ * unrelated to the real GL engine's ledger tables (packages/persistence/src/
+ * ledger-store.ts's own `journal_entry`/`journal_line`, with a much richer
+ * schema — entry_no, cost_center_id, etc). Both stores can open a connection
+ * to the SAME on-disk file (packages/backend/src/create-backend.ts), so these
+ * are named `uow_*` to avoid colliding with the ledger store's tables of the
+ * same logical name — `CREATE TABLE IF NOT EXISTS` silently no-ops on an
+ * existing same-named table, which previously produced "no such column"
+ * errors on the ledger store's `CREATE INDEX` once a real file path put both
+ * stores' bootstrap SQL against one file.
+ */
+export const journalEntry = sqliteTable("uow_journal_entry", {
   id: text("id").primaryKey(),
   date: text("date").notNull(),
   memo: text("memo").notNull(),
   status: text("status").notNull(),
 });
 
-export const journalLine = sqliteTable("journal_line", {
+export const journalLine = sqliteTable("uow_journal_line", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   entryId: text("entry_id")
     .notNull()

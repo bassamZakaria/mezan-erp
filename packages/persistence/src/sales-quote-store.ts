@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -260,15 +261,7 @@ class SqliteSalesQuoteRepository implements SalesQuoteRepository {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
   }
 
   private insertLines(quote: SalesQuote): void {
@@ -321,13 +314,12 @@ export interface SqliteSalesQuoteStoreHandle extends SalesQuoteRepository {
 }
 
 /** Open a SQLite-backed SalesQuoteRepository. ":memory:" for tests, a path for real. */
-export function createSqliteSalesQuoteStore(path = ":memory:"): SqliteSalesQuoteStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteSalesQuoteStore(path: SqliteConnectionInput = ":memory:"): SqliteSalesQuoteStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqliteSalesQuoteRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteSalesQuoteStoreHandle;
 }

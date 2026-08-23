@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   type AssetCategory,
@@ -161,12 +162,11 @@ export interface SqliteAssetCategoryRepositoryHandle extends AssetCategoryReposi
 }
 
 /** Open a SQLite-backed AssetCategoryRepository. ":memory:" for tests, a path for real. */
-export function createSqliteAssetCategoryRepository(path = ":memory:"): SqliteAssetCategoryRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteAssetCategoryRepository(path: SqliteConnectionInput = ":memory:"): SqliteAssetCategoryRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET_CATEGORY);
   const repo = new SqliteAssetCategoryRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteAssetCategoryRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetCategoryRepositoryHandle;
 }
 
 // --- Asset -------------------------------------------------------------------
@@ -344,12 +344,11 @@ export interface SqliteAssetRepositoryHandle extends AssetRepository {
 }
 
 /** Open a SQLite-backed AssetRepository. ":memory:" for tests, a path for real. */
-export function createSqliteAssetRepository(path = ":memory:"): SqliteAssetRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteAssetRepository(path: SqliteConnectionInput = ":memory:"): SqliteAssetRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ASSET);
   const repo = new SqliteAssetRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteAssetRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteAssetRepositoryHandle;
 }
 
 // --- Depreciation Run ---------------------------------------------------------
@@ -474,10 +473,9 @@ export interface SqliteDepreciationRunRepositoryHandle extends DepreciationRunRe
 }
 
 /** Open a SQLite-backed DepreciationRunRepository. ":memory:" for tests, a path for real. */
-export function createSqliteDepreciationRunRepository(path = ":memory:"): SqliteDepreciationRunRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteDepreciationRunRepository(path: SqliteConnectionInput = ":memory:"): SqliteDepreciationRunRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_DEPRECIATION_RUN);
   const repo = new SqliteDepreciationRunRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteDepreciationRunRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteDepreciationRunRepositoryHandle;
 }

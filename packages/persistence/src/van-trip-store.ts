@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -281,10 +282,9 @@ export interface SqliteVanTripRepositoryHandle extends VanTripRepository {
 }
 
 /** Open a SQLite-backed VanTripRepository. ":memory:" for tests, a path for real. */
-export function createSqliteVanTripRepository(path = ":memory:"): SqliteVanTripRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteVanTripRepository(path: SqliteConnectionInput = ":memory:"): SqliteVanTripRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteVanTripRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteVanTripRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteVanTripRepositoryHandle;
 }

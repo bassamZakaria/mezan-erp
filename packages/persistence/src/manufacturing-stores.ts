@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -703,9 +704,8 @@ export interface SqliteManufacturingStores {
   close(): void;
 }
 
-export function createSqliteManufacturingStores(path = ":memory:"): SqliteManufacturingStores {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":memory:"): SqliteManufacturingStores {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_BOM);
   sqlite.exec(CREATE_WO);
   sqlite.exec(CREATE_CP);
@@ -715,6 +715,6 @@ export function createSqliteManufacturingStores(path = ":memory:"): SqliteManufa
     workOrders: new SqliteWorkOrderStore(sqlite),
     configurableProducts: new SqliteConfigurableProductStore(sqlite),
     configInstances: new SqliteConfigInstanceStore(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

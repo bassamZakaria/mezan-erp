@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { EtaVatSubType, TaxCalculationType, TaxRate, TaxRateRepository, TaxRateStatus } from "@mezan/domain";
 
 /** SQLite-backed TaxRateRepository (docs/catalog/04 "الضرائب"). Standalone, mirroring `createSqliteAccountRepository`. */
@@ -116,13 +117,12 @@ export interface SqliteTaxRateRepositoryHandle extends TaxRateRepository {
 }
 
 /** Open a SQLite-backed TaxRateRepository. ":memory:" for tests, a path for real. */
-export function createSqliteTaxRateRepository(path = ":memory:"): SqliteTaxRateRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteTaxRateRepository(path: SqliteConnectionInput = ":memory:"): SqliteTaxRateRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteTaxRateRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteTaxRateRepositoryHandle;
 }

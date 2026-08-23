@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { AuditEvent, AuditSink, AuditStream } from "@mezan/domain";
 
 /**
@@ -94,13 +95,12 @@ export interface SqliteAuditSinkHandle extends AuditSink {
 }
 
 /** Open a SQLite-backed AuditSink. ":memory:" for tests, a path for real. */
-export function createSqliteAuditSink(path = ":memory:"): SqliteAuditSinkHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteAuditSink(path: SqliteConnectionInput = ":memory:"): SqliteAuditSinkHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const sink = new SqliteAuditSink(sqlite);
   return Object.assign(sink, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
     db: sqlite,
   }) as SqliteAuditSinkHandle;
 }

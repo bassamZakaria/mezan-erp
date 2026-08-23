@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -327,15 +328,7 @@ class SqliteStockLedgerStore {
    * (same reasoning as SqliteUnitOfWork).
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
   }
 }
 
@@ -352,9 +345,8 @@ export interface SqliteStockLedgerHandle {
   close(): void;
 }
 
-export function createSqliteStockLedgerStore(path = ":memory:"): SqliteStockLedgerHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteStockLedgerStore(path: SqliteConnectionInput = ":memory:"): SqliteStockLedgerHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
   const store = new SqliteStockLedgerStore(sqlite);
 
@@ -382,6 +374,6 @@ export function createSqliteStockLedgerStore(path = ":memory:"): SqliteStockLedg
     layers,
     snapshots,
     transaction: (fn) => store.transaction(fn),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

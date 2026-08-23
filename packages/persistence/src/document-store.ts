@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type {
   DocumentListFilter,
   DocumentRepository,
@@ -154,15 +155,7 @@ export function createSqliteDocumentStore<Line>(
         .map(fromRow);
     },
     async transaction(fn) {
-      sqlite.exec("BEGIN");
-      try {
-        const result = await fn();
-        sqlite.exec("COMMIT");
-        return result;
-      } catch (err) {
-        sqlite.exec("ROLLBACK");
-        throw err;
-      }
+      return withSqliteTransaction(sqlite, fn);
     },
   };
 }
@@ -172,11 +165,10 @@ export function createStandaloneSqliteDocumentStore<Line>(
   docType: string,
   serializeLine: (line: Line) => unknown,
   deserializeLine: (wire: unknown) => Line,
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteDocumentStoreHandle<Line> {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+  const { sqlite, owned } = openSqliteConnection(path);
   ensureDocumentTable(sqlite);
   const repo = createSqliteDocumentStore<Line>(sqlite, docType, serializeLine, deserializeLine);
-  return Object.assign(repo, { close: () => sqlite.close() });
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
 }

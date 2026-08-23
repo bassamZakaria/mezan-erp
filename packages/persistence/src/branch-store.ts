@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Branch, BranchRepository } from "@mezan/domain";
 
 /** SQLite-backed BranchRepository (docs/catalog/09 §"إدارة الفروع"). */
@@ -90,12 +91,11 @@ export interface SqliteBranchStoreHandle extends BranchRepository {
 }
 
 /** Open a SQLite-backed BranchRepository. ":memory:" for tests, a path for real. */
-export function createSqliteBranchStore(path = ":memory:"): SqliteBranchStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteBranchStore(path: SqliteConnectionInput = ":memory:"): SqliteBranchStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const store = new SqliteBranchStore(sqlite);
   return Object.assign(store, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteBranchStoreHandle;
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -218,14 +219,13 @@ export interface SqliteRfqStores {
 }
 
 /** Open the RFQ + RFQ-quote stores on ONE shared connection. */
-export function createSqliteRfqStores(path = ":memory:"): SqliteRfqStores {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteRfqStores(path: SqliteConnectionInput = ":memory:"): SqliteRfqStores {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_RFQ);
   sqlite.exec(CREATE_RFQ_QUOTE);
   return {
     rfqs: new SqlitePurchaseRfqStore(sqlite),
     quotes: new SqliteRfqQuoteStore(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

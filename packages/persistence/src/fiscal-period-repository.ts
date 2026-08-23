@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { FiscalPeriod, FiscalPeriodRepository, FiscalPeriodStatus } from "@mezan/domain";
 
 /** SQLite-backed FiscalPeriodRepository (docs/catalog/04 "الفترات المالية"). Standalone, mirroring `createSqliteAccountRepository`. */
@@ -112,13 +113,12 @@ export interface SqliteFiscalPeriodRepositoryHandle extends FiscalPeriodReposito
 }
 
 /** Open a SQLite-backed FiscalPeriodRepository. ":memory:" for tests, a path for real. */
-export function createSqliteFiscalPeriodRepository(path = ":memory:"): SqliteFiscalPeriodRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteFiscalPeriodRepository(path: SqliteConnectionInput = ":memory:"): SqliteFiscalPeriodRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteFiscalPeriodRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteFiscalPeriodRepositoryHandle;
 }

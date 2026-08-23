@@ -3,6 +3,11 @@ export {
   type SqliteUnitOfWorkHandle,
 } from "./unit-of-work.js";
 export {
+  openSqliteConnection,
+  type SqliteConnectionInput,
+  type OpenedSqliteConnection,
+} from "./sqlite-connection.js";
+export {
   schema,
   journalEntry,
   journalLine,

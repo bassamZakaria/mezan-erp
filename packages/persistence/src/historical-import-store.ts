@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -147,10 +148,9 @@ export interface SqliteHistoricalPurchaseArchiveStoreHandle extends HistoricalPu
 
 /** Open a SQLite-backed HistoricalPurchaseArchiveRepository. ":memory:" for tests, a path for real. */
 export function createSqliteHistoricalPurchaseArchiveStore(
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteHistoricalPurchaseArchiveStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_ARCHIVE);
-  return Object.assign(new SqliteHistoricalPurchaseArchiveStore(sqlite), { close: () => sqlite.close() });
+  return Object.assign(new SqliteHistoricalPurchaseArchiveStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   type BankStatement,
@@ -235,15 +236,7 @@ class SqliteBankStatementRepository implements BankStatementRepository {
     return (this.selectLinesByStatement.all(statementId) as LineRow[]).map(toLine);
   }
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
   }
 }
 
@@ -320,14 +313,13 @@ export interface SqliteBankReconciliationStoreHandle {
 }
 
 /** Open a SQLite-backed bank-reconciliation store (statements + lines + column mappings). ":memory:" for tests. */
-export function createSqliteBankReconciliationStore(path = ":memory:"): SqliteBankReconciliationStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteBankReconciliationStore(path: SqliteConnectionInput = ":memory:"): SqliteBankReconciliationStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   return {
     statements: new SqliteBankStatementRepository(sqlite),
     mappings: new SqliteColumnMappingRepository(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

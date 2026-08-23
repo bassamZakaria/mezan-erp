@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CostCenter, CostCenterRepository, CostCenterStatus, CostCenterType } from "@mezan/domain";
 
 /** SQLite-backed CostCenterRepository (docs/catalog/04 "مراكز التكلفة"). Standalone, mirroring `createSqliteAccountRepository`. */
@@ -117,13 +118,12 @@ export interface SqliteCostCenterRepositoryHandle extends CostCenterRepository {
 }
 
 /** Open a SQLite-backed CostCenterRepository. ":memory:" for tests, a path for real. */
-export function createSqliteCostCenterRepository(path = ":memory:"): SqliteCostCenterRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteCostCenterRepository(path: SqliteConnectionInput = ":memory:"): SqliteCostCenterRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteCostCenterRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteCostCenterRepositoryHandle;
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   NextNumberService,
@@ -337,15 +338,7 @@ class SqliteLedgerRepository implements LedgerRepository {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
   }
 
   private hydrate(row: EntryRow): JournalEntry {
@@ -402,15 +395,14 @@ export interface SqliteLedgerStoreHandle extends LedgerRepository {
  * {@link LedgerRepository} and the connection-bound numbering engine, so the
  * GL engine's `deps.ledger` and `deps.numbering` share one transaction.
  */
-export function createSqliteLedgerStore(path = ":memory:"): SqliteLedgerStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteLedgerStore(path: SqliteConnectionInput = ":memory:"): SqliteLedgerStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqliteLedgerRepository(sqlite);
   const numbering = new NextNumberService(new SharedSequenceStore(sqlite));
   return Object.assign(repo, {
     numbering,
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteLedgerStoreHandle;
 }

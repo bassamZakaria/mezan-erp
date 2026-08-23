@@ -18,6 +18,7 @@ import {
   installmentPlanDocumentType,
 } from "@mezan/domain";
 import {
+  openSqliteConnection,
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
@@ -161,71 +162,87 @@ export interface CreateBackendOptions {
 export async function createBackend(options: CreateBackendOptions = {}): Promise<BackendHandle> {
   const dbPath = options.dbPath ?? ":memory:";
 
-  const uow = createSqliteUnitOfWork(dbPath);
-  const settings = createSqliteSettingsStore(dbPath);
-  const branches = createSqliteBranchStore(dbPath);
-  const warehouses = createSqliteWarehouseStore(dbPath);
-  const accounts = createSqliteAccountRepository(dbPath);
-  const customers = createSqliteCustomerRepository(dbPath);
-  const suppliers = createSqliteSupplierRepository(dbPath);
-  const items = createSqliteItemStore(dbPath);
-  const taxRates = createSqliteTaxRateRepository(dbPath);
-  const costCenters = createSqliteCostCenterRepository(dbPath);
-  const treasuryAccounts = createSqliteTreasuryAccountRepository(dbPath);
-  const fiscalPeriods = createSqliteFiscalPeriodRepository(dbPath);
-  const ledger = createSqliteLedgerStore(dbPath);
-  const priceLists = createSqlitePriceListStore(dbPath);
-  const promotions = createSqlitePromotionStore(dbPath);
-  const salesQuotes = createSqliteSalesQuoteStore(dbPath);
-  const exchangeRates = createSqliteExchangeRateRepository(dbPath);
-  const etaStore = createSqliteEtaStore(dbPath);
+  // ONE shared connection for every store below, instead of each of the ~35
+  // stores opening its own. They all point at the SAME on-disk file (or the
+  // same ":memory:" instance), and several of them call into each other
+  // *inside* an open write transaction — e.g. sales-invoice confirm runs
+  // stock issue + GL posting inside the sales-invoice store's own BEGIN
+  // IMMEDIATE. With separate connections, the inner write needs the SAME
+  // file's write lock the outer connection is still holding — a same-call-
+  // stack deadlock that `busy_timeout` cannot wait out (the outer connection
+  // can't release the lock until the inner call returns), which is exactly
+  // the SQLITE_BUSY ("database is locked") confirm used to throw against a
+  // real file. One connection means those are just further statements on the
+  // same writer — no cross-connection lock contention at all. `foreign_keys`
+  // still needs setting per-store below since it's a per-connection pragma,
+  // but harmless to set repeatedly on the same connection.
+  const { sqlite } = openSqliteConnection(dbPath);
+
+  const uow = createSqliteUnitOfWork(sqlite);
+  const settings = createSqliteSettingsStore(sqlite);
+  const branches = createSqliteBranchStore(sqlite);
+  const warehouses = createSqliteWarehouseStore(sqlite);
+  const accounts = createSqliteAccountRepository(sqlite);
+  const customers = createSqliteCustomerRepository(sqlite);
+  const suppliers = createSqliteSupplierRepository(sqlite);
+  const items = createSqliteItemStore(sqlite);
+  const taxRates = createSqliteTaxRateRepository(sqlite);
+  const costCenters = createSqliteCostCenterRepository(sqlite);
+  const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
+  const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
+  const ledger = createSqliteLedgerStore(sqlite);
+  const priceLists = createSqlitePriceListStore(sqlite);
+  const promotions = createSqlitePromotionStore(sqlite);
+  const salesQuotes = createSqliteSalesQuoteStore(sqlite);
+  const exchangeRates = createSqliteExchangeRateRepository(sqlite);
+  const etaStore = createSqliteEtaStore(sqlite);
   const etaService = new EtaService({ config: etaStore.config, submissions: etaStore.submissions });
   const hasher = createScryptHasher();
 
   // --- phase9/operational-reports — read-only repositories the /reports routes aggregate over,
   // shared with phase5/full-sales's sales-invoice GL/stock hooks below (same tables, one connection each). ---
-  const salesInvoices = createSqliteSalesInvoiceStore(dbPath);
-  const purchaseInvoices = createSqlitePurchaseInvoiceStore(dbPath);
-  const stockLedger = createSqliteStockLedgerStore(dbPath);
-  const installmentPlans = createStandaloneSqliteInstallmentPlanStore(dbPath);
+  const salesInvoices = createSqliteSalesInvoiceStore(sqlite);
+  const purchaseInvoices = createSqlitePurchaseInvoiceStore(sqlite);
+  const stockLedger = createSqliteStockLedgerStore(sqlite);
+  const installmentPlans = createStandaloneSqliteInstallmentPlanStore(sqlite);
 
   // --- sweep/real-data-screens — the purchase chain's order/receipt stores and the
   // treasury-voucher store; `purchaseInvoices` above is shared with the /reports wiring
   // so both routes see the same confirmed invoices. ---
-  const purchaseOrders = createSqlitePurchaseOrderStore(dbPath);
-  const goodsReceipts = createSqliteGoodsReceiptStore(dbPath);
-  const vouchers = createSqliteVoucherStore(dbPath);
+  const purchaseOrders = createSqlitePurchaseOrderStore(sqlite);
+  const goodsReceipts = createSqliteGoodsReceiptStore(sqlite);
+  const vouchers = createSqliteVoucherStore(sqlite);
 
   // --- phase7/treasury-completion — سجل الشيكات + تسوية كشوف البنك. The reconciliation
   // ledger reader resolves a treasury account's GL account and reads its posted movements,
   // so statement lines only ever link to entries the voucher/cheque engines already posted. ---
-  const cheques = createSqliteChequeRepository(dbPath);
-  const bankStatements = createSqliteBankReconciliationStore(dbPath);
+  const cheques = createSqliteChequeRepository(sqlite);
+  const bankStatements = createSqliteBankReconciliationStore(sqlite);
 
   // --- phase11/crm-projects-assets-field — CRM, Projects, Fixed Assets, Field/Van Sales. ---
-  const leads = createSqliteLeadRepository(dbPath);
-  const opportunities = createSqliteOpportunityRepository(dbPath);
-  const pipelineStages = createSqlitePipelineStageRepository(dbPath);
-  const activities = createSqliteActivityRepository(dbPath);
-  const projects = createSqliteProjectRepository(dbPath);
-  const assetCategories = createSqliteAssetCategoryRepository(dbPath);
-  const assets = createSqliteAssetRepository(dbPath);
-  const depreciationRuns = createSqliteDepreciationRunRepository(dbPath);
-  const vanTrips = createSqliteVanTripRepository(dbPath);
+  const leads = createSqliteLeadRepository(sqlite);
+  const opportunities = createSqliteOpportunityRepository(sqlite);
+  const pipelineStages = createSqlitePipelineStageRepository(sqlite);
+  const activities = createSqliteActivityRepository(sqlite);
+  const projects = createSqliteProjectRepository(sqlite);
+  const assetCategories = createSqliteAssetCategoryRepository(sqlite);
+  const assets = createSqliteAssetRepository(sqlite);
+  const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
+  const vanTrips = createSqliteVanTripRepository(sqlite);
 
   // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
   // purchase import (docs/catalog/02). ---
-  const manufacturing = createSqliteManufacturingStores(dbPath);
-  const rfqStores = createSqliteRfqStores(dbPath);
-  const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(dbPath);
+  const manufacturing = createSqliteManufacturingStores(sqlite);
+  const rfqStores = createSqliteRfqStores(sqlite);
+  const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
-  const salesReturnStore = createStandaloneSqliteSalesReturnStore(dbPath);
-  const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(dbPath);
-  const landedCostStore = createStandaloneSqliteLandedCostStore(dbPath);
-  const followUps = createStandaloneSqliteFollowUpStore(dbPath);
+  const salesReturnStore = createStandaloneSqliteSalesReturnStore(sqlite);
+  const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(sqlite);
+  const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
+  const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
@@ -517,9 +534,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     close() {
+      // Every store above shares the ONE `sqlite` connection opened at the
+      // top of this function, so each store's own close() is a no-op (it
+      // doesn't own the connection) — this loop is harmless belt-and-braces,
+      // and the real close is the shared connection itself, once.
       for (const h of closers) {
         (h as { close?: () => void }).close?.();
       }
+      sqlite.close();
     },
   };
 }

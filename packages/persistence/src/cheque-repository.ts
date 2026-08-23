@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   type Cheque,
@@ -219,15 +220,7 @@ class SqliteChequeRepository implements ChequeRepository {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
   }
 }
 
@@ -236,11 +229,10 @@ export interface SqliteChequeRepositoryHandle extends ChequeRepository {
 }
 
 /** Open a SQLite-backed ChequeRepository. ":memory:" for tests, a path for real. */
-export function createSqliteChequeRepository(path = ":memory:"): SqliteChequeRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteChequeRepository(path: SqliteConnectionInput = ":memory:"): SqliteChequeRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteChequeRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteChequeRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteChequeRepositoryHandle;
 }

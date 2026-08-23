@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type InstallmentLine } from "@mezan/domain";
 import {
   createSqliteDocumentStore,
@@ -62,7 +63,7 @@ export function createSqliteInstallmentPlanStore(sqlite: Database.Database) {
 }
 
 export function createStandaloneSqliteInstallmentPlanStore(
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteDocumentStoreHandle<InstallmentLine> {
   return createStandaloneSqliteDocumentStore<InstallmentLine>(DOC_TYPE, serializeLine, deserializeLine, path);
 }

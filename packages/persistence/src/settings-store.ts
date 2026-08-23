@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { SettingsRepository, TenantSettings } from "@mezan/domain";
 
 /**
@@ -55,12 +56,11 @@ export interface SqliteSettingsStoreHandle extends SettingsRepository {
 }
 
 /** Open a SQLite-backed SettingsRepository. ":memory:" for tests, a path for real. */
-export function createSqliteSettingsStore(path = ":memory:"): SqliteSettingsStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteSettingsStore(path: SqliteConnectionInput = ":memory:"): SqliteSettingsStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const store = new SqliteSettingsStore(sqlite);
   return Object.assign(store, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteSettingsStoreHandle;
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, Qty, type PurchaseReturnLine } from "@mezan/domain";
 import {
   createSqliteDocumentStore,
@@ -59,7 +60,7 @@ export function createSqlitePurchaseReturnStore(sqlite: Database.Database) {
 }
 
 export function createStandaloneSqlitePurchaseReturnStore(
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteDocumentStoreHandle<PurchaseReturnLine> {
   return createStandaloneSqliteDocumentStore<PurchaseReturnLine>(DOC_TYPE, serializeLine, deserializeLine, path);
 }

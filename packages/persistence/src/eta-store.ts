@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   DEFAULT_ETA_CONFIG,
   type EtaCompanyAddress,
@@ -252,14 +253,13 @@ export interface SqliteEtaStoreHandle {
 }
 
 /** Open the SQLite-backed ETA stores. ":memory:" for tests, a path for real. */
-export function createSqliteEtaStore(path = ":memory:"): SqliteEtaStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:"): SqliteEtaStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   return {
     config: new SqliteEtaConfigRepository(sqlite),
     submissions: new SqliteEtaSubmissionRepository(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

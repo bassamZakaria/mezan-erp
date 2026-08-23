@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { App } from "@mezan/api";
 import type { DashboardSummaryDTO, SessionDTO } from "@mezan/contracts";
@@ -721,5 +724,175 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
       expect(res.status, `GET ${path}`).toBe(200);
       expect((await res.json()) as unknown[]).toEqual([]);
     }
+  });
+});
+
+/**
+ * Regression test for the SQLite concurrency bug: `createBackend` used to open
+ * one `better-sqlite3` connection PER store (~35 of them) against the SAME
+ * on-disk file. Sales-invoice confirm runs stock issue + GL posting inside
+ * the sales-invoice store's own transaction — with separate connections, the
+ * inner write needed the SAME file's write lock the outer connection was
+ * still holding, which threw SQLITE_BUSY ("database is locked"). `:memory:`
+ * (every other suite above) can't reproduce this: each store's `:memory:` is
+ * its own private, disconnected database, so there's no shared file for two
+ * connections to contend over. These tests use a REAL file-backed DB, so the
+ * assertions here are only meaningful against the fix in
+ * packages/persistence/src/sqlite-connection.ts + create-backend.ts's single
+ * shared connection — reverting that change reproduces SQLITE_BUSY (a single
+ * confirm) or "no such savepoint" (concurrent confirms) here.
+ */
+describe("createBackend — SQLite concurrency (file-backed DB)", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+  let dir: string;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+  });
+
+  async function newFileBackedBackend() {
+    dir = mkdtempSync(path.join(tmpdir(), "mezan-concurrency-test-"));
+    const handle = await createBackend({ dbPath: path.join(dir, "mezan.db") });
+    handles.push(handle);
+    return handle.app;
+  }
+
+  async function seedStockAndCustomer(app: App) {
+    expect(
+      (
+        await post(
+          app,
+          "/items",
+          { id: "item-1", code: "ITEM-1", nameAr: "منتج 1", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" },
+          ADMIN,
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/adjustments",
+          {
+            adjustmentId: "adj-1",
+            warehouseId: "WH-MAIN",
+            reason: "INITIAL_STOCK",
+            lines: [{ itemId: "item-1", direction: "IN", qty: "1000", unitCost: "10" }],
+          },
+          ADMIN,
+        )
+      ).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/customers",
+          {
+            id: "cust-1",
+            code: "cust-1",
+            nameAr: "عميل 1",
+            paymentTermsDays: 30,
+            currency: "EGP",
+            openingBalance: "0",
+            active: true,
+            creditLimit: "0",
+            taxExempt: false,
+            etaBuyerType: "auto",
+          },
+          ADMIN,
+        )
+      ).status,
+    ).toBe(201);
+  }
+
+  function stockInvoiceBody(id: string) {
+    return {
+      id,
+      date: "2026-08-22",
+      dueDate: "2026-09-21",
+      customerId: "cust-1",
+      customerNameAr: "عميل 1",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: "L1",
+          itemId: "item-1",
+          itemNameAr: "منتج 1",
+          isStock: true,
+          qty: "5",
+          unitPrice: "50",
+          taxRatePercent: 0,
+          revenueAccountId: "4100",
+          cogsAccountId: "5100",
+          inventoryAccountId: "1200",
+        },
+      ],
+    };
+  }
+
+  it("confirms a sales invoice against a real file-backed DB with no SQLITE_BUSY — deducts stock and posts a balanced journal entry", async () => {
+    const app = await newFileBackedBackend();
+    await seedStockAndCustomer(app);
+
+    const draft = await post(app, "/sales-invoices", stockInvoiceBody("inv-file-1"), ADMIN);
+    expect(draft.status).toBe(201);
+
+    const confirm = await post(app, "/sales-invoices/inv-file-1/confirm", {}, ADMIN);
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { status: string; journalEntryId: string | null };
+    expect(confirmed.status).toBe("confirmed");
+    expect(confirmed.journalEntryId).toBeTruthy();
+
+    const entry = await app.fetch(
+      new Request(`http://local/gl/journal-entries/${confirmed.journalEntryId}`, { headers: ADMIN }),
+    );
+    expect(entry.status).toBe(200);
+    const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
+    const totalCredit = je.lines.reduce((n, l) => n + Number(l.credit), 0);
+    expect(totalDebit).toBeCloseTo(totalCredit, 6);
+    expect(totalDebit).toBeGreaterThan(0);
+
+    const balance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: ADMIN }),
+    );
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(995); // 1000 - 5
+  });
+
+  it("confirms several sales invoices CONCURRENTLY against a real file-backed DB with no SQLITE_BUSY", async () => {
+    const app = await newFileBackedBackend();
+    await seedStockAndCustomer(app);
+
+    const N = 6;
+    const ids = Array.from({ length: N }, (_, i) => `inv-conc-${i}`);
+    for (const id of ids) {
+      expect((await post(app, "/sales-invoices", stockInvoiceBody(id), ADMIN)).status).toBe(201);
+    }
+
+    // Overlapping confirms — this is exactly the shape that used to throw
+    // SQLITE_BUSY (separate connections) or "no such savepoint" (a shared
+    // connection without the per-connection serialization queue).
+    const results = await Promise.all(
+      ids.map((id) => post(app, `/sales-invoices/${id}/confirm`, {}, ADMIN)),
+    );
+    for (const r of results) expect(r.status).toBe(200);
+
+    const docNos = await Promise.all(
+      ids.map(async (id) => {
+        const detail = await app.fetch(new Request(`http://local/sales-invoices/${id}`, { headers: ADMIN }));
+        return ((await detail.json()) as { docNo: string }).docNo;
+      }),
+    );
+    // Numbering allocated under contention must still be gap-free and unique.
+    expect(new Set(docNos).size).toBe(N);
+
+    const balance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: ADMIN }),
+    );
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(1000 - N * 5);
   });
 });

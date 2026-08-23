@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   type Lead,
@@ -449,41 +450,37 @@ export interface SqliteActivityRepositoryHandle extends ActivityRepository {
 }
 
 /** Open a SQLite-backed LeadRepository. ":memory:" for tests, a path for real. */
-export function createSqliteLeadRepository(path = ":memory:"): SqliteLeadRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteLeadRepository(path: SqliteConnectionInput = ":memory:"): SqliteLeadRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_LEAD);
   const repo = new SqliteLeadRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteLeadRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteLeadRepositoryHandle;
 }
 
 /** Open a SQLite-backed OpportunityRepository. ":memory:" for tests, a path for real. */
-export function createSqliteOpportunityRepository(path = ":memory:"): SqliteOpportunityRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteOpportunityRepository(path: SqliteConnectionInput = ":memory:"): SqliteOpportunityRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_OPPORTUNITY);
   const repo = new SqliteOpportunityRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteOpportunityRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteOpportunityRepositoryHandle;
 }
 
 /** Open a SQLite-backed PipelineStageRepository. ":memory:" for tests, a path for real. */
-export function createSqlitePipelineStageRepository(path = ":memory:"): SqlitePipelineStageRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePipelineStageRepository(path: SqliteConnectionInput = ":memory:"): SqlitePipelineStageRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PIPELINE_STAGE);
   const repo = new SqlitePipelineStageRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqlitePipelineStageRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePipelineStageRepositoryHandle;
 }
 
 /** Open a SQLite-backed ActivityRepository. ":memory:" for tests, a path for real. */
-export function createSqliteActivityRepository(path = ":memory:"): SqliteActivityRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteActivityRepository(path: SqliteConnectionInput = ":memory:"): SqliteActivityRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_ACTIVITY);
   const repo = new SqliteActivityRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteActivityRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteActivityRepositoryHandle;
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type {
   ExchangeRate,
   ExchangeRateRepository,
@@ -113,11 +114,10 @@ export interface SqliteExchangeRateRepositoryHandle extends ExchangeRateReposito
 }
 
 /** Open a SQLite-backed ExchangeRateRepository. ":memory:" for tests, a path for real. */
-export function createSqliteExchangeRateRepository(path = ":memory:"): SqliteExchangeRateRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteExchangeRateRepository(path: SqliteConnectionInput = ":memory:"): SqliteExchangeRateRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteExchangeRateRepository(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() }) as SqliteExchangeRateRepositoryHandle;
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteExchangeRateRepositoryHandle;
 }

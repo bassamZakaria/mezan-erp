@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { SequenceStore } from "@mezan/domain";
 
 /**
@@ -41,16 +42,15 @@ class SqliteSequenceStore implements SequenceStore {
 
   async increment(code: string, period: number | null): Promise<number> {
     const p = period === null ? "" : String(period);
-    this.sqlite.exec("BEGIN IMMEDIATE");
-    try {
-      this.upsert.run(code, p);
-      const row = this.read.get(code, p) as { value: number };
-      this.sqlite.exec("COMMIT");
-      return row.value;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(
+      this.sqlite,
+      async () => {
+        this.upsert.run(code, p);
+        const row = this.read.get(code, p) as { value: number };
+        return row.value;
+      },
+      "BEGIN IMMEDIATE",
+    );
   }
 }
 
@@ -60,13 +60,12 @@ export interface SqliteSequenceStoreHandle extends SequenceStore {
 
 /** Open a SQLite-backed SequenceStore. ":memory:" for tests, a path for real. */
 export function createSqliteSequenceStore(
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteSequenceStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const store = new SqliteSequenceStore(sqlite);
   return Object.assign(store, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteSequenceStoreHandle;
 }

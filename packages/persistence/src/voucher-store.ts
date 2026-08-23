@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   type AllocatableInvoice,
@@ -252,15 +253,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
   }
 }
 
@@ -414,15 +407,14 @@ export interface SqliteVoucherStoreHandle {
 }
 
 /** Open a SQLite-backed voucher store (documents + allocations + open invoices). ":memory:" for tests. */
-export function createSqliteVoucherStore(path = ":memory:"): SqliteVoucherStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteVoucherStore(path: SqliteConnectionInput = ":memory:"): SqliteVoucherStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   return {
     documents: new SqliteVoucherRepository(sqlite),
     allocations: new SqliteAllocationRepository(sqlite),
     invoices: new SqliteInvoiceRepository(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { eq, asc } from "drizzle-orm";
 import {
@@ -17,21 +18,21 @@ import { schema, journalEntry, journalLine, role, user } from "./schema.js";
 type Db = BetterSQLite3Database<typeof schema>;
 
 const CREATE_TABLES = `
-CREATE TABLE IF NOT EXISTS journal_entry (
+CREATE TABLE IF NOT EXISTS uow_journal_entry (
   id      TEXT PRIMARY KEY,
   date    TEXT NOT NULL,
   memo    TEXT NOT NULL,
   status  TEXT NOT NULL
 );
-CREATE TABLE IF NOT EXISTS journal_line (
+CREATE TABLE IF NOT EXISTS uow_journal_line (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  entry_id   TEXT NOT NULL REFERENCES journal_entry(id),
+  entry_id   TEXT NOT NULL REFERENCES uow_journal_entry(id),
   line_no    INTEGER NOT NULL,
   account_id TEXT NOT NULL,
   debit      INTEGER NOT NULL,
   credit     INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_journal_line_entry ON journal_line(entry_id);
+CREATE INDEX IF NOT EXISTS idx_uow_journal_line_entry ON uow_journal_line(entry_id);
 CREATE TABLE IF NOT EXISTS role (
   id           TEXT PRIMARY KEY,
   code         TEXT NOT NULL,
@@ -282,15 +283,7 @@ class SqliteUnitOfWork implements UnitOfWork {
   }
 
   async transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn(this);
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, () => fn(this));
   }
 }
 
@@ -303,10 +296,9 @@ export interface SqliteUnitOfWorkHandle extends UnitOfWork {
  * for a real (WAL) database — the desktop-edition shape.
  */
 export function createSqliteUnitOfWork(
-  path = ":memory:",
+  path: SqliteConnectionInput = ":memory:",
 ): SqliteUnitOfWorkHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
 
@@ -314,6 +306,6 @@ export function createSqliteUnitOfWork(
   const uow = new SqliteUnitOfWork(db, sqlite);
 
   return Object.assign(uow, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteUnitOfWorkHandle;
 }

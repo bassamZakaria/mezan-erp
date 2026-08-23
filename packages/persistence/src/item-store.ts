@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type AlternateUnit, type CostingMethod, type EtaCodeType, type Item, type ItemRepository, type ItemStatus, type ItemType } from "@mezan/domain";
 
 /**
@@ -219,12 +220,11 @@ export interface SqliteItemStoreHandle extends ItemRepository {
 }
 
 /** Open a SQLite-backed ItemRepository. ":memory:" for tests, a path for real. */
-export function createSqliteItemStore(path = ":memory:"): SqliteItemStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteItemStore(path: SqliteConnectionInput = ":memory:"): SqliteItemStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const store = new SqliteItemStore(sqlite);
   return Object.assign(store, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteItemStoreHandle;
 }

@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type TreasuryAccount, type TreasuryAccountRepository, type TreasuryAccountStatus, type TreasuryAccountType } from "@mezan/domain";
 
 /** SQLite-backed TreasuryAccountRepository (docs/catalog/04 "حسابات الخزينة"). Standalone, mirroring `createSqliteAccountRepository`. */
@@ -116,13 +117,12 @@ export interface SqliteTreasuryAccountRepositoryHandle extends TreasuryAccountRe
 }
 
 /** Open a SQLite-backed TreasuryAccountRepository. ":memory:" for tests, a path for real. */
-export function createSqliteTreasuryAccountRepository(path = ":memory:"): SqliteTreasuryAccountRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteTreasuryAccountRepository(path: SqliteConnectionInput = ":memory:"): SqliteTreasuryAccountRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteTreasuryAccountRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteTreasuryAccountRepositoryHandle;
 }

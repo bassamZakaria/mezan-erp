@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Supplier, type SupplierRepository } from "@mezan/domain";
 
 /**
@@ -139,12 +140,11 @@ export interface SqliteSupplierRepositoryHandle extends SupplierRepository {
 }
 
 /** Open a SQLite-backed SupplierRepository. ":memory:" for tests, a path for real. */
-export function createSqliteSupplierRepository(path = ":memory:"): SqliteSupplierRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteSupplierRepository(path: SqliteConnectionInput = ":memory:"): SqliteSupplierRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteSupplierRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteSupplierRepositoryHandle;
 }

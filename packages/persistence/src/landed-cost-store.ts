@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, Qty, type LandedCostLine } from "@mezan/domain";
 import {
   createSqliteDocumentStore,
@@ -72,6 +73,6 @@ export function createSqliteLandedCostStore(sqlite: Database.Database) {
   return createSqliteDocumentStore<LandedCostLine>(sqlite, DOC_TYPE, serializeLine, deserializeLine);
 }
 
-export function createStandaloneSqliteLandedCostStore(path = ":memory:"): SqliteDocumentStoreHandle<LandedCostLine> {
+export function createStandaloneSqliteLandedCostStore(path: SqliteConnectionInput = ":memory:"): SqliteDocumentStoreHandle<LandedCostLine> {
   return createStandaloneSqliteDocumentStore<LandedCostLine>(DOC_TYPE, serializeLine, deserializeLine, path);
 }

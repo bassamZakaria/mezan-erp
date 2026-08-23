@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Warehouse, WarehouseRepository, WarehouseType } from "@mezan/domain";
 
 /** SQLite-backed WarehouseRepository (docs/catalog/09 §"إدارة المستودعات"). */
@@ -88,12 +89,11 @@ export interface SqliteWarehouseStoreHandle extends WarehouseRepository {
 }
 
 /** Open a SQLite-backed WarehouseRepository. ":memory:" for tests, a path for real. */
-export function createSqliteWarehouseStore(path = ":memory:"): SqliteWarehouseStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteWarehouseStore(path: SqliteConnectionInput = ":memory:"): SqliteWarehouseStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const store = new SqliteWarehouseStore(sqlite);
   return Object.assign(store, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteWarehouseStoreHandle;
 }

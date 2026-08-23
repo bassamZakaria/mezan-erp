@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type Customer, type CustomerRepository, type EtaBuyerType } from "@mezan/domain";
 
 /**
@@ -150,12 +151,11 @@ export interface SqliteCustomerRepositoryHandle extends CustomerRepository {
 }
 
 /** Open a SQLite-backed CustomerRepository. ":memory:" for tests, a path for real. */
-export function createSqliteCustomerRepository(path = ":memory:"): SqliteCustomerRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteCustomerRepository(path: SqliteConnectionInput = ":memory:"): SqliteCustomerRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteCustomerRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteCustomerRepositoryHandle;
 }

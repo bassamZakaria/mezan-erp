@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -426,27 +427,24 @@ export interface SqlitePurchaseInvoiceStoreHandle extends PurchaseInvoiceReposit
 }
 
 /** Open a SQLite-backed PurchaseOrderRepository. ":memory:" for tests, a path for real. */
-export function createSqlitePurchaseOrderStore(path = ":memory:"): SqlitePurchaseOrderStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePurchaseOrderStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseOrderStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PO);
-  return Object.assign(new SqlitePurchaseOrderStore(sqlite), { close: () => sqlite.close() });
+  return Object.assign(new SqlitePurchaseOrderStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /** Open a SQLite-backed GoodsReceiptRepository. */
-export function createSqliteGoodsReceiptStore(path = ":memory:"): SqliteGoodsReceiptStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteGoodsReceiptStore(path: SqliteConnectionInput = ":memory:"): SqliteGoodsReceiptStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_GR);
-  return Object.assign(new SqliteGoodsReceiptStore(sqlite), { close: () => sqlite.close() });
+  return Object.assign(new SqliteGoodsReceiptStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /** Open a SQLite-backed PurchaseInvoiceRepository. */
-export function createSqlitePurchaseInvoiceStore(path = ":memory:"): SqlitePurchaseInvoiceStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseInvoiceStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PI);
-  return Object.assign(new SqlitePurchaseInvoiceStore(sqlite), { close: () => sqlite.close() });
+  return Object.assign(new SqlitePurchaseInvoiceStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
 }
 
 /**
@@ -460,9 +458,8 @@ export interface SqlitePurchasingStores {
   close(): void;
 }
 
-export function createSqlitePurchasingStores(path = ":memory:"): SqlitePurchasingStores {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePurchasingStores(path: SqliteConnectionInput = ":memory:"): SqlitePurchasingStores {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PO);
   sqlite.exec(CREATE_GR);
   sqlite.exec(CREATE_PI);
@@ -470,6 +467,6 @@ export function createSqlitePurchasingStores(path = ":memory:"): SqlitePurchasin
     orders: new SqlitePurchaseOrderStore(sqlite),
     receipts: new SqliteGoodsReceiptStore(sqlite),
     invoices: new SqlitePurchaseInvoiceStore(sqlite),
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   };
 }

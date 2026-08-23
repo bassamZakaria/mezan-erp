@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import { Money, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
 
 /**
@@ -160,13 +161,12 @@ export interface SqlitePriceListStoreHandle extends PriceListRepository {
 }
 
 /** Open a SQLite-backed PriceListRepository. ":memory:" for tests, a path for real. */
-export function createSqlitePriceListStore(path = ":memory:"): SqlitePriceListStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePriceListStore(path: SqliteConnectionInput = ":memory:"): SqlitePriceListStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqlitePriceListRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqlitePriceListStoreHandle;
 }

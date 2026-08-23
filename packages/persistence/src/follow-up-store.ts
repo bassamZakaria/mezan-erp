@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { CollectionFollowUp, CollectionFollowUpListFilter, CollectionFollowUpRepository } from "@mezan/domain";
 
 /** SQLite-backed {@link CollectionFollowUpRepository} — متابعة التحصيل (docs/catalog/05). Its own small table (not a `FrameworkDocument` — see follow-up.ts's doc-comment). */
@@ -104,9 +105,8 @@ export function createSqliteFollowUpStore(sqlite: Database.Database): Collection
   };
 }
 
-export function createStandaloneSqliteFollowUpStore(path = ":memory:"): SqliteFollowUpStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createStandaloneSqliteFollowUpStore(path: SqliteConnectionInput = ":memory:"): SqliteFollowUpStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   const repo = createSqliteFollowUpStore(sqlite);
-  return Object.assign(repo, { close: () => sqlite.close() });
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } });
 }

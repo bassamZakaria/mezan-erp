@@ -46,6 +46,7 @@ app.whenReady().then(async () => {
     // module only ever depends on a plain better-sqlite3 `Database`, never
     // on @mezan/persistence's repository abstraction.
     backupConn = new Database(dbPath);
+    backupConn.pragma("busy_timeout = 5000");
 
     // Pre-migration auto-backup (docs/plan.md §2.3/§3.7). No real migration
     // runner exists yet, so `migrate` is a no-op today — see backup-hooks.ts.

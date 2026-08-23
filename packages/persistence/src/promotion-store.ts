@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -253,13 +254,12 @@ export interface SqlitePromotionStoreHandle extends PromotionRepository {
 }
 
 /** Open a SQLite-backed PromotionRepository. ":memory:" for tests, a path for real. */
-export function createSqlitePromotionStore(path = ":memory:"): SqlitePromotionStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqlitePromotionStore(path: SqliteConnectionInput = ":memory:"): SqlitePromotionStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqlitePromotionRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqlitePromotionStoreHandle;
 }

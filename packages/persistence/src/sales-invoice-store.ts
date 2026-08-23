@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, withSqliteTransaction, type SqliteConnectionInput } from "./sqlite-connection.js";
 import {
   Money,
   Qty,
@@ -291,15 +292,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
   }
 
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN IMMEDIATE");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn, "BEGIN IMMEDIATE");
   }
 
   private insertLines(invoice: SalesInvoice): void {
@@ -360,13 +353,12 @@ export interface SqliteSalesInvoiceStoreHandle extends SalesInvoiceRepository {
 }
 
 /** Open a SQLite-backed SalesInvoiceRepository. ":memory:" for tests, a path for real. */
-export function createSqliteSalesInvoiceStore(path = ":memory:"): SqliteSalesInvoiceStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteSalesInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqliteSalesInvoiceStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqliteSalesInvoiceRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteSalesInvoiceStoreHandle;
 }

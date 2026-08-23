@@ -1,4 +1,5 @@
 import Database from "better-sqlite3";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 import type { Account, AccountRepository, AccountStatus, AccountType, NaturalBalance } from "@mezan/domain";
 
 /**
@@ -118,13 +119,12 @@ export interface SqliteAccountRepositoryHandle extends AccountRepository {
 }
 
 /** Open a SQLite-backed AccountRepository. ":memory:" for tests, a path for real. */
-export function createSqliteAccountRepository(path = ":memory:"): SqliteAccountRepositoryHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export function createSqliteAccountRepository(path: SqliteConnectionInput = ":memory:"): SqliteAccountRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLE);
   const repo = new SqliteAccountRepository(sqlite);
   return Object.assign(repo, {
-    close: () => sqlite.close(),
+    close: () => { if (owned) sqlite.close(); },
   }) as SqliteAccountRepositoryHandle;
 }

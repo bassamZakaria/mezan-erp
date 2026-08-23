@@ -911,3 +911,26 @@ export {
 
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";
+
+export {
+  gateStepSchema,
+  workflowConfigSchema,
+  createWorkflowConfigSchema,
+  updateWorkflowConfigSchema,
+  approvalStatusSchema,
+  decisionKindSchema,
+  decisionRecordSchema,
+  approvalRequestSchema,
+  submitApprovalRequestSchema,
+  decideApprovalRequestSchema,
+  type GateStepDTO,
+  type WorkflowConfigDTO,
+  type CreateWorkflowConfigDTO,
+  type UpdateWorkflowConfigDTO,
+  type ApprovalStatusDTO,
+  type DecisionKindDTO,
+  type DecisionRecordDTO,
+  type ApprovalRequestDTO,
+  type SubmitApprovalRequestDTO,
+  type DecideApprovalRequestDTO,
+} from "./workflow.js";

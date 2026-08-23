@@ -70,6 +70,7 @@ const READ_PATHS = [
   "/manufacturing/work-orders",
   "/manufacturing/boms",
   "/roles",
+  "/entitlements",
   "/users",
   "/reports/sales/by-period",
   "/reports/sales/by-item",

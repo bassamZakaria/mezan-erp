@@ -115,35 +115,36 @@ import {
 } from "./stock-documents-routes.js";
 
 /**
- * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
- * the default entitlements the `/roles` route validates grants against when
- * the mounting app does not supply its own `resolveEntitlements`. Phase 1 has
- * no real session/login wiring yet — apps/server / apps/desktop override this
- * once real auth + a real entitlements source land.
+ * Modules this build can actually serve, used as the default entitlements the
+ * `/roles` route validates grants against and as what `GET /entitlements`
+ * reports. Listing a module here makes its permissions grantable, so an
+ * unimplemented domain must stay out: `pos` and `hr` have no domain, routes or
+ * persistence, and `notifications` has an event bus but no rules engine.
  */
-const DEMO_ACTIVE_MODULES = [
+const DEFAULT_ACTIVE_MODULES = [
+  "dashboard",
   "sales",
   "purchases",
   "inventory",
   "accounting",
   "treasury",
   "installments",
-  "financial_papers",
+  "cheques",
   "crm",
-  "pos",
-  "hr",
   "manufacturing",
   "assets",
-  "notifications",
-  "loyalty",
   "field",
+  "workflow",
+  "audit",
+  "transactions",
+  "admin",
   "projects",
 ];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEMO_ACTIVE_MODULES,
+    activeModules: DEFAULT_ACTIVE_MODULES,
     features: {},
     seats: 10,
     expiresAt: null,
@@ -458,8 +459,8 @@ export interface CreateAppOptions {
   /**
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/catalog/09 §الأدوار — only licensed-module permissions are
-   * grantable). Defaults to a broad demo entitlements set (`DEMO_ACTIVE_MODULES`)
-   * since there is no real per-tenant entitlements source wired up yet.
+   * grantable), and that `GET /entitlements` reports. Defaults to
+   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
@@ -801,6 +802,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
 
+  app.get("/entitlements", async (c) => {
+    const entitlements = await resolveEntitlements(c);
+    return entitlements ? c.json(entitlements) : c.json({ error: "NO_ENTITLEMENTS" }, 404);
+  });
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
   app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
 

@@ -83,7 +83,6 @@ import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { NavigationProvider } from "./navigation";
 import { navGroups, topNavItem } from "./navigation/registry";
-import { createEntitlements, type Entitlements } from "@mezan/domain";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser } from "@mezan/ui";
 import {
@@ -91,6 +90,7 @@ import {
   useCreateRole,
   useCreateUser,
   useDeleteRole,
+  useEntitlements,
   useRoles,
   useSetUserStatus,
   useUpdateRole,
@@ -102,41 +102,6 @@ import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 
-/**
- * The role editor needs an `Entitlements` object to know which permission
- * modules are licensed (`licensedModules`/`licensedPermissions`). There is no
- * `/entitlements` endpoint yet, and `SessionDTO` carries none either — the
- * backend's own `defaultEntitlementsResolver` (packages/api/src/app.ts) is a
- * server-internal default with no override in packages/backend, so this
- * mirrors that exact value (same plan, same active modules) rather than
- * inventing a separate one: it's what the server will actually accept when a
- * role is saved. Replace this with a real fetched value once a tenant
- * entitlements source exists.
- */
-const CURRENT_ENTITLEMENTS: Entitlements = createEntitlements({
-  plan: "ENTERPRISE",
-  activeModules: [
-    "sales",
-    "purchases",
-    "inventory",
-    "accounting",
-    "treasury",
-    "installments",
-    "financial_papers",
-    "crm",
-    "pos",
-    "hr",
-    "manufacturing",
-    "assets",
-    "notifications",
-    "loyalty",
-    "field",
-    "projects",
-  ],
-  features: {},
-  seats: 10,
-  expiresAt: null,
-});
 
 /**
  * The user form's "الموظف المرتبط" picker needs an employees master list, but
@@ -263,6 +228,8 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
+  const entitlementsQuery = useEntitlements();
+  const entitlements = entitlementsQuery.data ?? null;
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
   const branchesQuery = useBranches();
@@ -457,10 +424,10 @@ export function App() {
         />
       ) : null}
 
-      {activeScreen === "role-editor" ? (
+      {activeScreen === "role-editor" && entitlements ? (
         <RoleEditorPage
           role={editingRole}
-          entitlements={CURRENT_ENTITLEMENTS}
+          entitlements={entitlements}
           onSave={handleSaveRole}
           onCancel={() => setActiveScreen("roles")}
         />

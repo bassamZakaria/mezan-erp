@@ -11,6 +11,7 @@ import type {
   BootstrapSeedResultDTO,
   BounceChequeDTO,
   BranchDTO,
+  EntitlementsDTO,
   ChequeDirectionDTO,
   ChequeDTO,
   ChequeStatusDTO,
@@ -785,6 +786,19 @@ export function useDeleteRole() {
 }
 
 /** الفروع (docs/catalog/09) — list + create/edit, backing settings' البروع page and the branch typeahead on real-data forms. */
+export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EntitlementsDTO, ApiError>({
+    queryKey: ["entitlements"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/entitlements");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الوحدات المرخّصة.");
+      return res.json<EntitlementsDTO>();
+    },
+  });
+}
+
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({

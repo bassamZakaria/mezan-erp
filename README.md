@@ -77,7 +77,7 @@ Every screen is wired to the real seeded backend, not static sample arrays. The 
 Two exceptions are still open and tracked in [`docs/tasks.md`](docs/tasks.md):
 
 - **Seven `*-sample-data.ts` files remain** under `apps/web/src` (`sample-data.ts` — which still owns the nav registry and command-palette items — plus `accounts-`, `items-`, `accounting-treasury-`, `inventory-ops-`, `settings/`, and `login/login-sample-data.ts`), with roughly twenty importers.
-- **Nine screens run the real domain in the browser, not the backend**: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. They import `@mezan/domain` directly through `apps/web/src/store/*` against in-memory repositories, so the business rules are real but nothing persists to SQLite. Their API routes (`/revaluation`, `/eta`, `/cost-center-pl`, `/reconciliation`, `/exchange-rates`, inventory ops) already exist — only the web wiring is missing.
+- **Nine screens run the real domain in the browser, not the backend**: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. They import `@mezan/domain` directly through `apps/web/src/store/*` against in-memory repositories, so the business rules are real but nothing persists to SQLite. Five of them have a mounted route (`/revaluation`, `/eta`, `/cost-center-pl`, `/exchange-rates`, `/inventory/stock-balance`) and need only web wiring; the other four — stock transfers, stock adjustments, physical counts and balance reconciliation — have a route file that `createBackend` never mounts, so they 404 on the running server and need the backend mount first.
 
 ## Current state (verified 2026-08-23)
 
@@ -96,6 +96,9 @@ Measured on `main`, not estimated:
 
 Beyond the deferred modules below, these are named in the docs' phase lists but have **no implementation** — they are gaps, not decisions:
 
+- **Engines with no runtime caller** — the audit trail and the credit-control check are implemented and tested but never supplied to `createApp` by `createBackend`, so neither runs in the app. LAN multi-till mounts nothing (`/lan/*` 404) and its admin panel is not imported by any screen. `verifyLicense` has no runtime caller; the desktop entitlements resolver is an explicit stub.
+- **i18n** — there is no i18n layer: `apps/web/src/main.tsx` hardcodes `dir="rtl" lang="ar"`, the Settings language selector writes to state nothing reads, and Arabic strings are inline throughout. The tenant-settings screen itself is local state and never calls its mounted `/settings` route.
+- **Desktop shell halves** — auto-update is config-only, and backup/restore ships scheduled backups with no restore entry point (the preload bridge exposes only fetch and print).
 - **Platform admin UIs** — approvals inbox, notification-rules builder, numbering-sequences admin screen, barcode-config screen, data-migration wizard, audit-log viewer. The engines behind approvals, numbering and audit exist in `packages/domain`; the notification *rules* engine does not (only the event bus does).
 - **Print templates** — `settings/PrintTemplatesPage.tsx` is a live preview of the default template through the shared `PrintView` renderer, not the 9-tab designer.
 - **Inventory extras** — label printing, product templates / variant generation, and the aging-based write-down batch.

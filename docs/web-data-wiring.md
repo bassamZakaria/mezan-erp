@@ -66,20 +66,26 @@ through `apps/web/src/store/*` and run it against in-memory repositories:
 
 | Screen | Store | API route that already exists |
 |---|---|---|
-| `StockBalanceScreen` | `store/inventory-ops-store.ts` | inventory routes in `@mezan/api` |
-| `StockTransfersScreen` | `store/inventory-ops-store.ts` | inventory routes |
-| `StockAdjustmentsScreen` | `store/inventory-ops-store.ts` | inventory routes |
-| `PhysicalCountsScreen` | `store/inventory-ops-store.ts` | inventory routes |
+| `StockBalanceScreen` | `store/inventory-ops-store.ts` | `/inventory/stock-balance` — mounted |
+| `StockTransfersScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
+| `StockAdjustmentsScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
+| `PhysicalCountsScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
 | `ExchangeRatesScreen` | `store/accounting-depth-store.ts` | `/exchange-rates` |
 | `FxRevaluationScreen` | `store/accounting-depth-store.ts` | `/revaluation` |
 | `CostCenterPnLScreen` | `store/accounting-depth-store.ts` | `/cost-center-pl` |
-| `ReconciliationScreen` | `store/accounting-depth-store.ts` | `/reconciliation` |
+| `ReconciliationScreen` | `store/accounting-depth-store.ts` | route file exists, **not mounted** (404) |
 | `EtaScreen` | `store/accounting-depth-store.ts` | `/eta` |
 
 The business rules these screens exercise are the real domain services, so their tests
 are meaningful — but no write survives a reload, and two users on a LAN multi-till
-install would not see each other's data. Converting them is steps 2–5 above; no
-backend work is required.
+install would not see each other's data.
+
+**Converting them is not uniformly "web wiring only."** Five of the nine have a mounted
+route and need steps 2–5 above. The other four — stock transfers, stock adjustments,
+physical counts and balance reconciliation — have a route *file* that
+`packages/api/src/app.ts` mounts only when `createBackend` supplies the matching dep,
+and it never does; they return 404 on the running server. Those need the backend mount
+first (`packages/backend/src/create-backend.ts`), then the web wiring.
 
 **Sample-data files still present** (7, ~20 importers): `sample-data.ts`,
 `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`,

@@ -11,16 +11,16 @@
 - ✅ `Money`/`Qty` value objects, scaled-int (10⁻⁶) codecs, rounding policy
 - ✅ Auth: desktop local user store + `AuthContext`
 - ✅ Permissions engine (dependency graph, sensitive flag, view/view_own/view_all, branch+warehouse scoping)
-- ✅ Entitlements port + Ed25519 license verification skeleton
+- 🟡 Entitlements port + Ed25519 license verification skeleton — `verifyLicense` has no runtime caller; the desktop resolver is an explicit stub reading `MEZAN_ENTITLEMENTS_JSON` (`apps/desktop/src/main/entitlements.ts:17-33`), and the web app gates modules off `demoEntitlements` in `sample-data.ts:233`
 - ✅ Numbering engine (atomic counters, prefix/suffix/pad-length/annual-reset)
-- ✅ Audit trail core (append-only, severity taxonomy)
+- 🟡 Audit trail core (append-only, severity taxonomy) — engine, `createSqliteAuditSink` and tests exist, but `createBackend` never passes `audit` to `createApp`, so **nothing is recorded at runtime** (`packages/api/src/gl-routes.ts:50`, `packages/backend/src/create-backend.ts:333`)
 - ✅ Workflow engine core (26 action types, ordered sequential role steps)
 - ✅ Notification bus + rules engine core
-- ✅ App shell: RTL layout, i18n (ar/en), `<DocumentList>`/`<DocumentDetail>`/filter-panel/KPI-strip primitives
-- ✅ Settings foundation: tenant settings, branches, warehouses
-- ✅ Electron shell: window, IPC bridge, `app.fetch()` mount via `window.mezan.fetch`, auto-update, backup/restore
+- 🟡 App shell: RTL layout + `<DocumentList>`/`<DocumentDetail>`/filter-panel/KPI-strip primitives ✅ — **i18n (ar/en) was never built**: `apps/web/src/main.tsx:10-11` hardcodes `dir="rtl" lang="ar"`, no i18n library or catalog exists, and ~3,700 Arabic string literals are inline across ~103 files. The Settings language selector writes to local state nothing reads
+- 🟡 Settings foundation: branches + warehouses are API-backed; the tenant-settings screen is **local state only** (`apps/web/src/settings/SettingsGeneral.tsx:40` seeds from `sampleSettings` and never calls the mounted `/settings` route), so nothing it saves survives a reload
+- 🟡 Electron shell: window, IPC bridge and `app.fetch()` mount via `window.mezan.fetch` ✅; **auto-update is config-only** (`apps/desktop/src/main/updater.ts:5`, `autoDownload = false`, no check/apply UX) and **restore has no entry point** — backups are scheduled in main (`main/index.ts:54`) but the preload bridge exposes only the fetch and print channels
 - ✅ Hono app layer + command/query routing (`packages/api`, `packages/backend`)
-- ✅ LAN multi-till host — implemented (`apps/desktop/src/main/lan-host.ts`, `apps/web/src/lan`); a real cross-connection SQLite `SQLITE_BUSY` deadlock (confirm flows sharing one on-disk file across ~35 separate connections) has been fixed on `main` via shared `openSqliteConnection`/`withSqliteTransaction`
+- 🟡 LAN multi-till host — `lan-host.ts` and `ConnectedDevicesPanel` exist with tests, but `/lan/*` mounts only when `options.lan` is supplied (`packages/api/src/app.ts:176`) and `createBackend` never supplies it (`/lan/status` 404 live); the panel is not imported by any screen; a real cross-connection SQLite `SQLITE_BUSY` deadlock (confirm flows sharing one on-disk file across ~35 separate connections) has been fixed on `main` via shared `openSqliteConnection`/`withSqliteTransaction`
 
 ## Phase 1 — Master data & key pages
 
@@ -67,7 +67,7 @@
 - ⬜ Product Templates (attribute CRUD + variant generator) — no implementation in any layer
 - ✅ Configurable Products (formulas, sandboxed expression evaluator, waste %)
 - ⬜ Inventory Hub + Warehouse detail hub — no hub screens exist; nav goes straight to the list screens
-- 🟡 Stock Balance / Transfers / Adjustments / Physical Counts run the real domain **in the browser** (`apps/web/src/store/inventory-ops-store.ts`) against in-memory repositories — the `/inventory` API routes exist but the screens are not wired to them, so nothing persists
+- 🟡 Stock Balance / Transfers / Adjustments / Physical Counts run the real domain **in the browser** (`apps/web/src/store/inventory-ops-store.ts`) against in-memory repositories, and there is no backend counterpart to wire them to: `packages/api/src/app.ts:779-795` mounts `/stock-adjustments`, `/stock-transfers` and `/physical-counts` only when `createBackend` supplies those deps, and it never does — all three return **404 on the running server** (only `/inventory/stock-balance` answers)
 
 ## Phase 5 — Full Sales
 
@@ -75,7 +75,7 @@
 - ✅ Sales Returns (create, confirm/cancel, refund-voucher linkage)
 - ✅ Price Lists (CRUD + per-item override grid)
 - ✅ Promotions (percentage/fixed/special-price, BXGY, bundle, coupon)
-- ✅ Credit control (warn-vs-block)
+- 🟡 Credit control (warn-vs-block) — `packages/api/src/sales-invoices-routes.ts:65` takes an optional `creditControl` dep that `createBackend` never supplies, so the check never fires in the running app
 - ✅ Sales invoice profit/margin computation
 - ⬜ Delivery notes — open product decision (`docs/backlog.md` §5.2); not scoped as an issue
 
@@ -109,7 +109,7 @@
 - ✅ Tax groups + Chart-of-Accounts account-linking
 - ✅ Exchange rates (CRUD + approval/lock)
 - ✅ FX Revaluation (period-end run, auto-reversing JE)
-- ✅ Balance Reconciliation (sub-ledger vs control-account, unlinked entries)
+- 🟡 Balance Reconciliation (sub-ledger vs control-account, unlinked entries) — domain + route file exist, but `/reconciliation` is **not mounted** by `createBackend` (404 live); the screen runs in-browser
 - ⬜ Accounting Hub — no hub screen (the reference app's hub pages were unlinked too; see `docs/digest.md`)
 - ✅ ETA e-invoicing (readiness tracker, config, credentials, code mapping, submission queue)
 - ✅ Opening balances for non-treasury GL accounts
@@ -121,7 +121,7 @@
 - ✅ GL-reconciliation banner component
 - ✅ On-demand execution pattern (General Ledger, Account Ledger)
 - ✅ Print rendering engine (A4/A5, React+CSS — `packages/ui/src/print/PrintView.tsx`)
-- ✅ Arabic amount-in-words engine
+- 🟡 Arabic amount-in-words engine — implemented and tested, but its only consumer is the print-template preview (`apps/web/src/settings/PrintTemplatesPage.tsx:23`); real document prints leave `totals.amountInWords` undefined
 - ✅ Sales / Purchases / Inventory / Debt-aging / Installments report packs
 - ✅ Trial Balance, Income Statement, Balance Sheet, Cash Flow (indirect), VAT Return
 - ✅ General Ledger + Account Ledger report tabs
@@ -186,6 +186,7 @@ Not started. Postgres dialect + dual-engine conformance suite, cloud JWT + refre
 ## Cross-cutting hardening (not phase-specific)
 
 - 🟡 **Real-data sweep** — 7 `*-sample-data.ts` files still exist (`sample-data.ts`, `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`, `inventory-ops-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`) with ~20 importers. `sample-data.ts` also still owns the nav registry, command-palette items and demo entitlements, so it cannot simply be deleted — the nav needs its own home first.
+- 🟡 **Declared-but-unsupplied API deps** — `packages/api/src/app.ts` declares ~52 optional deps and mounts several route groups conditionally on them; `packages/backend/src/create-backend.ts` is the only place that decides what exists at runtime, and it omits `audit`, `creditControl`, `stockAdjustments`, `stockTransfers`, `physicalCounts`, `reconciliation` and `lan`. Everything behind those is engine-complete, test-covered and unreachable from the running app. A CI assertion over the mounted route list would stop this class of drift recurring.
 - 🟡 **Domain-in-browser screens** — 9 screens bypass the API and run `@mezan/domain` against in-memory repositories via `apps/web/src/store/*`: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. Business rules are real; persistence is not. The matching API routes are already mounted, so this is web wiring only.
 - ✅ **SQLite write concurrency** — the cross-connection `SQLITE_BUSY` deadlock in confirm flows (stock issue + GL posting sharing one file across separate connections) is fixed on `main`; ⬜ follow-up: add a regression test exercising concurrent numbering-sequence allocation and LAN multi-till writers.
 - 🟡 **Bug-hunt sweep** — active pass looking for functional defects across the app, cross-checked against the known-defects list in `docs/backlog.md` §8 so they aren't silently reintroduced.

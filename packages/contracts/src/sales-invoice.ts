@@ -47,6 +47,11 @@ export const createSalesInvoiceSchema = z.object({
   customerTaxExempt: z.boolean().optional(),
   warehouseId: z.string().min(1),
   branchId: z.string().min(1),
+  /** HR employee id (`/hr/employees`) credited with the sale. */
+  salespersonId: z.string().min(1).nullish(),
+  salespersonNameAr: z.string().min(1).nullish(),
+  /** Coupon presented by the customer; the server evaluates promotions with it at confirm. */
+  couponCode: z.string().min(1).nullish(),
   currency: z.string().optional(),
   notes: z.string().nullish(),
   internalNotes: z.string().nullish(),
@@ -74,6 +79,31 @@ export const salesInvoiceListQuerySchema = z.object({
   toDate: z.string().optional(),
 });
 
+/**
+ * What the promotion engine granted, as the confirming invoice recorded it —
+ * a value snapshot, so these figures never change when the promotion does.
+ */
+export const appliedSalesInvoicePromotionSchema = z.object({
+  promotionId: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  couponCode: z.string().nullable(),
+  discountTotal: z.string(),
+  lineDiscounts: z.array(z.object({ lineId: z.string(), itemId: z.string(), amount: z.string() })),
+  appliedAt: z.string(),
+});
+
+/** One row of تقرير استخدام العروض — `GET /promotions/report`. */
+export const promotionUsageRowSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  usageCount: z.number(),
+  discountGranted: z.string(),
+  reversedDiscount: z.string(),
+  netDiscount: z.string(),
+});
+
 export type SalesInvoiceStatusDTO = z.infer<typeof salesInvoiceStatusSchema>;
 export type SalesInvoiceDiscountDTO = z.infer<typeof salesInvoiceDiscountSchema>;
 export type CreateSalesInvoiceLineDTO = z.infer<typeof createSalesInvoiceLineSchema>;
@@ -81,3 +111,5 @@ export type CreateSalesInvoiceDTO = z.infer<typeof createSalesInvoiceSchema>;
 export type ConfirmSalesInvoiceDTO = z.infer<typeof confirmSalesInvoiceSchema>;
 export type SalesInvoicePaymentDTO = z.infer<typeof salesInvoicePaymentSchema>;
 export type SalesInvoiceListQueryDTO = z.infer<typeof salesInvoiceListQuerySchema>;
+export type AppliedSalesInvoicePromotionDTO = z.infer<typeof appliedSalesInvoicePromotionSchema>;
+export type PromotionUsageRowDTO = z.infer<typeof promotionUsageRowSchema>;

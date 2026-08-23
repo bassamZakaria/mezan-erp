@@ -11,6 +11,8 @@ export {
   type SalesInvoiceStatus,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
+  type AppliedSalesInvoicePromotion,
+  type AppliedPromotionLineDiscount,
   SALES_INVOICE_ACTIVE_STATUSES,
   SALES_INVOICE_TERMINAL_STATUSES,
   SALES_INVOICE_STATUS_LABELS_AR,
@@ -27,6 +29,7 @@ export {
 
 export {
   computeInvoiceTotals,
+  salesInvoiceTotals,
   INVOICE_ROUNDING_DECIMALS,
   type SalesInvoiceTotals,
   type SalesInvoiceLineTotals,
@@ -48,6 +51,8 @@ export type {
   SalesInvoiceStockResult,
   SalesInvoiceIssuedLineCost,
   SalesInvoiceCustomerExposureHook,
+  SalesInvoicePromotionHook,
+  SalesInvoicePromotionRequest,
 } from "./ports.js";
 
 export {
@@ -65,6 +70,11 @@ export {
   createSalesInvoiceStockHook,
   createSalesInvoiceCustomerExposureHook,
 } from "./adapters.js";
+
+export {
+  createSalesInvoicePromotionHook,
+  type SalesInvoicePromotionHookOptions,
+} from "./promotion-adapter.js";
 
 export {
   InvalidSalesInvoiceError,

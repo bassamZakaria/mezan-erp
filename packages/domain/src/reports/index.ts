@@ -46,6 +46,13 @@ export {
   type SalesByCustomerRow,
 } from "./sales-by-customer.js";
 export {
+  createSalesBySalespersonReport,
+  UNASSIGNED_SALESPERSON_KEY,
+  type SalesBySalespersonContext,
+  type SalesBySalespersonParams,
+  type SalesBySalespersonRow,
+} from "./sales-by-salesperson.js";
+export {
   createTopProductsReport,
   type TopProductsContext,
   type TopProductsParams,

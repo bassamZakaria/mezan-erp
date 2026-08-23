@@ -74,6 +74,10 @@ function invoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO {
     customerTaxExempt: false,
     warehouseId: "wh-1",
     branchId: "MAIN",
+    salespersonId: null,
+    salespersonNameAr: null,
+    couponCode: null,
+    appliedPromotion: null,
     currency: "EGP",
     notes: null,
     internalNotes: null,
@@ -87,7 +91,7 @@ function invoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO {
     createdAt: "2026-08-20T09:00:00.000Z",
     confirmedAt: "2026-08-20T09:00:00.000Z",
     lines: [invoiceLine()],
-    totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
+    totals: { grossTotal: "185.00", lineDiscountTotal: "0.00", promotionDiscountTotal: "0.00", invoiceDiscountTotal: "0.00", subtotal: "185.00", taxableTotal: "185.00", taxTotal: "25.90", grandTotal: "210.90" },
     ...overrides,
   };
 }

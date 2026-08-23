@@ -74,6 +74,7 @@ import {
   type NotificationRuleRepository,
   type NotificationRepository,
   createSalesInvoiceCustomerExposureHook,
+  createSalesInvoicePromotionHook,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   type PhysicalCountService,
@@ -767,9 +768,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             },
           }
         : undefined);
+    // Auto-wire promotion evaluation on confirm when the composition has a
+    // promotion store but didn't hand-wire the hook itself — otherwise a
+    // tenant with promotions configured would silently never apply one.
+    const promotions =
+      salesInvoices.promotions ??
+      (options.promotionRepo
+        ? createSalesInvoicePromotionHook(options.promotionRepo, {
+            categoryOfItem: async (itemId: string) => (await options.items?.repo.findById(itemId))?.categoryId ?? null,
+          })
+        : undefined);
     app.route(
       "/sales-invoices",
-      createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
+      createSalesInvoicesRoutes({ ...salesInvoices, creditControl, promotions }, options.resolveAuthContext),
     );
   }
   if (options.salesHistoricalImport) {
@@ -785,7 +796,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
   }
   if (options.promotionRepo) {
-    app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+    app.route(
+      "/promotions",
+      createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext, {
+        salesInvoices: options.salesInvoices?.repo,
+        salesReturns: options.salesReturns?.service,
+      }),
+    );
   }
   if (options.notificationRuleRepo) {
     app.route(

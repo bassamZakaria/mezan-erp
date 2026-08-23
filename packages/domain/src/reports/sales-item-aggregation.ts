@@ -1,5 +1,5 @@
 import { Money, Qty } from "../money/index.js";
-import { computeInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import { withinDateRange } from "./period-bucket.js";
 
@@ -28,7 +28,7 @@ export function aggregateItemSales(
   for (const invoice of invoices) {
     if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
     if (!withinDateRange(invoice.date, dateFrom, dateTo)) continue;
-    const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+    const totals = salesInvoiceTotals(invoice);
     invoice.lines.forEach((line, i) => {
       const lineTotals = totals.lines[i];
       if (!lineTotals) return;

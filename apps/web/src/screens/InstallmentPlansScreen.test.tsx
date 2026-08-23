@@ -20,6 +20,10 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     customerTaxExempt: false,
     warehouseId: "MAIN-WH",
     branchId: "MAIN",
+    salespersonId: null,
+    salespersonNameAr: null,
+    couponCode: null,
+    appliedPromotion: null,
     currency: "EGP",
     notes: null,
     internalNotes: null,
@@ -39,7 +43,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
         cogsAccountId: "acc-cogs", inventoryAccountId: "acc-inv", unitCost: "50.000000",
       },
     ],
-    totals: { grossTotal: "600.000000", lineDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "600.000000", taxableTotal: "600.000000", taxTotal: "0", grandTotal: "600.000000" },
+    totals: { grossTotal: "600.000000", lineDiscountTotal: "0", promotionDiscountTotal: "0", invoiceDiscountTotal: "0", subtotal: "600.000000", taxableTotal: "600.000000", taxTotal: "0", grandTotal: "600.000000" },
     ...overrides,
   };
 }

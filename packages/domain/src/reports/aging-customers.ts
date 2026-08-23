@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Money } from "../money/index.js";
-import { computeInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 
@@ -96,7 +96,7 @@ export function createAgingCustomersReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (invoice.date > params.asOfDate) continue;
-        const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+        const totals = salesInvoiceTotals(invoice);
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
         const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
         const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled);

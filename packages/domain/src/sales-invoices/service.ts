@@ -32,7 +32,7 @@ import type {
   SalesInvoiceStatus,
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
-import { computeInvoiceTotals, type SalesInvoiceTotals } from "./totals.js";
+import { salesInvoiceTotals, type SalesInvoiceTotals } from "./totals.js";
 import { describeSalesInvoiceEffects } from "./effects.js";
 import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine } from "./gl.js";
 import type {
@@ -40,6 +40,7 @@ import type {
   SalesInvoiceListFilter,
   SalesInvoiceStockHook,
   SalesInvoiceCustomerExposureHook,
+  SalesInvoicePromotionHook,
 } from "./ports.js";
 import {
   DuplicateSalesInvoiceError,
@@ -74,6 +75,8 @@ export interface SalesInvoiceServiceDeps {
   readonly workflow?: DocumentWorkflowGate;
   /** Optional credit-control check on confirm; when omitted, no credit check runs at all. */
   readonly creditControl?: SalesInvoiceCreditControlDeps;
+  /** Optional promotion evaluation on confirm; when omitted, no invoice ever records a promotion. */
+  readonly promotions?: SalesInvoicePromotionHook;
   readonly audit?: AuditSink;
   /**
    * Receivables sub-ledger. Without it a confirmed invoice never becomes an
@@ -112,6 +115,9 @@ export interface CreateSalesInvoiceCommand {
   readonly customerTaxExempt?: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
+  readonly salespersonId?: string | null;
+  readonly salespersonNameAr?: string | null;
+  readonly couponCode?: string | null;
   readonly currency?: string;
   readonly notes?: string | null;
   readonly internalNotes?: string | null;
@@ -142,11 +148,9 @@ export class SalesInvoiceService {
     return this.deps.now ? this.deps.now() : new Date().toISOString();
   }
 
-  /** Totals for an invoice, honouring the customer's tax-exempt flag. */
+  /** Totals for an invoice, honouring the customer's tax-exempt flag and any applied promotion. */
   totalsOf(invoice: SalesInvoice): SalesInvoiceTotals {
-    return computeInvoiceTotals(invoice.lines, invoice.discount, {
-      taxExempt: invoice.customerTaxExempt,
-    });
+    return salesInvoiceTotals(invoice);
   }
 
   /** The "تأثيرات هذه الفاتورة" descriptor (pure; drives the panel + confirm gate). */
@@ -212,9 +216,14 @@ export class SalesInvoiceService {
     }
 
     assertTransition(id, existing.status, "confirmed");
-    const totals = this.totalsOf(existing);
 
-    const creditWarning = await this.checkCredit(existing, totals.grandTotal);
+    // The promotion is evaluated only once the gate has granted, so a snapshot
+    // exists only on an invoice that really went live — and every figure below
+    // (credit exposure, GL posting, AR) reflects the discount it granted.
+    const promoted = await this.applyPromotion(existing);
+    const totals = this.totalsOf(promoted);
+
+    const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
 
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next();
@@ -222,14 +231,14 @@ export class SalesInvoiceService {
       const occurredAt = this.now();
 
       // Issue stock OUT for stock lines; capture the moving-average cost.
-      const stockLines = existing.lines.filter((l) => l.isStock);
+      const stockLines = promoted.lines.filter((l) => l.isStock);
       let costByLineId = new Map<string, Money>();
       if (stockLines.length > 0) {
         const result = await this.deps.stock.issue({
-          issueId: existing.id,
-          sourceDocId: existing.id,
+          issueId: promoted.id,
+          sourceDocId: promoted.id,
           sourceDocNumber: docNo,
-          warehouseId: existing.warehouseId,
+          warehouseId: promoted.warehouseId,
           occurredAt,
           lines: stockLines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
         });
@@ -237,13 +246,13 @@ export class SalesInvoiceService {
       }
 
       // Capture unit costs onto lines + build the COGS side of the entry.
-      const linesWithCost: SalesInvoiceLine[] = existing.lines.map((l) => {
+      const linesWithCost: SalesInvoiceLine[] = promoted.lines.map((l) => {
         if (!l.isStock) return l;
         const cost = costByLineId.get(l.lineId) ?? Money.zero();
         const unitCost = l.qty.scaled === 0n ? Money.zero() : divCost(cost, l.qty);
         return { ...l, unitCost };
       });
-      const cogsLines: SalesInvoiceCogsLine[] = existing.lines
+      const cogsLines: SalesInvoiceCogsLine[] = promoted.lines
         .filter((l) => l.isStock && l.cogsAccountId && l.inventoryAccountId)
         .map((l) => ({
           cogsAccountId: l.cogsAccountId as string,
@@ -251,7 +260,7 @@ export class SalesInvoiceService {
           cost: costByLineId.get(l.lineId) ?? Money.zero(),
         }));
 
-      const numbered: SalesInvoice = { ...existing, docNo, lines: linesWithCost };
+      const numbered: SalesInvoice = { ...promoted, docNo, lines: linesWithCost };
       const posting = buildSalesInvoiceGlPosting(numbered, totals, cogsLines);
       const glResult = await this.deps.gl.post(posting);
 
@@ -281,6 +290,22 @@ export class SalesInvoiceService {
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { invoice: confirmed, held: false, creditWarning };
+  }
+
+  /**
+   * Evaluates the promotion engine against the invoice as it stands at confirm
+   * and stamps the resulting SNAPSHOT onto it (docs/catalog/01 §"العروض").
+   * Nothing is re-resolved from the promotion later, so editing or
+   * deactivating the promotion cannot rewrite what this invoice granted.
+   */
+  private async applyPromotion(invoice: SalesInvoice): Promise<SalesInvoice> {
+    if (!this.deps.promotions || invoice.appliedPromotion) return invoice;
+    const applied = await this.deps.promotions.evaluate({
+      lines: invoice.lines,
+      date: invoice.date,
+      couponCode: invoice.couponCode,
+    });
+    return applied ? { ...invoice, appliedPromotion: applied } : invoice;
   }
 
   /**
@@ -377,7 +402,11 @@ export class SalesInvoiceService {
       customerTaxExempt: cmd.customerTaxExempt ?? false,
       warehouseId: cmd.warehouseId,
       branchId: cmd.branchId,
+      salespersonId: cmd.salespersonId ?? null,
+      salespersonNameAr: cmd.salespersonNameAr ?? null,
       currency: cmd.currency ?? "EGP",
+      couponCode: cmd.couponCode ?? null,
+      appliedPromotion: null,
       notes: cmd.notes ?? null,
       internalNotes: cmd.internalNotes ?? null,
       discount: cmd.discount ?? { type: "amount", amount: Money.zero() },

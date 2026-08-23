@@ -7,7 +7,7 @@
  */
 
 import type { Money, Qty } from "../money/index.js";
-import type { SalesInvoice } from "./sales-invoice.js";
+import type { AppliedSalesInvoicePromotion, SalesInvoice, SalesInvoiceLine } from "./sales-invoice.js";
 
 /** Persistence port for sales invoices, keyed by id. */
 export interface SalesInvoiceRepository {
@@ -70,4 +70,20 @@ export interface SalesInvoiceStockHook {
  */
 export interface SalesInvoiceCustomerExposureHook {
   currentBalance(customerId: string, excludeInvoiceId?: string): Promise<Money>;
+}
+
+export interface SalesInvoicePromotionRequest {
+  readonly lines: readonly SalesInvoiceLine[];
+  readonly date: string;
+  readonly couponCode: string | null;
+}
+
+/**
+ * Runs the promotion engine against a confirming invoice and returns the
+ * snapshot to stamp onto it. Bound to the promotion repository — see
+ * {@link createSalesInvoicePromotionHook} — so the invoice module never
+ * depends on the promotions module's write surface.
+ */
+export interface SalesInvoicePromotionHook {
+  evaluate(request: SalesInvoicePromotionRequest): Promise<AppliedSalesInvoicePromotion | null>;
 }

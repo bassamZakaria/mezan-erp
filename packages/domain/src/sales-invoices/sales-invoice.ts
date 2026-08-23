@@ -81,6 +81,34 @@ export interface SalesInvoiceLine {
   readonly unitCost: Money | null;
 }
 
+/** One line's share of the promotion discount, as the engine allocated it. */
+export interface AppliedPromotionLineDiscount {
+  readonly lineId: string;
+  /** Carried alongside `lineId` so a sales return — which references items, not line ids — can reverse the right share. */
+  readonly itemId: string;
+  readonly amount: Money;
+}
+
+/**
+ * The promotion an invoice actually applied, captured at confirm.
+ *
+ * This is a VALUE SNAPSHOT, not a foreign key: `promotionId` is retained for
+ * grouping only and is deliberately NOT a referential constraint. Editing or
+ * deactivating a promotion — or deleting it outright — must never change what
+ * a historical invoice says it granted, so every figure the usage report reads
+ * (code, name, discount, per-line split) is stored here rather than resolved
+ * from the live promotion row.
+ */
+export interface AppliedSalesInvoicePromotion {
+  readonly promotionId: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly couponCode: string | null;
+  readonly discountTotal: Money;
+  readonly lineDiscounts: readonly AppliedPromotionLineDiscount[];
+  readonly appliedAt: string;
+}
+
 export interface SalesInvoice {
   readonly id: string;
   readonly docType: "SALES_INVOICE";
@@ -97,7 +125,19 @@ export interface SalesInvoice {
   readonly customerTaxExempt: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
+  /**
+   * The HR employee credited with the sale (`Employee.id`) — the same concept
+   * a van trip's crew references. Null on invoices raised before the field
+   * existed, and on any sale nobody is credited with.
+   */
+  readonly salespersonId: string | null;
+  /** Name snapshot at draft time, like `customerNameAr` — print/history must not re-resolve it. */
+  readonly salespersonNameAr: string | null;
   readonly currency: string;
+  /** Coupon the customer presented; feeds the promotion evaluation at confirm. */
+  readonly couponCode: string | null;
+  /** What the promotion engine actually granted at confirm; null when nothing applied. */
+  readonly appliedPromotion: AppliedSalesInvoicePromotion | null;
   /** Customer-facing notes (printed). */
   readonly notes: string | null;
   /** Internal notes (not printed). */

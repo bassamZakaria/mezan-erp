@@ -112,6 +112,7 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
       "report-sales-by-period",
       "report-sales-by-item",
       "report-sales-by-customer",
+      "report-sales-by-salesperson",
       "report-sales-top-products",
       "report-purchases-by-period",
       "report-purchases-by-supplier",

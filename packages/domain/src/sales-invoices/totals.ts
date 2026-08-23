@@ -15,7 +15,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import { allocateScaled } from "../money/rounding.js";
-import type { SalesInvoiceDiscount, SalesInvoiceLine } from "./sales-invoice.js";
+import type { AppliedPromotionLineDiscount, SalesInvoice, SalesInvoiceDiscount, SalesInvoiceLine } from "./sales-invoice.js";
 
 /** Currency minor-unit precision invoice amounts round to (piastres/halalas). */
 export const INVOICE_ROUNDING_DECIMALS = 2;
@@ -60,9 +60,11 @@ export interface SalesInvoiceLineTotals {
   readonly gross: Money;
   /** Line-level discount amount. */
   readonly lineDiscount: Money;
+  /** This line's share of the applied promotion's discount. */
+  readonly promotionDiscount: Money;
   /** This line's share of the invoice-level discount. */
   readonly invoiceDiscount: Money;
-  /** gross − lineDiscount − invoiceDiscount — the VAT base. */
+  /** gross − lineDiscount − promotionDiscount − invoiceDiscount — the VAT base. */
   readonly taxableBase: Money;
   readonly tax: Money;
   /** taxableBase + tax. */
@@ -75,9 +77,11 @@ export interface SalesInvoiceTotals {
   readonly grossTotal: Money;
   /** Σ line-level discounts. */
   readonly lineDiscountTotal: Money;
+  /** Σ the applied promotion's per-line discounts, after capping each at its line's net. */
+  readonly promotionDiscountTotal: Money;
   /** The invoice-level discount amount actually applied. */
   readonly invoiceDiscountTotal: Money;
-  /** grossTotal − lineDiscountTotal (المجموع الفرعي شامل خصومات البنود). */
+  /** grossTotal − lineDiscountTotal − promotionDiscountTotal (المجموع الفرعي شامل خصومات البنود والعرض). */
   readonly subtotal: Money;
   /** Σ taxable bases (subtotal − invoiceDiscountTotal). */
   readonly taxableTotal: Money;
@@ -103,13 +107,28 @@ function resolveInvoiceDiscount(discount: SalesInvoiceDiscount, subtotal: Money)
 export function computeInvoiceTotals(
   lines: readonly SalesInvoiceLine[],
   discount: SalesInvoiceDiscount,
-  options: { readonly taxExempt?: boolean } = {},
+  options: {
+    readonly taxExempt?: boolean;
+    /** The applied promotion's per-line split; each amount is capped at its line's post-line-discount net. */
+    readonly promotionLineDiscounts?: readonly AppliedPromotionLineDiscount[];
+  } = {},
 ): SalesInvoiceTotals {
   const taxExempt = options.taxExempt ?? false;
+  const promotionByLineId = new Map<string, bigint>();
+  for (const d of options.promotionLineDiscounts ?? []) {
+    promotionByLineId.set(d.lineId, (promotionByLineId.get(d.lineId) ?? 0n) + d.amount.scaled);
+  }
 
   const gross = lines.map((l) => extendLine(l.qty, l.unitPrice));
   const lineDiscount = lines.map((l, i) => percentOf(gross[i] as Money, l.discountPercent));
-  const net = lines.map((l, i) => (gross[i] as Money).add((lineDiscount[i] as Money).negate()));
+  const afterLineDiscount = lines.map((l, i) => (gross[i] as Money).add((lineDiscount[i] as Money).negate()));
+  const promotionDiscount = lines.map((line, i) => {
+    const requested = roundMinor(promotionByLineId.get(line.lineId) ?? 0n);
+    const available = (afterLineDiscount[i] as Money).scaled;
+    if (requested <= 0n) return Money.zero();
+    return Money.fromScaled(requested > available ? (available > 0n ? available : 0n) : requested);
+  });
+  const net = afterLineDiscount.map((n, i) => n.add((promotionDiscount[i] as Money).negate()));
 
   const subtotal = Money.sum(net);
   const invoiceDiscountTotal = resolveInvoiceDiscount(discount, subtotal);
@@ -133,6 +152,7 @@ export function computeInvoiceTotals(
       lineId: line.lineId,
       gross: gross[i] as Money,
       lineDiscount: lineDiscount[i] as Money,
+      promotionDiscount: promotionDiscount[i] as Money,
       invoiceDiscount: allocatedDiscount[i] as Money,
       taxableBase,
       tax,
@@ -147,10 +167,23 @@ export function computeInvoiceTotals(
     lines: lineTotals,
     grossTotal: Money.sum(gross),
     lineDiscountTotal: Money.sum(lineDiscount),
+    promotionDiscountTotal: Money.sum(promotionDiscount),
     invoiceDiscountTotal,
     subtotal,
     taxableTotal,
     taxTotal,
     grandTotal: taxableTotal.add(taxTotal),
   };
+}
+
+/**
+ * Totals for a whole invoice — the single entry point everything reading a
+ * persisted invoice should use, so the applied promotion's discount is never
+ * accidentally left out of a figure the GL, AR or a report reconciles against.
+ */
+export function salesInvoiceTotals(invoice: SalesInvoice): SalesInvoiceTotals {
+  return computeInvoiceTotals(invoice.lines, invoice.discount, {
+    taxExempt: invoice.customerTaxExempt,
+    promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts,
+  });
 }

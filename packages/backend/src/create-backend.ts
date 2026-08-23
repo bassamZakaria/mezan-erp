@@ -63,6 +63,9 @@ import {
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
+  createSqlitePrintTemplateConfigStore,
+  createSqliteDepartmentRepository,
+  createSqliteEmployeeRepository,
 } from "@mezan/persistence";
 import { EtaService, Money } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -236,6 +239,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const manufacturing = createSqliteManufacturingStores(sqlite);
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
+
+  // --- w8/print-migration — Print Template designer config + Data Migration
+  // wizard's department/employee master-data steps (docs/catalog/09). The
+  // department/employee stores are a thin stand-in (table names
+  // `hr_departments`/`hr_employees`) for the in-flight hr/master-data
+  // branch's own persistence — reconciled once that branch lands on main. ---
+  const printTemplateConfig = createSqlitePrintTemplateConfigStore(sqlite);
+  const departments = createSqliteDepartmentRepository(sqlite);
+  const employees = createSqliteEmployeeRepository(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
@@ -453,6 +465,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     historicalImport: {
       archives: historicalImportArchives,
     },
+    printTemplateConfig: {
+      repo: printTemplateConfig,
+    },
+    dataMigration: {
+      departments,
+      employees,
+      treasuryAccounts,
+      suppliers,
+      customers,
+      items,
+      assetCategories,
+      assets,
+      branches,
+      // Sales-side historical-import counts land once feat/sales-historical-import
+      // merges (a sibling in-flight branch) — the purchase side is real today.
+      historicalCounts: async () => {
+        const purchaseArchives = await historicalImportArchives.list();
+        return {
+          salesInvoices: 0,
+          salesReturns: 0,
+          purchaseInvoices: purchaseArchives.filter((a) => a.docType === "PURCHASE_INVOICE").length,
+          purchaseReturns: purchaseArchives.filter((a) => a.docType === "PURCHASE_RETURN").length,
+        };
+      },
+    },
     salesReturns: { service: salesReturns },
     purchaseReturns: { service: purchaseReturns },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
@@ -529,6 +566,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     purchaseReturnStore,
     landedCostStore,
     followUps,
+    printTemplateConfig,
+    departments,
+    employees,
   ];
 
   return {

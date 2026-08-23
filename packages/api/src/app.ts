@@ -59,6 +59,11 @@ import {
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   type PhysicalCountService,
+  type PrintTemplateConfigRepository,
+  type DepartmentRepository,
+  type EmployeeRepository,
+  type AssetCategoryRepository,
+  type AssetRepository,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -91,6 +96,8 @@ import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createManufacturingRoutes } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
+import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
+import { createDataMigrationRoutes } from "./data-migration-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
@@ -412,6 +419,41 @@ export interface CreateAppOptions {
     readonly accounts?: HistoricalImportGlAccounts;
     readonly resolveAuthContext?: AuthContextResolver;
     readonly now?: () => string;
+  };
+  /**
+   * Mounts the 9-tab print-template designer's persisted config (docs/catalog/09
+   * §"قوالب الطباعة") under `/print-template-config` when present — GET
+   * returns the tenant's saved config or the shared default, PUT validates
+   * and saves. Omit for no such routes.
+   */
+  readonly printTemplateConfig?: {
+    readonly repo: PrintTemplateConfigRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts the Data Migration wizard's 9 master-data steps (docs/catalog/09
+   * §"نقل البيانات", steps 1-9 — الأقسام through الأصول الثابتة) under
+   * `/data-migration` when present. The 4 historical-document steps (10-13)
+   * are NOT here — they reuse `/purchases/historical-import` and the sibling
+   * `/sales/historical-import` mount directly. Omit for no such routes.
+   */
+  readonly dataMigration?: {
+    readonly departments: DepartmentRepository;
+    readonly employees: EmployeeRepository;
+    readonly treasuryAccounts: TreasuryAccountRepository;
+    readonly suppliers: SupplierRepository;
+    readonly customers: CustomerRepository;
+    readonly items: ItemRepository;
+    readonly assetCategories: AssetCategoryRepository;
+    readonly assets: AssetRepository;
+    readonly branches: BranchRepository;
+    readonly historicalCounts?: () => Promise<{
+      salesInvoices: number;
+      salesReturns: number;
+      purchaseInvoices: number;
+      purchaseReturns: number;
+    }>;
+    readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
    * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
@@ -846,6 +888,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
   });
+
+  if (options.printTemplateConfig) {
+    app.route(
+      "/print-template-config",
+      createPrintTemplateConfigRoutes(options.printTemplateConfig, options.printTemplateConfig.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+  if (options.dataMigration) {
+    app.route(
+      "/data-migration",
+      createDataMigrationRoutes(options.dataMigration, options.dataMigration.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
 
   if (options.lan) {
     const registry = options.lan.registry ?? new SeatSessionRegistry(0);

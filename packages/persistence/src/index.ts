@@ -180,3 +180,13 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+export {
+  createSqlitePrintTemplateConfigStore,
+  type SqlitePrintTemplateConfigStoreHandle,
+} from "./print-template-config-store.js";
+export {
+  createSqliteDepartmentRepository,
+  type SqliteDepartmentRepositoryHandle,
+  createSqliteEmployeeRepository,
+  type SqliteEmployeeRepositoryHandle,
+} from "./hr-master-data-store.js";

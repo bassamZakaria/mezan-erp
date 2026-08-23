@@ -79,6 +79,7 @@ import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
+import { DataMigrationPage } from "./settings/DataMigrationPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
@@ -171,6 +172,7 @@ const ROUTABLE_SCREENS = {
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  "settings-data-migration": DataMigrationPage,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,

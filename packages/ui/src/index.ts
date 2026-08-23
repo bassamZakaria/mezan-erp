@@ -120,6 +120,15 @@ export {
 } from "./lib/historical-import-file";
 
 export {
+  buildDataMigrationTemplate,
+  parseDataMigrationFile,
+  type DataMigrationColumn,
+  type DataMigrationStepSpec,
+  type DataMigrationParseError,
+  type DataMigrationParseResult,
+} from "./lib/data-migration-file";
+
+export {
   DEFAULT_PRINT_TEMPLATE_CONFIG,
   resolvePrintTemplateConfig,
   type PrintTemplateConfig,

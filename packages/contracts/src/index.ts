@@ -817,5 +817,34 @@ export {
   type StockBalanceListQueryDTO,
 } from "./stock-documents.js";
 
+export {
+  printPageSizeSchema,
+  logoPositionSchema,
+  logoSizeSchema,
+  printIdentityConfigSchema,
+  printHeaderConfigSchema,
+  printContentConfigSchema,
+  printColumnsConfigSchema,
+  printTotalsConfigSchema,
+  printFooterConfigSchema,
+  printWatermarkConfigSchema,
+  printPosReceiptConfigSchema,
+  printTemplateOverrideSchema,
+  printTemplateConfigSchema,
+  type PrintPageSizeDTO,
+  type LogoPositionDTO,
+  type LogoSizeDTO,
+  type PrintIdentityConfigDTO,
+  type PrintHeaderConfigDTO,
+  type PrintContentConfigDTO,
+  type PrintColumnsConfigDTO,
+  type PrintTotalsConfigDTO,
+  type PrintFooterConfigDTO,
+  type PrintWatermarkConfigDTO,
+  type PrintPosReceiptConfigDTO,
+  type PrintTemplateOverrideDTO,
+  type PrintTemplateConfigDTO,
+} from "./print-template-config.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

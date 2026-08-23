@@ -2,6 +2,8 @@ import { useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { useSettings, useUpdateSettings } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
+import { LOCALES, LOCALE_ENDONYM, type Locale } from "@mezan/ui";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
 /**
@@ -38,6 +40,7 @@ const CURRENCY_OPTIONS = [
 
 function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   const updateSettingsMutation = useUpdateSettings();
+  const { setLocale } = useAppTranslation();
   const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,6 +56,11 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
       setDraft(saved);
       setDirty(false);
       setError(null);
+      // The tenant's default language IS the UI language — saving it here must
+      // switch the interface, or the setting silently does nothing.
+      if ((LOCALES as readonly string[]).includes(saved.language)) {
+        setLocale(saved.language as Locale);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر حفظ الإعدادات");
     }
@@ -84,11 +92,7 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                   label="اللغة الافتراضية"
                   value={draft.language}
                   onChange={(v) => patch({ language: v as TenantSettingsDTO["language"] })}
-                  options={[
-                    { value: "ar", label: "العربية" },
-                    { value: "en", label: "English" },
-                    { value: "de", label: "Deutsch" },
-                  ]}
+                  options={LOCALES.map((l) => ({ value: l, label: LOCALE_ENDONYM[l] }))}
                 />
                 <MultiChipField
                   label="العملات الإضافية"

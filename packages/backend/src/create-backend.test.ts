@@ -666,3 +666,60 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
     expect((await app.fetch(new Request("http://local/field/van-trips"))).status).toBe(403);
   });
 });
+
+describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historical import", () => {
+  it("mounts /manufacturing/* over the seeded COA's dedicated leaf accounts", async () => {
+    const app = await newBackend();
+    const boms = await app.fetch(new Request("http://local/manufacturing/boms", { headers: { "x-permissions": "*" } }));
+    expect(boms.status).toBe(200);
+    expect((await boms.json()) as unknown[]).toEqual([]);
+
+    const workOrders = await app.fetch(
+      new Request("http://local/manufacturing/work-orders", { headers: { "x-permissions": "*" } }),
+    );
+    expect(workOrders.status).toBe(200);
+
+    const configInstances = await app.fetch(
+      new Request("http://local/manufacturing/config-instances", { headers: { "x-permissions": "*" } }),
+    );
+    expect(configInstances.status).toBe(200);
+    expect((await configInstances.json()) as unknown[]).toEqual([]);
+
+    // The 4 dedicated leaf accounts from the standard COA template exist on the seeded DB.
+    const accounts = await app.fetch(new Request("http://local/accounts", { headers: { "x-permissions": "*" } }));
+    const accountIds = ((await accounts.json()) as { id: string }[]).map((a) => a.id);
+    expect(accountIds).toEqual(expect.arrayContaining(["1210", "1220", "5110", "5210"]));
+  });
+
+  it("mounts /rfqs over the shared purchase-order store + numbering", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/rfqs", { headers: { "x-permissions": "*" } }));
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toEqual([]);
+  });
+
+  it("mounts /purchases/historical-import/archives (no GL adapter — archive only)", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(
+      new Request("http://local/purchases/historical-import/archives", { headers: { "x-permissions": "*" } }),
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()) as unknown[]).toEqual([]);
+  });
+
+  it("mounts /sales-returns, /purchase-returns, /landed-costs, /installments/plans, /installments/follow-ups", async () => {
+    const app = await newBackend();
+    const headers = { "x-permissions": "*" };
+    for (const path of [
+      "/sales-returns",
+      "/purchase-returns",
+      "/landed-costs",
+      "/installments/plans",
+      "/installments/follow-ups",
+    ]) {
+      const res = await app.fetch(new Request(`http://local${path}`, { headers }));
+      expect(res.status, `GET ${path}`).toBe(200);
+      expect((await res.json()) as unknown[]).toEqual([]);
+    }
+  });
+});

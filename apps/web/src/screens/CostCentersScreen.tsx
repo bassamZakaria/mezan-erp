@@ -1,10 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AccountTree, Button, Card, EntityPicker, IconButton, StatCard, StatusPill, SidePanel, type AccountTreeRow, type EntityPickerOption, type PillTone } from "@mezan/ui";
 import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
 import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mezan/contracts";
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
-import { demoCostCenters } from "../accounting-treasury-sample-data";
-import { sampleBranches, branchName } from "../settings/sample-data";
+import { useBranches, useCostCenters, useCreateCostCenter, useUpdateCostCenter } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 
 /** مراكز التكلفة (Cost Centers) — docs/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
@@ -65,10 +64,26 @@ function validateDraft(draft: CostCenterDraft, existing: CostCenterDTO[], editin
 }
 
 export function CostCentersScreen() {
-  const [costCenters, setCostCenters] = useState<CostCenterDTO[]>(demoCostCenters);
+  const query = useCostCenters();
+  const createCostCenter = useCreateCostCenter();
+  const updateCostCenter = useUpdateCostCenter();
+  const branchesQuery = useBranches();
+  const costCenters = query.data ?? [];
+  const branches = branchesQuery.data ?? [];
+
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<CostCenterTypeDTO | "all">("all");
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set(demoCostCenters.map((c) => c.id)));
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const expandedInitialized = useRef(false);
+
+  // Expand the whole tree the first time cost centers load — afterwards the
+  // user's own expand/collapse choices are left alone.
+  useEffect(() => {
+    if (!expandedInitialized.current && costCenters.length > 0) {
+      expandedInitialized.current = true;
+      setExpandedIds(new Set(costCenters.map((c) => c.id)));
+    }
+  }, [costCenters]);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
@@ -114,6 +129,7 @@ export function CostCentersScreen() {
   const selected = selectedId ? costCenters.find((c) => c.id === selectedId) ?? null : null;
   const parentOfSelected = selected?.parentId ? costCenters.find((c) => c.id === selected.parentId) ?? null : null;
   const childrenOfSelected = selectedId ? costCenters.filter((c) => c.parentId === selectedId) : [];
+  const branchOfSelected = selected?.branchId ? branches.find((b) => b.id === selected.branchId) ?? null : null;
 
   function openCreateForm() {
     setEditingId(null);
@@ -129,7 +145,7 @@ export function CostCentersScreen() {
     setFormOpen(true);
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const error = validateDraft(draft, costCenters, editingId);
     if (error) {
@@ -139,30 +155,27 @@ export function CostCentersScreen() {
     setFormError(null);
     const nameEn = draft.nameEn.trim() === "" ? null : draft.nameEn.trim();
     const notes = draft.notes.trim() === "" ? null : draft.notes.trim();
-    if (editingId) {
-      setCostCenters((prev) =>
-        prev.map((c) =>
-          c.id === editingId
-            ? { ...c, nameAr: draft.nameAr.trim(), nameEn, type: draft.type, parentId: draft.parentId, notes, status: draft.status }
-            : c,
-        ),
-      );
-    } else {
-      const newCostCenter: CostCenterDTO = {
-        id: `cc-${draft.code.trim()}-${Date.now()}`,
-        code: draft.code.trim(),
-        nameAr: draft.nameAr.trim(),
-        nameEn,
-        type: draft.type,
-        departmentId: null,
-        branchId: null,
-        parentId: draft.parentId,
-        notes,
-        status: "active",
-      };
-      setCostCenters((prev) => [...prev, newCostCenter]);
+    try {
+      if (editingId) {
+        await updateCostCenter.mutateAsync({
+          id: editingId,
+          patch: { nameAr: draft.nameAr.trim(), nameEn, type: draft.type, parentId: draft.parentId, notes, status: draft.status },
+        });
+      } else {
+        await createCostCenter.mutateAsync({
+          id: crypto.randomUUID(),
+          code: draft.code.trim(),
+          nameAr: draft.nameAr.trim(),
+          nameEn,
+          type: draft.type,
+          parentId: draft.parentId,
+          notes,
+        });
+      }
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذر حفظ مركز التكلفة");
     }
-    setFormOpen(false);
   }
 
   const totalCount = costCenters.length;
@@ -172,6 +185,14 @@ export function CostCentersScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مراكز التكلفة.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Cost Centers</div>
@@ -287,7 +308,7 @@ export function CostCentersScreen() {
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">الفرع</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.branchId ? branchName(selected.branchId, sampleBranches) : "بدون ربط"}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.branchId ? (branchOfSelected?.name ?? selected.branchId) : "بدون ربط"}</div>
               </div>
             </Card>
 

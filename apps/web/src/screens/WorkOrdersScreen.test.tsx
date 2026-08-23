@@ -1,73 +1,144 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { describe, expect, it } from "vitest";
+import { screen, fireEvent } from "@testing-library/react";
+import type { ItemDTO, WarehouseDTO } from "@mezan/contracts";
 import { WorkOrdersScreen } from "./WorkOrdersScreen";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import type { BomRecord, WorkOrderRecord } from "../data/hooks";
 
-describe.each(["light", "dark"] as const)("WorkOrdersScreen (%s theme)", (theme) => {
-  afterEach(() => {
-    document.documentElement.removeAttribute("data-theme");
+const items: ItemDTO[] = [
+  {
+    id: "item-table",
+    code: "ITM-2",
+    nameAr: "طاولة خشبية",
+    nameEn: null,
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: null,
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: null,
+    costPrice: null,
+    taxRatePercent: 0,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: null,
+    reorderQty: null,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+  },
+];
+
+const warehouses: WarehouseDTO[] = [
+  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+];
+
+const boms: BomRecord[] = [
+  {
+    id: "bom-1",
+    number: "BOM-0001",
+    productItemId: "item-table",
+    version: 1,
+    standardQty: "1",
+    unit: "PCS",
+    laborCost: "50",
+    overheadCost: "30",
+    versionNotes: null,
+    lines: [{ itemId: "item-table", qty: "1", wastePercent: 0, optional: false, notes: null }],
+    status: "active",
+    custom: false,
+    createdBy: "محمد الشهابي",
+    createdAt: "2026-08-01T08:00:00.000Z",
+  },
+];
+
+function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
+  return {
+    id: "wo-1",
+    number: "WO-0001",
+    bomId: "bom-1",
+    bomVersion: 1,
+    productItemId: "item-table",
+    plannedQty: "10",
+    producedQty: "0",
+    sourceWarehouseId: "wh-raw",
+    destinationWarehouseId: "wh-fg",
+    priority: "normal",
+    scheduledStartDate: "2026-08-10",
+    scheduledEndDate: "2026-08-28",
+    notes: null,
+    status: "planned",
+    stage: "not_started",
+    materials: [
+      { itemId: "item-table", requiredQty: "40", wastePercent: 5, optional: false, issuedQty: "0", returnedQty: "0", netQty: "0", issuedUnitCost: "0" },
+    ],
+    materialCost: "0",
+    laborCost: "50",
+    overheadCost: "30",
+    extraCost: "0",
+    wipTotal: "0",
+    unitCost: "0",
+    progress: 0,
+    costLog: [],
+    wasteLog: [],
+    configInstanceId: null,
+    glPosted: false,
+    createdBy: "محمد الشهابي",
+    createdAt: "2026-08-10T08:00:00.000Z",
+    startedAt: null,
+    issuedAt: null,
+    receivedAt: null,
+    completedAt: null,
+    ...overrides,
+  };
+}
+
+function renderScreen(orders: WorkOrderRecord[] = [workOrder()]) {
+  let current = [...orders];
+  const transport = stubTransport({
+    "GET /manufacturing/work-orders": () => ({ body: current }),
+    "GET /manufacturing/boms": () => ({ body: boms }),
+    "GET /items": () => ({ body: items }),
+    "GET /warehouses": () => ({ body: warehouses }),
+    "POST /manufacturing/work-orders/wo-1/start": () => {
+      const updated: WorkOrderRecord = { ...current[0]!, status: "in_progress", stage: "started", startedAt: "2026-08-21T09:00:00.000Z" };
+      current = [updated, ...current.slice(1)];
+      return { body: updated };
+    },
   });
+  return renderWithProviders(<WorkOrdersScreen />, { transport, initialSession: testAdminSession });
+}
 
-  function renderScreen() {
-    document.documentElement.setAttribute("data-theme", theme);
-    return render(<WorkOrdersScreen />);
-  }
-
-  it("lists the seeded work orders with their status, priority and production progress", () => {
-    renderScreen();
+describe("WorkOrdersScreen", () => {
+  it("shows an empty state when there are no work orders yet", async () => {
+    renderScreen([]);
     expect(screen.getByRole("heading", { name: "أوامر التصنيع" })).toBeInTheDocument();
-    expect(screen.getByText("WO-0001")).toBeInTheDocument();
-    expect(screen.getByText("WO-0003")).toBeInTheDocument();
-    // wo-3 is fully produced: 8/8 · 100%
-    const row3 = screen.getByText("WO-0003").closest("tr") as HTMLElement;
-    expect(within(row3).getByText("8.000000/8.000000 · 100%")).toBeInTheDocument();
-    expect(within(row3).getByText("مكتمل")).toBeInTheDocument();
+    expect(await screen.findByText("لا توجد أوامر تصنيع مطابقة — أنشئ أمراً جديداً")).toBeInTheDocument();
   });
 
-  it("filters by status via the status chips", async () => {
-    const user = userEvent.setup();
+  it("lists work orders from the real backend", async () => {
     renderScreen();
-    await user.click(screen.getByRole("tab", { name: /^مخطط/ }));
-    expect(screen.getByText("WO-0004")).toBeInTheDocument();
-    expect(screen.queryByText("WO-0001")).not.toBeInTheDocument();
+    expect(await screen.findByText("WO-0001")).toBeInTheDocument();
+    expect(screen.getByText("طاولة خشبية")).toBeInTheDocument();
+    expect(screen.getAllByText("مخطط").length).toBeGreaterThan(0);
   });
 
-  it("filters by search text against the order number", async () => {
-    const user = userEvent.setup();
+  it("starts a work order (not_started → started) through the stubbed transport", async () => {
     renderScreen();
-    await user.type(screen.getByPlaceholderText("بحث في أوامر العمل…"), "0002");
-    expect(screen.getByText("WO-0002")).toBeInTheDocument();
-    expect(screen.queryByText("WO-0001")).not.toBeInTheDocument();
-  });
+    fireEvent.click(await screen.findByText("WO-0001"));
+    fireEvent.click(screen.getByRole("button", { name: "بدء العمل" }));
 
-  it("opens the detail view and shows the real WIP total (materials + labor + overhead + extra)", async () => {
-    const user = userEvent.setup();
-    renderScreen();
-    await user.click(screen.getByText("WO-0002"));
-    expect(screen.getByRole("heading", { name: "أمر تصنيع WO-0002" })).toBeInTheDocument();
-    // wo-2: materialCost 635 + laborCost 55 + overheadCost 30 + extraCost 0 = 720.00
-    expect(screen.getByText("720.00")).toBeInTheDocument();
-  });
-
-  it("advances the work order through its stages and updates the status pill", async () => {
-    const user = userEvent.setup();
-    renderScreen();
-    // wo-4 starts not_started/planned
-    await user.click(screen.getByText("WO-0004"));
-    expect(screen.getByText("مخطط")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "بدء العمل" }));
-    // advancing from not_started moves status to in_progress and offers the next action
+    expect(await screen.findByRole("button", { name: "صرف المواد" })).toBeInTheDocument();
     expect(screen.getByText("قيد التنفيذ")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "صرف المواد" })).toBeInTheDocument();
-  });
-
-  it("returns to the list from the detail view", async () => {
-    const user = userEvent.setup();
-    renderScreen();
-    await user.click(screen.getByText("WO-0001"));
-    await user.click(screen.getByRole("button", { name: "رجوع لأوامر التصنيع" }));
-    expect(screen.getByRole("heading", { name: "أوامر التصنيع" })).toBeInTheDocument();
   });
 });

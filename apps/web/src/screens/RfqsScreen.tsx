@@ -12,45 +12,47 @@ import {
   type PillTone,
   type EntityPickerOption,
 } from "@mezan/ui";
-import { Money, Qty, compareRfqQuotes, type PurchaseRfq, type PurchaseRfqStatus, type RfqQuote } from "@mezan/domain";
-import { demoSuppliers } from "../partners-sample-data";
-import { demoPurchaseItems, itemName, supplierName } from "../purchasing-sample-data";
-import { demoRfqs, demoRfqQuotes } from "../rfq-sample-data";
+import type { ItemDTO, PurchaseRfqDTO, PurchaseRfqStatusDTO, RfqQuoteDTO, SupplierDTO } from "@mezan/contracts";
+import {
+  useCancelRfq,
+  useCloseRfq,
+  useConvertRfq,
+  useCreateRfq,
+  useCreateRfqQuote,
+  useItems,
+  useRfqComparison,
+  useRfqQuotes,
+  useRfqs,
+  useSendRfq,
+  useSuppliers,
+  type RfqComparisonRecord,
+} from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/catalog/02 §"طلبات عروض الأسعار"): مسودة →
  * مرسل → مغلق (ملغي as a cancel path). Pre-PO document — capture requested
  * items, collect supplier quotes once sent, compare them, then convert the
- * chosen quote into a Purchase Order. Mirrors PurchaseOrdersScreen.tsx's demo
- * pattern (local state seeded from rfq-sample-data.ts) — the real permission-
- * gated `/rfqs` routes already exist in @mezan/api, this screen just isn't
- * wired to a live client yet (same as every other purchases screen).
+ * chosen quote into a Purchase Order via the real `/rfqs` routes.
  *
- * `compareRfqQuotes` is the one piece of real domain logic this screen calls
- * directly (pure, no I/O) — the comparison grid is exactly what the domain
- * computes, not a UI re-derivation of it.
+ * The comparison grid is fetched from `GET /rfqs/:id/comparison` — the
+ * server-computed equivalent of `@mezan/domain`'s `compareRfqQuotes` — rather
+ * than re-run client-side, since the wire quotes/RFQ are decimal-string DTOs,
+ * not `Money`/`Qty` domain instances.
  */
 
-const STATUS_LABEL: Record<PurchaseRfqStatus, string> = {
+const STATUS_LABEL: Record<PurchaseRfqStatusDTO, string> = {
   draft: "مسودة",
   sent: "مرسل",
   closed: "مغلق",
   cancelled: "ملغي",
 };
-const STATUS_TONE: Record<PurchaseRfqStatus, PillTone> = {
+const STATUS_TONE: Record<PurchaseRfqStatusDTO, PillTone> = {
   draft: "neutral",
   sent: "info",
   closed: "success",
   cancelled: "danger",
 };
-
-const num = (m: Money) => Number(m.toString());
-const itemOptions: EntityPickerOption[] = demoPurchaseItems.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.unit }));
-const supplierOptions: EntityPickerOption[] = demoSuppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-
-let nextRfqSeq = demoRfqs.length + 1;
-let nextQuoteSeq = demoRfqQuotes.length + 1;
 
 interface DraftLine {
   itemId: string;
@@ -67,59 +69,115 @@ function fmtDate(iso: string | null): string {
   return iso ? iso.split("-").reverse().join("/") : "—";
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 function RfqDetail({
   rfq,
   quotes,
+  comparisonQuery,
+  items,
+  suppliers,
   onBack,
-  onSend,
-  onClose,
-  onCancel,
-  onAddQuote,
-  onConvert,
+  sendRfq,
+  closeRfq,
+  cancelRfq,
+  createRfqQuote,
+  convertRfq,
 }: {
-  rfq: PurchaseRfq;
-  quotes: RfqQuote[];
+  rfq: PurchaseRfqDTO;
+  quotes: RfqQuoteDTO[];
+  comparisonQuery: ReturnType<typeof useRfqComparison>;
+  items: ItemDTO[];
+  suppliers: SupplierDTO[];
   onBack: () => void;
-  onSend: () => void;
-  onClose: () => void;
-  onCancel: () => void;
-  onAddQuote: (supplierId: string, lines: QuoteDraftLine[], notes: string) => void;
-  onConvert: (supplierId: string) => void;
+  sendRfq: ReturnType<typeof useSendRfq>;
+  closeRfq: ReturnType<typeof useCloseRfq>;
+  cancelRfq: ReturnType<typeof useCancelRfq>;
+  createRfqQuote: ReturnType<typeof useCreateRfqQuote>;
+  convertRfq: ReturnType<typeof useConvertRfq>;
 }) {
   const [quoteSupplier, setQuoteSupplier] = useState<EntityPickerOption | null>(null);
   const [quoteLines, setQuoteLines] = useState<QuoteDraftLine[]>(rfq.lines.map((l) => ({ itemId: l.itemId, unitPrice: 0 })));
   const [quoteNotes, setQuoteNotes] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingConvertSupplierId, setPendingConvertSupplierId] = useState<string | null>(null);
 
-  const comparison = useMemo(() => compareRfqQuotes(rfq, quotes), [rfq, quotes]);
+  const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
   const alreadyQuotedSupplierIds = new Set(quotes.map((q) => q.supplierId));
   const availableQuoteSuppliers = supplierOptions.filter((s) => !alreadyQuotedSupplierIds.has(s.id));
 
-  function submitQuote() {
+  function itemLabel(itemId: string): string {
+    return items.find((i) => i.id === itemId)?.nameAr ?? itemId;
+  }
+  function supplierLabel(supplierId: string): string {
+    return suppliers.find((s) => s.id === supplierId)?.nameAr ?? supplierId;
+  }
+
+  async function submitQuote() {
     if (!quoteSupplier) return;
     const priced = quoteLines.filter((l) => l.unitPrice > 0);
     if (priced.length === 0) return;
-    onAddQuote(quoteSupplier.id, priced, quoteNotes);
-    setQuoteSupplier(null);
-    setQuoteLines(rfq.lines.map((l) => ({ itemId: l.itemId, unitPrice: 0 })));
-    setQuoteNotes("");
+    setActionError(null);
+    try {
+      await createRfqQuote.mutateAsync({
+        rfqId: rfq.id,
+        body: {
+          id: crypto.randomUUID(),
+          supplierId: quoteSupplier.id,
+          lines: priced.map((l) => ({ itemId: l.itemId, unitPrice: String(l.unitPrice), notes: null })),
+          notes: quoteNotes.trim() === "" ? null : quoteNotes.trim(),
+        },
+      });
+      setQuoteSupplier(null);
+      setQuoteLines(rfq.lines.map((l) => ({ itemId: l.itemId, unitPrice: 0 })));
+      setQuoteNotes("");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
   }
+
+  async function handleConvert(supplierId: string) {
+    if (pendingConvertSupplierId !== null) return;
+    setActionError(null);
+    setPendingConvertSupplierId(supplierId);
+    try {
+      await convertRfq.mutateAsync({
+        rfqId: rfq.id,
+        body: { purchaseOrderId: crypto.randomUUID(), supplierId, expectedDeliveryDate: null },
+      });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingConvertSupplierId(null);
+    }
+  }
+
+  const comparison = comparisonQuery.data;
 
   return (
     <DocumentDetail
       title={`طلب عرض سعر ${rfq.number}`}
       statusLabel={STATUS_LABEL[rfq.status]}
       statusTone={STATUS_TONE[rfq.status]}
-      subtitle={`${rfq.date.split("-").reverse().join("/")} · ${rfq.lines.length} بند`}
+      subtitle={`${fmtDate(rfq.date)} · ${rfq.lines.length} بند`}
       actions={
         <>
           {rfq.status === "draft" ? (
-            <Button variant="primary" onClick={onSend}>
+            <Button variant="primary" onClick={() => sendRfq.mutate(rfq.id)} disabled={sendRfq.isPending}>
               إرسال
             </Button>
           ) : null}
-          {rfq.status === "sent" ? <Button onClick={onClose}>إغلاق بدون تحويل</Button> : null}
+          {rfq.status === "sent" ? (
+            <Button onClick={() => closeRfq.mutate(rfq.id)} disabled={closeRfq.isPending}>
+              إغلاق بدون تحويل
+            </Button>
+          ) : null}
           {rfq.status === "draft" || rfq.status === "sent" ? (
-            <Button onClick={onCancel}>إلغاء الطلب</Button>
+            <Button onClick={() => cancelRfq.mutate(rfq.id)} disabled={cancelRfq.isPending}>
+              إلغاء الطلب
+            </Button>
           ) : null}
           <Button onClick={onBack}>رجوع لطلبات عروض الأسعار</Button>
         </>
@@ -157,8 +215,8 @@ function RfqDetail({
                 <tbody>
                   {rfq.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border last:border-b-0">
-                      <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty.toString()}</td>
+                      <td className="px-[12px] py-[10px]">{itemLabel(l.itemId)}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
                       <td className="px-[12px] py-[10px]">{l.notes ?? "—"}</td>
                     </tr>
                   ))}
@@ -181,15 +239,15 @@ function RfqDetail({
                   {quotes.map((q) => (
                     <div key={q.id} className="rounded-lg border border-border bg-surface p-[12px]">
                       <div className="mb-[8px] flex items-center justify-between">
-                        <span className="text-[13px] font-semibold text-ink">{supplierName(q.supplierId)}</span>
+                        <span className="text-[13px] font-semibold text-ink">{supplierLabel(q.supplierId)}</span>
                         <span className="text-[11.5px] text-ink-muted mz-num">{fmtDate(q.submittedAt.slice(0, 10))}</span>
                       </div>
                       <table className="w-full border-collapse text-[12.5px]">
                         <tbody>
                           {q.lines.map((l, i) => (
                             <tr key={i} className="border-b border-border last:border-b-0">
-                              <td className="py-[6px]">{itemName(l.itemId)}</td>
-                              <td className="py-[6px] text-end"><MoneyValue value={num(l.unitPrice)} showUnit={false} /></td>
+                              <td className="py-[6px]">{itemLabel(l.itemId)}</td>
+                              <td className="py-[6px] text-end"><MoneyValue value={Number(l.unitPrice)} showUnit={false} /></td>
                             </tr>
                           ))}
                         </tbody>
@@ -200,6 +258,8 @@ function RfqDetail({
                 </div>
               )}
 
+              {actionError ? <div className="rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{actionError}</div> : null}
+
               {rfq.status === "sent" && availableQuoteSuppliers.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-[14px]">
                   <div className="mb-[10px] text-[13px] font-semibold text-ink">تسجيل عرض سعر جديد</div>
@@ -208,7 +268,7 @@ function RfqDetail({
                     {rfq.lines.map((line, i) => (
                       <NumberField
                         key={line.itemId}
-                        label={`سعر ${itemName(line.itemId)}`}
+                        label={`سعر ${itemLabel(line.itemId)}`}
                         value={quoteLines[i]?.unitPrice ?? 0}
                         min={0}
                         onChange={(v) =>
@@ -218,7 +278,7 @@ function RfqDetail({
                     ))}
                     <TextField label="ملاحظات" value={quoteNotes} onChange={setQuoteNotes} />
                     <div className="flex justify-end">
-                      <Button variant="primary" onClick={submitQuote} disabled={!quoteSupplier}>
+                      <Button variant="primary" onClick={submitQuote} disabled={!quoteSupplier || createRfqQuote.isPending}>
                         حفظ العرض
                       </Button>
                     </div>
@@ -236,61 +296,72 @@ function RfqDetail({
               <div className="rounded-lg border border-dashed border-border p-[16px] text-center text-[13px] text-ink-muted">
                 سجّل عرضاً واحداً على الأقل لعرض المقارنة
               </div>
+            ) : comparisonQuery.isLoading || !comparison ? (
+              <div className="rounded-lg border border-dashed border-border p-[16px] text-center text-[13px] text-ink-muted">
+                جارِ تحميل المقارنة…
+              </div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px] border-collapse text-[13px]">
-                  <thead>
-                    <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                      <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                      {comparison.supplierIds.map((sid) => (
-                        <th key={sid} className="px-[12px] py-[9px] text-end">{supplierName(sid)}</th>
+              <div className="flex flex-col gap-[10px]">
+                {actionError ? <div className="rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{actionError}</div> : null}
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[560px] border-collapse text-[13px]">
+                    <thead>
+                      <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+                        <th className="px-[12px] py-[9px] text-start">الصنف</th>
+                        {comparison.supplierIds.map((sid) => (
+                          <th key={sid} className="px-[12px] py-[9px] text-end">{supplierLabel(sid)}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparison.rows.map((row) => (
+                        <tr key={row.itemId} className="border-b border-border last:border-b-0">
+                          <td className="px-[12px] py-[10px]">{itemLabel(row.itemId)}</td>
+                          {comparison.supplierIds.map((sid) => {
+                            const price = row.quotesBySupplier[sid];
+                            const isCheapest = row.cheapestSupplierId === sid;
+                            return (
+                              <td key={sid} className={`px-[12px] py-[10px] text-end ${isCheapest ? "font-semibold text-success-ink" : ""}`}>
+                                {price ? <MoneyValue value={Number(price)} showUnit={false} /> : "—"}
+                              </td>
+                            );
+                          })}
+                        </tr>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {comparison.rows.map((row) => (
-                      <tr key={row.itemId} className="border-b border-border last:border-b-0">
-                        <td className="px-[12px] py-[10px]">{itemName(row.itemId)}</td>
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t border-border font-semibold">
+                        <td className="px-[12px] py-[10px]">الإجمالي (سلة كاملة)</td>
                         {comparison.supplierIds.map((sid) => {
-                          const price = row.quotesBySupplier.get(sid);
-                          const isCheapest = row.cheapestSupplierId === sid;
+                          const total = comparison.totalsBySupplier[sid];
                           return (
-                            <td key={sid} className={`px-[12px] py-[10px] text-end ${isCheapest ? "font-semibold text-success-ink" : ""}`}>
-                              {price ? <MoneyValue value={num(price)} showUnit={false} /> : "—"}
+                            <td key={sid} className="px-[12px] py-[10px] text-end">
+                              {total ? <MoneyValue value={Number(total)} showUnit={false} /> : "غير مكتمل"}
                             </td>
                           );
                         })}
                       </tr>
-                    ))}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t border-border font-semibold">
-                      <td className="px-[12px] py-[10px]">الإجمالي (سلة كاملة)</td>
-                      {comparison.supplierIds.map((sid) => {
-                        const total = comparison.totalsBySupplier.get(sid);
-                        return (
-                          <td key={sid} className="px-[12px] py-[10px] text-end">
-                            {total ? <MoneyValue value={num(total)} showUnit={false} /> : "غير مكتمل"}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                    {rfq.status === "sent" ? (
-                      <tr>
-                        <td className="px-[12px] py-[10px]" />
-                        {comparison.supplierIds.map((sid) => (
-                          <td key={sid} className="px-[12px] py-[10px] text-end">
-                            {comparison.totalsBySupplier.has(sid) ? (
-                              <Button variant="primary" onClick={() => onConvert(sid)}>
-                                تحويل إلى أمر شراء
-                              </Button>
-                            ) : null}
-                          </td>
-                        ))}
-                      </tr>
-                    ) : null}
-                  </tfoot>
-                </table>
+                      {rfq.status === "sent" ? (
+                        <tr>
+                          <td className="px-[12px] py-[10px]" />
+                          {comparison.supplierIds.map((sid) => (
+                            <td key={sid} className="px-[12px] py-[10px] text-end">
+                              {comparison.totalsBySupplier[sid] ? (
+                                <Button
+                                  variant="primary"
+                                  onClick={() => handleConvert(sid)}
+                                  disabled={pendingConvertSupplierId !== null}
+                                >
+                                  تحويل إلى أمر شراء
+                                </Button>
+                              ) : null}
+                            </td>
+                          ))}
+                        </tr>
+                      ) : null}
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             ),
         },
@@ -300,19 +371,39 @@ function RfqDetail({
 }
 
 export function RfqsScreen() {
-  const [rfqs, setRfqs] = useState<PurchaseRfq[]>(demoRfqs);
-  const [quotes, setQuotes] = useState<RfqQuote[]>(demoRfqQuotes);
+  const rfqsQuery = useRfqs();
+  const rfqs = rfqsQuery.data ?? [];
+  const suppliersQuery = useSuppliers();
+  const suppliers = suppliersQuery.data ?? [];
+  const itemsQuery = useItems();
+  const items = itemsQuery.data ?? [];
+
+  const createRfq = useCreateRfq();
+  const sendRfq = useSendRfq();
+  const closeRfq = useCloseRfq();
+  const cancelRfq = useCancelRfq();
+  const createRfqQuote = useCreateRfqQuote();
+  const convertRfq = useConvertRfq();
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatus | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
-  const [date, setDate] = useState("2026-08-23");
+  const [date, setDate] = useState(todayIso());
   const [requiredByDate, setRequiredByDate] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, notes: "" }]);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const itemOptions: EntityPickerOption[] = useMemo(
+    () => items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.baseUnitCode })),
+    [items],
+  );
 
   const selected = rfqs.find((r) => r.id === selectedId) ?? null;
-  const selectedQuotes = quotes.filter((q) => q.rfqId === selectedId);
+  const quotesQuery = useRfqQuotes(selectedId);
+  const selectedQuotes = quotesQuery.data ?? [];
+  const comparisonQuery = useRfqComparison(selectedId);
 
   const filtered = useMemo(() => {
     let rows = rfqs;
@@ -324,98 +415,62 @@ export function RfqsScreen() {
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
   }, [rfqs, statusFilter, search]);
 
+  const counts = useMemo(() => {
+    const c: Record<"all" | PurchaseRfqStatusDTO, number> = { all: rfqs.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
+    for (const r of rfqs) c[r.status] += 1;
+    return c;
+  }, [rfqs]);
+
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: rfqs.length },
-    ...(Object.keys(STATUS_LABEL) as PurchaseRfqStatus[]).map((s) => ({
-      key: s,
-      label: STATUS_LABEL[s],
-      count: rfqs.filter((r) => r.status === s).length,
-    })),
+    { key: "all", label: "الكل", count: counts.all },
+    { key: "draft", label: STATUS_LABEL.draft, count: counts.draft },
+    { key: "sent", label: STATUS_LABEL.sent, count: counts.sent },
+    { key: "closed", label: STATUS_LABEL.closed, count: counts.closed },
+    { key: "cancelled", label: STATUS_LABEL.cancelled, count: counts.cancelled },
   ];
 
-  const quoteCountByRfq = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const q of quotes) map.set(q.rfqId, (map.get(q.rfqId) ?? 0) + 1);
-    return map;
-  }, [quotes]);
-
-  const columns: DocumentListColumn<PurchaseRfq>[] = [
+  const columns: DocumentListColumn<PurchaseRfqDTO>[] = [
     { key: "number", header: "رقم الطلب", render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
     { key: "date", header: "التاريخ", render: (r) => <span className="mz-num">{fmtDate(r.date)}</span> },
     { key: "lines", header: "البنود", align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
-    { key: "quotes", header: "العروض", align: "end", render: (r) => <span className="mz-num">{quoteCountByRfq.get(r.id) ?? 0}</span> },
     { key: "po", header: "أمر الشراء", render: (r) => r.purchaseOrderId ?? "—" },
     { key: "status", header: "الحالة", render: (r) => <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} /> },
   ];
 
   function openCreate() {
-    setDate("2026-08-23");
+    setDate(todayIso());
     setRequiredByDate("");
     setNotes("");
     setLines([{ itemId: "", qty: 1, notes: "" }]);
+    setCreateError(null);
     setPanelOpen(true);
   }
 
   const canSave = lines.some((l) => l.itemId !== "" && l.qty > 0);
 
-  function save() {
+  async function save() {
     const usable = lines.filter((l) => l.itemId !== "" && l.qty > 0);
     if (usable.length === 0) return;
-    const rfq: PurchaseRfq = {
-      id: `rfq-${nextRfqSeq}`,
-      number: `RFQ-${String(nextRfqSeq).padStart(6, "0")}`,
-      date,
-      requiredByDate: requiredByDate.trim() === "" ? null : requiredByDate.trim(),
-      branchId: "MAIN",
-      warehouseId: "MAIN-WH",
-      notes: notes.trim() === "" ? null : notes.trim(),
-      lines: usable.map((l) => ({
-        itemId: l.itemId,
-        description: null,
-        qty: Qty.fromMajor(String(l.qty)),
-        notes: l.notes.trim() === "" ? null : l.notes.trim(),
-      })),
-      status: "draft",
-      purchaseOrderId: null,
-      createdBy: "محمد الشهابي",
-      createdAt: new Date().toISOString(),
-    };
-    nextRfqSeq += 1;
-    setRfqs((prev) => [rfq, ...prev]);
-    setPanelOpen(false);
-  }
-
-  // --- status transitions (mirror the domain's guard conditions in rfq.ts) ---
-
-  function send(id: string) {
-    setRfqs((prev) => prev.map((r) => (r.id === id && r.status === "draft" ? { ...r, status: "sent" } : r)));
-  }
-  function close(id: string) {
-    setRfqs((prev) => prev.map((r) => (r.id === id && r.status === "sent" ? { ...r, status: "closed" } : r)));
-  }
-  function cancel(id: string) {
-    setRfqs((prev) =>
-      prev.map((r) => (r.id === id && (r.status === "draft" || r.status === "sent") ? { ...r, status: "cancelled" } : r)),
-    );
-  }
-  function addQuote(rfqId: string, supplierId: string, draftLines: QuoteDraftLine[], notesValue: string) {
-    const quote: RfqQuote = {
-      id: `rfq-quote-${nextQuoteSeq}`,
-      rfqId,
-      supplierId,
-      lines: draftLines.map((l) => ({ itemId: l.itemId, unitPrice: Money.fromMajor(String(l.unitPrice)), notes: null })),
-      notes: notesValue.trim() === "" ? null : notesValue.trim(),
-      submittedAt: new Date().toISOString(),
-    };
-    nextQuoteSeq += 1;
-    setQuotes((prev) => [...prev, quote]);
-  }
-  function convert(rfqId: string, supplierId: string) {
-    const poId = `po-from-${rfqId}`;
-    setRfqs((prev) =>
-      prev.map((r) => (r.id === rfqId && r.status === "sent" ? { ...r, status: "closed", purchaseOrderId: poId } : r)),
-    );
-    void supplierId; // the chosen supplier already drove the comparison total shown before converting
+    setCreateError(null);
+    try {
+      await createRfq.mutateAsync({
+        id: crypto.randomUUID(),
+        date,
+        requiredByDate: requiredByDate.trim() === "" ? null : requiredByDate.trim(),
+        branchId: "MAIN",
+        warehouseId: "MAIN-WH",
+        notes: notes.trim() === "" ? null : notes.trim(),
+        lines: usable.map((l) => ({
+          itemId: l.itemId,
+          description: null,
+          qty: String(l.qty),
+          notes: l.notes.trim() === "" ? null : l.notes.trim(),
+        })),
+      });
+      setPanelOpen(false);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const panel = (
@@ -448,9 +503,10 @@ export function RfqsScreen() {
           <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, notes: "" }])}>إضافة بند</Button>
         </div>
         <TextField label="ملاحظات عامة" value={notes} onChange={setNotes} />
+        {createError ? <div className="rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{createError}</div> : null}
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
-          <Button variant="primary" onClick={save} disabled={!canSave}>
+          <Button variant="primary" onClick={save} disabled={!canSave || createRfq.isPending}>
             حفظ
           </Button>
         </div>
@@ -464,12 +520,15 @@ export function RfqsScreen() {
         <RfqDetail
           rfq={selected}
           quotes={selectedQuotes}
+          comparisonQuery={comparisonQuery}
+          items={items}
+          suppliers={suppliers}
           onBack={() => setSelectedId(null)}
-          onSend={() => send(selected.id)}
-          onClose={() => close(selected.id)}
-          onCancel={() => cancel(selected.id)}
-          onAddQuote={(supplierId, draftLines, notesValue) => addQuote(selected.id, supplierId, draftLines, notesValue)}
-          onConvert={(supplierId) => convert(selected.id, supplierId)}
+          sendRfq={sendRfq}
+          closeRfq={closeRfq}
+          cancelRfq={cancelRfq}
+          createRfqQuote={createRfqQuote}
+          convertRfq={convertRfq}
         />
         {panel}
       </>
@@ -478,7 +537,7 @@ export function RfqsScreen() {
 
   return (
     <>
-      <DocumentList<PurchaseRfq>
+      <DocumentList<PurchaseRfqDTO>
         eyebrow="Purchases · RFQs"
         title="طلبات عروض الأسعار"
         description="اجمع عروض أسعار الموردين وقارنها قبل إصدار أمر الشراء"
@@ -488,14 +547,14 @@ export function RfqsScreen() {
           </Button>
         }
         stats={[
-          { label: "إجمالي الطلبات", value: <span className="mz-num">{rfqs.length}</span> },
-          { label: "مرسلة", value: <span className="mz-num">{rfqs.filter((r) => r.status === "sent").length}</span> },
-          { label: "مغلقة (محوّلة)", value: <span className="mz-num">{rfqs.filter((r) => r.status === "closed").length}</span> },
-          { label: "مسودة", value: <span className="mz-num">{rfqs.filter((r) => r.status === "draft").length}</span> },
+          { label: "إجمالي الطلبات", value: <span className="mz-num">{counts.all}</span> },
+          { label: "مرسلة", value: <span className="mz-num">{counts.sent}</span> },
+          { label: "مغلقة (محوّلة)", value: <span className="mz-num">{counts.closed}</span> },
+          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as PurchaseRfqStatus | "all")}
+        onStatusChange={(key) => setStatusFilter(key as PurchaseRfqStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="ابحث برقم الطلب…"
@@ -505,10 +564,10 @@ export function RfqsScreen() {
         onRowClick={(r) => setSelectedId(r.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{rfqs.length}</span> طلب</>}
+        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> طلب</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            لا توجد طلبات عروض أسعار — أنشئ طلب عرض سعر لمقارنة أسعار الموردين قبل إصدار أمر الشراء
+            {rfqsQuery.isLoading ? "جارِ التحميل…" : "لا توجد طلبات عروض أسعار — أنشئ طلب عرض سعر لمقارنة أسعار الموردين قبل إصدار أمر الشراء"}
           </div>
         }
       />

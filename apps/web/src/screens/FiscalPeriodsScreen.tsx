@@ -1,21 +1,21 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
-  closePeriod as closePeriodDomain,
-  reopenPeriod as reopenPeriodDomain,
-  lockPeriod as lockPeriodDomain,
-  InvalidPeriodTransitionError,
-  type FiscalPeriod,
-} from "@mezan/domain";
-import { demoFiscalPeriods } from "../accounting-treasury-sample-data";
+  useClosePeriod,
+  useFiscalPeriods,
+  useGenerateFiscalYear,
+  useLockPeriod,
+  useReopenPeriod,
+} from "../data/hooks";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/catalog/04 §"الفترات المالية".
- * Period grid with the three-tier lifecycle (مفتوحة → مغلقة → مقفلة) and the
- * close/lock/reopen actions the domain's `packages/domain/src/fiscal-periods`
- * state machine enforces (open must be closed before it can be locked; a
- * locked period is terminal).
+ * Period grid with the three-tier lifecycle (مفتوحة → مغلقة → مقفلة); the
+ * close/lock/reopen/generate-year actions all run against the real
+ * `/fiscal-periods` API, which enforces the transitions server-side (open
+ * must be closed before it can be locked; a locked period is terminal) — an
+ * invalid transition surfaces the server's real error message.
  */
 
 const STATUS_LABEL: Record<FiscalPeriodStatusDTO, string> = { open: "مفتوحة", closed: "مغلقة", locked: "مقفلة" };
@@ -40,20 +40,30 @@ function monthLabel(periodNumber: number): string {
   return MONTH_LABEL_AR[periodNumber - 1] ?? String(periodNumber);
 }
 
-const TODAY = "2026-08-22";
+const TODAY = new Date().toISOString().slice(0, 10);
 
 function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
   return TODAY >= period.startDate && TODAY <= period.endDate;
 }
 
 export function FiscalPeriodsScreen() {
-  const [periods, setPeriods] = useState<FiscalPeriodDTO[]>(demoFiscalPeriods);
-  const [year, setYear] = useState(2026);
+  const query = useFiscalPeriods();
+  const generateFiscalYear = useGenerateFiscalYear();
+  const closePeriodMutation = useClosePeriod();
+  const reopenPeriodMutation = useReopenPeriod();
+  const lockPeriodMutation = useLockPeriod();
+  const periods = query.data ?? [];
+
+  const [year, setYear] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort(), [periods]);
-  const periodsInYear = useMemo(() => periods.filter((p) => p.year === year).sort((a, b) => a.periodNumber - b.periodNumber), [periods, year]);
+  const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort((a, b) => a - b), [periods]);
+  const selectedYear = year ?? years[years.length - 1] ?? new Date().getUTCFullYear();
+  const periodsInYear = useMemo(
+    () => periods.filter((p) => p.year === selectedYear).sort((a, b) => a.periodNumber - b.periodNumber),
+    [periods, selectedYear],
+  );
   const filtered = useMemo(
     () => (statusFilter === "all" ? periodsInYear : periodsInYear.filter((p) => p.status === statusFilter)),
     [periodsInYear, statusFilter],
@@ -62,57 +72,45 @@ export function FiscalPeriodsScreen() {
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
 
-  // Each action runs the REAL domain state-machine transition
-  // (packages/domain/src/fiscal-periods/transitions.ts) rather than duplicating
-  // the rules in the UI — an invalid transition throws and surfaces as an error.
-  function applyTransition(period: FiscalPeriodDTO, transition: (p: FiscalPeriod) => FiscalPeriod, verb: string) {
+  // Each action calls the real API, which enforces the fiscal-period state
+  // machine server-side — an invalid transition surfaces the server's own
+  // error message rather than one guessed on the client.
+  async function closePeriod(period: FiscalPeriodDTO) {
     setActionError(null);
     try {
-      const next = transition(period as FiscalPeriod);
-      setPeriods((prev) => prev.map((p) => (p.id === period.id ? (next as FiscalPeriodDTO) : p)));
+      await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      if (err instanceof InvalidPeriodTransitionError) {
-        setActionError(`تعذر ${verb} فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
-      } else {
-        throw err;
-      }
+      setActionError(err instanceof Error ? err.message : `تعذر إغلاق فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
     }
   }
 
-  function closePeriod(period: FiscalPeriodDTO) {
-    applyTransition(period, closePeriodDomain, "إغلاق");
-  }
-
-  function lockPeriod(period: FiscalPeriodDTO) {
-    applyTransition(period, lockPeriodDomain, "قفل");
-  }
-
-  function reopenPeriod(period: FiscalPeriodDTO) {
-    applyTransition(period, reopenPeriodDomain, "إعادة فتح");
-  }
-
-  function generateNextYear() {
+  async function lockPeriod(period: FiscalPeriodDTO) {
     setActionError(null);
-    const nextYear = Math.max(...years) + 1;
-    if (periods.some((p) => p.year === nextYear)) {
-      setActionError(`فترات سنة ${nextYear} موجودة بالفعل.`);
-      return;
+    try {
+      await lockPeriodMutation.mutateAsync(period.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : `تعذر قفل فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
     }
-    const generated: FiscalPeriodDTO[] = Array.from({ length: 12 }, (_, i) => {
-      const periodNumber = i + 1;
-      const pad = String(periodNumber).padStart(2, "0");
-      const endDay = new Date(Date.UTC(nextYear, periodNumber, 0)).getUTCDate();
-      return {
-        id: `fp-${nextYear}-${pad}`,
-        year: nextYear,
-        periodNumber,
-        startDate: `${nextYear}-${pad}-01`,
-        endDate: `${nextYear}-${pad}-${String(endDay).padStart(2, "0")}`,
-        status: "open",
-      };
-    });
-    setPeriods((prev) => [...prev, ...generated]);
-    setYear(nextYear);
+  }
+
+  async function reopenPeriod(period: FiscalPeriodDTO) {
+    setActionError(null);
+    try {
+      await reopenPeriodMutation.mutateAsync(period.id);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : `تعذر إعادة فتح فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
+    }
+  }
+
+  async function generateNextYear() {
+    setActionError(null);
+    const nextYear = years.length > 0 ? Math.max(...years) + 1 : new Date().getUTCFullYear();
+    try {
+      await generateFiscalYear.mutateAsync({ year: nextYear });
+      setYear(nextYear);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : `تعذر إنشاء فترات سنة ${nextYear}.`);
+    }
   }
 
   const columns: DocumentListColumn<FiscalPeriodDTO>[] = [
@@ -158,6 +156,14 @@ export function FiscalPeriodsScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفترات المالية.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <div className="mb-[22px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">Accounting · Fiscal Periods</div>
@@ -167,15 +173,19 @@ export function FiscalPeriodsScreen() {
         <div className="flex flex-wrap items-center gap-[9px]">
           <select
             aria-label="السنة المالية"
-            value={year}
+            value={selectedYear}
             onChange={(e) => setYear(Number(e.target.value))}
             className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
           >
-            {years.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
+            {years.length > 0 ? (
+              years.map((y) => (
+                <option key={y} value={y}>
+                  {y}
+                </option>
+              ))
+            ) : (
+              <option value={selectedYear}>{selectedYear}</option>
+            )}
           </select>
           <Button variant="primary" onClick={generateNextYear}>
             إنشاء السنة التالية

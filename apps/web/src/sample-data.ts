@@ -56,6 +56,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { key: "work-orders", label: "أوامر التصنيع" },
       { key: "boms", label: "قوائم المواد" },
+      { key: "custom-manufacturing", label: "التصنيع المخصص" },
     ],
   },
   {

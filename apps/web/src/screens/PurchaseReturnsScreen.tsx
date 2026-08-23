@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   Money as MoneyDisplay,
   StatusPill,
@@ -9,24 +10,22 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import { Money, Qty, type DocumentStatus, type FrameworkDocument, type PurchaseReturnLine, type PurchaseReturnReason } from "@mezan/domain";
+import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField } from "../settings/form-controls";
-import { demoWarehouses } from "../sample-data";
-import { demoItems } from "../items-sample-data";
-import { createReturnsLandedInstallmentsStore } from "../store/returns-landed-installments-store";
-import { demoAccounts, demoOpenPeriod } from "../store/document-demo-shared";
+import {
+  useCancelPurchaseReturn,
+  useConfirmPurchaseReturn,
+  useCreatePurchaseReturn,
+  useItems,
+  usePurchaseInvoices,
+  usePurchaseReturns,
+  useSuppliers,
+  useWarehouses,
+} from "../data/hooks";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
-/** Demo purchase invoices — the seed tenant's own PI-000001/PI-000002 (docs/catalog/02), no live purchase-invoices module in this pass. */
-const DEMO_PURCHASE_INVOICES = [
-  { id: "pi-1", number: "PI-000001", supplierId: "sup-1", supplierName: "جاري" },
-  { id: "pi-2", number: "PI-000002", supplierId: "sup-1", supplierName: "جاري" },
-];
-
-type Doc = FrameworkDocument<PurchaseReturnLine>;
-
-const REASON_LABEL: Record<PurchaseReturnReason, string> = {
+const REASON_LABEL: Record<PurchaseReturnReasonDTO, string> = {
   DEFECTIVE: "بضاعة معيبة",
   WRONG_ITEM: "صنف خاطئ",
   EXCESS_QTY: "كمية زائدة",
@@ -34,7 +33,7 @@ const REASON_LABEL: Record<PurchaseReturnReason, string> = {
   OTHER: "أخرى",
 };
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
+const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",
   confirmed: "مؤكد",
@@ -42,7 +41,7 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   cancelled: "ملغي",
   reversed: "معكوس",
 };
-const STATUS_TONE: Record<DocumentStatus, PillTone> = {
+const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
   draft: "neutral",
   pending: "warning",
   confirmed: "success",
@@ -51,30 +50,75 @@ const STATUS_TONE: Record<DocumentStatus, PillTone> = {
   reversed: "danger",
 };
 
+const num = (v: string) => Number(v);
+const lineTotal = (l: PurchaseReturnLineDTO) => num(l.unitCost) * num(l.qty) + num(l.taxAmount);
+
 interface LineDraft {
   key: string;
   itemId: string;
   qty: number;
 }
 let lineSeq = 0;
-function blankLine(): LineDraft {
+function blankLine(defaultItemId: string): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: demoItems[0]?.id ?? "", qty: 1 };
+  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1 };
 }
 
 export function PurchaseReturnsScreen() {
-  const storeRef = useRef(createReturnsLandedInstallmentsStore({ accounts: demoAccounts, period: demoOpenPeriod }));
-  const [version, setVersion] = useState(0);
-  const bump = () => setVersion((v) => v + 1);
-  const documents = useMemo(() => storeRef.current.snapshot().purchaseReturns, [version]);
+  const query = usePurchaseReturns();
+  const invoicesQuery = usePurchaseInvoices();
+  const warehousesQuery = useWarehouses();
+  const suppliersQuery = useSuppliers();
+  const itemsQuery = useItems();
+  const createReturn = useCreatePurchaseReturn();
+  const confirmReturn = useConfirmPurchaseReturn();
+  const cancelReturn = useCancelPurchaseReturn();
+
+  const documents = query.data ?? [];
+  const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
+  const warehouses = warehousesQuery.data ?? [];
+  const suppliers = suppliersQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  const supplierName = useMemo(() => {
+    const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [suppliers]);
+  const itemName = useMemo(() => {
+    const map = new Map(items.map((i) => [i.id, i.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [items]);
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatus>("all");
-  const [invoiceId, setInvoiceId] = useState(DEMO_PURCHASE_INVOICES[0]?.id ?? "");
-  const [warehouseId, setWarehouseId] = useState(demoWarehouses[0]?.id ?? "");
-  const [reason, setReason] = useState<PurchaseReturnReason>("DEFECTIVE");
-  const [lines, setLines] = useState<LineDraft[]>([blankLine()]);
+  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [invoiceId, setInvoiceId] = useState("");
+  const [warehouseId, setWarehouseId] = useState("");
+  const [reason, setReason] = useState<PurchaseReturnReasonDTO>("DEFECTIVE");
+  const [lines, setLines] = useState<LineDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
+
+  // Defaults the create form's invoice/warehouse pickers once their queries resolve —
+  // `openCreate` alone can't do this if the panel is opened before `invoices`/`warehouses` load.
+  useEffect(() => {
+    if (panel !== "create" || invoiceId !== "") return;
+    const firstInvoice = invoices[0];
+    if (!firstInvoice) return;
+    setInvoiceId(firstInvoice.id);
+    const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
+    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+  }, [panel, invoices, invoiceId]);
+
+  useEffect(() => {
+    if (panel !== "create" || warehouseId !== "") return;
+    const firstWarehouse = warehouses[0];
+    if (firstWarehouse) setWarehouseId(firstWarehouse.id);
+  }, [panel, warehouses, warehouseId]);
+
+  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
+  const returnableLines = useMemo(
+    () => (selectedInvoice?.lines ?? []).filter((l) => l.kind === "inventory" && l.itemId !== null),
+    [selectedInvoice],
+  );
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0, cancelled: 0 };
@@ -87,29 +131,49 @@ export function PurchaseReturnsScreen() {
   }, [documents]);
 
   const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-  const selected = typeof panel === "object" ? documents.find((d) => d.id === panel.id) ?? null : null;
+  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+
+  function openCreate() {
+    setError(null);
+    const firstInvoice = invoices[0] ?? null;
+    setInvoiceId(firstInvoice?.id ?? "");
+    setWarehouseId(warehouses[0]?.id ?? "");
+    setReason("DEFECTIVE");
+    const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
+    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+    setPanel("create");
+  }
+
+  function changeInvoice(id: string) {
+    setInvoiceId(id);
+    const invoice = invoices.find((i) => i.id === id) ?? null;
+    const firstLine = invoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
+    setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
+  }
 
   async function submit(confirmAfter: boolean) {
     setError(null);
-    const invoice = DEMO_PURCHASE_INVOICES.find((i) => i.id === invoiceId);
-    const id = crypto.randomUUID();
-    const returnLines: PurchaseReturnLine[] = lines
-      .filter((l) => l.qty > 0)
+    const invoice = invoices.find((i) => i.id === invoiceId);
+    if (!invoice || !warehouseId) {
+      setError("اختر الفاتورة الأصلية والمستودع.");
+      return;
+    }
+    const returnLines: PurchaseReturnLineDTO[] = lines
+      .filter((l) => l.qty > 0 && l.itemId !== "")
       .map((l) => {
-        const item = demoItems.find((it) => it.id === l.itemId);
-        const unitCost = Money.fromMajor(item?.costPrice ?? "0");
-        const taxRate = item?.taxRatePercent ?? 0;
-        const taxAmount = Money.fromMajor(((Number(unitCost.toString()) * l.qty * taxRate) / 100).toFixed(6));
+        const source = returnableLines.find((sl) => sl.itemId === l.itemId);
+        const unitCost = source?.unitCost ?? "0";
+        const taxRate = source?.taxRatePercent ?? 0;
+        const taxAmount = ((Number(unitCost) * l.qty * taxRate) / 100).toFixed(6);
         return {
           itemId: l.itemId,
           warehouseId,
-          supplierId: invoice?.supplierId ?? "sup-1",
-          sourceInvoiceId: invoiceId,
-          sourceInvoiceNumber: invoice?.number ?? null,
+          supplierId: invoice.supplierId,
+          sourceInvoiceId: invoice.id,
+          sourceInvoiceNumber: invoice.number,
           reason,
-          // Generous demo headroom — see SalesReturnsScreen's identical note.
-          availableQty: Qty.fromMajor(String(Math.max(l.qty * 5, 100))),
-          qty: Qty.fromMajor(String(l.qty)),
+          availableQty: source?.qty ?? String(l.qty),
+          qty: String(l.qty),
           unitCost,
           taxAmount,
         };
@@ -119,20 +183,28 @@ export function PurchaseReturnsScreen() {
       return;
     }
     try {
-      await storeRef.current.purchaseReturns.createDraft({ id, date: new Date().toISOString().slice(0, 10), memo: "", lines: returnLines });
-      if (confirmAfter) await storeRef.current.purchaseReturns.confirm(id, { actor: "demo", actorRoles: ["*"] });
-      bump();
+      const id = crypto.randomUUID();
+      const created = await createReturn.mutateAsync({ id, date: new Date().toISOString().slice(0, 10), memo: "", lines: returnLines });
+      if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       setPanel("none");
-      setLines([blankLine()]);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
   async function confirmExisting(id: string) {
+    setError(null);
     try {
-      await storeRef.current.purchaseReturns.confirm(id, { actor: "demo", actorRoles: ["*"] });
-      bump();
+      await confirmReturn.mutateAsync(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function cancelExisting(id: string) {
+    setError(null);
+    try {
+      await cancelReturn.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -145,7 +217,7 @@ export function PurchaseReturnsScreen() {
     { key: "cancelled", label: "ملغي", count: counts.cancelled },
   ];
 
-  const columns: DocumentListColumn<Doc>[] = [
+  const columns: DocumentListColumn<(typeof documents)[number]>[] = [
     {
       key: "docNo",
       header: "رقم المرتجع",
@@ -156,24 +228,27 @@ export function PurchaseReturnsScreen() {
         </div>
       ),
     },
-    { key: "supplier", header: "المورد", render: (d) => DEMO_PURCHASE_INVOICES.find((i) => i.id === d.lines[0]?.sourceInvoiceId)?.supplierName ?? "—" },
-    {
-      key: "total",
-      header: "قيمة المرتجع",
-      align: "end",
-      render: (d) => <MoneyDisplay value={Number(Money.sum(d.lines.map((l) => l.unitCost.add(l.taxAmount))).toString())} />,
-    },
+    { key: "supplier", header: "المورد", render: (d) => (d.lines[0] ? supplierName(d.lines[0].supplierId) : "—") },
+    { key: "total", header: "قيمة المرتجع", align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
     { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
   ];
 
   return (
     <div className="w-full">
-      <DocumentList<Doc>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مرتجعات المشتريات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<(typeof documents)[number]>
         eyebrow="Purchases · Returns"
         title="مرتجعات المشتريات"
         description="إرجاع بضاعة لمورد ضد فاتورة مشتريات مؤكدة — يخصم المخزون ويخفض المستحق للمورد."
         actions={
-          <Button variant="primary" onClick={() => setPanel("create")}>
+          <Button variant="primary" onClick={openCreate}>
             مرتجع جديد
           </Button>
         }
@@ -183,7 +258,7 @@ export function PurchaseReturnsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -203,19 +278,22 @@ export function PurchaseReturnsScreen() {
           <SelectField
             label="الفاتورة الأصلية *"
             value={invoiceId}
-            onChange={setInvoiceId}
-            options={DEMO_PURCHASE_INVOICES.map((i) => ({ value: i.id, label: `${i.number} — ${i.supplierName}` }))}
+            onChange={changeInvoice}
+            options={invoices.map((i) => ({ value: i.id, label: `${i.number} — ${supplierName(i.supplierId)}` }))}
           />
-          <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={demoWarehouses.map((w) => ({ value: w.id, label: w.name }))} />
+          <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField
             label="السبب *"
             value={reason}
-            onChange={(v) => setReason(v as PurchaseReturnReason)}
+            onChange={(v) => setReason(v as PurchaseReturnReasonDTO)}
             options={Object.entries(REASON_LABEL).map(([value, label]) => ({ value, label }))}
           />
 
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-bold text-ink-muted">بنود المرتجع</span>
+            {returnableLines.length === 0 ? (
+              <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة</div>
+            ) : null}
             {lines.map((line) => (
               <div key={line.key} className="flex items-end gap-2 rounded-[10px] border border-border p-2.5">
                 <div className="flex-1">
@@ -223,7 +301,7 @@ export function PurchaseReturnsScreen() {
                     label="الصنف"
                     value={line.itemId}
                     onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
-                    options={demoItems.map((it) => ({ value: it.id, label: it.nameAr }))}
+                    options={returnableLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
                   />
                 </div>
                 <div className="w-[90px]">
@@ -239,7 +317,11 @@ export function PurchaseReturnsScreen() {
                 </Button>
               </div>
             ))}
-            <Button variant="default" onClick={() => setLines((prev) => [...prev, blankLine()])}>
+            <Button
+              variant="default"
+              disabled={returnableLines.length === 0}
+              onClick={() => setLines((prev) => [...prev, blankLine((returnableLines[0]?.itemId as string) ?? "")])}
+            >
               إضافة بند
             </Button>
           </div>
@@ -265,16 +347,27 @@ export function PurchaseReturnsScreen() {
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
-                  <span>{demoItems.find((it) => it.id === l.itemId)?.nameAr ?? l.itemId}</span>
+                  <span>{itemName(l.itemId)}</span>
                   <span className="mz-num text-ink-muted">
-                    {l.qty.toString()} × <MoneyDisplay value={Number(l.unitCost.toString())} />
+                    {l.qty} × <MoneyDisplay value={num(l.unitCost)} />
                   </span>
                 </div>
               ))}
             </div>
+            {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {selected.status === "draft" ? (
-              <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
-                تأكيد المرتجع
+              <div className="flex gap-2">
+                <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
+                  تأكيد المرتجع
+                </Button>
+                <Button variant="default" onClick={() => cancelExisting(selected.id)}>
+                  إلغاء
+                </Button>
+              </div>
+            ) : null}
+            {selected.status === "confirmed" ? (
+              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
+                إلغاء المرتجع
               </Button>
             ) : null}
           </div>

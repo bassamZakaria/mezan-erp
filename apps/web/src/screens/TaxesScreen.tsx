@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType } from "@mezan/domain";
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
-import { demoTaxRates } from "../accounting-treasury-sample-data";
+import { useCreateTaxRate, useTaxRates, useUpdateTaxRate } from "../data/hooks";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /**
@@ -71,7 +71,11 @@ function validateDraft(draft: TaxDraft, existing: TaxRateDTO[], editingId: strin
 }
 
 export function TaxesScreen() {
-  const [taxes, setTaxes] = useState<TaxRateDTO[]>(demoTaxRates);
+  const query = useTaxRates();
+  const createTaxRate = useCreateTaxRate();
+  const updateTaxRate = useUpdateTaxRate();
+  const taxes = query.data ?? [];
+
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
 
@@ -104,7 +108,7 @@ export function TaxesScreen() {
     setFormOpen(true);
   }
 
-  function handleSubmit(event: FormEvent) {
+  async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const error = validateDraft(draft, taxes, editingId);
     if (error) {
@@ -116,41 +120,39 @@ export function TaxesScreen() {
     const outputTaxAccountId = draft.outputTaxAccountId.trim() === "" ? null : draft.outputTaxAccountId.trim();
     const inputTaxAccountId = draft.inputTaxAccountId.trim() === "" ? null : draft.inputTaxAccountId.trim();
 
-    setTaxes((prev) => {
-      // At most one default tax rate at a time (mirrors @mezan/domain's createTaxRate/updateTaxRate).
-      const withDefaultCleared = draft.isDefault ? prev.map((t) => ({ ...t, isDefault: false })) : prev;
+    try {
       if (editingId) {
-        return withDefaultCleared.map((t) =>
-          t.id === editingId
-            ? {
-                ...t,
-                name: draft.name.trim(),
-                rate,
-                calculationType: draft.calculationType,
-                isDefault: draft.isDefault,
-                outputTaxAccountId,
-                inputTaxAccountId,
-                etaSubType: draft.etaSubType,
-                status: draft.status,
-              }
-            : t,
-        );
+        // At most one default tax rate at a time — enforced server-side (@mezan/domain's updateTaxRate).
+        await updateTaxRate.mutateAsync({
+          id: editingId,
+          patch: {
+            name: draft.name.trim(),
+            rate,
+            calculationType: draft.calculationType,
+            isDefault: draft.isDefault,
+            outputTaxAccountId,
+            inputTaxAccountId,
+            etaSubType: draft.etaSubType,
+            status: draft.status,
+          },
+        });
+      } else {
+        await createTaxRate.mutateAsync({
+          id: crypto.randomUUID(),
+          code: draft.code.trim(),
+          name: draft.name.trim(),
+          rate,
+          calculationType: draft.calculationType,
+          isDefault: draft.isDefault,
+          outputTaxAccountId,
+          inputTaxAccountId,
+          etaSubType: draft.etaSubType,
+        });
       }
-      const newTax: TaxRateDTO = {
-        id: `tax-${draft.code.trim()}-${Date.now()}`,
-        code: draft.code.trim(),
-        name: draft.name.trim(),
-        rate,
-        calculationType: draft.calculationType,
-        isDefault: draft.isDefault,
-        outputTaxAccountId,
-        inputTaxAccountId,
-        etaSubType: draft.etaSubType,
-        status: "active",
-      };
-      return [...withDefaultCleared, newTax];
-    });
-    setFormOpen(false);
+      setFormOpen(false);
+    } catch (err) {
+      setFormError(err instanceof Error ? err.message : "تعذر حفظ الضريبة");
+    }
   }
 
   const columns: DocumentListColumn<TaxRateDTO>[] = [
@@ -183,6 +185,14 @@ export function TaxesScreen() {
 
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الضرائب.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<TaxRateDTO>
         eyebrow="Accounting · Taxes"
         title="الضرائب"

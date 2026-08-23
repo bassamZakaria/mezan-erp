@@ -1,30 +1,42 @@
-import { useMemo, useRef, useState } from "react";
-import { Button, DocumentList, StatusPill, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
-import { createFollowUp, completeFollowUp, cancelFollowUp, type CollectionFollowUp, type FollowUpStatus, type FollowUpType } from "@mezan/domain";
+import { useEffect, useMemo, useState } from "react";
+import { Button, Card, DocumentList, StatusPill, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
-import { demoCustomers } from "../partners-sample-data";
-import { createReturnsLandedInstallmentsStore } from "../store/returns-landed-installments-store";
-import { demoAccounts, demoOpenPeriod } from "../store/document-demo-shared";
+import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
-const TYPE_LABEL: Record<FollowUpType, string> = { CALL: "اتصال", VISIT: "زيارة", SMS: "رسالة نصية", EMAIL: "بريد إلكتروني", NOTE: "ملاحظة" };
-const STATUS_LABEL: Record<FollowUpStatus, string> = { pending: "معلق", completed: "مكتمل", cancelled: "ملغي" };
-const STATUS_TONE: Record<FollowUpStatus, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
+const TYPE_LABEL: Record<FollowUpTypeDTO, string> = { CALL: "اتصال", VISIT: "زيارة", SMS: "رسالة نصية", EMAIL: "بريد إلكتروني", NOTE: "ملاحظة" };
+const STATUS_LABEL: Record<FollowUpStatusDTO, string> = { pending: "معلق", completed: "مكتمل", cancelled: "ملغي" };
+const STATUS_TONE: Record<FollowUpStatusDTO, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export function InstallmentFollowUpsScreen() {
-  const storeRef = useRef(createReturnsLandedInstallmentsStore({ accounts: demoAccounts, period: demoOpenPeriod }));
-  const [version, setVersion] = useState(0);
-  const bump = () => setVersion((v) => v + 1);
-  const followUps = useMemo(() => storeRef.current.snapshot().followUps, [version]);
+  const query = useFollowUps();
+  const customersQuery = useCustomers();
+  const createFollowUp = useCreateFollowUp();
+  const completeFollowUp = useCompleteFollowUp();
+  const cancelFollowUp = useCancelFollowUp();
+
+  const followUps = query.data ?? [];
+  const customers = customersQuery.data ?? [];
+
+  const customerName = useMemo(() => {
+    const map = new Map(customers.map((c) => [c.id, c.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [customers]);
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
-  const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatus>("all");
-  const [customerId, setCustomerId] = useState(demoCustomers[0]?.id ?? "");
-  const [type, setType] = useState<FollowUpType>("CALL");
-  const [followUpDate, setFollowUpDate] = useState("2026-08-21");
+  const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
+  const [customerId, setCustomerId] = useState("");
+  const [type, setType] = useState<FollowUpTypeDTO>("CALL");
+  const [followUpDate, setFollowUpDate] = useState(today());
   const [notes, setNotes] = useState("");
   const [outcome, setOutcome] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   const counts = useMemo(() => {
     const c = { all: followUps.length, pending: 0, completed: 0, cancelled: 0 };
@@ -37,38 +49,65 @@ export function InstallmentFollowUpsScreen() {
   }, [followUps]);
 
   const filtered = statusFilter === "all" ? followUps : followUps.filter((f) => f.status === statusFilter);
-  const selected = typeof panel === "object" ? followUps.find((f) => f.id === panel.id) ?? null : null;
+  const selected = typeof panel === "object" ? (followUps.find((f) => f.id === panel.id) ?? null) : null;
 
-  function customerName(id: string): string {
-    return demoCustomers.find((c) => c.id === id)?.nameAr ?? id;
+  // Defaults the create form's customer picker once the customers query resolves —
+  // opening the panel alone can't do this if it happens before `customers` has loaded.
+  useEffect(() => {
+    if (panel !== "create" || customerId !== "") return;
+    const firstCustomer = customers[0];
+    if (firstCustomer) setCustomerId(firstCustomer.id);
+  }, [panel, customers, customerId]);
+
+  function openCreate() {
+    setError(null);
+    setCustomerId(customers[0]?.id ?? "");
+    setType("CALL");
+    setFollowUpDate(today());
+    setNotes("");
+    setPanel("create");
   }
 
   async function submit() {
-    const f = createFollowUp({
-      id: crypto.randomUUID(),
-      customerId,
-      type,
-      followUpDate,
-      notes: notes.trim() || null,
-      createdAt: new Date().toISOString(),
-    });
-    await storeRef.current.followUps.save(f);
-    bump();
-    setPanel("none");
-    setNotes("");
+    setError(null);
+    if (!customerId) {
+      setError("اختر عميلاً.");
+      return;
+    }
+    try {
+      await createFollowUp.mutateAsync({
+        id: crypto.randomUUID(),
+        customerId,
+        type,
+        followUpDate,
+        notes: notes.trim() || null,
+      });
+      setPanel("none");
+      setNotes("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
-  async function complete(f: CollectionFollowUp) {
-    await storeRef.current.followUps.update(completeFollowUp(f, outcome.trim() || "تمت المتابعة"));
-    bump();
-    setPanel("none");
-    setOutcome("");
+  async function complete(f: CollectionFollowUpDTO) {
+    setError(null);
+    try {
+      await completeFollowUp.mutateAsync({ id: f.id, outcome: outcome.trim() || "تمت المتابعة" });
+      setPanel("none");
+      setOutcome("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
-  async function cancel(f: CollectionFollowUp) {
-    await storeRef.current.followUps.update(cancelFollowUp(f));
-    bump();
-    setPanel("none");
+  async function cancel(f: CollectionFollowUpDTO) {
+    setError(null);
+    try {
+      await cancelFollowUp.mutateAsync(f.id);
+      setPanel("none");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const statusChips: DocumentListStatusChip[] = [
@@ -78,7 +117,7 @@ export function InstallmentFollowUpsScreen() {
     { key: "cancelled", label: "ملغي", count: counts.cancelled },
   ];
 
-  const columns: DocumentListColumn<CollectionFollowUp>[] = [
+  const columns: DocumentListColumn<CollectionFollowUpDTO>[] = [
     { key: "customer", header: "العميل", render: (f) => customerName(f.customerId) },
     { key: "type", header: "نوع المتابعة", render: (f) => TYPE_LABEL[f.type] },
     { key: "date", header: "تاريخ المتابعة", render: (f) => <span className="mz-num">{f.followUpDate}</span> },
@@ -89,12 +128,20 @@ export function InstallmentFollowUpsScreen() {
 
   return (
     <div className="w-full">
-      <DocumentList<CollectionFollowUp>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل متابعات التحصيل.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<CollectionFollowUpDTO>
         eyebrow="Installments · Collection Follow-ups"
         title="متابعة التحصيل"
         description="سجل نقاط تواصل التحصيل مع عملاء عليهم أقساط متأخرة."
         actions={
-          <Button variant="primary" onClick={() => setPanel("create")}>
+          <Button variant="primary" onClick={openCreate}>
             متابعة جديدة
           </Button>
         }
@@ -105,7 +152,7 @@ export function InstallmentFollowUpsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | FollowUpStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | FollowUpStatusDTO)}
         columns={columns}
         rows={filtered}
         rowKey={(f) => f.id}
@@ -122,8 +169,8 @@ export function InstallmentFollowUpsScreen() {
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title="متابعة جديدة">
         <div className="flex flex-col gap-4 p-5">
-          <SelectField label="العميل *" value={customerId} onChange={setCustomerId} options={demoCustomers.map((c) => ({ value: c.id, label: c.nameAr }))} />
-          <SelectField label="نوع المتابعة *" value={type} onChange={(v) => setType(v as FollowUpType)} options={Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))} />
+          <SelectField label="العميل *" value={customerId} onChange={setCustomerId} options={customers.map((c) => ({ value: c.id, label: c.nameAr }))} />
+          <SelectField label="نوع المتابعة *" value={type} onChange={(v) => setType(v as FollowUpTypeDTO)} options={Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))} />
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-bold text-ink-muted">تاريخ المتابعة *</span>
             <input
@@ -134,6 +181,7 @@ export function InstallmentFollowUpsScreen() {
             />
           </label>
           <TextField label="ملاحظات" value={notes} onChange={setNotes} placeholder="اتركه فارغاً لتعيين المتابعة لنفسك" />
+          {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
           <Button variant="primary" onClick={submit}>
             إضافة
           </Button>
@@ -144,8 +192,11 @@ export function InstallmentFollowUpsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
-            <div className="text-[12.5px] text-ink-muted">{TYPE_LABEL[selected.type]} — {selected.followUpDate}</div>
+            <div className="text-[12.5px] text-ink-muted">
+              {TYPE_LABEL[selected.type]} — {selected.followUpDate}
+            </div>
             {selected.notes ? <div className="text-[13px] text-ink">{selected.notes}</div> : null}
+            {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {selected.status === "pending" ? (
               <>
                 <TextField label="النتيجة" value={outcome} onChange={setOutcome} placeholder="مثال: وعد بالدفع الأسبوع القادم" />

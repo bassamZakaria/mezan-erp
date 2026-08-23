@@ -15,20 +15,31 @@ import type {
   ChequeDTO,
   ChequeStatusDTO,
   CollectChequeDTO,
+  CollectionFollowUpDTO,
+  CompleteFollowUpDTO,
+  ConfigInputDTO,
   ConfirmVoucherDTO,
   ConvertLeadDTO,
+  ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
+  CostCenterDTO,
   CreateAccountDTO,
   CreateActivityDTO,
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
+  CreateBomDTO,
   CreateChequeDTO,
+  CreateConfigInstanceDTO,
+  CreateCostCenterDTO,
   CreateCustomerDTO,
   CreateDepreciationRunDTO,
+  CreateFollowUpDTO,
   CreateGlJournalEntryDTO,
   CreateGoodsReceiptDTO,
+  CreateInstallmentPlanDTO,
   CreateItemDTO,
+  CreateLandedCostDTO,
   CreateLeadDTO,
   CreateOpportunityDTO,
   CreatePipelineStageDTO,
@@ -37,58 +48,85 @@ import type {
   CreatePromotionDTO,
   CreatePurchaseInvoiceDTO,
   CreatePurchaseOrderDTO,
+  CreatePurchaseReturnDTO,
+  CreatePurchaseRfqDTO,
+  CreateRfqQuoteDTO,
   CreateRoleDTO,
   CreateSalesInvoiceDTO,
   CreateSalesQuoteDTO,
+  CreateSalesReturnDTO,
   CreateSupplierDTO,
+  CreateTaxRateDTO,
   CreateTreasuryAccountDTO,
   CreateUserDTO,
   CreateVoucherDTO,
+  CreateWorkOrderDTO,
   CustomerDTO,
   DashboardSummaryDTO,
   DepositChequeDTO,
   DepreciationRunDTO,
+  DocumentStatusDTO,
+  FiscalPeriodDTO,
+  FollowUpStatusDTO,
+  GenerateFiscalYearDTO,
   GlJournalListQueryDTO,
   GoodsReceiptDTO,
   ImportBankStatementDTO,
+  InstallmentPlanDocumentDTO,
   ItemDTO,
+  ItemPolicyDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
+  LandedCostDocumentDTO,
   LeadDTO,
   LoginRequestDTO,
   MatchSummaryDTO,
+  MaterialFormulaDTO,
   MoveOpportunityStageDTO,
   OpenInvoiceDTO,
   OpenVanTripDTO,
   OpportunityDTO,
   PipelineStageDTO,
+  PreviewConfigInstanceDTO,
   PriceListDTO,
+  PricingMethodDTO,
+  ProcessOverdueInstallmentsDTO,
+  ProcessOverdueInstallmentsResultDTO,
   ProjectDTO,
   PromotionDTO,
   PurchaseInvoiceDTO,
   PurchaseOrderDTO,
+  PurchaseReturnDocumentDTO,
+  PurchaseRfqDTO,
+  ReceiveProductDTO,
   RecordVanCashMovementDTO,
   ReplaceChequeDTO,
   ReverseGlJournalEntryDTO,
   ReverseVoucherDTO,
+  RfqQuoteDTO,
   RoleDTO,
   SalesInvoiceDiscountDTO,
   SalesInvoiceListQueryDTO,
+  SalesReturnDocumentDTO,
   SessionDTO,
   SettleVanTripDTO,
   StatementColumnMappingDTO,
   StatementLineDTO,
   SupplierDTO,
+  TaxRateDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
+  UpdateCostCenterDTO,
   UpdateCustomerDTO,
   UpdateItemDTO,
   UpdateProjectDTO,
   UpdateRoleDTO,
   UpdateSupplierDTO,
+  UpdateTaxRateDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
+  UpsertConfigurableProductDTO,
   UserDTO,
   VanTripDTO,
   VoucherAllocationDTO,
@@ -1789,5 +1827,975 @@ export function useSettleVanTrip() {
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* التصنيع — Manufacturing (docs/catalog/07): BOMs, work orders,          */
+/* configurable products, custom manufacturing (config instances).       */
+/* Mounted under /manufacturing/*; @mezan/contracts only ships the       */
+/* create/command schemas for these resources, not the response shape,  */
+/* so the read-side records are typed locally here to match             */
+/* packages/api/src/manufacturing-routes.ts's `serialize*` functions.    */
+/* -------------------------------------------------------------------- */
+
+export interface BomCostEstimateDTO {
+  readonly materialCost: string;
+  readonly laborCost: string;
+  readonly overheadCost: string;
+  readonly totalCost: string;
+  readonly unitCost: string;
+}
+
+export interface BomLineRecord {
+  readonly itemId: string;
+  readonly qty: string;
+  readonly wastePercent: number;
+  readonly optional: boolean;
+  readonly notes: string | null;
+}
+
+export interface BomRecord {
+  readonly id: string;
+  readonly number: string;
+  readonly productItemId: string;
+  readonly version: number;
+  readonly standardQty: string;
+  readonly unit: string;
+  readonly laborCost: string;
+  readonly overheadCost: string;
+  readonly versionNotes: string | null;
+  readonly lines: readonly BomLineRecord[];
+  readonly status: "active" | "inactive";
+  readonly custom: boolean;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly estimate?: BomCostEstimateDTO;
+}
+
+/** قوائم المواد (docs/catalog/07) — the manufacturing recipe a work order is built from. */
+export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<BomRecord[], ApiError>({
+    queryKey: ["boms"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/manufacturing/boms");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوائم المواد.");
+      return res.json<BomRecord[]>();
+    },
+  });
+}
+
+export function useCreateBom() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BomRecord, ApiError, CreateBomDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/boms", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء قائمة المواد."));
+      return res.json<BomRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
+  });
+}
+
+export function useDeactivateBom() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BomRecord, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/manufacturing/boms/${id}/deactivate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعطيل قائمة المواد."));
+      return res.json<BomRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
+  });
+}
+
+/** Wire shape of a posted cost/waste log entry on a work order (packages/api/src/manufacturing-routes.ts `serializeWorkOrder`). */
+export interface WorkOrderCostLogEntry {
+  readonly kind: "labor" | "overhead" | "other";
+  readonly amount: string;
+  readonly notes: string | null;
+  readonly at: string;
+}
+export interface WorkOrderWasteLogEntry {
+  readonly itemId: string;
+  readonly qty: string;
+  readonly notes: string | null;
+  readonly at: string;
+}
+
+export interface WorkOrderMaterialRecord {
+  readonly itemId: string;
+  readonly requiredQty: string;
+  readonly wastePercent: number;
+  readonly optional: boolean;
+  readonly issuedQty: string;
+  readonly returnedQty: string;
+  readonly netQty: string;
+  readonly issuedUnitCost: string;
+}
+
+export type WorkOrderStatusRecord = "planned" | "in_progress" | "completed" | "cancelled";
+export type WorkOrderStageRecord = "not_started" | "started" | "materials_issued" | "product_received" | "completed";
+
+export interface WorkOrderRecord {
+  readonly id: string;
+  readonly number: string;
+  readonly bomId: string;
+  readonly bomVersion: number;
+  readonly productItemId: string;
+  readonly plannedQty: string;
+  readonly producedQty: string;
+  readonly sourceWarehouseId: string;
+  readonly destinationWarehouseId: string;
+  readonly priority: "low" | "normal" | "high";
+  readonly scheduledStartDate: string;
+  readonly scheduledEndDate: string | null;
+  readonly notes: string | null;
+  readonly status: WorkOrderStatusRecord;
+  readonly stage: WorkOrderStageRecord;
+  readonly materials: readonly WorkOrderMaterialRecord[];
+  readonly materialCost: string;
+  readonly laborCost: string;
+  readonly overheadCost: string;
+  readonly extraCost: string;
+  readonly wipTotal: string;
+  readonly unitCost: string;
+  readonly progress: number;
+  readonly costLog: readonly WorkOrderCostLogEntry[];
+  readonly wasteLog: readonly WorkOrderWasteLogEntry[];
+  readonly configInstanceId: string | null;
+  readonly glPosted: boolean;
+  readonly createdBy: string;
+  readonly createdAt: string;
+  readonly startedAt: string | null;
+  readonly issuedAt: string | null;
+  readonly receivedAt: string | null;
+  readonly completedAt: string | null;
+}
+
+/** أوامر التصنيع (docs/catalog/07) — a production run against a BOM, tracked through its 4-stage lifecycle. */
+export function useWorkOrders(): UseQueryResult<WorkOrderRecord[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<WorkOrderRecord[], ApiError>({
+    queryKey: ["work-orders"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/manufacturing/work-orders");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر التصنيع.");
+      return res.json<WorkOrderRecord[]>();
+    },
+  });
+}
+
+export function useCreateWorkOrder() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, CreateWorkOrderDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/work-orders", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء أمر التصنيع."));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+function useWorkOrderAction(action: "start" | "complete" | "cancel", fallbackMessage: string) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/manufacturing/work-orders/${id}/${action}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+/** بدء العمل (not_started → started). */
+export function useStartWorkOrder() {
+  return useWorkOrderAction("start", "تعذّر بدء أمر التصنيع.");
+}
+/** إكمال أمر العمل — رسملة الإنتاج تحت التشغيل (product_received → completed). */
+export function useCompleteWorkOrder() {
+  return useWorkOrderAction("complete", "تعذّر إكمال أمر التصنيع.");
+}
+/** إلغاء أمر التصنيع. */
+export function useCancelWorkOrder() {
+  return useWorkOrderAction("cancel", "تعذّر إلغاء أمر التصنيع.");
+}
+
+/** صرف المواد الخام حسب قائمة المواد (started → materials_issued). */
+export function useIssueWorkOrderMaterials() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر صرف المواد."));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+/** استلام المنتج التام (materials_issued → product_received). */
+export function useReceiveWorkOrderProduct() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body: ReceiveProductDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/receive`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استلام المنتج."));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+export interface ConfigurableProductRecord {
+  readonly id: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly outputItemId: string;
+  readonly unit: string;
+  readonly description: string | null;
+  readonly inputs: readonly ConfigInputDTO[];
+  readonly materials: readonly MaterialFormulaDTO[];
+  readonly pricingMethod: PricingMethodDTO;
+  readonly priceFormula: string | null;
+  readonly laborFormula: string | null;
+  readonly overheadFormula: string | null;
+  readonly itemPolicy: ItemPolicyDTO;
+  readonly status: "active" | "inactive";
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+/** المنتجات القابلة للتهيئة (docs/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
+export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ConfigurableProductRecord[], ApiError>({
+    queryKey: ["configurable-products"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/manufacturing/configurable-products");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المنتجات القابلة للتهيئة.");
+      return res.json<ConfigurableProductRecord[]>();
+    },
+  });
+}
+
+export function useCreateConfigurableProduct() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ConfigurableProductRecord, ApiError, UpsertConfigurableProductDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/configurable-products", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المنتج القابل للتهيئة."));
+      return res.json<ConfigurableProductRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
+  });
+}
+
+export function useDeactivateConfigurableProduct() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ConfigurableProductRecord, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/manufacturing/configurable-products/${id}/deactivate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعطيل المنتج."));
+      return res.json<ConfigurableProductRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
+  });
+}
+
+export interface ConfigInstanceMaterialRecord {
+  readonly itemId: string;
+  readonly qtyPerUnit: string;
+  readonly wastePercent: number;
+  readonly lineCost: string;
+}
+
+export type ConfigInstanceStatusRecord = "configured" | "in_progress" | "produced" | "closed" | "cancelled";
+
+export interface ConfigInstanceRecord {
+  readonly id: string;
+  readonly number: string;
+  readonly configurableProductId: string;
+  readonly productNameAr: string;
+  readonly outputItemId: string;
+  readonly spec: Record<string, string>;
+  readonly qty: string;
+  readonly customerId: string | null;
+  readonly sellUnitPrice: string | null;
+  readonly sellTotal: string;
+  readonly notes: string | null;
+  readonly status: ConfigInstanceStatusRecord;
+  readonly bomId: string;
+  readonly workOrderId: string;
+  readonly materials: readonly ConfigInstanceMaterialRecord[];
+  readonly materialCostPerUnit: string;
+  readonly laborCostPerUnit: string;
+  readonly overheadCostPerUnit: string;
+  readonly estimatedUnitCost: string;
+  readonly actualCost: string | null;
+  readonly createdBy: string;
+  readonly createdAt: string;
+}
+
+/** التصنيع المخصص (docs/catalog/07) — one-off make-to-order production against a configurable product's formulas. */
+export function useConfigInstances(): UseQueryResult<ConfigInstanceRecord[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ConfigInstanceRecord[], ApiError>({
+    queryKey: ["config-instances"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/manufacturing/config-instances");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر التصنيع المخصص.");
+      return res.json<ConfigInstanceRecord[]>();
+    },
+  });
+}
+
+export function useCreateConfigInstance() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ConfigInstanceRecord, ApiError, CreateConfigInstanceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/config-instances", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء أمر التصنيع المخصص."));
+      return res.json<ConfigInstanceRecord>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["config-instances"] });
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+    },
+  });
+}
+
+function useConfigInstanceAction(action: "close" | "cancel", fallbackMessage: string) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ConfigInstanceRecord, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/manufacturing/config-instances/${id}/${action}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      return res.json<ConfigInstanceRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["config-instances"] }),
+  });
+}
+
+/** إغلاق الأمر (→ مغلقة) — captures the linked work order's actual cost. */
+export function useCloseConfigInstance() {
+  return useConfigInstanceAction("close", "تعذّر إغلاق أمر التصنيع المخصص.");
+}
+/** إلغاء أمر التصنيع المخصص. */
+export function useCancelConfigInstance() {
+  return useConfigInstanceAction("cancel", "تعذّر إلغاء أمر التصنيع المخصص.");
+}
+
+export interface ConfigInstancePreviewMaterial {
+  readonly itemId: string;
+  readonly qtyPerUnit: string;
+  readonly effectiveQtyPerUnit: string;
+  readonly wastePercent: number;
+  readonly unitCost: string;
+  readonly lineCost: string;
+}
+
+export interface ConfigInstancePreviewResult {
+  readonly materials: readonly ConfigInstancePreviewMaterial[];
+  readonly materialCostPerUnit: string;
+  readonly laborCostPerUnit: string;
+  readonly overheadCostPerUnit: string;
+  readonly unitPrice: string | null;
+}
+
+/** معاينة الاحتياجات والتكلفة — computes materials/cost/price for a spec with no persistence, as the create form's inputs change. */
+export function usePreviewConfigInstance() {
+  const { request } = useApi();
+  return useMutation<ConfigInstancePreviewResult, ApiError, PreviewConfigInstanceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/config-instances/preview", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت معاينة الأمر."));
+      return res.json<ConfigInstancePreviewResult>();
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* sweep/finish-and-mount — Cost Centers, Fiscal Periods, Taxes          */
+/* -------------------------------------------------------------------- */
+
+/** مراكز التكلفة (docs/catalog/04) — list, create, edit. */
+export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<CostCenterDTO[], ApiError>({
+    queryKey: ["cost-centers"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/cost-centers");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مراكز التكلفة.");
+      return res.json<CostCenterDTO[]>();
+    },
+  });
+}
+
+export function useCreateCostCenter() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CostCenterDTO, ApiError, CreateCostCenterDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/cost-centers", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة مركز التكلفة."));
+      return res.json<CostCenterDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
+  });
+}
+
+export function useUpdateCostCenter() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CostCenterDTO, ApiError, { id: string; patch: UpdateCostCenterDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/cost-centers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل مركز التكلفة."));
+      return res.json<CostCenterDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
+  });
+}
+
+/** الفترات المالية (docs/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
+export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<FiscalPeriodDTO[], ApiError>({
+    queryKey: ["fiscal-periods"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/fiscal-periods");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفترات المالية.");
+      return res.json<FiscalPeriodDTO[]>();
+    },
+  });
+}
+
+/** إنشاء السنة التالية — generates the 12 monthly periods for a fiscal year. */
+export function useGenerateFiscalYear() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<FiscalPeriodDTO[], ApiError, GenerateFiscalYearDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/fiscal-periods/generate-year", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء فترات السنة المالية."));
+      return res.json<FiscalPeriodDTO[]>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
+  });
+}
+
+function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallbackMessage: string) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<FiscalPeriodDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/fiscal-periods/${id}/${action}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      return res.json<FiscalPeriodDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
+  });
+}
+
+/** إغلاق الفترة (مفتوحة → مغلقة). */
+export function useClosePeriod() {
+  return useFiscalPeriodTransition("close", "تعذر إغلاق الفترة.");
+}
+/** إعادة فتح الفترة (مغلقة → مفتوحة). */
+export function useReopenPeriod() {
+  return useFiscalPeriodTransition("reopen", "تعذر إعادة فتح الفترة.");
+}
+/** قفل الفترة (مغلقة → مقفلة، نهائي). */
+export function useLockPeriod() {
+  return useFiscalPeriodTransition("lock", "تعذر قفل الفترة.");
+}
+
+/** الضرائب (docs/catalog/04) — list, create, edit. */
+export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<TaxRateDTO[], ApiError>({
+    queryKey: ["tax-rates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/tax-rates");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الضرائب.");
+      return res.json<TaxRateDTO[]>();
+    },
+  });
+}
+
+export function useCreateTaxRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TaxRateDTO, ApiError, CreateTaxRateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/tax-rates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الضريبة."));
+      return res.json<TaxRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
+  });
+}
+
+export function useUpdateTaxRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TaxRateDTO, ApiError, { id: string; patch: UpdateTaxRateDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/tax-rates/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الضريبة."));
+      return res.json<TaxRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
+  });
+}
+
+/**
+ * The `/rfqs/:id/comparison` per-item/per-supplier price grid (packages/api/src/rfq-routes.ts) —
+ * the server-computed equivalent of `@mezan/domain`'s `compareRfqQuotes`, but over the wire
+ * DTOs (decimal strings) rather than `Money`/`Qty` instances, so it isn't a shipped DTO.
+ */
+export interface RfqComparisonRowRecord {
+  readonly itemId: string;
+  readonly qty: string;
+  readonly quotesBySupplier: Record<string, string>;
+  readonly cheapestSupplierId: string | null;
+}
+
+export interface RfqComparisonRecord {
+  readonly rfq: PurchaseRfqDTO;
+  readonly supplierIds: readonly string[];
+  readonly rows: readonly RfqComparisonRowRecord[];
+  readonly totalsBySupplier: Record<string, string>;
+}
+
+/** طلبات عروض الأسعار / RFQs (docs/catalog/02) — list, create, and the draft → sent → closed/cancelled lifecycle. */
+export function useRfqs(): UseQueryResult<PurchaseRfqDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PurchaseRfqDTO[], ApiError>({
+    queryKey: ["rfqs"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/rfqs");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات عروض الأسعار.");
+      return res.json<PurchaseRfqDTO[]>();
+    },
+  });
+}
+
+/** عروض الموردين المسجلة على طلب عرض سعر واحد. */
+export function useRfqQuotes(rfqId: string | null): UseQueryResult<RfqQuoteDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<RfqQuoteDTO[], ApiError>({
+    queryKey: ["rfqs", rfqId, "quotes"],
+    enabled: session !== null && rfqId !== null,
+    queryFn: async () => {
+      const res = await request(`/rfqs/${rfqId}/quotes`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عروض الموردين.");
+      return res.json<RfqQuoteDTO[]>();
+    },
+  });
+}
+
+/** شبكة مقارنة العروض (سعر لكل صنف/مورد، وإجمالي السلة الكاملة لكل مورد). */
+export function useRfqComparison(rfqId: string | null): UseQueryResult<RfqComparisonRecord, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<RfqComparisonRecord, ApiError>({
+    queryKey: ["rfqs", rfqId, "comparison"],
+    enabled: session !== null && rfqId !== null,
+    queryFn: async () => {
+      const res = await request(`/rfqs/${rfqId}/comparison`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مقارنة العروض.");
+      return res.json<RfqComparisonRecord>();
+    },
+  });
+}
+
+export function useCreateRfq() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseRfqDTO, ApiError, CreatePurchaseRfqDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/rfqs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء طلب عرض السعر."));
+      return res.json<PurchaseRfqDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rfqs"] }),
+  });
+}
+
+function useRfqTransition(action: "send" | "close" | "cancel", fallbackMessage: string) {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseRfqDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/rfqs/${id}/${action}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, fallbackMessage));
+      return res.json<PurchaseRfqDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rfqs"] }),
+  });
+}
+
+/** إرسال طلب عرض السعر للموردين (مسودة → مرسل). */
+export function useSendRfq() {
+  return useRfqTransition("send", "تعذّر إرسال طلب عرض السعر.");
+}
+/** إغلاق طلب عرض السعر بدون تحويل (مرسل → مغلق). */
+export function useCloseRfq() {
+  return useRfqTransition("close", "تعذّر إغلاق طلب عرض السعر.");
+}
+/** إلغاء طلب عرض السعر. */
+export function useCancelRfq() {
+  return useRfqTransition("cancel", "تعذّر إلغاء طلب عرض السعر.");
+}
+
+/** تسجيل عرض سعر مورد جديد على طلب عرض سعر مرسل. */
+export function useCreateRfqQuote() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<RfqQuoteDTO, ApiError, { rfqId: string; body: CreateRfqQuoteDTO }>({
+    mutationFn: async ({ rfqId, body }) => {
+      const res = await request(`/rfqs/${rfqId}/quotes`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل عرض السعر."));
+      return res.json<RfqQuoteDTO>();
+    },
+    onSuccess: (_data, { rfqId }) => {
+      queryClient.invalidateQueries({ queryKey: ["rfqs", rfqId, "quotes"] });
+      queryClient.invalidateQueries({ queryKey: ["rfqs", rfqId, "comparison"] });
+    },
+  });
+}
+
+/** تحويل عرض مختار إلى أمر شراء حقيقي — يغلق طلب عرض السعر ويربطه بالأمر الجديد. */
+export function useConvertRfq() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }, ApiError, { rfqId: string; body: ConvertRfqDTO }>({
+    mutationFn: async ({ rfqId, body }) => {
+      const res = await request(`/rfqs/${rfqId}/convert`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحويل طلب عرض السعر إلى أمر شراء."));
+      return res.json<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }>();
+    },
+    onSuccess: (_data, { rfqId }) => {
+      queryClient.invalidateQueries({ queryKey: ["rfqs"] });
+      queryClient.invalidateQueries({ queryKey: ["rfqs", rfqId, "comparison"] });
+      queryClient.invalidateQueries({ queryKey: ["purchase-orders"] });
+    },
+  });
+}
+
+/** مرتجعات المبيعات (docs/catalog/01) — list, create draft (against a confirmed sales invoice), confirm, cancel/void. */
+export function useSalesReturns(status?: DocumentStatusDTO): UseQueryResult<SalesReturnDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<SalesReturnDocumentDTO[], ApiError>({
+    queryKey: ["sales-returns", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}` : "";
+      const res = await request(`/sales-returns${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مرتجعات المبيعات.");
+      return res.json<SalesReturnDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreateSalesReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مرتجع المبيعات."));
+      return res.json<SalesReturnDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
+  });
+}
+
+export function useConfirmSalesReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: SalesReturnDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/sales-returns/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مرتجع المبيعات."));
+      return res.json<{ document: SalesReturnDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
+  });
+}
+
+export function useCancelSalesReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesReturnDocumentDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/sales-returns/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مرتجع المبيعات."));
+      return res.json<SalesReturnDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
+  });
+}
+
+/** مرتجعات المشتريات (docs/catalog/02) — list, create draft (against a confirmed purchase invoice), confirm, cancel/void. */
+export function usePurchaseReturns(status?: DocumentStatusDTO): UseQueryResult<PurchaseReturnDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PurchaseReturnDocumentDTO[], ApiError>({
+    queryKey: ["purchase-returns", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}` : "";
+      const res = await request(`/purchase-returns${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مرتجعات المشتريات.");
+      return res.json<PurchaseReturnDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreatePurchaseReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مرتجع المشتريات."));
+      return res.json<PurchaseReturnDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
+  });
+}
+
+export function useConfirmPurchaseReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: PurchaseReturnDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/purchase-returns/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مرتجع المشتريات."));
+      return res.json<{ document: PurchaseReturnDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
+  });
+}
+
+export function useCancelPurchaseReturn() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseReturnDocumentDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/purchase-returns/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مرتجع المشتريات."));
+      return res.json<PurchaseReturnDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
+  });
+}
+
+/** التكاليف الإضافية (docs/catalog/02) — list, create draft (server runs distributeLandedCost and persists the allocated lines), confirm (runs the cost-layer revaluation), cancel/void. */
+export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<LandedCostDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LandedCostDocumentDTO[], ApiError>({
+    queryKey: ["landed-costs", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}` : "";
+      const res = await request(`/landed-costs${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مستندات التكاليف الإضافية.");
+      return res.json<LandedCostDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreateLandedCost() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مستند التكلفة الإضافية."));
+      return res.json<LandedCostDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
+  });
+}
+
+export function useConfirmLandedCost() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: LandedCostDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/landed-costs/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مستند التكلفة الإضافية."));
+      return res.json<{ document: LandedCostDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["landed-costs"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useCancelLandedCost() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LandedCostDocumentDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/landed-costs/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مستند التكلفة الإضافية."));
+      return res.json<LandedCostDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
+  });
+}
+
+/** خطط الأقساط (docs/catalog/05) — list, create (server builds the payment schedule), confirm, cancel/void, and the معالجة المتأخرات overdue batch. */
+export function useInstallmentPlans(status?: DocumentStatusDTO): UseQueryResult<InstallmentPlanDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<InstallmentPlanDocumentDTO[], ApiError>({
+    queryKey: ["installment-plans", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}` : "";
+      const res = await request(`/installments/plans${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل خطط الأقساط.");
+      return res.json<InstallmentPlanDocumentDTO[]>();
+    },
+  });
+}
+
+export function useCreateInstallmentPlan() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<InstallmentPlanDocumentDTO, ApiError, CreateInstallmentPlanDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/installments/plans", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء خطة الأقساط."));
+      return res.json<InstallmentPlanDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
+  });
+}
+
+export function useConfirmInstallmentPlan() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ document: InstallmentPlanDocumentDTO; held: boolean }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/installments/plans/${id}/confirm`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد خطة الأقساط."));
+      return res.json<{ document: InstallmentPlanDocumentDTO; held: boolean }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
+  });
+}
+
+export function useCancelInstallmentPlan() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<InstallmentPlanDocumentDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/installments/plans/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء خطة الأقساط."));
+      return res.json<InstallmentPlanDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
+  });
+}
+
+export function useProcessOverdueInstallments() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ProcessOverdueInstallmentsResultDTO, ApiError, ProcessOverdueInstallmentsDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/installments/plans/overdue/process", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر معالجة الأقساط المتأخرة."));
+      return res.json<ProcessOverdueInstallmentsResultDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
+  });
+}
+
+export interface FollowUpListFilters {
+  readonly status?: FollowUpStatusDTO;
+  readonly customerId?: string;
+}
+
+/** متابعة التحصيل (docs/catalog/05) — list (filterable by status/customer), create, complete (records an outcome), cancel. */
+export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<CollectionFollowUpDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<CollectionFollowUpDTO[], ApiError>({
+    queryKey: ["follow-ups", filters.status ?? null, filters.customerId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filters.status) params.set("status", filters.status);
+      if (filters.customerId) params.set("customerId", filters.customerId);
+      const qs = params.toString();
+      const res = await request(`/installments/follow-ups${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل متابعات التحصيل.");
+      return res.json<CollectionFollowUpDTO[]>();
+    },
+  });
+}
+
+export function useCreateFollowUp() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CollectionFollowUpDTO, ApiError, CreateFollowUpDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/installments/follow-ups", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إضافة متابعة."));
+      return res.json<CollectionFollowUpDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
+  });
+}
+
+export function useCompleteFollowUp() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CollectionFollowUpDTO, ApiError, { id: string; outcome: string }>({
+    mutationFn: async ({ id, outcome }) => {
+      const res = await request(`/installments/follow-ups/${id}/complete`, { method: "POST", body: JSON.stringify({ outcome }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إكمال المتابعة."));
+      return res.json<CollectionFollowUpDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
+  });
+}
+
+export function useCancelFollowUp() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<CollectionFollowUpDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/installments/follow-ups/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء المتابعة."));
+      return res.json<CollectionFollowUpDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
   });
 }

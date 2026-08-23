@@ -7,6 +7,15 @@ import {
   createTreasuryLedgerReader,
   VoucherService,
   type TreasuryTransferInput,
+  DocumentService,
+  createDocumentWorkflowGate,
+  createJournalGlHook,
+  createInventoryStockHook,
+  createSalesReturnDocumentType,
+  createPurchaseReturnDocumentType,
+  createLandedCostDocumentType,
+  LandedCostService,
+  installmentPlanDocumentType,
 } from "@mezan/domain";
 import {
   createSqliteUnitOfWork,
@@ -46,8 +55,15 @@ import {
   createSqliteAssetRepository,
   createSqliteDepreciationRunRepository,
   createSqliteVanTripRepository,
+  createSqliteManufacturingStores,
+  createSqliteRfqStores,
+  createSqliteHistoricalPurchaseArchiveStore,
+  createStandaloneSqliteSalesReturnStore,
+  createStandaloneSqlitePurchaseReturnStore,
+  createStandaloneSqliteLandedCostStore,
+  createStandaloneSqliteFollowUpStore,
 } from "@mezan/persistence";
-import { EtaService } from "@mezan/domain";
+import { EtaService, Money } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -72,6 +88,51 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+};
+
+/**
+ * The GL accounts a completed work order's WIP posting debits/credits
+ * (packages/domain/src/manufacturing/types.ts's `WorkOrderGlAccounts`) —
+ * the 4 dedicated leaves added to the standard COA template
+ * (packages/domain/src/accounts/coa-template.ts): raw inventory (1210),
+ * finished goods (1220), labor applied (5110), overhead applied (5210).
+ */
+const MANUFACTURING_GL_ACCOUNTS = {
+  finishedGoodsAccountId: "1220",
+  rawInventoryAccountId: "1210",
+  laborAppliedAccountId: "5110",
+  overheadAppliedAccountId: "5210",
+};
+
+/**
+ * The GL accounts مرتجعات المبيعات posts against — reuses the same standard
+ * COA leaves the sales-invoice/purchase-chain postings already use (no
+ * dedicated contra-revenue account exists in the template, so the return
+ * debits sales revenue directly rather than a separate returns account).
+ */
+const SALES_RETURN_GL_ACCOUNTS = {
+  accountsReceivableId: "1105",
+  salesReturnsAccountId: "4100",
+  outputTaxPayableAccountId: "2200",
+  inventoryAccountId: "1200",
+  cogsAccountId: "5100",
+};
+
+/** The GL accounts مرتجعات المشتريات posts against — mirrors `PURCHASE_GL_ACCOUNTS`. */
+const PURCHASE_RETURN_GL_ACCOUNTS = {
+  accountsPayableId: "2100",
+  inputTaxPayableId: "1400",
+  inventoryAccountId: "1200",
+};
+
+/**
+ * The GL accounts التكاليف الإضافية posts against — the freight/customs
+ * accrual reuses trade payables (2100) as its clearing account; no dedicated
+ * "accrued landed cost" leaf exists in the template.
+ */
+const LANDED_COST_GL_ACCOUNTS = {
+  inventoryAccountId: "1200",
+  accruedLandedCostPayableId: "2100",
 };
 
 export interface BackendHandle {
@@ -152,6 +213,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const depreciationRuns = createSqliteDepreciationRunRepository(dbPath);
   const vanTrips = createSqliteVanTripRepository(dbPath);
 
+  // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
+  // orders, configurable products, custom manufacturing) and RFQ + historical
+  // purchase import (docs/catalog/02). ---
+  const manufacturing = createSqliteManufacturingStores(dbPath);
+  const rfqStores = createSqliteRfqStores(dbPath);
+  const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(dbPath);
+
+  // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
+  // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
+  const salesReturnStore = createStandaloneSqliteSalesReturnStore(dbPath);
+  const purchaseReturnStore = createStandaloneSqlitePurchaseReturnStore(dbPath);
+  const landedCostStore = createStandaloneSqliteLandedCostStore(dbPath);
+  const followUps = createStandaloneSqliteFollowUpStore(dbPath);
+
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -160,6 +235,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     transaction: stockLedger.transaction,
   });
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
+  const documentGl = createJournalGlHook(salesInvoiceGl);
+  const noWorkflow = createDocumentWorkflowGate(() => null);
+
+  const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
+    repo: salesReturnStore,
+    numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
+    gl: documentGl,
+    stock: createInventoryStockHook(stockService),
+    workflow: noWorkflow,
+  });
+  const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
+    repo: purchaseReturnStore,
+    numbering: { next: () => ledger.numbering.next("PURCHASE_RETURN") },
+    gl: documentGl,
+    stock: createInventoryStockHook(stockService),
+    workflow: noWorkflow,
+  });
+  const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
+    repo: landedCostStore,
+    numbering: { next: () => ledger.numbering.next("LANDED_COST") },
+    gl: documentGl,
+    workflow: noWorkflow,
+  });
+  const landedCosts = new LandedCostService(landedCostDocuments, stockService);
+  const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
+    repo: installmentPlans,
+    numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
+    workflow: noWorkflow,
+  });
 
   const seedStores: SeedStores = {
     accounts,
@@ -307,6 +411,35 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
     },
+    manufacturing: {
+      boms: manufacturing.boms,
+      workOrders: manufacturing.workOrders,
+      configurableProducts: manufacturing.configurableProducts,
+      configInstances: manufacturing.configInstances,
+      numbering: ledger.numbering,
+      stock: stockService,
+      gl: salesInvoiceGl,
+      accounts: MANUFACTURING_GL_ACCOUNTS,
+      resolveUnitCost: async (itemId: string) => {
+        const item = await items.findById(itemId);
+        return item?.costPrice ?? Money.zero();
+      },
+    },
+    rfq: {
+      rfqs: rfqStores.rfqs,
+      quotes: rfqStores.quotes,
+      orders: purchaseOrders,
+      numbering: ledger.numbering,
+    },
+    // gl/accounts omitted — no historical-import GL adapter yet; archives
+    // import without posting a remaining-balance journal entry.
+    historicalImport: {
+      archives: historicalImportArchives,
+    },
+    salesReturns: { service: salesReturns },
+    purchaseReturns: { service: purchaseReturns },
+    landedCosts: { documents: landedCostDocuments, service: landedCosts },
+    installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
     reports: {
       salesInvoices,
       purchaseInvoices,
@@ -372,6 +505,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assets,
     depreciationRuns,
     vanTrips,
+    manufacturing,
+    rfqStores,
+    historicalImportArchives,
+    salesReturnStore,
+    purchaseReturnStore,
+    landedCostStore,
+    followUps,
   ];
 
   return {

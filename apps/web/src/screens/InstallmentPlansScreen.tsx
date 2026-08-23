@@ -1,6 +1,7 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
+  Card,
   DocumentList,
   Money as MoneyDisplay,
   StatusPill,
@@ -9,33 +10,28 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import {
-  Money,
-  generateInstallmentSchedule,
-  processOverdueInstallments,
-  type DocumentStatus,
-  type FrameworkDocument,
-  type InstallmentFrequency,
-  type InstallmentLine,
-  type InstallmentPlanDocument,
-} from "@mezan/domain";
+import { Money, generateInstallmentSchedule } from "@mezan/domain";
+import type { DocumentStatusDTO, InstallmentFrequencyDTO, InstallmentPlanDocumentDTO } from "@mezan/contracts";
 import { SelectField, NumberField } from "../settings/form-controls";
-import { demoInvoices } from "../sample-data";
-import { createReturnsLandedInstallmentsStore } from "../store/returns-landed-installments-store";
-import { demoAccounts, demoOpenPeriod } from "../store/document-demo-shared";
+import {
+  useCancelInstallmentPlan,
+  useConfirmInstallmentPlan,
+  useCreateInstallmentPlan,
+  useInstallmentPlans,
+  useProcessOverdueInstallments,
+  useSalesInvoices,
+} from "../data/hooks";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
-type Doc = FrameworkDocument<InstallmentLine>;
-
-const FREQUENCY_LABEL: Record<InstallmentFrequency, string> = {
+const FREQUENCY_LABEL: Record<InstallmentFrequencyDTO, string> = {
   WEEKLY: "أسبوعي",
   BIWEEKLY: "كل أسبوعين",
   MONTHLY: "شهري",
   QUARTERLY: "ربع سنوي",
 };
 
-const STATUS_LABEL: Record<DocumentStatus, string> = {
+const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",
   confirmed: "نشط",
@@ -43,7 +39,7 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   cancelled: "ملغي",
   reversed: "معكوس",
 };
-const STATUS_TONE: Record<DocumentStatus, PillTone> = {
+const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
   draft: "neutral",
   pending: "warning",
   confirmed: "success",
@@ -52,30 +48,48 @@ const STATUS_TONE: Record<DocumentStatus, PillTone> = {
   reversed: "danger",
 };
 
-const TODAY = "2026-08-21";
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 export function InstallmentPlansScreen() {
-  const storeRef = useRef(createReturnsLandedInstallmentsStore({ accounts: demoAccounts, period: demoOpenPeriod }));
-  const [version, setVersion] = useState(0);
-  const bump = () => setVersion((v) => v + 1);
-  const documents = useMemo(() => storeRef.current.snapshot().installments, [version]);
+  const query = useInstallmentPlans();
+  const invoicesQuery = useSalesInvoices();
+  const createPlan = useCreateInstallmentPlan();
+  const confirmPlan = useConfirmInstallmentPlan();
+  const cancelPlan = useCancelInstallmentPlan();
+  const processOverdue = useProcessOverdueInstallments();
+
+  const documents = query.data ?? [];
+  const invoices = useMemo(
+    () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled" && Number(i.remainingBalance) > 0),
+    [invoicesQuery.data],
+  );
 
   const [panel, setPanel] = useState<"none" | "create" | "overdue" | { id: string }>("none");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatus>("all");
-  const [invoiceId, setInvoiceId] = useState(demoInvoices[0]?.id ?? "");
+  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [invoiceId, setInvoiceId] = useState("");
   const [installmentCount, setInstallmentCount] = useState(6);
-  const [frequency, setFrequency] = useState<InstallmentFrequency>("MONTHLY");
-  const [startDate, setStartDate] = useState(TODAY);
+  const [frequency, setFrequency] = useState<InstallmentFrequencyDTO>("MONTHLY");
+  const [startDate, setStartDate] = useState(today());
   const [downPayment, setDownPayment] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [overdueResult, setOverdueResult] = useState<{ newlyOverdueCount: number; totalLateFeesApplied: string } | null>(null);
 
-  const selectedInvoice = demoInvoices.find((i) => i.id === invoiceId);
+  // Defaults the create form's invoice picker once the sales-invoices query resolves —
+  // opening the panel alone can't do this if it happens before `invoices` has loaded.
+  useEffect(() => {
+    if (panel !== "create" || invoiceId !== "") return;
+    const firstInvoice = invoices[0];
+    if (firstInvoice) setInvoiceId(firstInvoice.id);
+  }, [panel, invoices, invoiceId]);
+
+  const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const preview = useMemo(() => {
     if (!selectedInvoice) return null;
     try {
       return generateInstallmentSchedule({
-        invoiceTotal: Money.fromMajor(String(selectedInvoice.remaining)),
+        invoiceTotal: Money.fromMajor(selectedInvoice.remainingBalance),
         downPayment: Money.fromMajor(String(downPayment)),
         installmentCount,
         frequency,
@@ -98,45 +112,59 @@ export function InstallmentPlansScreen() {
   }, [documents]);
 
   const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-  const selected = typeof panel === "object" ? documents.find((d) => d.id === panel.id) ?? null : null;
+  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+
+  function openCreate() {
+    setError(null);
+    setInvoiceId(invoices[0]?.id ?? "");
+    setInstallmentCount(6);
+    setFrequency("MONTHLY");
+    setStartDate(today());
+    setDownPayment(0);
+    setPanel("create");
+  }
 
   async function submit() {
     setError(null);
     if (!preview || !selectedInvoice) return;
-    const id = crypto.randomUUID();
-    const lines: InstallmentLine[] = preview.installments.map((i) => ({
-      no: i.no,
-      customerId: selectedInvoice.customer,
-      sourceInvoiceId: selectedInvoice.id,
-      sourceInvoiceNumber: selectedInvoice.number,
-      frequency,
-      downPayment: preview.downPayment,
-      dueDate: i.dueDate,
-      amount: i.amount,
-      paidAmount: Money.zero(),
-      status: "pending",
-      lateFeeAmount: Money.zero(),
-    }));
     try {
-      await storeRef.current.installments.createDraft({ id, date: startDate, memo: "", lines });
-      await storeRef.current.installments.confirm(id, { actor: "demo", actorRoles: ["*"] });
-      bump();
+      const created = await createPlan.mutateAsync({
+        id: crypto.randomUUID(),
+        date: startDate,
+        memo: "",
+        customerId: selectedInvoice.customerId,
+        sourceInvoiceId: selectedInvoice.id,
+        sourceInvoiceNumber: selectedInvoice.docNo,
+        invoiceTotal: selectedInvoice.remainingBalance,
+        downPayment: String(downPayment),
+        installmentCount,
+        frequency,
+        startDate,
+      });
+      await confirmPlan.mutateAsync(created.id);
       setPanel("none");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  async function runOverdueBatch() {
-    const confirmedPlans = documents.filter((d) => d.status === "confirmed") as InstallmentPlanDocument[];
-    const result = processOverdueInstallments(confirmedPlans, TODAY);
-    for (let i = 0; i < confirmedPlans.length; i++) {
-      if (result.updatedPlans[i] !== confirmedPlans[i]) {
-        await storeRef.current.installmentsRepo.update(result.updatedPlans[i] as InstallmentPlanDocument);
-      }
+  async function cancelExisting(id: string) {
+    setError(null);
+    try {
+      await cancelPlan.mutateAsync(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
-    setOverdueResult({ newlyOverdueCount: result.newlyOverdueCount, totalLateFeesApplied: result.totalLateFeesApplied.toString() });
-    bump();
+  }
+
+  async function runOverdueBatch() {
+    setError(null);
+    try {
+      const result = await processOverdue.mutateAsync({ asOfDate: today() });
+      setOverdueResult(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const statusChips: DocumentListStatusChip[] = [
@@ -144,7 +172,7 @@ export function InstallmentPlansScreen() {
     { key: "confirmed", label: "نشط", count: counts.active },
   ];
 
-  const columns: DocumentListColumn<Doc>[] = [
+  const columns: DocumentListColumn<InstallmentPlanDocumentDTO>[] = [
     { key: "docNo", header: "رقم الخطة", render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "مسودة"}</span> },
     { key: "customer", header: "العميل", render: (d) => d.lines[0]?.customerId ?? "—" },
     { key: "invoice", header: "الفاتورة", render: (d) => d.lines[0]?.sourceInvoiceNumber ?? "—" },
@@ -153,7 +181,9 @@ export function InstallmentPlansScreen() {
       key: "remaining",
       header: "المتبقي",
       align: "end",
-      render: (d) => <MoneyDisplay value={Number(Money.sum(d.lines.filter((l) => l.status !== "paid").map((l) => l.amount)).toString())} />,
+      render: (d) => (
+        <MoneyDisplay value={d.lines.filter((l) => l.status !== "paid").reduce((s, l) => s + Number(l.amount), 0)} />
+      ),
     },
     {
       key: "status",
@@ -169,7 +199,15 @@ export function InstallmentPlansScreen() {
 
   return (
     <div className="w-full">
-      <DocumentList<Doc>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل خطط الأقساط.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<InstallmentPlanDocumentDTO>
         eyebrow="Installments · Plans"
         title="خطط الأقساط"
         description="تقسيم مبلغ فاتورة مبيعات على دفعات دورية — لا يسجل تحصيلاً تلقائياً."
@@ -179,12 +217,13 @@ export function InstallmentPlansScreen() {
               variant="default"
               onClick={() => {
                 setOverdueResult(null);
+                setError(null);
                 setPanel("overdue");
               }}
             >
               معالجة المتأخرات
             </Button>
-            <Button variant="primary" onClick={() => setPanel("create")}>
+            <Button variant="primary" onClick={openCreate}>
               خطة جديدة
             </Button>
           </div>
@@ -196,7 +235,7 @@ export function InstallmentPlansScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -217,13 +256,13 @@ export function InstallmentPlansScreen() {
             label="الفاتورة *"
             value={invoiceId}
             onChange={setInvoiceId}
-            options={demoInvoices.filter((i) => i.remaining > 0).map((i) => ({ value: i.id, label: `${i.number} — ${i.customer} / ${i.remaining.toFixed(2)}` }))}
+            options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${i.customerNameAr} / ${i.remainingBalance}` }))}
           />
           <NumberField label="عدد الأقساط *" value={installmentCount} onChange={setInstallmentCount} min={1} />
           <SelectField
             label="التكرار *"
             value={frequency}
-            onChange={(v) => setFrequency(v as InstallmentFrequency)}
+            onChange={(v) => setFrequency(v as InstallmentFrequencyDTO)}
             options={Object.entries(FREQUENCY_LABEL).map(([value, label]) => ({ value, label }))}
           />
           <TextFieldDate label="تاريخ البدء *" value={startDate} onChange={setStartDate} />
@@ -251,7 +290,12 @@ export function InstallmentPlansScreen() {
         </div>
       </SidePanel>
 
-      <SidePanel open={panel === "overdue"} onClose={() => setPanel("none")} title="معالجة المتأخرات" description="سيتم تحديث حالة الأقساط المتأخرة وتطبيق غرامات التأخير حسب إعدادات المنشأة">
+      <SidePanel
+        open={panel === "overdue"}
+        onClose={() => setPanel("none")}
+        title="معالجة المتأخرات"
+        description="سيتم تحديث حالة الأقساط المتأخرة وتطبيق غرامات التأخير حسب إعدادات المنشأة"
+      >
         <div className="flex flex-col gap-4 p-5">
           <div className="rounded-[10px] border border-border p-3 text-[12.5px] text-ink-muted">
             تحديث حالة الأقساط المستحقة إلى متأخر (تلقائي) — تطبيق غرامات التأخير (تلقائي؛ لا توجد إعدادات غرامة معرّفة بعد، القيمة صفر حتى تُضاف).
@@ -262,6 +306,7 @@ export function InstallmentPlansScreen() {
               <MoneyDisplay value={Number(overdueResult.totalLateFeesApplied)} />
             </div>
           ) : null}
+          {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
           <Button variant="primary" onClick={runOverdueBatch}>
             معالجة المتأخرات
           </Button>
@@ -278,7 +323,7 @@ export function InstallmentPlansScreen() {
                   <span className="mz-num text-ink-muted">
                     #{l.no} — {l.dueDate}
                   </span>
-                  <MoneyDisplay value={Number(l.amount.toString())} />
+                  <MoneyDisplay value={Number(l.amount)} />
                   <StatusPill
                     label={l.status === "pending" ? "مستحق" : l.status === "paid" ? "مدفوع" : l.status === "overdue" ? "متأخر" : "ملغي"}
                     tone={l.status === "paid" ? "success" : l.status === "overdue" ? "danger" : "neutral"}
@@ -286,6 +331,12 @@ export function InstallmentPlansScreen() {
                 </div>
               ))}
             </div>
+            {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            {selected.status === "confirmed" ? (
+              <Button variant="default" onClick={() => cancelExisting(selected.id)}>
+                إلغاء الخطة
+              </Button>
+            ) : null}
           </div>
         ) : null}
       </SidePanel>

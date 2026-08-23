@@ -23,6 +23,8 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1190", code: "1190", nameAr: "مخصص هبوط المخزون", nameEn: "Inventory Provision", type: "asset", naturalBalance: "credit", parentId: "1100", isHeader: false },
   { id: "1200", code: "1200", nameAr: "المخزون", nameEn: "Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1210", code: "1210", nameAr: "مخزون المواد الخام", nameEn: "Raw Materials Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
+  { id: "1220", code: "1220", nameAr: "مخزون المنتجات التامة", nameEn: "Finished Goods Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1250", code: "1250", nameAr: "إنتاج تحت التشغيل", nameEn: "Work In Progress", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1300", code: "1300", nameAr: "النقدية", nameEn: "Cash", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: true },
   { id: "1300-1", code: "1300-1", nameAr: "صندوق نقدي الفرع الرئيسي", nameEn: "Main Branch Cash Drawer", type: "asset", naturalBalance: "debit", parentId: "1300", isHeader: false },
@@ -62,7 +64,9 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 5000 المصروفات (Expenses) ---
   { id: "5000", code: "5000", nameAr: "المصروفات", nameEn: "Expenses", type: "expense", naturalBalance: "debit", parentId: null, isHeader: true },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

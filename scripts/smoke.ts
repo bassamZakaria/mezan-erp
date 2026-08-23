@@ -100,6 +100,7 @@ const READ_PATHS = [
   "/reports/installments/overview",
   "/reports/installments/overdue",
   "/reports/field/van-sales",
+  "/reports/manufacturing/make-vs-buy",
   "/financial-reports/trial-balance",
   "/financial-reports/income-statement",
   "/financial-reports/balance-sheet",

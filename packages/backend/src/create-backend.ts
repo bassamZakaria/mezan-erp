@@ -943,6 +943,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       customers,
       suppliers,
       items,
+      boms: manufacturing.boms,
       warehouses,
       stockLedger: stockLedger.ledger,
       costLayers: stockLedger.layers,

@@ -106,6 +106,24 @@ export const payslipSchema = z.object({
   createdAt: z.string().min(1),
 });
 
+export const payrollEmployeeNoticeSchema = z.object({
+  employeeId: z.string().min(1),
+  employeeCode: z.string(),
+  employeeNameAr: z.string(),
+  outcome: z.enum(["excluded", "approximated"]),
+  reason: z.enum([
+    "no_active_contract",
+    "pay_basis_unsupported",
+    "currency_mismatch",
+    "no_payable_days",
+    "pay_frequency_unsupported",
+    "prorated_period",
+    "advance_currency_mismatch",
+    "advance_partially_recovered",
+  ]),
+  messageAr: z.string().min(1),
+});
+
 export const payrollRunSchema = z.object({
   id: z.string().min(1),
   number: z.string().min(1),
@@ -123,6 +141,7 @@ export const payrollRunSchema = z.object({
   totalNet: z.string(),
   unpaidLeaveSource: z.enum(["none", "provider"]),
   warnings: z.array(z.string()),
+  employeeNotices: z.array(payrollEmployeeNoticeSchema),
   journalEntryId: z.string().nullable(),
   disbursementVoucherId: z.string().nullable(),
   calculatedAt: z.string().nullable(),
@@ -152,6 +171,7 @@ export type CreateEmployeeAdvanceDTO = z.infer<typeof createEmployeeAdvanceSchem
 export type TreasuryDisbursementDTO = z.infer<typeof treasuryDisbursementSchema>;
 export type EmployeeAdvanceBalanceDTO = z.infer<typeof employeeAdvanceBalanceSchema>;
 export type PayrollRunStatusDTO = z.infer<typeof payrollRunStatusSchema>;
+export type PayrollEmployeeNoticeDTO = z.infer<typeof payrollEmployeeNoticeSchema>;
 export type PayslipLineKindDTO = z.infer<typeof payslipLineKindSchema>;
 export type PayslipLineSourceDTO = z.infer<typeof payslipLineSourceSchema>;
 export type PayslipLineDTO = z.infer<typeof payslipLineSchema>;

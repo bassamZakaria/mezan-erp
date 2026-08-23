@@ -3,7 +3,7 @@ import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
-import { Topbar } from "./Topbar";
+import { Topbar, type ShellNotification } from "./Topbar";
 import type { CommandItem, NavGroup, NavItem, ShellUser } from "./types";
 
 export interface AppShellProps {
@@ -14,7 +14,8 @@ export interface AppShellProps {
   commandItems?: CommandItem[];
   tenantName?: string;
   scopeLabel?: string;
-  notificationCount?: number;
+  notifications?: ShellNotification[];
+  onLogout?: () => void;
   brandName?: string;
   brandSub?: string;
   children: ReactNode;
@@ -33,7 +34,8 @@ export function AppShell({
   commandItems = [],
   tenantName,
   scopeLabel,
-  notificationCount,
+  notifications,
+  onLogout,
   brandName,
   brandSub,
   children,
@@ -63,7 +65,8 @@ export function AppShell({
           scopeLabel={scopeLabel}
           theme={theme}
           onToggleTheme={toggleTheme}
-          notificationCount={notificationCount}
+          notifications={notifications}
+          onLogout={onLogout}
           user={user}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>

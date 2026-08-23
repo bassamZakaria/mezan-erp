@@ -81,8 +81,8 @@ import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
+import { NavigationProvider } from "./navigation";
 import {
-  commandItems,
   demoBranches,
   demoEmployees,
   demoEntitlements,
@@ -91,7 +91,7 @@ import {
   topNavItem,
 } from "./sample-data";
 import { useApi } from "./data/ApiContext";
-import type { ShellUser } from "@mezan/ui";
+import type { CommandItem, ShellUser } from "@mezan/ui";
 import {
   useCreateRole,
   useCreateUser,
@@ -214,8 +214,10 @@ function initialsFor(fullName: string): string {
 }
 
 export function App() {
-  const { session } = useApi();
-  const [mode, setMode] = useState<AppMode>("login");
+  const { session, setSession } = useApi();
+  // A persisted session (data/session.ts) must land on the app, not the login
+  // gate — otherwise a page refresh silently signs the user back out.
+  const [mode, setMode] = useState<AppMode>(() => (session ? "app" : "login"));
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
@@ -260,6 +262,26 @@ export function App() {
       })),
     [],
   );
+
+  const commandItems: CommandItem[] = useMemo(() => {
+    const goto: CommandItem[] = navGroups.flatMap((group) =>
+      group.items
+        .filter((item) => isRoutable(item.key) || item.key === "users" || item.key === "roles")
+        .map((item) => ({
+          id: `goto-${item.key}`,
+          label: item.label,
+          group: group.label,
+          onSelect: () => setActiveScreen(item.key as ScreenKey),
+        })),
+    );
+    return [
+      { id: "cmd-invoice", label: "فاتورة مبيعات جديدة", group: "إجراءات سريعة", hint: "N", onSelect: () => setActiveScreen("sales-invoices") },
+      { id: "cmd-receipt", label: "سند نقدي جديد", group: "إجراءات سريعة", onSelect: () => setActiveScreen("treasury-vouchers") },
+      { id: "cmd-quote", label: "عرض سعر جديد", group: "إجراءات سريعة", onSelect: () => setActiveScreen("quotes") },
+      { id: "goto-dashboard", label: "لوحة التحكم", group: "الانتقال إلى", onSelect: () => setActiveScreen("dashboard") },
+      ...goto,
+    ];
+  }, []);
 
   const routedTopNavItem = useMemo(() => {
     const key = topNavItem.key;
@@ -318,6 +340,12 @@ export function App() {
     }
   }
 
+  function handleLogout() {
+    setSession(null);
+    setActiveScreen("dashboard");
+    setMode("login");
+  }
+
   if (mode === "wizard") {
     return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
   }
@@ -342,9 +370,11 @@ export function App() {
       commandItems={commandItems}
       tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
-      notificationCount={3}
+      onLogout={handleLogout}
     >
-      {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
+      <NavigationProvider navigate={(key) => setActiveScreen(key as ScreenKey)}>
+        {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
+      </NavigationProvider>
 
       {activeScreen === "users" ? (
         <UsersPage

@@ -2,9 +2,16 @@ import { useMemo, useState } from "react";
 import { Button, Card, Chip, Money, StatCard } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
+import { useNavigate } from "../navigation";
 
-/** Quick-action launchers (UI affordances, not data) — wired to their create flows in the follow-up sweep. */
-const quickActions = ["فاتورة جديدة", "سند نقدي", "استلام بضاعة", "فاتورة مشتريات جديدة", "أمر شراء جديد", "عرض سعر"];
+const quickActions: { label: string; screen: string }[] = [
+  { label: "فاتورة جديدة", screen: "sales-invoices" },
+  { label: "سند نقدي", screen: "treasury-vouchers" },
+  { label: "استلام بضاعة", screen: "goods-receipts" },
+  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices" },
+  { label: "أمر شراء جديد", screen: "purchase-orders" },
+  { label: "عرض سعر", screen: "quotes" },
+];
 
 const RANGE_OPTIONS = [
   { value: "month", label: "هذا الشهر" },
@@ -43,6 +50,7 @@ function num(value: string | undefined): number {
  */
 export function DashboardScreen() {
   const { session } = useApi();
+  const navigate = useNavigate();
   const [range, setRange] = useState<RangeValue>("month");
   const dates = useMemo(() => rangeToDates(range), [range]);
   const query = useDashboardSummary(dates);
@@ -73,9 +81,9 @@ export function DashboardScreen() {
           </p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((label, index) => (
-            <Button key={label} size="sm" variant={index === 2 ? "primary" : "default"}>
-              {label}
+          {quickActions.map((action, index) => (
+            <Button key={action.label} size="sm" variant={index === 2 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
+              {action.label}
             </Button>
           ))}
         </div>

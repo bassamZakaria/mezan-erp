@@ -40,14 +40,36 @@ describe("Topbar", () => {
     expect(onToggleTheme).toHaveBeenCalledOnce();
   });
 
-  it("shows a notification badge only when notificationCount > 0", () => {
+  it("shows a notification badge only when there are real notifications", () => {
     const { rerender, container } = render(
-      <Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} notificationCount={0} />,
+      <Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} notifications={[]} />,
     );
     expect(container.querySelector(".bg-danger")).not.toBeInTheDocument();
 
-    rerender(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} notificationCount={3} />);
+    rerender(
+      <Topbar
+        onOpenCommandPalette={() => {}}
+        theme="light"
+        onToggleTheme={() => {}}
+        user={user}
+        notifications={[{ id: "n1", title: "أمر تصنيع مكتمل" }]}
+      />,
+    );
     expect(container.querySelector(".bg-danger")).toBeInTheDocument();
+  });
+
+  it("opens the notifications panel and shows the empty state when there is nothing to show", () => {
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} />);
+    fireEvent.click(screen.getByRole("button", { name: "الإشعارات" }));
+    expect(screen.getByText("لا توجد إشعارات")).toBeInTheDocument();
+  });
+
+  it("logs out from the user menu", () => {
+    const onLogout = vi.fn();
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} onLogout={onLogout} />);
+    fireEvent.click(screen.getByRole("button", { name: /محمد الشهابي/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "تسجيل الخروج" }));
+    expect(onLogout).toHaveBeenCalledOnce();
   });
 
   it("renders against a dark theme root without crashing", () => {

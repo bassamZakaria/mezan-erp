@@ -81,6 +81,7 @@ import {
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
+  createSqlitePrintTemplateConfigStore,
   createSqliteInventoryOpsStore,
   createSqliteDepartmentRepository,
   createSqliteJobTitleRepository,
@@ -337,6 +338,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
   const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
+
+  // --- w8/print-migration — Print Template designer config (docs/catalog/09
+  // §"قوالب الطباعة"). The Data Migration wizard's department/employee steps
+  // reuse hr/master-data's own `hrDepartments`/`hrEmployees` stores below. ---
+  const printTemplateConfig = createSqlitePrintTemplateConfigStore(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
@@ -722,6 +728,32 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     historicalImport: {
       archives: historicalImportArchives,
     },
+    printTemplateConfig: {
+      repo: printTemplateConfig,
+    },
+    dataMigration: {
+      departments: hrDepartments,
+      employees: hrEmployees,
+      treasuryAccounts,
+      suppliers,
+      customers,
+      items,
+      assetCategories,
+      assets,
+      branches,
+      historicalCounts: async () => {
+        const [purchaseArchives, salesArchives] = await Promise.all([
+          historicalImportArchives.list(),
+          salesHistoricalImportArchives.list(),
+        ]);
+        return {
+          salesInvoices: salesArchives.filter((a) => a.docType === "SALES_INVOICE").length,
+          salesReturns: salesArchives.filter((a) => a.docType === "SALES_RETURN").length,
+          purchaseInvoices: purchaseArchives.filter((a) => a.docType === "PURCHASE_INVOICE").length,
+          purchaseReturns: purchaseArchives.filter((a) => a.docType === "PURCHASE_RETURN").length,
+        };
+      },
+    },
     // gl/accounts omitted — no historical-import GL adapter yet; archives
     // import without posting a remaining-balance journal entry.
     salesHistoricalImport: {
@@ -813,6 +845,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     landedCostStore,
     inventoryOps,
     followUps,
+    printTemplateConfig,
     hrDepartments,
     hrJobTitles,
     hrEmployees,

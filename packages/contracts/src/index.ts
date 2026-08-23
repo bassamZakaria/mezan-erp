@@ -817,6 +817,35 @@ export {
   type StockBalanceListQueryDTO,
 } from "./stock-documents.js";
 
+export {
+  printPageSizeSchema,
+  logoPositionSchema,
+  logoSizeSchema,
+  printIdentityConfigSchema,
+  printHeaderConfigSchema,
+  printContentConfigSchema,
+  printColumnsConfigSchema,
+  printTotalsConfigSchema,
+  printFooterConfigSchema,
+  printWatermarkConfigSchema,
+  printPosReceiptConfigSchema,
+  printTemplateOverrideSchema,
+  printTemplateConfigSchema,
+  type PrintPageSizeDTO,
+  type LogoPositionDTO,
+  type LogoSizeDTO,
+  type PrintIdentityConfigDTO,
+  type PrintHeaderConfigDTO,
+  type PrintContentConfigDTO,
+  type PrintColumnsConfigDTO,
+  type PrintTotalsConfigDTO,
+  type PrintFooterConfigDTO,
+  type PrintWatermarkConfigDTO,
+  type PrintPosReceiptConfigDTO,
+  type PrintTemplateOverrideDTO,
+  type PrintTemplateConfigDTO,
+} from "./print-template-config.js";
+
 // --- hr.ts — HR master data (hr/master-data): departments, job titles, employees, contracts, holidays, leave requests ---
 export {
   departmentSchema,

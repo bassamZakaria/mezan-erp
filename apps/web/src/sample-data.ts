@@ -179,6 +179,7 @@ export const navGroups: NavGroup[] = [
       { key: "settings-warehouses", label: "المستودعات" },
       { key: "settings-print", label: "قوالب الطباعة" },
       { key: "notification-rules", label: "قواعد الإشعارات" },
+      { key: "settings-data-migration", label: "نقل البيانات" },
       { key: "users", label: "المستخدمون" },
       { key: "roles", label: "الأدوار والصلاحيات" },
     ],

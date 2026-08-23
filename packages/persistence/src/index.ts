@@ -184,6 +184,11 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+export {
+  createSqlitePrintTemplateConfigStore,
+  type SqlitePrintTemplateConfigStoreHandle,
+} from "./print-template-config-store.js";
+
 // --- hr-store.ts — HR master data (hr/master-data) ---
 export {
   createSqliteDepartmentRepository,

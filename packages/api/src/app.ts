@@ -58,6 +58,8 @@ import {
   type LandedCostLine,
   type PriceListRepository,
   type PromotionRepository,
+  type NotificationRuleRepository,
+  type NotificationRepository,
   createSalesInvoiceCustomerExposureHook,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
@@ -97,6 +99,8 @@ import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
+import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
+import { createNotificationsRoutes } from "./notifications-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
@@ -311,6 +315,10 @@ export interface CreateAppOptions {
   readonly priceListRepo?: PriceListRepository;
   /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
   readonly promotionRepo?: PromotionRepository;
+  /** Mounts `/notification-rules` (docs/catalog/09 §قواعد الإشعارات) when present. */
+  readonly notificationRuleRepo?: NotificationRuleRepository;
+  /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
+  readonly notificationRepo?: NotificationRepository;
   /**
    * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -641,6 +649,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.promotionRepo) {
     app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+  }
+  if (options.notificationRuleRepo) {
+    app.route("/notification-rules", createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext));
+  }
+  if (options.notificationRepo) {
+    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, options.resolveAuthContext));
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;

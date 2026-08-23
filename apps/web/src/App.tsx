@@ -89,6 +89,8 @@ import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
+import { NotificationRulesPage } from "./settings/NotificationRulesPage";
+import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
@@ -184,6 +186,7 @@ const ROUTABLE_SCREENS = {
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  "notification-rules": NotificationRulesPage,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,
@@ -246,6 +249,7 @@ export function App() {
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
+  const notificationsBell = useNotificationsBell();
 
   const allBranchIds = demoBranches.map((b) => b.id);
   const allWarehouseIds = demoWarehouses.map((w) => w.id);
@@ -370,7 +374,9 @@ export function App() {
       commandItems={commandItems}
       tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
-      notificationCount={3}
+      notificationCount={notificationsBell.unreadCount}
+      onToggleNotifications={notificationsBell.onToggle}
+      notificationsPanel={notificationsBell.panel}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 

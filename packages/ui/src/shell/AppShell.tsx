@@ -15,6 +15,8 @@ export interface AppShellProps {
   tenantName?: string;
   scopeLabel?: string;
   notificationCount?: number;
+  onToggleNotifications?: () => void;
+  notificationsPanel?: ReactNode;
   brandName?: string;
   brandSub?: string;
   children: ReactNode;
@@ -34,6 +36,8 @@ export function AppShell({
   tenantName,
   scopeLabel,
   notificationCount,
+  onToggleNotifications,
+  notificationsPanel,
   brandName,
   brandSub,
   children,
@@ -64,6 +68,8 @@ export function AppShell({
           theme={theme}
           onToggleTheme={toggleTheme}
           notificationCount={notificationCount}
+          onToggleNotifications={onToggleNotifications}
+          notificationsPanel={notificationsPanel}
           user={user}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>

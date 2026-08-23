@@ -132,7 +132,7 @@
 Engine layers landed; most of the admin UIs did not. This is the largest block of overstated status in the previous revision of this file — corrected against the code on 2026-08-23.
 
 - ✅ Workflow/approvals **gate engine** (`packages/domain/src/workflow`, 26 action types) — ⬜ chain-builder UI and `/approvals` inbox: no screen exists
-- ⬜ Notification Rules builder + Arabic templating — the domain has an **event bus + event catalog** (`packages/domain/src/events`) only; no rules engine, no builder
+- ✅ Notification Rules **engine + builder + Arabic templating** (`packages/domain/src/notifications`, `/notification-rules` + `/notifications` API, `apps/web/src/settings/NotificationRulesPage.tsx`) — subscribes to the real `EventBus` `createBackend` now instantiates; sales-invoice confirm/void and sales/purchase-return confirm/void publish onto it today, condition (field/operator/value), recipient by permission/role/user, priority, in-app (delivered)/email/push (queued) channels, Arabic title/body templates with `{{customerName}}`/`{{amount}}`/`{{documentNumber}}`
 - ✅ Numbering **engine** (`packages/domain/src/numbering`, 25 sequence types) — ⬜ Numbering Sequences admin screen
 - ✅ Audit trail **core** (`packages/domain/src/audit`, append-only + severity taxonomy) — ⬜ audit-log UI, not in nav
 - 🟡 Print Templates — `apps/web/src/settings/PrintTemplatesPage.tsx` renders a live sample invoice through the shared `PrintView` with real `amountInWords`; the 9-tab designer is ⬜
@@ -141,7 +141,7 @@ Engine layers landed; most of the admin UIs did not. This is the largest block o
 - ✅ Roles & Permissions UI (role CRUD + matrix editor, `pages/RolesPage.tsx`, `PermissionMatrix`)
 - ✅ Users screen (CRUD, role assignment, branch/warehouse scoping)
 - ✅ Dashboard home (KPI tiles, trend chart, aging widget, activity feed) — real `/dashboard` data
-- ✅ Command palette + top-bar search (`packages/ui/src/shell/CommandPalette.tsx`) — 🟡 palette items still come from `sample-data.ts`; ⬜ notifications panel
+- ✅ Command palette + top-bar search (`packages/ui/src/shell/CommandPalette.tsx`) — 🟡 palette items still come from `sample-data.ts`; ✅ notifications panel (`packages/ui/src/shell/NotificationsPanel.tsx`, wired to real `/notifications` data)
 - 🟡 Settings — 4 real tabs (عام / الشركة / الضرائب / السياسات) + Branches + Warehouses + Print preview; the per-domain policy depth (credit-control, inventory-policy, purchase-control, treasury-policy as their own screens) is folded into the one السياسات tab
 - ⬜ WAC drift settings panel — the drift **report** exists (`reports/inventory-drift.ts`); the settings panel does not
 - ⬜ Profile screen

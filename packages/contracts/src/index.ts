@@ -950,5 +950,35 @@ export {
   type LabelBatchLineInputDTO,
 } from "./label-printing.js";
 
+export {
+  notificationPrioritySchema,
+  notificationChannelSchema,
+  conditionOperatorSchema,
+  notificationRecipientTypeSchema,
+  notificationConditionSchema,
+  notificationRuleSchema,
+  createNotificationRuleSchema,
+  updateNotificationRuleSchema,
+  type NotificationPriorityDTO,
+  type NotificationChannelDTO,
+  type ConditionOperatorDTO,
+  type NotificationRecipientTypeDTO,
+  type NotificationConditionDTO,
+  type NotificationRuleDTO,
+  type CreateNotificationRuleDTO,
+  type UpdateNotificationRuleDTO,
+} from "./notification-rule.js";
+
+export {
+  notificationChannelStatusSchema,
+  notificationSchema,
+  notificationListQuerySchema,
+  unreadCountResponseSchema,
+  type NotificationChannelStatusDTO,
+  type NotificationDTO,
+  type NotificationListQueryDTO,
+  type UnreadCountResponseDTO,
+} from "./notification.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

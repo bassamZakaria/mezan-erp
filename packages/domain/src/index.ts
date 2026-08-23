@@ -188,3 +188,6 @@ export * from "./hr-shared/employee-ref.js";
 
 // --- hr/ — HR master data: employees, departments, job titles, contracts, holidays, leave requests (hr/master-data) ---
 export * from "./hr/index.js";
+
+// --- notifications/ — قواعد الإشعارات rules engine (w8/notifications) ---
+export * from "./notifications/index.js";

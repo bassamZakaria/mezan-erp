@@ -17,6 +17,11 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
+  type ApiKeyRepository,
+  type AuditQueryPort,
+  type AuditSink,
+  type WebhookDeliveryRepository,
+  type WebhookRepository,
   type ItemSpecificationRepository,
   type ProductTemplateRepository,
   type Entitlements,
@@ -107,6 +112,11 @@ import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
 import { createItemSpecificationsRouter, createProductTemplatesRouter } from "./product-catalog-routes.js";
+import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
+import { createAuditRoutes } from "./audit-routes.js";
+import { createProfileRoutes } from "./profile-routes.js";
+import { createApiKeysRoutes } from "./api-keys-routes.js";
+import { createWebhooksRoutes } from "./webhooks-routes.js";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
@@ -230,6 +240,20 @@ export interface CreateAppOptions {
     readonly items: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
+  /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
+  readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /** Shared audit sink for profile security events and API-key/webhook writes. */
+  readonly auditSink?: AuditSink;
+  /** Mounts `/api-keys` when present. */
+  readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/webhooks` when present. */
+  readonly webhooks?: {
+    readonly webhooks: WebhookRepository;
+    readonly deliveries: WebhookDeliveryRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /** Mounts `/audit` — the read-only audit query surface — when present. */
+  readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
@@ -682,6 +706,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createItemCategoriesRouter(catalog.categories, catalog.items, catalog.resolveAuthContext),
     );
   }
+  if (options.sequences) {
+    app.route("/sequences", createSequencesRoutes(options.sequences, options.sequences.resolveAuthContext));
+  }
+  if (options.audit) {
+    app.route("/audit", createAuditRoutes(options.audit.store, options.audit.resolveAuthContext));
+  }
   if (options.productCatalog) {
     const productCatalog = options.productCatalog;
     app.route(
@@ -861,6 +891,23 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   });
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
   app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
+  app.route("/profile", createProfileRoutes(uow, hasher, options.resolveAuthContext, options.auditSink));
+  if (options.apiKeys) {
+    app.route(
+      "/api-keys",
+      createApiKeysRoutes(options.apiKeys.repo, hasher, options.apiKeys.resolveAuthContext ?? options.resolveAuthContext, options.auditSink),
+    );
+  }
+  if (options.webhooks) {
+    app.route(
+      "/webhooks",
+      createWebhooksRoutes(
+        { webhooks: options.webhooks.webhooks, deliveries: options.webhooks.deliveries },
+        options.webhooks.resolveAuthContext ?? options.resolveAuthContext,
+        options.auditSink,
+      ),
+    );
+  }
 
   app.post("/journal-entries", async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());

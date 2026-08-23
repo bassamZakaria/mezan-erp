@@ -7,6 +7,7 @@ import {
   saveUser,
   createPipelineStage,
   createItemUnit,
+  createLabelLayout,
   ALL_SCOPE,
   type AccountRepository,
   type BranchRepository,
@@ -20,6 +21,8 @@ import {
   type TaxRate,
   type PipelineStageRepository,
   type ItemUnitRepository,
+  type CreateLabelLayoutCommand,
+  type LabelLayoutRepository,
 } from "@mezan/domain";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
@@ -60,6 +63,14 @@ export interface SeedStores {
    * simply starts empty.
    */
   readonly itemUnits?: ItemUnitRepository;
+  /**
+   * Optional — seeds the standard sticker-sheet geometries (docs/catalog/03
+   * §"طباعة الباركود والملصقات") on an empty DB when supplied. Configuration
+   * every tenant would otherwise have to measure by hand, not demo data; a
+   * tenant is free to edit or delete them. Omit it and the layout catalog
+   * simply starts empty.
+   */
+  readonly labelLayouts?: LabelLayoutRepository;
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
@@ -170,6 +181,64 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
     stores.uow,
     stores.hasher,
   );
+
+  if (stores.labelLayouts) {
+    // Standard off-the-shelf A4 sticker sheets, described once so the label
+    // screen has something real to print onto (docs/catalog/03).
+    const seedLayouts: readonly CreateLabelLayoutCommand[] = [
+      {
+        id: "LBL-A4-24",
+        code: "A4-24",
+        nameAr: "ملصق A4 — 24 ملصقاً (63.5 × 33.9 مم)",
+        pageSize: "A4",
+        columns: 3,
+        rows: 8,
+        labelWidthMm: 63.5,
+        labelHeightMm: 33.9,
+        columnGapMm: 2.5,
+        rowGapMm: 0,
+        marginBlockMm: 12,
+        marginInlineMm: 7,
+        barcodeHeightMm: 10,
+      },
+      {
+        id: "LBL-A4-14",
+        code: "A4-14",
+        nameAr: "ملصق A4 — 14 ملصقاً (99.1 × 38.1 مم)",
+        pageSize: "A4",
+        columns: 2,
+        rows: 7,
+        labelWidthMm: 99.1,
+        labelHeightMm: 38.1,
+        columnGapMm: 2.5,
+        rowGapMm: 0,
+        marginBlockMm: 15,
+        marginInlineMm: 4.5,
+        showUnit: true,
+        barcodeHeightMm: 12,
+      },
+      {
+        id: "LBL-A4-40",
+        code: "A4-40",
+        nameAr: "ملصق A4 — 40 ملصقاً (48.5 × 25.4 مم)",
+        pageSize: "A4",
+        columns: 4,
+        rows: 10,
+        labelWidthMm: 48.5,
+        labelHeightMm: 25.4,
+        columnGapMm: 0,
+        rowGapMm: 0,
+        marginBlockMm: 20,
+        marginInlineMm: 7.5,
+        showPrice: false,
+        showBarcodeText: false,
+        barcodeHeightMm: 8,
+      },
+    ];
+    for (const layout of seedLayouts) {
+      await createLabelLayout(layout, stores.labelLayouts);
+    }
+  }
 
   if (stores.pipelineStages) {
     // Seed values only (docs/catalog/06 "مراحل خط المبيعات") — the same 7

@@ -36,8 +36,13 @@ import {
   createSqliteCustomerRepository,
   createSqliteSupplierRepository,
   createSqliteItemStore,
+  createSqliteApiKeyStore,
+  createSqliteAuditSink,
   createSqliteItemSpecificationStore,
   createSqliteItemUnitStore,
+  createSqliteSequenceConfigStore,
+  createSqliteSequenceStore,
+  createSqliteWebhookStores,
   createSqliteProductTemplateStore,
   createSqliteItemCategoryStore,
   createSqliteTaxRateRepository,
@@ -215,6 +220,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // still needs setting per-store below since it's a per-connection pragma,
   // but harmless to set repeatedly on the same connection.
   const { sqlite } = openSqliteConnection(dbPath);
+  const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
+  const sequenceCounters = createSqliteSequenceStore(sqlite);
+  const auditSink = createSqliteAuditSink(sqlite);
+  const apiKeys = createSqliteApiKeyStore(sqlite);
+  const webhookStores = createSqliteWebhookStores(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
@@ -232,7 +242,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
-  const ledger = createSqliteLedgerStore(sqlite);
+  const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
   const priceLists = createSqlitePriceListStore(sqlite);
   const promotions = createSqlitePromotionStore(sqlite);
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
@@ -408,6 +418,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     items: { repo: items },
     itemCatalog: { units: itemUnits, categories: itemCategories, items },
     productCatalog: { specifications: itemSpecifications, templates: productTemplates, items },
+    sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
+    audit: { store: auditSink },
+    auditSink,
+    apiKeys: { repo: apiKeys },
+    webhooks: { webhooks: webhookStores.webhooks, deliveries: webhookStores.deliveries },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
@@ -422,6 +437,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
+      audit: auditSink,
     },
     vouchers: {
       documents: vouchers.documents,
@@ -447,6 +463,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
+      audit: auditSink,
     },
     cheques: {
       cheques,

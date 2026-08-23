@@ -85,10 +85,35 @@ export const physicalCountStatusSchema = z.enum([
   "CANCELLED",
 ]);
 
+/**
+ * `systemQty`, `unitCost` and the two variance fields are NULL on a blind
+ * count (جرد أعمى) that is still in progress — the API withholds the snapshot
+ * from the counter rather than the client hiding it.
+ */
 export const physicalCountLineSchema = z.object({
   itemId: z.string().min(1),
-  systemQty: decimalString,
+  systemQty: decimalString.nullable(),
+  unitCost: decimalString.nullable(),
   countedQty: decimalString.nullable(),
+  varianceQty: decimalString.nullable(),
+  varianceValue: decimalString.nullable(),
+});
+
+/** Over/short rollup — `over*`/`short*` are positive magnitudes, `net = over − short`. */
+export const physicalCountVarianceSummarySchema = z.object({
+  totalLines: z.number().int().nonnegative(),
+  countedLines: z.number().int().nonnegative(),
+  uncountedLines: z.number().int().nonnegative(),
+  matchedLines: z.number().int().nonnegative(),
+  overLines: z.number().int().nonnegative(),
+  shortLines: z.number().int().nonnegative(),
+  overQty: decimalString,
+  shortQty: decimalString,
+  netQty: decimalString,
+  overValue: decimalString,
+  shortValue: decimalString,
+  netValue: decimalString,
+  absValue: decimalString,
 });
 
 export const startPhysicalCountSchema = z.object({
@@ -97,6 +122,7 @@ export const startPhysicalCountSchema = z.object({
   date: z.string().min(1),
   memo: z.string().optional(),
   itemIds: z.array(z.string().min(1)).min(1),
+  blind: z.boolean().optional(),
 });
 
 export const recordPhysicalCountEntrySchema = z.object({
@@ -119,7 +145,10 @@ export const physicalCountSchema = z.object({
   date: z.string(),
   memo: z.string(),
   status: physicalCountStatusSchema,
+  blind: z.boolean(),
   lines: z.array(physicalCountLineSchema),
+  /** Null while a blind count is still in progress. */
+  variance: physicalCountVarianceSummarySchema.nullable(),
   createdAt: z.string(),
   completedAt: z.string().nullable(),
   generatedAdjustmentId: z.string().nullable(),
@@ -147,6 +176,7 @@ export type CreateStockTransferDTO = z.infer<typeof createStockTransferSchema>;
 export type StockTransferDocumentDTO = z.infer<typeof stockTransferDocumentSchema>;
 export type PhysicalCountStatusDTO = z.infer<typeof physicalCountStatusSchema>;
 export type PhysicalCountLineDTO = z.infer<typeof physicalCountLineSchema>;
+export type PhysicalCountVarianceSummaryDTO = z.infer<typeof physicalCountVarianceSummarySchema>;
 export type StartPhysicalCountDTO = z.infer<typeof startPhysicalCountSchema>;
 export type RecordPhysicalCountEntryDTO = z.infer<typeof recordPhysicalCountEntrySchema>;
 export type RecordPhysicalCountEntriesDTO = z.infer<typeof recordPhysicalCountEntriesSchema>;

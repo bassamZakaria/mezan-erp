@@ -19,6 +19,7 @@ export { createCustomersRouter } from "./customers-routes.js";
 export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
 export { createItemUnitsRouter, createItemCategoriesRouter } from "./item-catalog-routes.js";
+export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
 export { createUsersRoutes } from "./users-routes.js";
 export { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -33,6 +34,11 @@ export {
   type VoucherRoutesDeps,
 } from "./vouchers-routes.js";
 export { createSalesInvoicesRoutes, type SalesInvoiceRoutesDeps } from "./sales-invoices-routes.js";
+export {
+  createNotificationsRoutes,
+  createSalesInvoiceEventEnricher,
+  type NotificationRoutesDeps,
+} from "./notifications-routes.js";
 export { createDocumentsRoutes } from "./documents-routes.js";
 export { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
 export { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";
@@ -46,3 +52,8 @@ export {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+
+export {
+  createItemSpecificationsRouter,
+  createProductTemplatesRouter,
+} from "./product-catalog-routes.js";

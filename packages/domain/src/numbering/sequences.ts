@@ -69,6 +69,30 @@ export const SEQUENCE_DEFINITIONS = [
 
 export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];
 
+/**
+ * Admin-editable subset of a {@link SequenceDefinition} — prefix, pad length
+ * and the fiscal-year-reset flag (`/settings/sequences`). The counter value
+ * itself is deliberately not part of this shape: it is read-only surface,
+ * guarded separately (see `NextNumberService`'s doc comment).
+ */
+export type SequenceOverride = Partial<
+  Pick<SequenceDefinition, "prefix" | "padLength" | "annualReset">
+>;
+
+/** Merge an admin override onto a base definition — override fields win. */
+export function applySequenceOverride(
+  base: SequenceDefinition,
+  override: SequenceOverride | null | undefined,
+): SequenceDefinition {
+  if (!override) return base;
+  return {
+    ...base,
+    ...(override.prefix !== undefined ? { prefix: override.prefix } : {}),
+    ...(override.padLength !== undefined ? { padLength: override.padLength } : {}),
+    ...(override.annualReset !== undefined ? { annualReset: override.annualReset } : {}),
+  };
+}
+
 const BY_CODE: ReadonlyMap<string, SequenceDefinition> = new Map(
   SEQUENCE_DEFINITIONS.map((d) => [d.code, d]),
 );

@@ -81,6 +81,11 @@ import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
+import { SequencesPage } from "./settings/SequencesPage";
+import { ProfilePage } from "./settings/ProfilePage";
+import { ApiKeysPage } from "./settings/ApiKeysPage";
+import { WebhooksPage } from "./settings/WebhooksPage";
+import { AuditLogScreen } from "./screens/AuditLogScreen";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { NavigationProvider } from "./navigation";
@@ -182,6 +187,11 @@ const ROUTABLE_SCREENS = {
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  "settings-sequences": SequencesPage,
+  "settings-profile": ProfilePage,
+  "settings-api-keys": ApiKeysPage,
+  "settings-webhooks": WebhooksPage,
+  audit: AuditLogScreen,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,

@@ -31,6 +31,12 @@ export interface PhysicalCountLine {
   readonly itemId: string;
   /** On-hand quantity captured from the ledger when the count was started. */
   readonly systemQty: Qty;
+  /**
+   * Weighted-average unit cost captured alongside `systemQty` when the count
+   * was started, so the variance is valued against the position the counter
+   * was actually comparing to — later movements re-average the live WAC.
+   */
+  readonly unitCost: Money;
   /** Counted quantity — null until entered. */
   readonly countedQty: Qty | null;
 }
@@ -42,6 +48,12 @@ export interface PhysicalCount {
   readonly date: string;
   readonly memo: string;
   readonly status: PhysicalCountStatus;
+  /**
+   * جرد أعمى — the counter must not see system quantities while counting.
+   * The snapshot is still taken and stored; it is the READ side that withholds
+   * it until the session is closed (see `revealsSystemQty`).
+   */
+  readonly blind: boolean;
   readonly lines: readonly PhysicalCountLine[];
   readonly createdAt: string;
   readonly completedAt: string | null;
@@ -52,6 +64,15 @@ export interface PhysicalCount {
 /** Signed variance for one line: counted − system. Null until counted. */
 export function varianceOf(line: PhysicalCountLine): Qty | null {
   return line.countedQty ? line.countedQty.subtract(line.systemQty) : null;
+}
+
+/**
+ * Whether the system snapshot (and therefore the variance) may be disclosed.
+ * A blind count withholds it while counting is still open; closing the session
+ * — completed, adjusted or cancelled — reveals it.
+ */
+export function revealsSystemQty(count: PhysicalCount): boolean {
+  return !count.blind || count.status !== "IN_PROGRESS";
 }
 
 export interface PhysicalCountListFilter {
@@ -131,6 +152,8 @@ export interface StartPhysicalCountCommand {
   readonly memo?: string;
   /** Items to load into the count — the catalog's "loads all available items". */
   readonly itemIds: readonly string[];
+  /** جرد أعمى — hide system quantities from the counter until the count closes. */
+  readonly blind?: boolean;
 }
 
 export interface RecordCountedQtyEntry {
@@ -175,7 +198,8 @@ export class PhysicalCountService {
     const lines: PhysicalCountLine[] = [];
     for (const itemId of cmd.itemIds) {
       const systemQty = await this.deps.stockLedger.getBalance(itemId, cmd.warehouseId);
-      lines.push({ itemId, systemQty, countedQty: null });
+      const { averageCost } = await this.deps.stockLedger.getBalanceDetail(itemId, cmd.warehouseId);
+      lines.push({ itemId, systemQty, unitCost: averageCost, countedQty: null });
     }
     const countNo = this.deps.numbering ? (await this.deps.numbering.next()).formatted : null;
     const count: PhysicalCount = {
@@ -185,6 +209,7 @@ export class PhysicalCountService {
       date: cmd.date,
       memo: cmd.memo ?? "",
       status: "IN_PROGRESS",
+      blind: cmd.blind ?? false,
       lines,
       createdAt: this.now(),
       completedAt: null,

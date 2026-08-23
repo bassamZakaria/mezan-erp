@@ -13,7 +13,10 @@ import { createBackend } from "@mezan/backend";
  */
 
 const HEADERS = {
-  "x-user-id": "smoke",
+  // "USER-ADMIN" is the fixed id of the seeded first admin (packages/backend/src/seed.ts) —
+  // used (not "smoke") so self-service reads like GET /profile, which look the caller
+  // up by id, hit a real user instead of a spurious 404.
+  "x-user-id": "USER-ADMIN",
   "x-permissions": "*",
   "x-branch-scope": "*",
   "x-warehouse-scope": "*",
@@ -31,6 +34,9 @@ const READ_PATHS = [
   "/items",
   "/item-units",
   "/item-categories",
+  "/label-layouts",
+  "/item-specifications",
+  "/product-templates",
   "/accounts",
   "/tax-rates",
   "/cost-centers",
@@ -98,6 +104,18 @@ const READ_PATHS = [
   "/financial-reports/cash-flow",
   "/financial-reports/vat-return",
   "/financial-reports/general-ledger",
+  "/sequences",
+  "/barcode-config",
+  "/audit",
+  "/profile",
+  "/profile/activity",
+  "/api-keys",
+  "/webhooks",
+  "/notifications/rules",
+  "/notifications/triggers",
+  "/notifications/me",
+  "/workflow/config",
+  "/workflow/requests",
 ];
 
 interface Failure {

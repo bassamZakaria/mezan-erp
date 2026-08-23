@@ -124,6 +124,7 @@ export {
   type PhysicalCountLine,
   type PhysicalCount,
   varianceOf,
+  revealsSystemQty,
   type PhysicalCountListFilter,
   type PhysicalCountRepository,
   type PhysicalCountNumberingHook,
@@ -139,3 +140,27 @@ export {
   type GenerateAdjustmentResult,
   PhysicalCountService,
 } from "./physical-count.js";
+
+export {
+  type PhysicalCountLineVariance,
+  type PhysicalCountVarianceSummary,
+  lineVarianceOf,
+  varianceLinesOf,
+  summarizePhysicalCountVariance,
+} from "./physical-count-variance.js";
+
+export {
+  LABEL_PAGE_SIZES,
+  type LabelPageSize,
+  type LabelLayout,
+  type LabelLayoutRepository,
+  type CreateLabelLayoutCommand,
+  type UpdateLabelLayoutCommand,
+  LabelLayoutNotFoundError,
+  DuplicateLabelLayoutCodeError,
+  InvalidLabelLayoutError,
+  createLabelLayout,
+  updateLabelLayout,
+  deleteLabelLayout,
+  labelsPerPage,
+} from "./label-layout.js";

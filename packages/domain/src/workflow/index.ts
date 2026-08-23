@@ -24,3 +24,8 @@ export {
   type DecisionInput,
   type Transition,
 } from "./gate.js";
+
+export {
+  createPersistedDocumentWorkflowGate,
+  type ApprovalRequestStore,
+} from "./persisted-gate.js";

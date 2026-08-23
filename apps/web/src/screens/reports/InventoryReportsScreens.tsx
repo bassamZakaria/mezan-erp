@@ -4,6 +4,7 @@ import {
   createInventoryLedgerReport,
   createInventoryValuationReport,
   createInventoryAgingReport,
+  createInventoryExpiringReport,
   createInventorySlowMovingReport,
   createInventoryDriftReport,
 } from "@mezan/domain";
@@ -32,6 +33,10 @@ export function InventoryValuationReportScreen() {
 
 export function InventoryAgingReportScreen() {
   return <ReportScreen eyebrow="المخزون · التقارير" definition={createInventoryAgingReport(TODAY)} apiPath="/inventory/aging" />;
+}
+
+export function InventoryExpiringReportScreen() {
+  return <ReportScreen eyebrow="المخزون · التقارير" definition={createInventoryExpiringReport(TODAY)} apiPath="/inventory/expiring" />;
 }
 
 export function InventorySlowMovingReportScreen() {

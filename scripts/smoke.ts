@@ -92,6 +92,7 @@ const READ_PATHS = [
   "/reports/inventory/ledger",
   "/reports/inventory/valuation",
   "/reports/inventory/aging",
+  "/reports/inventory/expiring",
   "/reports/inventory/slow-moving",
   "/reports/inventory/drift",
   "/reports/aging/customers",

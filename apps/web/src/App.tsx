@@ -56,6 +56,7 @@ import {
   InventoryLedgerReportScreen,
   InventoryValuationReportScreen,
   InventoryAgingReportScreen,
+  InventoryExpiringReportScreen,
   InventorySlowMovingReportScreen,
   InventoryDriftReportScreen,
 } from "./screens/reports/InventoryReportsScreens";
@@ -217,6 +218,7 @@ const ROUTABLE_SCREENS = {
   "report-inventory-ledger": InventoryLedgerReportScreen,
   "report-inventory-valuation": InventoryValuationReportScreen,
   "report-inventory-aging": InventoryAgingReportScreen,
+  "report-inventory-expiring": InventoryExpiringReportScreen,
   "report-inventory-slow-moving": InventorySlowMovingReportScreen,
   "report-inventory-drift": InventoryDriftReportScreen,
   "report-aging-customers": AgingCustomersReportScreen,

@@ -45,7 +45,8 @@ import {
  * employer share), overtime, seniority bonuses, end-of-service. The catalog
  * specifies no formula for any of them, so this engine produces no line for
  * them rather than a plausible-looking wrong one. They slot in as additional
- * `PayslipLine`s when their rules are actually specified.
+ * `PayslipLine`s when their rules are actually specified, and are enumerated
+ * for the screens in `PAYROLL_UNIMPLEMENTED_RULES` (payroll-run.ts).
  */
 
 export interface PayrollNumbering {

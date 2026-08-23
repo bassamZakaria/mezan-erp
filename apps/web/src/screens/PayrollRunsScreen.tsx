@@ -11,6 +11,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
+import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
 import { NumberField, SelectField } from "../settings/form-controls";
 import { ApiError, useBranches, useEmployees, useTreasuryAccounts } from "../data/hooks";
 import {
@@ -57,6 +58,17 @@ const MONTH_LABELS = [
 ];
 
 const LINE_KIND_LABEL = { earning: "استحقاق", deduction: "استقطاع", employer_contribution: "مساهمة صاحب العمل" } as const;
+
+const UNIVERSAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
+const SITUATIONAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
+
+function NetPayQualifierBadge() {
+  return (
+    <span className="rounded-full border border-info bg-info-soft px-[7px] py-[1px] text-[10.5px] font-semibold text-info-ink">
+      قبل الضريبة والتأمينات وبنود قانونية أخرى
+    </span>
+  );
+}
 
 export function PayrollRunsScreen() {
   const query = usePayrollRuns();
@@ -261,7 +273,10 @@ export function PayrollRunsScreen() {
                 </div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">صافي الرواتب</div>
+                <div className="flex flex-wrap items-center gap-[6px]">
+                  <span className="text-[11px] font-semibold text-ink-faint">صافي الرواتب</span>
+                  <NetPayQualifierBadge />
+                </div>
                 <div className="mt-[5px]">
                   <MoneyDisplay value={Number(detail.totalNet)} className="text-[14px] font-bold" />
                 </div>
@@ -271,6 +286,29 @@ export function PayrollRunsScreen() {
                 <div className="mz-num mt-[5px] text-[12.5px] text-ink">{detail.journalEntryId ?? "—"}</div>
               </div>
             </Card>
+
+            <div role="note" className="rounded-lg border border-info bg-info-soft p-[14px] text-info-ink">
+              <h3 className="mb-[6px] font-display text-[13px] font-bold">نطاق الاحتساب — بنود لم تُحتسب في هذه الدورة</h3>
+              <p className="text-[12.5px] leading-relaxed">
+                الصافي أعلاه احتساب على أساس الاستحقاقات والاستقطاعات التعاقدية فقط. البنود التالية لم تُحتسب لأن كتالوج
+                النظام لم يحدد صيغة احتسابها بعد، وتنطبق على جميع موظفي هذه الدورة (
+                <span className="mz-num font-semibold">{detail.employeeCount}</span> موظف):
+              </p>
+              <ul className="mt-[8px] flex flex-col gap-[6px] text-[12px]">
+                {UNIVERSAL_UNIMPLEMENTED_RULES.map((rule) => (
+                  <li key={rule.code}>
+                    <span className="font-semibold">{rule.labelAr}</span> — {rule.detailAr}
+                  </li>
+                ))}
+              </ul>
+              {SITUATIONAL_UNIMPLEMENTED_RULES.length > 0 ? (
+                <p className="mt-[10px] text-[12px] leading-relaxed">
+                  بنود أخرى غير محتسبة تنطبق فقط على موظفين محددين حسب حالة عقودهم — الأجر بالساعة أو باليوم، تكرار الدفع
+                  غير الشهري، اختلاف عملة العقد، أو القروض والحجوزات القضائية — ومذكورة عند حدوثها في «ملاحظات الاحتساب»
+                  أدناه.
+                </p>
+              ) : null}
+            </div>
 
             {detail.unpaidLeaveSource === "none" ? (
               <div role="status" className="rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
@@ -313,7 +351,10 @@ export function PayrollRunsScreen() {
                         ))}
                       </ul>
                       <div className="mt-[8px] flex items-center justify-between border-t border-border pt-[8px] text-[12.5px] font-bold text-ink">
-                        <span>الصافي</span>
+                        <span className="flex flex-wrap items-center gap-[6px]">
+                          <span>الصافي</span>
+                          <NetPayQualifierBadge />
+                        </span>
                         <MoneyDisplay value={Number(p.netPay)} />
                       </div>
                     </div>

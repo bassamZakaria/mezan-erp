@@ -14,8 +14,9 @@ import type { Money } from "../money/index.js";
  * social-insurance shares) can be added later as configured line producers
  * WITHOUT changing the payslip, the posting, or the screens. The catalog
  * specifies no Egyptian tax or social-insurance formula, so this build
- * computes none — see docs/catalog/06 §"الرواتب" and the report accompanying
- * this phase for the exhaustive list of unimplemented rules.
+ * computes none — `PAYROLL_UNIMPLEMENTED_RULES` below is the exhaustive,
+ * machine-readable list of what is missing, and the screens render it beside
+ * every net figure so a net is never read as if it were final.
  */
 
 export type PayrollRunStatus = "draft" | "calculated" | "approved" | "disbursed" | "cancelled";
@@ -49,6 +50,79 @@ export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly 
 export function canTransitionPayrollRun(from: PayrollRunStatus, to: PayrollRunStatus): boolean {
   return ALLOWED_PAYROLL_RUN_TRANSITIONS[from].includes(to);
 }
+
+/**
+ * The statutory/contractual rules this build does NOT compute, as data.
+ *
+ * A payslip with no tax line is indistinguishable from a payslip whose tax is
+ * zero, so the scope of the engine has to be readable next to the net figure
+ * it produces. Every entry here corresponds to a rule the catalog never
+ * specified a formula for; adding a producer for one means deleting its entry.
+ */
+export interface PayrollUnimplementedRule {
+  readonly code: string;
+  readonly labelAr: string;
+  readonly detailAr: string;
+  /** True when the gap applies to every payslip this engine produces, regardless of that employee's contract — the always-on gap behind every net figure. */
+  readonly appliesToEveryPayslip: boolean;
+}
+
+export const PAYROLL_UNIMPLEMENTED_RULES: readonly PayrollUnimplementedRule[] = [
+  {
+    code: "income_tax",
+    labelAr: "ضريبة كسب العمل",
+    detailAr: "لا تُحتسب الشرائح ولا الإعفاءات ولا التسوية السنوية، ولا يظهر أي بند ضريبي في كشف الراتب.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "social_insurance",
+    labelAr: "التأمينات الاجتماعية",
+    detailAr: "لا تُحتسب حصة الموظف ولا حصة صاحب العمل؛ بند «مساهمة صاحب العمل» يبقى فارغاً دائماً.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "seniority_bonus",
+    labelAr: "علاوة الأقدمية (المادة 47)",
+    detailAr: "سنوات الخدمة السابقة مسجّلة على الموظف، لكن لم تُحدَّد نسبة العلاوة فلا يصدر لها بند.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "overtime",
+    labelAr: "أجر العمل الإضافي",
+    detailAr: "ساعات الحضور لا تنتقل إلى الرواتب، ولم يُحدَّد معامل احتساب الساعة الإضافية.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "end_of_service",
+    labelAr: "مكافأة نهاية الخدمة",
+    detailAr: "لا تُحتسب مستحقات نهاية الخدمة عند انتهاء العقد.",
+    appliesToEveryPayslip: true,
+  },
+  {
+    code: "hourly_daily_basis",
+    labelAr: "الأجر بالساعة أو باليوم",
+    detailAr: "العقود بأساس دفع «بالساعة» أو «باليوم» تُستبعد من الدورة ولا يصدر لها كشف راتب.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "pay_frequency",
+    labelAr: "الدفع الأسبوعي أو نصف الشهري",
+    detailAr: "يُحتسب راتب شهر كامل للفترة أياً كان تكرار الدفع المسجّل على العقد.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "multi_currency",
+    labelAr: "الرواتب متعددة العملات",
+    detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
+    appliesToEveryPayslip: false,
+  },
+  {
+    code: "loans_garnishments",
+    labelAr: "القروض والحجز على الراتب",
+    detailAr: "لا يُخصم سوى أقساط سلف الموظفين؛ القروض الأخرى والحجوزات القضائية غير مدعومة.",
+    appliesToEveryPayslip: false,
+  },
+] as const;
 
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
 export type PayslipLineKind = "earning" | "deduction" | "employer_contribution";

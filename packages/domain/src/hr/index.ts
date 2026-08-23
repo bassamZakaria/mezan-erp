@@ -188,6 +188,7 @@ export type {
   PayslipLineSource,
   PayrollGlAccounts,
   PayrollPeriodBounds,
+  PayrollUnimplementedRule,
   UnpaidLeaveDaysProvider,
 } from "./payroll-run.js";
 export {
@@ -196,6 +197,7 @@ export {
   ALLOWED_PAYROLL_RUN_TRANSITIONS,
   canTransitionPayrollRun,
   PAYROLL_GL_ACCOUNTS,
+  PAYROLL_UNIMPLEMENTED_RULES,
   daysInPayrollMonth,
   payrollPeriodBounds,
   inclusiveDays,

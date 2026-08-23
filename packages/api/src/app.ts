@@ -45,6 +45,9 @@ import {
   type HistoricalPurchaseArchiveRepository,
   type HistoricalImportGlPostingPort,
   type HistoricalImportGlAccounts,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
@@ -91,6 +94,7 @@ import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createManufacturingRoutes } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
+import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
@@ -266,6 +270,20 @@ export interface CreateAppOptions {
    * store to get exactly today's behaviour (no credit check at all).
    */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /**
+   * Mounts the historical sales-document import (docs/catalog/01 §"استيراد
+   * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
+   * when present — omit it for no such routes. `gl`/`accounts` are optional:
+   * omit them to archive documents without ever posting a remaining-balance
+   * journal entry.
+   */
+  readonly salesHistoricalImport?: {
+    readonly archives: HistoricalSalesArchiveRepository;
+    readonly gl?: HistoricalSalesImportGlPostingPort;
+    readonly accounts?: HistoricalSalesImportGlAccounts;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
   /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
   readonly priceListRepo?: PriceListRepository;
   /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
@@ -584,6 +602,15 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/sales-invoices",
       createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
+    );
+  }
+  if (options.salesHistoricalImport) {
+    app.route(
+      "/sales/historical-import",
+      createSalesHistoricalImportRoutes(
+        options.salesHistoricalImport,
+        options.salesHistoricalImport.resolveAuthContext ?? options.resolveAuthContext,
+      ),
     );
   }
   if (options.priceListRepo) {

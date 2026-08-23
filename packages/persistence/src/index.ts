@@ -102,6 +102,10 @@ export {
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
 export {
+  createSqliteHistoricalSalesArchiveStore,
+  type SqliteHistoricalSalesArchiveStoreHandle,
+} from "./sales-historical-import-store.js";
+export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
   ensureDocumentTable,

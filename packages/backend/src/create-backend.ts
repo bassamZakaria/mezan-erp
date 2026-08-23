@@ -71,6 +71,7 @@ import {
   createSqliteManufacturingStores,
   createSqliteRfqStores,
   createSqliteHistoricalPurchaseArchiveStore,
+  createSqliteHistoricalSalesArchiveStore,
   createStandaloneSqliteSalesReturnStore,
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
@@ -269,6 +270,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const manufacturing = createSqliteManufacturingStores(sqlite);
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
+  const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
@@ -590,6 +592,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     historicalImport: {
       archives: historicalImportArchives,
     },
+    // gl/accounts omitted — no historical-import GL adapter yet; archives
+    // import without posting a remaining-balance journal entry.
+    salesHistoricalImport: {
+      archives: salesHistoricalImportArchives,
+    },
     salesReturns: { service: salesReturns },
     purchaseReturns: { service: purchaseReturns },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
@@ -666,6 +673,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     manufacturing,
     rfqStores,
     historicalImportArchives,
+    salesHistoricalImportArchives,
     salesReturnStore,
     purchaseReturnStore,
     landedCostStore,

@@ -890,5 +890,24 @@ export {
   type HrDashboardSummaryDTO,
 } from "./hr.js";
 
+export {
+  historicalSalesDocTypeSchema,
+  historicalSalesImportRowSchema,
+  historicalSalesImportBatchSchema,
+  historicalSalesImportRowErrorSchema,
+  historicalSalesImportGroupPreviewSchema,
+  historicalSalesImportResultSchema,
+  historicalSalesArchiveLineSchema,
+  historicalSalesArchiveSchema,
+  type HistoricalSalesDocTypeDTO,
+  type HistoricalSalesImportRowDTO,
+  type HistoricalSalesImportBatchDTO,
+  type HistoricalSalesImportRowErrorDTO,
+  type HistoricalSalesImportGroupPreviewDTO,
+  type HistoricalSalesImportResultDTO,
+  type HistoricalSalesArchiveLineDTO,
+  type HistoricalSalesArchiveDTO,
+} from "./sales-historical-import.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

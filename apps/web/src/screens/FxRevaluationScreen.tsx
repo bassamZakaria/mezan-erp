@@ -1,8 +1,8 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { DocumentList, StatCard, Chip, Button, type DocumentListColumn } from "@mezan/ui";
-import type { FxRevaluationDetailDTO, FxRevaluationPreviewDTO } from "@mezan/contracts";
-import { nextDay, FxRateMissingError } from "@mezan/domain";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import type { FxRevaluationDetailDTO } from "@mezan/contracts";
+import { nextDay } from "@mezan/domain";
+import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
 
 function fmt(value: string, digits = 2): string {
   return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -14,14 +14,15 @@ const CURRENCIES = ["USD", "EUR", "SAR", "AED", "QAR", "KWD", "GBP"];
  * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04). Revalues open
  * foreign-currency balances at the approved closing rate and posts the FX
  * gain/loss — auto-reversing the next day by default. Runs the REAL
- * `computeFxRevaluation` / `postFxRevaluation` domain services.
+ * `computeFxRevaluation` / `postFxRevaluation` domain services server-side
+ * via `POST /revaluation/preview` and `/revaluation/post`.
  */
 export function FxRevaluationScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
+  const previewMutation = useFxRevaluationPreview();
+  const postMutation = useFxRevaluationPost();
   const [toDate, setToDate] = useState("2026-08-31");
   const [autoReverse, setAutoReverse] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
-  const [preview, setPreview] = useState<FxRevaluationPreviewDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ entryNo: string | null; reversalNo: string | null } | null>(null);
 
@@ -29,38 +30,24 @@ export function FxRevaluationScreen() {
     setSelected((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
   }
 
-  function toPreviewDTO(): FxRevaluationPreviewDTO | null {
-    return preview;
-  }
-
   async function runPreview() {
     setError(null);
     setPosted(null);
     try {
-      const result = await store.fxPreview(toDate, selected, autoReverse);
-      setPreview({
-        date: toDate,
-        autoReverse,
-        reversalDate: nextDay(toDate),
-        details: result.details.map((d) => ({ accountId: d.accountId, currency: d.currency, label: d.label, foreignAmount: d.foreignAmount.toString(), bookedBase: d.bookedBase.toString(), closingRate: d.closingRate, revaluedBase: d.revaluedBase.toString(), delta: d.delta.toString(), gainLoss: d.gainLoss.toString() })),
-        totalGain: result.totalGain.toString(),
-        totalLoss: result.totalLoss.toString(),
-        hasImpact: result.hasImpact,
-      });
+      await previewMutation.mutateAsync({ date: toDate, currencies: selected, autoReverse });
     } catch (err) {
-      setPreview(null);
-      setError(err instanceof FxRateMissingError ? `لا يوجد سعر إقفال معتمد للعملة ${err.currency} حتى ${toDate}.` : "تعذر حساب إعادة التقييم.");
+      setError(err instanceof Error ? err.message : "تعذر حساب إعادة التقييم.");
     }
   }
 
   async function runPost() {
     setError(null);
     try {
-      const result = await store.fxPost(toDate, selected, autoReverse);
-      setPosted({ entryNo: result.entry?.entryNo ?? null, reversalNo: result.reversal?.entryNo ?? null });
+      const result = await postMutation.mutateAsync({ date: toDate, currencies: selected, autoReverse });
+      setPosted({ entryNo: result.entryNo, reversalNo: result.reversalNo });
       await runPreview();
     } catch (err) {
-      setError(err instanceof FxRateMissingError ? `لا يوجد سعر إقفال معتمد للعملة ${err.currency} حتى ${toDate}.` : "تعذر ترحيل إعادة التقييم.");
+      setError(err instanceof Error ? err.message : "تعذر ترحيل إعادة التقييم.");
     }
   }
 
@@ -74,7 +61,7 @@ export function FxRevaluationScreen() {
     { key: "gl", header: "الفرق (ربح/خسارة)", render: (d) => <span className={`mz-num font-bold ${Number(d.gainLoss) < 0 ? "text-danger-ink" : "text-success-ink"}`}>{fmt(d.gainLoss)}</span> },
   ];
 
-  const p = toPreviewDTO();
+  const p = previewMutation.data ?? null;
 
   return (
     <div className="w-full">

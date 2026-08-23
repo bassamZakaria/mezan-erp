@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "../primitives/atoms";
-import { TopbarMenu } from "./TopbarMenu";
 import type { ThemePreference } from "../hooks/useTheme";
-import type { NotificationItem, ShellUser, UserMenuItem } from "./types";
+import { TopbarMenu } from "./TopbarMenu";
+import type { ShellUser, UserMenuItem } from "./types";
 
 export interface TopbarProps {
   onOpenCommandPalette: () => void;
@@ -11,9 +12,11 @@ export interface TopbarProps {
   scopeLabel?: string;
   theme: ThemePreference;
   onToggleTheme: () => void;
-  /** Defaults to `notifications.length`; pass explicitly only to override the badge. */
   notificationCount?: number;
-  notifications?: NotificationItem[];
+  /** Toggles the caller-supplied `notificationsPanel` open — omit both to keep the bell inert. */
+  onToggleNotifications?: () => void;
+  /** Rendered anchored under the bell when the caller has it open — see `NotificationsPanel`. */
+  notificationsPanel?: ReactNode;
   userMenuItems?: UserMenuItem[];
   user: ShellUser;
   className?: string;
@@ -27,8 +30,9 @@ export function Topbar({
   scopeLabel,
   theme,
   onToggleTheme,
-  notifications = [],
-  notificationCount = notifications.length,
+  notificationCount = 0,
+  onToggleNotifications,
+  notificationsPanel,
   userMenuItems = [],
   user,
   className,
@@ -96,53 +100,21 @@ export function Topbar({
         )}
       </IconButton>
 
-      <TopbarMenu
-        label="الإشعارات"
-        trigger={(triggerProps) => (
-          <IconButton {...triggerProps} aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}>
-            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
-              <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-              <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
-            </svg>
-            {notificationCount > 0 ? (
-              <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
-            ) : null}
-          </IconButton>
-        )}
-      >
-        {(close) => (
-          <>
-            <div className="border-b border-border px-[14px] py-[11px] text-[12.5px] font-bold text-ink">الإشعارات</div>
-            {notifications.length === 0 ? (
-              <p className="px-[14px] py-[22px] text-center text-[12.5px] text-ink-muted">لا توجد تنبيهات بعد.</p>
-            ) : (
-              <ul className="max-h-[340px] overflow-y-auto py-[4px]">
-                {notifications.map((note) => (
-                  <li key={note.key}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      disabled={!note.onSelect}
-                      onClick={() => {
-                        note.onSelect?.();
-                        close();
-                      }}
-                      className="flex w-full items-start gap-[9px] px-[14px] py-[10px] text-start transition-colors hover:bg-surface-2 disabled:cursor-default disabled:hover:bg-transparent"
-                    >
-                      <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-danger" />
-                      <span className="min-w-0">
-                        <span className="block text-[12.5px] font-semibold text-ink">{note.title}</span>
-                        {note.detail ? <span className="mt-[1px] block text-[11.5px] text-ink-muted">{note.detail}</span> : null}
-                        {note.actionLabel ? <span className="mt-[3px] block text-[11px] font-semibold text-brand">{note.actionLabel}</span> : null}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </>
-        )}
-      </TopbarMenu>
+      <div className="relative">
+        <IconButton
+          aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}
+          onClick={onToggleNotifications}
+        >
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
+            <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          {notificationCount > 0 ? (
+            <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
+          ) : null}
+        </IconButton>
+        {notificationsPanel}
+      </div>
 
       <TopbarMenu
         label={user.name}

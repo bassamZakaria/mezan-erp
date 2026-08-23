@@ -4,7 +4,7 @@ import { useTheme } from "../hooks/useTheme";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
-import type { CommandItem, NavGroup, NavItem, NotificationItem, ShellUser, UserMenuItem } from "./types";
+import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 export interface AppShellProps {
   activeNavKey?: string;
@@ -15,7 +15,8 @@ export interface AppShellProps {
   tenantName?: string;
   scopeLabel?: string;
   notificationCount?: number;
-  notifications?: NotificationItem[];
+  onToggleNotifications?: () => void;
+  notificationsPanel?: ReactNode;
   userMenuItems?: UserMenuItem[];
   brandName?: string;
   brandSub?: string;
@@ -36,7 +37,8 @@ export function AppShell({
   tenantName,
   scopeLabel,
   notificationCount,
-  notifications,
+  onToggleNotifications,
+  notificationsPanel,
   userMenuItems,
   brandName,
   brandSub,
@@ -68,7 +70,8 @@ export function AppShell({
           theme={theme}
           onToggleTheme={toggleTheme}
           notificationCount={notificationCount}
-          notifications={notifications}
+          onToggleNotifications={onToggleNotifications}
+          notificationsPanel={notificationsPanel}
           userMenuItems={userMenuItems}
           user={user}
         />

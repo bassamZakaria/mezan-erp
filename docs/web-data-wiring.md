@@ -49,13 +49,47 @@ one backed by REAL persisted data. Phase 1 wired login → the dashboard (لوح
    e2e specs that assumed sample data to assert against the seeded backend.
 5. **Remove** the now-unused `*-sample-data.ts` file.
 
-## Status
+## Status (verified 2026-08-23, `main` @ `7b65887`)
 
-- **Real now**: login/session, the dashboard (KPIs, company totals, system-data
-  counts, recent activity — all from posted GL entries + repos, with a working
-  period range), the shell's tenant name + signed-in user, and the first-run
-  wizard's seed + admin-creation steps.
-- **Still sample-data** (follow-up sweep): items, customers, suppliers, chart of
-  accounts, journals, treasury, purchases, users/roles pages, and the sales
-  screens. Their API routes already exist in `@mezan/backend`; only the web
-  screens need converting with the steps above.
+**Real backend data.** Login/session (now persisted across reload), the dashboard, the
+shell's tenant + user, the first-run wizard, and the large majority of screens: items,
+customers, suppliers, chart of accounts, journals, trial balance + financial reports,
+sales invoices/quotes/returns, price lists, promotions, the full purchase chain
+(RFQ → PO → GRN → invoice → returns → landed costs), treasury accounts/vouchers,
+cheques, bank reconciliation, installments + follow-ups, cost centers, fiscal periods,
+taxes, CRM (leads/opportunities/pipeline/activities), projects, fixed assets +
+depreciation, van trips, manufacturing (BOMs, work orders, configurable products),
+users, roles, settings, branches, warehouses.
+
+**Domain-in-browser (the remaining gap).** Nine screens import `@mezan/domain` directly
+through `apps/web/src/store/*` and run it against in-memory repositories:
+
+| Screen | Store | API route that already exists |
+|---|---|---|
+| `StockBalanceScreen` | `store/inventory-ops-store.ts` | `/inventory/stock-balance` — mounted |
+| `StockTransfersScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
+| `StockAdjustmentsScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
+| `PhysicalCountsScreen` | `store/inventory-ops-store.ts` | route file exists, **not mounted** (404) |
+| `ExchangeRatesScreen` | `store/accounting-depth-store.ts` | `/exchange-rates` |
+| `FxRevaluationScreen` | `store/accounting-depth-store.ts` | `/revaluation` |
+| `CostCenterPnLScreen` | `store/accounting-depth-store.ts` | `/cost-center-pl` |
+| `ReconciliationScreen` | `store/accounting-depth-store.ts` | route file exists, **not mounted** (404) |
+| `EtaScreen` | `store/accounting-depth-store.ts` | `/eta` |
+
+The business rules these screens exercise are the real domain services, so their tests
+are meaningful — but no write survives a reload, and two users on a LAN multi-till
+install would not see each other's data.
+
+**Converting them is not uniformly "web wiring only."** Five of the nine have a mounted
+route and need steps 2–5 above. The other four — stock transfers, stock adjustments,
+physical counts and balance reconciliation — have a route *file* that
+`packages/api/src/app.ts` mounts only when `createBackend` supplies the matching dep,
+and it never does; they return 404 on the running server. Those need the backend mount
+first (`packages/backend/src/create-backend.ts`), then the web wiring.
+
+**Sample-data files still present** (7, ~20 importers): `sample-data.ts`,
+`accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`,
+`inventory-ops-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`.
+Note that `sample-data.ts` also holds the nav registry (`navGroups`), the command-palette
+items and the demo entitlements — those need a real home before the file can be deleted,
+so "delete the sample-data files" is not purely a cleanup task.

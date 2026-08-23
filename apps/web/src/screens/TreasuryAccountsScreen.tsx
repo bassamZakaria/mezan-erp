@@ -1,9 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
-import type { TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount } from "../data/hooks";
-import { sampleBranches, branchName } from "../settings/sample-data";
+import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
+import { useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount } from "../data/hooks";
+import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
@@ -27,13 +27,13 @@ interface TreasuryAccountDraft {
   active: boolean;
 }
 
-function blankDraft(): TreasuryAccountDraft {
+function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
   return {
     code: "",
     name: "",
     type: "cash",
     currency: "EGP",
-    branchId: sampleBranches[0]?.id ?? "",
+    branchId: branches[0]?.id ?? "",
     glAccountId: "",
     openingBalance: 0,
     openingBalanceDate: "",
@@ -69,16 +69,18 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
 
 export function TreasuryAccountsScreen() {
   const query = useTreasuryAccounts();
+  const branchesQuery = useBranches();
   const createTreasuryAccount = useCreateTreasuryAccount();
   const updateTreasuryAccount = useUpdateTreasuryAccount();
   const accounts = query.data ?? [];
+  const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft());
+  const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft(branches));
   const [formError, setFormError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -102,7 +104,7 @@ export function TreasuryAccountsScreen() {
 
   function openCreateForm() {
     setEditingId(null);
-    setDraft(blankDraft());
+    setDraft(blankDraft(branches));
     setFormError(null);
     setFormOpen(true);
   }
@@ -152,7 +154,7 @@ export function TreasuryAccountsScreen() {
         <div>
           <div className="font-semibold text-ink">{a.name}</div>
           <div className="mz-num mt-[2px] text-[11px] text-ink-faint">
-            {a.code} · {branchName(a.branchId, sampleBranches)}
+            {a.code} · {branchName(a.branchId, branches)}
           </div>
         </div>
       ),
@@ -246,7 +248,7 @@ export function TreasuryAccountsScreen() {
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">الفرع</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{branchName(selected.branchId, sampleBranches)}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{branchName(selected.branchId, branches)}</div>
               </div>
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">حساب دفتر الأستاذ</div>
@@ -296,7 +298,7 @@ export function TreasuryAccountsScreen() {
             label="الفرع *"
             value={draft.branchId}
             onChange={(v) => setDraft((d) => ({ ...d, branchId: v }))}
-            options={sampleBranches.map((b) => ({ value: b.id, label: b.name }))}
+            options={branches.map((b) => ({ value: b.id, label: b.name }))}
           />
           <TextField
             label="حساب دفتر الأستاذ"

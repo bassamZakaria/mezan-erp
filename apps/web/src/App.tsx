@@ -67,6 +67,13 @@ import { PipelineScreen } from "./screens/PipelineScreen";
 import { PipelineStagesScreen } from "./screens/PipelineStagesScreen";
 import { ActivitiesScreen } from "./screens/ActivitiesScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
+import { HrDashboardScreen } from "./screens/HrDashboardScreen";
+import { EmployeesScreen } from "./screens/EmployeesScreen";
+import { DepartmentsScreen } from "./screens/DepartmentsScreen";
+import { JobTitlesScreen } from "./screens/JobTitlesScreen";
+import { ContractsScreen } from "./screens/ContractsScreen";
+import { HolidaysScreen } from "./screens/HolidaysScreen";
+import { MyLeaveScreen } from "./screens/MyLeaveScreen";
 import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
@@ -75,10 +82,15 @@ import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
 import { StockTransfersScreen } from "./screens/StockTransfersScreen";
 import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
 import { StockBalanceScreen } from "./screens/StockBalanceScreen";
+import { WritedownRunsScreen } from "./screens/WritedownRunsScreen";
+import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
+import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
+import { NotificationRulesPage } from "./settings/NotificationRulesPage";
+import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import {
@@ -136,6 +148,9 @@ const ROUTABLE_SCREENS = {
   "stock-transfers": StockTransfersScreen,
   "stock-adjustments": StockAdjustmentsScreen,
   "physical-counts": PhysicalCountsScreen,
+  "product-templates": ProductTemplatesScreen,
+  labels: LabelPrintingScreen,
+  "writedown-runs": WritedownRunsScreen,
   "cost-centers": CostCentersScreen,
   "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,
@@ -172,6 +187,7 @@ const ROUTABLE_SCREENS = {
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
+  "notification-rules": NotificationRulesPage,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
   pipeline: PipelineScreen,
@@ -182,6 +198,13 @@ const ROUTABLE_SCREENS = {
   "asset-register": AssetRegisterScreen,
   "depreciation-runs": DepreciationRunsScreen,
   "van-trips": VanTripsScreen,
+  "hr-dashboard": HrDashboardScreen,
+  employees: EmployeesScreen,
+  departments: DepartmentsScreen,
+  "job-titles": JobTitlesScreen,
+  contracts: ContractsScreen,
+  holidays: HolidaysScreen,
+  "my-leave": MyLeaveScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;
@@ -202,9 +225,6 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO
   return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
-/** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
-type AppMode = "login" | "wizard" | "app";
-
 function initialsFor(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "؟";
@@ -216,7 +236,7 @@ function initialsFor(fullName: string): string {
 
 export function App() {
   const { session, setSession } = useApi();
-  const [mode, setMode] = useState<AppMode>("login");
+  const [showWizard, setShowWizard] = useState(false);
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
@@ -238,6 +258,7 @@ export function App() {
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
+  const notificationsBell = useNotificationsBell();
 
   const allBranchIds = demoBranches.map((b) => b.id);
   const allWarehouseIds = demoWarehouses.map((w) => w.id);
@@ -293,9 +314,8 @@ export function App() {
         label: "تسجيل الخروج",
         tone: "danger",
         onSelect: () => {
-          setSession(null);
           setActiveScreen("dashboard");
-          setMode("login");
+          setSession(null);
         },
       },
     ],
@@ -359,12 +379,23 @@ export function App() {
     }
   }
 
-  if (mode === "wizard") {
-    return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
+  // Checked before the session gate on purpose: the wizard's admin step
+  // establishes a session mid-flow, so a session-first gate would unmount the
+  // wizard before its remaining steps run.
+  if (showWizard) {
+    return (
+      <FirstRunWizard
+        onFinish={() => setShowWizard(false)}
+        onCancel={() => {
+          setSession(null);
+          setShowWizard(false);
+        }}
+      />
+    );
   }
 
-  if (mode === "login" || !session) {
-    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  if (!session) {
+    return <LoginScreen onStartWizard={() => setShowWizard(true)} />;
   }
 
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;
@@ -385,6 +416,9 @@ export function App() {
       tenantName={session.tenantName}
       scopeLabel="الفرع الرئيسي"
       userMenuItems={userMenuItems}
+      notificationCount={notificationsBell.unreadCount}
+      onToggleNotifications={notificationsBell.onToggle}
+      notificationsPanel={notificationsBell.panel}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 

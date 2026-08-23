@@ -48,6 +48,9 @@ export const navGroups: NavGroup[] = [
       { key: "stock-adjustments", label: "تسويات المخزون" },
       { key: "physical-counts", label: "الجرد الفعلي" },
       { key: "configurable-products", label: "منتجات قابلة للتهيئة" },
+      { key: "product-templates", label: "قوالب المنتجات" },
+      { key: "labels", label: "طباعة الملصقات" },
+      { key: "writedown-runs", label: "هبوط قيمة المخزون" },
     ],
   },
   {
@@ -100,6 +103,19 @@ export const navGroups: NavGroup[] = [
       { key: "pipeline", label: "خط المبيعات" },
       { key: "pipeline-stages", label: "مراحل خط المبيعات" },
       { key: "crm-activities", label: "الأنشطة" },
+    ],
+  },
+  {
+    key: "hr",
+    label: "الموارد البشرية",
+    items: [
+      { key: "hr-dashboard", label: "لوحة الموارد البشرية" },
+      { key: "employees", label: "الموظفون" },
+      { key: "departments", label: "الأقسام" },
+      { key: "job-titles", label: "المسميات الوظيفية" },
+      { key: "contracts", label: "العقود" },
+      { key: "holidays", label: "الإجازات الرسمية" },
+      { key: "my-leave", label: "إجازاتي" },
     ],
   },
   {
@@ -162,6 +178,7 @@ export const navGroups: NavGroup[] = [
       { key: "settings-branches", label: "الفروع" },
       { key: "settings-warehouses", label: "المستودعات" },
       { key: "settings-print", label: "قوالب الطباعة" },
+      { key: "notification-rules", label: "قواعد الإشعارات" },
       { key: "users", label: "المستخدمون" },
       { key: "roles", label: "الأدوار والصلاحيات" },
     ],

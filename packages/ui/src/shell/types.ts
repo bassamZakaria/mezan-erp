@@ -35,13 +35,6 @@ export interface CommandItem {
   onSelect: () => void;
 }
 
-export interface NotificationItem {
-  key: string;
-  title: string;
-  detail?: string;
-  actionLabel?: string;
-  onSelect?: () => void;
-}
 
 export interface UserMenuItem {
   key: string;

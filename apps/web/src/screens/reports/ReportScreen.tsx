@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ReportRunner } from "@mezan/ui";
 import type { ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
@@ -25,12 +25,18 @@ export interface ReportScreenDefinition<TParams, Row> {
   readonly onDemand?: boolean;
   readonly columns: readonly ReportColumn<Row>[];
   readonly rowKey: (row: Row) => string;
+  /** The balance sheet turns this off — summing assets against liabilities+equity yields no useful figure. */
+  readonly showGrandTotal?: boolean;
 }
 
 export interface ReportScreenProps<TParams, Row> {
   readonly definition: ReportScreenDefinition<TParams, Row>;
   readonly apiPath: string;
   readonly eyebrow: string;
+  /** Optional summary block rendered above the table (e.g. the VAT net-payable line). */
+  readonly renderSummary?: (rows: readonly Row[]) => ReactNode;
+  /** Overrides the definition's own `onDemand` — lets a caller auto-run a report the definition marks on-demand (e.g. the trial balance on the financial-statements page). */
+  readonly onDemand?: boolean;
 }
 
 function toStringParams(defaults: object): Record<string, string> {
@@ -39,10 +45,11 @@ function toStringParams(defaults: object): Record<string, string> {
   );
 }
 
-export function ReportScreen<TParams extends object, Row>({ definition, apiPath, eyebrow }: ReportScreenProps<TParams, Row>) {
+export function ReportScreen<TParams extends object, Row>({ definition, apiPath, eyebrow, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
+  const onDemand = onDemandOverride ?? definition.onDemand ?? false;
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
   // On-demand reports (heavy ledger dumps) don't fetch until the user clicks عرض التقرير.
-  const [hasRun, setHasRun] = useState<boolean>(!definition.onDemand);
+  const [hasRun, setHasRun] = useState<boolean>(!onDemand);
 
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun });
 
@@ -58,12 +65,14 @@ export function ReportScreen<TParams extends object, Row>({ definition, apiPath,
       params={params}
       onParamsChange={setParams}
       fieldErrors={fieldErrors}
-      onDemand={definition.onDemand}
+      onDemand={onDemand}
       onRun={() => setHasRun(true)}
       loading={query.isFetching}
       result={result}
       columns={definition.columns}
       rowKey={definition.rowKey}
+      chart={result && renderSummary ? renderSummary(result.rows) : undefined}
+      showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
     />
   );

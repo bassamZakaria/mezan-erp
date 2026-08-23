@@ -2,6 +2,14 @@
 
 > Source of truth: `docs/catalog/01-*.md` through `10-verification.md` (125 real screens, cross-checked complete by the verification pass) and `docs/plan.md` (architecture, Phases 0–3 draft). This document extends that plan to cover **every** catalog feature, phases it, and turns it into candidate GitHub issues. Nothing here is committed or created on GitHub yet — review first.
 
+> **Build-status note (2026-08-23, `main` @ `7b65887`):** this document is the *plan*, not a status
+> record — it is kept as-written so the original phasing stays auditable. For what actually exists,
+> read `docs/tasks.md` (per-item) and `docs/plan.md` §"Build status". Two deltas worth flagging
+> against the sequencing below: **Phase 10 (Platform & config) was moved up in priority here but is
+> the least-built phase in reality** — the engines (workflow gate, numbering, audit) exist, none of
+> the admin UIs do, and there is no notification *rules* engine at all, only an event bus. And the
+> **8 domain hub pages** named in the pattern note below were never built.
+
 ---
 
 ## 1. Scope model
@@ -501,27 +509,6 @@ A follow-up research pass went back to the primary catalog files (not the conden
 - **FIFO**: real, selectable costing method in the item form with explicit helper-text semantics (oldest-first) — but zero FIFO-costed items exist anywhere in the sampled data, so its interaction with the immutable-cost-layer model is completely unverified at runtime.
 - **ETA offline posture**: the source system's own Signing Method field defaults to *"بدون توقيع (إصدار 0.9 — للاختبار فقط)"* with helper text stating production v1.0 requires e-seal signing and that HSM/signing-agent support is itself "in a coming phase" — i.e. the reference product hasn't fully solved this either; it's an inherited constraint, not a Mezan gap.
 **Recommendation for all five:** no further catalog digging resolves any of these. Each needs either a product decision or is an inherited Egyptian-tax-law constraint. Kept exactly where §5 already puts them.
-
-### 8. Topbar notifications panel — real alert sources [DEFERRED]
-
-**Status today:** the bell in `packages/ui/src/shell/Topbar.tsx` is wired and opens a real dropdown (`TopbarMenu`), but it renders an honest empty state — "لا توجد تنبيهات بعد." — because **no notifications engine exists**. Verified by search: there is no `packages/domain/src/notifications` module, no notification contract in `packages/contracts`, and no notification route in `packages/backend`. Note that §7.5 above and `docs/deferred-plan.md` both refer to "Mezan's own Notifications panel (Phase 0)" as if it were built; that reference is inaccurate and should be read as planned-not-shipped.
-
-**What was removed:** `apps/web/src/App.tsx` previously passed a hardcoded `notificationCount={3}`, which rendered a permanent fake red badge. That literal is gone. `Topbar` now derives the badge from `notifications.length` by default, so the badge cannot show a number the panel can't account for.
-
-**The deferred work — derive real alerts from endpoints that already ship.** No new engine required; both sources are live today and already back their own report screens:
-
-| # | Task | Size | Source | Notes |
-|---|---|---|---|---|
-| 1 | Overdue-installments alert | S | `GET /installments/overdue` — already backs `InstallmentsOverdueReportScreen` | Title "أقساط متأخرة"; detail = count of instalments past due; selecting it navigates to `report-installments-overdue` |
-| 2 | Customer-aging alert | S | `GET /aging/customers` — already backs `AgingCustomersReportScreen` | Title "مبالغ مستحقة على العملاء"; fire only past a configurable bucket (90d suggested); navigates to `report-aging-customers` |
-| 3 | `useTopbarAlerts()` hook in `apps/web/src/data/` | S | composes #1 + #2 | Returns `NotificationItem[]`; `App.tsx` passes it as `notifications={...}`. Must return `[]` (not a fabricated count) while loading or on error |
-| 4 | Threshold configuration | S | tenant settings | The aging bucket in #2 should be tenant-editable rather than hardcoded — same argument as §7.6's WAC drift thresholds |
-
-**Why this shape:** it honours the rule the codebase states in `packages/contracts/src/dashboard.ts` — *"An empty tenant yields zeros and empty arrays — never fabricated numbers."* A fresh tenant sees no badge and an empty panel, which is the truth, rather than a decorative "3".
-
-**Out of scope until a product decision:** per-user read/unread state, dismissal, and push/real-time delivery all need a persisted notifications table and therefore a real engine — that is Phase-0-sized work, not part of the four tasks above. Also unresolved: whether this panel is distinct from صندوق الوارد (§7.5) and الموافقات (Phase 10), which remains an open question there.
-
-**Wiring already in place, so the above is additive only:** `NotificationItem` (`packages/ui/src/shell/types.ts`) carries `{ key, title, detail?, actionLabel?, onSelect? }`; `Topbar` accepts `notifications` and renders the list, the empty state, and the badge; `apps/web/src/navigation.tsx` provides `navigate(screen, intent?)` so an alert's `onSelect` can route to its report in one line.
 
 ---
 

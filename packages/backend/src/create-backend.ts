@@ -16,6 +16,23 @@ import {
   createLandedCostDocumentType,
   LandedCostService,
   installmentPlanDocumentType,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
+  createInventoryOpsStockHook,
+  createInventoryGlPostingHook,
+  PhysicalCountService,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  computeInvoiceTotals,
+  purchaseInvoiceTotal,
+  Money,
+  type AdjustmentReason,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
+  EventBus,
+  NotificationRulesEngine,
+  type DocumentEventPublisher,
+  type DocumentEventType,
+  type EventCode,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -59,12 +76,24 @@ import {
   createSqliteManufacturingStores,
   createSqliteRfqStores,
   createSqliteHistoricalPurchaseArchiveStore,
+  createSqliteHistoricalSalesArchiveStore,
   createStandaloneSqliteSalesReturnStore,
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
+  createSqliteInventoryOpsStore,
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  createSqliteWritedownRunRepository,
+  createSqliteProductTemplateStore,
+  createSqliteNotificationRuleStore,
+  createSqliteNotificationStore,
 } from "@mezan/persistence";
-import { EtaService, Money } from "@mezan/domain";
+import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -89,6 +118,17 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+};
+
+/**
+ * GL accounts the inventory aging-based write-down batch posts to
+ * (docs/tasks.md Phase 4 "Aging-based inventory write-down batch",
+ * packages/domain/src/accounts/coa-template.ts): 5060 the write-down expense,
+ * 1190 the contra-asset provision.
+ */
+const INVENTORY_WRITEDOWN_GL_ACCOUNTS = {
+  writedownExpenseAccountId: "5060",
+  provisionAccountId: "1190",
 };
 
 /**
@@ -127,6 +167,20 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
 };
 
 /**
+ * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
+ * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
+ * stock funded by owner's capital — mirroring
+ * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
+ * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
+ * move quantity/value through the stock ledger only: no dedicated inventory
+ * shrinkage/write-off leaf exists yet in the standard COA template
+ * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ */
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
+  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+}
+
+/**
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
  * accrual reuses trade payables (2100) as its clearing account; no dedicated
  * "accrued landed cost" leaf exists in the template.
@@ -135,6 +189,46 @@ const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   accruedLandedCostPayableId: "2100",
 };
+
+/**
+ * Bridges the document framework's generic `DocumentEventPublisher` port
+ * (`DOCUMENT_CONFIRMED`/`DOCUMENT_CANCELLED`/…, keyed by `docType` — see
+ * `packages/domain/src/documents/hooks.ts`, "decoupled from the notification
+ * catalog" by design) onto a real catalog `EventCode` published on the ONE
+ * shared `EventBus` the notification-rules engine subscribes to. This is the
+ * translation step docs/plan.md §5.6 anticipates but does not itself provide.
+ *
+ * `enrich` lets a document type attach extra template fields (this repo only
+ * has one so far: sales invoices' customerName/amount) beyond the generic
+ * `documentNumber` every bridged document gets for free.
+ */
+function createDocumentEventBridge(
+  eventBus: EventBus,
+  mapping: Partial<Record<string, Partial<Record<DocumentEventType, EventCode>>>>,
+  enrich?: (docId: string) => Promise<Record<string, unknown>>,
+): DocumentEventPublisher {
+  return {
+    publish(event) {
+      const code = mapping[event.docType]?.[event.type];
+      if (!code) return;
+      const basePayload: Record<string, unknown> = { documentNumber: event.docNo ?? event.docId };
+      if (!enrich) {
+        eventBus.publish(code, basePayload, event.occurredAt);
+        return;
+      }
+      // DocumentEventPublisher.publish is synchronous; the notification
+      // engine's own dispatch is independently async, so a fire-and-forget
+      // enrichment lookup here just widens the payload before that dispatch
+      // runs — a failed lookup logs and drops the event rather than ever
+      // throwing back into the document's own confirm/cancel transaction.
+      void enrich(event.docId)
+        .then((extra) => eventBus.publish(code, { ...basePayload, ...extra }, event.occurredAt))
+        .catch((error: unknown) => {
+          console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
+        });
+    },
+  };
+}
 
 export interface BackendHandle {
   readonly app: App;
@@ -230,12 +324,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
   const vanTrips = createSqliteVanTripRepository(sqlite);
 
+  // --- inv/labels-templates-writedown — the aging-based inventory write-down batch. ---
+  const writedownRuns = createSqliteWritedownRunRepository(sqlite);
+
+  // --- inv/labels-templates-writedown — Product Templates (attribute CRUD + variant generator). ---
+  const productTemplateStore = createSqliteProductTemplateStore(sqlite);
+
   // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
   // purchase import (docs/catalog/02). ---
   const manufacturing = createSqliteManufacturingStores(sqlite);
   const rfqStores = createSqliteRfqStores(sqlite);
   const historicalImportArchives = createSqliteHistoricalPurchaseArchiveStore(sqlite);
+  const salesHistoricalImportArchives = createSqliteHistoricalSalesArchiveStore(sqlite);
 
   // --- sweep/finish-and-mount — مرتجعات المبيعات/المشتريات, التكاليف
   // الإضافية, خطط الأقساط + متابعة التحصيل (docs/catalog/01, 02, 05). ---
@@ -244,16 +345,85 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
+  // Counts document layer (docs/catalog/03), on the SAME shared connection
+  // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
+  // its own — see packages/persistence/src/sqlite-connection.ts). ---
+  const inventoryOps = createSqliteInventoryOpsStore(sqlite);
+
+  // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/catalog/06 §"الموارد البشرية"). ---
+  const hrDepartments = createSqliteDepartmentRepository(sqlite);
+  const hrJobTitles = createSqliteJobTitleRepository(sqlite);
+  const hrEmployees = createSqliteEmployeeRepository(sqlite);
+  const hrContracts = createSqliteContractRepository(sqlite);
+  const hrHolidays = createSqliteHolidayRepository(sqlite);
+  const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
+
+  // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
+  // whole backend; the engine subscribes to every event and (per rule) writes
+  // real, persisted in-app notifications. Document-confirm flows publish onto
+  // it via `createDocumentEventBridge` below (see that function's docstring
+  // for why a translation step is needed at all). ---
+  const notificationRules = createSqliteNotificationRuleStore(sqlite);
+  const notifications = createSqliteNotificationStore(sqlite);
+  const eventBus = new EventBus({
+    onError: (error, event) => {
+      console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
+    },
+  });
+  const notificationEngine = new NotificationRulesEngine({
+    rules: notificationRules,
+    notifications,
+    users: uow.users,
+    roles: uow.roles,
+    generateId: () => randomUUID(),
+  });
+  eventBus.subscribeAll((event) => {
+    void notificationEngine.handle(event).catch((error: unknown) => {
+      console.error(`[notifications] engine failed handling "${event.code}"`, error);
+    });
+  });
+
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
+    // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
+    // posts only when BOTH are present) — today that's just stock-adjustments'
+    // INITIAL_STOCK reason (createInventoryOpsStockHook below); every other stock
+    // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
+    // through a separate path and never passes `command.gl`, so this is additive.
+    gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
+
+  // Returns' notification events carry only `documentNumber` (the generic
+  // framework doesn't expose a uniform customer/amount field across every
+  // document flavour) — a rule can still target them, its template just
+  // won't have `{{customerName}}`/`{{amount}}` to substitute.
+  const returnsEventBridge = createDocumentEventBridge(eventBus, {
+    SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
+    PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
+  });
+
+  // Sales invoices are the one document type the catalog's own email-template
+  // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
+  // للعميل" — docs/catalog/09 §البريد الإلكتروني), so this bridge enriches the
+  // generic documentNumber with the two other named template fields.
+  const salesInvoiceEventBridge = createDocumentEventBridge(
+    eventBus,
+    { SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" } },
+    async (docId) => {
+      const invoice = await salesInvoices.findById(docId);
+      if (!invoice) return {};
+      const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+      return { customerName: invoice.customerNameAr, amount: totals.grandTotal.toString() };
+    },
+  );
 
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
@@ -261,6 +431,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
+    events: returnsEventBridge,
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
@@ -268,6 +439,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
+    events: returnsEventBridge,
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
@@ -281,6 +453,74 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
     workflow: noWorkflow,
   });
+
+  // --- phase4/inventory-ops — Stock Adjustments/Transfers reuse the SAME
+  // stock-ledger engine's stock hook (postAdjustment/postTransfer post GL
+  // themselves when a mapping is given — see document-hooks.ts); Physical
+  // Count is a bespoke service that drives the SAME adjustments DocumentService
+  // (create draft → confirm) to post its reconciling adjustment. ---
+  const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
+  const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
+    repo: inventoryOps.stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    stock: inventoryOpsStockHook,
+  });
+  const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
+    repo: inventoryOps.stockTransfers,
+    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    stock: inventoryOpsStockHook,
+  });
+  const physicalCounts = new PhysicalCountService({
+    repo: inventoryOps.physicalCounts,
+    stockLedger: stockService,
+    adjustments: stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+  });
+
+  /**
+   * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/catalog/04):
+   * the SAME AR/AP/inventory control accounts the purchase/sales-return/landed-
+   * cost postings above already use (1105 trade receivables, 2100 trade
+   * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed
+   * independently of the GL (never read the ledger itself, or a mismatch could
+   * never surface) — AR from live sales invoices' outstanding balance (the
+   * SAME grandTotal-minus-amountPaid math credit-control exposure uses),
+   * inventory from the stock-ledger's own WAC snapshots. Purchase invoices
+   * don't track payments yet (purchasing/purchase-invoice.ts), so every
+   * confirmed invoice's full total is outstanding AP — matching
+   * reports/aging-suppliers.ts's own documented assumption.
+   */
+  async function resolveReconciliationControls() {
+    const [invoices, purchInvoices, snapshots] = await Promise.all([
+      salesInvoices.list(),
+      purchaseInvoices.list(),
+      stockLedger.snapshots.list(),
+    ]);
+
+    let arScaled = 0n;
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+      arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
+    }
+
+    let apScaled = 0n;
+    for (const inv of purchInvoices) {
+      if (inv.status !== "confirmed") continue;
+      apScaled += purchaseInvoiceTotal(inv).scaled;
+    }
+
+    let inventoryScaled = 0n;
+    for (const snap of snapshots) {
+      inventoryScaled += snap.totalValue.scaled;
+    }
+
+    return [
+      { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: "1200", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
+      { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: "1105", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
+      { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: "2100", naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+    ];
+  }
 
   const seedStores: SeedStores = {
     accounts,
@@ -374,6 +614,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
+      events: salesInvoiceEventBridge,
     },
     cheques: {
       cheques,
@@ -404,6 +645,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       lossAccountId: "5900",
     },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    // --- phase4/inventory-ops ---
+    stockAdjustments: { service: stockAdjustments },
+    stockTransfers: { service: stockTransfers },
+    physicalCounts: { service: physicalCounts },
     // --- phase11/crm-projects-assets-field ---
     crm: {
       leads,
@@ -411,6 +657,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       pipelineStages,
       activities,
       customers,
+    },
+    // --- hr/master-data ---
+    hr: {
+      departments: hrDepartments,
+      jobTitles: hrJobTitles,
+      employees: hrEmployees,
+      contracts: hrContracts,
+      holidays: hrHolidays,
+      leaveRequests: hrLeaveRequests,
+      users: uow.users,
+      numbering: ledger.numbering,
     },
     projects: {
       projects,
@@ -422,6 +679,18 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       runs: depreciationRuns,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
+    },
+    inventoryWritedown: {
+      runs: writedownRuns,
+      wacSnapshots: stockLedger.snapshots,
+      stockLedger: stockLedger.ledger,
+      gl: salesInvoiceGl,
+      accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
+    },
+    productTemplates: {
+      templates: productTemplateStore.templates,
+      variants: productTemplateStore.variants,
+      items,
     },
     fieldSales: {
       trips: vanTrips,
@@ -453,6 +722,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     historicalImport: {
       archives: historicalImportArchives,
     },
+    // gl/accounts omitted — no historical-import GL adapter yet; archives
+    // import without posting a remaining-balance journal entry.
+    salesHistoricalImport: {
+      archives: salesHistoricalImportArchives,
+    },
     salesReturns: { service: salesReturns },
     purchaseReturns: { service: purchaseReturns },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
@@ -468,7 +742,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       costLayers: stockLedger.layers,
       wacSnapshots: stockLedger.snapshots,
       installmentPlans,
+      // القوائم المالية read the SAME posted GL + chart of accounts every other
+      // accounting surface uses — no fixture ledger behind the statements.
+      ledger,
+      accounts,
     },
+    notificationRuleRepo: notificationRules,
+    notificationRepo: notifications,
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -522,13 +802,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     assets,
     depreciationRuns,
     vanTrips,
+    writedownRuns,
+    productTemplateStore,
     manufacturing,
     rfqStores,
     historicalImportArchives,
+    salesHistoricalImportArchives,
     salesReturnStore,
     purchaseReturnStore,
     landedCostStore,
+    inventoryOps,
     followUps,
+    hrDepartments,
+    hrJobTitles,
+    hrEmployees,
+    hrContracts,
+    hrHolidays,
+    hrLeaveRequests,
+    notificationRules,
+    notifications,
   ];
 
   return {

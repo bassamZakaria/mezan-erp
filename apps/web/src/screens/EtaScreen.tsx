@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import type { EtaConfigDTO, EtaReadinessDTO, EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
-import { getEtaStatusLabel, getEtaDocumentTypeLabel, computeEtaReadiness, EtaOfflineError, type EtaSubmission } from "@mezan/domain";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import type { EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
+import { getEtaStatusLabel, getEtaDocumentTypeLabel } from "@mezan/domain";
+import { useEtaConfig, useEtaSubmissions, useExcludeEtaSubmission, useSubmitAllReadyEta, useSubmitEtaSubmission } from "../data/hooks";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
   ready: "info",
@@ -15,65 +15,49 @@ const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
 
 const STATUS_TABS: Array<EtaSubmissionStatusDTO | "all"> = ["all", "ready", "pending_signature", "submitted", "accepted", "error", "excluded"];
 
-function toDTO(s: EtaSubmission): EtaSubmissionDTO {
-  return { id: s.id, internalId: s.internalId, documentType: s.documentType, status: s.status, etaUuid: s.etaUuid, errors: [...s.errors], exclusionReason: s.exclusionReason, createdAt: s.createdAt, updatedAt: s.updatedAt, submittedAt: s.submittedAt };
-}
-
 /**
  * الفاتورة الإلكترونية (ETA) — e-invoicing (docs/catalog/04). Config readiness +
  * the submission queue lifecycle (جاهز → بانتظار التوقيع → مرسل → مقبول, plus
- * أخطاء/مستبعد). The online transmit is STUBBED (online-only): submitting an
- * offline document keeps it queued and surfaces a notice.
+ * أخطاء/مستبعد), on the real `/eta/*` routes (packages/api/src/eta-routes.ts).
+ * The online transmit is STUBBED server-side (online-only): submitting an
+ * offline document keeps it queued (202) and surfaces a notice.
  */
 export function EtaScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
-  const [config, setConfig] = useState<EtaConfigDTO | null>(null);
-  const [readiness, setReadiness] = useState<EtaReadinessDTO | null>(null);
-  const [subs, setSubs] = useState<EtaSubmissionDTO[]>([]);
+  const configQuery = useEtaConfig();
+  const submissionsQuery = useEtaSubmissions();
   const [statusFilter, setStatusFilter] = useState<EtaSubmissionStatusDTO | "all">("all");
+  const submitOneMutation = useSubmitEtaSubmission();
+  const submitAllMutation = useSubmitAllReadyEta();
+  const excludeMutation = useExcludeEtaSubmission();
   const [notice, setNotice] = useState<string | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
 
-  async function refresh() {
-    const cfg = await store.eta.getConfig();
-    setConfig({ environment: cfg.environment, taxRegistrationNumber: cfg.taxRegistrationNumber, activityCode: cfg.activityCode, address: cfg.address, buyerDataThreshold: cfg.buyerDataThreshold, documentVersion: cfg.documentVersion, autoSubmitOnConfirm: cfg.autoSubmitOnConfirm, signingMethod: cfg.signingMethod, clientId: cfg.clientId, hasClientSecret: cfg.hasClientSecret });
-    const r = computeEtaReadiness(cfg);
-    setReadiness({ percent: r.percent, items: r.items.map((i) => ({ key: i.key, labelAr: i.labelAr, complete: i.complete })) });
-    setSubs((await store.refreshEta()).map(toDTO));
-  }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
-
-  const filtered = statusFilter === "all" ? subs : subs.filter((s) => s.status === statusFilter);
-  const countBy = (status: EtaSubmissionStatusDTO) => subs.filter((s) => s.status === status).length;
+  const config = configQuery.data?.config ?? null;
+  const readiness = configQuery.data?.readiness ?? null;
+  const allSubs = submissionsQuery.data ?? [];
+  const filtered = statusFilter === "all" ? allSubs : allSubs.filter((s) => s.status === statusFilter);
+  const countBy = (status: EtaSubmissionStatusDTO) => allSubs.filter((s) => s.status === status).length;
 
   async function submitOne(id: string) {
     setNotice(null);
-    try {
-      await store.eta.submit(id);
-      await refresh();
-    } catch (err) {
-      if (err instanceof EtaOfflineError) setNotice("الإرسال الفعلي متاح فقط عند الاتصال بالمصلحة (موقوف في هذه النسخة) — بقي المستند في قائمة الإرسال.");
-      else throw err;
+    const result = await submitOneMutation.mutateAsync(id);
+    if (result.queuedOffline) {
+      setNotice("الإرسال الفعلي متاح فقط عند الاتصال بالمصلحة (موقوف في هذه النسخة) — بقي المستند في قائمة الإرسال.");
     }
   }
 
   async function submitAll() {
     setNotice(null);
-    const result = await store.eta.submitAllReady();
+    const result = await submitAllMutation.mutateAsync();
     if (result.queued.length > 0) setNotice(`تعذر الإرسال الفعلي (متاح فقط عند الاتصال) — ${result.queued.length} مستند بقي في قائمة الإرسال.`);
-    await refresh();
   }
 
   async function confirmExclude() {
     if (!excludingId || reason.trim() === "") return;
-    await store.eta.exclude(excludingId, reason.trim());
+    await excludeMutation.mutateAsync({ id: excludingId, body: { reason: reason.trim() } });
     setExcludingId(null);
     setReason("");
-    await refresh();
   }
 
   const columns: DocumentListColumn<EtaSubmissionDTO>[] = [
@@ -93,6 +77,17 @@ export function EtaScreen() {
       ),
     },
   ];
+
+  if (configQuery.isError || submissionsQuery.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات الفاتورة الإلكترونية.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => { void configQuery.refetch(); void submissionsQuery.refetch(); }}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
 
   return (
     <div className="w-full">
@@ -139,7 +134,7 @@ export function EtaScreen() {
           <div className="flex flex-wrap gap-[8px]">
             {STATUS_TABS.map((tab) => (
               <Chip key={tab} active={statusFilter === tab} onClick={() => setStatusFilter(tab)}>
-                {tab === "all" ? `الكل (${subs.length})` : `${getEtaStatusLabel(tab)} (${countBy(tab)})`}
+                {tab === "all" ? `الكل (${allSubs.length})` : `${getEtaStatusLabel(tab)} (${countBy(tab)})`}
               </Chip>
             ))}
           </div>
@@ -149,7 +144,7 @@ export function EtaScreen() {
         rowKey={(s) => s.id}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{subs.length}</span> مستند</>}
+        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{allSubs.length}</span> مستند</>}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد مستندات في هذه الحالة</div>}
       />
     </div>

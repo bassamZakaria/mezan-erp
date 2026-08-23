@@ -102,6 +102,10 @@ export {
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
 export {
+  createSqliteHistoricalSalesArchiveStore,
+  type SqliteHistoricalSalesArchiveStoreHandle,
+} from "./sales-historical-import-store.js";
+export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
   ensureDocumentTable,
@@ -180,3 +184,36 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+// --- hr-store.ts — HR master data (hr/master-data) ---
+export {
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  type SqliteDepartmentRepositoryHandle,
+  type SqliteJobTitleRepositoryHandle,
+  type SqliteEmployeeRepositoryHandle,
+  type SqliteContractRepositoryHandle,
+  type SqliteHolidayRepositoryHandle,
+  type SqliteLeaveRequestRepositoryHandle,
+} from "./hr-store.js";
+export {
+  createSqliteWritedownRunRepository,
+  type SqliteWritedownRunRepositoryHandle,
+} from "./writedown-run-store.js";
+export {
+  createSqliteProductTemplateStore,
+  type SqliteProductTemplateStoreHandle,
+} from "./product-template-store.js";
+
+// --- w8/notifications — قواعد الإشعارات rules engine ---
+export {
+  createSqliteNotificationRuleStore,
+  type SqliteNotificationRuleStoreHandle,
+} from "./notification-rule-store.js";
+export {
+  createSqliteNotificationStore,
+  type SqliteNotificationStoreHandle,
+} from "./notification-store.js";

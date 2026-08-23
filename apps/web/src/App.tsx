@@ -201,9 +201,6 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO
   return ids.length === allIds.length ? ALL_SCOPE : ids;
 }
 
-/** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
-type AppMode = "login" | "wizard" | "app";
-
 function initialsFor(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "؟";
@@ -214,8 +211,8 @@ function initialsFor(fullName: string): string {
 }
 
 export function App() {
-  const { session } = useApi();
-  const [mode, setMode] = useState<AppMode>("login");
+  const { session, setSession } = useApi();
+  const [showWizard, setShowWizard] = useState(false);
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
@@ -318,12 +315,23 @@ export function App() {
     }
   }
 
-  if (mode === "wizard") {
-    return <FirstRunWizard onFinish={() => setMode("app")} onCancel={() => setMode("login")} />;
+  // Checked before the session gate on purpose: the wizard's admin step
+  // establishes a session mid-flow, so a session-first gate would unmount the
+  // wizard before its remaining steps run.
+  if (showWizard) {
+    return (
+      <FirstRunWizard
+        onFinish={() => setShowWizard(false)}
+        onCancel={() => {
+          setSession(null);
+          setShowWizard(false);
+        }}
+      />
+    );
   }
 
-  if (mode === "login" || !session) {
-    return <LoginScreen onLogin={() => setMode("app")} onStartWizard={() => setMode("wizard")} />;
+  if (!session) {
+    return <LoginScreen onStartWizard={() => setShowWizard(true)} />;
   }
 
   const ActiveRoutableScreen = isRoutable(activeScreen) ? ROUTABLE_SCREENS[activeScreen] : null;

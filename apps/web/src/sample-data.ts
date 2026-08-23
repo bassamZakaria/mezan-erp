@@ -74,6 +74,7 @@ export const navGroups: NavGroup[] = [
       { key: "reconciliation", label: "مطابقة الأرصدة" },
       { key: "eta", label: "الفاتورة الإلكترونية" },
       { key: "trial-balance-report", label: "ميزان المراجعة", tag: { label: "نمط", tone: "pattern" } },
+      { key: "financial-reports", label: "التقارير المالية", tag: { label: "نمط", tone: "pattern" } },
     ],
   },
   {

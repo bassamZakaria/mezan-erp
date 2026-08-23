@@ -1,0 +1,157 @@
+import { z } from "zod";
+import { type GlReportContext, isPosted, moneyToNumber } from "./gl-shared.js";
+import type { JournalEntry } from "../journal.js";
+import type { ReportDefinition } from "./types.js";
+
+/**
+ * إقرار ضريبة القيمة المضافة — VAT Return (docs/catalog/08-reports.md).
+ * Output tax (sales) vs input tax (purchases), broken down by rate. Journal
+ * entries carry no rate metadata, so each rate is derived per entry from the
+ * VAT line against its taxable base: for a sales entry the base is the revenue
+ * credited alongside the output-VAT credit; for a purchase entry the base is
+ * the expense/inventory debited alongside the input-VAT debit. Revenue entries
+ * with no VAT line fall into the 0% (zero-rated) bucket.
+ */
+
+export interface VatReturnContext extends GlReportContext {
+  readonly outputVatAccountId: string;
+  readonly inputVatAccountId: string;
+}
+
+export interface VatReturnParams {
+  readonly periodFrom: string;
+  readonly periodTo: string;
+}
+
+export type VatSide = "output" | "input";
+
+export interface VatReturnRow {
+  readonly rowId: string;
+  readonly side: VatSide;
+  readonly sideLabel: string;
+  /** Rate as a percentage, e.g. 14 or 0. */
+  readonly rate: number;
+  readonly base: number;
+  readonly tax: number;
+}
+
+const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
+const paramsSchema = z
+  .object({ periodFrom: DATE, periodTo: DATE })
+  .refine((p) => p.periodFrom <= p.periodTo, {
+    message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
+    path: ["periodFrom"],
+  });
+
+const SIDE_LABELS: Record<VatSide, string> = {
+  output: "ضريبة المخرجات (المبيعات)",
+  input: "ضريبة المدخلات (المشتريات)",
+};
+
+interface Bucket {
+  base: number;
+  tax: number;
+}
+
+function lineNet(entry: JournalEntry, accountId: string): { debit: number; credit: number } {
+  let debit = 0;
+  let credit = 0;
+  for (const line of entry.lines) {
+    if (line.accountId !== accountId) continue;
+    debit += moneyToNumber(line.debit);
+    credit += moneyToNumber(line.credit);
+  }
+  return { debit, credit };
+}
+
+function creditsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): number {
+  let total = 0;
+  for (const line of entry.lines) if (accountsByType(line.accountId)) total += moneyToNumber(line.credit);
+  return total;
+}
+
+function debitsToTypes(entry: JournalEntry, accountsByType: (id: string) => boolean): number {
+  let total = 0;
+  for (const line of entry.lines) if (accountsByType(line.accountId)) total += moneyToNumber(line.debit);
+  return total;
+}
+
+function bump(map: Map<number, Bucket>, rate: number, base: number, tax: number): void {
+  const bucket = map.get(rate) ?? { base: 0, tax: 0 };
+  bucket.base += base;
+  bucket.tax += tax;
+  map.set(rate, bucket);
+}
+
+/** Output tax − input tax = net VAT payable (positive) or refundable (negative). */
+export function vatNetPayable(rows: readonly VatReturnRow[]): number {
+  const output = rows.filter((r) => r.side === "output").reduce((s, r) => s + r.tax, 0);
+  const input = rows.filter((r) => r.side === "input").reduce((s, r) => s + r.tax, 0);
+  return output - input;
+}
+
+export function createVatReturnReport(
+  defaultParams: VatReturnParams,
+): ReportDefinition<VatReturnParams, VatReturnRow, VatReturnContext> {
+  return {
+    id: "accounting.vat-return",
+    titleAr: "إقرار ضريبة القيمة المضافة",
+    descriptionAr: "ضريبة المخرجات مقابل المدخلات مصنّفة حسب النسبة، وصافي الضريبة المستحقة عن الفترة.",
+    paramsSchema,
+    defaultParams,
+    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
+    rowKey: (row) => row.rowId,
+    columns: [
+      { key: "rate", header: "نسبة الضريبة", format: "percent", align: "end", value: (row) => row.rate },
+      { key: "base", header: "الوعاء الخاضع", format: "money", align: "end", total: true, value: (row) => row.base },
+      { key: "tax", header: "مبلغ الضريبة", format: "money", align: "end", total: true, value: (row) => row.tax },
+    ],
+    group: {
+      key: (row) => row.side,
+      label: (row) => row.sideLabel,
+    },
+    run: (params, ctx) => {
+      const typeOf = new Map(ctx.accounts.map((a) => [a.id, a.type]));
+      const isRevenue = (id: string): boolean => typeOf.get(id) === "revenue";
+      const isPurchaseBase = (id: string): boolean => typeOf.get(id) === "expense" || typeOf.get(id) === "asset";
+
+      const outputBuckets = new Map<number, Bucket>();
+      const inputBuckets = new Map<number, Bucket>();
+
+      for (const entry of ctx.journalEntries) {
+        if (!isPosted(entry)) continue;
+        if (entry.date < params.periodFrom || entry.date > params.periodTo) continue;
+
+        const outVat = lineNet(entry, ctx.outputVatAccountId);
+        const outputTax = outVat.credit - outVat.debit;
+        const revenueBase = creditsToTypes(entry, isRevenue);
+
+        if (revenueBase > 0) {
+          const rate = outputTax > 0 ? Math.round((outputTax / revenueBase) * 100) : 0;
+          bump(outputBuckets, rate, revenueBase, outputTax > 0 ? outputTax : 0);
+        }
+
+        const inVat = lineNet(entry, ctx.inputVatAccountId);
+        const inputTax = inVat.debit - inVat.credit;
+        if (inputTax > 0) {
+          // Exclude the input-VAT account itself from the base (it's an asset too).
+          const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
+          const rate = purchaseBase > 0 ? Math.round((inputTax / purchaseBase) * 100) : 0;
+          bump(inputBuckets, rate, purchaseBase, inputTax);
+        }
+      }
+
+      const rows: VatReturnRow[] = [];
+      const emit = (side: VatSide, buckets: Map<number, Bucket>): void => {
+        for (const rate of [...buckets.keys()].sort((a, b) => b - a)) {
+          const bucket = buckets.get(rate);
+          if (!bucket) continue;
+          rows.push({ rowId: `${side}-${rate}`, side, sideLabel: SIDE_LABELS[side], rate, base: bucket.base, tax: bucket.tax });
+        }
+      };
+      emit("output", outputBuckets);
+      emit("input", inputBuckets);
+      return rows;
+    },
+  };
+}

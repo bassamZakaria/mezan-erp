@@ -23,6 +23,7 @@ import { TreasuryVouchersScreen } from "./screens/TreasuryVouchersScreen";
 import { BankReconciliationScreen } from "./screens/BankReconciliationScreen";
 import { ChequesScreen } from "./screens/ChequesScreen";
 import { TrialBalanceReportScreen } from "./screens/TrialBalanceReportScreen";
+import { FinancialReportsScreen } from "./screens/FinancialReportsScreen";
 import { FiscalPeriodsScreen } from "./screens/FiscalPeriodsScreen";
 import { JournalsScreen } from "./screens/JournalsScreen";
 import { SalesReturnsScreen } from "./screens/SalesReturnsScreen";
@@ -157,6 +158,7 @@ const ROUTABLE_SCREENS = {
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,
   "report-installments-overdue": InstallmentsOverdueReportScreen,
+  "financial-reports": FinancialReportsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,
   "settings-warehouses": WarehousesPage,

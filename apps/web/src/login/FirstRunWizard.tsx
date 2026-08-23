@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BrandMark, Button, StatusPill } from "@mezan/ui";
 import { useBootstrapSeed, useCreateFirstAdmin } from "../data/hooks";
-import { demoTenantName, seedTasks } from "./login-sample-data";
+import { seedTasks } from "./login-sample-data";
 
 const STEPS = [
   { key: "activate", label: "تفعيل الترخيص" },
@@ -157,7 +157,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
           <BrandMark className="h-[28px] w-[28px] text-brand" />
           <div>
             <h1 className="font-display text-[17px] font-bold text-ink">معالج الإعداد الأولي</h1>
-            <p className="text-[11.5px] text-ink-faint">إعداد نظام ميزان لمنشأة {demoTenantName} لأول مرة</p>
+            <p className="text-[11.5px] text-ink-faint">إعداد نظام ميزان لمنشأتك لأول مرة</p>
           </div>
         </div>
 
@@ -168,7 +168,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
         {step === "activate" ? (
           <section aria-label="تفعيل الترخيص">
             <h2 className="font-display text-[15px] font-bold text-ink">تفعيل الترخيص</h2>
-            <p className="mt-[4px] text-[12.5px] text-ink-muted">أدخل مفتاح الترخيص المرسل إليك لتفعيل منشأة {demoTenantName}.</p>
+            <p className="mt-[4px] text-[12.5px] text-ink-muted">أدخل مفتاح الترخيص المرسل إليك لتفعيل منشأتك.</p>
             <label className="mt-[14px] flex flex-col gap-[6px]">
               <span className="text-[12.5px] font-semibold text-ink">مفتاح الترخيص</span>
               <input
@@ -277,13 +277,9 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
               يمكنك استيراد بيانات العملاء والموردين والأصناف الحالية الآن، أو تخطي هذه الخطوة والقيام بذلك لاحقاً من "الإعدادات ← نقل
               البيانات".
             </p>
-            <div className="mt-[14px] flex items-center gap-[10px]">
-              <Button type="button" disabled>
-                استيراد الآن
-              </Button>
-              <StatusPill label="قريباً" tone="info" />
-            </div>
-            <StubNote>معالج نقل البيانات (12 خطوة) موثّق في docs/catalog/09 لكنه غير مبني بعد في هذا العرض — تخطَّ هذه الخطوة للمتابعة.</StubNote>
+            <StubNote>
+              معالج نقل البيانات (12 خطوة) غير مبني بعد — يمكنك المتابعة الآن واستيراد بياناتك لاحقاً من "الإعدادات ← نقل البيانات".
+            </StubNote>
           </section>
         ) : null}
 

@@ -1,35 +1,7 @@
 /**
- * Login + first-run-wizard demo data — Cyag tenant, matching
- * apps/web/src/sample-data.ts's demoUser (محمد الشهابي) and the entitlements
- * shape @mezan/domain's `Entitlements` (packages/domain/src/entitlements)
- * defines. Real auth (`docs/plan.md` desktop username+PIN login) and real
- * license activation (§2.5, Ed25519 `verifyLicense`) are both out of scope
- * for this screen — see FirstRunWizard's per-step stub notes.
+ * Labels for the first-run wizard's seed step. These describe what the real
+ * `POST /bootstrap` endpoint actually creates — they are not stand-in data.
  */
-
-export const demoTenantName = "Cyag";
-export const demoTenantPlanLabel = "Enterprise";
-
-/** Demo-only PIN accepted by LoginScreen — never a real credential. */
-export const DEMO_LOGIN_PIN = "1234";
-
-export interface LicensedModule {
-  key: string;
-  label: string;
-}
-
-/** Mirrors `activeModules` from docs/catalog/09-settings-dashboard-ux.md's tenant settings payload. */
-export const licensedModules: LicensedModule[] = [
-  { key: "sales", label: "المبيعات" },
-  { key: "purchases", label: "المشتريات" },
-  { key: "inventory", label: "المخزون" },
-  { key: "accounting", label: "المحاسبة" },
-  { key: "treasury", label: "الخزينة" },
-  { key: "pos", label: "نقاط البيع" },
-  { key: "hr", label: "الموارد البشرية" },
-  { key: "manufacturing", label: "التصنيع" },
-  { key: "crm", label: "علاقات العملاء" },
-];
 
 export interface SeedTask {
   key: string;

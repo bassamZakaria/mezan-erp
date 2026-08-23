@@ -19,14 +19,14 @@ export const LEAVE_TYPE_CODES = [
 
 export type LeaveTypeCode = (typeof LEAVE_TYPE_CODES)[number];
 
-export interface LeaveTypeDefinition {
+export interface LeavePolicyTypeDefinition {
   readonly code: LeaveTypeCode;
   readonly labelAr: string;
   /** The specific workflow gate this leave type's requests submit under. */
   readonly gateActionType: GateableActionType;
 }
 
-export const LEAVE_TYPE_DEFINITIONS: readonly LeaveTypeDefinition[] = [
+export const LEAVE_POLICY_TYPE_DEFINITIONS: readonly LeavePolicyTypeDefinition[] = [
   { code: "ANNUAL", labelAr: "إجازة سنوية", gateActionType: "HR_LEAVE_APPROVE_ANNUAL" },
   { code: "SICK", labelAr: "إجازة مرضية", gateActionType: "HR_LEAVE_APPROVE_SICK" },
   { code: "PERSONAL", labelAr: "إجازة شخصية", gateActionType: "HR_LEAVE_APPROVE_PERSONAL" },
@@ -37,18 +37,18 @@ export const LEAVE_TYPE_DEFINITIONS: readonly LeaveTypeDefinition[] = [
   { code: "EMERGENCY", labelAr: "إجازة طارئة", gateActionType: "HR_LEAVE_APPROVE_EMERGENCY" },
 ];
 
-const BY_CODE = new Map(LEAVE_TYPE_DEFINITIONS.map((d) => [d.code, d]));
+const BY_CODE = new Map(LEAVE_POLICY_TYPE_DEFINITIONS.map((d) => [d.code, d]));
 
 export function isLeaveTypeCode(code: string): code is LeaveTypeCode {
   return BY_CODE.has(code as LeaveTypeCode);
 }
 
-export function getLeaveTypeDefinition(code: LeaveTypeCode): LeaveTypeDefinition {
+export function getLeavePolicyTypeDefinition(code: LeaveTypeCode): LeavePolicyTypeDefinition {
   const def = BY_CODE.get(code);
   if (!def) throw new RangeError(`Unknown leave type code: "${code}"`);
   return def;
 }
 
 export function gateActionTypeForLeaveType(code: LeaveTypeCode): GateableActionType {
-  return getLeaveTypeDefinition(code).gateActionType;
+  return getLeavePolicyTypeDefinition(code).gateActionType;
 }

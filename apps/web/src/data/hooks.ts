@@ -181,6 +181,22 @@ import type {
   CreateLeaveRequestDTO,
   HrDashboardSummaryDTO,
 } from "@mezan/contracts";
+import type {
+  EmployeeRefDTO,
+  AttendanceRecordDTO,
+  MarkAttendanceDTO,
+  EmployeeMonthGridDTO,
+  MonthlyAttendanceSummaryDTO,
+  LeaveTypeCodeDTO,
+  LeavePolicyVersionDTO,
+  SetLeavePolicyDTO,
+  ApplyLeavePolicyPresetDTO,
+  LeaveApplicationDTO,
+  SubmitLeaveApplicationDTO,
+  DecideLeaveApplicationDTO,
+  LeaveAccrualBatchDTO,
+  CreateAccrualBatchDTO,
+} from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
 /**
@@ -3795,59 +3811,59 @@ export function useApplyLeavePolicyPreset() {
   });
 }
 
-export function useLeaveRequests(filter?: { employeeId?: string; status?: string }): UseQueryResult<LeaveRequestDTO[], ApiError> {
+export function useLeaveApplications(filter?: { employeeId?: string; status?: string }): UseQueryResult<LeaveApplicationDTO[], ApiError> {
   const { request, session } = useApi();
-  return useQuery<LeaveRequestDTO[], ApiError>({
-    queryKey: ["hr-leave-requests", filter?.employeeId ?? null, filter?.status ?? null],
+  return useQuery<LeaveApplicationDTO[], ApiError>({
+    queryKey: ["hr-leave-applications", filter?.employeeId ?? null, filter?.status ?? null],
     enabled: session !== null,
     queryFn: async () => {
       const params = new URLSearchParams();
       if (filter?.employeeId) params.set("employeeId", filter.employeeId);
       if (filter?.status) params.set("status", filter.status);
       const qs = params.toString();
-      const res = await request(`/hr/leave-requests${qs ? `?${qs}` : ""}`);
+      const res = await request(`/hr/leave-applications${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات الإجازات.");
-      return res.json<LeaveRequestDTO[]>();
+      return res.json<LeaveApplicationDTO[]>();
     },
   });
 }
 
-export function useSubmitLeaveRequest() {
+export function useSubmitLeaveApplication() {
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<LeaveRequestDTO, ApiError, SubmitLeaveRequestDTO>({
+  return useMutation<LeaveApplicationDTO, ApiError, SubmitLeaveApplicationDTO>({
     mutationFn: async (body) => {
-      const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
+      const res = await request("/hr/leave-applications", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال طلب الإجازة."));
-      return res.json<LeaveRequestDTO>();
+      return res.json<LeaveApplicationDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-applications"] }),
   });
 }
 
-export function useDecideLeaveRequest() {
+export function useDecideLeaveApplication() {
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<LeaveRequestDTO, ApiError, { id: string; body: DecideLeaveRequestDTO }>({
+  return useMutation<LeaveApplicationDTO, ApiError, { id: string; body: DecideLeaveApplicationDTO }>({
     mutationFn: async ({ id, body }) => {
-      const res = await request(`/hr/leave-requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
+      const res = await request(`/hr/leave-applications/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل القرار."));
-      return res.json<LeaveRequestDTO>();
+      return res.json<LeaveApplicationDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-applications"] }),
   });
 }
 
-export function useCancelLeaveRequest() {
+export function useCancelLeaveApplication() {
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<LeaveRequestDTO, ApiError, string>({
+  return useMutation<LeaveApplicationDTO, ApiError, string>({
     mutationFn: async (id) => {
-      const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
+      const res = await request(`/hr/leave-applications/${id}/cancel`, { method: "POST" });
       if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء طلب الإجازة."));
-      return res.json<LeaveRequestDTO>();
+      return res.json<LeaveApplicationDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-applications"] }),
   });
 }
 

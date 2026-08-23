@@ -1,5 +1,5 @@
 import type { LeaveTypeCode } from "../hr-leave-policies/index.js";
-import type { LeaveRequestRepository } from "./leave-request.js";
+import type { LeaveApplicationRepository } from "./leave-request.js";
 
 /**
  * استهلاك الإجازات — a DERIVED read-model (docs/catalog HR Dashboard's
@@ -25,7 +25,7 @@ export interface LeaveAccrualCreditSource {
 }
 
 export interface ComputeLeaveBalanceDeps {
-  readonly requests: LeaveRequestRepository;
+  readonly requests: LeaveApplicationRepository;
   readonly accrual: LeaveAccrualCreditSource;
 }
 

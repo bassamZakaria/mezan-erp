@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import { NextNumberService } from "../numbering/index.js";
-import { submitLeaveRequest } from "./submit-leave-request.js";
-import { decideLeaveRequest } from "./decide-leave-request.js";
+import { submitLeaveApplication } from "./submit-leave-request.js";
+import { decideLeaveApplication } from "./decide-leave-request.js";
 import { computeLeaveBalance, type LeaveAccrualCreditSource } from "./leave-balance.js";
-import { createInMemoryLeaveRequestRepository } from "./test-helpers/in-memory-leave-request-repository.js";
+import { createInMemoryLeaveApplicationRepository } from "./test-helpers/in-memory-leave-request-repository.js";
 import { InMemorySequenceStore } from "./test-helpers/in-memory-sequence-store.js";
 
 const WEEKEND = [5, 6];
@@ -14,18 +14,18 @@ function fakeAccrual(days: number): LeaveAccrualCreditSource {
 
 describe("computeLeaveBalance", () => {
   it("entitled from accrual, used from approved requests, pending from pending requests", async () => {
-    const requests = createInMemoryLeaveRequestRepository();
+    const requests = createInMemoryLeaveApplicationRepository();
     const numbering = new NextNumberService(new InMemorySequenceStore());
     const deps = { requests, numbering, weekendDays: WEEKEND, resolveGateConfig: () => null };
 
     // Auto-granted (no gate config) -> APPROVED, 1 day.
-    await submitLeaveRequest(
+    await submitLeaveApplication(
       { id: "r1", employeeId: "emp-1", leaveTypeCode: "ANNUAL", startDate: "2026-08-16", endDate: "2026-08-16", submittedBy: "u1" },
       deps,
     );
 
     // Gated -> PENDING, 1 day.
-    await submitLeaveRequest(
+    await submitLeaveApplication(
       {
         id: "r2",
         employeeId: "emp-1",
@@ -45,13 +45,13 @@ describe("computeLeaveBalance", () => {
   });
 
   it("a rejected request counts toward neither used nor pending", async () => {
-    const requests = createInMemoryLeaveRequestRepository();
+    const requests = createInMemoryLeaveApplicationRepository();
     const numbering = new NextNumberService(new InMemorySequenceStore());
-    await submitLeaveRequest(
+    await submitLeaveApplication(
       { id: "r1", employeeId: "emp-1", leaveTypeCode: "SICK", startDate: "2026-08-16", endDate: "2026-08-16", submittedBy: "u1" },
       { requests, numbering, weekendDays: WEEKEND, resolveGateConfig: (actionType) => ({ actionType, steps: [{ role: "hr_manager" }] }) },
     );
-    await decideLeaveRequest({ id: "r1", actorId: "mgr", actorRoles: ["hr_manager"], decision: "reject" }, { requests });
+    await decideLeaveApplication({ id: "r1", actorId: "mgr", actorRoles: ["hr_manager"], decision: "reject" }, { requests });
 
     const balance = await computeLeaveBalance("emp-1", "SICK", { requests, accrual: fakeAccrual(180) });
     expect(balance.usedDays).toBe(0);

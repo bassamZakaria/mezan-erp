@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { NextNumberService, createDefaultSettings } from "@mezan/domain";
-import { createSqliteLeaveRequestRepository, createSqliteSequenceStore, createSqliteSettingsStore } from "@mezan/persistence";
-import { createHrLeaveRequestsRoutes } from "./hr-leave-requests-routes.js";
+import { createSqliteLeaveApplicationRepository, createSqliteSequenceStore, createSqliteSettingsStore } from "@mezan/persistence";
+import { createHrLeaveApplicationsRoutes } from "./hr-leave-requests-routes.js";
 
 const closers: { close(): void }[] = [];
 afterEach(() => {
@@ -18,7 +18,7 @@ function req(path: string, init: RequestInit & { permissions?: string; userId?: 
 }
 
 async function newApp() {
-  const requests = createSqliteLeaveRequestRepository();
+  const requests = createSqliteLeaveApplicationRepository();
   const sequences = createSqliteSequenceStore();
   const settings = createSqliteSettingsStore();
   closers.push(requests, sequences, settings);
@@ -27,7 +27,7 @@ async function newApp() {
   const accrualCreditSource = { async sumCreditedDays() { return 21; } };
   let seq = 0;
   return {
-    app: createHrLeaveRequestsRoutes({ requests, numbering, settings, accrualCreditSource, idGen: () => `req-${++seq}` }),
+    app: createHrLeaveApplicationsRoutes({ requests, numbering, settings, accrualCreditSource, idGen: () => `req-${++seq}` }),
     requests,
   };
 }

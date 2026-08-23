@@ -4,9 +4,9 @@ import { isLeaveTypeCode, gateActionTypeForLeaveType, type LeaveTypeCode } from 
 import { computeLeaveDays } from "./compute-days.js";
 import {
   statusFromApproval,
-  InvalidLeaveRequestError,
-  type LeaveRequest,
-  type LeaveRequestRepository,
+  InvalidLeaveApplicationError,
+  type LeaveApplication,
+  type LeaveApplicationRepository,
 } from "./leave-request.js";
 
 /** Resolves the configured approval chain for a gate action type, or null when the tenant has none configured (grants immediately — same "no steps = no hold" rule as `documents/journal-document.ts`'s `createDocumentWorkflowGate`). */
@@ -29,7 +29,7 @@ export const defaultLeaveGateConfigResolver: LeaveGateConfigResolver = (actionTy
   steps: [{ role: DEFAULT_LEAVE_GATE_ROLE, description: "الموافقة على طلبات الإجازات" }],
 });
 
-export interface SubmitLeaveRequestCommand {
+export interface SubmitLeaveApplicationCommand {
   readonly id: string;
   readonly employeeId: string;
   readonly leaveTypeCode: LeaveTypeCode | string;
@@ -42,8 +42,8 @@ export interface SubmitLeaveRequestCommand {
   readonly now?: () => string;
 }
 
-export interface SubmitLeaveRequestDeps {
-  readonly requests: LeaveRequestRepository;
+export interface SubmitLeaveApplicationDeps {
+  readonly requests: LeaveApplicationRepository;
   readonly numbering: NextNumberService;
   readonly weekendDays: readonly number[];
   readonly resolveGateConfig: LeaveGateConfigResolver;
@@ -56,21 +56,21 @@ export interface SubmitLeaveRequestDeps {
  * (`HR_LEAVE_APPROVE_<TYPE>`) — بانتظار الموافقة unless the configured chain
  * grants immediately (no steps, or an admin submitter).
  */
-export async function submitLeaveRequest(
-  cmd: SubmitLeaveRequestCommand,
-  deps: SubmitLeaveRequestDeps,
-): Promise<LeaveRequest> {
+export async function submitLeaveApplication(
+  cmd: SubmitLeaveApplicationCommand,
+  deps: SubmitLeaveApplicationDeps,
+): Promise<LeaveApplication> {
   if (cmd.employeeId.trim() === "") {
-    throw new InvalidLeaveRequestError("employeeId is required");
+    throw new InvalidLeaveApplicationError("employeeId is required");
   }
   if (!isLeaveTypeCode(cmd.leaveTypeCode)) {
-    throw new InvalidLeaveRequestError(`Unknown leave type code: "${cmd.leaveTypeCode}"`);
+    throw new InvalidLeaveApplicationError(`Unknown leave type code: "${cmd.leaveTypeCode}"`);
   }
 
   const halfDay = cmd.halfDay ?? false;
   const days = computeLeaveDays(cmd.startDate, cmd.endDate, halfDay, deps.weekendDays);
   if (days <= 0) {
-    throw new InvalidLeaveRequestError("The requested period contains no payable leave days (all weekly-off)");
+    throw new InvalidLeaveApplicationError("The requested period contains no payable leave days (all weekly-off)");
   }
 
   const gateActionType = gateActionTypeForLeaveType(cmd.leaveTypeCode);
@@ -86,7 +86,7 @@ export async function submitLeaveRequest(
   const { formatted } = await deps.numbering.next("LEAVE_REQUEST");
 
   const status = statusFromApproval(approval.status);
-  const request: LeaveRequest = {
+  const request: LeaveApplication = {
     id: cmd.id,
     requestNo: formatted,
     employeeId: cmd.employeeId,

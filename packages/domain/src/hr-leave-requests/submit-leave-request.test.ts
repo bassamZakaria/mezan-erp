@@ -1,25 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { NextNumberService } from "../numbering/index.js";
-import { submitLeaveRequest, type LeaveGateConfigResolver } from "./submit-leave-request.js";
-import { InvalidLeaveRequestError } from "./leave-request.js";
-import { createInMemoryLeaveRequestRepository } from "./test-helpers/in-memory-leave-request-repository.js";
+import { submitLeaveApplication, type LeaveGateConfigResolver } from "./submit-leave-request.js";
+import { InvalidLeaveApplicationError } from "./leave-request.js";
+import { createInMemoryLeaveApplicationRepository } from "./test-helpers/in-memory-leave-request-repository.js";
 import { InMemorySequenceStore } from "./test-helpers/in-memory-sequence-store.js";
 
 const WEEKEND = [5, 6];
 
 function deps(resolveGateConfig: LeaveGateConfigResolver = () => null) {
   return {
-    requests: createInMemoryLeaveRequestRepository(),
+    requests: createInMemoryLeaveApplicationRepository(),
     numbering: new NextNumberService(new InMemorySequenceStore()),
     weekendDays: WEEKEND,
     resolveGateConfig,
   };
 }
 
-describe("submitLeaveRequest", () => {
+describe("submitLeaveApplication", () => {
   it("with no configured gate steps, grants immediately (APPROVED) and allocates an LR- number", async () => {
     const d = deps();
-    const request = await submitLeaveRequest(
+    const request = await submitLeaveApplication(
       {
         id: "req-1",
         employeeId: "emp-1",
@@ -40,7 +40,7 @@ describe("submitLeaveRequest", () => {
 
   it("with a configured single-step gate, holds PENDING", async () => {
     const d = deps((actionType) => ({ actionType, steps: [{ role: "hr_manager" }] }));
-    const request = await submitLeaveRequest(
+    const request = await submitLeaveApplication(
       {
         id: "req-1",
         employeeId: "emp-1",
@@ -58,7 +58,7 @@ describe("submitLeaveRequest", () => {
 
   it("a half-day request is 0.5 days and requires startDate === endDate", async () => {
     const d = deps();
-    const request = await submitLeaveRequest(
+    const request = await submitLeaveApplication(
       {
         id: "req-1",
         employeeId: "emp-1",
@@ -75,7 +75,7 @@ describe("submitLeaveRequest", () => {
 
   it("excludes weekly-off days from the day count", async () => {
     const d = deps();
-    const request = await submitLeaveRequest(
+    const request = await submitLeaveApplication(
       {
         id: "req-1",
         employeeId: "emp-1",
@@ -93,20 +93,20 @@ describe("submitLeaveRequest", () => {
   it("rejects an unknown leave type", async () => {
     const d = deps();
     await expect(
-      submitLeaveRequest(
+      submitLeaveApplication(
         { id: "req-1", employeeId: "emp-1", leaveTypeCode: "NOT_A_TYPE", startDate: "2026-08-16", endDate: "2026-08-16", submittedBy: "user-1" },
         d,
       ),
-    ).rejects.toBeInstanceOf(InvalidLeaveRequestError);
+    ).rejects.toBeInstanceOf(InvalidLeaveApplicationError);
   });
 
   it("rejects a request entirely within weekly-off days", async () => {
     const d = deps();
     await expect(
-      submitLeaveRequest(
+      submitLeaveApplication(
         { id: "req-1", employeeId: "emp-1", leaveTypeCode: "ANNUAL", startDate: "2026-08-14", endDate: "2026-08-15", submittedBy: "user-1" },
         d,
       ),
-    ).rejects.toBeInstanceOf(InvalidLeaveRequestError);
+    ).rejects.toBeInstanceOf(InvalidLeaveApplicationError);
   });
 });

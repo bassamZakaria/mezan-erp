@@ -9,7 +9,7 @@ import { leaveTypeCodeSchema } from "./hr-leave-policies.js";
  * `@mezan/domain` (matches `events.ts`'s/`warehouse.ts`'s existing rationale).
  */
 
-export const leaveRequestStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED", "CANCELLED"]);
+export const leaveApplicationStatusSchema = z.enum(["PENDING", "APPROVED", "REJECTED", "CANCELLED"]);
 
 export const gateStepSchema = z.object({
   role: z.string().min(1),
@@ -24,7 +24,7 @@ export const decisionRecordSchema = z.object({
   at: z.number().optional(),
 });
 
-export const leaveRequestSchema = z.object({
+export const leaveApplicationSchema = z.object({
   id: z.string().min(1),
   requestNo: z.string(),
   employeeId: z.string().min(1),
@@ -34,7 +34,7 @@ export const leaveRequestSchema = z.object({
   halfDay: z.boolean(),
   days: z.number(),
   reason: z.string().nullable(),
-  status: leaveRequestStatusSchema,
+  status: leaveApplicationStatusSchema,
   gateActionType: z.string(),
   workflowRequestId: z.string(),
   steps: z.array(gateStepSchema),
@@ -45,7 +45,7 @@ export const leaveRequestSchema = z.object({
   decidedAt: z.string().nullable(),
 });
 
-export const submitLeaveRequestSchema = z.object({
+export const submitLeaveApplicationSchema = z.object({
   employeeId: z.string().min(1),
   leaveTypeCode: leaveTypeCodeSchema,
   startDate: z.string(),
@@ -54,14 +54,14 @@ export const submitLeaveRequestSchema = z.object({
   reason: z.string().nullable().optional(),
 });
 
-export const decideLeaveRequestSchema = z.object({
+export const decideLeaveApplicationSchema = z.object({
   decision: z.enum(["approve", "reject"]),
   comment: z.string().optional(),
 });
 
-export type LeaveRequestStatusDTO = z.infer<typeof leaveRequestStatusSchema>;
+export type LeaveApplicationStatusDTO = z.infer<typeof leaveApplicationStatusSchema>;
 export type GateStepDTO = z.infer<typeof gateStepSchema>;
 export type DecisionRecordDTO = z.infer<typeof decisionRecordSchema>;
-export type LeaveRequestDTO = z.infer<typeof leaveRequestSchema>;
-export type SubmitLeaveRequestDTO = z.infer<typeof submitLeaveRequestSchema>;
-export type DecideLeaveRequestDTO = z.infer<typeof decideLeaveRequestSchema>;
+export type LeaveApplicationDTO = z.infer<typeof leaveApplicationSchema>;
+export type SubmitLeaveApplicationDTO = z.infer<typeof submitLeaveApplicationSchema>;
+export type DecideLeaveApplicationDTO = z.infer<typeof decideLeaveApplicationSchema>;

@@ -1,11 +1,11 @@
 export {
   LEAVE_TYPE_CODES,
-  LEAVE_TYPE_DEFINITIONS,
+  LEAVE_POLICY_TYPE_DEFINITIONS,
   isLeaveTypeCode,
-  getLeaveTypeDefinition,
+  getLeavePolicyTypeDefinition,
   gateActionTypeForLeaveType,
   type LeaveTypeCode,
-  type LeaveTypeDefinition,
+  type LeavePolicyTypeDefinition,
 } from "./leave-type.js";
 
 export type {

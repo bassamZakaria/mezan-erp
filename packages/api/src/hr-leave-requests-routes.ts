@@ -2,28 +2,28 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   DEFAULT_SETTINGS,
-  InvalidLeaveRequestError,
-  LeaveRequestNotFoundError,
-  LeaveRequestNotPendingError,
-  cancelLeaveRequest,
+  InvalidLeaveApplicationError,
+  LeaveApplicationNotFoundError,
+  LeaveApplicationNotPendingError,
+  cancelLeaveApplication,
   computeLeaveBalance,
-  decideLeaveRequest,
+  decideLeaveApplication,
   defaultLeaveGateConfigResolver,
   isLeaveTypeCode,
-  submitLeaveRequest,
+  submitLeaveApplication,
   WorkflowError,
   type LeaveAccrualCreditSource,
   type LeaveGateConfigResolver,
-  type LeaveRequestRepository,
-  type LeaveRequestStatus,
+  type LeaveApplicationRepository,
+  type LeaveApplicationStatus,
   type NextNumberService,
   type SettingsRepository,
 } from "@mezan/domain";
-import { decideLeaveRequestSchema, submitLeaveRequestSchema } from "@mezan/contracts";
+import { decideLeaveApplicationSchema, submitLeaveApplicationSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
-export interface HrLeaveRequestsRoutesDeps {
-  readonly requests: LeaveRequestRepository;
+export interface HrLeaveApplicationsRoutesDeps {
+  readonly requests: LeaveApplicationRepository;
   readonly numbering: NextNumberService;
   readonly settings: SettingsRepository;
   readonly accrualCreditSource: LeaveAccrualCreditSource;
@@ -32,13 +32,13 @@ export interface HrLeaveRequestsRoutesDeps {
 }
 
 function handleDomainError(c: Context, err: unknown) {
-  if (err instanceof LeaveRequestNotFoundError) {
+  if (err instanceof LeaveApplicationNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
-  if (err instanceof LeaveRequestNotPendingError) {
+  if (err instanceof LeaveApplicationNotPendingError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof InvalidLeaveRequestError) {
+  if (err instanceof InvalidLeaveApplicationError) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof WorkflowError) {
@@ -63,9 +63,16 @@ function actorRolesFrom(c: Context): readonly string[] {
     .filter(Boolean);
 }
 
-/** Leave Requests routes (docs/catalog/06 §"طلبات الإجازات"), mounted under `/hr/leave-requests`. */
-export function createHrLeaveRequestsRoutes(
-  deps: HrLeaveRequestsRoutesDeps,
+/**
+ * Leave Requests routes (docs/catalog/06 §"طلبات الإجازات") — the full,
+ * leave-policy-driven, workflow-gated flow — mounted under
+ * `/hr/leave-applications`. Deliberately NOT `/hr/leave-requests`: that path
+ * belongs to `hr/master-data`'s simpler 3-type "My Leave" self-service stand-in
+ * (`packages/api/src/hr-routes.ts`, `POST /hr/leave-requests` etc.), which
+ * predates and is out of scope for this module's full 8-type/9-gate build.
+ */
+export function createHrLeaveApplicationsRoutes(
+  deps: HrLeaveApplicationsRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
 ) {
   const app = new Hono();
@@ -79,7 +86,7 @@ export function createHrLeaveRequestsRoutes(
     const leaveTypeCodeParam = c.req.query("leaveTypeCode") ?? undefined;
     const list = await deps.requests.list({
       employeeId,
-      status: statusParam as LeaveRequestStatus | undefined,
+      status: statusParam as LeaveApplicationStatus | undefined,
       leaveTypeCode: leaveTypeCodeParam && isLeaveTypeCode(leaveTypeCodeParam) ? leaveTypeCodeParam : undefined,
     });
     return c.json(list);
@@ -104,14 +111,14 @@ export function createHrLeaveRequestsRoutes(
   });
 
   app.post("/", gate("hr.leave.create"), async (c) => {
-    const parsed = submitLeaveRequestSchema.safeParse(await c.req.json());
+    const parsed = submitLeaveApplicationSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const authCtx = getAuthContext(c);
     try {
       const current = await deps.settings.get();
-      const request = await submitLeaveRequest(
+      const request = await submitLeaveApplication(
         {
           id: idGen(),
           employeeId: parsed.data.employeeId,
@@ -137,13 +144,13 @@ export function createHrLeaveRequestsRoutes(
   });
 
   app.post("/:id/decide", gate("hr.leave.approve"), async (c) => {
-    const parsed = decideLeaveRequestSchema.safeParse(await c.req.json());
+    const parsed = decideLeaveApplicationSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const authCtx = getAuthContext(c);
     try {
-      const request = await decideLeaveRequest(
+      const request = await decideLeaveApplication(
         {
           id: c.req.param("id"),
           actorId: authCtx?.userId ?? "anonymous",
@@ -161,7 +168,7 @@ export function createHrLeaveRequestsRoutes(
 
   app.post("/:id/cancel", gate("hr.leave.create"), async (c) => {
     try {
-      const request = await cancelLeaveRequest({ id: c.req.param("id") }, { requests: deps.requests });
+      const request = await cancelLeaveApplication({ id: c.req.param("id") }, { requests: deps.requests });
       return c.json(request);
     } catch (err) {
       return handleDomainError(c, err);

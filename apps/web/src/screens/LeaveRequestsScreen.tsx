@@ -1,25 +1,25 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
-import type { LeaveRequestDTO, LeaveRequestStatusDTO, LeaveTypeCodeDTO, SubmitLeaveRequestDTO } from "@mezan/contracts";
+import type { LeaveApplicationDTO, LeaveApplicationStatusDTO, LeaveTypeCodeDTO, SubmitLeaveApplicationDTO } from "@mezan/contracts";
 import {
   ApiError,
-  useCancelLeaveRequest,
-  useDecideLeaveRequest,
+  useCancelLeaveApplication,
+  useDecideLeaveApplication,
   useHrEmployeesRef,
-  useLeaveRequests,
-  useSubmitLeaveRequest,
+  useLeaveApplications,
+  useSubmitLeaveApplication,
 } from "../data/hooks";
 import { Field, SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /** طلبات الإجازات — Leave Requests (docs/catalog/06-crm-hr.md §"طلبات الإجازات"). List + submit + decide/cancel actions. */
 
-const STATUS_LABEL: Record<LeaveRequestStatusDTO, string> = {
+const STATUS_LABEL: Record<LeaveApplicationStatusDTO, string> = {
   PENDING: "بانتظار الموافقة",
   APPROVED: "موافق عليه",
   REJECTED: "مرفوض",
   CANCELLED: "ملغى",
 };
-const STATUS_TONE: Record<LeaveRequestStatusDTO, PillTone> = {
+const STATUS_TONE: Record<LeaveApplicationStatusDTO, PillTone> = {
   PENDING: "warning",
   APPROVED: "success",
   REJECTED: "danger",
@@ -65,10 +65,10 @@ function validateDraft(draft: RequestDraft): string | null {
 
 export function LeaveRequestsScreen() {
   const employeesQuery = useHrEmployeesRef();
-  const query = useLeaveRequests();
-  const submitRequest = useSubmitLeaveRequest();
-  const decideRequest = useDecideLeaveRequest();
-  const cancelRequest = useCancelLeaveRequest();
+  const query = useLeaveApplications();
+  const submitRequest = useSubmitLeaveApplication();
+  const decideRequest = useDecideLeaveApplication();
+  const cancelRequest = useCancelLeaveApplication();
 
   const employees = employeesQuery.data ?? [];
   const requests = query.data ?? [];
@@ -103,7 +103,7 @@ export function LeaveRequestsScreen() {
       return;
     }
     setFormError(null);
-    const body: SubmitLeaveRequestDTO = {
+    const body: SubmitLeaveApplicationDTO = {
       employeeId: draft.employeeId,
       leaveTypeCode: draft.leaveTypeCode,
       startDate: draft.startDate,
@@ -119,7 +119,7 @@ export function LeaveRequestsScreen() {
     }
   }
 
-  async function handleDecide(request: LeaveRequestDTO, decision: "approve" | "reject") {
+  async function handleDecide(request: LeaveApplicationDTO, decision: "approve" | "reject") {
     if (actionId !== null) return;
     setActionId(request.id);
     setActionError(null);
@@ -132,7 +132,7 @@ export function LeaveRequestsScreen() {
     }
   }
 
-  async function handleCancel(request: LeaveRequestDTO) {
+  async function handleCancel(request: LeaveApplicationDTO) {
     if (actionId !== null) return;
     setActionId(request.id);
     setActionError(null);
@@ -145,7 +145,7 @@ export function LeaveRequestsScreen() {
     }
   }
 
-  const columns: DocumentListColumn<LeaveRequestDTO>[] = [
+  const columns: DocumentListColumn<LeaveApplicationDTO>[] = [
     { key: "requestNo", header: "رقم الطلب", render: (r) => <span className="mz-num font-semibold text-ink">{r.requestNo}</span> },
     { key: "employee", header: "اسم الموظف", render: (r) => employeeName(r.employeeId) },
     { key: "type", header: "نوع الإجازة", render: (r) => LEAVE_TYPE_LABEL[r.leaveTypeCode] },
@@ -220,7 +220,7 @@ export function LeaveRequestsScreen() {
           </p>
         </Card>
       ) : null}
-      <DocumentList<LeaveRequestDTO>
+      <DocumentList<LeaveApplicationDTO>
         eyebrow="HR · Leave"
         title="طلبات الإجازات"
         description="تقديم طلبات الإجازة ومتابعة الموافقة عليها عبر سلسلة الاعتماد"

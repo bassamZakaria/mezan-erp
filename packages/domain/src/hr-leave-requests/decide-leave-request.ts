@@ -1,13 +1,13 @@
 import { decide, type ApprovalRequest, type DecisionKind } from "../workflow/index.js";
 import {
-  LeaveRequestNotFoundError,
-  LeaveRequestNotPendingError,
+  LeaveApplicationNotFoundError,
+  LeaveApplicationNotPendingError,
   statusFromApproval,
-  type LeaveRequest,
-  type LeaveRequestRepository,
+  type LeaveApplication,
+  type LeaveApplicationRepository,
 } from "./leave-request.js";
 
-export interface DecideLeaveRequestCommand {
+export interface DecideLeaveApplicationCommand {
   readonly id: string;
   readonly actorId: string;
   readonly actorRoles: readonly string[];
@@ -17,11 +17,11 @@ export interface DecideLeaveRequestCommand {
   readonly now?: () => string;
 }
 
-export interface DecideLeaveRequestDeps {
-  readonly requests: LeaveRequestRepository;
+export interface DecideLeaveApplicationDeps {
+  readonly requests: LeaveApplicationRepository;
 }
 
-function toApprovalRequest(request: LeaveRequest): ApprovalRequest {
+function toApprovalRequest(request: LeaveApplication): ApprovalRequest {
   return {
     id: request.workflowRequestId,
     actionType: request.gateActionType,
@@ -34,13 +34,13 @@ function toApprovalRequest(request: LeaveRequest): ApprovalRequest {
 }
 
 /** Records an approve/reject decision on a PENDING leave request's current gate step, via the real workflow engine's `decide()`. */
-export async function decideLeaveRequest(
-  cmd: DecideLeaveRequestCommand,
-  deps: DecideLeaveRequestDeps,
-): Promise<LeaveRequest> {
+export async function decideLeaveApplication(
+  cmd: DecideLeaveApplicationCommand,
+  deps: DecideLeaveApplicationDeps,
+): Promise<LeaveApplication> {
   const request = await deps.requests.findById(cmd.id);
-  if (!request) throw new LeaveRequestNotFoundError(cmd.id);
-  if (request.status !== "PENDING") throw new LeaveRequestNotPendingError(cmd.id, request.status);
+  if (!request) throw new LeaveApplicationNotFoundError(cmd.id);
+  if (request.status !== "PENDING") throw new LeaveApplicationNotPendingError(cmd.id, request.status);
 
   const now = cmd.now?.() ?? new Date().toISOString();
   const { request: approval } = decide(toApprovalRequest(request), {
@@ -52,7 +52,7 @@ export async function decideLeaveRequest(
   });
 
   const status = statusFromApproval(approval.status);
-  const updated: LeaveRequest = {
+  const updated: LeaveApplication = {
     ...request,
     status,
     currentStepIndex: approval.currentStep,

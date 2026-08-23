@@ -4,9 +4,9 @@ import type {
   DecisionRecord,
   GateStep,
   GateableActionType,
-  LeaveRequest,
-  LeaveRequestRepository,
-  LeaveRequestStatus,
+  LeaveApplication,
+  LeaveApplicationRepository,
+  LeaveApplicationStatus,
   LeaveTypeCode,
 } from "@mezan/domain";
 
@@ -37,7 +37,7 @@ CREATE INDEX IF NOT EXISTS idx_hr_leave_request_employee ON hr_leave_request(emp
 CREATE INDEX IF NOT EXISTS idx_hr_leave_request_status ON hr_leave_request(status);
 `;
 
-interface LeaveRequestRow {
+interface LeaveApplicationRow {
   id: string;
   request_no: string;
   employee_id: string;
@@ -58,7 +58,7 @@ interface LeaveRequestRow {
   decided_at: string | null;
 }
 
-function toRequest(row: LeaveRequestRow): LeaveRequest {
+function toRequest(row: LeaveApplicationRow): LeaveApplication {
   return {
     id: row.id,
     requestNo: row.request_no,
@@ -69,7 +69,7 @@ function toRequest(row: LeaveRequestRow): LeaveRequest {
     halfDay: row.half_day === 1,
     days: row.days,
     reason: row.reason,
-    status: row.status as LeaveRequestStatus,
+    status: row.status as LeaveApplicationStatus,
     gateActionType: row.gate_action_type as GateableActionType,
     workflowRequestId: row.workflow_request_id,
     steps: JSON.parse(row.steps) as GateStep[],
@@ -81,11 +81,11 @@ function toRequest(row: LeaveRequestRow): LeaveRequest {
   };
 }
 
-export interface SqliteLeaveRequestRepositoryHandle extends LeaveRequestRepository {
+export interface SqliteLeaveApplicationRepositoryHandle extends LeaveApplicationRepository {
   close(): void;
 }
 
-export function createSqliteLeaveRequestRepository(path: SqliteConnectionInput = ":memory:"): SqliteLeaveRequestRepositoryHandle {
+export function createSqliteLeaveApplicationRepository(path: SqliteConnectionInput = ":memory:"): SqliteLeaveApplicationRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
 
@@ -107,7 +107,7 @@ export function createSqliteLeaveRequestRepository(path: SqliteConnectionInput =
   `);
   const selectById: Database.Statement = sqlite.prepare(`SELECT * FROM hr_leave_request WHERE id = ?`);
 
-  function write(request: LeaveRequest): void {
+  function write(request: LeaveApplication): void {
     upsert.run({
       id: request.id,
       request_no: request.requestNo,
@@ -132,7 +132,7 @@ export function createSqliteLeaveRequestRepository(path: SqliteConnectionInput =
 
   return {
     async findById(id) {
-      const row = selectById.get(id) as LeaveRequestRow | undefined;
+      const row = selectById.get(id) as LeaveApplicationRow | undefined;
       return row ? toRequest(row) : null;
     },
     async list(filter) {
@@ -151,7 +151,7 @@ export function createSqliteLeaveRequestRepository(path: SqliteConnectionInput =
         params.push(filter.leaveTypeCode);
       }
       const where = clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "";
-      const rows = sqlite.prepare(`SELECT * FROM hr_leave_request ${where} ORDER BY created_at DESC`).all(...params) as LeaveRequestRow[];
+      const rows = sqlite.prepare(`SELECT * FROM hr_leave_request ${where} ORDER BY created_at DESC`).all(...params) as LeaveApplicationRow[];
       return rows.map(toRequest);
     },
     async create(request) {

@@ -120,7 +120,7 @@ import {
 import { createHrEmployeeRefRoutes } from "./hr-employee-ref-routes.js";
 import { createHrAttendanceRoutes, type HrAttendanceRoutesDeps } from "./hr-attendance-routes.js";
 import { createHrLeavePoliciesRoutes, type HrLeavePoliciesRoutesDeps } from "./hr-leave-policies-routes.js";
-import { createHrLeaveRequestsRoutes, type HrLeaveRequestsRoutesDeps } from "./hr-leave-requests-routes.js";
+import { createHrLeaveApplicationsRoutes, type HrLeaveApplicationsRoutesDeps } from "./hr-leave-requests-routes.js";
 import { createHrLeaveAccrualRoutes, type HrLeaveAccrualRoutesDeps } from "./hr-leave-accrual-routes.js";
 import type { EmployeeDirectory } from "@mezan/domain";
 
@@ -362,12 +362,12 @@ export interface CreateAppOptions {
    * present: `hrEmployeeRef` alone mounts the read-only employee-picker
    * source at `/hr/employees-ref`; each of the other three mounts its own
    * routes independently at `/hr/attendance`, `/hr/leave-policies`,
-   * `/hr/leave-requests`, `/hr/leave-accrual`.
+   * `/hr/leave-applications`, `/hr/leave-accrual`.
    */
   readonly hrEmployeeRef?: EmployeeDirectory;
   readonly hrAttendance?: HrAttendanceRoutesDeps;
   readonly hrLeavePolicies?: HrLeavePoliciesRoutesDeps;
-  readonly hrLeaveRequests?: HrLeaveRequestsRoutesDeps;
+  readonly hrLeaveApplications?: HrLeaveApplicationsRoutesDeps;
   readonly hrLeaveAccrual?: HrLeaveAccrualRoutesDeps;
   /**
    * Mounts Field/Van Sales (docs/catalog/07 "رحلات المندوبين") under
@@ -601,8 +601,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.hrLeavePolicies) {
     app.route("/hr/leave-policies", createHrLeavePoliciesRoutes(options.hrLeavePolicies, options.resolveAuthContext));
   }
-  if (options.hrLeaveRequests) {
-    app.route("/hr/leave-requests", createHrLeaveRequestsRoutes(options.hrLeaveRequests, options.resolveAuthContext));
+  if (options.hrLeaveApplications) {
+    app.route("/hr/leave-applications", createHrLeaveApplicationsRoutes(options.hrLeaveApplications, options.resolveAuthContext));
   }
   if (options.hrLeaveAccrual) {
     app.route("/hr/leave-accrual", createHrLeaveAccrualRoutes(options.hrLeaveAccrual, options.resolveAuthContext));

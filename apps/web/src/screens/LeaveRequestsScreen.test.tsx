@@ -2,13 +2,13 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within } from "@testing-library/react";
-import type { EmployeeRefDTO, LeaveRequestDTO } from "@mezan/contracts";
+import type { EmployeeRefDTO, LeaveApplicationDTO } from "@mezan/contracts";
 import { LeaveRequestsScreen } from "./LeaveRequestsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 const sampleEmployees: EmployeeRefDTO[] = [{ id: "emp-1", code: "EMP-0001", nameAr: "أحمد محمود", departmentId: null, active: true }];
 
-const sampleRequests: LeaveRequestDTO[] = [
+const sampleRequests: LeaveApplicationDTO[] = [
   {
     id: "req-1",
     requestNo: "LR-000001",
@@ -31,14 +31,14 @@ const sampleRequests: LeaveRequestDTO[] = [
   },
 ];
 
-function renderScreen(requests: LeaveRequestDTO[] = sampleRequests) {
+function renderScreen(requests: LeaveApplicationDTO[] = sampleRequests) {
   let current = [...requests];
   const transport = stubTransport({
-    "GET /hr/leave-requests": () => ({ body: current }),
+    "GET /hr/leave-applications": () => ({ body: current }),
     "GET /hr/employees-ref": () => ({ body: sampleEmployees }),
-    "POST /hr/leave-requests": (init) => {
+    "POST /hr/leave-applications": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
-      const created: LeaveRequestDTO = {
+      const created: LeaveApplicationDTO = {
         id: "req-2",
         requestNo: "LR-000002",
         employeeId: body.employeeId,
@@ -61,14 +61,14 @@ function renderScreen(requests: LeaveRequestDTO[] = sampleRequests) {
       current = [...current, created];
       return { status: 201, body: created };
     },
-    "POST /hr/leave-requests/req-1/decide": (init) => {
+    "POST /hr/leave-applications/req-1/decide": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
-      const decided: LeaveRequestDTO = { ...current[0]!, status: body.decision === "approve" ? "APPROVED" : "REJECTED", decidedAt: "now" };
+      const decided: LeaveApplicationDTO = { ...current[0]!, status: body.decision === "approve" ? "APPROVED" : "REJECTED", decidedAt: "now" };
       current = [decided, ...current.slice(1)];
       return { body: decided };
     },
-    "POST /hr/leave-requests/req-1/cancel": () => {
-      const cancelled: LeaveRequestDTO = { ...current[0]!, status: "CANCELLED", decidedAt: "now" };
+    "POST /hr/leave-applications/req-1/cancel": () => {
+      const cancelled: LeaveApplicationDTO = { ...current[0]!, status: "CANCELLED", decidedAt: "now" };
       current = [cancelled, ...current.slice(1)];
       return { body: cancelled };
     },

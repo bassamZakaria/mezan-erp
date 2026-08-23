@@ -13,9 +13,9 @@ import type { LeaveTypeCode } from "../hr-leave-policies/index.js";
  * without this module depending on the (financial-document-shaped) document
  * framework it lives in.
  */
-export type LeaveRequestStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+export type LeaveApplicationStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
 
-export interface LeaveRequest {
+export interface LeaveApplication {
   readonly id: string;
   readonly requestNo: string;
   readonly employeeId: string;
@@ -27,7 +27,7 @@ export interface LeaveRequest {
   /** Computed day count — 0.5 for a half-day request, else business days in [startDate, endDate] excluding weekly-off. */
   readonly days: number;
   readonly reason: string | null;
-  readonly status: LeaveRequestStatus;
+  readonly status: LeaveApplicationStatus;
   readonly gateActionType: GateableActionType;
   readonly workflowRequestId: string;
   readonly steps: readonly GateStep[];
@@ -39,43 +39,43 @@ export interface LeaveRequest {
 }
 
 /** Persistence port for leave requests. The domain depends on this interface only — no SQL, no driver. */
-export interface LeaveRequestRepository {
-  findById(id: string): Promise<LeaveRequest | null>;
+export interface LeaveApplicationRepository {
+  findById(id: string): Promise<LeaveApplication | null>;
   list(filter?: {
     readonly employeeId?: string;
-    readonly status?: LeaveRequestStatus;
+    readonly status?: LeaveApplicationStatus;
     readonly leaveTypeCode?: LeaveTypeCode;
-  }): Promise<LeaveRequest[]>;
-  create(request: LeaveRequest): Promise<void>;
-  update(request: LeaveRequest): Promise<void>;
+  }): Promise<LeaveApplication[]>;
+  create(request: LeaveApplication): Promise<void>;
+  update(request: LeaveApplication): Promise<void>;
 }
 
-export class LeaveRequestNotFoundError extends Error {
+export class LeaveApplicationNotFoundError extends Error {
   readonly code = "LEAVE_REQUEST_NOT_FOUND";
   constructor(id: string) {
     super(`Leave request "${id}" not found`);
-    this.name = "LeaveRequestNotFoundError";
+    this.name = "LeaveApplicationNotFoundError";
   }
 }
 
-export class InvalidLeaveRequestError extends Error {
+export class InvalidLeaveApplicationError extends Error {
   readonly code = "INVALID_LEAVE_REQUEST";
   constructor(message: string) {
     super(message);
-    this.name = "InvalidLeaveRequestError";
+    this.name = "InvalidLeaveApplicationError";
   }
 }
 
-export class LeaveRequestNotPendingError extends Error {
+export class LeaveApplicationNotPendingError extends Error {
   readonly code = "LEAVE_REQUEST_NOT_PENDING";
-  constructor(id: string, status: LeaveRequestStatus) {
+  constructor(id: string, status: LeaveApplicationStatus) {
     super(`Leave request "${id}" is ${status}, not PENDING`);
-    this.name = "LeaveRequestNotPendingError";
+    this.name = "LeaveApplicationNotPendingError";
   }
 }
 
 /** Maps a workflow `ApprovalStatus` onto the leave request's own status vocabulary. */
-export function statusFromApproval(approval: ApprovalStatus): LeaveRequestStatus {
+export function statusFromApproval(approval: ApprovalStatus): LeaveApplicationStatus {
   switch (approval) {
     case "approved":
       return "APPROVED";

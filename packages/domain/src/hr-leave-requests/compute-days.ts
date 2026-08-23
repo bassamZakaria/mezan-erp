@@ -1,5 +1,5 @@
 import { isWeeklyOff } from "../hr-attendance/index.js";
-import { InvalidLeaveRequestError } from "./leave-request.js";
+import { InvalidLeaveApplicationError } from "./leave-request.js";
 
 /**
  * Day count for a leave request: 0.5 for a half-day request (start === end,
@@ -15,11 +15,11 @@ export function computeLeaveDays(
   weekendDays: readonly number[],
 ): number {
   if (startDate > endDate) {
-    throw new InvalidLeaveRequestError(`startDate "${startDate}" is after endDate "${endDate}"`);
+    throw new InvalidLeaveApplicationError(`startDate "${startDate}" is after endDate "${endDate}"`);
   }
   if (halfDay) {
     if (startDate !== endDate) {
-      throw new InvalidLeaveRequestError("A half-day request must have startDate === endDate");
+      throw new InvalidLeaveApplicationError("A half-day request must have startDate === endDate");
     }
     return 0.5;
   }

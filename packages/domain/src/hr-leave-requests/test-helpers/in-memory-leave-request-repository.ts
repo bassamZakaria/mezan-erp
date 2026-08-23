@@ -1,7 +1,7 @@
-import type { LeaveRequest, LeaveRequestRepository } from "../leave-request.js";
+import type { LeaveApplication, LeaveApplicationRepository } from "../leave-request.js";
 
-export function createInMemoryLeaveRequestRepository(): LeaveRequestRepository {
-  const byId = new Map<string, LeaveRequest>();
+export function createInMemoryLeaveApplicationRepository(): LeaveApplicationRepository {
+  const byId = new Map<string, LeaveApplication>();
 
   return {
     async findById(id) {

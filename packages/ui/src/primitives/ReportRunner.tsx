@@ -99,7 +99,7 @@ function formatCell(value: string | number | null, format: ReportRunnerColumnFor
   if (format === "variance" && typeof value === "number")
     return (
       <VarianceBeam value={value}>
-        <span className="mz-num">{value > 0 ? `+${fmt.number(value)}` : fmt.number(value)}%</span>
+        <span className="mz-num">{value > 0 ? `+${fmt.money(value)}` : fmt.money(value)}</span>
       </VarianceBeam>
     );
   if (format === "date" && typeof value === "string") return <span className="mz-num">{fmt.date(value)}</span>;

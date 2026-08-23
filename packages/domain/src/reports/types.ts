@@ -11,7 +11,7 @@ import type { z } from "zod";
  */
 
 /** How a column's raw value is rendered — routed through `useFormat()` on the UI side. */
-export type ReportColumnFormat = "text" | "money" | "qty" | "date" | "percent";
+export type ReportColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance";
 
 export interface ReportColumn<Row> {
   readonly key: string;

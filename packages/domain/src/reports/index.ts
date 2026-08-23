@@ -182,6 +182,12 @@ export {
   financialStatementEntries,
 } from "./financial-fixtures.js";
 export {
+  COMPARISON_LABEL_AR,
+  comparativeRange,
+  type ClosedDateRange,
+  type ComparisonMode,
+} from "./comparative-period.js";
+export {
   createIncomeStatementReport,
   incomeStatementNetIncome,
   type IncomeStatementParams,

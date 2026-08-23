@@ -5,6 +5,7 @@ import {
   moneyToNumber,
   netBalancesByAccount,
 } from "./gl-shared.js";
+import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./comparative-period.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
 
@@ -14,11 +15,15 @@ import type { ReportDefinition } from "./types.js";
  * صافي الدخل = الإيرادات − تكلفة المبيعات − المصروفات. Grouped into the three
  * sections the catalog lists (الإيرادات / تكلفة البضاعة المباعة / المصاريف
  * التشغيلية) with a per-section subtotal each.
+ *
+ * Comparative: every run also computes the same figures over a comparison
+ * window and the signed change between them (ux-enhancement-spec §4 dose 3).
  */
 
 export interface IncomeStatementParams {
   readonly periodFrom: string;
   readonly periodTo: string;
+  readonly compareTo: ComparisonMode;
 }
 
 export interface IncomeStatementRow {
@@ -29,12 +34,20 @@ export interface IncomeStatementRow {
   readonly sectionLabel: string;
   /** Positive for revenue, negative for expenses — sums to net income. */
   readonly amount: number;
+  /** The same figure over the comparison window, on the same sign convention. */
+  readonly priorAmount: number;
+  /** `amount − priorAmount`. Positive always means "better for net income". */
+  readonly variance: number;
 }
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
 
 const paramsSchema = z
-  .object({ periodFrom: DATE, periodTo: DATE })
+  .object({
+    periodFrom: DATE,
+    periodTo: DATE,
+    compareTo: z.enum(["previous", "lastYear"]),
+  })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],
@@ -52,38 +65,57 @@ export function incomeStatementNetIncome(rows: readonly IncomeStatementRow[]): n
 }
 
 export function createIncomeStatementReport(
-  defaultParams: IncomeStatementParams,
+  defaultParams: Omit<IncomeStatementParams, "compareTo"> & Partial<Pick<IncomeStatementParams, "compareTo">>,
 ): ReportDefinition<IncomeStatementParams, IncomeStatementRow, GlReportContext> {
   return {
     id: "accounting.income-statement",
     titleAr: "قائمة الدخل",
-    descriptionAr: "الإيرادات والمصروفات وصافي الدخل خلال الفترة المحددة، محسوبة من القيود المرحّلة.",
+    descriptionAr: "الإيرادات والمصروفات وصافي الدخل خلال الفترة المحددة، محسوبة من القيود المرحّلة، مقارنةً بفترة سابقة.",
     paramsSchema,
-    defaultParams,
-    paramFields: [{ kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" }],
+    defaultParams: { compareTo: "previous", ...defaultParams },
+    paramFields: [
+      { kind: "dateRange", fromKey: "periodFrom", toKey: "periodTo", label: "الفترة" },
+      {
+        kind: "select",
+        key: "compareTo",
+        label: "المقارنة",
+        options: [
+          { value: "previous", label: COMPARISON_LABEL_AR.previous },
+          { value: "lastYear", label: COMPARISON_LABEL_AR.lastYear },
+        ],
+      },
+    ],
     rowKey: (row) => row.accountId,
     columns: [
       { key: "code", header: "رقم الحساب", format: "text", value: (row) => row.code },
       { key: "nameAr", header: "البند", format: "text", value: (row) => row.nameAr },
-      { key: "amount", header: "المبلغ", format: "money", align: "end", total: true, value: (row) => row.amount },
+      { key: "amount", header: "الفترة الحالية", format: "money", align: "end", total: true, value: (row) => row.amount },
+      { key: "priorAmount", header: "فترة المقارنة", format: "money", align: "end", total: true, value: (row) => row.priorAmount },
+      { key: "variance", header: "التغيّر", format: "variance", align: "end", total: true, value: (row) => row.variance },
     ],
     group: {
       key: (row) => row.sectionKey,
       label: (row) => row.sectionLabel,
     },
     run: (params, ctx) => {
-      const balances = netBalancesByAccount(ctx.journalEntries, { from: params.periodFrom, to: params.periodTo });
+      const prior = comparativeRange({ from: params.periodFrom, to: params.periodTo }, params.compareTo);
+      const current = netBalancesByAccount(ctx.journalEntries, { from: params.periodFrom, to: params.periodTo });
+      const previous = netBalancesByAccount(ctx.journalEntries, { from: prior.from, to: prior.to });
       const rows: IncomeStatementRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
         const section = classifyAccount(account, ctx.cashAccountIds);
         if (section !== "revenue" && section !== "expense") continue;
-        const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
-        if (net === 0) continue;
+        const currentNet = moneyToNumber(current.get(account.id) ?? Money.zero());
+        const priorNet = moneyToNumber(previous.get(account.id) ?? Money.zero());
+        // An account active in only one of the two windows still belongs in a
+        // comparison — dropping it would hide exactly the change being looked for.
+        if (currentNet === 0 && priorNet === 0) continue;
         // Revenue is credit-normal (net<0) → positive earned; expense is
         // debit-normal (net>0) → negative, so the grand total is net income.
         const isRevenue = section === "revenue";
-        const amount = -net;
+        const amount = -currentNet;
+        const priorAmount = -priorNet;
         const sectionKey = isRevenue ? "revenue" : account.code.startsWith("51") ? "cogs" : "opex";
         rows.push({
           accountId: account.id,
@@ -92,6 +124,8 @@ export function createIncomeStatementReport(
           sectionKey,
           sectionLabel: SECTIONS[sectionKey] ?? account.nameAr,
           amount,
+          priorAmount,
+          variance: amount - priorAmount,
         });
       }
       // Stable section order: revenue → cogs → opex.

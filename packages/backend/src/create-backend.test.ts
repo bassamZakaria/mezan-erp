@@ -727,6 +727,117 @@ describe("createBackend — sweep/finish-and-mount: manufacturing, RFQ, historic
   });
 });
 
+describe("createBackend — phase9/accounting-depth: reconciliation, inventory-ops document layer", () => {
+  const ADMIN = { "x-permissions": "*", "x-user-id": "admin" };
+
+  it("mounts /reconciliation with real AR/AP/inventory sub-ledger totals — all zero and matched on a fresh seeded DB", async () => {
+    const app = await newBackend();
+    const res = await app.fetch(new Request("http://local/reconciliation", { headers: ADMIN }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      rows: Array<{ key: string; controlAccountId: string; subLedgerBalance: string; glBalance: string; matched: boolean }>;
+      allMatched: boolean;
+    };
+    expect(body.allMatched).toBe(true);
+    expect(body.rows.map((r) => r.key).sort()).toEqual(["ap", "ar", "inventory"]);
+    for (const row of body.rows) {
+      expect(row.matched).toBe(true);
+      expect(Number(row.subLedgerBalance)).toBe(0);
+      expect(Number(row.glBalance)).toBe(0);
+    }
+  });
+
+  it("mounts /inventory/stock-adjustments — INITIAL_STOCK draft → confirm posts stock AND a real balanced GL entry", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-adj", code: "ITEM-ADJ", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+
+    const draft = await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-1",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-adj", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
+      },
+      ADMIN,
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-1/confirm", {}, ADMIN);
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { document: { status: string } };
+    expect(confirmed.document.status).toBe("confirmed");
+
+    // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's
+    // trick — see packages/api/src/stock-documents-routes.test.ts); the document's own
+    // journalEntryId field is a SEPARATE mechanism this stock hook doesn't populate.
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-1", { headers: ADMIN }));
+    expect(entry.status).toBe(200);
+    const je = (await entry.json()) as { lines: { accountId: string; debit: string; credit: string }[] };
+    const totalDebit = je.lines.reduce((n, l) => n + Number(l.debit), 0);
+    const totalCredit = je.lines.reduce((n, l) => n + Number(l.credit), 0);
+    expect(totalDebit).toBeCloseTo(totalCredit, 6);
+    expect(totalDebit).toBe(1000); // 100 qty × 10 unit cost
+
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-adj&warehouseId=WH-MAIN", { headers: ADMIN }));
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
+  });
+
+  it("mounts /inventory/stock-transfers and /inventory/physical-counts (empty on a fresh seeded DB)", async () => {
+    const app = await newBackend();
+    for (const path of ["/inventory/stock-transfers", "/inventory/physical-counts"]) {
+      const res = await app.fetch(new Request(`http://local${path}`, { headers: ADMIN }));
+      expect(res.status, `GET ${path}`).toBe(200);
+      expect((await res.json()) as unknown[]).toEqual([]);
+    }
+  });
+
+  it("runs a physical count end to end: start → record → complete → generate adjustment, reusing the SAME stock-adjustments service", async () => {
+    const app = await newBackend();
+    expect(
+      (await post(app, "/items", { id: "item-pc", code: "ITEM-PC", nameAr: "منتج جرد", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+    expect(
+      (
+        await post(
+          app,
+          "/inventory/stock-adjustments/draft",
+          { id: "sa-seed", date: "2026-08-01", lines: [{ itemId: "item-pc", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "50", unitCost: "5" }] },
+          ADMIN,
+        )
+      ).status,
+    ).toBe(201);
+    expect((await post(app, "/inventory/stock-adjustments/sa-seed/confirm", {}, ADMIN)).status).toBe(200);
+
+    const started = await post(app, "/inventory/physical-counts", { id: "pc-1", warehouseId: "WH-MAIN", date: "2026-08-22", itemIds: ["item-pc"] }, ADMIN);
+    expect(started.status).toBe(201);
+    const count = (await started.json()) as { status: string; lines: { itemId: string; systemQty: string }[] };
+    expect(count.status).toBe("IN_PROGRESS");
+    expect(count.lines[0]?.systemQty).toBe("50.000000");
+
+    const recorded = await post(app, "/inventory/physical-counts/pc-1/counts", { entries: [{ itemId: "item-pc", countedQty: "48" }] }, ADMIN);
+    expect(recorded.status).toBe(200);
+
+    const completed = await post(app, "/inventory/physical-counts/pc-1/complete", {}, ADMIN);
+    expect(completed.status).toBe(200);
+    expect(((await completed.json()) as { status: string }).status).toBe("COMPLETED");
+
+    const generated = await post(app, "/inventory/physical-counts/pc-1/generate-adjustment", { adjustmentId: "sa-from-pc-1" }, ADMIN);
+    expect(generated.status).toBe(200);
+    const result = (await generated.json()) as { count: { status: string; generatedAdjustmentId: string | null }; adjustment: { status: string; lines: unknown[] } | null };
+    expect(result.count.status).toBe("ADJUSTMENT_GENERATED");
+    expect(result.count.generatedAdjustmentId).toBe("sa-from-pc-1");
+    // The generated adjustment is already confirmed (variance -2 → OUT line) — reachable via the SAME
+    // stock-adjustments service, proving physical-counts and stock-adjustments share one DocumentService.
+    expect(result.adjustment?.status).toBe("confirmed");
+
+    const balance = await app.fetch(new Request("http://local/inventory/balance?itemId=item-pc&warehouseId=WH-MAIN", { headers: ADMIN }));
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(48); // 50 - 2 variance
+  });
+});
+
 /**
  * Regression test for the SQLite concurrency bug: `createBackend` used to open
  * one `better-sqlite3` connection PER store (~35 of them) against the SAME
@@ -894,5 +1005,44 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
       new Request("http://local/inventory/balance?itemId=item-1&warehouseId=WH-MAIN", { headers: ADMIN }),
     );
     expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(1000 - N * 5);
+  });
+
+  it("confirms a stock adjustment against a real file-backed DB with no SQLITE_BUSY — proves the inventory-ops document store shares the ONE connection", async () => {
+    // Regression coverage specifically for packages/persistence/src/inventory-ops-store.ts:
+    // createSqliteInventoryOpsStore used to always open its OWN `new Database(path)`
+    // regardless of what was passed — a SECOND writer connection onto the same
+    // on-disk file createBackend already holds open (the exact shape this describe
+    // block's header docs). It now goes through `openSqliteConnection`, so
+    // create-backend.ts passing it the shared `sqlite` connection reuses it instead.
+    const app = await newFileBackedBackend();
+    expect(
+      (await post(app, "/items", { id: "item-adj-file", code: "ITEM-ADJ-FILE", nameAr: "منتج تسوية", type: "stock", baseUnitCode: "PCS", costingMethod: "WAC" }, ADMIN)).status,
+    ).toBe(201);
+
+    const draft = await post(
+      app,
+      "/inventory/stock-adjustments/draft",
+      {
+        id: "sa-file-1",
+        date: "2026-08-22",
+        lines: [{ itemId: "item-adj-file", warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "100", unitCost: "10" }],
+      },
+      ADMIN,
+    );
+    expect(draft.status).toBe(201);
+
+    const confirm = await post(app, "/inventory/stock-adjustments/sa-file-1/confirm", {}, ADMIN);
+    expect(confirm.status).toBe(200);
+    const confirmed = (await confirm.json()) as { document: { status: string } };
+    expect(confirmed.document.status).toBe("confirmed");
+
+    // The GL entry id == the adjustment's own doc id (createInventoryGlPostingHook's trick).
+    const entry = await app.fetch(new Request("http://local/gl/journal-entries/sa-file-1", { headers: ADMIN }));
+    expect(entry.status).toBe(200);
+
+    const balance = await app.fetch(
+      new Request("http://local/inventory/balance?itemId=item-adj-file&warehouseId=WH-MAIN", { headers: ADMIN }),
+    );
+    expect(Number(((await balance.json()) as { onHand: string }).onHand)).toBe(100);
   });
 });

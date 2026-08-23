@@ -1,17 +1,12 @@
-import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useState } from "react";
+import { DocumentList, StatusPill, Chip, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
-import type { ExchangeRate } from "@mezan/domain";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 
 const STATUS_LABEL: Record<ExchangeRateStatusDTO, string> = { pending: "بانتظار الاعتماد", approved: "معتمد", locked: "مقفل" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
 
 const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
-
-function toDTO(r: ExchangeRate): ExchangeRateDTO {
-  return { id: r.id, currency: r.currency, rate: r.rate, effectiveDate: r.effectiveDate, rateType: r.rateType, source: r.source, status: r.status };
-}
 
 /**
  * أسعار الصرف — Exchange Rates (docs/catalog/04). Master data feeding FX
@@ -19,29 +14,43 @@ function toDTO(r: ExchangeRate): ExchangeRateDTO {
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
 export function ExchangeRatesScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
-  const [rates, setRates] = useState<ExchangeRateDTO[]>(() => store.listExchangeRates().map(toDTO));
+  const query = useExchangeRates();
+  const createExchangeRate = useCreateExchangeRate();
+  const approveExchangeRate = useApproveExchangeRate();
+  const rates = query.data ?? [];
   const [statusFilter, setStatusFilter] = useState<ExchangeRateStatusDTO | "all">("all");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+  const [error, setError] = useState<string | null>(null);
 
   const filtered = statusFilter === "all" ? rates : rates.filter((r) => r.status === statusFilter);
 
-  function refresh() {
-    setRates(store.listExchangeRates().map(toDTO));
+  async function approve(id: string) {
+    try {
+      await approveExchangeRate.mutateAsync(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر اعتماد سعر الصرف.");
+    }
   }
 
-  function approve(id: string) {
-    store.approveExchangeRate(id);
-    refresh();
-  }
-
-  function submitAdd() {
+  async function submitAdd() {
     if (draft.rate.trim() === "") return;
-    store.addExchangeRate({ id: `r-${Date.now()}`, currency: draft.currency, rate: draft.rate, effectiveDate: draft.effectiveDate, rateType: "standard", source: "manual", status: "pending" });
-    setAdding(false);
-    setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
-    refresh();
+    setError(null);
+    try {
+      await createExchangeRate.mutateAsync({
+        id: crypto.randomUUID(),
+        currency: draft.currency,
+        rate: draft.rate,
+        effectiveDate: draft.effectiveDate,
+        rateType: "standard",
+        source: "manual",
+        status: "pending",
+      });
+      setAdding(false);
+      setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذّر إضافة سعر الصرف.");
+    }
   }
 
   const columns: DocumentListColumn<ExchangeRateDTO>[] = [
@@ -53,6 +62,17 @@ export function ExchangeRatesScreen() {
     { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>اعتماد</Button></div> : null) },
   ];
 
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أسعار الصرف.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="mb-[18px] flex flex-wrap items-end justify-between gap-[18px]">
@@ -63,6 +83,8 @@ export function ExchangeRatesScreen() {
         </div>
         <Button variant="primary" onClick={() => setAdding((v) => !v)}>إضافة سعر صرف</Button>
       </div>
+
+      {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 
       {adding ? (
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">

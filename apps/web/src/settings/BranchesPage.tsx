@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
-import { DocumentList, DocumentDetail, StatusPill, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import { createBranch, InvalidBranchError, type Branch } from "@mezan/domain";
-import { sampleBranches, sampleWarehouses, branchName } from "./sample-data";
+import { DocumentList, DocumentDetail, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import type { BranchDTO } from "@mezan/contracts";
+import { useBranches, useCreateBranch, useWarehouses } from "../data/hooks";
+import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
 
 /**
@@ -12,8 +13,6 @@ import { TextField, ToggleField, SectionCard } from "./form-controls";
  * intentionally out of Phase-0 scope and render as a single stub per tab.
  */
 
-let nextId = sampleBranches.length + 1;
-
 function StubTab({ label }: { label: string }) {
   return (
     <div className="flex flex-col items-center justify-center gap-[8px] rounded-lg border border-dashed border-border p-[36px] text-center">
@@ -23,8 +22,9 @@ function StubTab({ label }: { label: string }) {
   );
 }
 
-function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }) {
-  const warehouseCount = sampleWarehouses.filter((w) => w.branchId === branch.id).length;
+function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => void }) {
+  const warehousesQuery = useWarehouses();
+  const warehouseCount = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id).length;
   const treasuryAccounts = [
     { code: "CASH-001", label: "صندوق نقدي", type: "نقدي", balance: "٠٫٠٠" },
     { code: "CASH-002", label: `صندوق نقدي ${branch.name}`, type: "نقدي", balance: "٣٣٨٫٠٠" },
@@ -101,7 +101,9 @@ function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }
 }
 
 export function BranchesPage() {
-  const [branches, setBranches] = useState<Branch[]>(sampleBranches);
+  const query = useBranches();
+  const createBranchMutation = useCreateBranch();
+  const branches = query.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -116,7 +118,7 @@ export function BranchesPage() {
     return branches.filter((b) => b.name.includes(q) || b.code.toLowerCase().includes(q.toLowerCase()));
   }, [branches, search]);
 
-  const columns: DocumentListColumn<Branch>[] = [
+  const columns: DocumentListColumn<BranchDTO>[] = [
     { key: "name", header: "اسم الفرع", render: (b) => <span className="font-semibold text-ink">{b.name}</span> },
     { key: "code", header: "رمز الفرع", render: (b) => <span className="mz-num">{b.code}</span> },
     { key: "parent", header: "الفرع الرئيسي", render: (b) => (b.isMain ? "—" : branchName(b.parentBranchId ?? "", branches)) },
@@ -128,11 +130,11 @@ export function BranchesPage() {
     },
   ];
 
-  function submitNewBranch() {
+  async function submitNewBranch() {
     setError(null);
     try {
-      const branch = createBranch({
-        id: `b${nextId++}`,
+      await createBranchMutation.mutateAsync({
+        id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
         phone: form.phone || null,
@@ -140,12 +142,22 @@ export function BranchesPage() {
         address: form.address || null,
         isMain: form.isMain,
       });
-      setBranches((prev) => [...prev, branch]);
       setPanelOpen(false);
       setForm({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
     } catch (err) {
-      setError(err instanceof InvalidBranchError ? err.message : "تعذر إنشاء الفرع");
+      setError(err instanceof Error ? err.message : "تعذر إنشاء الفرع");
     }
+  }
+
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفروع.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
   }
 
   if (selected) {
@@ -154,7 +166,7 @@ export function BranchesPage() {
 
   return (
     <>
-      <DocumentList<Branch>
+      <DocumentList<BranchDTO>
         eyebrow="Settings · Branches"
         title="الفروع"
         description="إدارة فروع المنشأة — لكل فرع مخزونه وحساباته الخزينة وموظفوه الخاصون"

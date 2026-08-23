@@ -16,6 +16,18 @@ import {
   createLandedCostDocumentType,
   LandedCostService,
   installmentPlanDocumentType,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
+  createInventoryOpsStockHook,
+  createInventoryGlPostingHook,
+  PhysicalCountService,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  computeInvoiceTotals,
+  purchaseInvoiceTotal,
+  Money,
+  type AdjustmentReason,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -63,8 +75,9 @@ import {
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
+  createSqliteInventoryOpsStore,
 } from "@mezan/persistence";
-import { EtaService, Money } from "@mezan/domain";
+import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -125,6 +138,20 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
   inputTaxPayableId: "1400",
   inventoryAccountId: "1200",
 };
+
+/**
+ * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
+ * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
+ * stock funded by owner's capital — mirroring
+ * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
+ * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
+ * move quantity/value through the stock ledger only: no dedicated inventory
+ * shrinkage/write-off leaf exists yet in the standard COA template
+ * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ */
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
+  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+}
 
 /**
  * The GL accounts التكاليف الإضافية posts against — the freight/customs
@@ -244,14 +271,26 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  // --- phase4/inventory-ops — Stock Adjustments, Stock Transfers, Physical
+  // Counts document layer (docs/catalog/03), on the SAME shared connection
+  // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
+  // its own — see packages/persistence/src/sqlite-connection.ts). ---
+  const inventoryOps = createSqliteInventoryOpsStore(sqlite);
+
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
+    // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
+    // posts only when BOTH are present) — today that's just stock-adjustments'
+    // INITIAL_STOCK reason (createInventoryOpsStockHook below); every other stock
+    // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
+    // through a separate path and never passes `command.gl`, so this is additive.
+    gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
 
@@ -281,6 +320,74 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
     workflow: noWorkflow,
   });
+
+  // --- phase4/inventory-ops — Stock Adjustments/Transfers reuse the SAME
+  // stock-ledger engine's stock hook (postAdjustment/postTransfer post GL
+  // themselves when a mapping is given — see document-hooks.ts); Physical
+  // Count is a bespoke service that drives the SAME adjustments DocumentService
+  // (create draft → confirm) to post its reconciling adjustment. ---
+  const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
+  const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
+    repo: inventoryOps.stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    stock: inventoryOpsStockHook,
+  });
+  const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
+    repo: inventoryOps.stockTransfers,
+    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    stock: inventoryOpsStockHook,
+  });
+  const physicalCounts = new PhysicalCountService({
+    repo: inventoryOps.physicalCounts,
+    stockLedger: stockService,
+    adjustments: stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+  });
+
+  /**
+   * مطابقة الأرصدة — Balance Reconciliation's sub-ledger side (docs/catalog/04):
+   * the SAME AR/AP/inventory control accounts the purchase/sales-return/landed-
+   * cost postings above already use (1105 trade receivables, 2100 trade
+   * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed
+   * independently of the GL (never read the ledger itself, or a mismatch could
+   * never surface) — AR from live sales invoices' outstanding balance (the
+   * SAME grandTotal-minus-amountPaid math credit-control exposure uses),
+   * inventory from the stock-ledger's own WAC snapshots. Purchase invoices
+   * don't track payments yet (purchasing/purchase-invoice.ts), so every
+   * confirmed invoice's full total is outstanding AP — matching
+   * reports/aging-suppliers.ts's own documented assumption.
+   */
+  async function resolveReconciliationControls() {
+    const [invoices, purchInvoices, snapshots] = await Promise.all([
+      salesInvoices.list(),
+      purchaseInvoices.list(),
+      stockLedger.snapshots.list(),
+    ]);
+
+    let arScaled = 0n;
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+      arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
+    }
+
+    let apScaled = 0n;
+    for (const inv of purchInvoices) {
+      if (inv.status !== "confirmed") continue;
+      apScaled += purchaseInvoiceTotal(inv).scaled;
+    }
+
+    let inventoryScaled = 0n;
+    for (const snap of snapshots) {
+      inventoryScaled += snap.totalValue.scaled;
+    }
+
+    return [
+      { key: "inventory", label: "تقييم المخزون مقابل دفتر الأستاذ", controlAccountId: "1200", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(inventoryScaled) },
+      { key: "ar", label: "ذمم العملاء مقابل دفتر الأستاذ", controlAccountId: "1105", naturalBalance: "debit" as const, subLedgerBalance: Money.fromScaled(arScaled) },
+      { key: "ap", label: "ذمم الموردين مقابل دفتر الأستاذ", controlAccountId: "2100", naturalBalance: "credit" as const, subLedgerBalance: Money.fromScaled(apScaled) },
+    ];
+  }
 
   const seedStores: SeedStores = {
     accounts,
@@ -404,6 +511,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       lossAccountId: "5900",
     },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
+    // --- phase4/inventory-ops ---
+    stockAdjustments: { service: stockAdjustments },
+    stockTransfers: { service: stockTransfers },
+    physicalCounts: { service: physicalCounts },
     // --- phase11/crm-projects-assets-field ---
     crm: {
       leads,
@@ -528,6 +640,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     salesReturnStore,
     purchaseReturnStore,
     landedCostStore,
+    inventoryOps,
     followUps,
   ];
 

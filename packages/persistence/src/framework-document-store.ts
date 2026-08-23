@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import type { DocumentListFilter, DocumentRepository, DocumentStatus, FrameworkDocument } from "@mezan/domain";
+import { withSqliteTransaction } from "./sqlite-connection.js";
 
 /**
  * Generic SQLite-backed {@link DocumentRepository} for a document-framework
@@ -160,20 +161,17 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
   }
 
   /**
-   * Manual BEGIN/COMMIT/ROLLBACK. better-sqlite3 is fully synchronous, so the
-   * awaited writes inside `fn` execute synchronously before COMMIT runs (same
-   * reasoning as SqliteUnitOfWork / SqliteStockLedgerStore).
+   * `withSqliteTransaction` — matches every other store in this package
+   * (document-store.ts, sqlite-connection.ts's own doc comment): safe both for
+   * re-entrancy (a nested call on the SAME shared connection, e.g. this
+   * document's own confirm() driving the stock-ledger engine's GL posting,
+   * becomes a SAVEPOINT instead of a second top-level BEGIN — which SQLite
+   * rejects with "cannot start a transaction within a transaction") and for
+   * concurrent outermost calls on a connection several stores now share
+   * (create-backend.ts's ONE connection).
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    this.sqlite.exec("BEGIN");
-    try {
-      const result = await fn();
-      this.sqlite.exec("COMMIT");
-      return result;
-    } catch (err) {
-      this.sqlite.exec("ROLLBACK");
-      throw err;
-    }
+    return withSqliteTransaction(this.sqlite, fn);
   }
 }
 

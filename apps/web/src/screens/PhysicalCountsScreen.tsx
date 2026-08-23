@@ -1,51 +1,70 @@
 import { useMemo, useState } from "react";
 import { DocumentList, DocumentDetail, StatusPill, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import { varianceOf, type PhysicalCount, type PhysicalCountStatus } from "@mezan/domain";
-import { useInventoryOpsStore } from "../store/useInventoryOpsStore";
-import { sharedInventoryOpsStore } from "../store/shared-inventory-ops-store";
-import { demoWarehouses } from "../sample-data";
-import { demoItems } from "../items-sample-data";
+import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
+import {
+  useCompletePhysicalCount,
+  useGenerateAdjustmentFromCount,
+  useItems,
+  usePhysicalCounts,
+  useRecordPhysicalCountEntries,
+  useStartPhysicalCount,
+  useStockBalance,
+  useWarehouses,
+} from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/catalog/03: start → record counts →
- * complete → generate the reconciling stock adjustment. Seeded empty (see
- * inventory-ops-sample-data.ts) so the list opens on the catalog's real empty
- * state; starting a new count is fully interactive against the seeded
- * stock-balance data.
+ * complete → generate the reconciling stock adjustment, on the real
+ * `/inventory/physical-counts` API (packages/api/src/stock-documents-routes.ts).
  */
 
-const STATUS_LABEL: Record<PhysicalCountStatus, string> = {
+const STATUS_LABEL: Record<PhysicalCountStatusDTO, string> = {
   IN_PROGRESS: "قيد التنفيذ",
   COMPLETED: "مكتمل",
   ADJUSTMENT_GENERATED: "تم إنشاء التسوية",
   CANCELLED: "ملغي",
 };
-const STATUS_TONE: Record<PhysicalCountStatus, PillTone> = {
+const STATUS_TONE: Record<PhysicalCountStatusDTO, PillTone> = {
   IN_PROGRESS: "warning",
   COMPLETED: "info",
   ADJUSTMENT_GENERATED: "success",
   CANCELLED: "neutral",
 };
 
-function warehouseLabel(id: string): string {
-  return demoWarehouses.find((w) => w.id === id)?.name ?? id;
-}
-function itemLabel(id: string): string {
-  const item = demoItems.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
+/**
+ * Signed variance for one line: counted − system, formatted to the SAME 6dp
+ * exact-decimal-string convention every Qty crosses the wire as (display
+ * only — the real variance the generated adjustment posts is computed
+ * server-side, from the domain's own `Qty` subtraction).
+ */
+function varianceOf(l: { systemQty: string; countedQty: string | null }): string | null {
+  if (l.countedQty === null) return null;
+  const diff = Number(l.countedQty) - Number(l.systemQty);
+  return diff.toFixed(6);
 }
 
 export function PhysicalCountsScreen() {
-  const store = useInventoryOpsStore(sharedInventoryOpsStore);
+  const query = usePhysicalCounts();
+  const warehousesQuery = useWarehouses();
+  const itemsQuery = useItems();
+  const counts = query.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  function warehouseLabel(id: string): string {
+    return warehouses.find((w) => w.id === id)?.name ?? id;
+  }
+  function itemLabel(id: string): string {
+    const item = items.find((i) => i.id === id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  }
 
   const [mode, setMode] = useState<"list" | "new" | "count" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [activeCountId, setActiveCountId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
-
-  const counts = store.physicalCounts;
 
   const stats = useMemo(() => {
     const c = { all: counts.length, IN_PROGRESS: 0, COMPLETED: 0, ADJUSTMENT_GENERATED: 0, CANCELLED: 0 };
@@ -66,7 +85,7 @@ export function PhysicalCountsScreen() {
   const selected = selectedId ? counts.find((c) => c.id === selectedId) ?? null : null;
   const active = activeCountId ? counts.find((c) => c.id === activeCountId) ?? null : null;
 
-  const columns: DocumentListColumn<PhysicalCount>[] = [
+  const columns: DocumentListColumn<PhysicalCountDTO>[] = [
     { key: "countNo", header: "الجرد", sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },
     { key: "warehouse", header: "المستودع", render: (c) => <span className="text-ink">{warehouseLabel(c.warehouseId)}</span> },
     { key: "date", header: "التاريخ", render: (c) => <span className="mz-num text-ink-muted">{c.date}</span> },
@@ -82,7 +101,8 @@ export function PhysicalCountsScreen() {
   if (mode === "new") {
     return (
       <NewCountView
-        store={store}
+        warehouses={warehouses}
+        warehouseLabel={warehouseLabel}
         onStarted={(id) => {
           setActiveCountId(id);
           setMode("count");
@@ -95,8 +115,9 @@ export function PhysicalCountsScreen() {
   if (mode === "count" && active) {
     return (
       <CountEntryView
-        store={store}
         count={active}
+        itemLabel={itemLabel}
+        warehouseLabel={warehouseLabel}
         onDone={() => {
           setActiveCountId(null);
           setMode("list");
@@ -106,12 +127,34 @@ export function PhysicalCountsScreen() {
   }
 
   if (mode === "detail" && selected) {
-    return <CountDetailView store={store} count={selected} onBack={() => setMode("list")} onResume={() => { setActiveCountId(selected.id); setMode("count"); }} />;
+    return (
+      <CountDetailView
+        count={selected}
+        itemLabel={itemLabel}
+        warehouseLabel={warehouseLabel}
+        onBack={() => setMode("list")}
+        onResume={() => {
+          setActiveCountId(selected.id);
+          setMode("count");
+        }}
+      />
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل قوائم الجرد.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
   }
 
   return (
     <div className="w-full">
-      <DocumentList<PhysicalCount>
+      <DocumentList<PhysicalCountDTO>
         eyebrow="Inventory · Physical Counts"
         title="الجرد الفعلي"
         description="قيد التنفيذ ← مكتمل ← تم إنشاء التسوية — جلسة جرد تُطابق المخزون الفعلي مع النظام"
@@ -134,7 +177,7 @@ export function PhysicalCountsScreen() {
           { key: "CANCELLED", label: "ملغي", count: stats.CANCELLED },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم الجرد..."
@@ -160,34 +203,38 @@ export function PhysicalCountsScreen() {
 /* -------------------------------------------------------------------- */
 
 function NewCountView({
-  store,
+  warehouses,
+  warehouseLabel,
   onStarted,
   onCancel,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
+  warehouses: ReturnType<typeof useWarehouses>["data"];
+  warehouseLabel: (id: string) => string;
   onStarted: (id: string) => void;
   onCancel: () => void;
 }) {
-  const [warehouseId, setWarehouseId] = useState(demoWarehouses[0]?.id ?? "");
+  const startCount = useStartPhysicalCount();
+  const warehouseList = warehouses ?? [];
+  const [warehouseId, setWarehouseId] = useState(warehouseList[0]?.id ?? "");
   const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
-  const warehouseOptions = useMemo(() => demoWarehouses.map((w) => ({ value: w.id, label: w.name })), []);
-  const itemIds = useMemo(
-    () => store.stockBalance.filter((r) => !r.onHand.isZero()).map((r) => r.itemId),
-    [store.stockBalance],
-  );
+  const balanceQuery = useStockBalance({ warehouseId: warehouseId || undefined });
+  const balance = balanceQuery.data ?? [];
+
+  const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
+  const itemIds = useMemo(() => balance.filter((r) => Number(r.onHand) !== 0).map((r) => r.itemId), [balance]);
 
   async function handleStart() {
     if (warehouseId === "" || itemIds.length === 0) return;
-    setBusy(true);
     setError(null);
-    const result = await store.startCount({ warehouseId, date, memo: memo.trim() || undefined, itemIds });
-    setBusy(false);
-    if (result.ok && result.value) onStarted(result.value.id);
-    else setError(result.error ?? "تعذر بدء الجرد.");
+    try {
+      const count = await startCount.mutateAsync({ id: crypto.randomUUID(), warehouseId, date, memo: memo.trim() || undefined, itemIds });
+      onStarted(count.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر بدء الجرد.");
+    }
   }
 
   return (
@@ -200,7 +247,7 @@ function NewCountView({
         <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
         <TextField label="التاريخ *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
         <TextField label="ملاحظات" value={memo} onChange={setMemo} placeholder="ملاحظات الجرد..." />
-        <p className="text-[11.5px] text-ink-faint">سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية ({itemIds.length} صنف).</p>
+        <p className="text-[11.5px] text-ink-faint">سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية ({itemIds.length} صنف) — {warehouseLabel(warehouseId)}.</p>
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {error}
@@ -208,7 +255,7 @@ function NewCountView({
         ) : null}
         <div className="flex items-center justify-end gap-[9px]">
           <Button onClick={onCancel}>إلغاء</Button>
-          <Button variant="primary" disabled={busy || itemIds.length === 0} onClick={handleStart}>
+          <Button variant="primary" disabled={startCount.isPending || itemIds.length === 0} onClick={handleStart}>
             إضافة
           </Button>
         </div>
@@ -222,39 +269,39 @@ function NewCountView({
 /* -------------------------------------------------------------------- */
 
 function CountEntryView({
-  store,
   count,
+  itemLabel,
+  warehouseLabel,
   onDone,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
-  count: PhysicalCount;
+  count: PhysicalCountDTO;
+  itemLabel: (id: string) => string;
+  warehouseLabel: (id: string) => string;
   onDone: () => void;
 }) {
+  const recordEntries = useRecordPhysicalCountEntries();
+  const completeCount = useCompletePhysicalCount();
   const [counted, setCounted] = useState<Record<string, number>>(() =>
-    Object.fromEntries(count.lines.map((l) => [l.itemId, l.countedQty ? Number(l.countedQty.toString()) : Number(l.systemQty.toString())])),
+    Object.fromEntries(count.lines.map((l) => [l.itemId, l.countedQty !== null ? Number(l.countedQty) : Number(l.systemQty)])),
   );
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const allCounted = count.lines.every((l) => counted[l.itemId] !== undefined && counted[l.itemId] !== null);
   const isInProgress = count.status === "IN_PROGRESS";
+  const busy = recordEntries.isPending || completeCount.isPending;
 
   async function handleComplete() {
-    setBusy(true);
     setError(null);
-    const record = await store.recordCounts(
-      count.id,
-      count.lines.map((l) => ({ itemId: l.itemId, countedQty: counted[l.itemId] ?? Number(l.systemQty.toString()) })),
-    );
-    if (!record.ok) {
-      setBusy(false);
-      setError(record.error ?? "تعذر حفظ الكميات المعدودة.");
-      return;
+    try {
+      await recordEntries.mutateAsync({
+        id: count.id,
+        body: { entries: count.lines.map((l) => ({ itemId: l.itemId, countedQty: String(counted[l.itemId] ?? Number(l.systemQty)) })) },
+      });
+      await completeCount.mutateAsync(count.id);
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر حفظ الكميات المعدودة.");
     }
-    const completed = await store.completeCount(count.id);
-    setBusy(false);
-    if (completed.ok) onDone();
-    else setError(completed.error ?? "تعذر إنهاء الجرد.");
   }
 
   return (
@@ -293,12 +340,12 @@ function CountEntryView({
             </thead>
             <tbody>
               {count.lines.map((l) => {
-                const value = counted[l.itemId] ?? Number(l.systemQty.toString());
-                const diff = value - Number(l.systemQty.toString());
+                const value = counted[l.itemId] ?? Number(l.systemQty);
+                const diff = value - Number(l.systemQty);
                 return (
                   <tr key={l.itemId} className="border-b border-border last:border-b-0">
                     <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
-                    <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty.toString()}</td>
+                    <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty}</td>
                     <td className="px-[15px] py-[8px] text-end">
                       <input
                         type="number"
@@ -329,25 +376,28 @@ function CountEntryView({
 /* -------------------------------------------------------------------- */
 
 function CountDetailView({
-  store,
   count,
+  itemLabel,
+  warehouseLabel,
   onBack,
   onResume,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
-  count: PhysicalCount;
+  count: PhysicalCountDTO;
+  itemLabel: (id: string) => string;
+  warehouseLabel: (id: string) => string;
   onBack: () => void;
   onResume: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
+  const generateAdjustment = useGenerateAdjustmentFromCount();
   const [error, setError] = useState<string | null>(null);
 
   async function handleGenerate() {
-    setBusy(true);
     setError(null);
-    const result = await store.generateAdjustmentFromCount(count.id);
-    setBusy(false);
-    if (!result.ok) setError(result.error ?? "تعذر توليد التسوية.");
+    try {
+      await generateAdjustment.mutateAsync({ id: count.id, body: { adjustmentId: crypto.randomUUID() } });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر توليد التسوية.");
+    }
   }
 
   return (
@@ -361,7 +411,7 @@ function CountDetailView({
             <Button onClick={onBack}>رجوع</Button>
             {count.status === "IN_PROGRESS" ? <Button variant="primary" onClick={onResume}>متابعة الجرد</Button> : null}
             {count.status === "COMPLETED" ? (
-              <Button variant="primary" disabled={busy} onClick={handleGenerate}>
+              <Button variant="primary" disabled={generateAdjustment.isPending} onClick={handleGenerate}>
                 توليد تسوية
               </Button>
             ) : null}
@@ -400,10 +450,10 @@ function CountDetailView({
                         return (
                           <tr key={l.itemId} className="border-b border-border last:border-b-0">
                             <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
-                            <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty.toString()}</td>
-                            <td className="px-[15px] py-[11px] text-end mz-num">{l.countedQty ? l.countedQty.toString() : "—"}</td>
+                            <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{l.systemQty}</td>
+                            <td className="px-[15px] py-[11px] text-end mz-num">{l.countedQty ?? "—"}</td>
                             <td className="px-[15px] py-[11px] text-end mz-num font-semibold">
-                              {variance ? (variance.isNegative() ? variance.toString() : `+${variance.toString()}`) : "—"}
+                              {variance !== null ? (Number(variance) < 0 ? variance : `+${variance}`) : "—"}
                             </td>
                           </tr>
                         );

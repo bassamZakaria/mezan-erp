@@ -28,6 +28,11 @@ import {
   type AdjustmentReason,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
+  EventBus,
+  NotificationRulesEngine,
+  type DocumentEventPublisher,
+  type DocumentEventType,
+  type EventCode,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -85,6 +90,8 @@ import {
   createSqliteLeaveRequestRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
+  createSqliteNotificationRuleStore,
+  createSqliteNotificationStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -182,6 +189,46 @@ const LANDED_COST_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   accruedLandedCostPayableId: "2100",
 };
+
+/**
+ * Bridges the document framework's generic `DocumentEventPublisher` port
+ * (`DOCUMENT_CONFIRMED`/`DOCUMENT_CANCELLED`/…, keyed by `docType` — see
+ * `packages/domain/src/documents/hooks.ts`, "decoupled from the notification
+ * catalog" by design) onto a real catalog `EventCode` published on the ONE
+ * shared `EventBus` the notification-rules engine subscribes to. This is the
+ * translation step docs/plan.md §5.6 anticipates but does not itself provide.
+ *
+ * `enrich` lets a document type attach extra template fields (this repo only
+ * has one so far: sales invoices' customerName/amount) beyond the generic
+ * `documentNumber` every bridged document gets for free.
+ */
+function createDocumentEventBridge(
+  eventBus: EventBus,
+  mapping: Partial<Record<string, Partial<Record<DocumentEventType, EventCode>>>>,
+  enrich?: (docId: string) => Promise<Record<string, unknown>>,
+): DocumentEventPublisher {
+  return {
+    publish(event) {
+      const code = mapping[event.docType]?.[event.type];
+      if (!code) return;
+      const basePayload: Record<string, unknown> = { documentNumber: event.docNo ?? event.docId };
+      if (!enrich) {
+        eventBus.publish(code, basePayload, event.occurredAt);
+        return;
+      }
+      // DocumentEventPublisher.publish is synchronous; the notification
+      // engine's own dispatch is independently async, so a fire-and-forget
+      // enrichment lookup here just widens the payload before that dispatch
+      // runs — a failed lookup logs and drops the event rather than ever
+      // throwing back into the document's own confirm/cancel transaction.
+      void enrich(event.docId)
+        .then((extra) => eventBus.publish(code, { ...basePayload, ...extra }, event.occurredAt))
+        .catch((error: unknown) => {
+          console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
+        });
+    },
+  };
+}
 
 export interface BackendHandle {
   readonly app: App;
@@ -312,6 +359,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrHolidays = createSqliteHolidayRepository(sqlite);
   const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
 
+  // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
+  // whole backend; the engine subscribes to every event and (per rule) writes
+  // real, persisted in-app notifications. Document-confirm flows publish onto
+  // it via `createDocumentEventBridge` below (see that function's docstring
+  // for why a translation step is needed at all). ---
+  const notificationRules = createSqliteNotificationRuleStore(sqlite);
+  const notifications = createSqliteNotificationStore(sqlite);
+  const eventBus = new EventBus({
+    onError: (error, event) => {
+      console.error(`[notifications] a subscriber failed handling "${event.code}"`, error);
+    },
+  });
+  const notificationEngine = new NotificationRulesEngine({
+    rules: notificationRules,
+    notifications,
+    users: uow.users,
+    roles: uow.roles,
+    generateId: () => randomUUID(),
+  });
+  eventBus.subscribeAll((event) => {
+    void notificationEngine.handle(event).catch((error: unknown) => {
+      console.error(`[notifications] engine failed handling "${event.code}"`, error);
+    });
+  });
+
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
@@ -329,12 +401,37 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
 
+  // Returns' notification events carry only `documentNumber` (the generic
+  // framework doesn't expose a uniform customer/amount field across every
+  // document flavour) — a rule can still target them, its template just
+  // won't have `{{customerName}}`/`{{amount}}` to substitute.
+  const returnsEventBridge = createDocumentEventBridge(eventBus, {
+    SALES_RETURN: { DOCUMENT_CONFIRMED: "SALES_RETURN_CONFIRMED" },
+    PURCHASE_RETURN: { DOCUMENT_CONFIRMED: "PURCHASE_RETURN_CONFIRMED", DOCUMENT_CANCELLED: "PURCHASE_RETURN_VOIDED" },
+  });
+
+  // Sales invoices are the one document type the catalog's own email-template
+  // preview names explicitly ("تم إنشاء الفاتورة INV-000123 بقيمة 1,150.00 ج.م
+  // للعميل" — docs/catalog/09 §البريد الإلكتروني), so this bridge enriches the
+  // generic documentNumber with the two other named template fields.
+  const salesInvoiceEventBridge = createDocumentEventBridge(
+    eventBus,
+    { SALES_INVOICE: { DOCUMENT_CONFIRMED: "SALES_INVOICE_CONFIRMED", DOCUMENT_CANCELLED: "SALES_INVOICE_VOIDED" } },
+    async (docId) => {
+      const invoice = await salesInvoices.findById(docId);
+      if (!invoice) return {};
+      const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+      return { customerName: invoice.customerNameAr, amount: totals.grandTotal.toString() };
+    },
+  );
+
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
+    events: returnsEventBridge,
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
@@ -342,6 +439,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
+    events: returnsEventBridge,
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
@@ -516,6 +614,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
+      events: salesInvoiceEventBridge,
     },
     cheques: {
       cheques,
@@ -648,6 +747,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       ledger,
       accounts,
     },
+    notificationRuleRepo: notificationRules,
+    notificationRepo: notifications,
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -718,6 +819,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     hrContracts,
     hrHolidays,
     hrLeaveRequests,
+    notificationRules,
+    notifications,
   ];
 
   return {

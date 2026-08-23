@@ -77,6 +77,11 @@ export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
 export { Topbar, type TopbarProps } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
+export {
+  NotificationsPanel,
+  type NotificationsPanelProps,
+  type NotificationPanelItem,
+} from "./shell/NotificationsPanel";
 export { BrandMark } from "./shell/BrandMark";
 export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem } from "./shell/types";
 

@@ -105,6 +105,10 @@ import type {
   MatchSummaryDTO,
   MaterialFormulaDTO,
   MoveOpportunityStageDTO,
+  NotificationDTO,
+  NotificationRuleDTO,
+  CreateNotificationRuleDTO,
+  UpdateNotificationRuleDTO,
   OpenInvoiceDTO,
   OpenVanTripDTO,
   OpportunityDTO,
@@ -3820,5 +3824,112 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل لوحة الموارد البشرية.");
       return res.json<HrDashboardSummaryDTO>();
     },
+  });
+}
+
+export function useCreateNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, CreateNotificationRuleDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/notification-rules", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useUpdateNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, { id: string; body: UpdateNotificationRuleDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/notification-rules/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useSetNotificationRuleActive() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationRuleDTO, ApiError, { id: string; active: boolean }>({
+    mutationFn: async ({ id, active }) => {
+      const res = await request(`/notification-rules/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث حالة القاعدة."));
+      return res.json<NotificationRuleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+export function useDeleteNotificationRule() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/notification-rules/${id}`, { method: "DELETE" });
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر حذف القاعدة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
+  });
+}
+
+/** The current user's own notifications (top-bar bell panel) — real data off `/notifications`. */
+export function useNotifications(status?: "unread" | "read"): UseQueryResult<NotificationDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<NotificationDTO[], ApiError>({
+    queryKey: ["notifications", status ?? "all"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const qs = status ? `?status=${status}&limit=50` : "?limit=50";
+      const res = await request(`/notifications${qs}`);
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل الإشعارات."));
+      return res.json<NotificationDTO[]>();
+    },
+  });
+}
+
+export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<number, ApiError>({
+    queryKey: ["notifications", "unread-count"],
+    enabled: session !== null,
+    refetchInterval: 30_000,
+    queryFn: async () => {
+      const res = await request("/notifications/unread-count");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل عدد الإشعارات."));
+      const body = await res.json<{ count: number }>();
+      return body.count;
+    },
+  });
+}
+
+export function useMarkNotificationRead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<NotificationDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/notifications/${id}/read`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث الإشعار."));
+      return res.json<NotificationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
+  });
+}
+
+export function useMarkAllNotificationsRead() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/notifications/read-all", { method: "POST" });
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر تحديد الكل كمقروء."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
 }

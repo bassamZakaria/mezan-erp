@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "../primitives/atoms";
 import type { ThemePreference } from "../hooks/useTheme";
@@ -11,6 +12,10 @@ export interface TopbarProps {
   theme: ThemePreference;
   onToggleTheme: () => void;
   notificationCount?: number;
+  /** Toggles the caller-supplied `notificationsPanel` open — omit both to keep the bell inert. */
+  onToggleNotifications?: () => void;
+  /** Rendered anchored under the bell when the caller has it open — see `NotificationsPanel`. */
+  notificationsPanel?: ReactNode;
   user: ShellUser;
   className?: string;
 }
@@ -24,6 +29,8 @@ export function Topbar({
   theme,
   onToggleTheme,
   notificationCount = 0,
+  onToggleNotifications,
+  notificationsPanel,
   user,
   className,
 }: TopbarProps) {
@@ -90,15 +97,21 @@ export function Topbar({
         )}
       </IconButton>
 
-      <IconButton aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}>
-        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
-          <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-          <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
-        </svg>
-        {notificationCount > 0 ? (
-          <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
-        ) : null}
-      </IconButton>
+      <div className="relative">
+        <IconButton
+          aria-label={notificationCount > 0 ? `الإشعارات (${notificationCount})` : "الإشعارات"}
+          onClick={onToggleNotifications}
+        >
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
+            <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+            <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
+          </svg>
+          {notificationCount > 0 ? (
+            <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
+          ) : null}
+        </IconButton>
+        {notificationsPanel}
+      </div>
 
       <button type="button" className="flex items-center gap-[9px] rounded-pill border border-border bg-surface py-[5px] pe-[12px] ps-[6px] transition-colors hover:border-border-strong">
         <span className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-brand to-brand-strong font-display text-[11px] font-bold text-brand-ink">

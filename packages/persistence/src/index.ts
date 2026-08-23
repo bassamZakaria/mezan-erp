@@ -207,3 +207,13 @@ export {
   createSqliteProductTemplateStore,
   type SqliteProductTemplateStoreHandle,
 } from "./product-template-store.js";
+
+// --- w8/notifications — قواعد الإشعارات rules engine ---
+export {
+  createSqliteNotificationRuleStore,
+  type SqliteNotificationRuleStoreHandle,
+} from "./notification-rule-store.js";
+export {
+  createSqliteNotificationStore,
+  type SqliteNotificationStoreHandle,
+} from "./notification-store.js";

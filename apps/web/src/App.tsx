@@ -82,17 +82,12 @@ import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { NavigationProvider } from "./navigation";
-import {
-  demoBranches,
-  demoEmployees,
-  demoEntitlements,
-  demoWarehouses,
-  navGroups,
-  topNavItem,
-} from "./sample-data";
+import { navGroups, topNavItem } from "./navigation/registry";
+import { createEntitlements, type Entitlements } from "@mezan/domain";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser } from "@mezan/ui";
 import {
+  useBranches,
   useCreateRole,
   useCreateUser,
   useDeleteRole,
@@ -101,10 +96,57 @@ import {
   useUpdateRole,
   useUpdateUser,
   useUsers,
+  useWarehouses,
 } from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
+
+/**
+ * The role editor needs an `Entitlements` object to know which permission
+ * modules are licensed (`licensedModules`/`licensedPermissions`). There is no
+ * `/entitlements` endpoint yet, and `SessionDTO` carries none either — the
+ * backend's own `defaultEntitlementsResolver` (packages/api/src/app.ts) is a
+ * server-internal default with no override in packages/backend, so this
+ * mirrors that exact value (same plan, same active modules) rather than
+ * inventing a separate one: it's what the server will actually accept when a
+ * role is saved. Replace this with a real fetched value once a tenant
+ * entitlements source exists.
+ */
+const CURRENT_ENTITLEMENTS: Entitlements = createEntitlements({
+  plan: "ENTERPRISE",
+  activeModules: [
+    "sales",
+    "purchases",
+    "inventory",
+    "accounting",
+    "treasury",
+    "installments",
+    "financial_papers",
+    "crm",
+    "pos",
+    "hr",
+    "manufacturing",
+    "assets",
+    "notifications",
+    "loyalty",
+    "field",
+    "projects",
+  ],
+  features: {},
+  seats: 10,
+  expiresAt: null,
+});
+
+/**
+ * The user form's "الموظف المرتبط" picker needs an employees master list, but
+ * there is no employees/HR endpoint anywhere in `@mezan/api` — `employeeId`
+ * is stored as a free-form string reference (see `users-routes.ts`,
+ * `field-sales-routes.ts`) with no backing repository to list from. An empty
+ * list is the honest state until an employees API exists, rather than
+ * fabricating names.
+ */
+const NO_EMPLOYEES: { id: string; name: string; position: string }[] = [];
 
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
@@ -223,8 +265,12 @@ export function App() {
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
+  const branchesQuery = useBranches();
+  const warehousesQuery = useWarehouses();
   const roles = rolesQuery.data ?? [];
   const users = usersQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const setUserStatus = useSetUserStatus();
@@ -232,8 +278,8 @@ export function App() {
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
 
-  const allBranchIds = demoBranches.map((b) => b.id);
-  const allWarehouseIds = demoWarehouses.map((w) => w.id);
+  const allBranchIds = branches.map((b) => b.id);
+  const allWarehouseIds = warehouses.map((w) => w.id);
 
   const usersByRoleId = useMemo(() => {
     const map = new Map<string, number>();
@@ -360,6 +406,13 @@ export function App() {
     role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
     initials: initialsFor(session.fullName),
   };
+  const scopeLabel =
+    session.branchScope === "*"
+      ? "كل الفروع"
+      : branches
+          .filter((b) => (session.branchScope as string[]).includes(b.id))
+          .map((b) => b.name)
+          .join("، ") || undefined;
 
   return (
     <AppShell
@@ -369,7 +422,7 @@ export function App() {
       user={shellUser}
       commandItems={commandItems}
       tenantName={session.tenantName}
-      scopeLabel="الفرع الرئيسي"
+      scopeLabel={scopeLabel}
       onLogout={handleLogout}
     >
       <NavigationProvider navigate={(key) => setActiveScreen(key as ScreenKey)}>
@@ -380,9 +433,9 @@ export function App() {
         <UsersPage
           users={users}
           roles={roles}
-          branches={demoBranches}
-          warehouses={demoWarehouses}
-          employees={demoEmployees}
+          branches={branches}
+          warehouses={warehouses}
+          employees={NO_EMPLOYEES}
           onSave={handleSaveUser}
           onToggleStatus={handleToggleUserStatus}
         />
@@ -407,7 +460,7 @@ export function App() {
       {activeScreen === "role-editor" ? (
         <RoleEditorPage
           role={editingRole}
-          entitlements={demoEntitlements}
+          entitlements={CURRENT_ENTITLEMENTS}
           onSave={handleSaveRole}
           onCancel={() => setActiveScreen("roles")}
         />

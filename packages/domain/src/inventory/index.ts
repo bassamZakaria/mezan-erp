@@ -47,6 +47,19 @@ export {
   SameWarehouseTransferError,
 } from "./errors.js";
 
+export {
+  foldPostedAdjustments,
+  foldPostedTransfers,
+  filterPostedAdjustments,
+  filterPostedTransfers,
+  type PostedAdjustmentLine,
+  type PostedAdjustment,
+  type PostedTransferLine,
+  type PostedTransfer,
+  type PostedAdjustmentFilter,
+  type PostedTransferFilter,
+} from "./posted-stock-documents.js";
+
 export type {
   StockLedgerRepository,
   CostLayerRepository,

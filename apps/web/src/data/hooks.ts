@@ -29,6 +29,7 @@ import type {
   CreateAssetCategoryDTO,
   CreateAssetDTO,
   CreateBomDTO,
+  CreateBranchDTO,
   CreateChequeDTO,
   CreateConfigInstanceDTO,
   CreateCostCenterDTO,
@@ -60,6 +61,7 @@ import type {
   CreateTreasuryAccountDTO,
   CreateUserDTO,
   CreateVoucherDTO,
+  CreateWarehouseDTO,
   CreateWorkOrderDTO,
   CustomerDTO,
   DashboardSummaryDTO,
@@ -114,9 +116,11 @@ import type {
   StatementLineDTO,
   SupplierDTO,
   TaxRateDTO,
+  TenantSettingsDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
+  UpdateBranchDTO,
   UpdateCostCenterDTO,
   UpdateCustomerDTO,
   UpdateItemDTO,
@@ -124,8 +128,10 @@ import type {
   UpdateRoleDTO,
   UpdateSupplierDTO,
   UpdateTaxRateDTO,
+  UpdateTenantSettingsDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
+  UpdateWarehouseDTO,
   UpsertConfigurableProductDTO,
   UserDTO,
   VanTripDTO,
@@ -778,7 +784,7 @@ export function useDeleteRole() {
   });
 }
 
-/** الفروع (docs/catalog/09) — read-only list, used by the branch typeahead on real-data forms. */
+/** الفروع (docs/catalog/09) — list + create/edit, backing settings' البروع page and the branch typeahead on real-data forms. */
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
@@ -789,6 +795,59 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفروع.");
       return res.json<BranchDTO[]>();
     },
+  });
+}
+
+export function useCreateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, CreateBranchDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/branches", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
+  });
+}
+
+export function useUpdateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, { id: string; body: UpdateBranchDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/branches/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
+  });
+}
+
+/** الإعدادات — عام (docs/catalog/09 §"الإعدادات — عام"): a single tenant config bag. */
+export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsDTO, ApiError>({
+    queryKey: ["settings"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات.");
+      return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export function useUpdateSettings() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TenantSettingsDTO, ApiError, UpdateTenantSettingsDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/settings", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الإعدادات."));
+      return res.json<TenantSettingsDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
   });
 }
 
@@ -1048,7 +1107,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   });
 }
 
-/** المستودعات (docs/catalog/09) — read-only here; a picker dependency for other real-data screens (e.g. sales invoices). */
+/** المستودعات (docs/catalog/09) — list + create/edit, backing settings' المستودعات page and a picker dependency for other real-data screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
@@ -1059,6 +1118,32 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستودعات.");
       return res.json<WarehouseDTO[]>();
     },
+  });
+}
+
+export function useCreateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, CreateWarehouseDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/warehouses", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
+  });
+}
+
+export function useUpdateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, { id: string; body: UpdateWarehouseDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
   });
 }
 

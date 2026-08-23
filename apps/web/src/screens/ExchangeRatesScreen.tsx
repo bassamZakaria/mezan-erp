@@ -1,17 +1,12 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
-import type { ExchangeRate } from "@mezan/domain";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/accounting-hooks";
 
 const STATUS_LABEL: Record<ExchangeRateStatusDTO, string> = { pending: "بانتظار الاعتماد", approved: "معتمد", locked: "مقفل" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
 
 const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
-
-function toDTO(r: ExchangeRate): ExchangeRateDTO {
-  return { id: r.id, currency: r.currency, rate: r.rate, effectiveDate: r.effectiveDate, rateType: r.rateType, source: r.source, status: r.status };
-}
 
 /**
  * أسعار الصرف — Exchange Rates (docs/catalog/04). Master data feeding FX
@@ -19,29 +14,50 @@ function toDTO(r: ExchangeRate): ExchangeRateDTO {
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
 export function ExchangeRatesScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
-  const [rates, setRates] = useState<ExchangeRateDTO[]>(() => store.listExchangeRates().map(toDTO));
+  const query = useExchangeRates();
+  const rates = query.data ?? [];
   const [statusFilter, setStatusFilter] = useState<ExchangeRateStatusDTO | "all">("all");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+  const [error, setError] = useState<string | null>(null);
+  const [approvingId, setApprovingId] = useState<string | null>(null);
+
+  const createRate = useCreateExchangeRate();
+  const approveRate = useApproveExchangeRate();
 
   const filtered = statusFilter === "all" ? rates : rates.filter((r) => r.status === statusFilter);
 
-  function refresh() {
-    setRates(store.listExchangeRates().map(toDTO));
+  async function approve(id: string) {
+    if (approvingId) return;
+    setApprovingId(id);
+    setError(null);
+    try {
+      await approveRate.mutateAsync(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setApprovingId(null);
+    }
   }
 
-  function approve(id: string) {
-    store.approveExchangeRate(id);
-    refresh();
-  }
-
-  function submitAdd() {
+  async function submitAdd() {
     if (draft.rate.trim() === "") return;
-    store.addExchangeRate({ id: `r-${Date.now()}`, currency: draft.currency, rate: draft.rate, effectiveDate: draft.effectiveDate, rateType: "standard", source: "manual", status: "pending" });
-    setAdding(false);
-    setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
-    refresh();
+    setError(null);
+    try {
+      await createRate.mutateAsync({
+        id: crypto.randomUUID(),
+        currency: draft.currency,
+        rate: draft.rate,
+        effectiveDate: draft.effectiveDate,
+        rateType: "standard",
+        source: "manual",
+        status: "pending",
+      });
+      setAdding(false);
+      setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   const columns: DocumentListColumn<ExchangeRateDTO>[] = [
@@ -50,7 +66,18 @@ export function ExchangeRatesScreen() {
     { key: "date", header: "تاريخ السريان", render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
     { key: "source", header: "المصدر", render: (r) => <span className="text-ink-muted">{r.source === "manual" ? "يدوي" : "تلقائي"}</span> },
     { key: "status", header: "الحالة", render: (r) => <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} /> },
-    { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>اعتماد</Button></div> : null) },
+    {
+      key: "actions",
+      header: "",
+      render: (r) =>
+        r.status === "pending" ? (
+          <div className="flex justify-end">
+            <Button size="sm" disabled={approvingId === r.id} onClick={() => approve(r.id)}>
+              اعتماد
+            </Button>
+          </div>
+        ) : null,
+    },
   ];
 
   return (
@@ -63,6 +90,8 @@ export function ExchangeRatesScreen() {
         </div>
         <Button variant="primary" onClick={() => setAdding((v) => !v)}>إضافة سعر صرف</Button>
       </div>
+
+      {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 
       {adding ? (
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">
@@ -78,7 +107,7 @@ export function ExchangeRatesScreen() {
             <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">تاريخ السريان
               <input type="date" aria-label="تاريخ السريان" value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
             </label>
-            <Button variant="primary" onClick={submitAdd}>حفظ</Button>
+            <Button variant="primary" disabled={createRate.isPending} onClick={submitAdd}>حفظ</Button>
             <Button onClick={() => setAdding(false)}>إلغاء</Button>
           </div>
         </div>
@@ -100,7 +129,11 @@ export function ExchangeRatesScreen() {
         page={1}
         pageCount={1}
         pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> سعر صرف</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أسعار صرف</div>}
+        emptyState={
+          <div className="p-8 text-center text-sm text-ink-muted">
+            {query.isLoading ? "جارِ التحميل…" : query.isError ? (query.error?.message ?? "تعذّر تحميل أسعار الصرف.") : "لا توجد أسعار صرف"}
+          </div>
+        }
       />
     </div>
   );

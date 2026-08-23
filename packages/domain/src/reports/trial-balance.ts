@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Account, AccountType } from "../accounts/account.js";
 import type { JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
+import { isLedgerEffective } from "./gl-shared.js";
 import type { ReportDefinition } from "./types.js";
 
 /**
@@ -49,6 +50,7 @@ const trialBalanceParamsSchema = z.object({
 function computeAccountBalances(journalEntries: readonly JournalEntry[], asOfDate: string): Map<string, Money> {
   const balances = new Map<string, Money>();
   for (const entry of journalEntries) {
+    if (!isLedgerEffective(entry)) continue;
     if (entry.date > asOfDate) continue;
     for (const line of entry.lines) {
       const net = line.debit.add(line.credit.negate());

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn } from "@mezan/ui";
-import type { ReconciliationReportDTO, ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
+import { useReconciliationReport } from "../data/accounting-hooks";
 
 function fmt(value: string): string {
   return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -10,29 +10,13 @@ function fmt(value: string): string {
 /**
  * مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04). Cross-checks each
  * sub-ledger balance against its GL control account and flags journal lines
- * posted directly to a control account (القيود غير المرتبطة). Runs the REAL
- * `computeBalanceReconciliation` / `findUnlinkedControlLines` domain functions.
+ * posted directly to a control account (القيود غير المرتبطة). Backed by
+ * `GET /reconciliation`.
  */
 export function ReconciliationScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
   const [tab, setTab] = useState<"summary" | "unlinked">("summary");
-  const [report, setReport] = useState<ReconciliationReportDTO | null>(null);
-  const [nonce, setNonce] = useState(0);
-
-  useEffect(() => {
-    let live = true;
-    store.reconciliation().then((r) => {
-      if (!live) return;
-      setReport({
-        rows: r.rows.map((row) => ({ key: row.key, label: row.label, controlAccountId: row.controlAccountId, subLedgerBalance: row.subLedgerBalance.toString(), glBalance: row.glBalance.toString(), difference: row.difference.toString(), matched: row.matched })),
-        allMatched: r.allMatched,
-        unlinked: r.unlinked.map((u) => ({ entryId: u.entryId, entryNo: u.entryNo, date: u.date, accountId: u.accountId, memo: u.memo, debit: u.debit.toString(), credit: u.credit.toString() })),
-      });
-    });
-    return () => {
-      live = false;
-    };
-  }, [store, nonce]);
+  const query = useReconciliationReport();
+  const report = query.data ?? null;
 
   const summaryColumns: DocumentListColumn<ReconciliationRowDTO>[] = [
     { key: "label", header: "المطابقة", render: (r) => <span className="font-semibold text-ink">{r.label}</span> },
@@ -59,8 +43,14 @@ export function ReconciliationScreen() {
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">مطابقة الأرصدة</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">مطابقة أرصدة دفاتر المساعدة مع حسابات المراقبة في دفتر الأستاذ، ورصد البنود غير المرتبطة</p>
         </div>
-        <Button onClick={() => setNonce((n) => n + 1)}>تحديث</Button>
+        <Button onClick={() => query.refetch()}>تحديث</Button>
       </div>
+
+      {query.isError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {query.error?.message ?? "تعذّر تحميل تقرير المطابقة."}
+        </div>
+      ) : null}
 
       {report ? (
         <div className={`mb-[16px] rounded-md border px-[12px] py-[10px] text-[12.5px] ${report.allMatched ? "border-success bg-success-soft text-success-ink" : "border-warning bg-warning-soft text-warning-ink"}`}>
@@ -83,12 +73,12 @@ export function ReconciliationScreen() {
           page={1}
           pageCount={1}
           pageSummary={<>عرض <span className="mz-num">{report?.rows.length ?? 0}</span> مطابقة</>}
-          emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد حسابات مراقبة</div>}
+          emptyState={<div className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? "جارِ التحميل…" : "لا توجد حسابات مراقبة"}</div>}
         />
       ) : (
         <>
           {report && report.unlinked.length === 0 ? (
-            <Card className="p-8 text-center text-sm text-ink-muted">جميع بنود حسابات المراقبة مخصصة بشكل صحيح</Card>
+            <Card className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? "جارِ التحميل…" : "جميع بنود حسابات المراقبة مخصصة بشكل صحيح"}</Card>
           ) : (
             <DocumentList<UnlinkedEntryLineDTO>
               eyebrow="Accounting · Reconciliation"

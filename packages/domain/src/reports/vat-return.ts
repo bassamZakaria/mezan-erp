@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type GlReportContext, isPosted, moneyToNumber } from "./gl-shared.js";
+import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
 
@@ -119,7 +119,7 @@ export function createVatReturnReport(
       const inputBuckets = new Map<number, Bucket>();
 
       for (const entry of ctx.journalEntries) {
-        if (!isPosted(entry)) continue;
+        if (!isLedgerEffective(entry)) continue;
         if (entry.date < params.periodFrom || entry.date > params.periodTo) continue;
 
         const outVat = lineNet(entry, ctx.outputVatAccountId);

@@ -27,9 +27,10 @@ import {
   type VoucherPaymentMethod,
   type VoucherType,
 } from "@mezan/domain";
-import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
+import type { AccountDTO, BranchDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useBranches,
   useConfirmVoucher,
   useCreateAllocation,
   useCreateVoucher,
@@ -44,7 +45,6 @@ import {
   type VoucherDetailDTO,
   type VoucherRowDTO,
 } from "../data/hooks";
-import { sampleBranches } from "../settings/sample-data";
 import { SelectField, TextField } from "../settings/form-controls";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
@@ -141,6 +141,7 @@ export function TreasuryVouchersScreen() {
   const suppliersQuery = useSuppliers();
   const treasuryQuery = useTreasuryAccounts();
   const accountsQuery = useAccounts();
+  const branchesQuery = useBranches();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -153,6 +154,7 @@ export function TreasuryVouchersScreen() {
   const suppliers = suppliersQuery.data ?? [];
   const treasuryAccounts = treasuryQuery.data ?? [];
   const accounts = accountsQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
 
   const partyName = useMemo(() => {
     const map = new Map<string, string>();
@@ -267,6 +269,7 @@ export function TreasuryVouchersScreen() {
         suppliers={suppliers}
         treasuryAccounts={treasuryAccounts}
         accounts={accounts}
+        branches={branches}
         onDone={() => setMode("list")}
       />
     );
@@ -621,12 +624,14 @@ function CreateVoucherView({
   suppliers,
   treasuryAccounts,
   accounts,
+  branches,
   onDone,
 }: {
   customers: CustomerDTO[];
   suppliers: SupplierDTO[];
   treasuryAccounts: TreasuryAccountDTO[];
   accounts: AccountDTO[];
+  branches: BranchDTO[];
   onDone: () => void;
 }) {
   const createVoucher = useCreateVoucher();
@@ -681,7 +686,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: sampleBranches[0]?.id ?? "MAIN",
+      branchId: branches[0]?.id ?? "MAIN",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

@@ -100,6 +100,7 @@ import { createFxRevaluationRoutes, type FxRevaluationRoutesDeps } from "./fx-re
 import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./reconciliation-routes.js";
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
+import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
@@ -284,6 +285,8 @@ export interface CreateAppOptions {
   readonly fxRevaluation?: FxRevaluationRoutesDeps;
   /** Mounts `/reconciliation` (docs/catalog/04 "مطابقة الأرصدة") when present. */
   readonly reconciliation?: ReconciliationRoutesDeps;
+  /** Mounts `/financial-reports` (the 7 statements over the live posted ledger) when present. */
+  readonly financialReports?: FinancialReportsRoutesDeps;
   /** Mounts `/eta` (docs/catalog/04 "الفاتورة الإلكترونية") when present. */
   readonly eta?: EtaRoutesDeps;
   /**
@@ -775,6 +778,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.reports) {
     app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
+  }
+  if (options.financialReports) {
+    app.route("/financial-reports", createFinancialReportsRoutes(options.financialReports, options.resolveAuthContext));
   }
   if (options.stockAdjustments) {
     app.route(

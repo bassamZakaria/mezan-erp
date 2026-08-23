@@ -76,7 +76,7 @@ export function createIncomeStatementReport(
       const rows: IncomeStatementRow[] = [];
       for (const account of ctx.accounts) {
         if (account.isHeader) continue;
-        const section = classifyAccount(account);
+        const section = classifyAccount(account, ctx.cashAccountIds);
         if (section !== "revenue" && section !== "expense") continue;
         const net = moneyToNumber(balances.get(account.id) ?? Money.zero());
         if (net === 0) continue;

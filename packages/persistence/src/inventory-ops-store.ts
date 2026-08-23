@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   Money,
   Qty,
@@ -10,6 +9,7 @@ import {
 } from "@mezan/domain";
 import { createSqliteFrameworkDocumentStore } from "./framework-document-store.js";
 import { createSqlitePhysicalCountStore, type SqlitePhysicalCountStoreHandle } from "./physical-count-store.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 
 /**
  * phase4/inventory-ops persistence composition root: one SQLite connection
@@ -83,10 +83,15 @@ export interface SqliteInventoryOpsStoreHandle {
   close(): void;
 }
 
-/** Open a SQLite-backed inventory-ops store. ":memory:" for tests, a path for real. */
-export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventoryOpsStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+/**
+ * Open a SQLite-backed inventory-ops store. ":memory:" for tests, a path for
+ * real storage, or an already-open connection to share one writer with the
+ * other stores (see `openSqliteConnection` — `createBackend` depends on this).
+ */
+export function createSqliteInventoryOpsStore(
+  path: SqliteConnectionInput = ":memory:",
+): SqliteInventoryOpsStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
 
   const stockAdjustments = createSqliteFrameworkDocumentStore<StockAdjustmentDocLine>(sqlite, {
     tableName: "stock_adjustment_document",
@@ -108,6 +113,8 @@ export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventor
     stockAdjustments,
     stockTransfers,
     physicalCounts,
-    close: () => sqlite.close(),
+    close: () => {
+      if (owned) sqlite.close();
+    },
   };
 }

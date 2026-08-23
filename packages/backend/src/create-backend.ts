@@ -2,6 +2,15 @@ import { randomUUID } from "node:crypto";
 import { createApp, type App } from "@mezan/api";
 import {
   StockLedgerService,
+  PhysicalCountService,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
+  createInventoryOpsStockHook,
+  createInventoryGlPostingHook,
+  type AdjustmentReason,
+  type AdjustmentGlAccounts,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   createTreasuryLedgerReader,
@@ -32,6 +41,7 @@ import {
   createSqliteTreasuryAccountRepository,
   createSqliteFiscalPeriodRepository,
   createSqliteLedgerStore,
+  createSqliteInventoryOpsStore,
   createSqliteStockLedgerStore,
   createSqliteSalesInvoiceStore,
   createSqlitePriceListStore,
@@ -68,12 +78,29 @@ import { EtaService, Money } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
+import { seedDemoTenant } from "./demo-seed.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
  * docs/catalog/04's standard COA (packages/domain/src/accounts/coa-template.ts):
  * inventory (1200), trade payables (2100), input VAT (1400), freight (5200).
  */
+/**
+ * Counterpart accounts for stock adjustments. Every reason but the opening
+ * balance is a loss/shortage against 5900; an opening balance is owner capital,
+ * not an expense.
+ */
+const INVENTORY_ADJUSTMENT_GL_ACCOUNTS: Partial<Record<AdjustmentReason, AdjustmentGlAccounts>> = {
+  INITIAL_STOCK: { inventoryAccountId: "1200", counterpartAccountId: "3100" },
+  PHYSICAL_COUNT: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  DAMAGE: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  THEFT: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  EXPIRY: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  SHORTAGE: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  SUPPLIER_RETURN: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  OTHER: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+};
+
 const PURCHASE_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   payableAccountId: "2100",
@@ -148,6 +175,13 @@ export interface CreateBackendOptions {
    * (web dev/e2e) that is freshly seeded on every start. Defaults to `:memory:`.
    */
   readonly dbPath?: string;
+  /**
+   * Seeds the demo tenant profile (`demo-seed.ts`) on top of the empty-tenant
+   * bootstrap. FOR TESTS AND LOCAL DEVELOPMENT ONLY — apps/server passes it
+   * only on `MEZAN_SEED_DEMO=1`, and apps/desktop never passes it, so a real
+   * install never receives invented data.
+   */
+  readonly seedDemoData?: boolean;
 }
 
 /**
@@ -204,6 +238,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesInvoices = createSqliteSalesInvoiceStore(sqlite);
   const purchaseInvoices = createSqlitePurchaseInvoiceStore(sqlite);
   const stockLedger = createSqliteStockLedgerStore(sqlite);
+  const inventoryOps = createSqliteInventoryOpsStore(sqlite);
   const installmentPlans = createStandaloneSqliteInstallmentPlanStore(sqlite);
 
   // --- sweep/real-data-screens — the purchase chain's order/receipt stores and the
@@ -244,16 +279,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
+    gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
+
+  const inventoryOpsStockHook = createInventoryOpsStockHook(
+    stockService,
+    (reason) => INVENTORY_ADJUSTMENT_GL_ACCOUNTS[reason] ?? null,
+  );
+  const stockAdjustmentDocuments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
+    repo: inventoryOps.stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    stock: inventoryOpsStockHook,
+    auditModule: "inventory",
+  });
+  const stockTransferDocuments = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
+    repo: inventoryOps.stockTransfers,
+    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    stock: inventoryOpsStockHook,
+    auditModule: "inventory",
+  });
+  const physicalCounts = new PhysicalCountService({
+    repo: inventoryOps.physicalCounts,
+    stockLedger: stockService,
+    adjustments: stockAdjustmentDocuments,
+    numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+  });
 
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
@@ -344,6 +403,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     fiscalPeriodRepo: fiscalPeriods,
     hasher,
     inventory: { service: stockService },
+    stockAdjustments: { service: stockAdjustmentDocuments },
+    stockTransfers: { service: stockTransferDocuments },
+    physicalCounts: { service: physicalCounts },
     gl: {
       ledger,
       accounts,
@@ -457,6 +519,31 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     purchaseReturns: { service: purchaseReturns },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
+    reconciliation: {
+      ledger,
+      // Inventory is the only sub-ledger with a real running balance today.
+      // Treasury/AR/AP rollups do not exist yet (docs/coverage-audit.md §5), and
+      // a control row computed from a source that isn't a true sub-ledger would
+      // report a reconciled state it cannot actually vouch for.
+      resolveControls: async () => {
+        const { totalValue } = await stockService.getValuation();
+        return [
+          {
+            key: "inventory",
+            label: "المخزون",
+            controlAccountId: "1200",
+            naturalBalance: "debit" as const,
+            subLedgerBalance: totalValue,
+          },
+        ];
+      },
+    },
+    financialReports: {
+      ledger,
+      accounts,
+      vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
+      cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
+    },
     reports: {
       salesInvoices,
       purchaseInvoices,
@@ -530,6 +617,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     landedCostStore,
     followUps,
   ];
+
+  if (options.seedDemoData) {
+    await seedDemoTenant(app);
+  }
 
   return {
     app,

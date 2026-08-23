@@ -1,18 +1,20 @@
 import { useMemo, useState } from "react";
-import { DocumentList, DocumentDetail, StatusPill, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import { createBranch, InvalidBranchError, type Branch } from "@mezan/domain";
-import { sampleBranches, sampleWarehouses, branchName } from "./sample-data";
+import { DocumentList, DocumentDetail, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import type { BranchDTO, WarehouseDTO } from "@mezan/contracts";
+import { useBranches, useCreateBranch, useWarehouses } from "../data/hooks";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
 
 /**
  * الفروع (Branches) — docs/catalog/09 §"إدارة الفروع" list +
- * §"صفحة الفرع — MAIN (Branch detail / Branch 360)" detail. The Overview tab
- * renders the real info strip + KPI/treasury shape the catalog captured; the
- * remaining Branch-360 tabs (Inventory/Employees/Assets/Activity) are
- * intentionally out of Phase-0 scope and render as a single stub per tab.
+ * §"صفحة الفرع — MAIN (Branch detail / Branch 360)" detail, on the real
+ * `/branches` API. The Overview tab shows the branch's real warehouses (from
+ * `/warehouses`); the remaining Branch-360 tabs (Inventory/Employees/Assets/
+ * Activity) have no backing endpoint yet and render as honest stubs.
  */
 
-let nextId = sampleBranches.length + 1;
+function branchName(branchId: string, branches: BranchDTO[]): string {
+  return branches.find((b) => b.id === branchId)?.name ?? branchId;
+}
 
 function StubTab({ label }: { label: string }) {
   return (
@@ -23,13 +25,7 @@ function StubTab({ label }: { label: string }) {
   );
 }
 
-function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }) {
-  const warehouseCount = sampleWarehouses.filter((w) => w.branchId === branch.id).length;
-  const treasuryAccounts = [
-    { code: "CASH-001", label: "صندوق نقدي", type: "نقدي", balance: "٠٫٠٠" },
-    { code: "CASH-002", label: `صندوق نقدي ${branch.name}`, type: "نقدي", balance: "٣٣٨٫٠٠" },
-  ];
-
+function BranchDetail({ branch, warehouses, onBack }: { branch: BranchDTO; warehouses: WarehouseDTO[]; onBack: () => void }) {
   return (
     <DocumentDetail
       title={`${branch.name} · ${branch.code}`}
@@ -42,7 +38,7 @@ function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }
         { label: "الهاتف", value: branch.phone ?? "لا توجد" },
         { label: "البريد الإلكتروني", value: branch.email ?? "لا توجد" },
         { label: "العنوان", value: branch.address ?? "لا توجد" },
-        { label: "المستودعات", value: <span className="mz-num">{warehouseCount}</span> },
+        { label: "المستودعات", value: <span className="mz-num">{warehouses.length}</span> },
         { label: "الحالة", value: branch.active ? "نشط" : "غير نشط", valueTone: branch.active ? "success" : "default" },
       ]}
       tabs={[
@@ -51,43 +47,37 @@ function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }
           label: "نظرة عامة",
           content: (
             <div className="flex flex-col gap-[16px]">
-              <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-                {[
-                  { label: "إيرادات الشهر", value: "٠٫٠٠" },
-                  { label: "مصروفات الشهر", value: "٠٫٠٠" },
-                  { label: "صافي الربح", value: "٠٫٠٠" },
-                  { label: "قيمة المخزون", value: "٠٫٠٠" },
-                ].map((kpi) => (
-                  <div key={kpi.label} className="rounded-lg border border-border bg-surface p-[14px_16px]">
-                    <div className="text-[11px] font-semibold text-ink-muted">{kpi.label}</div>
-                    <div className="mt-[6px] font-display text-[19px] font-bold text-ink">{kpi.value}</div>
-                  </div>
-                ))}
-              </div>
-              <SectionCard title="حسابات الخزينة">
-                <div className="col-span-full overflow-x-auto">
-                  <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
-                    <thead>
-                      <tr className="border-b border-border text-ink-muted">
-                        <th className="p-[8px] text-start font-semibold">الحساب</th>
-                        <th className="p-[8px] text-start font-semibold">الكود</th>
-                        <th className="p-[8px] text-start font-semibold">النوع</th>
-                        <th className="p-[8px] text-end font-semibold">الرصيد</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {treasuryAccounts.map((acc) => (
-                        <tr key={acc.code} className="border-b border-border last:border-b-0">
-                          <td className="p-[8px] text-ink">{acc.label}</td>
-                          <td className="mz-num p-[8px] text-ink-muted">{acc.code}</td>
-                          <td className="p-[8px] text-ink-muted">{acc.type}</td>
-                          <td className="mz-num p-[8px] text-end text-ink">{acc.balance}</td>
+              <SectionCard title="المستودعات">
+                {warehouses.length === 0 ? (
+                  <p className="col-span-full text-[12.5px] text-ink-muted">لا توجد مستودعات مرتبطة بهذا الفرع بعد.</p>
+                ) : (
+                  <div className="col-span-full overflow-x-auto">
+                    <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
+                      <thead>
+                        <tr className="border-b border-border text-ink-muted">
+                          <th className="p-[8px] text-start font-semibold">المستودع</th>
+                          <th className="p-[8px] text-start font-semibold">الكود</th>
+                          <th className="p-[8px] text-end font-semibold">الحالة</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {warehouses.map((w) => (
+                          <tr key={w.id} className="border-b border-border last:border-b-0">
+                            <td className="p-[8px] text-ink">{w.name}</td>
+                            <td className="mz-num p-[8px] text-ink-muted">{w.code}</td>
+                            <td className="p-[8px] text-end">
+                              <StatusPill label={w.active ? "نشط" : "غير نشط"} tone={(w.active ? "success" : "neutral") as PillTone} />
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </SectionCard>
+              <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
+                ستُعرض مؤشرات أداء الفرع (الإيرادات، المصروفات، قيمة المخزون) وحسابات الخزينة هنا فور ربط التقارير المالية والخزينة بالفرع.
+              </div>
             </div>
           ),
         },
@@ -100,13 +90,20 @@ function BranchDetail({ branch, onBack }: { branch: Branch; onBack: () => void }
   );
 }
 
+const BLANK_FORM = { code: "", name: "", phone: "", email: "", address: "", isMain: false };
+
 export function BranchesPage() {
-  const [branches, setBranches] = useState<Branch[]>(sampleBranches);
+  const query = useBranches();
+  const warehousesQuery = useWarehouses();
+  const createBranch = useCreateBranch();
+  const branches = query.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
+  const [form, setForm] = useState(BLANK_FORM);
 
   const selected = branches.find((b) => b.id === selectedId) ?? null;
 
@@ -116,7 +113,7 @@ export function BranchesPage() {
     return branches.filter((b) => b.name.includes(q) || b.code.toLowerCase().includes(q.toLowerCase()));
   }, [branches, search]);
 
-  const columns: DocumentListColumn<Branch>[] = [
+  const columns: DocumentListColumn<BranchDTO>[] = [
     { key: "name", header: "اسم الفرع", render: (b) => <span className="font-semibold text-ink">{b.name}</span> },
     { key: "code", header: "رمز الفرع", render: (b) => <span className="mz-num">{b.code}</span> },
     { key: "parent", header: "الفرع الرئيسي", render: (b) => (b.isMain ? "—" : branchName(b.parentBranchId ?? "", branches)) },
@@ -128,11 +125,15 @@ export function BranchesPage() {
     },
   ];
 
-  function submitNewBranch() {
+  async function submitNewBranch() {
     setError(null);
+    if (form.name.trim() === "" || form.code.trim() === "") {
+      setError("اسم الفرع ورمزه مطلوبان");
+      return;
+    }
     try {
-      const branch = createBranch({
-        id: `b${nextId++}`,
+      await createBranch.mutateAsync({
+        id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
         phone: form.phone || null,
@@ -140,21 +141,34 @@ export function BranchesPage() {
         address: form.address || null,
         isMain: form.isMain,
       });
-      setBranches((prev) => [...prev, branch]);
       setPanelOpen(false);
-      setForm({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
+      setForm(BLANK_FORM);
     } catch (err) {
-      setError(err instanceof InvalidBranchError ? err.message : "تعذر إنشاء الفرع");
+      setError(err instanceof Error ? err.message : "تعذر إنشاء الفرع");
     }
   }
 
   if (selected) {
-    return <BranchDetail branch={selected} onBack={() => setSelectedId(null)} />;
+    return (
+      <BranchDetail
+        branch={selected}
+        warehouses={warehouses.filter((w) => w.branchId === selected.id)}
+        onBack={() => setSelectedId(null)}
+      />
+    );
   }
 
   return (
     <>
-      <DocumentList<Branch>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفروع.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<BranchDTO>
         eyebrow="Settings · Branches"
         title="الفروع"
         description="إدارة فروع المنشأة — لكل فرع مخزونه وحساباته الخزينة وموظفوه الخاصون"
@@ -196,7 +210,7 @@ export function BranchesPage() {
           <ToggleField label="فرع رئيسي" checked={form.isMain} onChange={(v) => setForm((f) => ({ ...f, isMain: v }))} />
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
-            <Button variant="primary" onClick={submitNewBranch}>
+            <Button variant="primary" onClick={() => void submitNewBranch()}>
               حفظ الفرع
             </Button>
           </div>

@@ -9,7 +9,7 @@ export {
 export { computeLeaveDays } from "./compute-days.js";
 
 export type { LeaveGateConfigResolver, SubmitLeaveRequestCommand, SubmitLeaveRequestDeps } from "./submit-leave-request.js";
-export { submitLeaveRequest } from "./submit-leave-request.js";
+export { submitLeaveRequest, DEFAULT_LEAVE_GATE_ROLE, defaultLeaveGateConfigResolver } from "./submit-leave-request.js";
 
 export type { DecideLeaveRequestCommand, DecideLeaveRequestDeps } from "./decide-leave-request.js";
 export { decideLeaveRequest } from "./decide-leave-request.js";

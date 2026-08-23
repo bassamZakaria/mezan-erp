@@ -117,6 +117,12 @@ import {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+import { createHrEmployeeRefRoutes } from "./hr-employee-ref-routes.js";
+import { createHrAttendanceRoutes, type HrAttendanceRoutesDeps } from "./hr-attendance-routes.js";
+import { createHrLeavePoliciesRoutes, type HrLeavePoliciesRoutesDeps } from "./hr-leave-policies-routes.js";
+import { createHrLeaveRequestsRoutes, type HrLeaveRequestsRoutesDeps } from "./hr-leave-requests-routes.js";
+import { createHrLeaveAccrualRoutes, type HrLeaveAccrualRoutesDeps } from "./hr-leave-accrual-routes.js";
+import type { EmployeeDirectory } from "@mezan/domain";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -351,6 +357,19 @@ export interface CreateAppOptions {
    */
   readonly fixedAssets?: FixedAssetsRoutesDeps;
   /**
+   * Mounts the hr/time-leave slice (docs/catalog/06 "الحضور والانصراف" /
+   * "طلبات الإجازات" / "سياسات الإجازات" / "استحقاقات الإجازات") when
+   * present: `hrEmployeeRef` alone mounts the read-only employee-picker
+   * source at `/hr/employees-ref`; each of the other three mounts its own
+   * routes independently at `/hr/attendance`, `/hr/leave-policies`,
+   * `/hr/leave-requests`, `/hr/leave-accrual`.
+   */
+  readonly hrEmployeeRef?: EmployeeDirectory;
+  readonly hrAttendance?: HrAttendanceRoutesDeps;
+  readonly hrLeavePolicies?: HrLeavePoliciesRoutesDeps;
+  readonly hrLeaveRequests?: HrLeaveRequestsRoutesDeps;
+  readonly hrLeaveAccrual?: HrLeaveAccrualRoutesDeps;
+  /**
    * Mounts Field/Van Sales (docs/catalog/07 "رحلات المندوبين") under
    * `/field/van-trips` when present: open (crew, van warehouse, opening cash
    * float, stock load) through settle (cash + stock variance).
@@ -572,6 +591,21 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.fixedAssets) {
     app.route("/assets", createFixedAssetsRoutes(options.fixedAssets, options.resolveAuthContext));
+  }
+  if (options.hrEmployeeRef) {
+    app.route("/hr/employees-ref", createHrEmployeeRefRoutes(options.hrEmployeeRef, options.resolveAuthContext));
+  }
+  if (options.hrAttendance) {
+    app.route("/hr/attendance", createHrAttendanceRoutes(options.hrAttendance, options.resolveAuthContext));
+  }
+  if (options.hrLeavePolicies) {
+    app.route("/hr/leave-policies", createHrLeavePoliciesRoutes(options.hrLeavePolicies, options.resolveAuthContext));
+  }
+  if (options.hrLeaveRequests) {
+    app.route("/hr/leave-requests", createHrLeaveRequestsRoutes(options.hrLeaveRequests, options.resolveAuthContext));
+  }
+  if (options.hrLeaveAccrual) {
+    app.route("/hr/leave-accrual", createHrLeaveAccrualRoutes(options.hrLeaveAccrual, options.resolveAuthContext));
   }
   if (options.fieldSales) {
     app.route("/field/van-trips", createFieldSalesRoutes(options.fieldSales, options.resolveAuthContext));

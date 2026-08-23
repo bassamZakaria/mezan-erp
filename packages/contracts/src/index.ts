@@ -909,5 +909,12 @@ export {
   type HistoricalSalesArchiveDTO,
 } from "./sales-historical-import.js";
 
+// --- hr-time-leave contracts (hr/time-leave) ---
+export * from "./hr-employee-ref.js";
+export * from "./hr-attendance.js";
+export * from "./hr-leave-policies.js";
+export * from "./hr-leave-requests.js";
+export * from "./hr-leave-accrual.js";
+
 /** Placeholder marker type until the full contract surface is filled in. */
 export type ContractsPackage = "@mezan/contracts";

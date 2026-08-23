@@ -12,6 +12,23 @@ import {
 /** Resolves the configured approval chain for a gate action type, or null when the tenant has none configured (grants immediately — same "no steps = no hold" rule as `documents/journal-document.ts`'s `createDocumentWorkflowGate`). */
 export type LeaveGateConfigResolver = (actionType: GateableActionType) => GateConfig | null;
 
+/**
+ * Role required by the default single-step approval chain — used until a
+ * tenant configures its own chain via `/settings/workflow` (out of this
+ * module's scope; that generic config screen doesn't exist anywhere in the
+ * codebase yet, matching `packages/backend/src/create-backend.ts`'s existing
+ * `createDocumentWorkflowGate(() => null)` "no config yet" wiring for every
+ * OTHER gated document type). Data, not hardcoded logic — a composition root
+ * is free to inject a different resolver instead.
+ */
+export const DEFAULT_LEAVE_GATE_ROLE = "hr_manager";
+
+/** Every leave request requires one `DEFAULT_LEAVE_GATE_ROLE` approval, so a leave request genuinely holds بانتظار الموافقة by default rather than always auto-granting. */
+export const defaultLeaveGateConfigResolver: LeaveGateConfigResolver = (actionType) => ({
+  actionType,
+  steps: [{ role: DEFAULT_LEAVE_GATE_ROLE, description: "الموافقة على طلبات الإجازات" }],
+});
+
 export interface SubmitLeaveRequestCommand {
   readonly id: string;
   readonly employeeId: string;

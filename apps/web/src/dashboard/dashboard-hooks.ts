@@ -139,7 +139,6 @@ export interface AttentionData {
   readonly lowStockCount: number;
   readonly lowStockFirstName: string | null;
   readonly agedPayables: number;
-  readonly isLoading: boolean;
 }
 
 const DUE_SOON_DAYS = 30;
@@ -191,7 +190,6 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       lowStockCount: low.length,
       lowStockFirstName: low[0]?.itemNameAr ?? null,
       agedPayables,
-      isLoading: invoices.isPending || vat.isPending || stock.isPending || suppliers.isPending,
     };
-  }, [invoices.data, invoices.isPending, vat.data, vat.isPending, stock.data, stock.isPending, suppliers.data, suppliers.isPending, today]);
+  }, [invoices.data, vat.data, stock.data, suppliers.data, today]);
 }

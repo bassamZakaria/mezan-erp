@@ -16,6 +16,12 @@ const toneClass: Record<DeltaTone, string> = {
   neutral: "text-ink-faint",
 };
 
+const valueToneClass = {
+  default: "text-ink",
+  good: "text-success-ink",
+  bad: "text-danger-ink",
+} as const;
+
 export function MicroBeam({ direction, rtl }: { direction: BeamDirection; rtl: boolean }) {
   const magnitude = direction === "level" ? 0 : 13;
   const sign = direction === "up" ? (rtl ? 1 : -1) : rtl ? -1 : 1;
@@ -33,7 +39,7 @@ export function MicroBeam({ direction, rtl }: { direction: BeamDirection; rtl: b
 export interface KpiTileProps {
   readonly label: string;
   readonly value: number;
-  readonly valueTone?: "default" | "good" | "bad";
+  readonly valueTone?: keyof typeof valueToneClass;
   readonly direction: BeamDirection;
   readonly deltaTone: DeltaTone;
   readonly delta: ReactNode;
@@ -44,15 +50,7 @@ export function KpiTile({ label, value, valueTone = "default", direction, deltaT
   return (
     <div className="rounded-md border border-border bg-surface p-[14px_16px] shadow-1">
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
-      <div
-        className={
-          valueTone === "good"
-            ? "mt-[6px] font-display text-2xl font-bold tracking-tight text-success-ink"
-            : valueTone === "bad"
-              ? "mt-[6px] font-display text-2xl font-bold tracking-tight text-danger-ink"
-              : "mt-[6px] font-display text-2xl font-bold tracking-tight text-ink"
-        }
-      >
+      <div className={`mt-[6px] font-display text-2xl font-bold tracking-tight ${valueToneClass[valueTone]}`}>
         <Money value={value} />
       </div>
       <div className={`mt-[7px] flex items-center gap-[6px] text-2xs ${toneClass[deltaTone]}`}>

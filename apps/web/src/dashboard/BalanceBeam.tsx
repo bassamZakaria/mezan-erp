@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useReducedMotion } from "./motion";
 
 /**
@@ -12,9 +12,9 @@ import { useReducedMotion } from "./motion";
 
 const PIVOT_X = 280;
 const PIVOT_Y = 100;
-const HALF_BEAM = 168;
-const BOWL_RADIUS = 30;
-const CORD_DROP = 32;
+const HALF_BEAM = 172;
+const BOWL_RADIUS = 34;
+const CORD_DROP = 34;
 const MAX_TILT_DEG = 14;
 const TILT_EXPONENT = 0.4;
 
@@ -34,9 +34,10 @@ export function beamTiltDegrees(revenue: number, expenses: number, net: number):
   return MAX_TILT_DEG * Math.sign(ratio) * Math.abs(ratio) ** TILT_EXPONENT;
 }
 
-function loadHeight(value: number, heaviest: number): number {
+/** How full the pan looks — its share of the heavier side. A non-zero load always keeps a visible layer. */
+function fillFraction(value: number, heaviest: number): number {
   if (heaviest <= 0 || value <= 0) return 0;
-  return 3 + 21 * (value / heaviest);
+  return Math.max(0.12, value / heaviest);
 }
 
 function Pan({
@@ -46,6 +47,7 @@ function Pan({
   heaviest,
   counterRotation,
   transition,
+  clipId,
 }: {
   x: number;
   color: string;
@@ -53,9 +55,12 @@ function Pan({
   heaviest: number;
   counterRotation: number;
   transition: string | undefined;
+  clipId: string;
 }) {
   const rimY = PIVOT_Y + CORD_DROP;
-  const height = loadHeight(value, heaviest);
+  const bowl = `M${x - BOWL_RADIUS} ${rimY} A${BOWL_RADIUS} ${BOWL_RADIUS} 0 0 0 ${x + BOWL_RADIUS} ${rimY} Z`;
+  const fraction = fillFraction(value, heaviest);
+  const surfaceY = rimY + BOWL_RADIUS * (1 - fraction);
   return (
     <g
       style={{
@@ -65,19 +70,19 @@ function Pan({
         transition,
       }}
     >
-      <line x1={x} y1={PIVOT_Y} x2={x - BOWL_RADIUS * 0.8} y2={rimY} stroke="var(--border-strong)" strokeWidth={1.5} />
-      <line x1={x} y1={PIVOT_Y} x2={x + BOWL_RADIUS * 0.8} y2={rimY} stroke="var(--border-strong)" strokeWidth={1.5} />
-      <path
-        d={`M${x - BOWL_RADIUS} ${rimY} A${BOWL_RADIUS} ${BOWL_RADIUS} 0 0 0 ${x + BOWL_RADIUS} ${rimY} Z`}
-        fill={color}
-        fillOpacity={0.16}
-        stroke={color}
-        strokeWidth={2}
-        strokeLinejoin="round"
-      />
-      {height > 0 ? (
-        <rect x={x - 21} y={rimY - height} width={42} height={height} rx={2.5} fill={color} fillOpacity={0.9} />
+      <clipPath id={clipId}>
+        <path d={bowl} />
+      </clipPath>
+      <line x1={x} y1={PIVOT_Y} x2={x - BOWL_RADIUS * 0.82} y2={rimY} stroke={color} strokeOpacity={0.55} strokeWidth={1.4} />
+      <line x1={x} y1={PIVOT_Y} x2={x + BOWL_RADIUS * 0.82} y2={rimY} stroke={color} strokeOpacity={0.55} strokeWidth={1.4} />
+      <path d={bowl} fill="var(--surface-2)" />
+      {fraction > 0 ? (
+        <g clipPath={`url(#${clipId})`}>
+          <rect x={x - BOWL_RADIUS} y={surfaceY} width={BOWL_RADIUS * 2} height={BOWL_RADIUS} fill={color} fillOpacity={0.85} />
+        </g>
       ) : null}
+      <path d={bowl} fill="none" stroke={color} strokeWidth={2.2} strokeLinejoin="round" />
+      <line x1={x - BOWL_RADIUS} y1={rimY} x2={x + BOWL_RADIUS} y2={rimY} stroke={color} strokeWidth={2.2} strokeLinecap="round" />
     </g>
   );
 }
@@ -94,6 +99,7 @@ export interface BalanceBeamProps {
 
 export function BalanceBeam({ revenue, expenses, net, revenueAtEnd, label }: BalanceBeamProps) {
   const reduced = useReducedMotion();
+  const clipPrefix = `mz-beam-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   const [settled, setSettled] = useState(reduced);
 
   useEffect(() => {
@@ -115,10 +121,11 @@ export function BalanceBeam({ revenue, expenses, net, revenueAtEnd, label }: Bal
   const heaviest = Math.max(Math.abs(revenue), Math.abs(expenses));
 
   return (
-    <svg viewBox="0 44 560 190" width="100%" className="block h-[190px] w-full" role="img" aria-label={label}>
-      <path d="M230 210 H330 L318 224 H242 Z" fill="var(--brand)" fillOpacity={0.9} />
-      <rect x={274} y={116} width={12} height={96} rx={3} fill="var(--brand)" />
-      <path d={`M${PIVOT_X} 94 L298 122 H262 Z`} fill="var(--accent)" />
+    <svg viewBox="0 50 560 192" width="100%" className="block h-[196px] w-full" role="img" aria-label={label}>
+      <path d="M226 216 H334 L322 230 H238 Z" fill="var(--brand)" fillOpacity={0.85} />
+      <line x1={210} y1={231} x2={350} y2={231} stroke="var(--border-strong)" strokeWidth={1.5} strokeLinecap="round" />
+      <rect x={275} y={116} width={10} height={102} rx={3} fill="var(--brand)" fillOpacity={0.85} />
+      <path d={`M${PIVOT_X} 92 L299 124 H261 Z`} fill="var(--accent)" />
 
       <g
         style={{
@@ -137,8 +144,24 @@ export function BalanceBeam({ revenue, expenses, net, revenueAtEnd, label }: Bal
           strokeWidth={6}
           strokeLinecap="round"
         />
-        <Pan x={revenueX} color="var(--chart-1)" value={revenue} heaviest={heaviest} counterRotation={-angle} transition={transition} />
-        <Pan x={expensesX} color="var(--chart-2)" value={expenses} heaviest={heaviest} counterRotation={-angle} transition={transition} />
+        <Pan
+          x={revenueX}
+          color="var(--chart-1)"
+          value={revenue}
+          heaviest={heaviest}
+          counterRotation={-angle}
+          transition={transition}
+          clipId={`${clipPrefix}-revenue`}
+        />
+        <Pan
+          x={expensesX}
+          color="var(--chart-2)"
+          value={expenses}
+          heaviest={heaviest}
+          counterRotation={-angle}
+          transition={transition}
+          clipId={`${clipPrefix}-expenses`}
+        />
         <circle cx={PIVOT_X} cy={PIVOT_Y} r={7.5} fill="var(--accent)" />
         <circle cx={PIVOT_X} cy={PIVOT_Y} r={3} fill="var(--accent-ink)" fillOpacity={0.55} />
       </g>

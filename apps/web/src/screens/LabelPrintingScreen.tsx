@@ -154,7 +154,7 @@ export function LabelPrintingScreen() {
                 id="label-template"
                 value={templateCode}
                 onChange={(e) => setTemplateCode(e.target.value as LabelTemplateCode)}
-                className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-primary"
+                className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
               >
                 {LABEL_TEMPLATES.map((t) => (
                   <option key={t.code} value={t.code}>

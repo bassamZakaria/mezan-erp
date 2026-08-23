@@ -143,7 +143,7 @@ export function FinancialReportsScreen() {
             onClick={() => setActiveTab(t.id)}
             className={
               t.id === activeTab
-                ? "rounded-md bg-brand px-[13px] py-[7px] text-[12.5px] font-semibold text-on-brand"
+                ? "rounded-md bg-brand px-[13px] py-[7px] text-[12.5px] font-semibold text-brand-ink"
                 : "rounded-md border border-border bg-surface px-[13px] py-[7px] text-[12.5px] font-semibold text-ink-muted hover:text-ink"
             }
           >

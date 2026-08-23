@@ -92,7 +92,7 @@ export function LeaveAccrualBatchesScreen() {
         </Card>
       ) : null}
       {banner ? (
-        <div role="status" className="mb-[14px] rounded-md border border-border bg-surface-muted px-[12px] py-[10px] text-[12.5px] text-ink">
+        <div role="status" className="mb-[14px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
           {banner}
         </div>
       ) : null}

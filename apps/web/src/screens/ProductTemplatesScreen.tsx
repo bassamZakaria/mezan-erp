@@ -407,7 +407,7 @@ function AddValueInline({ onAdd }: { onAdd: (value: string) => void }) {
         onChange={(e) => setValue(e.target.value)}
         placeholder="+ قيمة"
         aria-label="إضافة قيمة"
-        className="w-[90px] rounded-full border border-dashed border-border bg-transparent px-[10px] py-[3px] text-[12px] text-ink outline-none focus:border-primary"
+        className="w-[90px] rounded-full border border-dashed border-border bg-transparent px-[10px] py-[3px] text-[12px] text-ink outline-none focus:border-brand"
         onKeyDown={(e) => {
           if (e.key === "Enter" && value.trim() !== "") {
             e.preventDefault();

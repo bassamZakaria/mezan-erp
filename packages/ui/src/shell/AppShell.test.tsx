@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { AppShell } from "./AppShell";
+import type { TopbarScopeOption } from "./Topbar";
 import type { CommandItem, NavItem, ShellUser } from "./types";
 
 const topNavItem: NavItem = { key: "dashboard", label: "لوحة التحكم" };
@@ -25,15 +26,15 @@ describe("AppShell", () => {
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
   });
 
-  it("opens the command palette from the topbar search button", () => {
+  it("opens the command palette from the always-visible topbar command bar", () => {
     render(
       <AppShell activeNavKey="dashboard" topNavItem={topNavItem} navGroups={[]} user={user}>
         <div>محتوى</div>
       </AppShell>,
     );
-    expect(screen.queryByRole("dialog", { name: "لوحة الأوامر" })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByText("بحث عن صفحة، عميل، فاتورة، أو إجراء…"));
-    expect(screen.getByRole("dialog", { name: "لوحة الأوامر" })).toBeInTheDocument();
+    expect(screen.queryByRole("listbox", { name: "لوحة الأوامر" })).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("combobox", { name: "لوحة الأوامر" }));
+    expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
   it("opens the command palette on Ctrl+K", () => {
@@ -43,7 +44,7 @@ describe("AppShell", () => {
       </AppShell>,
     );
     fireEvent.keyDown(document, { key: "k", ctrlKey: true });
-    expect(screen.getByRole("dialog", { name: "لوحة الأوامر" })).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
   it("runs a command item's onSelect from the palette", () => {
@@ -67,5 +68,27 @@ describe("AppShell", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "تبديل المظهر" }));
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
+  });
+
+  it("wires the branch/warehouse switchers into the sidebar rail, not the topbar", () => {
+    const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
+    const onSelectBranch = vi.fn();
+    render(
+      <AppShell
+        activeNavKey="dashboard"
+        topNavItem={topNavItem}
+        navGroups={[]}
+        user={user}
+        branchOptions={branchOptions}
+        selectedBranchId={null}
+        onSelectBranch={onSelectBranch}
+      >
+        <div>محتوى</div>
+      </AppShell>,
+    );
+    const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
+    expect(branchSelect.closest("aside")).not.toBeNull();
+    fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
+    expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
   });
 });

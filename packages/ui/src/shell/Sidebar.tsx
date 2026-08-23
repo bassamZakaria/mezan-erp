@@ -3,6 +3,8 @@ import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import type { ThemePreference } from "../hooks/useTheme";
 import { BrandMark } from "./BrandMark";
+import { ScopeSwitchers } from "./ScopeSwitcher";
+import type { TopbarScopeOption } from "./Topbar";
 import type { NavGroup, NavItem, ShellUser } from "./types";
 
 export interface SidebarProps {
@@ -12,12 +14,27 @@ export interface SidebarProps {
   user: ShellUser;
   brandName?: string;
   brandSub?: string;
-  /** Company/branch context pinned above the nav — display only; the working scope is switched from the topbar selectors. */
+  /** Company context pinned above the nav — display only; there is a single tenant per session, so there is nothing to switch. */
   tenantName?: string;
   scopeLabel?: string;
   theme?: ThemePreference;
   onToggleTheme?: () => void;
   className?: string;
+  /**
+   * Working-branch / warehouse selectors — real dropdowns that narrow which
+   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
+   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
+   * not a cosmetic relabel. Omit `branchOptions` to render neither — never
+   * rendered with a fabricated option list.
+   */
+  branchOptions?: readonly TopbarScopeOption[];
+  warehouseOptions?: readonly TopbarScopeOption[];
+  selectedBranchId?: string | null;
+  selectedWarehouseId?: string | null;
+  onSelectBranch?: (branchId: string | null) => void;
+  onSelectWarehouse?: (warehouseId: string | null) => void;
+  allBranchesLabel?: string;
+  allWarehousesLabel?: string;
 }
 
 const RAIL_STORAGE_KEY = "mezan.sidebarCollapsed";
@@ -136,7 +153,7 @@ function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; s
   );
 }
 
-/** Sidebar — the dark-teal module rail: company context on top, grouped nav with a brass active bar, user + theme at the foot. Collapses to icon-only; mirrors with the document direction. */
+/** Sidebar — the dark-teal module rail: company context and branch/warehouse switchers on top, grouped nav with a brass active bar, user + theme at the foot. Collapses to icon-only; mirrors with the document direction. */
 export function Sidebar({
   activeKey,
   topItem,
@@ -149,6 +166,14 @@ export function Sidebar({
   theme,
   onToggleTheme,
   className,
+  branchOptions,
+  warehouseOptions,
+  selectedBranchId,
+  selectedWarehouseId,
+  onSelectBranch,
+  onSelectWarehouse,
+  allBranchesLabel,
+  allWarehousesLabel,
 }: SidebarProps) {
   const { t } = useUiTranslation();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
@@ -224,6 +249,20 @@ export function Sidebar({
           ) : null}
         </div>
       ) : null}
+
+      <ScopeSwitchers
+        expanded={expanded}
+        branchAriaLabel={t("shell.scope.branch")}
+        warehouseAriaLabel={t("shell.scope.warehouse")}
+        branchOptions={branchOptions}
+        warehouseOptions={warehouseOptions}
+        selectedBranchId={selectedBranchId}
+        selectedWarehouseId={selectedWarehouseId}
+        onSelectBranch={onSelectBranch}
+        onSelectWarehouse={onSelectWarehouse}
+        allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
+        allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
+      />
 
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>

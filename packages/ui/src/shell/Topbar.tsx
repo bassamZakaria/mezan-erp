@@ -48,42 +48,6 @@ function ChromeIconButton({ onClick, children, className, ...rest }: ChromeIconB
   );
 }
 
-interface ScopeSelectProps {
-  ariaLabel: string;
-  value: string | null;
-  onChange?: (id: string | null) => void;
-  allLabel: string;
-  options: readonly TopbarScopeOption[];
-  icon: ReactNode;
-}
-
-/** One working-scope dropdown (branch or warehouse) — a native `<select>` styled as a chrome pill so it stays keyboard- and screen-reader-accessible. */
-function ScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon }: ScopeSelectProps) {
-  return (
-    <div className="relative flex items-center gap-[7px] rounded-pill border border-chrome-border bg-chrome-hover py-[7px] pe-[8px] ps-[12px] text-xs font-medium text-chrome-ink transition-colors hover:border-chrome-accent">
-      {icon}
-      <select
-        aria-label={ariaLabel}
-        value={value ?? ""}
-        onChange={(event) => onChange?.(event.target.value === "" ? null : event.target.value)}
-        className="cursor-pointer appearance-none bg-transparent pe-[14px] text-xs font-medium text-chrome-ink outline-none"
-      >
-        <option value="" className="bg-surface text-ink">
-          {allLabel}
-        </option>
-        {options.map((opt) => (
-          <option key={opt.id} value={opt.id} className="bg-surface text-ink">
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      <svg aria-hidden viewBox="0 0 12 12" fill="none" className="pointer-events-none absolute end-[8px] h-[9px] w-[9px] opacity-70">
-        <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
-
 export interface TopbarProps {
   /**
    * Superseded by the always-visible command bar (spec §7) — accepted so
@@ -107,21 +71,6 @@ export interface TopbarProps {
   userMenuItems?: UserMenuItem[];
   user: ShellUser;
   className?: string;
-  /**
-   * Working-branch / warehouse selectors — real dropdowns that narrow which
-   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
-   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
-   * not a cosmetic relabel. Omit `branchOptions` to render neither — never
-   * rendered with a fabricated option list.
-   */
-  branchOptions?: readonly TopbarScopeOption[];
-  warehouseOptions?: readonly TopbarScopeOption[];
-  selectedBranchId?: string | null;
-  selectedWarehouseId?: string | null;
-  onSelectBranch?: (branchId: string | null) => void;
-  onSelectWarehouse?: (warehouseId: string | null) => void;
-  allBranchesLabel?: string;
-  allWarehousesLabel?: string;
 }
 
 const LANGUAGE_NAME_KEY = { ar: "shell.language.name.ar", en: "shell.language.name.en" } as const;
@@ -140,7 +89,7 @@ function LanguageToggle() {
   );
 }
 
-/** Topbar — the persistent command bar, tenant chip, branch/warehouse scope selectors, language toggle, notifications and the user menu, all on the dark chrome. */
+/** Topbar — the persistent command bar, tenant chip, language toggle, notifications and the user menu, all on the dark chrome. */
 export function Topbar({
   commandItems = [],
   searchPlaceholder,
@@ -152,14 +101,6 @@ export function Topbar({
   userMenuItems = [],
   user,
   className,
-  branchOptions,
-  warehouseOptions = [],
-  selectedBranchId = null,
-  selectedWarehouseId = null,
-  onSelectBranch,
-  onSelectWarehouse,
-  allBranchesLabel,
-  allWarehousesLabel,
 }: TopbarProps) {
   const { t } = useUiTranslation();
 
@@ -195,41 +136,6 @@ export function Topbar({
             </svg>
             {scopeLabel}
           </div>
-        ) : null}
-
-        {branchOptions && branchOptions.length > 0 ? (
-          <>
-            <ScopeSelect
-              ariaLabel={t("shell.scope.branch")}
-              value={selectedBranchId}
-              onChange={onSelectBranch}
-              allLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
-              options={branchOptions}
-              icon={
-                <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-chrome-ink-muted">
-                  <path
-                    d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z"
-                    stroke="currentColor"
-                    strokeWidth="1.4"
-                    strokeLinejoin="round"
-                  />
-                </svg>
-              }
-            />
-            <ScopeSelect
-              ariaLabel={t("shell.scope.warehouse")}
-              value={selectedWarehouseId}
-              onChange={onSelectWarehouse}
-              allLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
-              options={warehouseOptions}
-              icon={
-                <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-chrome-ink-muted">
-                  <rect x="3" y="7" width="14" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
-                  <path d="M2.5 7 10 3l7.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-                </svg>
-              }
-            />
-          </>
         ) : null}
 
         <LanguageToggle />

@@ -21,7 +21,7 @@ export interface AppShellProps {
   brandSub?: string;
   children: ReactNode;
   className?: string;
-  /** Working-branch / warehouse selectors, forwarded straight to `<Topbar>` — see its own props doc. */
+  /** Working-branch / warehouse selectors, forwarded straight to `<Sidebar>` — see its own props doc. */
   branchOptions?: readonly TopbarScopeOption[];
   warehouseOptions?: readonly TopbarScopeOption[];
   selectedBranchId?: string | null;
@@ -74,6 +74,12 @@ export function AppShell({
         scopeLabel={scopeLabel}
         theme={theme}
         onToggleTheme={toggleTheme}
+        branchOptions={branchOptions}
+        warehouseOptions={warehouseOptions}
+        selectedBranchId={selectedBranchId}
+        selectedWarehouseId={selectedWarehouseId}
+        onSelectBranch={onSelectBranch}
+        onSelectWarehouse={onSelectWarehouse}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
@@ -83,12 +89,6 @@ export function AppShell({
           notificationsPanel={notificationsPanel}
           userMenuItems={userMenuItems}
           user={user}
-          branchOptions={branchOptions}
-          warehouseOptions={warehouseOptions}
-          selectedBranchId={selectedBranchId}
-          selectedWarehouseId={selectedWarehouseId}
-          onSelectBranch={onSelectBranch}
-          onSelectWarehouse={onSelectWarehouse}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
       </div>

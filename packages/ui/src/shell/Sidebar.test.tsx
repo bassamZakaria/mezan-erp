@@ -2,6 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Sidebar } from "./Sidebar";
+import type { TopbarScopeOption } from "./Topbar";
 import type { NavGroup, NavItem, ShellUser } from "./types";
 
 const topItem: NavItem = { key: "dashboard", label: "لوحة التحكم" };
@@ -65,5 +66,32 @@ describe("Sidebar", () => {
     render(<Sidebar activeKey="invoices" topItem={topItem} groups={groups} user={user} />);
     expect(screen.getByText("محمد الشهابي")).toBeInTheDocument();
     document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("renders the branch and warehouse switchers as real selects and narrows on change", () => {
+    const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
+    const warehouseOptions: TopbarScopeOption[] = [{ id: "WH-MAIN", label: "المستودع الرئيسي" }];
+    const onSelectBranch = vi.fn();
+    render(
+      <Sidebar
+        topItem={topItem}
+        groups={groups}
+        user={user}
+        branchOptions={branchOptions}
+        warehouseOptions={warehouseOptions}
+        selectedBranchId={null}
+        selectedWarehouseId={null}
+        onSelectBranch={onSelectBranch}
+      />,
+    );
+    const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
+    expect(screen.getByRole("combobox", { name: "المخزن الحالي" })).toBeInTheDocument();
+    fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
+    expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
+  });
+
+  it("omits the scope switchers when no branch options are supplied — never a fabricated list", () => {
+    render(<Sidebar topItem={topItem} groups={groups} user={user} />);
+    expect(screen.queryByRole("combobox", { name: "الفرع الحالي" })).not.toBeInTheDocument();
   });
 });

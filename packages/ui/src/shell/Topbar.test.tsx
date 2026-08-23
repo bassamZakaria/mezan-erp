@@ -11,7 +11,9 @@ describe("Topbar", () => {
     render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} scopeLabel="الفرع الرئيسي" />);
     expect(screen.getByText("الفرع الرئيسي")).toBeInTheDocument();
     expect(screen.getByText("محمد الشهابي")).toBeInTheDocument();
-    expect(screen.getByText("Ctrl K")).toBeInTheDocument();
+    // The Ctrl+K hint is now two separate <kbd> elements, not one "Ctrl K" text node.
+    expect(screen.getByText("Ctrl")).toBeInTheDocument();
+    expect(screen.getByText("K")).toBeInTheDocument();
   });
 
   it("renders the tenant chip only when tenantName is supplied", () => {
@@ -26,18 +28,19 @@ describe("Topbar", () => {
     expect(screen.getByText("Cyag")).toBeInTheDocument();
   });
 
-  it("calls onOpenCommandPalette when the search button is clicked", () => {
-    const onOpenCommandPalette = vi.fn();
-    render(<Topbar onOpenCommandPalette={onOpenCommandPalette} theme="light" onToggleTheme={() => {}} user={user} />);
-    fireEvent.click(screen.getByText("بحث عن صفحة، عميل، فاتورة، أو إجراء…"));
-    expect(onOpenCommandPalette).toHaveBeenCalledOnce();
+  it("opens the always-visible command bar's results on focus, superseding the old modal palette", () => {
+    // onOpenCommandPalette is accepted for source compatibility only (see Topbar.tsx) — the
+    // topbar now carries its own always-visible CommandBar instead of opening a modal.
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} />);
+    expect(screen.queryByRole("listbox", { name: "لوحة الأوامر" })).not.toBeInTheDocument();
+    fireEvent.focus(screen.getByRole("combobox", { name: "لوحة الأوامر" }));
+    expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
-  it("calls onToggleTheme when the theme button is clicked", () => {
+  it("no longer renders a theme toggle — that control moved to the sidebar rail", () => {
     const onToggleTheme = vi.fn();
     render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={onToggleTheme} user={user} />);
-    fireEvent.click(screen.getByRole("button", { name: "تبديل المظهر" }));
-    expect(onToggleTheme).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("button", { name: "تبديل المظهر" })).not.toBeInTheDocument();
   });
 
   it("shows a notification badge only when notificationCount > 0", () => {

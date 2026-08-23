@@ -125,6 +125,14 @@ export function LabelPrintingScreen() {
       @page { size: ${template.widthMm}mm ${template.heightMm}mm; margin: 0; }`}</style>
 
       <div className="print:hidden">
+        <div className="mb-[16px]">
+          <div className="mz-eyebrow">Inventory · Label Printing</div>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">طباعة الملصقات</h1>
+          <p className="mt-[6px] text-[13px] text-ink-muted">
+            اختر الأصناف وعدد النسخ، ثم اطبع ورقة ملصقات بالباركود الفعلي لكل صنف.
+          </p>
+        </div>
+
         <Card className="mb-[16px] p-[14px_18px]">
           <p className="text-[12.5px] text-ink-muted">
             السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر.
@@ -132,7 +140,7 @@ export function LabelPrintingScreen() {
         </Card>
 
         <Card className="mb-[16px] p-[16px_18px]">
-          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">طباعة الملصقات</h2>
+          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">الأصناف المختارة</h2>
 
           <div className="mb-[14px] flex flex-wrap items-end gap-[12px]">
             <div className="min-w-[260px] flex-1">

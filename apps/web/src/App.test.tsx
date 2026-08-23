@@ -86,4 +86,37 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "تسجيل الدخول" })).not.toBeInTheDocument();
   });
+
+  it("routes to the real الموافقات inbox, with a pending-count badge on its nav item", async () => {
+    const transport = stubTransport({
+      "POST /auth/login": () => ({ body: testAdminSession }),
+      "GET /dashboard/summary": () => ({ body: emptySummary }),
+      "GET /workflow/requests/pending-count": () => ({ body: { count: 2 } }),
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+    });
+    renderWithProviders(<App />, { transport });
+    login();
+    await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
+
+    const navButton = await screen.findByRole("button", { name: "الموافقات" });
+    expect(await screen.findByText("2")).toBeInTheDocument();
+
+    fireEvent.click(navButton);
+    expect(await screen.findByRole("heading", { name: "الموافقات" })).toBeInTheDocument();
+  });
+
+  it("routes to إعدادات الموافقات from the collapsed settings group", async () => {
+    const transport = stubTransport({
+      "POST /auth/login": () => ({ body: testAdminSession }),
+      "GET /dashboard/summary": () => ({ body: emptySummary }),
+      "GET /workflow/configs": () => ({ body: [] }),
+    });
+    renderWithProviders(<App />, { transport });
+    login();
+    await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
+
+    fireEvent.click(screen.getByRole("button", { name: "الإعدادات" }));
+    fireEvent.click(screen.getByRole("button", { name: "إعدادات الموافقات" }));
+    expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
+  });
 });

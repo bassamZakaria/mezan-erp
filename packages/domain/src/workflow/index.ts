@@ -24,3 +24,26 @@ export {
   type DecisionInput,
   type Transition,
 } from "./gate.js";
+
+export {
+  saveWorkflowConfig,
+  deleteWorkflowConfig,
+  UnknownActionTypeError,
+  EmptyStepsError,
+  InvalidStepRoleError,
+  DuplicateWorkflowConfigError,
+  WorkflowConfigNotFoundError,
+  type WorkflowConfigRecord,
+  type WorkflowConfigRepository,
+  type SaveWorkflowConfigCommand,
+} from "./config.js";
+
+export {
+  submitApproval,
+  decideApproval,
+  resubmitApproval,
+  ApprovalRequestNotFoundError,
+  type ApprovalRequestRecord,
+  type ApprovalRequestRepository,
+  type SubmitApprovalCommand,
+} from "./requests.js";

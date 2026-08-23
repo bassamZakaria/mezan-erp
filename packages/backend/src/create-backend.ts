@@ -93,6 +93,8 @@ import {
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
   createSqliteNotificationStore,
+  createSqliteWorkflowConfigStore,
+  createSqliteApprovalRequestStore,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -390,6 +392,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     });
   });
 
+  // --- w8/workflow-ui — إعدادات الموافقات chain-builder + الموافقات inbox
+  // (docs/catalog/09 §سير العمل). `workflowConfigs` is also the REAL
+  // `resolveConfig` behind `createDocumentWorkflowGate` below — a tenant that
+  // configures a chain for e.g. SALES_RETURN_CONFIRM has that document type
+  // actually held بانتظار الموافقة on confirm, not just a config the /workflow
+  // screen has no effect on. ---
+  const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
+  const approvalRequests = createSqliteApprovalRequestStore(sqlite);
+
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
@@ -405,7 +416,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
   const documentGl = createJournalGlHook(salesInvoiceGl);
-  const noWorkflow = createDocumentWorkflowGate(() => null);
+  const documentWorkflowGate = createDocumentWorkflowGate((actionType) => workflowConfigs.resolveSync(actionType));
 
   // Returns' notification events carry only `documentNumber` (the generic
   // framework doesn't expose a uniform customer/amount field across every
@@ -436,7 +447,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
-    workflow: noWorkflow,
+    workflow: documentWorkflowGate,
     events: returnsEventBridge,
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
@@ -444,20 +455,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     numbering: { next: () => ledger.numbering.next("PURCHASE_RETURN") },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
-    workflow: noWorkflow,
+    workflow: documentWorkflowGate,
     events: returnsEventBridge,
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
     numbering: { next: () => ledger.numbering.next("LANDED_COST") },
     gl: documentGl,
-    workflow: noWorkflow,
+    workflow: documentWorkflowGate,
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService);
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
     numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
-    workflow: noWorkflow,
+    workflow: documentWorkflowGate,
   });
 
   // --- phase4/inventory-ops — Stock Adjustments/Transfers reuse the SAME
@@ -781,6 +792,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     notificationRuleRepo: notificationRules,
     notificationRepo: notifications,
+    workflow: { configs: workflowConfigs, requests: approvalRequests },
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
@@ -854,6 +866,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     hrLeaveRequests,
     notificationRules,
     notifications,
+    workflowConfigs,
+    approvalRequests,
   ];
 
   return {

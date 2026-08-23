@@ -14,6 +14,11 @@ export const topNavItem: NavItem = { key: "dashboard", label: "لوحة التح
 
 export const navGroups: NavGroup[] = [
   {
+    key: "workflow",
+    label: "سير العمل",
+    items: [{ key: "approvals", label: "الموافقات" }],
+  },
+  {
     key: "sales",
     label: "المبيعات",
     items: [
@@ -180,6 +185,7 @@ export const navGroups: NavGroup[] = [
       { key: "settings-print", label: "قوالب الطباعة" },
       { key: "notification-rules", label: "قواعد الإشعارات" },
       { key: "settings-data-migration", label: "نقل البيانات" },
+      { key: "settings-workflow", label: "إعدادات الموافقات" },
       { key: "users", label: "المستخدمون" },
       { key: "roles", label: "الأدوار والصلاحيات" },
     ],

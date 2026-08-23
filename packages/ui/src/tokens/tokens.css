@@ -1,70 +1,108 @@
 /*
  * Mezan design tokens — CSS custom properties.
  *
- * Light-first: the bare `:root` block below is the light palette and is the
- * default with no other signal. Dark applies two ways, matching the approved
- * mockup (design/mezan-ui-mockups.html):
+ * Light-first: the bare `:root` block below is the COMPLETE light palette and
+ * is the default with no other signal. Dark applies two ways, matching the
+ * approved mockup (design/mezan-enhanced-mockups.html):
  *   1. `prefers-color-scheme: dark` when the app hasn't set an explicit theme
  *      (`:root:not([data-theme="light"])`)
  *   2. an explicit `[data-theme="dark"]` attribute on <html>, which wins
  *      regardless of OS preference (set by the theme toggle / useTheme()).
+ *
+ * Every colour is defined in the bare `:root` block; the media/attribute
+ * blocks only REDEFINE. A colour that exists solely inside one of those blocks
+ * would be undefined in the other two states.
+ *
+ * The `--chrome-*` set is deliberately independent of `--surface-*`: the
+ * sidebar + topbar are dark teal in BOTH themes, so chrome cannot inherit the
+ * surface/ink tokens in light mode.
  *
  * Do not add left/right physical values here — logical properties only
  * (the repo's `pnpm lint:rtl` check enforces this on consumers).
  */
 
 :root {
-  --bg: #edf1ee;
+  --bg: #f2efe9;
   --surface: #ffffff;
-  --surface-2: #f4f7f4;
-  --surface-3: #e9eeea;
-  --border: #e1e7e2;
-  --border-strong: #cad3cc;
-  --text: #12201b;
-  --text-muted: #586860;
-  --text-faint: #8a968e;
+  --surface-2: #f7f4ed;
+  --surface-3: #ede7da;
+  --border: #e6e0d2;
+  --border-strong: #d3cbb6;
+  --text: #14231e;
+  --text-muted: #424f48;
+  --text-faint: #5a6c62;
 
-  --brand: #0e5049;
-  --brand-strong: #0a3b35;
-  --brand-soft: #e4f0ec;
+  --chrome: #0b3a34;
+  --chrome-2: #072b27;
+  --chrome-ink: #e4f1ec;
+  --chrome-ink-muted: #a9c6bc;
+  --chrome-border: rgba(255, 255, 255, 0.09);
+  --chrome-hover: rgba(255, 255, 255, 0.06);
+  --chrome-active: rgba(255, 255, 255, 0.09);
+  --chrome-accent: #cb9e3d;
+
+  --brand: #0c463e;
+  --brand-strong: #073029;
+  --brand-soft: #e2efea;
   --brand-ink: #ffffff;
 
-  --accent: #ae7c24;
-  --accent-strong: #8c6216;
-  --accent-soft: #f6edd8;
+  --accent: #b0862f;
+  --accent-strong: #8a6620;
+  --accent-soft: #f6efdb;
+  --accent-bright: #cb9e3d;
+  --accent-ink: #1c1405;
 
   --success: #2c8a57;
-  --success-soft: #e4f3ea;
+  --success-soft: #e1f1e8;
   --success-ink: #1c6b41;
   --warning: #b0791f;
-  --warning-soft: #fbefd6;
-  --warning-ink: #875c13;
+  --warning-soft: #f7ecd3;
+  --warning-ink: #845812;
   --danger: #c0402f;
-  --danger-soft: #fbe7e2;
-  --danger-ink: #932c1f;
+  --danger-soft: #f8e4df;
+  --danger-ink: #8f2a1e;
   --info: #2f6690;
-  --info-soft: #e4edf4;
+  --info-soft: #e1eaf2;
   --info-ink: #234e6e;
 
   --chart-1: #0e7c69;
   --chart-2: #c05a2e;
-  --chart-3: #c39a3c;
+  --chart-3: #b0862f;
   --chart-4: #3b6ea5;
+  --chart-5: #7a5c8e;
+  --chart-6: #4b7f6b;
+
+  --scrim: rgba(8, 20, 16, 0.45);
 
   --shadow-1:
-    0 1px 2px rgba(16, 40, 32, 0.06),
-    0 1px 1px rgba(16, 40, 32, 0.04);
+    0 1px 2px rgba(20, 45, 36, 0.07),
+    0 1px 1px rgba(20, 45, 36, 0.04);
   --shadow-2:
-    0 18px 40px -18px rgba(16, 40, 32, 0.28),
-    0 4px 12px -4px rgba(16, 40, 32, 0.1);
+    0 22px 48px -22px rgba(12, 40, 32, 0.3),
+    0 6px 16px -8px rgba(12, 40, 32, 0.14);
+  --shadow-chrome:
+    0 0 0 1px rgba(0, 0, 0, 0.04),
+    8px 0 30px -18px rgba(7, 43, 39, 0.55);
 
   --r-sm: 5px;
   --r-md: 8px;
-  --r-lg: 13px;
+  --r-lg: 14px;
   --r-pill: 999px;
 
+  --fs-2xs: 0.6875rem;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8125rem;
+  --fs-md: 0.875rem;
+  --fs-base: 1rem;
+  --fs-lg: 1.125rem;
+  --fs-xl: 1.375rem;
+  --fs-2xl: 1.75rem;
+  --fs-3xl: 2.25rem;
+
   --font-ar: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
-  --font-display: "Cairo", "IBM Plex Sans Arabic", sans-serif;
+  --font-body: var(--font-ar);
+  --font-display: "Tajawal", "IBM Plex Sans Arabic", sans-serif;
+  --font-sig: "Reem Kufi", "Tajawal", sans-serif;
   --font-lat: "IBM Plex Sans", "IBM Plex Sans Arabic", sans-serif;
   --font-mono: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace;
 
@@ -73,24 +111,35 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0c1512;
-    --surface: #131f1b;
-    --surface-2: #18251f;
-    --surface-3: #213029;
-    --border: #243228;
-    --border-strong: #354a3c;
+    --bg: #0a1310;
+    --surface: #101c18;
+    --surface-2: #152420;
+    --surface-3: #1c2c27;
+    --border: #243530;
+    --border-strong: #33473f;
     --text: #e9efea;
-    --text-muted: #9fb0a4;
-    --text-faint: #6a7a6e;
+    --text-muted: #9db0a6;
+    --text-faint: #83978c;
 
-    --brand: #3aa592;
-    --brand-strong: #4fc0ab;
-    --brand-soft: #123029;
-    --brand-ink: #08150f;
+    --chrome: #081310;
+    --chrome-2: #050d0b;
+    --chrome-ink: #e4f1ec;
+    --chrome-ink-muted: #9dbdb1;
+    --chrome-border: rgba(255, 255, 255, 0.07);
+    --chrome-hover: rgba(255, 255, 255, 0.05);
+    --chrome-active: rgba(255, 255, 255, 0.08);
+    --chrome-accent: #e7c77c;
 
-    --accent: #d6ad5f;
-    --accent-strong: #e4be72;
-    --accent-soft: #2c2413;
+    --brand: #3fb39e;
+    --brand-strong: #57c9b3;
+    --brand-soft: #0f2a25;
+    --brand-ink: #06110d;
+
+    --accent: #d8b25f;
+    --accent-strong: #e7c77c;
+    --accent-soft: #2b2412;
+    --accent-bright: #e7c77c;
+    --accent-ink: #1c1405;
 
     --success: #4cb07d;
     --success-soft: #123626;
@@ -107,35 +156,55 @@
 
     --chart-1: #2fb49a;
     --chart-2: #d2723f;
-    --chart-3: #cfa24a;
+    --chart-3: #d8b25f;
     --chart-4: #5a94cc;
+    --chart-5: #a98bc0;
+    --chart-6: #6faf95;
 
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --shadow-2: 0 20px 44px -18px rgba(0, 0, 0, 0.6);
+    --scrim: rgba(0, 0, 0, 0.62);
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-2:
+      0 24px 50px -22px rgba(0, 0, 0, 0.7),
+      0 6px 16px -8px rgba(0, 0, 0, 0.4);
+    --shadow-chrome:
+      0 0 0 1px rgba(0, 0, 0, 0.5),
+      8px 0 30px -18px rgba(0, 0, 0, 0.7);
 
     color-scheme: dark;
   }
 }
 
 :root[data-theme="dark"] {
-  --bg: #0c1512;
-  --surface: #131f1b;
-  --surface-2: #18251f;
-  --surface-3: #213029;
-  --border: #243228;
-  --border-strong: #354a3c;
+  --bg: #0a1310;
+  --surface: #101c18;
+  --surface-2: #152420;
+  --surface-3: #1c2c27;
+  --border: #243530;
+  --border-strong: #33473f;
   --text: #e9efea;
-  --text-muted: #9fb0a4;
-  --text-faint: #6a7a6e;
+  --text-muted: #9db0a6;
+  --text-faint: #83978c;
 
-  --brand: #3aa592;
-  --brand-strong: #4fc0ab;
-  --brand-soft: #123029;
-  --brand-ink: #08150f;
+  --chrome: #081310;
+  --chrome-2: #050d0b;
+  --chrome-ink: #e4f1ec;
+  --chrome-ink-muted: #9dbdb1;
+  --chrome-border: rgba(255, 255, 255, 0.07);
+  --chrome-hover: rgba(255, 255, 255, 0.05);
+  --chrome-active: rgba(255, 255, 255, 0.08);
+  --chrome-accent: #e7c77c;
 
-  --accent: #d6ad5f;
-  --accent-strong: #e4be72;
-  --accent-soft: #2c2413;
+  --brand: #3fb39e;
+  --brand-strong: #57c9b3;
+  --brand-soft: #0f2a25;
+  --brand-ink: #06110d;
+
+  --accent: #d8b25f;
+  --accent-strong: #e7c77c;
+  --accent-soft: #2b2412;
+  --accent-bright: #e7c77c;
+  --accent-ink: #1c1405;
 
   --success: #4cb07d;
   --success-soft: #123626;
@@ -152,11 +221,20 @@
 
   --chart-1: #2fb49a;
   --chart-2: #d2723f;
-  --chart-3: #cfa24a;
+  --chart-3: #d8b25f;
   --chart-4: #5a94cc;
+  --chart-5: #a98bc0;
+  --chart-6: #6faf95;
 
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
-  --shadow-2: 0 20px 44px -18px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.62);
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-2:
+    0 24px 50px -22px rgba(0, 0, 0, 0.7),
+    0 6px 16px -8px rgba(0, 0, 0, 0.4);
+  --shadow-chrome:
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    8px 0 30px -18px rgba(0, 0, 0, 0.7);
 
   color-scheme: dark;
 }
@@ -177,10 +255,19 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-ar);
-  font-size: 14px;
+  font-size: var(--fs-md);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
 }
 
 [lang="en"],
@@ -201,6 +288,21 @@ body {
 
 .mz-disp {
   font-family: var(--font-display);
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+.mz-sig {
+  font-family: var(--font-sig);
+}
+
+.mz-eyebrow {
+  font-family: var(--font-sig);
+  font-size: var(--fs-2xs);
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent-strong);
 }
 
 ::selection {

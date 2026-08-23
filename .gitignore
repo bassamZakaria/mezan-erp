@@ -11,3 +11,9 @@ mezan.db
 mezan.db-*
 *.sqlite
 *.sqlite-*
+
+# Playwright/browser-automation scratch output
+.playwright-mcp/
+*-dashboard.png
+*-invoices.png
+*-settings*.png

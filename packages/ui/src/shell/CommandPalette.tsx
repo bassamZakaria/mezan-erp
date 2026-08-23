@@ -47,7 +47,7 @@ export function CommandPalette({ open, onOpenChange, items, placeholder }: Comma
 
   return (
     <div className="fixed inset-0 z-[80] flex items-start justify-center px-4 pb-4 pt-[9vh]">
-      <div aria-hidden="true" onClick={() => onOpenChange(false)} className="fixed inset-0 bg-[rgba(8,18,14,0.5)] backdrop-blur-[2px]" />
+      <div aria-hidden="true" onClick={() => onOpenChange(false)} className="fixed inset-0 bg-scrim backdrop-blur-[2px]" />
       <div
         role="dialog"
         aria-modal="true"

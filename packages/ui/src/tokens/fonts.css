@@ -1,8 +1,9 @@
 /*
- * Google Fonts — Cairo (display), IBM Plex Sans Arabic (UI), IBM Plex Sans
- * (Latin UI), IBM Plex Mono (figures / tabular-nums).
+ * Google Fonts — Tajawal (display/headings), Reem Kufi (wordmark + eyebrow
+ * signature face), IBM Plex Sans Arabic (body UI), IBM Plex Sans (Latin UI),
+ * IBM Plex Mono (figures / tabular-nums).
  *
  * Loaded via @import so this file is the single place that pulls fonts in —
  * consumers only need to import "@mezan/ui/styles.css" once.
  */
-@import url("https://fonts.googleapis.com/css2?family=Cairo:wght@500;600;700;800&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=Reem+Kufi:wght@500;600;700&family=Tajawal:wght@500;700;800&display=swap");

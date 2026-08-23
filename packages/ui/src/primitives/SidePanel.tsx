@@ -58,7 +58,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         aria-hidden="true"
         onClick={onClose}
         className={cn(
-          "fixed inset-0 z-[60] bg-[rgba(8,18,14,0.44)] backdrop-blur-[2px] transition-opacity duration-200",
+          "fixed inset-0 z-[60] bg-scrim backdrop-blur-[2px] transition-opacity duration-200",
           open ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0",
         )}
       />

@@ -69,7 +69,7 @@ export function TopbarMenu({ label, trigger, children, panelClassName }: TopbarM
           role="menu"
           aria-label={label}
           className={cn(
-            "absolute top-[calc(100%+8px)] end-0 z-30 w-[300px] overflow-hidden rounded-lg border border-border bg-surface shadow-[0_14px_38px_-12px_rgba(0,0,0,0.34)]",
+            "absolute top-[calc(100%+8px)] end-0 z-30 w-[300px] overflow-hidden rounded-lg border border-border bg-surface shadow-2",
             panelClassName,
           )}
         >

@@ -9,6 +9,14 @@ business rule is compared against the actual implementation in `packages/domain/
 gaps are unambiguous at the code level. **This document is a report only; no feature code
 was changed.**
 
+> **Post-audit note (2026-08-23, later the same day):** this audit was written just before two
+> merges landed on `main` — the **financial-statement report family** (income statement, balance
+> sheet, cash flow, VAT return, general/account ledger) and the **inventory-operations** screens
+> (stock adjustments, transfers, physical counts, stock balance). Both are counted as gaps below
+> and should be read as closed; the inventory-ops screens are, however, still domain-in-browser
+> rather than API-backed (see `docs/web-data-wiring.md`). The parity percentage below has not been
+> recomputed — treat it as a floor, not a current figure.
+
 Status legend: **Full** = domain + API + persistence + wired web screen all present ·
 **Partial** = some layers present (e.g. backend engine but no UI, or UI on demo data,
 or feature computed but not applied) · **Missing** = absent across all layers.

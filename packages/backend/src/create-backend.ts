@@ -20,6 +20,7 @@ import {
   stockTransferDocumentType,
   createInventoryOpsStockHook,
   createInventoryGlPostingHook,
+  PAYROLL_GL_ACCOUNTS,
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
   computeInvoiceTotals,
@@ -92,10 +93,13 @@ import {
   createSqliteContractRepository,
   createSqliteHolidayRepository,
   createSqliteAttendanceRepository,
+  createSqliteEmployeeAdvanceRepository,
   createSqliteLeaveAccrualBatchRepository,
   createSqliteLeaveBalanceRepository,
   createSqliteLeavePolicyRepository,
   createSqliteLeaveRequestRepository,
+  createSqlitePayrollRunRepository,
+  createSqlitePayslipRepository,
   createSqliteWritedownRunRepository,
   createSqliteProductTemplateStore,
   createSqliteNotificationRuleStore,
@@ -116,6 +120,7 @@ import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
 import { seedDemoTenant } from "./demo-seed.js";
+import { createHrTreasuryDisbursementPort } from "./hr-treasury-disbursement.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -425,6 +430,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const hrLeavePolicies = createSqliteLeavePolicyRepository(sqlite);
   const hrLeaveBalances = createSqliteLeaveBalanceRepository(sqlite);
   const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
+  const hrAdvances = createSqliteEmployeeAdvanceRepository(sqlite);
+  const hrPayrollRuns = createSqlitePayrollRunRepository(sqlite);
+  const hrPayslips = createSqlitePayslipRepository(sqlite);
 
   // --- w8/notifications — قواعد الإشعارات rules engine. ONE EventBus for the
   // whole backend; the engine subscribes to every event and (per rule) writes
@@ -631,6 +639,20 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
   });
+  const hrTreasuryDisbursement = createHrTreasuryDisbursementPort({
+    documents: vouchers.documents,
+    ledger,
+    accounts,
+    periods: fiscalPeriods,
+    numbering: ledger.numbering,
+    treasuryAccounts,
+    allocations: vouchers.allocations,
+    invoices: vouchers.invoices,
+    settings,
+    resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+    audit: auditSink,
+  });
+
   async function vanTripTreasuryTransfer(input: TreasuryTransferInput): Promise<void> {
     const [from, to] = await Promise.all([
       treasuryAccounts.findById(input.fromTreasuryAccountId),
@@ -767,6 +789,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       leaveBalances: hrLeaveBalances,
       leaveAccrualBatches: hrLeaveAccrualBatches,
       workflow: { configs: workflowConfigs, requests: approvalRequests },
+      payroll: {
+        advances: hrAdvances,
+        runs: hrPayrollRuns,
+        payslips: hrPayslips,
+        gl: salesInvoiceGl,
+        accounts: PAYROLL_GL_ACCOUNTS,
+        treasury: hrTreasuryDisbursement,
+      },
       users: uow.users,
       numbering: ledger.numbering,
     },

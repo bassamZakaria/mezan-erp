@@ -10,6 +10,9 @@ import {
   canTransitionPayrollRun,
   inclusiveDays,
   payrollPeriodBounds,
+  type PayrollEmployeeNotice,
+  type PayrollEmployeeNoticeOutcome,
+  type PayrollEmployeeNoticeReason,
   type PayrollRun,
   type PayrollRunRepository,
   type Payslip,
@@ -45,7 +48,12 @@ import {
  * employer share), overtime, seniority bonuses, end-of-service. The catalog
  * specifies no formula for any of them, so this engine produces no line for
  * them rather than a plausible-looking wrong one. They slot in as additional
- * `PayslipLine`s when their rules are actually specified.
+ * `PayslipLine`s when their rules are actually specified, and are enumerated
+ * for the screens in `PAYROLL_UNIMPLEMENTED_RULES`.
+ *
+ * Every warning that belongs to ONE employee is also recorded structurally in
+ * `run.employeeNotices` so the UI can mark that employee's row as excluded or
+ * approximated instead of burying it in a list of strings.
  */
 
 export interface PayrollNumbering {
@@ -110,6 +118,7 @@ export async function createPayrollRun(
     totalNet: Money.zero(),
     unpaidLeaveSource: "none",
     warnings: [],
+    employeeNotices: [],
     journalEntryId: null,
     disbursementVoucherId: null,
     calculatedAt: null,
@@ -169,6 +178,24 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   const idGen = deps.idGen ?? (() => `${runId}:${Math.random().toString(36).slice(2)}`);
   const periodDays = inclusiveDays(run.periodStart, run.periodEnd);
   const warnings: string[] = [];
+  const employeeNotices: PayrollEmployeeNotice[] = [];
+
+  function note(
+    employee: EmployeeRef,
+    outcome: PayrollEmployeeNoticeOutcome,
+    reason: PayrollEmployeeNoticeReason,
+    messageAr: string,
+  ): void {
+    employeeNotices.push({
+      employeeId: employee.id,
+      employeeCode: employee.code,
+      employeeNameAr: employee.fullNameAr,
+      outcome,
+      reason,
+      messageAr,
+    });
+    warnings.push(`${employee.fullNameAr} (${employee.code}): ${messageAr}`);
+  }
 
   const employees = (await deps.employees.listActive()).filter((e) => run.branchId === null || e.branchId === run.branchId);
 
@@ -176,29 +203,44 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
   for (const employee of employees) {
     const contract = pickContract(await deps.contracts.listByEmployeeId(employee.id), run.periodStart, run.periodEnd);
     if (!contract) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): لا يوجد عقد ساري خلال الفترة — تم استبعاده.`);
+      note(employee, "excluded", "no_active_contract", "لا يوجد عقد ساري خلال الفترة — تم استبعاده.");
       continue;
     }
     if (contract.payBasis !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${contract.payBasis}" يحتاج بيانات حضور — تم استبعاده.`);
+      note(
+        employee,
+        "excluded",
+        "pay_basis_unsupported",
+        `أساس الدفع "${contract.payBasis}" يحتاج بيانات حضور — تم استبعاده.`,
+      );
       continue;
     }
     if (contract.currency !== run.currency) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): عملة العقد (${contract.currency}) تختلف عن عملة الدورة (${run.currency}) — تم استبعاده.`);
+      note(
+        employee,
+        "excluded",
+        "currency_mismatch",
+        `عملة العقد (${contract.currency}) تختلف عن عملة الدورة (${run.currency}) — تم استبعاده.`,
+      );
       continue;
     }
     if (contract.payFrequency !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): تكرار الدفع "${contract.payFrequency}" — احتُسب راتب شهر كامل للفترة.`);
+      note(
+        employee,
+        "approximated",
+        "pay_frequency_unsupported",
+        `تكرار الدفع "${contract.payFrequency}" — احتُسب راتب شهر كامل للفترة.`,
+      );
     }
     const paidStart = maxDate(maxDate(run.periodStart, contract.startDate), employee.hireDate);
     const paidEnd = minDate(run.periodEnd, contract.endDate ?? run.periodEnd);
     const paidDays = inclusiveDays(paidStart, paidEnd);
     if (paidDays <= 0) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): لا توجد أيام مستحقة خلال الفترة — تم استبعاده.`);
+      note(employee, "excluded", "no_payable_days", "لا توجد أيام مستحقة خلال الفترة — تم استبعاده.");
       continue;
     }
     if (paidDays < periodDays) {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);
+      note(employee, "approximated", "prorated_period", `احتُسب ${paidDays} من ${periodDays} يوماً بالتناسب.`);
     }
     inputs.push({ employee, contract, paidDays });
   }
@@ -276,7 +318,12 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     for (const advance of advances) {
       if (available <= 0n) break;
       if (advance.currency !== run.currency) {
-        warnings.push(`${employee.fullNameAr} (${employee.code}): السلفة ${advance.number} بعملة ${advance.currency} — لم تُخصم.`);
+        note(
+          employee,
+          "approximated",
+          "advance_currency_mismatch",
+          `السلفة ${advance.number} بعملة ${advance.currency} — لم تُخصم.`,
+        );
         continue;
       }
       const due = amountDueBy(advance, run.periodEnd).scaled;
@@ -284,7 +331,12 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       const take = due < available ? due : available;
       available -= take;
       if (take < due) {
-        warnings.push(`${employee.fullNameAr} (${employee.code}): قسط السلفة ${advance.number} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`);
+        note(
+          employee,
+          "approximated",
+          "advance_partially_recovered",
+          `قسط السلفة ${advance.number} خُصم جزئياً بحدود صافي الراتب المتاح — يُرحّل الباقي.`,
+        );
       }
       lines.push({
         id: idGen(),
@@ -334,6 +386,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     totalNet: Money.sum(payslips.map((p) => p.netPay)),
     unpaidLeaveSource: deps.unpaidLeave ? "provider" : "none",
     warnings,
+    employeeNotices,
     calculatedAt: now,
   };
   await deps.runs.update(calculated);
@@ -356,6 +409,7 @@ export async function cancelPayrollRun(runId: string, deps: Pick<PayrollCalculat
     totalDeductions: Money.zero(),
     totalEmployerContributions: Money.zero(),
     totalNet: Money.zero(),
+    employeeNotices: [],
     cancelledAt: deps.now?.() ?? new Date().toISOString(),
   };
   await deps.runs.update(cancelled);

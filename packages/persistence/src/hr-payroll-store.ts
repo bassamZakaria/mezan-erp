@@ -6,6 +6,7 @@ import {
   type EmployeeAdvance,
   type EmployeeAdvanceRepository,
   type EmployeeAdvanceStatus,
+  type PayrollEmployeeNotice,
   type PayrollRun,
   type PayrollRunRepository,
   type PayrollRunStatus,
@@ -222,6 +223,7 @@ CREATE TABLE IF NOT EXISTS hr_payroll_run (
   total_net                     INTEGER NOT NULL,
   unpaid_leave_source           TEXT NOT NULL,
   warnings_json                 TEXT NOT NULL,
+  employee_notices_json         TEXT NOT NULL DEFAULT '[]',
   journal_entry_id              TEXT,
   disbursement_voucher_id       TEXT,
   calculated_at                 TEXT,
@@ -250,6 +252,7 @@ interface PayrollRunRow {
   total_net: number;
   unpaid_leave_source: string;
   warnings_json: string;
+  employee_notices_json: string | null;
   journal_entry_id: string | null;
   disbursement_voucher_id: string | null;
   calculated_at: string | null;
@@ -278,6 +281,7 @@ function toPayrollRun(row: PayrollRunRow): PayrollRun {
     totalNet: Money.fromScaled(row.total_net),
     unpaidLeaveSource: row.unpaid_leave_source === "provider" ? "provider" : "none",
     warnings: JSON.parse(row.warnings_json) as string[],
+    employeeNotices: JSON.parse(row.employee_notices_json ?? "[]") as PayrollEmployeeNotice[],
     journalEntryId: row.journal_entry_id,
     disbursementVoucherId: row.disbursement_voucher_id,
     calculatedAt: row.calculated_at,
@@ -301,14 +305,14 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
       INSERT INTO hr_payroll_run (
         id, number, year, month, period_start, period_end, branch_id, currency, status, employee_count,
         total_gross, total_deductions, total_employer_contributions, total_net, unpaid_leave_source,
-        warnings_json, journal_entry_id, disbursement_voucher_id, calculated_at, approved_at, approved_by,
-        disbursed_at, cancelled_at, created_at
+        warnings_json, employee_notices_json, journal_entry_id, disbursement_voucher_id, calculated_at, approved_at,
+        approved_by, disbursed_at, cancelled_at, created_at
       )
       VALUES (
         @id, @number, @year, @month, @period_start, @period_end, @branch_id, @currency, @status, @employee_count,
         @total_gross, @total_deductions, @total_employer_contributions, @total_net, @unpaid_leave_source,
-        @warnings_json, @journal_entry_id, @disbursement_voucher_id, @calculated_at, @approved_at, @approved_by,
-        @disbursed_at, @cancelled_at, @created_at
+        @warnings_json, @employee_notices_json, @journal_entry_id, @disbursement_voucher_id, @calculated_at, @approved_at,
+        @approved_by, @disbursed_at, @cancelled_at, @created_at
       )
       ON CONFLICT(id) DO UPDATE SET
         status = excluded.status,
@@ -319,6 +323,7 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
         total_net = excluded.total_net,
         unpaid_leave_source = excluded.unpaid_leave_source,
         warnings_json = excluded.warnings_json,
+        employee_notices_json = excluded.employee_notices_json,
         journal_entry_id = excluded.journal_entry_id,
         disbursement_voucher_id = excluded.disbursement_voucher_id,
         calculated_at = excluded.calculated_at,
@@ -375,6 +380,7 @@ class SqlitePayrollRunRepository implements PayrollRunRepository {
       total_net: run.totalNet.toScaledNumber(),
       unpaid_leave_source: run.unpaidLeaveSource,
       warnings_json: JSON.stringify(run.warnings),
+      employee_notices_json: JSON.stringify(run.employeeNotices),
       journal_entry_id: run.journalEntryId,
       disbursement_voucher_id: run.disbursementVoucherId,
       calculated_at: run.calculatedAt,
@@ -576,11 +582,23 @@ export function createSqliteEmployeeAdvanceRepository(path: SqliteConnectionInpu
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteEmployeeAdvanceRepositoryHandle;
 }
 
+/**
+ * `employee_notices_json` was added after the table shipped; CREATE TABLE IF
+ * NOT EXISTS will not add it to an existing database, so widen it in place.
+ */
+function addMissingPayrollRunColumns(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(hr_payroll_run)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "employee_notices_json")) {
+    sqlite.exec(`ALTER TABLE hr_payroll_run ADD COLUMN employee_notices_json TEXT NOT NULL DEFAULT '[]'`);
+  }
+}
+
 /** Open a SQLite-backed PayrollRunRepository. */
 export function createSqlitePayrollRunRepository(path: SqliteConnectionInput = ":memory:"): SqlitePayrollRunRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_PAYROLL_RUN);
+  addMissingPayrollRunColumns(sqlite);
   const repo = new SqlitePayrollRunRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollRunRepositoryHandle;
 }

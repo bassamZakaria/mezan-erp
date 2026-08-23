@@ -12,8 +12,22 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { ETA_BUYER_TYPES } from "@mezan/domain";
-import type { CustomerDTO, EtaBuyerTypeDTO } from "@mezan/contracts";
-import { useCreateCustomer, useCustomers, useUpdateCustomer } from "../data/hooks";
+import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
+import {
+  useCreateCustomer,
+  useCustomers,
+  useSalesInvoices,
+  useSalesReturns,
+  useUpdateCustomer,
+  useVouchers,
+} from "../data/hooks";
+import {
+  agingBucketsFor,
+  moneyFromNumber,
+  moneyToNumber,
+  parseMoney,
+  useCustomerAging,
+} from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 
 /**
@@ -21,10 +35,11 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
  * Customer master)". List + detail (DocumentList/DocumentDetail) + add/edit
  * form (SidePanel), backed by the real `/customers` API.
  *
- * The invoices/statement rollup and the running "مديونية العميل" balance are
- * Phase-2 (document) work — the الفواتير/كشف حساب/المرفقات tabs below render
- * as explicit stubs; only the customer master record itself (incl. its
- * `openingBalance`) is real.
+ * The الفواتير tab reads `GET /sales-invoices?customerId=…`; كشف حساب builds
+ * a running AR balance from that customer's own movements (opening balance +
+ * invoices + confirmed sales returns + confirmed treasury vouchers) and
+ * reconciles the closing figure against `GET /reports/aging/customers`.
+ * المرفقات has no backing subsystem at all — see `AttachmentsTab`.
  */
 
 const ETA_BUYER_TYPE_LABEL: Record<EtaBuyerTypeDTO, string> = {

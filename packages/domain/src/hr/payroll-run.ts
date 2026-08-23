@@ -14,8 +14,9 @@ import type { Money } from "../money/index.js";
  * social-insurance shares) can be added later as configured line producers
  * WITHOUT changing the payslip, the posting, or the screens. The catalog
  * specifies no Egyptian tax or social-insurance formula, so this build
- * computes none — see docs/catalog/06 §"الرواتب" and the report accompanying
- * this phase for the exhaustive list of unimplemented rules.
+ * computes none — `PAYROLL_UNIMPLEMENTED_RULES` below is the exhaustive,
+ * machine-readable list of what is missing, and the screens render it beside
+ * every net figure so a net is never read as if it were final.
  */
 
 export type PayrollRunStatus = "draft" | "calculated" | "approved" | "disbursed" | "cancelled";
@@ -48,6 +49,94 @@ export const ALLOWED_PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly 
 
 export function canTransitionPayrollRun(from: PayrollRunStatus, to: PayrollRunStatus): boolean {
   return ALLOWED_PAYROLL_RUN_TRANSITIONS[from].includes(to);
+}
+
+/**
+ * The statutory/contractual rules this build does NOT compute, as data.
+ *
+ * A payslip with no tax line is indistinguishable from a payslip whose tax is
+ * zero, so the scope of the engine has to be readable next to the net figure
+ * it produces. Every entry here corresponds to a rule the catalog never
+ * specified a formula for; adding a producer for one means deleting its entry.
+ */
+export interface PayrollUnimplementedRule {
+  readonly code: string;
+  readonly labelAr: string;
+  readonly detailAr: string;
+}
+
+export const PAYROLL_UNIMPLEMENTED_RULES: readonly PayrollUnimplementedRule[] = [
+  {
+    code: "income_tax",
+    labelAr: "ضريبة كسب العمل",
+    detailAr: "لا تُحتسب الشرائح ولا الإعفاءات ولا التسوية السنوية، ولا يظهر أي بند ضريبي في كشف الراتب.",
+  },
+  {
+    code: "social_insurance",
+    labelAr: "التأمينات الاجتماعية",
+    detailAr: "لا تُحتسب حصة الموظف ولا حصة صاحب العمل؛ بند «مساهمة صاحب العمل» يبقى فارغاً دائماً.",
+  },
+  {
+    code: "seniority_bonus",
+    labelAr: "علاوة الأقدمية (المادة 47)",
+    detailAr: "سنوات الخدمة السابقة مسجّلة على الموظف، لكن لم تُحدَّد نسبة العلاوة فلا يصدر لها بند.",
+  },
+  {
+    code: "overtime",
+    labelAr: "أجر العمل الإضافي",
+    detailAr: "ساعات الحضور لا تنتقل إلى الرواتب، ولم يُحدَّد معامل احتساب الساعة الإضافية.",
+  },
+  {
+    code: "hourly_daily_basis",
+    labelAr: "الأجر بالساعة أو باليوم",
+    detailAr: "العقود بأساس دفع «بالساعة» أو «باليوم» تُستبعد من الدورة ولا يصدر لها كشف راتب.",
+  },
+  {
+    code: "pay_frequency",
+    labelAr: "الدفع الأسبوعي أو نصف الشهري",
+    detailAr: "يُحتسب راتب شهر كامل للفترة أياً كان تكرار الدفع المسجّل على العقد.",
+  },
+  {
+    code: "end_of_service",
+    labelAr: "مكافأة نهاية الخدمة والراتب الثالث عشر",
+    detailAr: "لا تُحتسب مستحقات نهاية الخدمة ولا المكافآت السنوية.",
+  },
+  {
+    code: "loans_garnishments",
+    labelAr: "القروض والحجز على الراتب",
+    detailAr: "لا يُخصم سوى أقساط سلف الموظفين؛ القروض الأخرى والحجوزات القضائية غير مدعومة.",
+  },
+  {
+    code: "multi_currency",
+    labelAr: "الرواتب متعددة العملات",
+    detailAr: "العقد بعملة تختلف عن عملة الدورة يُستبعد؛ لا يوجد تحويل بسعر صرف.",
+  },
+] as const;
+
+/** Whether the employee got no payslip at all, or got one computed on an assumption. */
+export type PayrollEmployeeNoticeOutcome = "excluded" | "approximated";
+
+export type PayrollEmployeeNoticeReason =
+  | "no_active_contract"
+  | "pay_basis_unsupported"
+  | "currency_mismatch"
+  | "no_payable_days"
+  | "pay_frequency_unsupported"
+  | "prorated_period"
+  | "advance_currency_mismatch"
+  | "advance_partially_recovered";
+
+/**
+ * A run-level warning attributed to ONE employee, so the UI can put it on that
+ * employee's row instead of only in a bucket of strings at the top of the run.
+ */
+export interface PayrollEmployeeNotice {
+  readonly employeeId: string;
+  readonly employeeCode: string;
+  readonly employeeNameAr: string;
+  readonly outcome: PayrollEmployeeNoticeOutcome;
+  readonly reason: PayrollEmployeeNoticeReason;
+  readonly messageAr: string;
 }
 
 /** What a payslip line does to the net: adds to it, takes from it, or is an employer-side cost that never touches it. */
@@ -125,6 +214,8 @@ export interface PayrollRun {
   readonly unpaidLeaveSource: "none" | "provider";
   /** Employees skipped, inputs missing, assumptions applied — surfaced verbatim in the UI. */
   readonly warnings: readonly string[];
+  /** The subset of `warnings` that belongs to one identified employee, structured so it can be rendered on that employee's row. */
+  readonly employeeNotices: readonly PayrollEmployeeNotice[];
   readonly journalEntryId: string | null;
   readonly disbursementVoucherId: string | null;
   readonly calculatedAt: string | null;

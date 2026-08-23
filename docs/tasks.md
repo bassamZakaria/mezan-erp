@@ -191,3 +191,45 @@ Not started. Postgres dialect + dual-engine conformance suite, cloud JWT + refre
 - 🟡 **Bug-hunt sweep** — active pass looking for functional defects across the app, cross-checked against the known-defects list in `docs/backlog.md` §8 so they aren't silently reintroduced.
 - 🟡 **E2E stabilization** — several `test/e2e-*` worktrees mid-flight; needs consolidation into one green, deterministic Playwright suite.
 - ⬜ **Open product decisions** (`docs/backlog.md` §5, `docs/plan.md` §6.3) — licensing mechanism finalization, installment late-fee rule, FIFO-in-v1 scope, delivery notes, branch-scoped numbering, lead→opportunity conversion mechanism, projects progress billing (مستخلصات), third locale (German) — none block ongoing development, but each blocks calling its specific issue fully "done."
+
+---
+
+## Live parity re-audit — 2026-08-23
+
+A live side-by-side pass against the reference app (`staging.getzemam.com`) replaced
+the earlier documentation-derived audit. Full findings: `docs/coverage-audit.md`.
+Headline: **73 of 126 reference screens exist (58%)**; every built screen routes,
+renders and has a working save action.
+
+### Fixed in that pass (commit `bf34587`)
+
+- ✅ Session now survives a page refresh (`App`'s `mode` ignored the restored session).
+- ✅ The 6 dashboard quick actions navigate (were rendered with no `onClick`).
+- ✅ The command palette is generated from the real nav — 84 entries, all navigating
+  (was 4 items with `onSelect: () => {}`).
+- ✅ A user menu with تسجيل الخروج exists (there was **no logout anywhere** in the app).
+- ✅ The notification bell's hardcoded badge of 3 is gone; the count comes from a real
+  (empty) list and the bell opens a panel with a truthful empty state.
+
+### Fake surfaces still shipped — must be wired or removed
+
+Branch chip · Branches screen · Warehouses screen · General settings (never PUTs) ·
+Trial Balance · the 7 Financial Reports tabs · the 4 inventory-ops screens · the 5
+accounting-depth screens · users/roles scope pickers · role-editor entitlements ·
+login-screen module chips advertising POS and HR · first-run "استيراد الآن" ·
+customer/supplier/branch "قريباً" detail tabs · Print Templates (preview only) ·
+the README's "i18n (ar/en)" claim (**there is no i18n layer at all**).
+
+### Newly identified gaps not previously tracked
+
+- ⬜ `/inventory/specifications` — reusable specification/attribute registry
+  (name, type, values, unit, filterable-in-catalog). **Not in `docs/catalog/` at all**;
+  found live.
+- ⬜ `/approvals` — approvals inbox (Inbox / My Requests / My Actions).
+- ⬜ `/status` — system status page (per-service health, incident timeline, changelog).
+- ⬜ Support tickets — open a ticket, follow the thread, read replies.
+- ⬜ Language switcher — blocked on there being no i18n layer.
+- ⬜ Working branch and warehouse selectors in the topbar.
+- ⬜ `/manufacturing/dashboard` — the `GET /dashboard` route exists; no screen.
+- ⬜ 7 missing reports: sales-by-salesperson, van sales, promotions report,
+  expiring-soon (FEFO), make-vs-buy, POS daily, POS shifts.

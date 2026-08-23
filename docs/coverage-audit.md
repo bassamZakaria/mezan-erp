@@ -1,372 +1,178 @@
-# Mezan ERP — Coverage / Parity Audit vs. Reference App
+# Mezan ERP — Coverage / Parity Audit vs. the Reference App (live pass)
 
-**Date:** 2026-08-23 · **Branch:** `audit/coverage` · **Author:** Bassam Zakaria
-**Method:** The catalog under `docs/catalog/01..10` (125-screen census in `10-verification.md`)
-is treated as the authoritative spec of the reference app. Each screen / tab / model /
-business rule is compared against the actual implementation in `packages/domain/src/*`,
-`packages/api/src/*`, `packages/persistence/src/*`, and `apps/web/src/*`
-(`ROUTABLE_SCREENS` in `App.tsx`). Live Playwright spot-checks were not required — the
-gaps are unambiguous at the code level. **This document is a report only; no feature code
-was changed.**
+**Date:** 2026-08-23 · **Base:** `main` @ `74a30f1` · **Author:** Bassam Zakaria
+**Supersedes:** `coverage-audit-2026-08-23-static.md` (documentation-derived; already
+stale on the inventory-ops and financial-statement screens).
 
-> **Post-audit note (2026-08-23, later the same day):** this audit was written just before two
-> merges landed on `main` — the **financial-statement report family** (income statement, balance
-> sheet, cash flow, VAT return, general/account ledger) and the **inventory-operations** screens
-> (stock adjustments, transfers, physical counts, stock balance). Both are counted as gaps below
-> and should be read as closed; the inventory-ops screens are, however, still domain-in-browser
-> rather than API-backed (see `docs/web-data-wiring.md`). The parity percentage below has not been
-> recomputed — treat it as a floor, not a current figure.
+**Method — live, both apps side by side in one Chrome tab group:**
 
-Status legend: **Full** = domain + API + persistence + wired web screen all present ·
-**Partial** = some layers present (e.g. backend engine but no UI, or UI on demo data,
-or feature computed but not applied) · **Missing** = absent across all layers.
+- Reference (`staging.getzemam.com`), already-authenticated session. Every sidebar
+  group was expanded and the full `<a href>` set read out of the rendered nav —
+  **112 nav-addressable routes**. Strictly read-only: no form was submitted.
+- Mezan (`127.0.0.1:5183` — `pnpm server` + Vite against a freshly seeded SQLite DB,
+  admin محمد الشهابي / PIN 1234). Every one of its **69 nav buttons plus the 6
+  settings entries** was clicked in turn; for each screen the rendered `<main>` was
+  inspected for heading, every button label, "قريباً" stubs, error states, and
+  whether the create flow exposes a commit/save action.
+- The `docs/catalog/01..10` census (125 screens) was used only to name the
+  reference's screens that are real but unlinked from its own sidebar.
 
 ---
 
 ## 0. Headline
 
-> ## Parity: **63%** (139.5 / 222 weighted items)
+> ## Screen parity: **58%** — 73 of 126 reference screens exist in Mezan
 
-Weighting: Full = 1.0, Partial = 0.5, Missing = 0. Universe = 105 unique screens + 33
-reports + 84 audited business rules = 222 items.
+| Axis | Mezan | Reference | Gap |
+|---|---|---|---|
+| Sidebar-addressable screens | 75 | 112 | **39 missing** |
+| Real-but-unlinked screens (8 hubs, profile, API keys, webhooks, WhatsApp, my-leave, POS sell) | 0 | 14 | **14 missing** |
+| Reports in the nav | 18 | 25 | **7 missing** |
+| Total known screens | 76 | 126 | **53 missing** |
 
-| Axis | Full | Partial | Missing | Total | Weighted parity |
-|---|---|---|---|---|---|
-| **Screens** (deduped) | 51 | 12 | 42 | 105 | **54%** (57/105) |
-| **Reports** (catalog 08) | 19 | 1 | 13 | 33 | **59%** (19.5/33) |
-| **Business rules** | 57 | 12 | 15 | 84 | **75%** (63/84) |
-| **Overall** | 127 | 25 | 70 | 222 | **63%** (139.5/222) |
-
-**One-sentence verdict:** Mezan's accounting/costing/document *engines* are strong and
-near-1:1 (business-rule parity 75%), but two entire domains (**POS**, **HR**) are absent,
-the **financial-statement report family** is unbuilt, and a swathe of **operational
-inventory UIs and settings screens** are backend-only or missing — so screen-level parity
-is barely over half.
+**Verdict:** the accounting, costing and document engines are at or near parity, and
+every built screen is reachable and renders without error — but **two whole domains
+(POS, HR) and the entire platform-administration surface** (approvals inbox, workflow
+config, notification rules, sequences, barcode, data migration, API keys, webhooks,
+profile, status, support) do not exist, and **nine built screens still run on
+in-browser demo data** rather than the API.
 
 ---
 
-## 1. Gaps ranked by importance
+## 1. What the live pass proved works
 
-1. **POS domain — entirely absent (0 of 4 layers).** No `packages/domain/src/pos`, no
-   POS API routes, no persistence, no schema tables, no screens. 12 reference screens
-   missing (Terminals, Sessions/Shifts, POS Sales, POS Refunds, Kitchen Display, Table
-   Management, Deliveries, Discount Approvals, Reservations, Shift Settings, POS Selling
-   Screen, POS Hub) plus all POS business rules (session cash reconciliation, POS
-   sale→GL+stock-out, refunds, discount approvals). `pos` exists only as a licensing
-   module id (`permissions/catalog.ts`) and a "قريباً" nav placeholder
-   (`apps/web/src/sample-data.ts:223`). *Note: the reference itself ships the actual
-   selling screen `/pos/sell` on mobile/desktop only — that one screen is NA on web even
-   upstream.*
+- All 75 nav entries route; there is no dead "قريباً" nav placeholder left.
+- No screen threw an error or hit an error boundary on an empty tenant.
+- Every create/edit surface exposes a commit action — either a `<SidePanel>` footer
+  button or a full-page `mode="create"` submit. **No modal, page or section is
+  missing its save button** (39 side-panel screens + 8 full-page create screens
+  checked). The one inconsistency is naming: the confirm button is variously
+  "حفظ …", "إضافة …", "إنشاء …", "تسجيل …" or "بدء …" across screens.
+- Login, PIN entry, seeded-admin auth, theme toggle, sidebar grouping, filter chips,
+  KPI strips, pagination and the RTL logical-CSS rule all behave correctly.
 
-2. **HR domain — entirely absent (0 of 4 layers).** No `hr` domain module, no `hr-routes`,
-   no HR store, no HR schema (`schema.ts`'s only `employeeId` belongs to field-sales van
-   trips). 13 screens missing (HR Dashboard, Employees, Departments, Job Titles,
-   Attendance, Official Holidays, Contracts, Leave Requests, Payroll, Employee Advances,
-   Leave Policies, Leave Accrual Batches, My Leave). A full `hr.*` RBAC permission set
-   exists (`permissions/catalog.ts:228-263`) and `hr` is in `demoActiveModules` — **dead
-   scaffolding gating nothing.** Payroll→GL posting, leave accrual/approval, advances,
-   attendance, Egyptian Labor Law leave presets: all unimplemented.
+## 2. Defects found live — fixed in this pass (commit `bf34587`)
 
-3. **Financial-statement report family — unbuilt.** Of the reference `/accounting/reports`
-   7-tab page, only **Trial Balance** and **Cost-Center P&L** exist. **Income Statement
-   (P&L), Balance Sheet, Cash Flow, VAT Return, General Ledger report, Account Ledger
-   statement** have zero implementation (grep for `incomeStatement`/`balanceSheet`/
-   `cashFlow` is empty). Plus Trial Balance's screen runs on hard-coded sample data
-   (`TrialBalanceReportScreen.tsx:6-25`), not the live posted ledger. This is the single
-   biggest *accounting-output* hole.
-
-4. **5 accounting-depth screens run on an in-browser demo store, not the API.**
-   `FxRevaluationScreen`, `EtaScreen`, `ReconciliationScreen`, `CostCenterPnLScreen`,
-   `ExchangeRatesScreen` import `store/accounting-depth-store.ts` (executes real domain
-   logic in-browser over seed data) instead of `data/hooks`. The other 40 screens are
-   correctly wired to the real HTTP API. Domain + API layers for these 5 are real and
-   independently tested — only the end-to-end UI→API→persistence wiring is absent.
-
-5. **Inventory operational UIs missing / backend-only.** Stock Balance, Stock Transfers,
-   Stock Adjustments are "قريباً" nav placeholders (not in `ROUTABLE_SCREENS`) — the
-   write-side engines and `POST` endpoints exist (`inventory-routes.ts`) but there is no
-   list/detail GET and no screen. Physical Counts has **no engine at all** (only an
-   adjustment reason `PHYSICAL_COUNT`). Product Templates (variant/SKU generator) and
-   Label/Barcode Printing are wholly absent.
-
-6. **Sales pricing/promotions computed but not applied to real documents.** The promotions
-   engine (`promotions/engine.ts`) computes all discount kinds but is wired only to an
-   `/evaluate` preview — never persisted onto confirmed invoices; the Promotions Report
-   endpoint is a zero-returning stub. Price-list `resolvePrice` exists but invoice/quote
-   line-building never invokes it, so an assigned price list does not drive line prices.
-
-7. **Withholding tax absent.** Line VAT and tax-exemption are implemented; no WHT model
-   anywhere (spec references it via ETA buyer-type/national-ID thresholds).
-
-8. **JE approval (`pending`) transition not wired.** `pending` is a declared journal
-   status (`journal.ts:20`) but no submit-for-approval/approve transition or route exists
-   — only draft→posted directly. The spec's draft→pending-approval→posted chain is broken
-   at the pending step. (The generic `workflow/gate.ts` approval engine exists and is used
-   on sales/purchase/returns/landed-cost docs, but is not applied to journals.)
-
-9. **Settings surface is backend-heavy, UI-thin.** Engines for numbering, workflow/
-   approvals, audit, entitlements, and historical import are well-factored, but their
-   config/read **web screens are missing**: no `/settings/sequences`, `/settings/workflow`,
-   `/settings/data-migration`, `/audit` log viewer. Entirely absent: Notification Rules
-   (no engine at all), Barcode, Profile, API Keys, Webhooks, WhatsApp, Shift Settings.
-
-10. **Lower priority:** all 8 domain **Hub landing pages** missing (Sales/Purchases/
-    Inventory/Accounting/Treasury/CRM/Assets/POS) — the reference itself leaves these
-    unlinked from the sidebar. **Projects** is skeletal (master data + budget + auto
-    `PRJ-` cost center only; no cost/revenue rollup or document linkage). **Make-vs-Buy**,
-    **Sales-by-Salesperson**, **Van Sales**, **Expiring-Soon (FEFO)**, **POS Daily/Shift**
-    reports missing. Inventory-valuation→live-GL reconciliation is internal-only.
-
----
-
-## 2. Per-domain detail
-
-### 2.1 Sales (catalog 01)
-
-| Screen / Rule | Status | Evidence / Gap |
+| # | Defect | Evidence |
 |---|---|---|
-| Customers | Full | `screens/CustomersScreen.tsx`; `domain/customers`; `customers-routes.ts`; `customer-repository.ts` |
-| Sales Invoices | Full | `screens/SalesInvoicesScreen.tsx`; `domain/sales-invoices`; `sales-invoices-routes.ts`; `sales-invoice-store.ts` |
-| Quotes | Full | `screens/SalesQuotesScreen.tsx`; `domain/sales-quotes`; `sales-quotes-routes.ts` |
-| Sales Returns | Full | `screens/SalesReturnsScreen.tsx`; `domain/sales-returns` |
-| Van/Rep Trips | Full | `screens/VanTripsScreen.tsx`; `domain/field-sales`; `van-trip-store.ts` |
-| Price Lists | Full | `screens/PriceListsScreen.tsx`; `domain/price-lists/pricing.ts` |
-| Promotions | Full | `screens/PromotionsScreen.tsx`; `domain/promotions/engine.ts` |
-| Promotions Report | Partial | `promotions-routes.ts:85` is a zero stub; no web screen |
-| Sales Hub `/sales/hub` | Missing | no screen/route/nav key |
-| Rule: Invoice GL (AR/revenue/VAT/COGS/inventory) | Full | `sales-invoices/gl.ts:41` — 4 balanced legs |
-| Rule: WAC on delivery/COGS | Full | `sales-invoices/service.ts:221` via `stock.issue` moving-avg |
-| Rule: Credit-limit BLOCK gate on confirm | Full | `sales-invoices/service.ts:288` `CreditLimitExceededError`; `credit-control/credit-check.ts:50` |
-| Rule: Sales-return GL reversal + restock at WAC | Full | `sales-returns/sales-return-document.ts:146` |
-| Rule: Quote → Invoice conversion | Full | `sales-quotes-routes.ts:287` |
-| Rule: Line tax / exemption | Full | `sales-invoices/totals.ts:131` |
-| Rule: Withholding tax | Missing | no WHT logic anywhere |
-| Rule: Price-list auto-applied to lines | Partial | `resolvePrice` exists but not invoked during line build |
-| Rule: Promotions applied/persisted to invoices | Partial | engine computes; only `/evaluate` preview, never persisted |
+| 1 | **Page refresh silently logged the user out.** `mezan.session` was persisted and restored by `ApiProvider`, but `App`'s `mode` always initialised to `"login"`. | Reloaded `/` → login screen, with a valid `mezan.session` in localStorage |
+| 2 | **All 6 dashboard quick actions were dead** (فاتورة جديدة, سند نقدي, استلام بضاعة, فاتورة مشتريات جديدة, أمر شراء جديد, عرض سعر) — rendered with no `onClick`. | `DashboardScreen.tsx:77`; clicking changed nothing |
+| 3 | **All 4 command-palette entries were dead** — `commandItems` ended in `.map(item => ({ ...item, onSelect: () => {} }))`. | `sample-data.ts:176`; selecting "دليل الحسابات" just closed the palette |
+| 4 | **No way to sign out.** The topbar user chip had no menu, and no logout existed anywhere in the app. | `Topbar.tsx:103` — a plain `<button>` with no handler |
+| 5 | **Fake notification badge.** `notificationCount={3}` was hardcoded with nothing behind it, and the bell opened nothing. | `App.tsx:345`, `Topbar.tsx:93` |
 
-### 2.2 Purchases (catalog 02)
+Fixes: session restore now honours the persisted session; a small `NavigationContext`
+wires the dashboard actions; the command palette is generated from the real nav tree
+(84 entries, all navigating); the user chip opens a menu with تسجيل الخروج that
+clears the session; the bell count derives from a real (currently empty)
+`notifications` list and opens a panel with a truthful empty state.
 
-| Screen / Rule | Status | Evidence / Gap |
+## 3. Fake / placeholder surfaces still in the app
+
+Everything below renders convincingly but is **not backed by the API**. Each must be
+wired or removed before this is demonstrated as a working product.
+
+| Surface | What is fake | Where |
 |---|---|---|
-| Suppliers | Full | `screens/SuppliersScreen.tsx`; `domain/suppliers`+`partners` |
-| RFQs | Full | `screens/RfqsScreen.tsx`; `domain/purchasing/rfq.ts`; `rfq-store.ts` |
-| Purchase Orders | Full | `screens/PurchaseOrdersScreen.tsx`; `domain/purchasing`; `purchasing-stores.ts` |
-| Goods Receipts | Full | `screens/GoodsReceiptsScreen.tsx`; `purchasing/goods-receipt.ts` |
-| Purchase Invoices | Full | `screens/PurchaseInvoicesScreen.tsx`; `purchasing/purchase-invoice.ts` |
-| Purchase Returns | Full | `screens/PurchaseReturnsScreen.tsx`; `domain/purchase-returns` |
-| Landed Costs | Full | `screens/LandedCostsScreen.tsx`; `domain/landed-costs` |
-| Purchases Hub `/purchases/hub` | Missing | no screen/route |
-| Rule: PO→GR→PI auto-populate from parent | Full | `goods-receipt.ts:138`; `purchase-invoice.ts:219` |
-| Rule: GRN stock-in at cost | Full | `goods-receipt.ts:299` → `stock.postReceipt` |
-| Rule: PI GL (inventory/expense Dr, VAT Dr, AP Cr) | Full | `purchase-invoice.ts:326-335` |
-| Rule: Landed-cost allocation → WAC | Full | `landed-costs/distribution.ts:53`; revalues on confirm |
-| Rule: Purchase-return GL + stock-out at cost | Full | `purchase-returns/purchase-return-document.ts:120` |
-| Rule: RFQ workflow + RFQ→PO | Full | `purchasing/rfq.ts:323` |
-| Rule: Historical import (payable only, no JE/stock) | Full | `purchasing/historical-import.ts:9` |
-| Rule: Per-supplier payable subledger / statement | Partial | AP at GL-account level only; no per-supplier balance rollup |
+| Branch chip "الفرع الرئيسي" | Static string — not a selector, scopes nothing | `App.tsx:344` |
+| Warehouse selector | Absent entirely (the reference has one next to the branch selector) | — |
+| Branches screen | Whole screen on `settings/sample-data.ts`; branch detail invents treasury balances (`CASH-002 … ٣٣٨٫٠٠`) | `settings/BranchesPage.tsx` |
+| Warehouses screen | Whole screen on `sampleWarehouses` with an in-memory `nextId` | `settings/WarehousesPage.tsx` |
+| General settings | Edits live in local state; "حفظ الإعدادات" validates but never PUTs | `settings/SettingsGeneral.tsx` |
+| Trial Balance report | Runs over `sampleReportAccounts` / `sampleReportJournalEntries`, not the posted ledger | `screens/TrialBalanceReportScreen.tsx` |
+| Financial Reports (7 tabs) | Runs over `financialStatementAccounts` / `financialStatementEntries` | `screens/FinancialReportsScreen.tsx` |
+| Stock Balance / Transfers / Adjustments / Physical Counts | Real domain logic executed in-browser over `store/inventory-ops-store.ts`; nothing persists | 4 screens |
+| Exchange Rates / FX Revaluation / Reconciliation / Cost-Center P&L / ETA | Same pattern via `store/accounting-depth-store.ts` | 5 screens |
+| Users/roles branch + warehouse scope pickers | Fed by `demoBranches` / `demoWarehouses` / `demoEmployees` | `App.tsx:233` |
+| Role-editor entitlements | `demoEntitlements` lists POS + HR as licensed modules that do not exist | `sample-data.ts:233` |
+| Login screen module chips | Advertise نقاط البيع and الموارد البشرية as licensed | `login/LoginScreen.tsx` |
+| First-run wizard "استيراد الآن" | Disabled button + "قريباً" pill | `login/FirstRunWizard.tsx:281` |
+| Customer / Supplier detail tabs | الفواتير / كشف حساب / المرفقات are "قريباً" stubs | `CustomersScreen.tsx:38`, `SuppliersScreen.tsx:34` |
+| Branch detail tabs | Inventory / Employees / Assets / Activity are "قريباً" stubs | `settings/BranchesPage.tsx:20` |
+| Print Templates | A preview of one default template; no designer, no save | `settings/PrintTemplatesPage.tsx` |
+| README's "i18n (ar/en)" claim | **There is no i18n layer at all** — `lang` is hardcoded to `ar` and every string is an inline Arabic literal | `main.tsx:11` |
 
-### 2.3 Inventory (catalog 03)
+## 4. Missing screens (53)
 
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| Items | Full | `screens/ItemsScreen.tsx`; `domain/items`; `items-routes.ts` |
-| Configurable Products | Full | `screens/ConfigurableProductsScreen.tsx`; `manufacturing/configurable-product.ts` |
-| Product Templates (variant generator) | Missing | no domain/API/screen |
-| Stock Balance | Partial | nav placeholder, not routable; only `GET /balance` per-position; no overview UI |
-| Stock Transfers | Partial | `POST /transfers` + `postTransfer` engine exist; no list/detail GET, no screen |
-| Stock Adjustments | Partial | `POST /adjustments` + `postAdjustment` engine; no list/detail GET, no screen |
-| Physical Counts | Missing | only adjustment reason `PHYSICAL_COUNT`; no count-session engine/UI |
-| Label / Barcode Printing | Missing | no nav/screen/API |
-| Warehouses | Full | `settings/WarehousesPage.tsx`; `warehouses-routes.ts`; `warehouse-store.ts` |
-| Branches | Full | `settings/BranchesPage.tsx`; `branches-routes.ts`; `branch-store.ts` |
-| Inventory Valuation report | Full | `report-inventory-valuation`; `inventory-routes.ts:123 getValuation` |
-| Inventory Hub `/inventory/hub` | Missing | no hub screen |
-| Rule: WAC maintenance on every in/out | Full | `stock-ledger-service.ts:216 applyMovement`; pure `wac.ts:82 replay` |
-| Rule: Ledger postings (receipt/issue/transfer/adjustment) | Full | `postReceipt/postIssue/postTransfer/postAdjustment` |
-| Rule: Negative-stock prevention | Full | `applyMovement:251 NegativeStockError` (policy-gated) |
-| Rule: Multi-warehouse separation | Full | snapshots/layers keyed by (item, warehouse) |
-| Rule: Physical-count variance→auto-adjustment | Partial | reason only; no system-vs-counted variance engine |
-| Rule: Valuation Σ(qty×WAC) tie to live GL | Partial | drift is cache-vs-ledger-vs-layers; no compare vs live GL inventory account |
+### 4.1 POS — 10 screens, zero layers built
+`/pos/terminals`, `/pos/sessions`, `/pos/sales`, `/pos/refunds`, `/pos/kitchen`,
+`/pos/tables`, `/pos/deliveries`, `/pos/discount-approvals`, `/pos/reservations`,
+`/pos/hub`. (`/pos/sell` is not on web in the reference either.) No domain module,
+routes, persistence or schema — `pos` exists only as a licence module id.
 
-### 2.4 Accounting & Treasury (catalog 04)
+### 4.2 HR & Payroll — 14 screens, zero layers built
+`/hr/dashboard`, `/hr/employees`, `/hr/departments`, `/hr/job-titles`,
+`/hr/attendance`, `/hr/holidays`, `/hr/contracts`, `/hr/leave/requests`,
+`/hr/payroll`, `/hr/advances`, `/hr/leave/batches`, `/settings/leave-policies`,
+`/hr/my-leave`, plus the HR half of `/settings/shifts`. A full `hr.*` permission set
+already exists and gates nothing.
 
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| Chart of Accounts | Full | `screens/ChartOfAccountsScreen.tsx`; `domain/accounts`; `accounts.ts` |
-| Cost Centers | Full | `screens/CostCentersScreen.tsx`; `domain/cost-centers` |
-| Cost Center P&L | Full (UI on demo store) | `screens/CostCenterPnLScreen.tsx` (in-browser store); `domain/cost-center-pl` |
-| Journal Entries | Full | `screens/JournalsScreen.tsx`; GL engine `gl/post.ts`; `gl-routes.ts` |
-| Fiscal Periods | Full | `screens/FiscalPeriodsScreen.tsx`; `fiscal-periods/transitions.ts` |
-| Taxes | Full | `screens/TaxesScreen.tsx`; `tax-rates/tax-rate.ts` |
-| Exchange Rates | Full (UI on demo store) | `screens/ExchangeRatesScreen.tsx` (in-browser store); `exchange-rates/convert.ts` |
-| ETA e-Invoicing | Full (UI on demo store; transmit stubbed) | `screens/EtaScreen.tsx`; `domain/eta/*`; online transmit stubbed, offline queue real |
-| Financial Reports (GL + Account Ledger + P&L/BS/CF tabs) | Partial | only standalone Trial Balance on sample data; 6 of 7 tabs missing |
-| Balance Reconciliation | Full (UI on demo store) | `screens/ReconciliationScreen.tsx`; `reconciliation/reconciliation.ts` |
-| FX Revaluation | Full (UI on demo store) | `screens/FxRevaluationScreen.tsx`; `fx-revaluation/revaluation.ts` |
-| Treasury Accounts | Full | `screens/TreasuryAccountsScreen.tsx`; `domain/treasury-accounts` |
-| Cash/Payment Vouchers | Full | `screens/TreasuryVouchersScreen.tsx`; `domain/vouchers` (10 types, GL, allocation) |
-| Bank Reconciliation | Full | `screens/BankReconciliationScreen.tsx`; `domain/bank-reconciliation` |
-| Cheque Register (7-state) | Full | `screens/ChequesScreen.tsx`; `cheques/status.ts` + `cheque-service.ts` |
-| Accounting Hub / Treasury Hub | Missing | not in `ROUTABLE_SCREENS` |
-| Rule: Double-entry balanced posting → GL | Full | `gl/post.ts:126 assertBalanced` |
-| Rule: Fiscal-period posting gates | Full | `assertPeriodOpen` at `gl/post.ts:159`; open→closed→locked |
-| Rule: JE lifecycle draft→pending→posted→reversed | Partial | pending declared but no approve transition/route |
-| Rule: Cost-center allocation + P&L | Full | `JournalLine.costCenterId`; `cost-center-pl.ts` |
-| Rule: Multi-currency + FX reval gain/loss | Full | `convert.ts`; `fx-revaluation/revaluation.ts` (auto-reverse next day) |
-| Rule: Trial balance over live ledger | Partial | screen on sample data; live `gl/ledger.ts:accountBalance` not wired to report |
-| Rule: Vouchers → GL + invoice allocation | Full | `vouchers/voucher-service.ts:57`; `vouchers/allocation.ts` |
-| Rule: Cheque 7-state + GL per transition | Full | `cheque-service.ts` (underCollection/collect/bounce/replace) |
-| Rule: Bank rec (match statement↔book) | Full | `bank-reconciliation/matching.ts:suggestMatches` |
-| Rule: Balance rec (subledger↔GL drift) | Full | `reconciliation/reconciliation.ts:41` |
-| Rule: Numbering sequences (JE/CV/CHQ) | Full | `numbering/sequences.ts`; no-gap inside JE txn |
-| Rule: Withholding tax | Partial | VAT thorough; no dedicated WHT rate type |
+### 4.3 Platform administration — 11 screens
+`/approvals` (Inbox / My Requests / My Actions), `/settings/workflow`,
+`/notifications/rules`, `/settings/sequences` (the reference lists 25 sequence
+types), `/settings/barcode`, `/settings/data-migration`, `/settings/profile`,
+`/settings/api-keys`, `/settings/webhooks`, `/settings/whatsapp`, `/settings/shifts`.
+Approvals, numbering and audit engines exist in `packages/domain`; the
+notification-rules engine does not.
 
-### 2.5 POS & Installments (catalog 05)
+### 4.4 Inventory — 3 screens
+`/inventory/product-templates` (variant/SKU generator), `/inventory/labels` (label &
+barcode printing), and **`/inventory/specifications`** — a reusable
+specification/attribute registry (name, type, values, unit, "filterable in catalog")
+that is **not documented anywhere in `docs/catalog/`**; found live in this pass.
 
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| Terminals | Missing | no domain/API/persistence/screen |
-| Sessions / Shifts | Missing | — |
-| POS Sales | Missing | — |
-| POS Refunds | Missing | — |
-| Kitchen Display | Missing | — |
-| Table Management | Missing | — |
-| Deliveries | Missing | — |
-| Discount Approvals | Missing | — |
-| Reservations | Missing | — |
-| Shift Settings | Missing | — |
-| POS Selling Screen `/pos/sell` | Missing | NA on web even in reference (mobile/desktop only) |
-| POS Hub | Missing | — |
-| Installment Plans | Full | `screens/InstallmentPlansScreen.tsx`; `domain/installments/*`; `installment-plan-store.ts` |
-| Collection Follow-ups | Full | `screens/InstallmentFollowUpsScreen.tsx`; `follow-up-store.ts` |
-| Rule: POS session cash reconciliation | Missing | — |
-| Rule: POS sale → GL + stock-out at WAC + payment | Missing | — |
-| Rule: POS refund / discount-approval workflow | Missing | — |
-| Rule: Restaurant (kitchen/tables/reservations/deliveries) | Missing | — |
-| Rule: Installment schedule generation | Full | `installments/schedule.ts` (down payment, tenor, even split via `allocate`) |
-| Rule: Overdue tracking | Full | `installments/overdue.ts` |
-| Rule: Collection posting via Treasury voucher | Full (by design) | plan posts nothing to GL; collection is a voucher concern (`installment-plan-document.ts:4-7`) |
-| Rule: Late-fee computation | Partial (parity) | explicit stub returning zero — the reference also leaves late-fee config unbuilt (catalog 05) |
+### 4.5 Reports — 7 missing
+Sales by salesperson · Van sales · Promotions report · Inventory expiring-soon (FEFO)
+· Make-vs-buy · POS daily summary · POS shift reports.
 
-### 2.6 CRM & HR (catalog 06)
+### 4.6 Domain hubs — 8 screens
+`/sales/hub`, `/purchases/hub`, `/inventory/hub`, `/accounting/hub`, `/treasury/hub`,
+`/crm/hub`, `/assets/hub`, `/pos/hub`. Unlinked from the reference's own sidebar.
 
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| Leads | Full | `screens/LeadsScreen.tsx`; `crm/lead.ts` |
-| Opportunities | Full | `screens/OpportunitiesScreen.tsx`; `crm/opportunity.ts` |
-| Sales Pipeline (kanban) | Full | `screens/PipelineScreen.tsx` |
-| Pipeline Stages | Full | `screens/PipelineStagesScreen.tsx`; `crm/pipeline-stage.ts` |
-| CRM Activities / My Tasks | Full | `screens/ActivitiesScreen.tsx`; `crm/activity.ts` (first-class nav item — improvement over spec) |
-| CRM Hub | Missing | no `/crm/hub` landing |
-| HR Dashboard, Employees, Departments, Job Titles, Attendance, Holidays, Contracts, Leave Requests, Payroll, Advances, Leave Policies, Leave Accrual Batches, My Leave | Missing (all 13) | no `hr` domain/routes/store/schema/screens; only `hr.*` permission scaffolding |
-| Rule: Lead status machine + lead→customer/opportunity conversion | Full | `crm/transition-lead.ts`; `crm/convert-lead.ts`; routes `crm-routes.ts:186/202` |
-| Rule: Opportunity win/loss auto-close | Full | `crm/move-opportunity-stage.ts:12` |
-| Rule: Pipeline stages config/reorder + kanban | Full | `crm/pipeline-stage.ts`; `crm-routes.ts:294/298/323` |
-| Rule: CRM activity lifecycle | Full | `crm/activity.ts`; `crm-routes.ts:342-382` |
-| Rule: HR employees/contracts/org | Missing | — |
-| Rule: Attendance | Missing | — |
-| Rule: Leave policies/requests/approval/accrual/balances | Missing | — |
-| Rule: Payroll (calc/deductions/GL posting) | Missing | — |
-| Rule: Employee advances | Missing | — |
-| Rule: Official holidays | Missing | — |
+### 4.7 Shell surfaces the reference has and Mezan does not
+- **Language switcher** — needs a full i18n layer first (§3).
+- **System status page** (`/status`) — per-service health, incident timeline,
+  "what's new" changelog.
+- **Support tickets** — open a ticket, follow the thread, read replies.
+- **Working branch and warehouse selectors** in the topbar.
+- **Manufacturing production dashboard** (`/manufacturing/dashboard`) — the
+  `GET /dashboard` route exists; there is no screen.
+- **Audit-log viewer** — sink and domain exist; no read API, no screen.
 
-### 2.7 Manufacturing, Projects, Assets, Field (catalog 07)
+## 5. Business-rule gaps behind the screens
 
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| Production Dashboard | Partial | `GET /dashboard` (`manufacturing-routes.ts:662`) exists; no UI screen |
-| Work Orders | Full | `screens/WorkOrdersScreen.tsx`; `manufacturing/work-order.ts` (full stage machine) |
-| BOMs | Full | `screens/BomsScreen.tsx`; `manufacturing/bom.ts` |
-| Config Instances | Full | `screens/ConfigInstancesScreen.tsx`; `manufacturing/config-instance.ts` |
-| Make-vs-Buy report | Missing | no `makeVsBuy` anywhere |
-| Projects | Partial | `screens/ProjectsScreen.tsx`; `projects/project.ts` — budget + auto `PRJ-` cost center only; no cost/revenue rollup or doc linkage |
-| Asset Register | Full | `screens/AssetRegisterScreen.tsx`; `fixed-assets/create-asset.ts` |
-| Depreciation Runs | Full | `screens/DepreciationRunsScreen.tsx`; `post-depreciation-run.ts` |
-| Asset Categories | Full | `screens/AssetCategoriesScreen.tsx`; `fixed-assets/asset-category.ts` |
-| Van/Rep Trips | Full | (see Sales 2.1) |
-| Assets Hub | Missing | no hub screen |
-| Rule: WO BOM consumption / FG stock-in at rolled cost / WIP | Full | `work-order.ts` issue/receive/complete; `buildWorkOrderGlPosting:558` |
-| Rule: Configurable products / formula resolution | Full | `configurable-product.ts`; `config-instance.ts`; `formula.ts` |
-| Rule: Straight-line depreciation + category-driven GL | Full | `depreciation.ts`; `post-depreciation-run.ts:87` (Dr expense/Cr accum) |
-| Rule: Projects cost/revenue + doc linkage | Partial | cost-center hook only; no aggregation/linkage |
+Re-confirmed at code level:
 
-### 2.8 Reports (catalog 08 — 33 reports)
+- **Withholding tax** — no model anywhere.
+- **Promotions & price lists** — the engines compute correctly but are never applied
+  to or persisted on confirmed documents; `resolvePrice` is never called during line
+  building.
+- **Journal-entry `pending` approval** — the status is declared but no submit/approve
+  transition or route exists; `workflow/gate.ts` is not applied to journals.
+- **Per-supplier payable subledger / statement** — AP is tracked at GL-account level
+  only.
+- **Physical-count variance → auto-adjustment** — the reason code exists; the
+  system-vs-counted variance engine does not.
+- **Projects** — master data, budget and an auto `PRJ-` cost centre only; no cost or
+  revenue rollup, no document linkage.
+- **Notification rules** — only an event bus, no rules engine.
 
-**19 full · 1 partial · 13 missing.** Full: Sales by Period/Item/Customer, Top Products;
-Purchases by Period/Supplier/Item; Inventory Stock Levels/Movement/Ledger/Valuation/Aging/
-Slow-Moving/Drift; Customer & Supplier Aging; Installments Overview & Overdue; Trial
-Balance; Cost-Center P&L (all in `domain/reports/*` + `report-*` routable keys).
-Partial: Promotions Report (backend stub). **Missing (13):** Sales-by-Salesperson, Van
-Sales, Expiring-Soon (FEFO), Make-vs-Buy, POS Daily Summary, POS Shift Reports, Income
-Statement, Balance Sheet, Cash Flow, VAT Return, General Ledger report, Account Ledger
-statement (plus Promotions Report as the partial). The `/accounting/reports` 7-tab page is
-1 of 7 tabs implemented.
+## 6. Build order to reach parity
 
-### 2.9 Settings, Dashboard, Global UX, Cross-cutting (catalog 09)
-
-| Screen / Rule | Status | Evidence / Gap |
-|---|---|---|
-| General (tabbed) `/settings` | Partial | `settings/SettingsGeneral.tsx` (`get/put /` only); spec's 10 tabs likely a subset |
-| Data Migration `/settings/data-migration` | Partial | backend real (`historical-import-routes.ts` + store); web only first-run wizard |
-| Users | Full | `pages/UsersPage.tsx`; `users/save-user.ts`; `users-routes.ts` |
-| Roles & Permissions (+matrix) | Full | `pages/RolesPage.tsx`+`RoleEditorPage.tsx`; `permissions/catalog.ts`; `roles-routes.ts` |
-| Branches | Full | `settings/BranchesPage.tsx` |
-| Warehouses | Full | `settings/WarehousesPage.tsx` |
-| Print Templates `/settings/print` | Full | `settings/PrintTemplatesPage.tsx` |
-| Dashboard home `/` | Full | `dashboard/DashboardScreen.tsx` |
-| Shift Settings `/settings/shifts` | Missing | no screen/domain/API |
-| Workflow/Approvals config `/settings/workflow` | Partial | engine `workflow/gate.ts` used on docs; no config screen/route |
-| Notification Rules `/notifications/rules` | Missing | no engine (only `events/` bus) |
-| Barcode `/settings/barcode` | Missing | — |
-| Numbering Sequences `/settings/sequences` | Partial | engine + store real; no config screen/API |
-| Leave Policies `/settings/leave-policies` | Missing | HR-owned, absent |
-| Global UX (audit log viewer, approvals inbox, command palette) | Partial | audit backend real (`audit/*`, `audit-sink.ts`); no audit web viewer |
-| Profile `/settings/profile` | Missing | — |
-| API Keys `/settings/api-keys` | Missing | — |
-| Webhooks `/settings/webhooks` | Missing | — |
-| WhatsApp `/settings/whatsapp` | Missing | — |
-| Rule: Permissions catalog (~268) | Full | `permissions/catalog.ts` → **270 codes** (parity) |
-| Rule: Role dependency cascade + sensitive flag | Full | `role-editor.ts`, `resolve.ts`; sensitive metadata `catalog.ts:30` |
-| Rule: Module licensing / entitlements gating | Full | `entitlements/*`, `licensing/license.ts`, `permissions/module-licensing.ts`, `api/module-gate.ts` |
-| Rule: API permission gate | Full | `api/permission-gate.ts` |
-| Rule: Company-admin `"*"` bypass | Full | `permissions/auth-context.ts:57`; `catalog.ts:415` |
-| Rule: Branch/warehouse scoping on users | Full | `users/user.ts:27-28`; `save-user.ts` |
-| Rule: Numbering sequences engine | Full | `numbering/next-number.ts` + `sequences.ts` |
-| Rule: Workflow/approvals engine | Full | `workflow/gate.ts` (state machine, resubmit) |
-| Rule: Audit log | Partial | domain + sqlite sink real; no read API / viewer |
-| Rule: Notification rules engine | Missing | — |
-| Rule: Financial statements generation | Missing | — |
-| Rule: Data migration / historical import | Full (backend) | `historical-import-routes.ts` + store |
-
----
-
-## 3. What is genuinely strong (parity ≥ Full)
-
-- **Costing / stock ledger:** WAC, immutable integer cost layers, negative-stock gate,
-  multi-warehouse separation, landed-cost revaluation, WO WIP capitalization.
-- **GL core:** balanced double-entry posting, fiscal-period gates, header-account
-  non-postable enforcement, atomic no-gap numbering inside the posting txn.
-- **Document GL/stock hooks:** sales invoice (4-leg), purchase invoice, both returns,
-  goods receipt, work order, depreciation run all post correct entries.
-- **Treasury:** 10 voucher types with GL + reversible partial allocation; 7-state cheque
-  lifecycle with per-transition GL; bank + balance reconciliation.
-- **Authorization/licensing:** 270-code permission catalog, dependency cascade, sensitive
-  flag, module entitlement gating, API permission gate, company-admin bypass, user scoping.
-- **CRM:** full lead→opportunity→conversion + pipeline/kanban + activity lifecycle.
-- **Fixed assets & manufacturing:** straight-line depreciation with category-driven
-  accounts; BOM/work-order/config-instance chain.
-
----
-
-## 4. Recommendation summary
-
-To reach ~90% parity, in priority order: (1) build the **financial-statement report
-family** (P&L, Balance Sheet, Cash Flow, VAT Return, GL & Account Ledger) on the live
-ledger — highest value, engine foundations already exist; (2) wire the **5 accounting-depth
-screens** off the in-browser store onto the real API; (3) build the **inventory operational
-UIs** (Stock Balance/Transfers/Adjustments list+screen, Physical Counts engine); (4) apply
-**promotions & price lists** to real documents and add **withholding tax**; (5) wire the
-**JE pending-approval** transition to the existing workflow engine; (6) build out the
-**settings config screens** (sequences, workflow, audit viewer, data migration); then the
-large net-new domains **POS** and **HR** (each effectively greenfield). Domain **hubs** are
-lowest priority (reference leaves them unlinked).
+1. **Truthfulness sweep** (days) — wire the 9 demo-store screens plus Settings,
+   Branches and Warehouses to the API; run Trial Balance and the 7 financial
+   statements over the live posted ledger; make the branch/warehouse chips real
+   selectors or drop them; stop advertising POS and HR as licensed.
+2. **Platform administration** (1–2 weeks) — approvals inbox, workflow config,
+   numbering sequences, audit viewer, data-migration wizard, profile. Mostly UI over
+   engines that already exist.
+3. **Inventory completion** — product templates, specifications, label printing,
+   physical-count variance engine.
+4. **Reports** — the 5 non-POS missing reports (POS reports wait on POS).
+5. **Rule gaps** — withholding tax, promotions/price-list application, JE approval,
+   supplier statement.
+6. **i18n layer + language switcher** — prerequisite for the EN edition; large,
+   touches every screen.
+7. **HR & Payroll** — greenfield domain.
+8. **POS** — greenfield domain; the selling screen has no web reference to copy.
+9. **Hubs, status page, support tickets** — lowest priority.

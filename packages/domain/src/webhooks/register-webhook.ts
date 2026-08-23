@@ -1,5 +1,6 @@
 import { isEventCode } from "../events/catalog.js";
 import { InvalidWebhookError } from "./errors.js";
+import { undeliverableEventReasons, type WebhookEventPolicy } from "./event-policy.js";
 import type { Webhook, WebhookRepository } from "./webhook.js";
 
 export interface RegisterWebhookCommand {
@@ -22,7 +23,7 @@ function isHttpUrl(value: string): boolean {
   }
 }
 
-function validate(cmd: RegisterWebhookCommand): string[] {
+function validate(cmd: RegisterWebhookCommand, policy: WebhookEventPolicy): string[] {
   const reasons: string[] = [];
   if (cmd.name.trim() === "") reasons.push("name is required");
   if (!isHttpUrl(cmd.targetUrl)) reasons.push("targetUrl must be a valid http(s) URL");
@@ -30,12 +31,17 @@ function validate(cmd: RegisterWebhookCommand): string[] {
   for (const code of cmd.events) {
     if (!isEventCode(code)) reasons.push(`unknown event code "${code}"`);
   }
+  reasons.push(...undeliverableEventReasons(cmd.events, policy));
   if (cmd.secret.trim() === "") reasons.push("secret is required");
   return reasons;
 }
 
-export async function registerWebhook(cmd: RegisterWebhookCommand, repo: WebhookRepository): Promise<Webhook> {
-  const reasons = validate(cmd);
+export async function registerWebhook(
+  cmd: RegisterWebhookCommand,
+  repo: WebhookRepository,
+  policy: WebhookEventPolicy = {},
+): Promise<Webhook> {
+  const reasons = validate(cmd, policy);
   if (reasons.length > 0) throw new InvalidWebhookError(reasons);
 
   const webhook: Webhook = {

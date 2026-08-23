@@ -399,9 +399,10 @@ export interface CreateAppOptions {
   readonly notificationRuleRepo?: NotificationRuleRepository;
   /**
    * The event codes this deployment really publishes onto the event bus —
-   * what `/notification-rules/triggers` reports as `emitted`. The composition
-   * root derives it from its own bridge wiring; omit it and every trigger is
-   * honestly reported as not-yet-emitted.
+   * what `/notification-rules/triggers` reports as `emitted`, and the set
+   * `/webhooks` will accept a subscription on. The composition root derives it
+   * from its own bridge wiring; omit it and every trigger is honestly reported
+   * as not-yet-emitted and the webhook check is off.
    */
   readonly emittedEventCodes?: readonly EventCode[];
   /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
@@ -1074,7 +1075,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/webhooks",
       createWebhooksRoutes(
-        { webhooks: options.webhooks.webhooks, deliveries: options.webhooks.deliveries },
+        {
+          webhooks: options.webhooks.webhooks,
+          deliveries: options.webhooks.deliveries,
+          emittedEventCodes: options.emittedEventCodes,
+        },
         options.webhooks.resolveAuthContext ?? options.resolveAuthContext,
         options.auditSink,
       ),

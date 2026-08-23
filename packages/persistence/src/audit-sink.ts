@@ -10,6 +10,12 @@ import type { AuditEvent, AuditQueryFilter, AuditQueryPort, AuditQueryResult, Au
  * `details` is stored as JSON text (or NULL). Rows are read newest-first per
  * stream. No money columns here, so safeIntegers() is unnecessary — the numeric
  * column is only the autoincrement id.
+ *
+ * `branch_id` is NULLABLE by decision: rows appended before the column existed
+ * cannot be back-filled (the table is append-only — the UPDATE trigger below
+ * would abort), and a request whose branch scope spans several branches has no
+ * single branch to name. It is added by ALTER on an existing database, which
+ * does not fire the append-only triggers.
  */
 
 const CREATE_TABLE = `
@@ -20,6 +26,7 @@ CREATE TABLE IF NOT EXISTS audit_event (
   entity_type TEXT NOT NULL,
   action      TEXT NOT NULL,
   actor       TEXT NOT NULL,
+  branch_id   TEXT,
   timestamp   TEXT NOT NULL,
   severity    TEXT NOT NULL,
   details     TEXT
@@ -39,6 +46,7 @@ interface AuditRow {
   entity_type: string;
   action: string;
   actor: string;
+  branch_id: string | null;
   timestamp: string;
   severity: string;
   details: string | null;
@@ -51,6 +59,7 @@ function rowToEvent(r: AuditRow): AuditEvent {
     entityType: r.entity_type,
     action: r.action,
     actor: r.actor,
+    branchId: r.branch_id,
     timestamp: r.timestamp,
     severity: r.severity as AuditEvent["severity"],
     details: r.details === null ? null : (JSON.parse(r.details) as Record<string, unknown>),
@@ -63,6 +72,7 @@ const FILTER_COLUMNS: Record<string, string> = {
   module: "module",
   action: "action",
   actor: "actor",
+  branchId: "branch_id",
   entityType: "entity_type",
   severity: "severity",
 };
@@ -74,11 +84,11 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
   constructor(private readonly sqlite: Database.Database) {
     this.insert = sqlite.prepare(
       `INSERT INTO audit_event
-         (stream, module, entity_type, action, actor, timestamp, severity, details)
-       VALUES (@stream, @module, @entityType, @action, @actor, @timestamp, @severity, @details)`,
+         (stream, module, entity_type, action, actor, branch_id, timestamp, severity, details)
+       VALUES (@stream, @module, @entityType, @action, @actor, @branchId, @timestamp, @severity, @details)`,
     );
     this.select = sqlite.prepare(
-      `SELECT stream, module, entity_type, action, actor, timestamp, severity, details
+      `SELECT stream, module, entity_type, action, actor, branch_id, timestamp, severity, details
          FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`,
     );
   }
@@ -90,6 +100,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
       entityType: event.entityType,
       action: event.action,
       actor: event.actor,
+      branchId: event.branchId,
       timestamp: event.timestamp,
       severity: event.severity,
       details: event.details === null ? null : JSON.stringify(event.details),
@@ -133,7 +144,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
     ).c;
     const rows = this.sqlite
       .prepare(
-        `SELECT stream, module, entity_type, action, actor, timestamp, severity, details
+        `SELECT stream, module, entity_type, action, actor, branch_id, timestamp, severity, details
            FROM audit_event ${where} ORDER BY id DESC LIMIT @limit OFFSET @offset`,
       )
       .all({ ...params, limit, offset }) as AuditRow[];
@@ -148,10 +159,24 @@ export interface SqliteAuditSinkHandle extends AuditSink, AuditQueryPort {
   readonly db: Database.Database;
 }
 
+/**
+ * Adds `branch_id` to a database created before the column existed. Existing
+ * rows keep NULL — the table is append-only, so they cannot be back-filled and
+ * are not meant to be.
+ */
+function addBranchColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(audit_event)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "branch_id")) {
+    sqlite.exec(`ALTER TABLE audit_event ADD COLUMN branch_id TEXT`);
+  }
+}
+
 /** Open a SQLite-backed AuditSink. ":memory:" for tests, a path for real. */
 export function createSqliteAuditSink(path: SqliteConnectionInput = ":memory:"): SqliteAuditSinkHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addBranchColumnIfMissing(sqlite);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_event(branch_id, id)`);
   const sink = new SqliteAuditSink(sqlite);
   return Object.assign(sink, {
     close: () => { if (owned) sqlite.close(); },

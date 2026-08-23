@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   DocumentList,
   DocumentDetail,
@@ -14,17 +15,41 @@ import {
 import { DOMAIN_EVENT_CATALOG, EVENT_CATEGORIES, type EventCategory } from "@mezan/domain";
 import type { WebhookDTO, CreateWebhookResultDTO, WebhookDeliveryDTO } from "@mezan/contracts";
 import { useWebhooks, useCreateWebhook, useUpdateWebhook, useWebhookDeliveries } from "../data/account-hooks";
+import { useApi } from "../data/ApiContext";
 import { TextField, SectionCard } from "./form-controls";
 
 /**
  * الويب هوك (`/settings/webhooks`) — register a target URL + subscribed
- * events (the SAME 39-event catalog `events/catalog.ts` defines, not a
- * parallel vocabulary), enable/disable, and show recent delivery attempts.
+ * events, enable/disable, and show recent delivery attempts.
+ *
+ * The event picker offers only what `GET /webhooks/events` reports as
+ * DELIVERABLE — the 39-event catalog narrowed to the codes this build really
+ * publishes. The server refuses the rest with 422 either way; offering them
+ * would sell a subscription that can never fire.
  *
  * The delivery tab reads the real attempts `WebhookDispatcher` recorded — one
  * row per try, so a retried-then-abandoned delivery shows all of its attempts
  * with the failure reason, not just the last one.
  */
+
+interface DeliverableEvent {
+  readonly code: string;
+  readonly category: EventCategory;
+  readonly labelAr: string;
+}
+
+function useDeliverableEvents() {
+  const { request, session } = useApi();
+  return useQuery<{ events: DeliverableEvent[]; enforced: boolean }>({
+    queryKey: ["webhooks", "events"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/webhooks/events");
+      if (!res.ok) throw new Error("تعذّر تحميل الأحداث المتاحة.");
+      return res.json<{ events: DeliverableEvent[]; enforced: boolean }>();
+    },
+  });
+}
 
 const CATEGORY_LABELS: Readonly<Record<EventCategory, string>> = {
   workflow: "سير العمل",
@@ -39,11 +64,26 @@ const CATEGORY_LABELS: Readonly<Record<EventCategory, string>> = {
   platform: "المنصة",
 };
 
-function EventsChecklist({ selected, onToggle }: { selected: ReadonlySet<string>; onToggle: (code: string) => void }) {
+function EventsChecklist({
+  events: available,
+  selected,
+  onToggle,
+}: {
+  events: readonly DeliverableEvent[];
+  selected: ReadonlySet<string>;
+  onToggle: (code: string) => void;
+}) {
+  if (available.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border p-[20px] text-center text-[12.5px] text-ink-muted">
+        لا توجد أحداث قابلة للإرسال في هذه النسخة بعد.
+      </div>
+    );
+  }
   return (
     <div className="flex flex-col gap-[14px]">
       {EVENT_CATEGORIES.map((category) => {
-        const events = DOMAIN_EVENT_CATALOG.filter((e) => e.category === category);
+        const events = available.filter((e) => e.category === category);
         if (events.length === 0) return null;
         return (
           <div key={category}>
@@ -184,6 +224,8 @@ export function WebhooksPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [createdWebhook, setCreatedWebhook] = useState<CreateWebhookResultDTO | null>(null);
   const [togglingId, setTogglingId] = useState<string | null>(null);
+  const deliverableQuery = useDeliverableEvents();
+  const deliverableEvents = useMemo(() => deliverableQuery.data?.events ?? [], [deliverableQuery.data]);
 
   const selected = webhooks.find((w) => w.id === selectedId) ?? null;
 
@@ -310,7 +352,7 @@ export function WebhooksPage() {
           {formError ? <StatusPill label={formError} tone="danger" /> : null}
           <TextField label="الاسم" value={name} onChange={setName} placeholder="مثال: نظام المحاسبة الخارجي" />
           <TextField label="رابط الوجهة" value={targetUrl} onChange={setTargetUrl} placeholder="https://example.com/webhooks/mezan" />
-          <EventsChecklist selected={selectedEvents} onToggle={toggleEvent} />
+          <EventsChecklist events={deliverableEvents} selected={selectedEvents} onToggle={toggleEvent} />
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
             <Button variant="primary" disabled={createWebhook.isPending} onClick={() => void submitNewWebhook()}>

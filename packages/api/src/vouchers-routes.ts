@@ -24,6 +24,8 @@ import {
   AllocationMismatchError,
   AllocationExceedsError,
   AllocationAlreadyReversedError,
+  auditBranchFromScope,
+  branchScopedAuditSink,
   type VoucherServiceDeps,
   type VoucherDocument,
   type VoucherAllocation,
@@ -187,8 +189,14 @@ export function createVouchersRoutes(
   const idGen = deps.idGen ?? (() => randomUUID());
 
   function serviceFor(c: Context): VoucherService {
-    const actor = getAuthContext(c)?.userId ?? deps.actor ?? "system";
-    return new VoucherService({ ...deps, actor });
+    const ctx = getAuthContext(c);
+    const actor = ctx?.userId ?? deps.actor ?? "system";
+    // The audit sink is stamped with the branch the caller is working in, read
+    // off the same `x-branch-scope` the permission gate already resolved.
+    const audit = deps.audit
+      ? branchScopedAuditSink(deps.audit, ctx ? auditBranchFromScope(ctx.branchScope) : null)
+      : undefined;
+    return new VoucherService({ ...deps, actor, audit });
   }
 
   app.get("/", gate("treasury.cash_voucher.view"), async (c) => {

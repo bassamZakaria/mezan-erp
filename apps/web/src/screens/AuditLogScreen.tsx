@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
 import { useAuditLog } from "../data/platform-hooks";
+import { useBranches } from "../data/hooks";
+import { branchName } from "../settings/branch-name";
 import { SelectField, TextField } from "../settings/form-controls";
 
 /**
@@ -73,6 +75,8 @@ const BLANK_FILTERS: Filters = {
 };
 
 export function AuditLogScreen() {
+  const branchesQuery = useBranches();
+  const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const [filters, setFilters] = useState<Filters>(BLANK_FILTERS);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
@@ -123,12 +127,19 @@ export function AuditLogScreen() {
       { key: "action", header: "الإجراء", render: (e) => <span className="font-semibold text-ink">{e.action}</span> },
       { key: "actor", header: "المستخدم", render: (e) => <span className="text-ink-muted">{e.actor}</span> },
       {
+        key: "branchId",
+        header: "الفرع",
+        render: (e) => (
+          <span className="text-ink-muted">{e.branchId === null ? "—" : branchName(e.branchId, branches)}</span>
+        ),
+      },
+      {
         key: "severity",
         header: "الخطورة",
         render: (e) => <StatusPill label={SEVERITY_LABEL[e.severity]} tone={SEVERITY_TONE[e.severity]} />,
       },
     ],
-    [],
+    [branches],
   );
 
   return (
@@ -233,6 +244,16 @@ export function AuditLogScreen() {
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">المستخدم</dt>
                 <dd className="text-ink">{selected.actor}</dd>
+              </div>
+              <div className="flex items-center justify-between">
+                <dt className="text-ink-muted">الفرع</dt>
+                <dd className="text-ink">
+                  {selected.branchId === null ? (
+                    <span className="text-ink-faint">لم يُسجَّل فرع لهذا الحدث</span>
+                  ) : (
+                    branchName(selected.branchId, branches)
+                  )}
+                </dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">الخطورة</dt>

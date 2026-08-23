@@ -31,25 +31,34 @@ export type AuditSeverity = (typeof AUDIT_SEVERITIES)[number];
 export const AUDIT_STREAMS = ["security", "sensitive"] as const;
 export type AuditStream = (typeof AUDIT_STREAMS)[number];
 
-/** An append-only audit record. `timestamp` is an ISO-8601 UTC string. */
+/**
+ * An append-only audit record. `timestamp` is an ISO-8601 UTC string.
+ *
+ * `branchId` is nullable and stays nullable: rows written before the field
+ * existed, and requests whose branch scope spans more than one branch, have no
+ * single branch to name. NULL there means "not recorded", never "every branch"
+ * — inventing one would fabricate evidence in a forensic log.
+ */
 export interface AuditEvent {
   readonly stream: AuditStream;
   readonly module: string; // e.g. "auth", "hr"
   readonly entityType: string; // e.g. "AUTH_USER", "CONTRACT"
   readonly action: string; // e.g. "ACCOUNT_LOCKED", "CREATE"
   readonly actor: string; // user id / name
+  readonly branchId: string | null;
   readonly timestamp: string; // ISO-8601 UTC
   readonly severity: AuditSeverity;
   readonly details: Readonly<Record<string, unknown>> | null;
 }
 
-/** Fields the caller supplies; timestamp/details are filled in if omitted. */
+/** Fields the caller supplies; timestamp/branchId/details are filled in if omitted. */
 export interface AuditEventInput {
   readonly stream: AuditStream;
   readonly module: string;
   readonly entityType: string;
   readonly action: string;
   readonly actor: string;
+  readonly branchId?: string | null;
   readonly severity: AuditSeverity;
   readonly timestamp?: string;
   readonly details?: Readonly<Record<string, unknown>> | null;
@@ -72,6 +81,7 @@ export interface AuditSink {
  */
 export interface AuditQueryFilter {
   readonly stream?: AuditStream;
+  readonly branchId?: string;
   readonly module?: string;
   readonly action?: string;
   readonly actor?: string;
@@ -106,6 +116,7 @@ export function createAuditEvent(input: AuditEventInput): AuditEvent {
     entityType: input.entityType,
     action: input.action,
     actor: input.actor,
+    branchId: input.branchId ?? null,
     severity: input.severity,
     timestamp: input.timestamp ?? new Date().toISOString(),
     details: input.details ?? null,

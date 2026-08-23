@@ -7,6 +7,9 @@ import {
   InvalidWebhookError,
   WebhookNotFoundError,
   recordSensitiveEvent,
+  auditBranchFromScope,
+  DOMAIN_EVENT_CATALOG,
+  type EventCode,
   type Webhook,
   type WebhookRepository,
   type WebhookDeliveryRepository,
@@ -44,6 +47,14 @@ function webhookErrorResponse(c: Context, err: unknown) {
 export interface WebhooksRoutesDeps {
   readonly webhooks: WebhookRepository;
   readonly deliveries: WebhookDeliveryRepository;
+  /**
+   * The event codes this build really publishes onto the `EventBus`, from the
+   * composition root — the same set `/notification-rules/triggers` reports as
+   * `emitted`. A subscription on anything else is REFUSED (422), because a
+   * webhook that can never fire is a promise the product cannot keep. Omit it
+   * and the check is off.
+   */
+  readonly emittedEventCodes?: readonly EventCode[];
 }
 
 /**
@@ -63,6 +74,22 @@ export function createWebhooksRoutes(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
   const { webhooks, deliveries } = deps;
+  const eventPolicy = { deliverableCodes: deps.emittedEventCodes ?? [] };
+  const branchOf = (c: Context): string | null => {
+    const ctx = getAuthContext(c);
+    return ctx ? auditBranchFromScope(ctx.branchScope) : null;
+  };
+
+  /**
+   * The events a subscription may actually be bound to — the catalog narrowed
+   * to what this build emits, so the settings screen offers nothing that can
+   * never fire. `POST /` enforces the same narrowing regardless.
+   */
+  app.get("/events", gate("admin.settings.view"), (c) => {
+    const deliverable = new Set<string>(deps.emittedEventCodes ?? []);
+    const events = DOMAIN_EVENT_CATALOG.filter((e) => deliverable.size === 0 || deliverable.has(e.code));
+    return c.json({ events, enforced: deliverable.size > 0 });
+  });
 
   app.get("/", gate("admin.settings.view"), async (c) => {
     return c.json((await webhooks.list()).map(serializeWebhook));
@@ -93,6 +120,7 @@ export function createWebhooksRoutes(
           createdAt: new Date().toISOString(),
         },
         webhooks,
+        eventPolicy,
       );
       if (audit) {
         await recordSensitiveEvent(audit, {
@@ -100,6 +128,7 @@ export function createWebhooksRoutes(
           entityType: "WEBHOOK",
           action: "REGISTERED",
           actor,
+          branchId: branchOf(c),
           severity: "WARNING",
           details: { id: webhook.id, name: webhook.name, targetUrl: webhook.targetUrl, events: webhook.events },
         });
@@ -117,13 +146,14 @@ export function createWebhooksRoutes(
     }
     const actor = getAuthContext(c)?.userId ?? "system";
     try {
-      const webhook = await updateWebhook(c.req.param("id"), parsed.data, webhooks);
+      const webhook = await updateWebhook(c.req.param("id"), parsed.data, webhooks, eventPolicy);
       if (audit) {
         await recordSensitiveEvent(audit, {
           module: "webhooks",
           entityType: "WEBHOOK",
           action: "UPDATED",
           actor,
+          branchId: branchOf(c),
           severity: "INFO",
           details: { id: webhook.id, active: webhook.active },
         });

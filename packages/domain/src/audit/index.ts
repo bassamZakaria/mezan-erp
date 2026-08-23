@@ -15,3 +15,4 @@ export type {
   AuditQueryResult,
   AuditQueryPort,
 } from "./audit-event.js";
+export { auditBranchFromScope, branchScopedAuditSink } from "./branch-scope.js";

@@ -46,6 +46,8 @@ import {
   type PurchasePolicy,
   type PurchaseStockPostingPort,
   type CostLayerRepository,
+  auditBranchFromScope,
+  branchScopedAuditSink,
   type AuditSink,
 } from "@mezan/domain";
 import {
@@ -231,6 +233,16 @@ export function createPurchasesRoutes(
   };
   const resolveTaxRate = deps.resolveTaxRate ?? (() => 0);
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  /**
+   * The audit sink stamped with the branch the caller is working in — read off
+   * the same `x-branch-scope` the permission gate already resolved, never a
+   * second mechanism. Unnarrowed requests record no branch rather than a guess.
+   */
+  const audit = (c: Context): AuditSink | undefined => {
+    if (!deps.audit) return undefined;
+    const ctx = getAuthContext(c);
+    return branchScopedAuditSink(deps.audit, ctx ? auditBranchFromScope(ctx.branchScope) : null);
+  };
 
   // --- Purchase Orders -----------------------------------------------------
 
@@ -273,7 +285,7 @@ export function createPurchasesRoutes(
     try {
       const order = await confirmPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
-        audit: deps.audit,
+        audit: audit(c),
         actor: actor(c),
       });
       return c.json(serializeOrder(order));
@@ -286,7 +298,7 @@ export function createPurchasesRoutes(
     try {
       const order = await cancelPurchaseOrder(c.req.param("id"), {
         orders: deps.orders,
-        audit: deps.audit,
+        audit: audit(c),
         actor: actor(c),
       });
       return c.json(serializeOrder(order));
@@ -349,7 +361,7 @@ export function createPurchasesRoutes(
         receipts: deps.receipts,
         orders: deps.orders,
         stock: deps.stock,
-        audit: deps.audit,
+        audit: audit(c),
         actor: actor(c),
         now: deps.now,
       });
@@ -369,7 +381,7 @@ export function createPurchasesRoutes(
           stock: deps.stock,
           layers,
           policy: await resolvePolicy(),
-          audit: deps.audit,
+          audit: audit(c),
           actor: actor(c),
           now: deps.now,
         });
@@ -455,7 +467,7 @@ export function createPurchasesRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
         allocatable: deps.allocatable,
-        audit: deps.audit,
+        audit: audit(c),
         actor: actor(c),
         now: deps.now,
       });
@@ -476,7 +488,7 @@ export function createPurchasesRoutes(
           glReverse,
           layers,
           policy: await resolvePolicy(),
-          audit: deps.audit,
+          audit: audit(c),
           actor: actor(c),
           now: deps.now,
         });

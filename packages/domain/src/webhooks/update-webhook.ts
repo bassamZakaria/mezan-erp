@@ -1,5 +1,6 @@
 import { isEventCode } from "../events/catalog.js";
 import { InvalidWebhookError, WebhookNotFoundError } from "./errors.js";
+import { undeliverableEventReasons, type WebhookEventPolicy } from "./event-policy.js";
 import type { Webhook, WebhookRepository } from "./webhook.js";
 
 function isHttpUrl(value: string): boolean {
@@ -23,6 +24,7 @@ export async function updateWebhook(
   id: string,
   patch: UpdateWebhookCommand,
   repo: WebhookRepository,
+  policy: WebhookEventPolicy = {},
 ): Promise<Webhook> {
   const current = await repo.findById(id);
   if (!current) throw new WebhookNotFoundError(id);
@@ -42,6 +44,10 @@ export async function updateWebhook(
   for (const code of next.events) {
     if (!isEventCode(code)) reasons.push(`unknown event code "${code}"`);
   }
+  // Only re-checked against the deliverable set when the patch actually
+  // changes the subscription — toggling `active` on a webhook registered
+  // before a code stopped being emitted must not become unsaveable.
+  if (patch.events) reasons.push(...undeliverableEventReasons(next.events, policy));
   if (reasons.length > 0) throw new InvalidWebhookError(reasons);
 
   await repo.save(next);

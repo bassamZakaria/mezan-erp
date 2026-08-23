@@ -16,6 +16,8 @@ export const auditEventSchema = z.object({
   entityType: z.string().min(1),
   action: z.string().min(1),
   actor: z.string().min(1),
+  /** The branch the action happened in; null for rows written before the field existed, or for a request not narrowed to one branch. */
+  branchId: z.string().nullable(),
   timestamp: z.string().min(1), // ISO-8601 UTC
   severity: auditSeveritySchema,
   details: z.record(z.unknown()).nullable(),
@@ -28,6 +30,7 @@ export type AuditEventDTO = z.infer<typeof auditEventSchema>;
 /** Query params for `GET /audit` — every field optional and AND-combined. */
 export const auditQuerySchema = z.object({
   stream: auditStreamSchema.optional(),
+  branchId: z.string().min(1).optional(),
   module: z.string().min(1).optional(),
   action: z.string().min(1).optional(),
   actor: z.string().min(1).optional(),

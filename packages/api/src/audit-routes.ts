@@ -9,6 +9,10 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
  * `recordSensitiveEvent`/`recordSecurityEvent`) is unaffected — this mounts
  * only a filtered `GET`. No PATCH/DELETE exists on this router by design: an
  * audit row is evidence, not editable state.
+ *
+ * `branchId` narrows to one branch. Rows with no branch — written before the
+ * column existed, or by a request not narrowed to a single branch — never
+ * match it: an unknown branch is not every branch.
  */
 export function createAuditRoutes(
   store: AuditQueryPort,
@@ -20,6 +24,7 @@ export function createAuditRoutes(
   app.get("/", gate("audit.logs.view"), async (c) => {
     const parsed = auditQuerySchema.safeParse({
       stream: c.req.query("stream"),
+      branchId: c.req.query("branchId"),
       module: c.req.query("module"),
       action: c.req.query("action"),
       actor: c.req.query("actor"),

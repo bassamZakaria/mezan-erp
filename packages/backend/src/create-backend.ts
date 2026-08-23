@@ -32,6 +32,8 @@ import {
   EventBus,
   NotificationRulesEngine,
   WebhookDispatcher,
+  type WebhookRetryPolicy,
+  type WebhookTransportPort,
   type DocumentEventPublisher,
   type DocumentEventType,
   type EventCode,
@@ -294,6 +296,16 @@ export interface CreateBackendOptions {
    * install never receives invented data.
    */
   readonly seedDemoData?: boolean;
+  /**
+   * Outbound HTTP for the webhook dispatcher. Defaults to a real `fetch`
+   * sender; a test or a demo run passes a stub so nothing leaves the machine.
+   */
+  readonly webhookTransport?: WebhookTransportPort;
+  /**
+   * Overrides the dispatcher's bounded retry policy (3 attempts, 500ms then
+   * 2s, 10s per-attempt timeout). Tests shorten it; nothing else should.
+   */
+  readonly webhookRetry?: Partial<WebhookRetryPolicy>;
 }
 
 /**
@@ -469,9 +481,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const webhookDispatcher = new WebhookDispatcher({
     webhooks: webhookStores.webhooks,
     deliveries: webhookStores.deliveries,
-    transport: createFetchWebhookTransport(),
+    transport: options.webhookTransport ?? createFetchWebhookTransport(),
     signature: createHmacWebhookSigner(),
     generateId: () => randomUUID(),
+    retry: options.webhookRetry,
     onError: (error, context) => {
       console.error(`[webhooks] dispatch failed for "${context.event.code}"`, error);
     },

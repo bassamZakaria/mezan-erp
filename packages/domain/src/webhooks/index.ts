@@ -14,6 +14,7 @@ export { registerWebhook, type RegisterWebhookCommand } from "./register-webhook
 export { updateWebhook, type UpdateWebhookCommand } from "./update-webhook.js";
 export { recordWebhookDelivery, type RecordWebhookDeliveryCommand } from "./record-delivery.js";
 export { InvalidWebhookError, WebhookNotFoundError } from "./errors.js";
+export { undeliverableEventReasons, type WebhookEventPolicy } from "./event-policy.js";
 export {
   WebhookDispatcher,
   DEFAULT_WEBHOOK_RETRY_POLICY,

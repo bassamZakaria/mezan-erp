@@ -58,6 +58,8 @@ export {
   createAuditEvent,
   recordSecurityEvent,
   recordSensitiveEvent,
+  auditBranchFromScope,
+  branchScopedAuditSink,
 } from "./audit/index.js";
 export type {
   AuditSeverity,

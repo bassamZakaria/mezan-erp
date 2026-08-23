@@ -107,6 +107,8 @@ export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
 export { Topbar, type TopbarProps, type ShellNotification, type TopbarScopeOption } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
+export { CommandBar, type CommandBarProps } from "./shell/CommandBar";
+export { FulcrumRule, type FulcrumRuleProps } from "./shell/FulcrumRule";
 export {
   NotificationsPanel,
   type NotificationsPanelProps,

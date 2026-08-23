@@ -21,6 +21,9 @@ const uiAr = {
   "shell.palette.title": "لوحة الأوامر",
   "shell.palette.placeholder": "اكتب أمراً أو ابحث…",
   "shell.palette.empty": "لا توجد نتائج مطابقة",
+  "shell.command.placeholder": "ابحث أو نفّذ أمراً… فاتورة، عميل، قيد، تقرير",
+  "shell.rail.collapse": "طي شريط التنقل",
+  "shell.rail.expand": "توسيع شريط التنقل",
 
   "ui.search.placeholder": "بحث…",
   "ui.list.statusFilter": "تصفية حسب الحالة",
@@ -80,6 +83,9 @@ const uiEn: Record<UiTranslationKey, string> = {
   "shell.palette.title": "Command palette",
   "shell.palette.placeholder": "Type a command or search…",
   "shell.palette.empty": "No matching results",
+  "shell.command.placeholder": "Search or run a command… invoice, customer, entry, report",
+  "shell.rail.collapse": "Collapse the navigation rail",
+  "shell.rail.expand": "Expand the navigation rail",
 
   "ui.search.placeholder": "Search…",
   "ui.list.statusFilter": "Filter by status",

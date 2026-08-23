@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
+import type { ThemePreference } from "../hooks/useTheme";
 import { BrandMark } from "./BrandMark";
 import type { NavGroup, NavItem, ShellUser } from "./types";
 
@@ -11,103 +12,263 @@ export interface SidebarProps {
   user: ShellUser;
   brandName?: string;
   brandSub?: string;
+  /** Company/branch context pinned above the nav — display only; the working scope is switched from the topbar selectors. */
+  tenantName?: string;
+  scopeLabel?: string;
+  theme?: ThemePreference;
+  onToggleTheme?: () => void;
   className?: string;
 }
 
-function NavLink({ item, active }: { item: NavItem; active: boolean }) {
+const RAIL_STORAGE_KEY = "mezan.sidebarCollapsed";
+
+function getRailStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    // Privacy mode / disabled storage can throw on access rather than just being absent.
+    return null;
+  }
+}
+
+function loadPersistedRailCollapsed(): boolean {
+  const storage = getRailStorage();
+  if (!storage) return false;
+  try {
+    return storage.getItem(RAIL_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistRailCollapsed(collapsed: boolean): void {
+  const storage = getRailStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(RAIL_STORAGE_KEY, collapsed ? "1" : "0");
+  } catch {
+    // Ignore write failures — the rail still keeps its state for this session.
+  }
+}
+
+function firstGlyph(label: string): string {
+  return [...label.trim()][0] ?? "•";
+}
+
+function RailIcon() {
+  return (
+    <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px]">
+      <rect x="3" y="4" width="14" height="12" rx="2.2" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M8.5 4v12" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function NavGlyph({ item }: { item: NavItem }) {
+  return (
+    <span className="flex h-[21px] w-[21px] flex-none items-center justify-center rounded-[6px] border border-chrome-border bg-chrome-hover">
+      {item.icon ?? (
+        <span aria-hidden="true" className="mz-sig text-[11px] font-bold leading-none">
+          {firstGlyph(item.label)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; showLabel: boolean }) {
+  const className = cn(
+    "relative flex w-full items-center gap-[11px] rounded-md py-[8px] text-start text-sm font-medium transition-colors duration-150",
+    showLabel ? "px-[11px]" : "justify-center px-0",
+    active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
+  );
+
   const content = (
     <>
-      <span
-        aria-hidden
-        className={cn("h-[5px] w-[5px] flex-none rounded-full transition-colors", active ? "bg-brand" : "bg-border-strong")}
-      />
-      <span className="flex-1">{item.label}</span>
-      {item.tag ? (
-        <span
-          className={cn(
-            "ms-auto rounded-pill px-[7px] py-[2px] text-[9px] font-bold tracking-[0.3px]",
-            item.tag.tone === "pattern" ? "bg-accent-soft text-accent-strong" : "bg-surface-3 text-ink-faint",
-          )}
-        >
-          {item.tag.label}
-        </span>
+      <NavGlyph item={item} />
+      {showLabel ? (
+        <>
+          <span className="flex-1 truncate">{item.label}</span>
+          {item.tag ? (
+            <span
+              className={cn(
+                "flex-none rounded-pill px-[7px] py-[2px] text-[9px] font-bold tracking-[0.3px]",
+                item.tag.tone === "pattern"
+                  ? "bg-[color-mix(in_srgb,var(--chrome-accent)_22%,transparent)] text-chrome-accent"
+                  : "bg-chrome-hover text-chrome-ink-muted",
+              )}
+            >
+              {item.tag.label}
+            </span>
+          ) : null}
+        </>
       ) : null}
     </>
   );
 
-  const sharedClassName = cn(
-    "relative flex items-center gap-[10px] rounded-md px-[11px] py-[8px] text-[13.5px] font-medium transition-colors",
-    active ? "bg-brand-soft font-bold text-brand" : "text-ink-muted hover:bg-surface-2 hover:text-ink",
-  );
-
-  const inner = item.href ? (
-    <a href={item.href} onClick={item.onClick} aria-current={active ? "page" : undefined} className={sharedClassName}>
-      {content}
-    </a>
-  ) : (
-    <button type="button" onClick={item.onClick} aria-current={active ? "page" : undefined} className={cn(sharedClassName, "w-full text-start")}>
-      {content}
-    </button>
-  );
-
   return (
-    <li>
-      {active ? <span aria-hidden className="absolute inset-y-[20%] start-0 w-[3px] rounded-[3px] bg-brand" /> : null}
-      {inner}
+    <li className="relative">
+      {active ? (
+        <span aria-hidden="true" className="absolute inset-y-[6px] start-[-12px] w-[3px] rounded-e-[3px] bg-chrome-accent" />
+      ) : null}
+      {item.href ? (
+        <a
+          href={item.href}
+          onClick={item.onClick}
+          aria-current={active ? "page" : undefined}
+          title={showLabel ? undefined : item.label}
+          className={className}
+        >
+          {content}
+        </a>
+      ) : (
+        <button
+          type="button"
+          onClick={item.onClick}
+          aria-current={active ? "page" : undefined}
+          title={showLabel ? undefined : item.label}
+          className={className}
+        >
+          {content}
+        </button>
+      )}
     </li>
   );
 }
 
-/** Sidebar — module navigation (brand mark, top link, collapsible groups, user footer); mirrors with the document direction. */
-export function Sidebar({ activeKey, topItem, groups, user, brandName, brandSub = "Mezan ERP", className }: SidebarProps) {
+/** Sidebar — the dark-teal module rail: company context on top, grouped nav with a brass active bar, user + theme at the foot. Collapses to icon-only; mirrors with the document direction. */
+export function Sidebar({
+  activeKey,
+  topItem,
+  groups,
+  user,
+  brandName,
+  brandSub = "Mezan ERP",
+  tenantName,
+  scopeLabel,
+  theme,
+  onToggleTheme,
+  className,
+}: SidebarProps) {
   const { t } = useUiTranslation();
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const group of groups) if (group.defaultCollapsed) initial[group.key] = true;
     return initial;
   });
+  const [railCollapsed, setRailCollapsed] = useState(loadPersistedRailCollapsed);
+
+  const activeGroupKey = useMemo(
+    () => groups.find((group) => group.items.some((item) => item.key === activeKey))?.key ?? null,
+    [groups, activeKey],
+  );
+
+  function toggleRail() {
+    setRailCollapsed((prev) => {
+      const next = !prev;
+      persistRailCollapsed(next);
+      return next;
+    });
+  }
+
+  const expanded = !railCollapsed;
+  const isDark = theme === "dark";
+  const railToggleLabel = expanded ? t("shell.rail.collapse") : t("shell.rail.expand");
 
   return (
-    <aside className={cn("flex h-screen w-[270px] flex-none flex-col overflow-y-auto border-s border-border bg-surface", className)}>
-      <div className="flex items-center gap-[11px] border-b border-border px-[18px] py-[17px]">
-        <span className="flex h-[38px] w-[38px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-brand to-brand-strong text-accent shadow-1">
-          <BrandMark className="h-6 w-6" />
+    <aside
+      className={cn(
+        "sticky top-0 z-30 flex h-screen flex-none flex-col overflow-hidden bg-[linear-gradient(190deg,var(--chrome),var(--chrome-2))] text-chrome-ink shadow-chrome transition-[width] duration-200",
+        expanded ? "w-[264px]" : "w-[76px]",
+        className,
+      )}
+    >
+      <div className={cn("flex flex-none items-center gap-[11px] px-[14px] pb-[12px] pt-[16px]", !expanded && "flex-col gap-[10px] px-0")}>
+        <span className="flex h-[40px] w-[40px] flex-none items-center justify-center rounded-[11px] border border-chrome-border bg-chrome-hover text-chrome-accent">
+          <BrandMark className="h-[25px] w-[25px]" />
         </span>
-        <div>
-          <div className="font-display text-[19px] font-extrabold leading-[1.1] text-ink">{brandName ?? t("shell.brand.name")}</div>
-          <div className="mz-lat mt-[1px] text-[10px] font-semibold uppercase tracking-[1.4px] text-ink-faint">{brandSub}</div>
-        </div>
+        {expanded ? (
+          <div className="min-w-0 flex-1">
+            <div className="font-sig text-xl font-bold leading-none">{brandName ?? t("shell.brand.name")}</div>
+            <div className="mz-lat font-sig mt-[3px] text-[9.5px] uppercase tracking-[0.2em] text-chrome-ink-muted">{brandSub}</div>
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={toggleRail}
+          aria-expanded={expanded}
+          aria-label={railToggleLabel}
+          title={railToggleLabel}
+          className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-md border border-chrome-border text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink"
+        >
+          <RailIcon />
+        </button>
       </div>
 
-      <nav className="flex-1 px-[12px] pb-[16px] pt-[10px]">
+      {tenantName ? (
+        <div
+          className={cn(
+            "flex flex-none items-center gap-[9px] rounded-md border border-chrome-border bg-chrome-hover",
+            expanded ? "mx-[12px] mb-[8px] px-[11px] py-[9px]" : "mx-auto mb-[8px] p-[7px]",
+          )}
+          title={expanded ? undefined : scopeLabel ? `${tenantName} · ${scopeLabel}` : tenantName}
+        >
+          <span className="flex h-[26px] w-[26px] flex-none items-center justify-center rounded-[7px] bg-gradient-to-br from-accent to-accent-strong text-[13px] font-extrabold text-[color:var(--chrome-2)]">
+            {firstGlyph(tenantName)}
+          </span>
+          {expanded ? (
+            <span className="min-w-0">
+              <span className="mz-lat block truncate text-sm font-semibold leading-tight">{tenantName}</span>
+              {scopeLabel ? <span className="block truncate text-2xs text-chrome-ink-muted">{scopeLabel}</span> : null}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+
+      <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>
-          <NavLink item={topItem} active={activeKey === topItem.key} />
+          <NavRow item={topItem} active={activeKey === topItem.key} showLabel={expanded} />
         </ul>
 
         {groups.map((group) => {
-          const isCollapsed = collapsed[group.key] ?? false;
+          const groupCollapsed = collapsedGroups[group.key] ?? false;
+          const groupIsActive = activeGroupKey === group.key;
           return (
-            <div key={group.key} className="mt-[8px]">
+            <div key={group.key} className="relative mt-[6px]">
+              {!expanded && groupIsActive && groupCollapsed ? (
+                <span aria-hidden="true" className="absolute inset-y-[6px] start-[-12px] w-[3px] rounded-e-[3px] bg-chrome-accent" />
+              ) : null}
               <button
                 type="button"
-                onClick={() => setCollapsed((prev) => ({ ...prev, [group.key]: !isCollapsed }))}
-                aria-expanded={!isCollapsed}
-                className="flex w-full items-center justify-between gap-[8px] rounded-sm px-[11px] py-[6px] pt-[7px] text-[10.5px] font-bold uppercase tracking-[1px] text-ink-faint transition-colors hover:text-ink-muted"
+                onClick={() => setCollapsedGroups((prev) => ({ ...prev, [group.key]: !groupCollapsed }))}
+                aria-expanded={!groupCollapsed}
+                aria-label={expanded ? undefined : group.label}
+                title={expanded ? undefined : group.label}
+                className={cn(
+                  "mz-eyebrow flex w-full items-center gap-[8px] rounded-sm text-chrome-ink-muted transition-colors hover:text-chrome-ink",
+                  expanded ? "justify-between px-[10px] pb-[6px] pt-[14px]" : "justify-center py-[7px]",
+                )}
               >
-                <span>{group.label}</span>
-                <svg
-                  aria-hidden
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  className={cn("h-[11px] w-[11px] opacity-80 transition-transform", isCollapsed && "-rotate-90")}
-                >
-                  <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
+                {expanded ? (
+                  <>
+                    <span className="truncate">{group.label}</span>
+                    <svg
+                      aria-hidden
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      className={cn("h-[11px] w-[11px] flex-none opacity-80 transition-transform duration-150", groupCollapsed && "-rotate-90")}
+                    >
+                      <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </>
+                ) : (
+                  <span className="text-[13px] leading-none">{firstGlyph(group.label)}</span>
+                )}
               </button>
-              {isCollapsed ? null : (
-                <ul className="flex flex-col gap-[1px] pt-[2px]">
+              {groupCollapsed ? null : (
+                <ul className="flex flex-col gap-[1px]">
                   {group.items.map((item) => (
-                    <NavLink key={item.key} item={item} active={activeKey === item.key} />
+                    <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel={expanded} />
                   ))}
                 </ul>
               )}
@@ -116,14 +277,57 @@ export function Sidebar({ activeKey, topItem, groups, user, brandName, brandSub 
         })}
       </nav>
 
-      <div className="flex items-center gap-[10px] border-t border-border px-[14px] py-[12px]">
-        <span className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-[10px] bg-gradient-to-br from-brand to-brand-strong font-display text-[12px] font-bold text-brand-ink">
+      <div
+        className={cn(
+          "flex flex-none items-center gap-[10px] border-t border-chrome-border py-[12px]",
+          expanded ? "px-[12px]" : "flex-col gap-[8px] px-0",
+        )}
+      >
+        <span
+          title={expanded ? undefined : `${user.name} · ${user.role}`}
+          className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[13px] font-extrabold text-[color:var(--chrome-2)]"
+        >
           {user.initials}
         </span>
-        <div>
-          <div className="text-[12.5px] font-bold text-ink">{user.name}</div>
-          <div className="mz-lat text-[10.5px] text-ink-faint">{user.role}</div>
-        </div>
+        {expanded ? (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold leading-tight">{user.name}</div>
+            <div className="truncate text-xs text-chrome-ink-muted">{user.role}</div>
+          </div>
+        ) : null}
+        {onToggleTheme ? (
+          <button
+            type="button"
+            onClick={onToggleTheme}
+            aria-label={t("shell.theme.toggle")}
+            title={t("shell.theme.toggle")}
+            className={cn(
+              "flex h-[34px] w-[34px] flex-none items-center justify-center rounded-md border border-chrome-border text-chrome-ink transition-colors hover:bg-chrome-hover",
+              expanded && "ms-auto",
+            )}
+          >
+            {isDark ? (
+              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+                <path
+                  d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : (
+              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+                <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.5" />
+                <path
+                  d="M10 2v2M10 16v2M4 4l1.4 1.4M14.6 14.6 16 16M2 10h2M16 10h2M4 16l1.4-1.4M14.6 5.4 16 4"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
+          </button>
+        ) : null}
       </div>
     </aside>
   );

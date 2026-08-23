@@ -1,7 +1,6 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
-import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
 import { Topbar, type TopbarScopeOption } from "./Topbar";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
@@ -32,9 +31,10 @@ export interface AppShellProps {
 }
 
 /**
- * AppShell — the app frame: Sidebar + Topbar + a Ctrl K command palette, wired
- * together. Wraps the routed page content passed as `children`. Its layout is
- * direction-agnostic: the active locale's `dir` on <html> mirrors it.
+ * AppShell — the app frame: the collapsible dark-teal Sidebar rail plus a
+ * Topbar carrying the always-visible command bar, wired together. Wraps the
+ * routed page content passed as `children`. Its layout is direction-agnostic:
+ * the active locale's `dir` on <html> mirrors it.
  */
 export function AppShell({
   activeNavKey,
@@ -60,29 +60,24 @@ export function AppShell({
   onSelectWarehouse,
 }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
-  const [paletteOpen, setPaletteOpen] = useState(false);
-
-  useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
-        event.preventDefault();
-        setPaletteOpen(true);
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, []);
 
   return (
     <div className={cn("flex min-h-screen bg-bg text-ink", className)}>
-      <Sidebar activeKey={activeNavKey} topItem={topNavItem} groups={navGroups} user={user} brandName={brandName} brandSub={brandSub} />
+      <Sidebar
+        activeKey={activeNavKey}
+        topItem={topNavItem}
+        groups={navGroups}
+        user={user}
+        brandName={brandName}
+        brandSub={brandSub}
+        tenantName={tenantName}
+        scopeLabel={scopeLabel}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
-          onOpenCommandPalette={() => setPaletteOpen(true)}
-          tenantName={tenantName}
-          scopeLabel={scopeLabel}
-          theme={theme}
-          onToggleTheme={toggleTheme}
+          commandItems={commandItems}
           notificationCount={notificationCount}
           onToggleNotifications={onToggleNotifications}
           notificationsPanel={notificationsPanel}
@@ -97,7 +92,6 @@ export function AppShell({
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
       </div>
-      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} items={commandItems} />
     </div>
   );
 }

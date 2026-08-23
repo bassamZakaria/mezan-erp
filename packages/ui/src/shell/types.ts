@@ -11,6 +11,8 @@ export interface NavItem {
   href?: string;
   onClick?: () => void;
   tag?: NavTag;
+  /** Rendered in the rail's glyph slot; without one the sidebar falls back to a monogram of the label. */
+  icon?: ReactNode;
 }
 
 export interface NavGroup {

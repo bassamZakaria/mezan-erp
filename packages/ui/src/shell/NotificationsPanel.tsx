@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { cn } from "../lib/cn";
 
 /**
@@ -49,6 +50,15 @@ export function NotificationsPanel({
   onViewAll,
   loading,
 }: NotificationsPanelProps) {
+  useEffect(() => {
+    if (!open) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   return (

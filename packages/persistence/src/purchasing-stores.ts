@@ -194,11 +194,15 @@ function grToDomain(row: GrRow): GoodsReceipt {
     description: string | null;
     qty: string;
     unitCost: string;
+    batchNo?: string | null;
+    expiryDate?: string | null;
   }[]).map<GoodsReceiptLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
     qty: Qty.fromMajor(l.qty),
     unitCost: Money.fromMajor(l.unitCost),
+    batchNo: l.batchNo ?? null,
+    expiryDate: l.expiryDate ?? null,
   }));
   return {
     id: row.id,
@@ -266,6 +270,8 @@ class SqliteGoodsReceiptStore implements GoodsReceiptRepository {
           description: l.description,
           qty: l.qty.toString(),
           unitCost: l.unitCost.toString(),
+          batchNo: l.batchNo,
+          expiryDate: l.expiryDate,
         })),
       ),
       status: r.status,
@@ -325,6 +331,8 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: string;
     unitCost: string;
     taxRatePercent: number;
+    batchNo?: string | null;
+    expiryDate?: string | null;
   }[]).map<PurchaseInvoiceLine>((l) => ({
     itemId: l.itemId,
     description: l.description,
@@ -332,6 +340,8 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     qty: Qty.fromMajor(l.qty),
     unitCost: Money.fromMajor(l.unitCost),
     taxRatePercent: l.taxRatePercent,
+    batchNo: l.batchNo ?? null,
+    expiryDate: l.expiryDate ?? null,
   }));
   return {
     id: row.id,
@@ -405,6 +415,8 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
           qty: l.qty.toString(),
           unitCost: l.unitCost.toString(),
           taxRatePercent: l.taxRatePercent,
+          batchNo: l.batchNo,
+          expiryDate: l.expiryDate,
         })),
       ),
       status: inv.status,

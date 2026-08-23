@@ -46,6 +46,10 @@ export interface GoodsReceiptLine {
   readonly qty: Qty;
   /** Receipt-time unit cost (defaults to the PO unit price when auto-filled). */
   readonly unitCost: Money;
+  /** Supplier lot this delivery arrived under. Absent for non-tracked goods. */
+  readonly batchNo?: string | null;
+  /** ISO-8601 expiry of the received goods; drives FEFO consumption. Absent for non-perishables. */
+  readonly expiryDate?: string | null;
 }
 
 export interface GoodsReceipt {
@@ -78,6 +82,8 @@ export interface GoodsReceiptLineInput {
   readonly description?: string | null;
   readonly qty: Qty;
   readonly unitCost: Money;
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 export interface CreateGoodsReceiptCommand {
@@ -143,6 +149,8 @@ export function buildReceiptLinesFromOrder(order: PurchaseOrder): GoodsReceiptLi
       description: line.description,
       qty: lineOutstandingQty(line),
       unitCost: line.unitPrice,
+      batchNo: null,
+      expiryDate: null,
     }))
     .filter((line) => !line.qty.isZero());
 }
@@ -186,6 +194,8 @@ export async function createGoodsReceipt(
           description: l.description ?? null,
           qty: l.qty,
           unitCost: l.unitCost,
+          batchNo: l.batchNo ?? null,
+          expiryDate: l.expiryDate ?? null,
         }))
       : buildReceiptLinesFromOrder(order)
   );
@@ -259,6 +269,8 @@ async function createAdHocGoodsReceipt(
     description: l.description ?? null,
     qty: l.qty,
     unitCost: l.unitCost,
+    batchNo: l.batchNo ?? null,
+    expiryDate: l.expiryDate ?? null,
   }));
   validateLines(lines);
 
@@ -302,7 +314,13 @@ export async function confirmGoodsReceipt(
     receiptNumber: receipt.number,
     warehouseId: receipt.warehouseId,
     sourceDocType: "PURCHASE_RECEIPT",
-    lines: receipt.lines.map((l) => ({ itemId: l.itemId, qty: l.qty, unitCost: l.unitCost })),
+    lines: receipt.lines.map((l) => ({
+      itemId: l.itemId,
+      qty: l.qty,
+      unitCost: l.unitCost,
+      batchNo: l.batchNo,
+      expiryDate: l.expiryDate,
+    })),
     occurredAt: nowIso(deps),
   });
 

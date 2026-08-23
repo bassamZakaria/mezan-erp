@@ -11,14 +11,14 @@ function applyThemeAttribute(preference: ThemePreference): void {
 }
 
 function readStoredPreference(): ThemePreference {
-  if (typeof window === "undefined") return "system";
+  if (typeof window === "undefined") return "light";
   try {
     const stored = window.localStorage.getItem(STORAGE_KEY);
     if (stored === "light" || stored === "dark" || stored === "system") return stored;
   } catch {
     // localStorage unavailable (privacy mode, SSR, tests) — fall back silently.
   }
-  return "system";
+  return "light";
 }
 
 export interface UseThemeResult {
@@ -31,8 +31,8 @@ export interface UseThemeResult {
 /**
  * Manages the `[data-theme]` attribute on <html> (packages/ui/src/tokens/tokens.css
  * reacts to it) plus a `prefers-color-scheme` fallback when no explicit
- * preference is stored. "system" removes the attribute entirely so the CSS
- * media query takes over.
+ * preference is stored. "light" is the default with nothing stored; "system"
+ * removes the attribute entirely so the CSS media query takes over.
  */
 export function useTheme(): UseThemeResult {
   const [theme, setThemeState] = useState<ThemePreference>(readStoredPreference);

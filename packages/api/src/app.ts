@@ -17,6 +17,8 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
+  type ItemSpecificationRepository,
+  type ProductTemplateRepository,
   type Entitlements,
   type TaxRateRepository,
   type CostCenterRepository,
@@ -104,6 +106,7 @@ import { createReconciliationRoutes, type ReconciliationRoutesDeps } from "./rec
 import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
+import { createItemSpecificationsRouter, createProductTemplatesRouter } from "./product-catalog-routes.js";
 import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js";
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
@@ -213,6 +216,17 @@ export interface CreateAppOptions {
   readonly itemCatalog?: {
     readonly units: ItemUnitRepository;
     readonly categories: ItemCategoryRepository;
+    readonly items: ItemRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/item-specifications` and `/product-templates` when present — the
+   * reusable attribute registry and the variant matrix built over it.
+   * Generation writes real items, so the item repository is required here too.
+   */
+  readonly productCatalog?: {
+    readonly specifications: ItemSpecificationRepository;
+    readonly templates: ProductTemplateRepository;
     readonly items: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
@@ -666,6 +680,22 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/item-categories",
       createItemCategoriesRouter(catalog.categories, catalog.items, catalog.resolveAuthContext),
+    );
+  }
+  if (options.productCatalog) {
+    const productCatalog = options.productCatalog;
+    app.route(
+      "/item-specifications",
+      createItemSpecificationsRouter(productCatalog.specifications, productCatalog.templates, productCatalog.resolveAuthContext),
+    );
+    app.route(
+      "/product-templates",
+      createProductTemplatesRouter(
+        productCatalog.templates,
+        productCatalog.specifications,
+        productCatalog.items,
+        productCatalog.resolveAuthContext,
+      ),
     );
   }
   if (options.inventory) {

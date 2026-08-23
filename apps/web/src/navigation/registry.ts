@@ -39,6 +39,8 @@ export const navGroups: NavGroup[] = [
     label: "المخزون",
     items: [
       { key: "items", label: "الأصناف" },
+      { key: "specifications", label: "المواصفات" },
+      { key: "product-templates", label: "منتجات بخيارات" },
       { key: "stock-balance", label: "أرصدة المخزون" },
       { key: "stock-transfers", label: "تحويلات المخزون" },
       { key: "stock-adjustments", label: "تسويات المخزون" },

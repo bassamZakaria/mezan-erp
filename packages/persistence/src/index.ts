@@ -21,6 +21,10 @@ export {
   type SqliteSequenceStoreHandle,
 } from "./sequence-store.js";
 export {
+  createSqliteSequenceConfigStore,
+  type SqliteSequenceConfigStoreHandle,
+} from "./sequence-config-store.js";
+export {
   createSqliteAuditSink,
   type SqliteAuditSinkHandle,
 } from "./audit-sink.js";
@@ -32,6 +36,10 @@ export {
   createSqliteSettingsStore,
   type SqliteSettingsStoreHandle,
 } from "./settings-store.js";
+export {
+  createSqliteBarcodeConfigStore,
+  type SqliteBarcodeConfigStoreHandle,
+} from "./barcode-config-store.js";
 export {
   createSqliteBranchStore,
   type SqliteBranchStoreHandle,
@@ -56,6 +64,14 @@ export {
   createSqliteItemUnitStore,
   type SqliteItemUnitStoreHandle,
 } from "./item-unit-store.js";
+export {
+  createSqliteNotificationRuleStore,
+  type SqliteNotificationRuleStoreHandle,
+} from "./notification-rule-store.js";
+export {
+  createSqliteNotificationStore,
+  type SqliteNotificationStoreHandle,
+} from "./notification-store.js";
 export {
   createSqliteItemCategoryStore,
   type SqliteItemCategoryStoreHandle,
@@ -109,6 +125,11 @@ export {
   createSqliteHistoricalPurchaseArchiveStore,
   type SqliteHistoricalPurchaseArchiveStoreHandle,
 } from "./historical-import-store.js";
+export {
+  createDataMigrationTransactor,
+  type DataMigrationTransactor,
+  type DataMigrationTransactorHandle,
+} from "./data-migration-transactor.js";
 export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
@@ -188,3 +209,34 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+
+export {
+  createSqliteItemSpecificationStore,
+  type SqliteItemSpecificationStoreHandle,
+} from "./item-specification-store.js";
+export {
+  createSqliteProductTemplateStore,
+  type SqliteProductTemplateStoreHandle,
+} from "./product-template-store.js";
+
+export { createSqliteApiKeyStore, type SqliteApiKeyStoreHandle } from "./api-key-store.js";
+export { createSqliteWebhookStores, type SqliteWebhookStoresHandle } from "./webhook-store.js";
+
+export {
+  createSqliteLabelLayoutStore,
+  type SqliteLabelLayoutStoreHandle,
+} from "./label-layout-store.js";
+
+export {
+  ensureWorkflowTables,
+  createSqliteGateConfigStore,
+  createSqliteWorkflowRequestStore,
+  createWorkflowSubjectResolver,
+  workflowDocTypeLabelAr,
+  type StoredGateConfig,
+  type GateConfigInput,
+  type GateConfigStore,
+  type StoredApprovalRequest,
+  type WorkflowRequestStore,
+  type WorkflowSubject,
+} from "./workflow-store.js";

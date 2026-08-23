@@ -8,6 +8,8 @@ import { ItemsScreen } from "./screens/ItemsScreen";
 import { BomsScreen } from "./screens/BomsScreen";
 import { WorkOrdersScreen } from "./screens/WorkOrdersScreen";
 import { ConfigurableProductsScreen } from "./screens/ConfigurableProductsScreen";
+import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
+import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
 import { ConfigInstancesScreen } from "./screens/ConfigInstancesScreen";
 import { SalesInvoicesScreen } from "./screens/SalesInvoicesScreen";
 import { CustomersScreen } from "./screens/CustomersScreen";
@@ -138,6 +140,8 @@ const ROUTABLE_SCREENS = {
   boms: BomsScreen,
   "custom-manufacturing": ConfigInstancesScreen,
   "configurable-products": ConfigurableProductsScreen,
+  specifications: ItemSpecificationsScreen,
+  "product-templates": ProductTemplatesScreen,
   "stock-balance": StockBalanceScreen,
   "stock-transfers": StockTransfersScreen,
   "stock-adjustments": StockAdjustmentsScreen,

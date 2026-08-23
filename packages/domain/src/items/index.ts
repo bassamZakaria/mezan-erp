@@ -39,3 +39,43 @@ export {
   type CreateItemCategoryCommand,
   type UpdateItemCategoryCommand,
 } from "./item-category.js";
+export {
+  DuplicateItemSpecificationCodeError,
+  ItemSpecificationNotFoundError,
+  InvalidItemSpecificationError,
+  ItemSpecificationInUseError,
+  DuplicateProductTemplateCodeError,
+  ProductTemplateNotFoundError,
+  InvalidProductTemplateError,
+  ProductTemplateAlreadyGeneratedError,
+  ProductTemplateVariantNotFoundError,
+} from "./product-catalog-errors.js";
+export {
+  createItemSpecification,
+  updateItemSpecification,
+  deleteItemSpecification,
+  countItemSpecificationUsage,
+  type ItemSpecification,
+  type ItemSpecificationType,
+  type ItemSpecificationRepository,
+  type CreateItemSpecificationCommand,
+  type UpdateItemSpecificationCommand,
+} from "./item-specification.js";
+export {
+  createProductTemplate,
+  updateProductTemplate,
+  deleteProductTemplate,
+  generateProductTemplateVariants,
+  setProductTemplateVariantPrice,
+  projectProductTemplateVariants,
+  MAX_PRODUCT_TEMPLATE_VARIANTS,
+  type ProductTemplate,
+  type ProductTemplateStatus,
+  type ProductTemplateOption,
+  type ProductTemplateVariant,
+  type ProductTemplateRepository,
+  type ProductTemplateOptionInput,
+  type ProductTemplateDeps,
+  type CreateProductTemplateCommand,
+  type UpdateProductTemplateCommand,
+} from "./product-template.js";

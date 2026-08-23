@@ -122,6 +122,16 @@ export {
   type DriftType,
 } from "./inventory-drift.js";
 
+// --- التصنيع أم الشراء — Make vs Buy ---------------------------------------
+
+export {
+  createMakeVsBuyReport,
+  type MakeVsBuyContext,
+  type MakeVsBuyParams,
+  type MakeVsBuyRow,
+  type MakeVsBuyVerdict,
+} from "./make-vs-buy.js";
+
 // --- أعمار الديون — Aging reports ----------------------------------------
 
 export {

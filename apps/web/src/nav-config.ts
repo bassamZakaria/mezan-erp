@@ -186,6 +186,7 @@ export const navGroups: NavGroup[] = [
       { key: "report-aging-suppliers", label: "أعمار ديون الموردين" },
       { key: "report-installments-overview", label: "نظرة عامة على الأقساط" },
       { key: "report-installments-overdue", label: "الأقساط المتأخرة" },
+      { key: "report-van-sales", label: "مبيعات المندوبين" },
     ],
   },
   {

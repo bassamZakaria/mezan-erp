@@ -98,6 +98,7 @@ const READ_PATHS = [
   "/reports/aging/suppliers",
   "/reports/installments/overview",
   "/reports/installments/overdue",
+  "/reports/field/van-sales",
   "/financial-reports/trial-balance",
   "/financial-reports/income-statement",
   "/financial-reports/balance-sheet",

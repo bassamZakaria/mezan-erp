@@ -137,6 +137,15 @@ export {
   type AgingSuppliersRow,
 } from "./aging-suppliers.js";
 
+// --- المبيعات الميدانية — Field/Van sales reports -------------------------
+
+export {
+  createVanSalesReport,
+  type VanSalesContext,
+  type VanSalesParams,
+  type VanSalesRow,
+} from "./field-van-sales.js";
+
 // --- الأقساط — Installment reports ---------------------------------------
 
 export {

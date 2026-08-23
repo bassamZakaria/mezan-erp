@@ -61,6 +61,7 @@ import {
 } from "./screens/reports/InventoryReportsScreens";
 import { AgingCustomersReportScreen, AgingSuppliersReportScreen } from "./screens/reports/AgingReportsScreens";
 import { InstallmentsOverviewReportScreen, InstallmentsOverdueReportScreen } from "./screens/reports/InstallmentsReportsScreens";
+import { VanSalesReportScreen } from "./screens/reports/FieldSalesReportsScreens";
 import { LeadsScreen } from "./screens/LeadsScreen";
 import { OpportunitiesScreen } from "./screens/OpportunitiesScreen";
 import { PipelineScreen } from "./screens/PipelineScreen";
@@ -219,6 +220,7 @@ const ROUTABLE_SCREENS = {
   "report-aging-suppliers": AgingSuppliersReportScreen,
   "report-installments-overview": InstallmentsOverviewReportScreen,
   "report-installments-overdue": InstallmentsOverdueReportScreen,
+  "report-van-sales": VanSalesReportScreen,
   "financial-reports": FinancialReportsScreen,
   "settings-general": SettingsGeneral,
   "settings-branches": BranchesPage,

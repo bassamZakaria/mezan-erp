@@ -3827,6 +3827,23 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
   });
 }
 
+/* ------------------------------------------------------------------ */
+/* قواعد الإشعارات / Notification rules (docs/catalog/09) + top-bar panel */
+/* ------------------------------------------------------------------ */
+
+export function useNotificationRules(): UseQueryResult<NotificationRuleDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<NotificationRuleDTO[], ApiError>({
+    queryKey: ["notification-rules"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/notification-rules");
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل قواعد الإشعارات."));
+      return res.json<NotificationRuleDTO[]>();
+    },
+  });
+}
+
 export function useCreateNotificationRule() {
   const { request } = useApi();
   const queryClient = useQueryClient();

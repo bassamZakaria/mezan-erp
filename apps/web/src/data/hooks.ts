@@ -152,6 +152,8 @@ import type {
   RfqQuoteDTO,
   RoleDTO,
   SalesInvoiceDiscountDTO,
+  AppliedSalesInvoicePromotionDTO,
+  PromotionUsageRowDTO,
   SalesInvoiceListQueryDTO,
   SalesReturnDocumentDTO,
   SessionDTO,
@@ -639,6 +641,20 @@ export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
       const res = await request("/promotions");
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العروض.");
       return res.json<PromotionDTO[]>();
+    },
+  });
+}
+
+/** تقرير استخدام العروض (docs/catalog/01) — real usage off confirmed invoices, `/promotions/report`. */
+export function usePromotionUsageReport(): UseQueryResult<PromotionUsageRowDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PromotionUsageRowDTO[], ApiError>({
+    queryKey: ["promotions", "report"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/promotions/report");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تقرير استخدام العروض.");
+      return res.json<PromotionUsageRowDTO[]>();
     },
   });
 }
@@ -1559,6 +1575,7 @@ export interface SalesInvoiceLineRowDTO {
 export interface SalesInvoiceTotalsDTO {
   readonly grossTotal: string;
   readonly lineDiscountTotal: string;
+  readonly promotionDiscountTotal: string;
   readonly invoiceDiscountTotal: string;
   readonly subtotal: string;
   readonly taxableTotal: string;
@@ -1578,7 +1595,11 @@ export interface SalesInvoiceDTO {
   readonly customerTaxExempt: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
+  readonly salespersonId: string | null;
+  readonly salespersonNameAr: string | null;
   readonly currency: string;
+  readonly couponCode: string | null;
+  readonly appliedPromotion: AppliedSalesInvoicePromotionDTO | null;
   readonly notes: string | null;
   readonly internalNotes: string | null;
   readonly discount: SalesInvoiceDiscountDTO;

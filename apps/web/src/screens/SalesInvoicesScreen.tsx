@@ -31,6 +31,7 @@ import {
   useConfirmSalesInvoice,
   useCreateSalesInvoice,
   useCustomers,
+  useEmployees,
   useItems,
   useJournalEntry,
   useRecordSalesInvoicePayment,
@@ -100,6 +101,7 @@ function CreateInvoicePanel({
   onClose: () => void;
 }) {
   const customersQuery = useCustomers();
+  const employeesQuery = useEmployees();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
   const createInvoice = useCreateSalesInvoice();
@@ -107,6 +109,7 @@ function CreateInvoicePanel({
   const unitLabel = useUnitLabel();
 
   const customers = customersQuery.data ?? [];
+  const employees = employeesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
 
@@ -115,6 +118,8 @@ function CreateInvoicePanel({
   const [date, setDate] = useState(today);
   const [dueDate, setDueDate] = useState(today);
   const [warehouseId, setWarehouseId] = useState("");
+  const [salesperson, setSalesperson] = useState<EntityPickerOption | null>(null);
+  const [couponCode, setCouponCode] = useState("");
   const [discountType, setDiscountType] = useState<SalesInvoiceDiscountType>("amount");
   const [discountValue, setDiscountValue] = useState(0);
   const [lines, setLines] = useState<InvoiceLineDraft[]>([blankLine()]);
@@ -126,6 +131,8 @@ function CreateInvoicePanel({
     setDate(today);
     setDueDate(today);
     setWarehouseId(warehouses[0]?.id ?? "");
+    setSalesperson(null);
+    setCouponCode("");
     setDiscountType("amount");
     setDiscountValue(0);
     setLines([blankLine()]);
@@ -139,6 +146,17 @@ function CreateInvoicePanel({
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
     [customers],
+  );
+  const salespersonOptions = useMemo<EntityPickerOption[]>(
+    () =>
+      employees
+        .filter((e) => e.status === "active")
+        .map((e) => ({
+          id: e.id,
+          label: [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ") || `${e.firstName} ${e.lastName}`,
+          sublabel: e.code,
+        })),
+    [employees],
   );
   const itemOptions = useMemo<EntityPickerOption[]>(
     () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${i.salePrice ?? "0"} ج.م` })),
@@ -214,6 +232,9 @@ function CreateInvoicePanel({
         customerTaxExempt: customerData.taxExempt,
         warehouseId,
         branchId: DEFAULT_BRANCH_ID,
+        salespersonId: salesperson?.id ?? null,
+        salespersonNameAr: salesperson?.label ?? null,
+        couponCode: couponCode.trim() === "" ? null : couponCode.trim(),
         currency: customerData.currency,
         discount: discount.type === "percent" ? { type: "percent", percent: discount.percent } : { type: "amount", amount: discount.amount.toString() },
         arAccountId: AR_ACCOUNT_ID,
@@ -280,6 +301,27 @@ function CreateInvoicePanel({
           onChange={setWarehouseId}
           options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
         />
+
+        <EntityPicker
+          id="invoice-salesperson-picker"
+          label="مندوب المبيعات"
+          value={salesperson}
+          onChange={setSalesperson}
+          options={salespersonOptions}
+          placeholder="اختر مندوباً..."
+        />
+
+        <label className="flex flex-col gap-[6px]">
+          <span className="text-[12.5px] font-semibold text-ink">كود الكوبون</span>
+          <input
+            type="text"
+            value={couponCode}
+            onChange={(e) => setCouponCode(e.target.value)}
+            placeholder="اتركه فارغاً إن لم يقدّم العميل كوبوناً"
+            className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
+          />
+          <span className="text-xs text-ink-muted">يُطبَّق العرض المناسب تلقائياً عند تأكيد الفاتورة.</span>
+        </label>
 
         <div className="flex flex-col gap-[10px]">
           <div className="flex items-center justify-between">
@@ -467,7 +509,14 @@ function InvoiceDetailView({
     }));
     const discount: SalesInvoiceDiscount =
       invoice.discount.type === "percent" ? { type: "percent", percent: invoice.discount.percent } : { type: "amount", amount: Money.fromMajor(invoice.discount.amount) };
-    const totals = computeInvoiceTotals(domainLines, discount, { taxExempt: invoice.customerTaxExempt });
+    const totals = computeInvoiceTotals(domainLines, discount, {
+      taxExempt: invoice.customerTaxExempt,
+      promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts.map((d: { lineId: string; itemId: string; amount: string }) => ({
+        lineId: d.lineId,
+        itemId: d.itemId,
+        amount: Money.fromMajor(d.amount),
+      })),
+    });
     return new Map(totals.lines.map((l) => [l.lineId, l]));
   }, [invoice]);
 
@@ -512,6 +561,16 @@ function InvoiceDetailView({
         { label: "العميل", value: invoice.customerNameAr },
         { label: "تاريخ الاستحقاق", value: <span className="mz-num">{invoice.dueDate}</span>, valueTone: overdue ? "danger" : "default" },
         { label: "المستودع", value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
+        { label: "المندوب", value: invoice.salespersonNameAr ?? "غير محدد" },
+        ...(invoice.appliedPromotion
+          ? [
+              { label: "العرض المطبَّق", value: `${invoice.appliedPromotion.nameAr} (${invoice.appliedPromotion.code})` },
+              {
+                label: "خصم العرض",
+                value: <MoneyDisplay value={toMajor(invoice.appliedPromotion.discountTotal)} />,
+              },
+            ]
+          : []),
         { label: "الإجمالي", value: <MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /> },
         { label: "الرصيد المتبقي", value: <MoneyDisplay value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
       ]}

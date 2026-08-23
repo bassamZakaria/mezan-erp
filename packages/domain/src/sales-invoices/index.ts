@@ -73,3 +73,24 @@ export {
   InvalidSalesInvoiceTransitionError,
   InvalidSalesInvoicePaymentError,
 } from "./errors.js";
+
+export {
+  previewHistoricalSalesImport,
+  importHistoricalSalesDocuments,
+  assertHistoricalSalesImportBatchNotEmpty,
+  type HistoricalSalesDocType,
+  type HistoricalSalesImportRowInput,
+  type HistoricalSalesImportRowError,
+  type HistoricalSalesArchiveLine,
+  type HistoricalSalesArchive,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingLine,
+  type HistoricalSalesImportGlPosting,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
+  type HistoricalSalesImportGroup,
+  type HistoricalSalesImportPreview,
+  type ImportHistoricalSalesDocumentsCommand,
+  type ImportHistoricalSalesDocumentsDeps,
+  type ImportHistoricalSalesDocumentsResult,
+} from "./historical-import.js";

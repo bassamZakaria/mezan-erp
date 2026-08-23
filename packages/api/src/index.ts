@@ -45,3 +45,5 @@ export {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+export { createNotificationRulesRoutes } from "./notification-rules-routes.js";
+export { createNotificationsRoutes } from "./notifications-routes.js";

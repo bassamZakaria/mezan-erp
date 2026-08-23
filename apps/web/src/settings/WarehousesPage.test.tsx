@@ -1,38 +1,41 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within } from "@testing-library/react";
+import { screen, fireEvent, within, waitFor } from "@testing-library/react";
 import type { BranchDTO, WarehouseDTO } from "@mezan/contracts";
 import { WarehousesPage } from "./WarehousesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
-const BRANCH: BranchDTO = {
-  id: "b1",
-  code: "MAIN",
-  name: "الفرع الرئيسي",
-  parentBranchId: null,
-  phone: null,
-  email: null,
-  address: null,
-  isMain: true,
-  active: true,
-};
+const sampleBranches: BranchDTO[] = [
+  { id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+  { id: "b2", code: "ALEX", name: "فرع الإسكندرية", parentBranchId: "b1", phone: null, email: null, address: null, isMain: false, active: true },
+];
 
-function warehouse(overrides: Partial<WarehouseDTO> = {}): WarehouseDTO {
-  return { id: "w1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true, ...overrides };
-}
+const sampleWarehouses: WarehouseDTO[] = [
+  { id: "w1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "w2", code: "VAN-01", name: "سياره نقل ١", branchId: "b1", type: "VAN", isDefault: false, active: true },
+  { id: "w3", code: "WH-RET", name: "مستودع المرتجعات", branchId: "b1", type: "RETURNS", isDefault: false, active: true },
+  { id: "w4", code: "WH-ALEX", name: "مستودع فرع الإسكندرية", branchId: "b2", type: "MAIN", isDefault: true, active: true },
+  { id: "w5", code: "WH-PROD", name: "مستودع الإنتاج", branchId: "b2", type: "PRODUCTION", isDefault: false, active: true },
+];
 
-const VAN = warehouse({ id: "w2", code: "VAN-01", name: "سياره نقل ١", type: "VAN", isDefault: false });
-
-function renderPage() {
-  let warehouses = [warehouse(), VAN];
+function renderScreen(warehouses: WarehouseDTO[] = sampleWarehouses, branches: BranchDTO[] = sampleBranches) {
+  let current = [...warehouses];
   const transport = stubTransport({
-    "GET /branches": () => ({ body: [BRANCH] }),
-    "GET /warehouses": () => ({ body: warehouses }),
+    "GET /warehouses": () => ({ body: current }),
+    "GET /branches": () => ({ body: branches }),
     "POST /warehouses": (init) => {
-      const body = JSON.parse((init?.body as string) ?? "{}") as WarehouseDTO;
-      const created = warehouse({ ...body });
-      warehouses = [...warehouses, created];
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      const created: WarehouseDTO = {
+        id: body.id,
+        code: body.code,
+        name: body.name,
+        branchId: body.branchId,
+        type: body.type ?? "MAIN",
+        isDefault: body.isDefault ?? false,
+        active: true,
+      };
+      current = [...current, created];
       return { status: 201, body: created };
     },
   });
@@ -40,30 +43,32 @@ function renderPage() {
 }
 
 describe("WarehousesPage", () => {
-  it("lists the warehouses the API returns, with the 5 catalog type filters", async () => {
-    renderPage();
+  it("lists the real warehouses across the 5 catalog types", async () => {
+    renderScreen();
     expect(screen.getByRole("heading", { name: "المستودعات" })).toBeInTheDocument();
     expect(await screen.findByText("مستودع الفرع الرئيسي")).toBeInTheDocument();
     expect(screen.getByText("سياره نقل ١")).toBeInTheDocument();
+    // The 5 type filter chips are rendered.
     for (const label of ["رئيسي", "مستودع وسيط", "مرتجعات", "إنتاج", "ڤان (سيارة توزيع)"]) {
       expect(screen.getByRole("button", { name: label })).toBeInTheDocument();
     }
   });
 
   it("filters the list by warehouse type", async () => {
-    renderPage();
+    renderScreen();
     await screen.findByText("مستودع الفرع الرئيسي");
     fireEvent.click(screen.getByRole("button", { name: "ڤان (سيارة توزيع)" }));
     expect(screen.getByText("سياره نقل ١")).toBeInTheDocument();
     expect(screen.queryByText("مستودع الفرع الرئيسي")).not.toBeInTheDocument();
   });
 
-  it("adds a new warehouse through the side panel, defaulting to type MAIN", async () => {
-    renderPage();
+  it("adds a new warehouse through the side panel, defaulting to type MAIN and the first branch", async () => {
+    renderScreen();
     await screen.findByText("مستودع الفرع الرئيسي");
     fireEvent.click(screen.getByRole("button", { name: "إضافة مستودع" }));
 
     const dialog = screen.getByRole("dialog", { name: "إضافة مستودع" });
+    await waitFor(() => expect(within(dialog).getByLabelText("اسم الفرع")).toHaveValue("b1"));
     fireEvent.change(within(dialog).getByLabelText("اسم المستودع"), { target: { value: "مستودع تجريبي" } });
     fireEvent.change(within(dialog).getByLabelText("رمز المستودع"), { target: { value: "WH-TEST" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ المستودع" }));

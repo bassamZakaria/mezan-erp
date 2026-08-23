@@ -1,4 +1,3 @@
-import Database from "better-sqlite3";
 import {
   Money,
   Qty,
@@ -10,6 +9,7 @@ import {
 } from "@mezan/domain";
 import { createSqliteFrameworkDocumentStore } from "./framework-document-store.js";
 import { createSqlitePhysicalCountStore, type SqlitePhysicalCountStoreHandle } from "./physical-count-store.js";
+import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
 
 /**
  * phase4/inventory-ops persistence composition root: one SQLite connection
@@ -83,14 +83,16 @@ export interface SqliteInventoryOpsStoreHandle {
   close(): void;
 }
 
-export interface SqliteInventoryOpsStores {
-  readonly stockAdjustments: DocumentRepository<StockAdjustmentDocLine>;
-  readonly stockTransfers: DocumentRepository<StockTransferDocLine>;
-  readonly physicalCounts: SqlitePhysicalCountStoreHandle;
-}
+/**
+ * Open a SQLite-backed inventory-ops store. `path` is `":memory:"`/a file path
+ * (opens and owns its own connection — every existing standalone/test call
+ * site) or an already-open connection to REUSE (create-backend.ts's ONE
+ * shared connection — see sqlite-connection.ts's `openSqliteConnection` doc
+ * comment for why a second writer connection onto the same file is unsafe).
+ */
+export function createSqliteInventoryOpsStore(path: SqliteConnectionInput = ":memory:"): SqliteInventoryOpsStoreHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
 
-/** Build the inventory-ops repositories on an EXISTING connection, so a composed app keeps one DB handle. */
-export function createSqliteInventoryOpsStores(sqlite: Database.Database): SqliteInventoryOpsStores {
   const stockAdjustments = createSqliteFrameworkDocumentStore<StockAdjustmentDocLine>(sqlite, {
     tableName: "stock_adjustment_document",
     docType: "STOCK_ADJUSTMENT",
@@ -105,12 +107,12 @@ export function createSqliteInventoryOpsStores(sqlite: Database.Database): Sqlit
     lineFromWire: transferLineFromWire,
   });
 
-  return { stockAdjustments, stockTransfers, physicalCounts: createSqlitePhysicalCountStore(sqlite) };
-}
+  const physicalCounts = createSqlitePhysicalCountStore(sqlite);
 
-/** Open a SQLite-backed inventory-ops store on its OWN connection. ":memory:" for tests, a path for real. */
-export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventoryOpsStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
-  return { ...createSqliteInventoryOpsStores(sqlite), close: () => sqlite.close() };
+  return {
+    stockAdjustments,
+    stockTransfers,
+    physicalCounts,
+    close: () => { if (owned) sqlite.close(); },
+  };
 }

@@ -46,6 +46,10 @@ export function persistSession(session: Session | null): void {
  * codes, and the two scope dimensions. Every authenticated API call sends
  * these; without a session, no headers (the gate then sees an anonymous,
  * permission-less context and denies).
+ *
+ * `x-role-code` is separate from `x-permissions`: the workflow gate's steps
+ * assign an approver ROLE (see `/workflow` routes' `actorRoles`), not a
+ * permission code, so it isn't folded into the resolved permission set.
  */
 export function authHeaders(session: Session | null): Record<string, string> {
   if (!session) return {};
@@ -53,6 +57,7 @@ export function authHeaders(session: Session | null): Record<string, string> {
   return {
     "x-user-id": session.userId,
     "x-permissions": session.permissions.join(","),
+    "x-role-code": session.roleCode ?? "",
     "x-branch-scope": scope(session.branchScope),
     "x-warehouse-scope": scope(session.warehouseScope),
   };

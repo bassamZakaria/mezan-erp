@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Button, Card, DocumentList, StatCard, type DocumentListColumn } from "@mezan/ui";
+import { DocumentList, StatCard, Card, Button, type DocumentListColumn } from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 
@@ -11,21 +11,12 @@ function fmt(value: string): string {
 /**
  * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04). Groups posted
  * revenue/expense by the cost-center dimension carried on each journal line,
- * grouped server-side by `GET /cost-center-pl` over the posted ledger.
+ * on the real `GET /cost-center-pl` route (packages/api/src/cost-center-pl-routes.ts),
+ * which runs the SAME `computeCostCenterPnL` domain function server-side.
  */
-
-function monthStart(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-}
-
-function today(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 export function CostCenterPnLScreen() {
-  const [fromDate, setFromDate] = useState(monthStart);
-  const [toDate, setToDate] = useState(today);
+  const [fromDate, setFromDate] = useState("2026-08-01");
+  const [toDate, setToDate] = useState("2026-08-31");
   const query = useCostCenterPnL(fromDate, toDate);
   const report = query.data ?? null;
 
@@ -58,9 +49,11 @@ export function CostCenterPnLScreen() {
       </div>
 
       {query.isError ? (
-        <Card className="mb-[16px] p-[16px_18px]">
+        <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرباح مراكز التكلفة.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>إعادة المحاولة</Button>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
         </Card>
       ) : null}
 

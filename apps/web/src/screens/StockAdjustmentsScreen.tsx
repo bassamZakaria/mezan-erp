@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   DocumentList,
   DocumentDetail,
@@ -12,37 +12,29 @@ import {
   type DocumentStatusStep,
   type PillTone,
 } from "@mezan/ui";
+import type { AccountDTO, DocumentStatusDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
 import {
+  Money,
+  Qty,
   ADJUSTMENT_REASON_DEFINITIONS,
   getAdjustmentReasonDefinition,
+  stockAdjustmentDocumentType,
+  type AdjustmentReason,
   type AdjustmentReasonDefinition,
+  type StockMovementDirection,
 } from "@mezan/domain";
-import type {
-  AccountDTO,
-  AdjustmentReasonDTO,
-  DocumentStatusDTO,
-  ItemDTO,
-  StockAdjustmentDocumentDTO,
-  StockMovementDirectionDTO,
-  WarehouseDTO,
-} from "@mezan/contracts";
 import {
   useAccounts,
+  useConfirmStockAdjustment,
+  useCreateStockAdjustment,
   useItems,
   useJournalEntry,
-  usePostStockAdjustment,
   useStockAdjustments,
   useWarehouses,
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 
-function accountLabel(id: string, accounts: readonly AccountDTO[]): string {
-  return accounts.find((a) => a.id === id)?.nameAr ?? id;
-}
-
-/** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the document framework. */
-
-type AdjustmentDoc = StockAdjustmentDocumentDTO;
+/** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
 const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
   draft: "مسودة",
@@ -66,18 +58,35 @@ const STEPPER_STEPS: DocumentStatusStep[] = [
   { key: "confirmed", label: "مؤكد" },
 ];
 
-function warehouseLabel(id: string, warehouses: readonly WarehouseDTO[]): string {
-  return warehouses.find((w) => w.id === id)?.name ?? id;
-}
-
-function itemLabel(id: string, items: readonly ItemDTO[]): string {
-  const item = items.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
-}
-
-function headerOf(doc: AdjustmentDoc): { warehouseId: string; reason: AdjustmentReasonDTO } {
+function headerOf(doc: StockAdjustmentDocumentDTO): { warehouseId: string; reason: AdjustmentReason } {
   const first = doc.lines[0];
   return first ? { warehouseId: first.warehouseId, reason: first.reason } : { warehouseId: "—", reason: "OTHER" };
+}
+
+/** Rebuilds the domain document (Money/Qty instances) from the wire DTO so the REAL `describeEffects` can run client-side. */
+function toDomainDoc(doc: StockAdjustmentDocumentDTO) {
+  return {
+    id: doc.id,
+    docType: doc.docType,
+    docNo: doc.docNo,
+    date: doc.date,
+    memo: doc.memo,
+    status: doc.status,
+    lines: doc.lines.map((l) => ({
+      itemId: l.itemId,
+      warehouseId: l.warehouseId,
+      reason: l.reason,
+      direction: l.direction,
+      qty: Qty.fromMajor(l.qty),
+      unitCost: l.unitCost ? Money.fromMajor(l.unitCost) : undefined,
+    })),
+    createdAt: doc.createdAt,
+    confirmedAt: doc.confirmedAt,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: doc.journalEntryId,
+  };
 }
 
 /* -------------------------------------------------------------------- */
@@ -87,13 +96,13 @@ function headerOf(doc: AdjustmentDoc): { warehouseId: string; reason: Adjustment
 interface LineDraft {
   key: string;
   itemId: string;
-  direction: StockMovementDirectionDTO;
+  direction: StockMovementDirection;
   qty: number;
   unitCost: number;
 }
 
 let lineSeq = 0;
-function blankLine(direction: StockMovementDirectionDTO): LineDraft {
+function blankLine(direction: StockMovementDirection): LineDraft {
   lineSeq += 1;
   return { key: `l${lineSeq}`, itemId: "", direction, qty: 0, unitCost: 0 };
 }
@@ -102,18 +111,23 @@ export function StockAdjustmentsScreen() {
   const query = useStockAdjustments();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
-  const accountsQuery = useAccounts();
+  const documents = query.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  function warehouseLabel(id: string): string {
+    return warehouses.find((w) => w.id === id)?.name ?? id;
+  }
+  function itemLabel(id: string): string {
+    const item = items.find((i) => i.id === id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  }
 
   const [mode, setMode] = useState<"list" | "reason" | "create" | "detail">("list");
   const [selectedReason, setSelectedReason] = useState<AdjustmentReasonDefinition | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-
-  const documents = query.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
-  const accounts = accountsQuery.data ?? [];
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0 };
@@ -136,7 +150,7 @@ export function StockAdjustmentsScreen() {
 
   const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
 
-  const columns: DocumentListColumn<AdjustmentDoc>[] = [
+  const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
       key: "docNo",
       header: "رقم التسوية",
@@ -151,7 +165,7 @@ export function StockAdjustmentsScreen() {
         const { warehouseId, reason } = headerOf(d);
         return (
           <span className="text-ink">
-            {warehouseLabel(warehouseId, warehouses)} — {getAdjustmentReasonDefinition(reason).labelAr}
+            {warehouseLabel(warehouseId)} — {getAdjustmentReasonDefinition(reason).labelAr}
           </span>
         );
       },
@@ -199,9 +213,9 @@ export function StockAdjustmentsScreen() {
   if (mode === "create" && selectedReason) {
     return (
       <CreateAdjustmentView
+        reason={selectedReason}
         warehouses={warehouses}
         items={items}
-        reason={selectedReason}
         onDone={() => {
           setSelectedReason(null);
           setMode("list");
@@ -214,6 +228,7 @@ export function StockAdjustmentsScreen() {
   if (mode === "detail" && selected) {
     const { warehouseId, reason } = headerOf(selected);
     const def = getAdjustmentReasonDefinition(reason);
+    const effects = stockAdjustmentDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
         <DocumentDetail
@@ -223,25 +238,27 @@ export function StockAdjustmentsScreen() {
           subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} />}
           actions={<Button onClick={() => setMode("list")}>رجوع</Button>}
           summary={[
-            { label: "المستودع", value: warehouseLabel(warehouseId, warehouses) },
+            { label: "المستودع", value: warehouseLabel(warehouseId) },
             { label: "السبب", value: def.labelAr },
             { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
             { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
-          effects={[
-            <span key="stock">{def.direction === "OUT" ? "خصم الكميات من رصيد المستودع" : "إضافة الكميات إلى رصيد المستودع"}</span>,
-            <span key="gl">ترحيل قيد محاسبي بفرق القيمة عند التأكيد</span>,
-          ]}
+          effects={effects.effects.map((e) => (
+            <span key={e.description}>
+              {e.description}
+              {e.detail ? <span className="block text-[11.5px] text-ink-muted">{e.detail}</span> : null}
+            </span>
+          ))}
           tabs={[
             {
               key: "lines",
               label: "بنود التسوية",
-              content: <AdjustmentLinesTable doc={selected} items={items} />,
+              content: <AdjustmentLinesTable doc={selected} itemLabel={itemLabel} />,
             },
             {
               key: "gl",
               label: "المحاسبة",
-              content: <AdjustmentGlTab journalEntryId={selected.journalEntryId} accounts={accounts} />,
+              content: <AdjustmentGlTab docId={selected.id} />,
             },
           ]}
         />
@@ -249,17 +266,20 @@ export function StockAdjustmentsScreen() {
     );
   }
 
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تسويات المخزون.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تسويات المخزون.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
-          </Button>
-        </Card>
-      ) : null}
-      <DocumentList<AdjustmentDoc>
+      <DocumentList<StockAdjustmentDocumentDTO>
         eyebrow="Inventory · Stock Adjustments"
         title="تسويات المخزون"
         description="مسودة ← مؤكد — تسويات تُغيّر كمية المخزون وربما قيمته، على إطار المستندات الموحّد"
@@ -304,7 +324,7 @@ export function StockAdjustmentsScreen() {
 /* Lines tab                                                            */
 /* -------------------------------------------------------------------- */
 
-function AdjustmentLinesTable({ doc, items }: { doc: AdjustmentDoc; items: readonly ItemDTO[] }) {
+function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocumentDTO; itemLabel: (id: string) => string }) {
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -323,7 +343,7 @@ function AdjustmentLinesTable({ doc, items }: { doc: AdjustmentDoc; items: reado
               const value = l.unitCost ? Number(l.qty) * Number(l.unitCost) : null;
               return (
                 <tr key={i} className="border-b border-border last:border-b-0">
-                  <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId, items)}</td>
+                  <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
                   <td className="px-[15px] py-[11px]">
                     <StatusPill label={l.direction === "IN" ? "زيادة" : "نقصان"} tone={l.direction === "IN" ? "success" : "danger"} />
                   </td>
@@ -344,16 +364,25 @@ function AdjustmentLinesTable({ doc, items }: { doc: AdjustmentDoc; items: reado
 /* GL tab — looks the journal entry up by the adjustment's OWN id        */
 /* -------------------------------------------------------------------- */
 
-function AdjustmentGlTab({ journalEntryId, accounts }: { journalEntryId: string | null; accounts: readonly AccountDTO[] }) {
-  const query = useJournalEntry(journalEntryId);
+function accountLabel(id: string, accounts: readonly AccountDTO[]): string {
+  const account = accounts.find((a) => a.id === id);
+  return account ? account.nameAr : id;
+}
 
-  if (journalEntryId === null) {
-    return <div className="p-4 text-[12.5px] text-ink-muted">لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة).</div>;
-  }
-  if (query.isPending) return <div className="p-4 text-[12.5px] text-ink-muted">جارٍ التحميل...</div>;
-  if (query.isError || !query.data) {
+function AdjustmentGlTab({ docId }: { docId: string }) {
+  const entryQuery = useJournalEntry(docId);
+  const accountsQuery = useAccounts();
+  const accounts = accountsQuery.data ?? [];
+
+  if (entryQuery.isPending) return <div className="p-4 text-[12.5px] text-ink-muted">جارٍ التحميل...</div>;
+  if (entryQuery.isError) {
+    if (entryQuery.error.status === 404) {
+      return <div className="p-4 text-[12.5px] text-ink-muted">لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة).</div>;
+    }
     return <div className="p-4 text-[12.5px] text-danger-ink">تعذّر تحميل القيد المحاسبي.</div>;
   }
+
+  const entry = entryQuery.data;
 
   return (
     <Card className="overflow-hidden">
@@ -367,7 +396,7 @@ function AdjustmentGlTab({ journalEntryId, accounts }: { journalEntryId: string 
             </tr>
           </thead>
           <tbody>
-            {query.data.lines.map((l, i) => (
+            {entry.lines.map((l, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
                 <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId, accounts)}</td>
                 <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay value={Number(l.debit)} /> : "—"}</td>
@@ -386,34 +415,39 @@ function AdjustmentGlTab({ journalEntryId, accounts }: { journalEntryId: string 
 /* -------------------------------------------------------------------- */
 
 function CreateAdjustmentView({
+  reason,
   warehouses,
   items,
-  reason,
   onDone,
   onBack,
 }: {
-  warehouses: readonly WarehouseDTO[];
-  items: readonly ItemDTO[];
   reason: AdjustmentReasonDefinition;
+  warehouses: ReturnType<typeof useWarehouses>["data"];
+  items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
   onBack: () => void;
 }) {
-  const postAdjustment = usePostStockAdjustment();
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const createAdjustment = useCreateStockAdjustment();
+  const confirmAdjustment = useConfirmStockAdjustment();
+  const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
-  // The warehouse list may still be loading on first render, so fall back to
-  // the first one that arrives rather than freezing an empty initial value.
-  const [pickedWarehouseId, setWarehouseId] = useState("");
-  const warehouseId = pickedWarehouseId || warehouses[0]?.id || "";
-  const defaultDirection: StockMovementDirectionDTO = reason.direction === "OUT" ? "OUT" : "IN";
+  const [warehouseId, setWarehouseId] = useState(warehouses?.[0]?.id ?? "");
+  const defaultDirection: StockMovementDirection = reason.direction === "OUT" ? "OUT" : "IN";
   const [lines, setLines] = useState<LineDraft[]>([blankLine(defaultDirection)]);
   const [error, setError] = useState<string | null>(null);
 
+  const warehouseList = warehouses ?? [];
+  const itemList = items ?? [];
+
+  function warehouseLabel(id: string): string {
+    return warehouseList.find((w) => w.id === id)?.name ?? id;
+  }
+
   const itemOptions = useMemo(
-    () => [{ value: "", label: "اختر صنف..." }, ...items.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
-    [items],
+    () => [{ value: "", label: "اختر صنف..." }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    [itemList],
   );
-  const warehouseOptions = useMemo(() => warehouses.map((w) => ({ value: w.id, label: w.name })), [warehouses]);
+  const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -428,25 +462,27 @@ function CreateAdjustmentView({
   const allLinesValid = lines.every(
     (l) => l.itemId !== "" && l.qty > 0 && (l.direction === "OUT" || l.unitCost > 0),
   );
-  const canPost = allLinesValid && warehouseId !== "" && !postAdjustment.isPending;
+  const busy = createAdjustment.isPending || confirmAdjustment.isPending;
+  const canPost = allLinesValid && warehouseId !== "" && !busy;
 
   async function handlePost() {
     if (!canPost) return;
     setError(null);
     try {
-      await postAdjustment.mutateAsync({
+      const draft = await createAdjustment.mutateAsync({
         id: crypto.randomUUID(),
         date,
-        memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId, warehouses)}`,
+        memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId)}`,
         lines: lines.map((l) => ({
           itemId: l.itemId,
           warehouseId,
           reason: reason.code,
           direction: l.direction,
           qty: String(l.qty),
-          unitCost: l.direction === "IN" ? String(l.unitCost) : null,
+          unitCost: l.direction === "IN" ? String(l.unitCost) : undefined,
         })),
       });
+      await confirmAdjustment.mutateAsync(draft.id);
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر اعتماد التسوية.");
@@ -518,7 +554,7 @@ function CreateAdjustmentView({
                           <select
                             aria-label={`الاتجاه للسطر ${i + 1}`}
                             value={line.direction}
-                            onChange={(e) => updateLine(i, { direction: e.target.value as StockMovementDirectionDTO })}
+                            onChange={(e) => updateLine(i, { direction: e.target.value as StockMovementDirection })}
                             className="w-full min-w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                           >
                             <option value="IN">زيادة</option>

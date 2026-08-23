@@ -11,13 +11,12 @@ import {
   type DocumentStatusStep,
   type PillTone,
 } from "@mezan/ui";
-import type { DocumentStatusDTO, ItemDTO, StockTransferDocumentDTO, WarehouseDTO } from "@mezan/contracts";
-import { useItems, usePostStockTransfer, useStockTransfers, useWarehouses } from "../data/hooks";
+import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
+import { Qty, stockTransferDocumentType } from "@mezan/domain";
+import { useConfirmStockTransfer, useCreateStockTransfer, useItems, useStockTransfers, useWarehouses } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 
-/** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. */
-
-type TransferDoc = StockTransferDocumentDTO;
+/** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
 const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
   draft: "مسودة",
@@ -41,21 +40,33 @@ const STEPPER_STEPS: DocumentStatusStep[] = [
   { key: "confirmed", label: "مؤكد" },
 ];
 
-const TRANSFER_EFFECTS = [
-  "خصم الكميات من المستودع المصدر وإضافتها للمستودع الوجهة",
-  "لا يتغير إجمالي قيمة المخزون",
-];
-
-function warehouseLabel(id: string, warehouses: readonly WarehouseDTO[]): string {
-  return warehouses.find((w) => w.id === id)?.name ?? id;
-}
-function itemLabel(id: string, items: readonly ItemDTO[]): string {
-  const item = items.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
-}
-function headerOf(doc: TransferDoc): { fromWarehouseId: string; toWarehouseId: string } {
+function headerOf(doc: StockTransferDocumentDTO): { fromWarehouseId: string; toWarehouseId: string } {
   const first = doc.lines[0];
   return first ? { fromWarehouseId: first.fromWarehouseId, toWarehouseId: first.toWarehouseId } : { fromWarehouseId: "—", toWarehouseId: "—" };
+}
+
+/** Rebuilds the domain document (Qty instances) from the wire DTO so the REAL `describeEffects` can run client-side. */
+function toDomainDoc(doc: StockTransferDocumentDTO) {
+  return {
+    id: doc.id,
+    docType: doc.docType,
+    docNo: doc.docNo,
+    date: doc.date,
+    memo: doc.memo,
+    status: doc.status,
+    lines: doc.lines.map((l) => ({
+      itemId: l.itemId,
+      fromWarehouseId: l.fromWarehouseId,
+      toWarehouseId: l.toWarehouseId,
+      qty: Qty.fromMajor(l.qty),
+    })),
+    createdAt: doc.createdAt,
+    confirmedAt: doc.confirmedAt,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: null,
+  };
 }
 
 interface LineDraft {
@@ -73,15 +84,22 @@ export function StockTransfersScreen() {
   const query = useStockTransfers();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
+  const documents = query.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+
+  function warehouseLabel(id: string): string {
+    return warehouses.find((w) => w.id === id)?.name ?? id;
+  }
+  function itemLabel(id: string): string {
+    const item = items.find((i) => i.id === id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  }
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-
-  const documents = query.data ?? [];
-  const warehouses = warehousesQuery.data ?? [];
-  const items = itemsQuery.data ?? [];
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0 };
@@ -104,7 +122,7 @@ export function StockTransfersScreen() {
 
   const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
 
-  const columns: DocumentListColumn<TransferDoc>[] = [
+  const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {
       key: "docNo",
       header: "رقم التحويل",
@@ -119,7 +137,7 @@ export function StockTransfersScreen() {
         const { fromWarehouseId, toWarehouseId } = headerOf(d);
         return (
           <span className="text-ink">
-            {warehouseLabel(fromWarehouseId, warehouses)} ← {warehouseLabel(toWarehouseId, warehouses)}
+            {warehouseLabel(fromWarehouseId)} ← {warehouseLabel(toWarehouseId)}
           </span>
         );
       },
@@ -139,6 +157,7 @@ export function StockTransfersScreen() {
 
   if (mode === "detail" && selected) {
     const { fromWarehouseId, toWarehouseId } = headerOf(selected);
+    const effects = stockTransferDocumentType.describeEffects(toDomainDoc(selected));
     return (
       <div className="w-full">
         <DocumentDetail
@@ -148,13 +167,16 @@ export function StockTransfersScreen() {
           subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} />}
           actions={<Button onClick={() => setMode("list")}>رجوع</Button>}
           summary={[
-            { label: "المستودع المصدر", value: warehouseLabel(fromWarehouseId, warehouses) },
-            { label: "المستودع الوجهة", value: warehouseLabel(toWarehouseId, warehouses) },
+            { label: "المستودع المصدر", value: warehouseLabel(fromWarehouseId) },
+            { label: "المستودع الوجهة", value: warehouseLabel(toWarehouseId) },
             { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
             { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
-          effects={TRANSFER_EFFECTS.map((e) => (
-            <span key={e}>{e}</span>
+          effects={effects.effects.map((e) => (
+            <span key={e.description}>
+              {e.description}
+              {e.detail ? <span className="block text-[11.5px] text-ink-muted">{e.detail}</span> : null}
+            </span>
           ))}
           tabs={[
             {
@@ -173,7 +195,7 @@ export function StockTransfersScreen() {
                       <tbody>
                         {selected.lines.map((l, i) => (
                           <tr key={i} className="border-b border-border last:border-b-0">
-                            <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId, items)}</td>
+                            <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
                             <td className="px-[15px] py-[11px] text-end mz-num">{l.qty}</td>
                           </tr>
                         ))}
@@ -194,17 +216,20 @@ export function StockTransfersScreen() {
     );
   }
 
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تحويلات المخزون.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تحويلات المخزون.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
-          </Button>
-        </Card>
-      ) : null}
-      <DocumentList<TransferDoc>
+      <DocumentList<StockTransferDocumentDTO>
         eyebrow="Inventory · Stock Transfers"
         title="تحويلات المخزون"
         description="مسودة ← مؤكد — نقل كمية بين مستودعين دون أي أثر على قيمة المخزون الإجمالية"
@@ -254,27 +279,31 @@ function CreateTransferView({
   items,
   onDone,
 }: {
-  warehouses: readonly WarehouseDTO[];
-  items: readonly ItemDTO[];
+  warehouses: ReturnType<typeof useWarehouses>["data"];
+  items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
 }) {
-  const postTransfer = usePostStockTransfer();
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const createTransfer = useCreateStockTransfer();
+  const confirmTransfer = useConfirmStockTransfer();
+  const warehouseList = warehouses ?? [];
+  const itemList = items ?? [];
+
+  const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
-  // The warehouse list may still be loading on first render, so fall back to
-  // the first/second one that arrives rather than freezing an empty value.
-  const [pickedFrom, setFromWarehouseId] = useState("");
-  const [pickedTo, setToWarehouseId] = useState("");
-  const fromWarehouseId = pickedFrom || warehouses[0]?.id || "";
-  const toWarehouseId = pickedTo || warehouses[1]?.id || warehouses[0]?.id || "";
+  const [fromWarehouseId, setFromWarehouseId] = useState(warehouseList[0]?.id ?? "");
+  const [toWarehouseId, setToWarehouseId] = useState(warehouseList[1]?.id ?? warehouseList[0]?.id ?? "");
   const [lines, setLines] = useState<LineDraft[]>([blankLine()]);
   const [error, setError] = useState<string | null>(null);
 
+  function warehouseLabel(id: string): string {
+    return warehouseList.find((w) => w.id === id)?.name ?? id;
+  }
+
   const itemOptions = useMemo(
-    () => [{ value: "", label: "اختر صنف..." }, ...items.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
-    [items],
+    () => [{ value: "", label: "اختر صنف..." }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    [itemList],
   );
-  const warehouseOptions = useMemo(() => warehouses.map((w) => ({ value: w.id, label: w.name })), [warehouses]);
+  const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -288,20 +317,20 @@ function CreateTransferView({
 
   const sameWarehouse = fromWarehouseId !== "" && fromWarehouseId === toWarehouseId;
   const allLinesValid = lines.every((l) => l.itemId !== "" && l.qty > 0);
-  const canPost = allLinesValid && fromWarehouseId !== "" && toWarehouseId !== "" && !sameWarehouse && !postTransfer.isPending;
+  const busy = createTransfer.isPending || confirmTransfer.isPending;
+  const canPost = allLinesValid && fromWarehouseId !== "" && toWarehouseId !== "" && !sameWarehouse && !busy;
 
   async function handlePost() {
     if (!canPost) return;
     setError(null);
     try {
-      await postTransfer.mutateAsync({
+      const draft = await createTransfer.mutateAsync({
         id: crypto.randomUUID(),
         date,
-        memo:
-          memo.trim() ||
-          `تحويل من ${warehouseLabel(fromWarehouseId, warehouses)} إلى ${warehouseLabel(toWarehouseId, warehouses)}`,
+        memo: memo.trim() || `تحويل من ${warehouseLabel(fromWarehouseId)} إلى ${warehouseLabel(toWarehouseId)}`,
         lines: lines.map((l) => ({ itemId: l.itemId, fromWarehouseId, toWarehouseId, qty: String(l.qty) })),
       });
+      await confirmTransfer.mutateAsync(draft.id);
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر حفظ التحويل.");
@@ -317,7 +346,7 @@ function CreateTransferView({
         </div>
         <div className="flex items-center gap-[9px]">
           <Button onClick={onDone}>إلغاء</Button>
-          <Button variant="primary" disabled={!canPost} onClick={() => void handlePost()}>
+          <Button variant="primary" disabled={!canPost} onClick={handlePost}>
             حفظ
           </Button>
         </div>

@@ -58,6 +58,7 @@ export const testAdminSession: Session = {
   email: "admin@cyag.example",
   isCompanyAdmin: true,
   permissions: ["*"],
+  roleCode: null,
   branchScope: "*",
   warehouseScope: "*",
   tenantName: "Cyag",

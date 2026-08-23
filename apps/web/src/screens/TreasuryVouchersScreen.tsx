@@ -30,6 +30,7 @@ import {
 import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useBranches,
   useConfirmVoucher,
   useCreateAllocation,
   useCreateVoucher,
@@ -45,6 +46,7 @@ import {
   type VoucherRowDTO,
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -142,6 +144,7 @@ export function TreasuryVouchersScreen() {
   const accountsQuery = useAccounts();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
+  useScreenIntent(() => setMode("create"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
@@ -630,6 +633,7 @@ function CreateVoucherView({
 }) {
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
+  const branchesQuery = useBranches();
 
   const [type, setType] = useState<VoucherType | null>(null);
   const [draft, setDraft] = useState<CreateDraft>({
@@ -665,10 +669,6 @@ function CreateVoucherView({
     return treasuryAccounts.find((t) => t.id === id)?.glAccountId ?? "";
   }
 
-  function treasuryBranchOf(id: string): string {
-    return treasuryAccounts.find((t) => t.id === id)?.branchId ?? "";
-  }
-
   function counterpartyGl(): string | null {
     if (!type) return null;
     if (def!.direction === "transfer") return null;
@@ -684,7 +684,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: treasuryBranchOf(draft.treasuryAccountId),
+      branchId: branchesQuery.data?.[0]?.id ?? "MAIN",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

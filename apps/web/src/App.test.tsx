@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { describe, expect, it } from "vitest";
-import { fireEvent, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { DashboardSummaryDTO } from "@mezan/contracts";
 import { App } from "./App";
+import { AppProviders } from "./data/AppProviders";
+import { persistSession } from "./data/session";
 import { renderWithProviders, stubTransport, testAdminSession } from "./data/test-support";
 
 const emptySummary: DashboardSummaryDTO = {
@@ -36,6 +38,10 @@ function login() {
 }
 
 describe("App", () => {
+  afterEach(() => {
+    persistSession(null);
+  });
+
   it("shows the login screen first, and لوحة التحكم is the landing screen after a real sign-in", async () => {
     renderWithProviders(<App />, { transport: appTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
@@ -67,5 +73,50 @@ describe("App", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "إلغاء والعودة لتسجيل الدخول" }));
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
+  });
+
+  it("stays signed in when a persisted session is restored on load", async () => {
+    persistSession(testAdminSession);
+    render(
+      <AppProviders transport={appTransport()}>
+        <App />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "تسجيل الدخول" })).not.toBeInTheDocument();
+  });
+
+  it("routes to the real الموافقات inbox, with a pending-count badge on its nav item", async () => {
+    const transport = stubTransport({
+      "POST /auth/login": () => ({ body: testAdminSession }),
+      "GET /dashboard/summary": () => ({ body: emptySummary }),
+      "GET /workflow/requests/pending-count": () => ({ body: { count: 2 } }),
+      "GET /workflow/requests/pending": () => ({ body: [] }),
+    });
+    renderWithProviders(<App />, { transport });
+    login();
+    await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
+
+    const navButton = await screen.findByRole("button", { name: "الموافقات" });
+    expect(await screen.findByText("2")).toBeInTheDocument();
+
+    fireEvent.click(navButton);
+    expect(await screen.findByRole("heading", { name: "الموافقات" })).toBeInTheDocument();
+  });
+
+  it("routes to إعدادات الموافقات from the collapsed settings group", async () => {
+    const transport = stubTransport({
+      "POST /auth/login": () => ({ body: testAdminSession }),
+      "GET /dashboard/summary": () => ({ body: emptySummary }),
+      "GET /workflow/configs": () => ({ body: [] }),
+    });
+    renderWithProviders(<App />, { transport });
+    login();
+    await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
+
+    fireEvent.click(screen.getByRole("button", { name: "الإعدادات" }));
+    fireEvent.click(screen.getByRole("button", { name: "إعدادات الموافقات" }));
+    expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
   });
 });

@@ -182,3 +182,31 @@ export * from "./fixed-assets/index.js";
 
 // --- field-sales/ — Field/Van Sales (phase11) ---
 export * from "./field-sales/index.js";
+
+// --- hr-shared/ — stable cross-domain seam (hr/master-data); attendance/leave/payroll depend on this, not hr/ directly ---
+export * from "./hr-shared/employee-ref.js";
+
+// --- hr/ — HR master data: employees, departments, job titles, contracts, holidays, leave requests (hr/master-data) ---
+export * from "./hr/index.js";
+
+// --- notifications/ — قواعد الإشعارات rules engine (w8/notifications) ---
+export * from "./notifications/index.js";
+
+// --- settings/print-template-config.js — the 9-tab print-template designer's persisted shape (w8/print-migration) ---
+export { DEFAULT_PRINT_TEMPLATE_CONFIG } from "./settings/print-template-config.js";
+export type {
+  PrintPageSize,
+  LogoPosition,
+  LogoSize,
+  PrintIdentityConfig,
+  PrintHeaderConfig,
+  PrintContentConfig,
+  PrintColumnsConfig,
+  PrintTotalsConfig,
+  PrintFooterConfig,
+  PrintWatermarkConfig,
+  PrintPosReceiptConfig,
+  PrintTemplateOverride,
+  PrintTemplateConfig,
+  PrintTemplateConfigRepository,
+} from "./settings/print-template-config.js";

@@ -17,6 +17,7 @@ import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } f
 import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 const STATUS_LABEL: Record<PurchaseOrderStatusDTO, string> = {
   draft: "مسودة",
@@ -151,6 +152,7 @@ export function PurchaseOrdersScreen() {
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  useScreenIntent(() => openCreate());
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");

@@ -47,6 +47,9 @@ import {
   type HistoricalPurchaseArchiveRepository,
   type HistoricalImportGlPostingPort,
   type HistoricalImportGlAccounts,
+  type HistoricalSalesArchiveRepository,
+  type HistoricalSalesImportGlPostingPort,
+  type HistoricalSalesImportGlAccounts,
   type TenantSettings,
   createDefaultSettings,
   reverseJournalEntry,
@@ -57,10 +60,17 @@ import {
   type LandedCostLine,
   type PriceListRepository,
   type PromotionRepository,
+  type NotificationRuleRepository,
+  type NotificationRepository,
   createSalesInvoiceCustomerExposureHook,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   type PhysicalCountService,
+  type PrintTemplateConfigRepository,
+  type DepartmentRepository,
+  type EmployeeRepository,
+  type AssetCategoryRepository,
+  type AssetRepository,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -94,8 +104,13 @@ import { createPurchasesRoutes } from "./purchases-routes.js";
 import { createManufacturingRoutes } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
+import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
+import { createDataMigrationRoutes } from "./data-migration-routes.js";
+import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
+import { createNotificationRulesRoutes } from "./notification-rules-routes.js";
+import { createNotificationsRoutes } from "./notifications-routes.js";
 import { createSalesQuotesRoutes, type SalesQuoteRoutesDeps } from "./sales-quotes-routes.js";
 import { createExchangeRatesRoutes } from "./exchange-rates-routes.js";
 import { createCostCenterPnLRoutes, type CostCenterPnLRoutesDeps } from "./cost-center-pl-routes.js";
@@ -107,6 +122,7 @@ import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
+import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
@@ -115,6 +131,15 @@ import {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+import {
+  createInventoryWritedownRoutes,
+  type InventoryWritedownRoutesDeps,
+} from "./inventory-writedown-routes.js";
+import {
+  createProductTemplatesRoutes,
+  type ProductTemplatesRoutesDeps,
+} from "./product-templates-routes.js";
+import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -261,6 +286,21 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
+   * Mounts `/inventory/writedown-runs` (docs/tasks.md Phase 4 "Aging-based
+   * inventory write-down batch") when present: a manually-triggered,
+   * per-period-idempotent monthly provisioning job that posts Dr write-down
+   * expense / Cr the 1190-style contra-asset provision for slow-moving
+   * stock, through the REAL GL posting engine. Never touches an item's
+   * recorded WAC/cost layers.
+   */
+  readonly inventoryWritedown?: InventoryWritedownRoutesDeps;
+  /**
+   * Mounts `/inventory/product-templates` (docs/catalog/03-inventory.md
+   * §"قوالب المنتجات") when present: attribute-driven templates + the
+   * variant/SKU generator (creates REAL Items).
+   */
+  readonly productTemplates?: ProductTemplatesRoutesDeps;
+  /**
    * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
    * when present — omit it for no `/gl` routes. Bundles its own ledger,
    * account/period lookups and numbering engine (all connection-shared for
@@ -278,10 +318,28 @@ export interface CreateAppOptions {
    * store to get exactly today's behaviour (no credit check at all).
    */
   readonly salesInvoices?: SalesInvoiceRoutesDeps;
+  /**
+   * Mounts the historical sales-document import (docs/catalog/01 §"استيراد
+   * فواتير سابقة" / §"استيراد مرتجعات سابقة") under `/sales/historical-import`
+   * when present — omit it for no such routes. `gl`/`accounts` are optional:
+   * omit them to archive documents without ever posting a remaining-balance
+   * journal entry.
+   */
+  readonly salesHistoricalImport?: {
+    readonly archives: HistoricalSalesArchiveRepository;
+    readonly gl?: HistoricalSalesImportGlPostingPort;
+    readonly accounts?: HistoricalSalesImportGlAccounts;
+    readonly resolveAuthContext?: AuthContextResolver;
+    readonly now?: () => string;
+  };
   /** Mounts `/price-lists` (docs/catalog/01 "قوائم الأسعار") when present. */
   readonly priceListRepo?: PriceListRepository;
   /** Mounts `/promotions` (docs/catalog/01 "العروض") when present. */
   readonly promotionRepo?: PromotionRepository;
+  /** Mounts `/notification-rules` (docs/catalog/09 §قواعد الإشعارات) when present. */
+  readonly notificationRuleRepo?: NotificationRuleRepository;
+  /** Mounts `/notifications` (the top-bar bell panel's own data) when present. */
+  readonly notificationRepo?: NotificationRepository;
   /**
    * Mounts `/sales-quotes` (docs/catalog/01 "عروض الأسعار") when present. Its
    * `invoice` bridge (for "إنشاء من عرض سعر") is auto-filled from
@@ -326,6 +384,12 @@ export interface CreateAppOptions {
    * present: leads, opportunities, pipeline stages, activities.
    */
   readonly crm?: CrmRoutesDeps;
+  /**
+   * Mounts HR master data (docs/catalog/06 "الموارد البشرية") under `/hr`
+   * when present: departments, job titles, employees, contracts, holidays,
+   * the HR dashboard, and the leave-request slice backing إجازاتي (My Leave).
+   */
+  readonly hr?: HrRoutesDeps;
   /**
    * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
    * when present. Creating a project auto-creates its linked `PRJ-{code}`
@@ -427,6 +491,41 @@ export interface CreateAppOptions {
     readonly now?: () => string;
   };
   /**
+   * Mounts the 9-tab print-template designer's persisted config (docs/catalog/09
+   * §"قوالب الطباعة") under `/print-template-config` when present — GET
+   * returns the tenant's saved config or the shared default, PUT validates
+   * and saves. Omit for no such routes.
+   */
+  readonly printTemplateConfig?: {
+    readonly repo: PrintTemplateConfigRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts the Data Migration wizard's 9 master-data steps (docs/catalog/09
+   * §"نقل البيانات", steps 1-9 — الأقسام through الأصول الثابتة) under
+   * `/data-migration` when present. The 4 historical-document steps (10-13)
+   * are NOT here — they reuse `/purchases/historical-import` and the sibling
+   * `/sales/historical-import` mount directly. Omit for no such routes.
+   */
+  readonly dataMigration?: {
+    readonly departments: DepartmentRepository;
+    readonly employees: EmployeeRepository;
+    readonly treasuryAccounts: TreasuryAccountRepository;
+    readonly suppliers: SupplierRepository;
+    readonly customers: CustomerRepository;
+    readonly items: ItemRepository;
+    readonly assetCategories: AssetCategoryRepository;
+    readonly assets: AssetRepository;
+    readonly branches: BranchRepository;
+    readonly historicalCounts?: () => Promise<{
+      salesInvoices: number;
+      salesReturns: number;
+      purchaseInvoices: number;
+      purchaseReturns: number;
+    }>;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
    * Mounts `/sales-returns` (docs/catalog/01 §"مرتجعات المبيعات") when
    * present. The caller builds the `DocumentService` (repo + numbering + GL
    * hook + `createInventoryStockHook` + workflow gate) — omit it for no
@@ -474,6 +573,13 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+  /**
+   * Mounts `/workflow` (docs/catalog/09 §سير العمل — إعدادات الموافقات
+   * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
+   * over the persisted `GateConfig` per action type, `/workflow/requests` for
+   * submitting/listing/deciding approval instances.
+   */
+  readonly workflow?: WorkflowRoutesDeps;
 }
 
 /**
@@ -552,6 +658,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.crm) {
     app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
   }
+  if (options.hr) {
+    app.route("/hr", createHrRoutes(options.hr, options.resolveAuthContext));
+  }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));
   }
@@ -589,11 +698,26 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createSalesInvoicesRoutes({ ...salesInvoices, creditControl }, options.resolveAuthContext),
     );
   }
+  if (options.salesHistoricalImport) {
+    app.route(
+      "/sales/historical-import",
+      createSalesHistoricalImportRoutes(
+        options.salesHistoricalImport,
+        options.salesHistoricalImport.resolveAuthContext ?? options.resolveAuthContext,
+      ),
+    );
+  }
   if (options.priceListRepo) {
     app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
   }
   if (options.promotionRepo) {
     app.route("/promotions", createPromotionsRoutes(options.promotionRepo, options.resolveAuthContext));
+  }
+  if (options.notificationRuleRepo) {
+    app.route("/notification-rules", createNotificationRulesRoutes(options.notificationRuleRepo, options.resolveAuthContext));
+  }
+  if (options.notificationRepo) {
+    app.route("/notifications", createNotificationsRoutes(options.notificationRepo, options.resolveAuthContext));
   }
   if (options.salesQuotes) {
     const salesQuotes = options.salesQuotes;
@@ -814,6 +938,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
     );
   }
+  if (options.inventoryWritedown) {
+    app.route(
+      "/inventory/writedown-runs",
+      createInventoryWritedownRoutes(options.inventoryWritedown, options.resolveAuthContext),
+    );
+  }
+  if (options.productTemplates) {
+    app.route(
+      "/inventory/product-templates",
+      createProductTemplatesRoutes(options.productTemplates, options.resolveAuthContext),
+    );
+  }
 
   /**
    * The live entitlements the roles engine validates every grant against —
@@ -878,6 +1014,19 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     return c.json(serialize(entry));
   });
 
+  if (options.printTemplateConfig) {
+    app.route(
+      "/print-template-config",
+      createPrintTemplateConfigRoutes(options.printTemplateConfig, options.printTemplateConfig.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+  if (options.dataMigration) {
+    app.route(
+      "/data-migration",
+      createDataMigrationRoutes(options.dataMigration, options.dataMigration.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+
   if (options.lan) {
     const registry = options.lan.registry ?? new SeatSessionRegistry(0);
     app.route(
@@ -888,6 +1037,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         sseHeartbeatMs: options.lan.sseHeartbeatMs,
       }),
     );
+  }
+
+  if (options.workflow) {
+    app.route("/workflow", createWorkflowRoutes(options.workflow, options.resolveAuthContext));
   }
 
   return app;

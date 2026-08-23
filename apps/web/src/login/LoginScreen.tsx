@@ -8,7 +8,6 @@ const PIN_LENGTH = 4;
 const DEFAULT_USERNAME = "محمد الشهابي";
 
 export interface LoginScreenProps {
-  onLogin: () => void;
   onStartWizard: () => void;
 }
 
@@ -16,9 +15,9 @@ export interface LoginScreenProps {
  * Desktop login — docs/catalog/09's "desktop user + PIN" login shape and the
  * approved mockup's `data-view="login"`. "دخول" verifies the username + PIN
  * against the real users store via `POST /auth/login`; a success establishes
- * the AuthContext session every subsequent API call uses.
+ * the session in ApiContext, which is what dismisses this screen.
  */
-export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
+export function LoginScreen({ onStartWizard }: LoginScreenProps) {
   const login = useLogin();
   const entitlements = useEntitlements().data ?? null;
   const tenantName = useTenantInfo().data?.name ?? "";
@@ -55,7 +54,6 @@ export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
     login.mutate(
       { username: username.trim(), pin: pinDigits.join("") },
       {
-        onSuccess: () => onLogin(),
         onError: (err) => setError(err.message || "تعذّر تسجيل الدخول."),
       },
     );

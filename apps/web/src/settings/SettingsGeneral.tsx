@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
-import type { TenantSettingsDTO } from "@mezan/contracts";
-import { useTenantSettings, useUpdateTenantSettings } from "../data/hooks";
+import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
+import { useSettings, useUpdateSettings } from "../data/hooks";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
 /**
@@ -11,9 +11,9 @@ import { TextField, NumberField, SelectField, ToggleField, MultiChipField, Secti
  * inventory / purchase / treasury policy flags (grouped into one "Policies"
  * tab here rather than 4 separate ones, to keep the nav shallow).
  *
- * Reads the live tenant-config bag from `GET /settings`; "حفظ الإعدادات"
- * PUTs the whole draft, which the server re-validates through the domain's
- * `updateSettings` before it persists.
+ * Real data: edits live in a local draft buffer and "حفظ الإعدادات" PUTs the
+ * whole draft to /settings — the server re-validates it through the domain's
+ * `updateSettings` and returns 422 on an invalid combination.
  */
 
 const WEEKDAY_OPTIONS = [
@@ -36,48 +36,26 @@ const CURRENCY_OPTIONS = [
   { value: "JOD", label: "JOD" },
 ];
 
-export function SettingsGeneral() {
-  const query = useTenantSettings();
-  const saveSettings = useUpdateTenantSettings();
-  const [draft, setDraft] = useState<TenantSettingsDTO | null>(null);
+function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
+  const updateSettingsMutation = useUpdateSettings();
+  const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const loaded = query.data ?? null;
-  useEffect(() => {
-    if (loaded && !dirty) setDraft(loaded);
-  }, [loaded, dirty]);
-
   function patch(p: Partial<TenantSettingsDTO>) {
-    setDraft((prev) => (prev ? { ...prev, ...p } : prev));
+    setDraft((prev) => ({ ...prev, ...p }));
     setDirty(true);
   }
 
   async function handleSave() {
-    if (!draft) return;
     try {
-      const saved = await saveSettings.mutateAsync(draft);
+      const saved = await updateSettingsMutation.mutateAsync(draft as UpdateTenantSettingsDTO);
       setDraft(saved);
       setDirty(false);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذر حفظ الإعدادات");
     }
-  }
-
-  if (!draft) {
-    return (
-      <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-ink-muted">
-          {query.isError ? "تعذّر تحميل الإعدادات." : "جارٍ تحميل الإعدادات…"}
-        </p>
-        {query.isError ? (
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
-          </Button>
-        ) : null}
-      </Card>
-    );
   }
 
   return (
@@ -89,7 +67,7 @@ export function SettingsGeneral() {
       actions={
         <>
           {error ? <StatusPill label={error} tone="danger" /> : null}
-          <Button variant="primary" disabled={!dirty || saveSettings.isPending} onClick={() => void handleSave()}>
+          <Button variant="primary" disabled={!dirty} onClick={handleSave}>
             حفظ الإعدادات
           </Button>
         </>
@@ -342,4 +320,23 @@ export function SettingsGeneral() {
       ]}
     />
   );
+}
+
+export function SettingsGeneral() {
+  const query = useSettings();
+
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الإعدادات.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
+  if (!query.data) return null;
+
+  return <SettingsForm initial={query.data} />;
 }

@@ -2,21 +2,19 @@ import { useMemo, useState } from "react";
 import { DocumentList, DocumentDetail, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { BranchDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { useBranches, useCreateBranch, useTreasuryAccounts, useWarehouses } from "../data/hooks";
+import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
 
 /**
  * الفروع (Branches) — docs/catalog/09 §"إدارة الفروع" list +
  * §"صفحة الفرع — MAIN (Branch detail / Branch 360)" detail. The Overview tab
- * renders the real info strip + treasury shape the catalog captured; the
- * remaining Branch-360 tabs (Inventory/Employees/Assets/Activity) are
- * intentionally out of Phase-0 scope and render as a single stub per tab.
+ * renders the real info strip + live treasury accounts; the per-branch KPI
+ * strip has no endpoint behind it yet, and the remaining Branch-360 tabs
+ * (Inventory/Employees/Assets/Activity) are intentionally out of Phase-0
+ * scope, so both render as a stub.
  */
 
 const TREASURY_TYPE_LABEL: Record<TreasuryAccountDTO["type"], string> = { cash: "نقدي", bank: "بنكي" };
-
-function branchName(branchId: string, branches: readonly BranchDTO[]): string {
-  return branches.find((b) => b.id === branchId)?.name ?? branchId;
-}
 
 function StubTab({ label }: { label: string }) {
   return (
@@ -97,14 +95,14 @@ function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => voi
 
 export function BranchesPage() {
   const query = useBranches();
-  const createBranch = useCreateBranch();
+  const createBranchMutation = useCreateBranch();
+  const branches = query.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
 
-  const branches = query.data ?? [];
   const selected = branches.find((b) => b.id === selectedId) ?? null;
 
   const filtered = useMemo(() => {
@@ -128,7 +126,7 @@ export function BranchesPage() {
   async function submitNewBranch() {
     setError(null);
     try {
-      await createBranch.mutateAsync({
+      await createBranchMutation.mutateAsync({
         id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
@@ -144,20 +142,23 @@ export function BranchesPage() {
     }
   }
 
+  if (query.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفروع.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   if (selected) {
     return <BranchDetail branch={selected} onBack={() => setSelectedId(null)} />;
   }
 
   return (
     <>
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفروع.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
-          </Button>
-        </Card>
-      ) : null}
       <DocumentList<BranchDTO>
         eyebrow="Settings · Branches"
         title="الفروع"
@@ -200,7 +201,7 @@ export function BranchesPage() {
           <ToggleField label="فرع رئيسي" checked={form.isMain} onChange={(v) => setForm((f) => ({ ...f, isMain: v }))} />
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
-            <Button variant="primary" disabled={createBranch.isPending} onClick={() => void submitNewBranch()}>
+            <Button variant="primary" onClick={submitNewBranch}>
               حفظ الفرع
             </Button>
           </div>

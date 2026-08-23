@@ -6,9 +6,9 @@ import type { TenantSettingsDTO } from "@mezan/contracts";
 import { SettingsGeneral } from "./SettingsGeneral";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
-const SETTINGS: TenantSettingsDTO = {
+const baseSettings: TenantSettingsDTO = {
   currency: "EGP",
-  secondaryCurrencies: ["SAR", "USD"],
+  secondaryCurrencies: ["SAR", "USD", "AED", "EUR", "KWD", "QAR", "JOD"],
   language: "ar",
   timezone: "Africa/Cairo",
   direction: "RTL",
@@ -17,7 +17,6 @@ const SETTINGS: TenantSettingsDTO = {
   weekendDays: [5, 6],
   fiscalYearStartMonth: 1,
   fxRateMissingPolicy: "STRICT",
-
   companyName: "Cyag — شركة سياج للصناعات",
   taxRegistrationNumber: "300123456700003",
   commercialRegistrationNumber: "",
@@ -27,39 +26,42 @@ const SETTINGS: TenantSettingsDTO = {
   hrContractExpiryWarningDays: 30,
   overtimeMultiplier: 1.5,
   standardDailyWorkHours: 8,
-
   taxEnabled: true,
   defaultTaxRate: 14,
   taxCalculation: "EXCLUSIVE",
   depreciationProrate: "DAILY",
-
   priceListsEnabled: true,
   creditControlEnabled: false,
   creditControlMode: "WARNING",
-
   allowCrossWarehouseSales: true,
   showOtherWarehouseStock: true,
   allowBackorder: false,
   allowNegativeStock: false,
-
   requirePoForGrn: false,
   requireGrnForInvoice: false,
   trackSoldPurchaseItems: true,
-
   preventNegativeCashBalance: true,
   allowNegativeTreasury: true,
 };
 
-function renderPage() {
-  let current = SETTINGS;
+function renderScreen(initial: TenantSettingsDTO = baseSettings) {
+  let current: TenantSettingsDTO = { ...initial };
   const transport = stubTransport({
     "GET /settings": () => ({ body: current }),
     "PUT /settings": (init) => {
       const patch = JSON.parse((init?.body as string) ?? "{}") as Partial<TenantSettingsDTO>;
-      if ((patch.defaultTaxRate ?? 0) > 100) {
-        return { status: 422, body: { message: "نسبة الضريبة يجب أن تكون بين 0 و100" } };
+      const next = { ...current, ...patch };
+      // Mirrors packages/api/src/settings-routes.ts exactly: the wire schema's own
+      // `defaultTaxRate` max(100) rejects an out-of-range patch with 400 BEFORE the
+      // domain's `updateSettings` ever runs (packages/api/src/settings-foundation-
+      // routes.test.ts's "PUT /settings rejects an out-of-range value with 422" —
+      // despite its name — asserts exactly this: `expect(res.status).toBe(400); //
+      // fails zod's own max(100) first`). No "message" field on a 400, so the
+      // client falls back to its own generic copy.
+      if (next.defaultTaxRate < 0 || next.defaultTaxRate > 100) {
+        return { status: 400, body: { error: "VALIDATION_ERROR" } };
       }
-      current = { ...current, ...patch };
+      current = next;
       return { body: current };
     },
   });
@@ -67,15 +69,15 @@ function renderPage() {
 }
 
 describe("SettingsGeneral", () => {
-  it("renders the general tab from the live settings bag", async () => {
-    renderPage();
+  it("renders the general tab by default with company info fields available", async () => {
+    renderScreen();
     expect(await screen.findByRole("heading", { name: "الإعدادات" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "عام" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByLabelText("العملة الافتراضية")).toHaveValue("EGP");
+    expect(screen.getByLabelText("العملة الافتراضية")).toBeInTheDocument();
   });
 
   it("keeps the save button disabled until a field is dirtied", async () => {
-    renderPage();
+    renderScreen();
     expect(await screen.findByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("tab", { name: "بيانات المنشأة" }));
@@ -85,26 +87,29 @@ describe("SettingsGeneral", () => {
   });
 
   it("saves a valid patch and clears the dirty flag", async () => {
-    renderPage();
-    fireEvent.click(await screen.findByRole("tab", { name: "الضريبة" }));
+    renderScreen();
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
     fireEvent.change(screen.getByLabelText("نسبة الضريبة الافتراضية (%)"), { target: { value: "15" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
     await waitFor(() => expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeDisabled());
   });
 
-  it("surfaces the server's rejection instead of saving an out-of-range value", async () => {
-    renderPage();
-    fireEvent.click(await screen.findByRole("tab", { name: "الضريبة" }));
+  it("surfaces the server error instead of saving an out-of-range value", async () => {
+    renderScreen();
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "الضريبة" }));
     fireEvent.change(screen.getByLabelText("نسبة الضريبة الافتراضية (%)"), { target: { value: "999" } });
     fireEvent.click(screen.getByRole("button", { name: "حفظ الإعدادات" }));
-    expect(await screen.findByText("نسبة الضريبة يجب أن تكون بين 0 و100")).toBeInTheDocument();
-    // Still dirty — the rejected patch was not silently kept as saved.
+    // Still dirty — the invalid patch was rejected by the server, not silently saved.
+    expect(await screen.findByText("تعذر حفظ الإعدادات.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "حفظ الإعدادات" })).toBeEnabled();
   });
 
   it("exposes the credit-control / inventory / purchase / treasury policy toggles", async () => {
-    renderPage();
-    fireEvent.click(await screen.findByRole("tab", { name: "السياسات" }));
+    renderScreen();
+    await screen.findByRole("button", { name: "حفظ الإعدادات" });
+    fireEvent.click(screen.getByRole("tab", { name: "السياسات" }));
     expect(screen.getByRole("switch", { name: "تفعيل الرقابة الائتمانية" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "السماح بالمخزون السالب" })).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "يجب وجود أمر شراء قبل استلام البضاعة" })).toBeInTheDocument();

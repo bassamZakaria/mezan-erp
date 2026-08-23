@@ -1,54 +1,93 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { screen, fireEvent, waitFor } from "@testing-library/react";
-import type { StockTransferDocumentDTO } from "@mezan/contracts";
+import type { ItemDTO, StockTransferDocumentDTO, WarehouseDTO } from "@mezan/contracts";
 import { StockTransfersScreen } from "./StockTransfersScreen";
-import { TEST_ITEMS, TEST_WAREHOUSES } from "./inventory-ops-test-fixtures";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
 
-function transfer(id: string, docNo: string): StockTransferDocumentDTO {
+const warehouses: WarehouseDTO[] = [
+  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "WH-VAN", code: "WH-VAN", name: "مستودع الفان", branchId: "b1", type: "VAN", isDefault: false, active: true },
+];
+
+function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
   return {
-    id,
-    docType: "STOCK_TRANSFER",
-    docNo,
-    date: "2026-08-20",
-    memo: "تحويل مخزون",
-    status: "confirmed",
-    lines: [{ itemId: "itm-1", fromWarehouseId: "wh-main", toWarehouseId: "wh-alex", qty: "10.000000" }],
-    createdAt: "2026-08-20T09:00:00.000Z",
-    confirmedAt: "2026-08-20T09:05:00.000Z",
+    id: "itm-1",
+    code: "ITM-000001",
+    nameAr: "منتج 1",
+    nameEn: null,
+    type: "stock",
+    baseUnitCode: "PCS",
+    alternateUnits: [],
+    barcodes: [],
+    categoryId: null,
+    brand: null,
+    costingMethod: "WAC",
+    salePrice: "0",
+    costPrice: "0",
+    taxRatePercent: 0,
+    trackInventory: true,
+    trackBatches: false,
+    trackExpiry: false,
+    reorderPoint: null,
+    reorderQty: null,
+    revenueAccountId: null,
+    cogsAccountId: null,
+    inventoryAccountId: null,
+    etaCodeType: null,
+    etaItemCode: null,
+    gpcCode: null,
+    status: "active",
+    ...overrides,
+  };
+}
+
+const items: ItemDTO[] = [item()];
+
+const trf1: StockTransferDocumentDTO = {
+  id: "trf-1",
+  docType: "STOCK_TRANSFER",
+  docNo: "TRF-000001",
+  date: "2026-08-10",
+  memo: "تحويل للفان",
+  status: "confirmed",
+  lines: [{ itemId: "itm-1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-VAN", qty: "10.000000" }],
+  createdAt: "2026-08-10T10:00:00.000Z",
+  confirmedAt: "2026-08-10T10:00:00.000Z",
+};
+
+const trf2: StockTransferDocumentDTO = {
+  id: "trf-2",
+  docType: "STOCK_TRANSFER",
+  docNo: "TRF-000002",
+  date: "2026-08-11",
+  memo: "",
+  status: "draft",
+  lines: [{ itemId: "itm-1", fromWarehouseId: "WH-VAN", toWarehouseId: "WH-MAIN", qty: "2.000000" }],
+  createdAt: "2026-08-11T10:00:00.000Z",
+  confirmedAt: null,
+};
+
+function baseHandlers(current: StockTransferDocumentDTO[]) {
+  return {
+    "GET /inventory/stock-transfers": () => ({ body: current }),
+    "GET /warehouses": () => ({ body: warehouses }),
+    "GET /items": () => ({ body: items }),
   };
 }
 
 function renderScreen() {
-  let documents = [transfer("t1", "TRF-000001"), transfer("t2", "TRF-000002")];
-  const transport = stubTransport({
-    "GET /inventory/stock-transfers": () => ({ body: documents }),
-    "GET /warehouses": () => ({ body: TEST_WAREHOUSES }),
-    "GET /items": () => ({ body: TEST_ITEMS }),
-    "POST /inventory/stock-transfers/draft": (init) => {
-      const body = JSON.parse((init?.body as string) ?? "{}") as { id: string };
-      const created: StockTransferDocumentDTO = { ...transfer(body.id, "TRF-000003"), status: "draft", docNo: null };
-      documents = [...documents, created];
-      return { status: 201, body: created };
-    },
-    "POST /inventory/stock-transfers/*/confirm": (_init, path) => {
-      const id = path.split("/")[3]!;
-      const confirmed = transfer(id, "TRF-000003");
-      documents = documents.map((d) => (d.id === id ? confirmed : d));
-      return { body: confirmed };
-    },
-  });
+  const transport = stubTransport(baseHandlers([trf1, trf2]));
   return renderWithProviders(<StockTransfersScreen />, { transport, initialSession: testAdminSession });
 }
 
 describe("StockTransfersScreen — list", () => {
-  it("renders the confirmed transfers the API returns", async () => {
+  it("renders confirmed and draft transfers from the real backend", async () => {
     renderScreen();
     expect(screen.getByRole("heading", { name: "تحويلات المخزون" })).toBeInTheDocument();
     expect(await screen.findByText("TRF-000001")).toBeInTheDocument();
@@ -64,9 +103,43 @@ describe("StockTransfersScreen — list", () => {
   });
 });
 
-describe("StockTransfersScreen — create", () => {
-  it("drafts then confirms the transfer through the API and shows it in the list", async () => {
-    renderScreen();
+describe("StockTransfersScreen — create: valuation neutrality end to end", () => {
+  it("posts a new transfer via the real API (draft + confirm) and shows it in the list", async () => {
+    const generatedId = "trf-0003-0000-0000-000000000000";
+    vi.spyOn(crypto, "randomUUID").mockReturnValue(generatedId as ReturnType<typeof crypto.randomUUID>);
+    let current = [trf1, trf2];
+    const transport = stubTransport({
+      ...baseHandlers(current),
+      "GET /inventory/stock-transfers": () => ({ body: current }),
+      "POST /inventory/stock-transfers/draft": (init) => {
+        const body = JSON.parse((init?.body as string) ?? "{}");
+        const created: StockTransferDocumentDTO = {
+          id: body.id,
+          docType: "STOCK_TRANSFER",
+          docNo: null,
+          date: body.date,
+          memo: body.memo ?? "",
+          status: "draft",
+          lines: body.lines,
+          createdAt: "2026-08-22T10:00:00.000Z",
+          confirmedAt: null,
+        };
+        current = [...current, created];
+        return { status: 201, body: created };
+      },
+      [`POST /inventory/stock-transfers/${generatedId}/confirm`]: () => {
+        const confirmed: StockTransferDocumentDTO = {
+          ...current[current.length - 1]!,
+          status: "confirmed",
+          docNo: "TRF-000003",
+          confirmedAt: "2026-08-22T10:00:00.000Z",
+        };
+        current = current.map((d) => (d.id === generatedId ? confirmed : d));
+        return { body: { document: confirmed, held: false } };
+      },
+    });
+    renderWithProviders(<StockTransfersScreen />, { transport, initialSession: testAdminSession });
+
     await screen.findByText("TRF-000001");
     fireEvent.click(screen.getByRole("button", { name: "تحويل جديد" }));
     expect(screen.getByRole("heading", { name: "تحويل مخزون جديد" })).toBeInTheDocument();

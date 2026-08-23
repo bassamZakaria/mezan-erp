@@ -2,9 +2,14 @@
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
 import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { TreasuryAccountDTO } from "@mezan/contracts";
+import type { BranchDTO, TreasuryAccountDTO } from "@mezan/contracts";
 import { TreasuryAccountsScreen } from "./TreasuryAccountsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+
+const sampleBranches: BranchDTO[] = [
+  { id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true },
+  { id: "b2", code: "ALEX", name: "فرع الإسكندرية", parentBranchId: "b1", phone: null, email: null, address: null, isMain: false, active: true },
+];
 
 const sampleAccounts: TreasuryAccountDTO[] = [
   { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي", type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
@@ -15,10 +20,8 @@ const sampleAccounts: TreasuryAccountDTO[] = [
 function renderScreen(accounts: TreasuryAccountDTO[] = sampleAccounts) {
   let current = [...accounts];
   const transport = stubTransport({
-    "GET /branches": () => ({
-      body: [{ id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true }],
-    }),
     "GET /treasury-accounts": () => ({ body: current }),
+    "GET /branches": () => ({ body: sampleBranches }),
     "POST /treasury-accounts": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");
       if (current.some((a) => a.code === body.code)) {

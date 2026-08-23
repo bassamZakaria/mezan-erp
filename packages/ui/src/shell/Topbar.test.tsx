@@ -2,7 +2,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { Topbar } from "./Topbar";
-import type { ShellUser } from "./types";
+import type { ShellUser, UserMenuItem } from "./types";
 
 const user: ShellUser = { name: "محمد الشهابي", role: "Company Admin", initials: "م.ش" };
 
@@ -48,6 +48,30 @@ describe("Topbar", () => {
 
     rerender(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} notificationCount={3} />);
     expect(container.querySelector(".bg-danger")).toBeInTheDocument();
+  });
+
+
+
+
+  it("opens the user menu, runs an item, and closes", () => {
+    const onSelect = vi.fn();
+    const userMenuItems: UserMenuItem[] = [{ key: "users", label: "المستخدمون", onSelect }];
+    render(
+      <Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} userMenuItems={userMenuItems} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /محمد الشهابي/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "المستخدمون" }));
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("menuitem", { name: "المستخدمون" })).not.toBeInTheDocument();
+  });
+
+  it("closes an open menu on Escape", () => {
+    const userMenuItems: UserMenuItem[] = [{ key: "users", label: "المستخدمون", onSelect: () => {} }];
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={() => {}} user={user} userMenuItems={userMenuItems} />);
+    fireEvent.click(screen.getByRole("button", { name: /محمد الشهابي/ }));
+    expect(screen.getByRole("menu", { name: "محمد الشهابي" })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu", { name: "محمد الشهابي" })).not.toBeInTheDocument();
   });
 
   it("renders against a dark theme root without crashing", () => {

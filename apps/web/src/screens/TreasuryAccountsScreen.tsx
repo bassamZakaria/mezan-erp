@@ -3,16 +3,13 @@ import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, Si
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount } from "../data/hooks";
+import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
 const STATUS_LABEL: Record<TreasuryAccountStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
 const STATUS_TONE: Record<TreasuryAccountStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
-
-function branchName(branchId: string, branches: readonly BranchDTO[]): string {
-  return branches.find((b) => b.id === branchId)?.name ?? branchId;
-}
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -30,13 +27,13 @@ interface TreasuryAccountDraft {
   active: boolean;
 }
 
-function blankDraft(): TreasuryAccountDraft {
+function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
   return {
     code: "",
     name: "",
     type: "cash",
     currency: "EGP",
-    branchId: "",
+    branchId: branches[0]?.id ?? "",
     glAccountId: "",
     openingBalance: 0,
     openingBalanceDate: "",
@@ -72,9 +69,9 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
 
 export function TreasuryAccountsScreen() {
   const query = useTreasuryAccounts();
+  const branchesQuery = useBranches();
   const createTreasuryAccount = useCreateTreasuryAccount();
   const updateTreasuryAccount = useUpdateTreasuryAccount();
-  const branchesQuery = useBranches();
   const accounts = query.data ?? [];
   const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
@@ -83,7 +80,7 @@ export function TreasuryAccountsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft());
+  const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft(branches));
   const [formError, setFormError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
@@ -107,7 +104,7 @@ export function TreasuryAccountsScreen() {
 
   function openCreateForm() {
     setEditingId(null);
-    setDraft({ ...blankDraft(), branchId: branches[0]?.id ?? "" });
+    setDraft(blankDraft(branches));
     setFormError(null);
     setFormOpen(true);
   }

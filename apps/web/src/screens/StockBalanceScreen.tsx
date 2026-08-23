@@ -1,25 +1,26 @@
 import { useMemo, useState } from "react";
-import { Button, Card, DocumentList, Money as MoneyDisplay, type DocumentListColumn } from "@mezan/ui";
-import type { ItemDTO, StockBalanceRowDTO } from "@mezan/contracts";
+import { DocumentList, Money as MoneyDisplay, Card, Button, type DocumentListColumn } from "@mezan/ui";
+import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useItems, useStockBalance } from "../data/hooks";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/catalog/03. Read-only cross-warehouse
- * rollup, one row per item, served by `GET /inventory/stock-balance`.
+ * rollup, one row per item, on the real `GET /inventory/stock-balance` route
+ * (packages/api/src/inventory-routes.ts), which runs the SAME
+ * `rollupStockBalance` domain function server-side.
  */
-
-function itemLabel(id: string, items: readonly ItemDTO[]): string {
-  const item = items.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
-}
-
 export function StockBalanceScreen() {
-  const query = useStockBalance();
+  const balanceQuery = useStockBalance();
   const itemsQuery = useItems();
   const [search, setSearch] = useState("");
 
-  const rows = query.data ?? [];
+  const rows = balanceQuery.data ?? [];
   const items = itemsQuery.data ?? [];
+
+  function itemLabel(id: string): string {
+    const item = items.find((i) => i.id === id);
+    return item ? `${item.nameAr} (${item.code})` : id;
+  }
 
   const counts = useMemo(() => {
     const outOfStock = rows.filter((r) => Number(r.onHand) === 0).length;
@@ -27,13 +28,16 @@ export function StockBalanceScreen() {
   }, [rows]);
 
   const filtered = useMemo(() => {
-    if (search.trim() === "") return rows;
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => itemLabel(r.itemId, items).toLowerCase().includes(q));
-  }, [rows, items, search]);
+    let list = rows;
+    if (search.trim() !== "") {
+      const q = search.trim().toLowerCase();
+      list = list.filter((r) => itemLabel(r.itemId).toLowerCase().includes(q));
+    }
+    return list;
+  }, [rows, search, items]);
 
   const columns: DocumentListColumn<StockBalanceRowDTO>[] = [
-    { key: "item", header: "الصنف", render: (r) => <span className="text-ink">{itemLabel(r.itemId, items)}</span> },
+    { key: "item", header: "الصنف", render: (r) => <span className="text-ink">{itemLabel(r.itemId)}</span> },
     {
       key: "onHand",
       header: "إجمالي المخزون",
@@ -61,16 +65,19 @@ export function StockBalanceScreen() {
     },
   ];
 
+  if (balanceQuery.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرصدة المخزون.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => balanceQuery.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   return (
     <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرصدة المخزون.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
-          </Button>
-        </Card>
-      ) : null}
       <DocumentList<StockBalanceRowDTO>
         eyebrow="Inventory · Stock Balance"
         title="أرصدة المخزون"

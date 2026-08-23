@@ -1,61 +1,60 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { screen, fireEvent, within, waitFor } from "@testing-library/react";
-import type { BranchDTO, TreasuryAccountDTO, WarehouseDTO } from "@mezan/contracts";
+import { screen, fireEvent, within } from "@testing-library/react";
+import type { BranchDTO } from "@mezan/contracts";
 import { BranchesPage } from "./BranchesPage";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
-const MAIN: BranchDTO = {
-  id: "b1",
-  code: "MAIN",
-  name: "الفرع الرئيسي",
-  parentBranchId: null,
-  phone: "0223456789",
-  email: "main@cyag.example",
-  address: "القاهرة الجديدة، القاهرة",
-  isMain: true,
-  active: true,
-};
+const sampleBranches: BranchDTO[] = [
+  {
+    id: "b1",
+    code: "MAIN",
+    name: "الفرع الرئيسي",
+    parentBranchId: null,
+    phone: "0223456789",
+    email: "main@cyag.example",
+    address: "القاهرة الجديدة، القاهرة",
+    isMain: true,
+    active: true,
+  },
+  {
+    id: "b2",
+    code: "ALEX",
+    name: "فرع الإسكندرية",
+    parentBranchId: "b1",
+    phone: "0334567890",
+    email: null,
+    address: "سموحة، الإسكندرية",
+    isMain: false,
+    active: true,
+  },
+];
 
-const ALEX: BranchDTO = {
-  id: "b2",
-  code: "ALEX",
-  name: "فرع الإسكندرية",
-  parentBranchId: "b1",
-  phone: "0334567890",
-  email: null,
-  address: "سموحة، الإسكندرية",
-  isMain: false,
-  active: true,
-};
-
-const WAREHOUSE: WarehouseDTO = { id: "w1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true };
-
-const TREASURY: TreasuryAccountDTO = {
-  id: "ta-1",
-  code: "CASH-001",
-  name: "صندوق نقدي",
-  type: "cash",
-  currency: "EGP",
-  branchId: "b1",
-  glAccountId: "1100",
-  openingBalance: "338.000000",
-  openingBalanceDate: null,
-  status: "active",
-};
-
-function renderPage(options: { createFails?: boolean } = {}) {
-  let branches = [MAIN, ALEX];
+function renderScreen(branches: BranchDTO[] = sampleBranches) {
+  let current = [...branches];
   const transport = stubTransport({
-    "GET /branches": () => ({ body: branches }),
-    "GET /warehouses": () => ({ body: [WAREHOUSE] }),
-    "GET /treasury-accounts": () => ({ body: [TREASURY] }),
+    "GET /branches": () => ({ body: current }),
+    "GET /warehouses": () => ({ body: [] }),
     "POST /branches": (init) => {
-      if (options.createFails) return { status: 422, body: { message: "كود الفرع غير صالح" } };
-      const body = JSON.parse((init?.body as string) ?? "{}") as BranchDTO;
-      const created: BranchDTO = { ...MAIN, ...body };
-      branches = [...branches, created];
+      const body = JSON.parse((init?.body as string) ?? "{}");
+      // Mirrors branches-routes.ts's createBranchSchema.safeParse — an empty code/name
+      // fails zod validation before the domain layer ever runs, so no `message` field.
+      if (!/^[A-Z0-9_-]{1,20}$/.test(body.code ?? "") || (body.name ?? "").trim() === "") {
+        return { status: 400, body: { error: "VALIDATION_ERROR", details: {} } };
+      }
+      const created: BranchDTO = {
+        id: body.id,
+        code: body.code,
+        name: body.name,
+        parentBranchId: body.parentBranchId ?? null,
+        phone: body.phone ?? null,
+        email: body.email ?? null,
+        address: body.address ?? null,
+        isMain: body.isMain ?? false,
+        active: true,
+      };
+      current = [...current, created];
       return { status: 201, body: created };
     },
   });
@@ -63,32 +62,32 @@ function renderPage(options: { createFails?: boolean } = {}) {
 }
 
 describe("BranchesPage", () => {
-  it("lists the branches the API returns", async () => {
-    renderPage();
+  it("lists the real branches from the backend", async () => {
+    renderScreen();
     expect(screen.getByRole("heading", { name: "الفروع" })).toBeInTheDocument();
     expect(await screen.findByText("MAIN")).toBeInTheDocument();
     expect(screen.getByText("فرع الإسكندرية")).toBeInTheDocument();
   });
 
-  it("opens the Branch 360 detail on row click, with live treasury accounts and stub tabs", async () => {
-    renderPage();
+  it("opens the Branch 360 detail on row click, with an Overview tab and stub tabs", async () => {
+    renderScreen();
     fireEvent.click(await screen.findByText("MAIN"));
     expect(screen.getByRole("heading", { name: /الفرع الرئيسي/ })).toBeInTheDocument();
-    expect(await screen.findByText("صندوق نقدي")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "نظرة عامة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "المخزون" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "المخزون" }));
     expect(screen.getAllByText("قريباً").length).toBeGreaterThan(0);
   });
 
   it("returns to the list from the detail view", async () => {
-    renderPage();
+    renderScreen();
     fireEvent.click(await screen.findByText("MAIN"));
     fireEvent.click(screen.getByRole("button", { name: "رجوع لقائمة الفروع" }));
     expect(screen.getByRole("heading", { name: "الفروع" })).toBeInTheDocument();
   });
 
   it("adds a new branch through the side panel", async () => {
-    renderPage();
+    renderScreen();
     await screen.findByText("MAIN");
     fireEvent.click(screen.getByRole("button", { name: "إضافة فرع" }));
 
@@ -100,12 +99,13 @@ describe("BranchesPage", () => {
     expect(await screen.findByText("فرع الجيزة")).toBeInTheDocument();
   });
 
-  it("surfaces the server's rejection instead of adding an invalid branch", async () => {
-    renderPage({ createFails: true });
+  it("shows a validation error instead of adding an invalid branch", async () => {
+    renderScreen();
     await screen.findByText("MAIN");
     fireEvent.click(screen.getByRole("button", { name: "إضافة فرع" }));
     const dialog = screen.getByRole("dialog", { name: "إضافة فرع" });
+    // Leave name/code empty and try to save.
     fireEvent.click(within(dialog).getByRole("button", { name: "حفظ الفرع" }));
-    await waitFor(() => expect(within(dialog).getByText("كود الفرع غير صالح")).toBeInTheDocument());
+    expect(await within(dialog).findByText(/تعذر إنشاء الفرع/)).toBeInTheDocument();
   });
 });

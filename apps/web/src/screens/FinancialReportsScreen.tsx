@@ -1,5 +1,4 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { ReportRunner } from "@mezan/ui";
 import {
   createAccountLedgerReport,
   createBalanceSheetReport,
@@ -8,42 +7,27 @@ import {
   createIncomeStatementReport,
   createTrialBalanceReport,
   createVatReturnReport,
-  financialStatementAccounts,
-  financialStatementEntries,
-  runReport,
   vatNetPayable,
-  INPUT_VAT_ACCOUNT_ID,
-  OUTPUT_VAT_ACCOUNT_ID,
-  type GlReportContext,
-  type ReportDefinition,
-  type RunReportOutcome,
-  type VatReturnContext,
+  type Account,
   type VatReturnRow,
 } from "@mezan/domain";
+import { ReportScreen } from "./reports/ReportScreen";
+import { useAccounts } from "../data/hooks";
 
 /**
  * التقارير المالية (docs/catalog/08-reports.md) — the seven financial
- * statements as tabs on one page (`/accounting/reports`), each a
- * `ReportDefinition` run over the shared tenant ledger through the report
- * engine. Nothing here is statement-specific except the tab list and the VAT
- * net-payable summary; every tab renders through the same `<ReportRunner>` +
- * `runReport` pipeline, and every one exports (XLSX/CSV).
+ * statements as tabs on one page (`/accounting/reports`). Every tab is the SAME
+ * generic `<ReportScreen>` the operational reports use: it renders a
+ * `ReportDefinition`'s metadata (title/params/columns) locally and fetches the
+ * computed rows/totals/reconciliation from the live `/reports/accounting/*` API
+ * over the shared session transport. Nothing here reads a fixture ledger — the
+ * statements compute from the REAL posted GL (packages/api reports-routes.ts),
+ * the same posted journal entries the journal/dashboard screens show.
  */
 
+const EYEBROW = "المحاسبة · القوائم المالية";
 const TODAY = "2026-08-22";
 const YEAR_START = "2026-01-01";
-
-const glContext: GlReportContext = {
-  accounts: financialStatementAccounts,
-  journalEntries: financialStatementEntries,
-};
-const vatContext: VatReturnContext = {
-  ...glContext,
-  outputVatAccountId: OUTPUT_VAT_ACCOUNT_ID,
-  inputVatAccountId: INPUT_VAT_ACCOUNT_ID,
-};
-
-const firstPostable = financialStatementAccounts.find((a) => !a.isHeader);
 
 const trialBalance = createTrialBalanceReport(TODAY);
 const incomeStatement = createIncomeStatementReport({ periodFrom: YEAR_START, periodTo: TODAY });
@@ -51,71 +35,6 @@ const balanceSheet = createBalanceSheetReport(TODAY);
 const cashFlow = createCashFlowReport({ periodFrom: YEAR_START, periodTo: TODAY });
 const vatReturn = createVatReturnReport({ periodFrom: YEAR_START, periodTo: TODAY });
 const generalLedger = createGeneralLedgerReport({ periodFrom: YEAR_START, periodTo: TODAY });
-const accountLedger = createAccountLedgerReport(financialStatementAccounts, {
-  accountId: firstPostable?.id ?? "",
-  periodFrom: YEAR_START,
-  periodTo: TODAY,
-});
-
-function paramsToRecord(params: unknown): Record<string, string> {
-  return Object.fromEntries(Object.entries(params as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")]));
-}
-
-interface ReportTabProps<TParams, Row, Ctx> {
-  readonly definition: ReportDefinition<TParams, Row, Ctx>;
-  readonly context: Ctx;
-  readonly exportBaseFilename: string;
-  /**
-   * Whether this tab waits for an explicit عرض التقرير click. The two ledger
-   * dumps are on-demand (docs/catalog/08-reports.md); the four core statements
-   * + VAT auto-run on the selected period like the catalog page does.
-   */
-  readonly onDemand: boolean;
-  readonly renderSummary?: (rows: readonly Row[]) => ReactNode;
-}
-
-function ReportTab<TParams, Row, Ctx>({
-  definition,
-  context,
-  exportBaseFilename,
-  onDemand,
-  renderSummary,
-}: ReportTabProps<TParams, Row, Ctx>) {
-  const [params, setParams] = useState<Record<string, string>>(() => paramsToRecord(definition.defaultParams));
-  const [ranOutcome, setRanOutcome] = useState<RunReportOutcome<TParams, Row> | null>(null);
-
-  // Auto-run reports recompute on every param change; on-demand reports wait
-  // for the "عرض التقرير" click (tracked in `ranOutcome`).
-  const autoOutcome = useMemo(
-    () => (onDemand ? null : runReport(definition, params, context)),
-    [onDemand, definition, params, context],
-  );
-  const outcome = onDemand ? ranOutcome : autoOutcome;
-
-  const fieldErrors =
-    outcome && !outcome.ok ? Object.fromEntries(outcome.errors.map((e) => [e.field, e.message])) : undefined;
-  const result = outcome && outcome.ok ? outcome : null;
-
-  return (
-    <ReportRunner
-      eyebrow="المحاسبة · القوائم المالية"
-      title={definition.titleAr}
-      description={definition.descriptionAr}
-      paramFields={definition.paramFields}
-      params={params}
-      onParamsChange={setParams}
-      fieldErrors={fieldErrors}
-      onDemand={onDemand}
-      onRun={() => setRanOutcome(runReport(definition, params, context))}
-      result={result}
-      columns={definition.columns}
-      rowKey={definition.rowKey}
-      chart={result && renderSummary ? renderSummary(result.rows) : undefined}
-      showGrandTotal={definition.showGrandTotal ?? true}
-      exportBaseFilename={exportBaseFilename}
-    />
-  );
-}
 
 function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
   const net = vatNetPayable(rows);
@@ -129,6 +48,31 @@ function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
   );
 }
 
+/**
+ * دفتر حساب — the account picker's options come from the REAL chart of accounts
+ * (`useAccounts`), so the select lists exactly the tenant's postable accounts.
+ * The definition is rebuilt when the accounts load; the server validates the
+ * chosen account against the same real chart.
+ */
+function AccountLedgerTab() {
+  const accountsQuery = useAccounts();
+  const accounts = useMemo<readonly Account[]>(() => accountsQuery.data ?? [], [accountsQuery.data]);
+  const definition = useMemo(() => {
+    const firstPostable = accounts.find((a) => !a.isHeader);
+    return createAccountLedgerReport(accounts, {
+      accountId: firstPostable?.id ?? "",
+      periodFrom: YEAR_START,
+      periodTo: TODAY,
+    });
+  }, [accounts]);
+
+  if (accountsQuery.isLoading) {
+    return <div className="rounded-lg border border-border bg-surface p-[28px] text-center text-[13px] text-ink-muted">جارٍ تحميل دليل الحسابات…</div>;
+  }
+
+  return <ReportScreen eyebrow={EYEBROW} definition={definition} apiPath="/accounting/account-ledger" />;
+}
+
 interface TabDef {
   readonly id: string;
   readonly label: string;
@@ -139,32 +83,34 @@ const TABS: readonly TabDef[] = [
   {
     id: "trial-balance",
     label: "ميزان المراجعة",
-    render: () => <ReportTab definition={trialBalance} context={glContext} exportBaseFilename="trial-balance" onDemand={false} />,
+    // The four core statements + VAT auto-run on the selected period; only the
+    // two ledger dumps (general/account ledger) gate behind عرض التقرير. The
+    // trial-balance definition is marked on-demand as a demo, overridden here.
+    render: () => <ReportScreen eyebrow={EYEBROW} definition={trialBalance} apiPath="/accounting/trial-balance" onDemand={false} />,
   },
   {
     id: "income-statement",
     label: "قائمة الدخل",
-    render: () => <ReportTab definition={incomeStatement} context={glContext} exportBaseFilename="income-statement" onDemand={false} />,
+    render: () => <ReportScreen eyebrow={EYEBROW} definition={incomeStatement} apiPath="/accounting/income-statement" />,
   },
   {
     id: "balance-sheet",
     label: "الميزانية العمومية",
-    render: () => <ReportTab definition={balanceSheet} context={glContext} exportBaseFilename="balance-sheet" onDemand={false} />,
+    render: () => <ReportScreen eyebrow={EYEBROW} definition={balanceSheet} apiPath="/accounting/balance-sheet" />,
   },
   {
     id: "cash-flow",
     label: "التدفقات النقدية",
-    render: () => <ReportTab definition={cashFlow} context={glContext} exportBaseFilename="cash-flow" onDemand={false} />,
+    render: () => <ReportScreen eyebrow={EYEBROW} definition={cashFlow} apiPath="/accounting/cash-flow" />,
   },
   {
     id: "vat-return",
     label: "إقرار ضريبة القيمة المضافة",
     render: () => (
-      <ReportTab
+      <ReportScreen
+        eyebrow={EYEBROW}
         definition={vatReturn}
-        context={vatContext}
-        exportBaseFilename="vat-return"
-        onDemand={false}
+        apiPath="/accounting/vat-return"
         renderSummary={(rows) => <VatNetSummary rows={rows} />}
       />
     ),
@@ -172,12 +118,12 @@ const TABS: readonly TabDef[] = [
   {
     id: "general-ledger",
     label: "دفتر الأستاذ العام",
-    render: () => <ReportTab definition={generalLedger} context={glContext} exportBaseFilename="general-ledger" onDemand />,
+    render: () => <ReportScreen eyebrow={EYEBROW} definition={generalLedger} apiPath="/accounting/general-ledger" />,
   },
   {
     id: "account-ledger",
     label: "دفتر حساب",
-    render: () => <ReportTab definition={accountLedger} context={glContext} exportBaseFilename="account-ledger" onDemand />,
+    render: () => <AccountLedgerTab />,
   },
 ];
 

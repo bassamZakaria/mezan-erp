@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn } from "@mezan/ui";
 import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
-import { useReconciliationReport } from "../data/hooks";
+import { useReconciliation } from "../data/hooks";
 
 function fmt(value: string): string {
   return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -10,13 +10,14 @@ function fmt(value: string): string {
 /**
  * مطابقة الأرصدة — Balance Reconciliation (docs/catalog/04). Cross-checks each
  * sub-ledger balance against its GL control account and flags journal lines
- * posted directly to a control account (القيود غير المرتبطة). Both come from
- * `GET /reconciliation`, which runs the domain functions server-side against
- * the live sub-ledgers.
+ * posted directly to a control account (القيود غير المرتبطة), on the real
+ * `GET /reconciliation` route (packages/api/src/reconciliation-routes.ts),
+ * which runs the SAME `computeBalanceReconciliation` / `findUnlinkedControlLines`
+ * domain functions server-side.
  */
 export function ReconciliationScreen() {
+  const query = useReconciliation();
   const [tab, setTab] = useState<"summary" | "unlinked">("summary");
-  const query = useReconciliationReport();
   const report = query.data ?? null;
 
   const summaryColumns: DocumentListColumn<ReconciliationRowDTO>[] = [
@@ -44,11 +45,16 @@ export function ReconciliationScreen() {
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">مطابقة الأرصدة</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">مطابقة أرصدة دفاتر المساعدة مع حسابات المراقبة في دفتر الأستاذ، ورصد البنود غير المرتبطة</p>
         </div>
-        <Button disabled={query.isFetching} onClick={() => void query.refetch()}>تحديث</Button>
+        <Button onClick={() => query.refetch()}>تحديث</Button>
       </div>
 
       {query.isError ? (
-        <div className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">تعذّرت مطابقة الأرصدة.</div>
+        <Card className="mb-[16px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مطابقة الأرصدة.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
       ) : null}
 
       {report ? (

@@ -36,6 +36,8 @@ import {
   createSqliteCustomerRepository,
   createSqliteSupplierRepository,
   createSqliteItemStore,
+  createSqliteItemUnitStore,
+  createSqliteItemCategoryStore,
   createSqliteTaxRateRepository,
   createSqliteCostCenterRepository,
   createSqliteTreasuryAccountRepository,
@@ -220,6 +222,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customers = createSqliteCustomerRepository(sqlite);
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
+  const itemUnits = createSqliteItemUnitStore(sqlite);
+  const itemCategories = createSqliteItemCategoryStore(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
@@ -351,6 +355,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     uow,
     hasher,
     pipelineStages,
+    itemUnits,
   };
   await seedIfEmpty(seedStores);
 
@@ -397,6 +402,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     accounts: { repo: accounts },
     items: { repo: items },
+    itemCatalog: { units: itemUnits, categories: itemCategories, items },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
@@ -581,6 +587,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     customers,
     suppliers,
     items,
+    itemUnits,
+    itemCategories,
     taxRates,
     costCenters,
     treasuryAccounts,

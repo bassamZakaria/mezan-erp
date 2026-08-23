@@ -6,6 +6,7 @@ import {
   generateFiscalYear,
   saveUser,
   createPipelineStage,
+  createItemUnit,
   ALL_SCOPE,
   type AccountRepository,
   type BranchRepository,
@@ -18,6 +19,7 @@ import {
   type Role,
   type TaxRate,
   type PipelineStageRepository,
+  type ItemUnitRepository,
 } from "@mezan/domain";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 
@@ -51,6 +53,13 @@ export interface SeedStores {
    * seed block).
    */
   readonly pipelineStages?: PipelineStageRepository;
+  /**
+   * Optional — seeds the standard units of measure (docs/catalog/03 "وحدات
+   * القياس") on an empty DB when supplied. Reference data every tenant needs
+   * (items require a base unit), not demo data. Omit it and the unit catalog
+   * simply starts empty.
+   */
+  readonly itemUnits?: ItemUnitRepository;
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
@@ -101,6 +110,25 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
       active: true,
     }),
   );
+
+  if (stores.itemUnits) {
+    // The standard base units of measure (docs/catalog/03 "وحدات القياس").
+    // Item categories are deliberately NOT seeded — every tenant defines its
+    // own tree, so that catalog starts empty.
+    const seedUnits: ReadonlyArray<{ readonly code: string; readonly nameAr: string }> = [
+      { code: "PCS", nameAr: "قطعة" },
+      { code: "CTN", nameAr: "كرتونة" },
+      { code: "BOX", nameAr: "صندوق" },
+      { code: "KG", nameAr: "كيلوجرام" },
+      { code: "G", nameAr: "جرام" },
+      { code: "L", nameAr: "لتر" },
+      { code: "M", nameAr: "متر" },
+      { code: "SVC", nameAr: "خدمة" },
+    ];
+    for (const unit of seedUnits) {
+      await createItemUnit({ id: `UOM-${unit.code}`, code: unit.code, nameAr: unit.nameAr }, stores.itemUnits);
+    }
+  }
 
   await generateFiscalYear(now().getUTCFullYear(), stores.fiscalPeriods);
 

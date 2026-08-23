@@ -29,6 +29,8 @@ const READ_PATHS = [
   "/customers",
   "/suppliers",
   "/items",
+  "/item-units",
+  "/item-categories",
   "/accounts",
   "/tax-rates",
   "/cost-centers",

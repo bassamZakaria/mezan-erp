@@ -38,7 +38,7 @@ import {
   useWarehouses,
   type SalesInvoiceDTO,
 } from "../data/hooks";
-import { unitLabel } from "../items-sample-data";
+import { unitLabel, useItemUnits } from "../data/item-catalog-hooks";
 import { SelectField, NumberField } from "../settings/form-controls";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
@@ -107,6 +107,7 @@ function CreateInvoicePanel({
   const customers = customersQuery.data ?? [];
   const items = itemsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
+  const units = useItemUnits().data ?? [];
 
   const today = new Date().toISOString().slice(0, 10);
   const [customer, setCustomer] = useState<EntityPickerOption | null>(null);
@@ -326,7 +327,7 @@ function CreateInvoicePanel({
                           onChange={(v) => updateLine(i, { qty: v })}
                           min={0}
                           step={1}
-                          unit={unitLabel(item.baseUnitCode)}
+                          unit={unitLabel(units, item.baseUnitCode)}
                         />
                       </label>
                       <label className="flex flex-col gap-[6px]">

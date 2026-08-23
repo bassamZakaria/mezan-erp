@@ -256,11 +256,6 @@ export function App() {
     return map;
   }, [users]);
 
-  // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
-  // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات, المستخدمون,
-  // الأدوار) to switch screens; every other item keeps whatever static
-  // onClick/href sample-data.ts gave it — mostly none, they're "قريباً"
-  // placeholders.
   const groups: NavGroup[] = useMemo(
     () =>
       navGroups.map((group) => ({

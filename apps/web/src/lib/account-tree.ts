@@ -4,7 +4,7 @@ import type { AccountDTO } from "@mezan/contracts";
  * Presentation-only Chart of Accounts tree helpers for apps/web.
  *
  * apps/web has no live API wiring yet (every Phase-0 screen — see
- * SalesInvoicesScreen — is sample-data-driven), so this mirrors the shape of
+ * SalesInvoicesScreen), so this mirrors the shape of
  * `buildAccountTree`/`flattenAccountTree` in `@mezan/domain` (the real,
  * tested hierarchy logic — see packages/domain/src/accounts/hierarchy.ts)
  * without importing the whole domain package into web's bundle/typecheck: the

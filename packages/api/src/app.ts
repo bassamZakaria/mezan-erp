@@ -15,6 +15,8 @@ import {
   type CustomerRepository,
   type SupplierRepository,
   type ItemRepository,
+  type ItemUnitRepository,
+  type ItemCategoryRepository,
   type Entitlements,
   type TaxRateRepository,
   type CostCenterRepository,
@@ -72,6 +74,7 @@ import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
+import { createItemUnitsRouter, createItemCategoriesRouter } from "./item-catalog-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -199,6 +202,18 @@ export interface CreateAppOptions {
    */
   readonly items?: {
     readonly repo: ItemRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/item-units` and `/item-categories` (docs/catalog/03 "وحدات القياس"
+   * / "تصنيفات الأصناف") when present — the reference catalogs items pick their
+   * base unit and category from. Their own prefixes, not `/items/...`: Hono
+   * matches registration order and `/items/:id` would otherwise shadow them.
+   */
+  readonly itemCatalog?: {
+    readonly units: ItemUnitRepository;
+    readonly categories: ItemCategoryRepository;
+    readonly items: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
@@ -644,6 +659,14 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
+  }
+  if (options.itemCatalog) {
+    const catalog = options.itemCatalog;
+    app.route("/item-units", createItemUnitsRouter(catalog.units, catalog.items, catalog.resolveAuthContext));
+    app.route(
+      "/item-categories",
+      createItemCategoriesRouter(catalog.categories, catalog.items, catalog.resolveAuthContext),
+    );
   }
   if (options.inventory) {
     app.route(

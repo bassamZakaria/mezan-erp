@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BrandMark, Button, StatusPill } from "@mezan/ui";
 import { useBootstrapSeed, useCreateFirstAdmin } from "../data/hooks";
-import { seedTasks } from "./login-sample-data";
+import { seedTasks } from "./first-run-steps";
 
 const STEPS = [
   { key: "activate", label: "تفعيل الترخيص" },

@@ -133,6 +133,21 @@ export {
 } from "./items.js";
 
 export {
+  itemUnitSchema,
+  createItemUnitSchema,
+  updateItemUnitSchema,
+  itemCategorySchema,
+  createItemCategorySchema,
+  updateItemCategorySchema,
+  type ItemUnitDTO,
+  type CreateItemUnitDTO,
+  type UpdateItemUnitDTO,
+  type ItemCategoryDTO,
+  type CreateItemCategoryDTO,
+  type UpdateItemCategoryDTO,
+} from "./item-catalog.js";
+
+export {
   scopeSelectionSchema,
   roleSchema,
   createRoleSchema,

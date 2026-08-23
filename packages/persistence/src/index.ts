@@ -52,6 +52,14 @@ export {
   createSqliteItemStore,
   type SqliteItemStoreHandle,
 } from "./item-store.js";
+export {
+  createSqliteItemUnitStore,
+  type SqliteItemUnitStoreHandle,
+} from "./item-unit-store.js";
+export {
+  createSqliteItemCategoryStore,
+  type SqliteItemCategoryStoreHandle,
+} from "./item-category-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
 export {
   createSqliteTaxRateRepository,

@@ -15,7 +15,7 @@ import {
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
-import { unitLabel } from "../items-sample-data";
+import { unitLabel, useItemUnits } from "../data/item-catalog-hooks";
 
 type BomStatus = BomRecord["status"];
 
@@ -125,6 +125,7 @@ export function BomsScreen() {
 
   const boms = query.data ?? [];
   const items = itemsQuery.data ?? [];
+  const units = useItemUnits().data ?? [];
 
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
@@ -134,7 +135,7 @@ export function BomsScreen() {
     const map = new Map(items.map((i) => [i.id, i.costPrice ? Number(i.costPrice) : 0]));
     return (id: string) => map.get(id) ?? 0;
   }, [items]);
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
+  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(units, i.baseUnitCode) }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<BomStatus | "all">("all");

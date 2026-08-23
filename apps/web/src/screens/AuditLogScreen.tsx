@@ -201,7 +201,7 @@ export function AuditLogScreen() {
                 onChange={(v) => updateFilters({ branchId: v })}
                 options={[
                   { value: "", label: "كل الفروع" },
-                  ...branches.map((b) => ({ value: b.id, label: b.nameAr })),
+                  ...branches.map((b) => ({ value: b.id, label: branchName(b.id, branches) })),
                 ]}
               />
             </div>

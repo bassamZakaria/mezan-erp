@@ -16,6 +16,17 @@ import {
   createLandedCostDocumentType,
   LandedCostService,
   installmentPlanDocumentType,
+  PhysicalCountService,
+  createInventoryGlPostingHook,
+  createInventoryOpsStockHook,
+  computeInvoiceTotals,
+  purchaseInvoiceTotal,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  stockAdjustmentDocumentType,
+  stockTransferDocumentType,
+  type AdjustmentReason,
+  type StockAdjustmentDocLine,
+  type StockTransferDocLine,
 } from "@mezan/domain";
 import {
   openSqliteConnection,
@@ -59,6 +70,8 @@ import {
   createSqliteManufacturingStores,
   createSqliteRfqStores,
   createSqliteHistoricalPurchaseArchiveStore,
+  createSqliteInventoryOpsStores,
+  createSqliteItemCatalogStores,
   createStandaloneSqliteSalesReturnStore,
   createStandaloneSqlitePurchaseReturnStore,
   createStandaloneSqliteLandedCostStore,
@@ -79,6 +92,23 @@ const PURCHASE_GL_ACCOUNTS = {
   payableAccountId: "2100",
   taxAccountId: "1400",
   freightAccountId: "5200",
+};
+
+/**
+ * The Dr/Cr pair a confirmed stock adjustment posts per reason (docs/catalog/03
+ * §"تسويات المخزون"), against the standard COA: inventory (1200) on one side,
+ * owner's capital (3100) for the opening-stock load and the shortage/loss
+ * account (5900) for every write-off reason.
+ */
+const ADJUSTMENT_GL_ACCOUNTS: Partial<Record<AdjustmentReason, { inventoryAccountId: string; counterpartAccountId: string }>> = {
+  INITIAL_STOCK: { inventoryAccountId: "1200", counterpartAccountId: "3100" },
+  DAMAGE: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  THEFT: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  EXPIRY: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  SHORTAGE: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  SUPPLIER_RETURN: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  PHYSICAL_COUNT: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
+  OTHER: { inventoryAccountId: "1200", counterpartAccountId: "5900" },
 };
 
 /**
@@ -186,6 +216,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const customers = createSqliteCustomerRepository(sqlite);
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
+  const itemCatalog = createSqliteItemCatalogStores(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
@@ -244,14 +275,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
+    // Only commands that carry their own `gl` account pair post here — the
+    // sales/purchase stock hooks don't, so their COGS stays single-posted.
+    gl: createInventoryGlPostingHook({ ...salesInvoiceGl, actor: "system" }),
   });
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const documentGl = createJournalGlHook(salesInvoiceGl);
   const noWorkflow = createDocumentWorkflowGate(() => null);
 
@@ -282,6 +316,97 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     workflow: noWorkflow,
   });
 
+  // --- phase4/inventory-ops — the document layer over the stock engine:
+  // تسويات المخزون / تحويلات المخزون / الجرد الفعلي (docs/catalog/03). The
+  // adjustment hook resolves the Dr/Cr pair per reason so a confirmed
+  // adjustment posts its balancing journal entry through the SAME GL engine. ---
+  const inventoryOps = createSqliteInventoryOpsStores(sqlite);
+  const inventoryOpsStockHook = createInventoryOpsStockHook(
+    stockService,
+    (reason: AdjustmentReason) => ADJUSTMENT_GL_ACCOUNTS[reason] ?? null,
+  );
+  const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
+    repo: inventoryOps.stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    stock: inventoryOpsStockHook,
+    auditModule: "inventory",
+    workflow: noWorkflow,
+  });
+  const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
+    repo: inventoryOps.stockTransfers,
+    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    stock: inventoryOpsStockHook,
+    auditModule: "inventory",
+    workflow: noWorkflow,
+  });
+  const physicalCounts = new PhysicalCountService({
+    repo: inventoryOps.physicalCounts,
+    stockLedger: stockService,
+    adjustments: stockAdjustments,
+    numbering: { next: () => ledger.numbering.next("PHYSICAL_COUNT") },
+  });
+
+  /**
+   * مطابقة الأرصدة — the sub-ledger balances `/reconciliation` checks against
+   * their GL control accounts (docs/catalog/04). Each is derived from the SAME
+   * records the module itself reports on, so a difference means a real posting
+   * gap, not a stale copy:
+   *   المخزون  (1200) — the WAC snapshots' total value
+   *   ذمم العملاء (1100) — active invoices' unpaid balance + customer opening balances
+   *   ذمم الموردين (2100) — confirmed purchase-invoice totals + supplier opening balances
+   */
+  async function resolveReconciliationControls() {
+    const [snapshots, salesInvoiceRows, customerRows, purchaseInvoiceRows, supplierRows] = await Promise.all([
+      stockLedger.snapshots.list(),
+      salesInvoices.list(),
+      customers.findAll(),
+      purchaseInvoices.list(),
+      suppliers.findAll(),
+    ]);
+
+    let inventoryValue = Money.zero();
+    for (const snapshot of snapshots) inventoryValue = inventoryValue.add(snapshot.totalValue);
+
+    let receivable = Money.zero();
+    for (const invoice of salesInvoiceRows) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
+      const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+      receivable = receivable.add(Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled));
+    }
+    for (const customer of customerRows) receivable = receivable.add(customer.openingBalance);
+
+    let payable = Money.zero();
+    for (const invoice of purchaseInvoiceRows) {
+      if (invoice.status !== "confirmed") continue;
+      payable = payable.add(purchaseInvoiceTotal(invoice));
+    }
+    for (const supplier of supplierRows) payable = payable.add(supplier.openingBalance);
+
+    return [
+      {
+        key: "inventory",
+        label: "تقييم المخزون مقابل دفتر الأستاذ",
+        controlAccountId: "1200",
+        naturalBalance: "debit" as const,
+        subLedgerBalance: inventoryValue,
+      },
+      {
+        key: "ar",
+        label: "ذمم العملاء مقابل دفتر الأستاذ",
+        controlAccountId: "1100",
+        naturalBalance: "debit" as const,
+        subLedgerBalance: receivable,
+      },
+      {
+        key: "ap",
+        label: "ذمم الموردين مقابل دفتر الأستاذ",
+        controlAccountId: "2100",
+        naturalBalance: "credit" as const,
+        subLedgerBalance: payable,
+      },
+    ];
+  }
+
   const seedStores: SeedStores = {
     accounts,
     branches,
@@ -292,6 +417,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     uow,
     hasher,
     pipelineStages,
+    itemCatalog,
   };
   await seedIfEmpty(seedStores);
 
@@ -338,12 +464,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     accounts: { repo: accounts },
     items: { repo: items },
+    itemCatalog: { units: itemCatalog.units, categories: itemCatalog.categories },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
     hasher,
     inventory: { service: stockService },
+    stockAdjustments: { service: stockAdjustments },
+    stockTransfers: { service: stockTransfers },
+    physicalCounts: { service: physicalCounts },
     gl: {
       ledger,
       accounts,
@@ -403,6 +533,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gainAccountId: "4900",
       lossAccountId: "5900",
     },
+    reconciliation: { ledger, resolveControls: resolveReconciliationControls },
     eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
     // --- phase11/crm-projects-assets-field ---
     crm: {

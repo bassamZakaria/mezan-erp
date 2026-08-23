@@ -38,7 +38,7 @@ import {
   useWarehouses,
   type SalesInvoiceDTO,
 } from "../data/hooks";
-import { unitLabel } from "../items-sample-data";
+import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, NumberField } from "../settings/form-controls";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
@@ -103,6 +103,7 @@ function CreateInvoicePanel({
   const warehousesQuery = useWarehouses();
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
+  const unitLabel = useUnitLabel();
 
   const customers = customersQuery.data ?? [];
   const items = itemsQuery.data ?? [];

@@ -6,7 +6,7 @@ import { clickSidebarItem } from "./support/nav";
 /**
  * Journal Entries (القيود المحاسبية) — the document framework's first real
  * module (apps/web/src/screens/JournalsScreen.tsx, PR #21). 3 seeded posted
- * entries (journals-sample-data.ts): JE-000001..000003; new entries continue
+ * entries (the seeded journal entries): JE-000001..000003; new entries continue
  * from JE-000004. Covers the DocumentList/DocumentDetail/DocumentStatusStepper
  * primitives plus the create form's live balance gating.
  */

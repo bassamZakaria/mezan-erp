@@ -1,55 +1,113 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { screen, fireEvent, waitFor } from "@testing-library/react";
+import type { PhysicalCountDTO, StockBalanceRowDTO } from "@mezan/contracts";
 import { PhysicalCountsScreen } from "./PhysicalCountsScreen";
+import { TEST_ITEMS, TEST_WAREHOUSES } from "./inventory-ops-test-fixtures";
+import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
-describe("PhysicalCountsScreen — empty seeded state", () => {
-  it("matches the catalog's real empty state (zero counts in the demo tenant)", () => {
-    render(<PhysicalCountsScreen />);
+const BALANCE: StockBalanceRowDTO[] = [
+  { itemId: "itm-1", onHand: "90.000000", totalValue: "2880.000000", averageCost: "32.000000", warehouseCount: 1 },
+];
+
+function count(overrides: Partial<PhysicalCountDTO> = {}): PhysicalCountDTO {
+  return {
+    id: "c1",
+    countNo: "CNT-000001",
+    warehouseId: "wh-main",
+    date: "2026-08-22",
+    memo: "",
+    status: "IN_PROGRESS",
+    lines: [{ itemId: "itm-1", systemQty: "90.000000", countedQty: null }],
+    createdAt: "2026-08-22T08:00:00.000Z",
+    completedAt: null,
+    generatedAdjustmentId: null,
+    ...overrides,
+  };
+}
+
+function renderScreen(initial: PhysicalCountDTO[] = []) {
+  let counts = [...initial];
+  const transport = stubTransport({
+    "GET /inventory/physical-counts": () => ({ body: counts }),
+    "GET /inventory/stock-balance": () => ({ body: { rows: BALANCE } }),
+    "GET /warehouses": () => ({ body: TEST_WAREHOUSES }),
+    "GET /items": () => ({ body: TEST_ITEMS }),
+    "POST /inventory/physical-counts": (init) => {
+      const body = JSON.parse((init?.body as string) ?? "{}") as { id: string };
+      const started = count({ id: body.id });
+      counts = [...counts, started];
+      return { status: 201, body: started };
+    },
+    "POST /inventory/physical-counts/*/counts": (init, path) => {
+      const id = path.split("/")[3]!;
+      const { entries } = JSON.parse((init?.body as string) ?? "{}") as { entries: { itemId: string; countedQty: string }[] };
+      const updated = count({
+        id,
+        lines: [{ itemId: "itm-1", systemQty: "90.000000", countedQty: entries[0]!.countedQty }],
+      });
+      counts = counts.map((c) => (c.id === id ? updated : c));
+      return { body: updated };
+    },
+    "POST /inventory/physical-counts/*/complete": (_init, path) => {
+      const id = path.split("/")[3]!;
+      const completed = { ...counts.find((c) => c.id === id)!, status: "COMPLETED" as const };
+      counts = counts.map((c) => (c.id === id ? completed : c));
+      return { body: completed };
+    },
+    "POST /inventory/physical-counts/*/generate-adjustment": (_init, path) => {
+      const id = path.split("/")[3]!;
+      const generated = {
+        ...counts.find((c) => c.id === id)!,
+        status: "ADJUSTMENT_GENERATED" as const,
+        generatedAdjustmentId: "adj-from-count",
+      };
+      counts = counts.map((c) => (c.id === id ? generated : c));
+      return { body: { count: generated, adjustment: null } };
+    },
+  });
+  return renderWithProviders(<PhysicalCountsScreen />, { transport, initialSession: testAdminSession });
+}
+
+describe("PhysicalCountsScreen — empty state", () => {
+  it("matches the catalog's empty state when the API returns no counts", async () => {
+    renderScreen();
     expect(screen.getByRole("heading", { name: "الجرد الفعلي" })).toBeInTheDocument();
     expect(
-      screen.getByText("لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام"),
+      await screen.findByText("لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام"),
     ).toBeInTheDocument();
   });
 });
 
 describe("PhysicalCountsScreen — count → variance → adjustment flow", () => {
   it("starts a count, records a variance, completes it, and generates the reconciling adjustment", async () => {
-    render(<PhysicalCountsScreen />);
+    renderScreen();
 
     fireEvent.click(screen.getByRole("button", { name: "جرد جديد" }));
-    expect(screen.getByRole("heading", { name: "جرد جديد" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "جرد جديد" })).toBeInTheDocument();
 
-    // Wait for the seeded stock-balance rollup to load (async) so the item count is non-zero.
-    const addButton = screen.getByRole("button", { name: "إضافة" });
-    await waitFor(() => expect(addButton).toBeEnabled());
+    // The sheet is seeded from the live stock balance, which loads asynchronously.
+    await waitFor(() => expect(screen.getByRole("button", { name: "إضافة" })).toBeEnabled());
+    fireEvent.click(screen.getByRole("button", { name: "إضافة" }));
 
-    fireEvent.click(addButton);
-
-    // Now on the count-entry grid for the newly started (IN_PROGRESS) count.
     await waitFor(() => expect(screen.getByRole("button", { name: "إنهاء الجرد" })).toBeInTheDocument());
     expect(screen.getByText("أرز أبيض مصري 5 كجم (ITM-000001)")).toBeInTheDocument();
 
-    // itm-1's system qty at MAIN-WH is 90 (100 opening balance − 10 transferred to VAN-1) — count it short by 5.
     const countedInput = screen.getByLabelText("الكمية المعدودة لصنف أرز أبيض مصري 5 كجم (ITM-000001)");
     fireEvent.change(countedInput, { target: { value: "85" } });
     expect(screen.getByText("-5")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "إنهاء الجرد" }));
 
-    // Completing routes back to the list — the new count now shows "مكتمل".
     await waitFor(() => expect(screen.getByRole("heading", { name: "الجرد الفعلي" })).toBeInTheDocument());
-    const countNo = await screen.findByText("CNT-000001");
-    fireEvent.click(countNo);
+    fireEvent.click(await screen.findByText("CNT-000001"));
 
-    // Detail view: generate the reconciling adjustment.
     expect(await screen.findByText("مكتمل")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "توليد تسوية" }));
 
     await screen.findByText("تم إنشاء التسوية");
     expect(screen.getByText("تم إنشاؤها")).toBeInTheDocument();
-    // The OUT variance line (-5) for itm-1 is visible in the lines tab.
-    expect(screen.getByText("-5.000000")).toBeInTheDocument();
+    expect(screen.getByText("-5")).toBeInTheDocument();
   });
 });

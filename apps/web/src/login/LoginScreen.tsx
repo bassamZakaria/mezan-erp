@@ -1,7 +1,7 @@
 import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { BrandMark, Button } from "@mezan/ui";
-import { useLogin } from "../data/hooks";
-import { demoTenantName, demoTenantPlanLabel, licensedModules } from "./login-sample-data";
+import { licensedModules } from "@mezan/domain";
+import { useEntitlements, useLogin, useTenantInfo } from "../data/hooks";
 
 const PIN_LENGTH = 4;
 /** Prefilled default username = the seed admin (docs/catalog/09). The PIN is always verified against the real user store. */
@@ -20,6 +20,9 @@ export interface LoginScreenProps {
  */
 export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
   const login = useLogin();
+  const entitlements = useEntitlements().data ?? null;
+  const tenantName = useTenantInfo().data?.name ?? "";
+  const modules = entitlements ? licensedModules(entitlements) : [];
   const [username, setUsername] = useState(DEFAULT_USERNAME);
   const [pinDigits, setPinDigits] = useState<string[]>(Array(PIN_LENGTH).fill(""));
   const [error, setError] = useState<string | null>(null);
@@ -75,8 +78,8 @@ export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
             <svg aria-hidden viewBox="0 0 16 16" fill="none" className="h-[15px] w-[15px] text-ink-faint">
               <path d="M2 6.5 8 3l6 3.5V13a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V6.5Z" stroke="currentColor" strokeWidth="1.3" />
             </svg>
-            <b className="mz-lat">{demoTenantName}</b>
-            <span className="text-ink-faint">{demoTenantPlanLabel}</span>
+            <b className="mz-lat">{tenantName}</b>
+            <span className="text-ink-faint">{entitlements?.plan ?? ""}</span>
           </div>
 
           <h2 className="font-display text-[22px] font-bold text-ink">تسجيل الدخول</h2>
@@ -129,12 +132,12 @@ export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
           <div className="mt-[18px]">
             <div className="mb-[7px] text-[11px] font-bold uppercase tracking-[0.6px] text-ink-faint">الوحدات المرخّصة</div>
             <div className="flex flex-wrap gap-[6px]">
-              {licensedModules.map((mod) => (
+              {modules.map((mod) => (
                 <span
-                  key={mod.key}
+                  key={mod.id}
                   className="rounded-pill bg-surface-3 px-[9px] py-[3px] text-[11px] font-semibold text-ink-muted"
                 >
-                  {mod.label}
+                  {mod.labelAr}
                 </span>
               ))}
             </div>
@@ -143,7 +146,7 @@ export function LoginScreen({ onLogin, onStartWizard }: LoginScreenProps) {
           <div className="mt-[24px] flex items-center justify-between gap-[10px] border-t border-border pt-[18px] text-[11px] text-ink-faint">
             <span className="mz-lat">Mezan 2026.8</span>
             <span>
-              مرخّص لـ <span className="mz-lat">{demoTenantName}</span>
+              مرخّص لـ <span className="mz-lat">{tenantName}</span>
             </span>
           </div>
 

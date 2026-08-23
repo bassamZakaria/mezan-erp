@@ -4,7 +4,7 @@ import { clickSidebarItem } from "./support/nav";
 
 /**
  * Customers screen (apps/web/src/screens/CustomersScreen.tsx). 6 demo
- * customers (apps/web/src/partners-sample-data.ts's demoCustomers, 5 active +
+ * customers (the seeded customers, 5 active +
  * 1 inactive). List (DocumentList) + add/edit form (SidePanel) + detail view
  * (DocumentDetail) with a real "نظرة عامة" tab and three Phase-2 stub tabs
  * (الفواتير/كشف حساب/المرفقات).

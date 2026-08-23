@@ -44,7 +44,6 @@ import {
   type VoucherDetailDTO,
   type VoucherRowDTO,
 } from "../data/hooks";
-import { sampleBranches } from "../settings/sample-data";
 import { SelectField, TextField } from "../settings/form-controls";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
@@ -666,6 +665,10 @@ function CreateVoucherView({
     return treasuryAccounts.find((t) => t.id === id)?.glAccountId ?? "";
   }
 
+  function treasuryBranchOf(id: string): string {
+    return treasuryAccounts.find((t) => t.id === id)?.branchId ?? "";
+  }
+
   function counterpartyGl(): string | null {
     if (!type) return null;
     if (def!.direction === "transfer") return null;
@@ -681,7 +684,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: sampleBranches[0]?.id ?? "MAIN",
+      branchId: treasuryBranchOf(draft.treasuryAccountId),
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

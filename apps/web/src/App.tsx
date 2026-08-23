@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
-import type { RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
+import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
 import { ChartOfAccountsScreen } from "./screens/ChartOfAccountsScreen";
 import { ItemsScreen } from "./screens/ItemsScreen";
@@ -81,26 +81,21 @@ import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import {
-  commandItems,
-  demoBranches,
-  demoEmployees,
-  demoEntitlements,
-  demoWarehouses,
-  navGroups,
-  topNavItem,
-} from "./sample-data";
+import { commandItems, navGroups, topNavItem } from "./nav-config";
 import { useApi } from "./data/ApiContext";
 import type { ShellUser } from "@mezan/ui";
 import {
+  useBranches,
   useCreateRole,
   useCreateUser,
   useDeleteRole,
+  useEntitlements,
   useRoles,
   useSetUserStatus,
   useUpdateRole,
   useUpdateUser,
   useUsers,
+  useWarehouses,
 } from "./data/hooks";
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
@@ -204,6 +199,13 @@ function scopeIdsToSelection(ids: string[], allIds: string[]): ScopeSelectionDTO
 /** Pre-AppShell app state: desktop login gate, an optional first-run wizard reachable from it, then the routed shell. */
 type AppMode = "login" | "wizard" | "app";
 
+/** The header's branch-scope chip, resolved from the session's real scope against the live branch list. */
+function scopeLabelFor(branchScope: ScopeSelectionDTO, branches: readonly BranchDTO[]): string {
+  if (branchScope === ALL_SCOPE) return "كل الفروع";
+  if (branchScope.length === 1) return branches.find((b) => b.id === branchScope[0])?.name ?? branchScope[0]!;
+  return `${branchScope.length} فروع`;
+}
+
 function initialsFor(fullName: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "؟";
@@ -221,8 +223,14 @@ export function App() {
 
   const rolesQuery = useRoles();
   const usersQuery = useUsers();
+  const branchesQuery = useBranches();
+  const warehousesQuery = useWarehouses();
+  const entitlementsQuery = useEntitlements();
   const roles = rolesQuery.data ?? [];
   const users = usersQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const warehouses = warehousesQuery.data ?? [];
+  const entitlements = entitlementsQuery.data ?? null;
   const createUser = useCreateUser();
   const updateUser = useUpdateUser();
   const setUserStatus = useSetUserStatus();
@@ -230,8 +238,8 @@ export function App() {
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
 
-  const allBranchIds = demoBranches.map((b) => b.id);
-  const allWarehouseIds = demoWarehouses.map((w) => w.id);
+  const allBranchIds = branches.map((b) => b.id);
+  const allWarehouseIds = warehouses.map((w) => w.id);
 
   const usersByRoleId = useMemo(() => {
     const map = new Map<string, number>();
@@ -244,7 +252,7 @@ export function App() {
   // Wire every routable nav item (لوحة التحكم, Sales Invoices, دليل
   // الحسابات, الأصناف, Settings' عام/الفروع/المستودعات, المستخدمون,
   // الأدوار) to switch screens; every other item keeps whatever static
-  // onClick/href sample-data.ts gave it — mostly none, they're "قريباً"
+  // onClick/href nav-config.ts gave it — mostly none, they're "قريباً"
   // placeholders.
   const groups: NavGroup[] = useMemo(
     () =>
@@ -332,6 +340,7 @@ export function App() {
     role: session.isCompanyAdmin ? "مدير الشركة" : "مستخدم",
     initials: initialsFor(session.fullName),
   };
+  const scopeLabel = scopeLabelFor(session.branchScope, branches);
 
   return (
     <AppShell
@@ -341,7 +350,7 @@ export function App() {
       user={shellUser}
       commandItems={commandItems}
       tenantName={session.tenantName}
-      scopeLabel="الفرع الرئيسي"
+      scopeLabel={scopeLabel}
       notificationCount={3}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
@@ -350,9 +359,9 @@ export function App() {
         <UsersPage
           users={users}
           roles={roles}
-          branches={demoBranches}
-          warehouses={demoWarehouses}
-          employees={demoEmployees}
+          branches={branches}
+          warehouses={warehouses}
+          employees={[]}
           onSave={handleSaveUser}
           onToggleStatus={handleToggleUserStatus}
         />
@@ -374,10 +383,10 @@ export function App() {
         />
       ) : null}
 
-      {activeScreen === "role-editor" ? (
+      {activeScreen === "role-editor" && entitlements ? (
         <RoleEditorPage
           role={editingRole}
-          entitlements={demoEntitlements}
+          entitlements={entitlements}
           onSave={handleSaveRole}
           onCancel={() => setActiveScreen("roles")}
         />

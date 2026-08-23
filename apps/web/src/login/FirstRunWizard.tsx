@@ -1,7 +1,21 @@
 import { useState } from "react";
 import { BrandMark, Button, StatusPill } from "@mezan/ui";
-import { useBootstrapSeed, useCreateFirstAdmin } from "../data/hooks";
-import { demoTenantName, seedTasks } from "./login-sample-data";
+import type { BootstrapSeedResultDTO } from "@mezan/contracts";
+import { useBootstrapSeed, useBootstrapStatus, useCreateFirstAdmin, useTenantInfo } from "../data/hooks";
+
+/**
+ * The base data one idempotent `POST /bootstrap/seed` creates. Each row's
+ * "جاهز" state is the REAL count the server reports, never a local flag —
+ * numbering sequences are absent because they are initialised lazily on first
+ * use, so there is nothing to seed.
+ */
+const SEED_ROWS: readonly { key: keyof BootstrapSeedResultDTO; label: string; hint: string }[] = [
+  { key: "accounts", label: "دليل الحسابات", hint: "شجرة حسابات افتراضية تناسب نشاطك" },
+  { key: "taxRates", label: "الضريبة", hint: "ضريبة القيمة المضافة 14% حسب الإعدادات الافتراضية" },
+  { key: "fiscalPeriods", label: "الفترات المالية", hint: "فترات السنة المالية الحالية" },
+  { key: "branches", label: "الفرع الرئيسي", hint: "فرع افتراضي واحد يمكن تعديله لاحقاً" },
+  { key: "warehouses", label: "المستودع الرئيسي", hint: "مستودع مرتبط بالفرع الرئيسي" },
+];
 
 const STEPS = [
   { key: "activate", label: "تفعيل الترخيص" },
@@ -72,6 +86,8 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const step: StepKey = (STEPS[stepIndex] ?? STEPS[0]).key;
 
   const seedMutation = useBootstrapSeed();
+  const seedStatus = useBootstrapStatus();
+  const tenantName = useTenantInfo().data?.name ?? "";
   const createAdmin = useCreateFirstAdmin();
 
   const [licenseKey, setLicenseKey] = useState("");
@@ -84,7 +100,6 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
   const [adminError, setAdminError] = useState<string | null>(null);
   const [adminCreated, setAdminCreated] = useState(false);
 
-  const [seedDone, setSeedDone] = useState<Record<string, boolean>>({});
 
   function handleActivate() {
     setActivateStatus("activating");
@@ -124,20 +139,8 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
     );
   }
 
-  function toggleSeedTask(key: string) {
-    if (seedDone[key]) {
-      setSeedDone((prev) => ({ ...prev, [key]: false }));
-      return;
-    }
-    seedMutation.mutate(undefined, {
-      onSuccess: () => setSeedDone((prev) => ({ ...prev, [key]: true })),
-    });
-  }
-
-  function markAllSeedTasksDone() {
-    seedMutation.mutate(undefined, {
-      onSuccess: () => setSeedDone(Object.fromEntries(seedTasks.map((t) => [t.key, true]))),
-    });
+  function runSeed() {
+    seedMutation.mutate();
   }
 
   function goNext() {
@@ -148,7 +151,8 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
     setStepIndex((i) => Math.max(i - 1, 0));
   }
 
-  const allSeeded = seedTasks.every((t) => seedDone[t.key]);
+  const counts = seedStatus.data ?? null;
+  const allSeeded = counts !== null && SEED_ROWS.every((row) => counts[row.key] > 0);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-2 p-[24px]">
@@ -157,7 +161,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
           <BrandMark className="h-[28px] w-[28px] text-brand" />
           <div>
             <h1 className="font-display text-[17px] font-bold text-ink">معالج الإعداد الأولي</h1>
-            <p className="text-[11.5px] text-ink-faint">إعداد نظام ميزان لمنشأة {demoTenantName} لأول مرة</p>
+            <p className="text-[11.5px] text-ink-faint">إعداد نظام ميزان لمنشأة {tenantName} لأول مرة</p>
           </div>
         </div>
 
@@ -168,7 +172,7 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
         {step === "activate" ? (
           <section aria-label="تفعيل الترخيص">
             <h2 className="font-display text-[15px] font-bold text-ink">تفعيل الترخيص</h2>
-            <p className="mt-[4px] text-[12.5px] text-ink-muted">أدخل مفتاح الترخيص المرسل إليك لتفعيل منشأة {demoTenantName}.</p>
+            <p className="mt-[4px] text-[12.5px] text-ink-muted">أدخل مفتاح الترخيص المرسل إليك لتفعيل منشأة {tenantName}.</p>
             <label className="mt-[14px] flex flex-col gap-[6px]">
               <span className="text-[12.5px] font-semibold text-ink">مفتاح الترخيص</span>
               <input
@@ -240,25 +244,23 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
           <section aria-label="تهيئة البيانات الأساسية">
             <div className="flex flex-wrap items-center justify-between gap-[10px]">
               <h2 className="font-display text-[15px] font-bold text-ink">تهيئة البيانات الأساسية</h2>
-              <Button type="button" size="sm" onClick={markAllSeedTasksDone}>
-                تشغيل الكل
+              <Button type="button" size="sm" disabled={seedMutation.isPending} onClick={runSeed}>
+                تشغيل التهيئة
               </Button>
             </div>
             <p className="mt-[4px] text-[12.5px] text-ink-muted">دليل الحسابات، الضريبة، تسلسلات الترقيم، الفرع والمستودع الرئيسيان.</p>
             <ul className="mt-[14px] flex flex-col gap-[8px]">
-              {seedTasks.map((task) => {
-                const done = seedDone[task.key] ?? false;
+              {SEED_ROWS.map((row) => {
+                const count = counts?.[row.key] ?? 0;
                 return (
-                  <li key={task.key} className="flex items-center justify-between gap-[12px] rounded-md border border-border p-[10px_12px]">
+                  <li key={row.key} className="flex items-center justify-between gap-[12px] rounded-md border border-border p-[10px_12px]">
                     <div>
-                      <div className="text-[13px] font-semibold text-ink">{task.label}</div>
-                      <div className="mt-[2px] text-[11.5px] text-ink-faint">{task.hint}</div>
+                      <div className="text-[13px] font-semibold text-ink">{row.label}</div>
+                      <div className="mt-[2px] text-[11.5px] text-ink-faint">{row.hint}</div>
                     </div>
                     <div className="flex items-center gap-[8px]">
-                      {done ? <StatusPill label="جاهز" tone="success" /> : null}
-                      <Button type="button" size="sm" variant={done ? "default" : "primary"} onClick={() => toggleSeedTask(task.key)}>
-                        {done ? "إعادة تعيين" : "تشغيل"}
-                      </Button>
+                      <span className="mz-num text-[12px] text-ink-muted">{count}</span>
+                      {count > 0 ? <StatusPill label="جاهز" tone="success" /> : <StatusPill label="لم تُنشأ" tone="neutral" />}
                     </div>
                   </li>
                 );

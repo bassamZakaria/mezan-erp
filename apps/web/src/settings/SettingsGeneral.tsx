@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { DocumentDetail, Button, StatusPill } from "@mezan/ui";
-import { updateSettings, InvalidSettingsError, type TenantSettings } from "@mezan/domain";
-import { sampleSettings } from "./sample-data";
+import { useEffect, useState } from "react";
+import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
+import type { TenantSettingsDTO } from "@mezan/contracts";
+import { useTenantSettings, useUpdateTenantSettings } from "../data/hooks";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
 /**
@@ -11,9 +11,9 @@ import { TextField, NumberField, SelectField, ToggleField, MultiChipField, Secti
  * inventory / purchase / treasury policy flags (grouped into one "Policies"
  * tab here rather than 4 separate ones, to keep the nav shallow).
  *
- * Demo-data only (matches the rest of apps/web): edits live in local state
- * and "حفظ الإعدادات" re-validates the whole draft through the domain's
- * `updateSettings`, exactly the rule the real API applies server-side.
+ * Reads the live tenant-config bag from `GET /settings`; "حفظ الإعدادات"
+ * PUTs the whole draft, which the server re-validates through the domain's
+ * `updateSettings` before it persists.
  */
 
 const WEEKDAY_OPTIONS = [
@@ -37,24 +37,47 @@ const CURRENCY_OPTIONS = [
 ];
 
 export function SettingsGeneral() {
-  const [draft, setDraft] = useState<TenantSettings>(sampleSettings);
+  const query = useTenantSettings();
+  const saveSettings = useUpdateTenantSettings();
+  const [draft, setDraft] = useState<TenantSettingsDTO | null>(null);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function patch(p: Partial<TenantSettings>) {
-    setDraft((prev) => ({ ...prev, ...p }));
+  const loaded = query.data ?? null;
+  useEffect(() => {
+    if (loaded && !dirty) setDraft(loaded);
+  }, [loaded, dirty]);
+
+  function patch(p: Partial<TenantSettingsDTO>) {
+    setDraft((prev) => (prev ? { ...prev, ...p } : prev));
     setDirty(true);
   }
 
-  function handleSave() {
+  async function handleSave() {
+    if (!draft) return;
     try {
-      const validated = updateSettings(draft, {});
-      setDraft(validated);
+      const saved = await saveSettings.mutateAsync(draft);
+      setDraft(saved);
       setDirty(false);
       setError(null);
     } catch (err) {
-      setError(err instanceof InvalidSettingsError ? err.message : "تعذر حفظ الإعدادات");
+      setError(err instanceof Error ? err.message : "تعذر حفظ الإعدادات");
     }
+  }
+
+  if (!draft) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-ink-muted">
+          {query.isError ? "تعذّر تحميل الإعدادات." : "جارٍ تحميل الإعدادات…"}
+        </p>
+        {query.isError ? (
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        ) : null}
+      </Card>
+    );
   }
 
   return (
@@ -66,7 +89,7 @@ export function SettingsGeneral() {
       actions={
         <>
           {error ? <StatusPill label={error} tone="danger" /> : null}
-          <Button variant="primary" disabled={!dirty} onClick={handleSave}>
+          <Button variant="primary" disabled={!dirty || saveSettings.isPending} onClick={() => void handleSave()}>
             حفظ الإعدادات
           </Button>
         </>
@@ -82,7 +105,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="اللغة الافتراضية"
                   value={draft.language}
-                  onChange={(v) => patch({ language: v as TenantSettings["language"] })}
+                  onChange={(v) => patch({ language: v as TenantSettingsDTO["language"] })}
                   options={[
                     { value: "ar", label: "العربية" },
                     { value: "en", label: "English" },
@@ -98,7 +121,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="سياسة غياب سعر الصرف"
                   value={draft.fxRateMissingPolicy}
-                  onChange={(v) => patch({ fxRateMissingPolicy: v as TenantSettings["fxRateMissingPolicy"] })}
+                  onChange={(v) => patch({ fxRateMissingPolicy: v as TenantSettingsDTO["fxRateMissingPolicy"] })}
                   options={[
                     { value: "STRICT", label: "صارم — رفض المستند إذا لم يوجد سعر صرف" },
                     { value: "ALLOW_MISSING", label: "السماح بالمتابعة بدون سعر صرف" },
@@ -111,7 +134,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="اتجاه الواجهة"
                   value={draft.direction}
-                  onChange={(v) => patch({ direction: v as TenantSettings["direction"] })}
+                  onChange={(v) => patch({ direction: v as TenantSettingsDTO["direction"] })}
                   options={[
                     { value: "RTL", label: "RTL" },
                     { value: "LTR", label: "LTR" },
@@ -121,7 +144,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="نظام الأرقام"
                   value={draft.dateNumerals}
-                  onChange={(v) => patch({ dateNumerals: v as TenantSettings["dateNumerals"] })}
+                  onChange={(v) => patch({ dateNumerals: v as TenantSettingsDTO["dateNumerals"] })}
                   options={[
                     { value: "western", label: "أرقام غربية (0, 1, 2, 3)" },
                     { value: "arabic", label: "أرقام عربية (٠, ١, ٢, ٣)" },
@@ -220,7 +243,7 @@ export function SettingsGeneral() {
               <SelectField
                 label="طريقة حساب الضريبة"
                 value={draft.taxCalculation}
-                onChange={(v) => patch({ taxCalculation: v as TenantSettings["taxCalculation"] })}
+                onChange={(v) => patch({ taxCalculation: v as TenantSettingsDTO["taxCalculation"] })}
                 options={[
                   { value: "EXCLUSIVE", label: "غير شاملة (تضاف على السعر)" },
                   { value: "INCLUSIVE", label: "شاملة (مضمنة في السعر)" },
@@ -229,7 +252,7 @@ export function SettingsGeneral() {
               <SelectField
                 label="إهلاك شهر الاقتناء"
                 value={draft.depreciationProrate}
-                onChange={(v) => patch({ depreciationProrate: v as TenantSettings["depreciationProrate"] })}
+                onChange={(v) => patch({ depreciationProrate: v as TenantSettingsDTO["depreciationProrate"] })}
                 options={[
                   { value: "DAILY", label: "يومي (نسبة الأيام) — IFRS" },
                   { value: "FULL_MONTH", label: "شهر كامل" },
@@ -259,7 +282,7 @@ export function SettingsGeneral() {
                 <SelectField
                   label="وضع الرقابة"
                   value={draft.creditControlMode}
-                  onChange={(v) => patch({ creditControlMode: v as TenantSettings["creditControlMode"] })}
+                  onChange={(v) => patch({ creditControlMode: v as TenantSettingsDTO["creditControlMode"] })}
                   options={[
                     { value: "WARNING", label: "تحذير فقط (WARNING)" },
                     { value: "BLOCK", label: "منع تام (BLOCK)" },

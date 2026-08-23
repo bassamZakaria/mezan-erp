@@ -3,7 +3,7 @@ import type { Page } from "@playwright/test";
 /**
  * Shared sidebar-navigation helpers. Mirrors apps/web/src/App.tsx's
  * ROUTABLE_SCREENS routing: nav items are plain <button>s (no href), the
- * "الإعدادات" group starts collapsed (sample-data.ts's defaultCollapsed),
+ * "الإعدادات" group starts collapsed (nav-config.ts's defaultCollapsed),
  * and every other group starts expanded.
  */
 

@@ -10,7 +10,7 @@ import {
   type User,
 } from "@mezan/domain";
 import { loginRequestSchema, bootstrapAdminRequestSchema, type SessionDTO } from "@mezan/contracts";
-import { SEED_TENANT_NAME, seedIfEmpty, type SeedStores } from "./seed.js";
+import { SEED_TENANT_NAME, currentCounts, seedIfEmpty, type SeedStores } from "./seed.js";
 
 export interface AuthRoutesDeps {
   readonly uow: UnitOfWork;
@@ -77,6 +77,16 @@ export function createAuthRoutes(deps: AuthRoutesDeps) {
       return c.json({ error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." }, 401);
     }
     return c.json(await toSession(user, deps));
+  });
+
+  /** Pre-login tenant identity for the login screen / first-run wizard header. */
+  app.get("/tenant", async (c) => {
+    return c.json({ name: await tenantName(deps.settings) });
+  });
+
+  /** What base data already exists — the same counts `/bootstrap/seed` returns, without seeding. */
+  app.get("/bootstrap/status", async (c) => {
+    return c.json(await currentCounts(deps.seedStores));
   });
 
   app.post("/bootstrap/seed", async (c) => {

@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
-import { DocumentList, StatCard, type DocumentListColumn } from "@mezan/ui";
-import type { CostCenterPnLReportDTO, CostCenterPnLRowDTO } from "@mezan/contracts";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import { useState } from "react";
+import { Button, Card, DocumentList, StatCard, type DocumentListColumn } from "@mezan/ui";
+import type { CostCenterPnLRowDTO } from "@mezan/contracts";
+import { useCostCenterPnL } from "../data/hooks";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
@@ -11,28 +11,23 @@ function fmt(value: string): string {
 /**
  * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04). Groups posted
  * revenue/expense by the cost-center dimension carried on each journal line,
- * running the REAL `computeCostCenterPnL` domain function over the seeded
- * ledger (see store/accounting-depth-store.ts).
+ * grouped server-side by `GET /cost-center-pl` over the posted ledger.
  */
-export function CostCenterPnLScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
-  const [fromDate, setFromDate] = useState("2026-08-01");
-  const [toDate, setToDate] = useState("2026-08-31");
-  const [report, setReport] = useState<CostCenterPnLReportDTO | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    store.costCenterPnL(fromDate, toDate).then((r) => {
-      if (!live) return;
-      setReport({
-        rows: r.rows.map((row) => ({ costCenterId: row.costCenterId, code: row.code, name: row.name, revenue: row.revenue.toString(), expense: row.expense.toString(), profit: row.profit.toString() })),
-        totals: { revenue: r.totals.revenue.toString(), expense: r.totals.expense.toString(), profit: r.totals.profit.toString() },
-      });
-    });
-    return () => {
-      live = false;
-    };
-  }, [store, fromDate, toDate]);
+function monthStart(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+export function CostCenterPnLScreen() {
+  const [fromDate, setFromDate] = useState(monthStart);
+  const [toDate, setToDate] = useState(today);
+  const query = useCostCenterPnL(fromDate, toDate);
+  const report = query.data ?? null;
 
   const columns: DocumentListColumn<CostCenterPnLRowDTO>[] = [
     { key: "code", header: "الكود", render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },
@@ -61,6 +56,13 @@ export function CostCenterPnLScreen() {
           <input type="date" aria-label="إلى تاريخ" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
         </div>
       </div>
+
+      {query.isError ? (
+        <Card className="mb-[16px] p-[16px_18px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرباح مراكز التكلفة.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>إعادة المحاولة</Button>
+        </Card>
+      ) : null}
 
       <div className="mb-[18px] grid grid-cols-1 gap-[14px] sm:grid-cols-3">
         <StatCard label="إجمالي الإيرادات" value={<span className="mz-num">{report ? fmt(report.totals.revenue) : "—"}</span>} />

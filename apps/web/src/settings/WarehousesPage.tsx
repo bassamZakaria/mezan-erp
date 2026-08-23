@@ -1,14 +1,8 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Chip, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import {
-  createWarehouse,
-  InvalidWarehouseError,
-  getWarehouseTypeLabel,
-  WAREHOUSE_TYPE_DEFINITIONS,
-  type Warehouse,
-  type WarehouseType,
-} from "@mezan/domain";
-import { sampleBranches, sampleWarehouses, branchName } from "./sample-data";
+import { DocumentList, StatusPill, Chip, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { getWarehouseTypeLabel, WAREHOUSE_TYPE_DEFINITIONS, type WarehouseType } from "@mezan/domain";
+import type { BranchDTO, WarehouseDTO } from "@mezan/contracts";
+import { useBranches, useCreateWarehouse, useWarehouses } from "../data/hooks";
 import { SelectField, TextField, ToggleField } from "./form-controls";
 
 /**
@@ -18,17 +12,25 @@ import { SelectField, TextField, ToggleField } from "./form-controls";
  * catalog's captured "Add warehouse" fields.
  */
 
-let nextId = sampleWarehouses.length + 1;
+function branchName(branchId: string, branches: readonly BranchDTO[]): string {
+  return branches.find((b) => b.id === branchId)?.name ?? branchId;
+}
 
 const TYPE_OPTIONS = WAREHOUSE_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr }));
 
 export function WarehousesPage() {
-  const [warehouses, setWarehouses] = useState<Warehouse[]>(sampleWarehouses);
+  const query = useWarehouses();
+  const branchesQuery = useBranches();
+  const createWarehouse = useCreateWarehouse();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<WarehouseType | "all">("all");
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", code: "", branchId: sampleBranches[0]?.id ?? "", type: "MAIN" as WarehouseType, isDefault: false });
+  const [form, setForm] = useState({ name: "", code: "", branchId: "", type: "MAIN" as WarehouseType, isDefault: false });
+
+  const warehouses = query.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const formBranchId = form.branchId || branches[0]?.id || "";
 
   const filtered = useMemo(() => {
     let rows = warehouses;
@@ -40,10 +42,10 @@ export function WarehousesPage() {
     return rows;
   }, [warehouses, typeFilter, search]);
 
-  const columns: DocumentListColumn<Warehouse>[] = [
+  const columns: DocumentListColumn<WarehouseDTO>[] = [
     { key: "name", header: "اسم المستودع", render: (w) => <span className="font-semibold text-ink">{w.name}</span> },
     { key: "code", header: "رمز المستودع", render: (w) => <span className="mz-num">{w.code}</span> },
-    { key: "branch", header: "اسم الفرع", render: (w) => branchName(w.branchId, sampleBranches) },
+    { key: "branch", header: "اسم الفرع", render: (w) => branchName(w.branchId, branches) },
     { key: "type", header: "نوع المستودع", render: (w) => <StatusPill label={getWarehouseTypeLabel(w.type)} tone="info" /> },
     { key: "default", header: "افتراضي", render: (w) => (w.isDefault ? <StatusPill label="افتراضي" tone="success" /> : "—") },
     {
@@ -53,28 +55,35 @@ export function WarehousesPage() {
     },
   ];
 
-  function submitNewWarehouse() {
+  async function submitNewWarehouse() {
     setError(null);
     try {
-      const warehouse = createWarehouse({
-        id: `w${nextId++}`,
+      await createWarehouse.mutateAsync({
+        id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
-        branchId: form.branchId,
+        branchId: formBranchId,
         type: form.type,
         isDefault: form.isDefault,
       });
-      setWarehouses((prev) => [...prev, warehouse]);
       setPanelOpen(false);
-      setForm({ name: "", code: "", branchId: sampleBranches[0]?.id ?? "", type: "MAIN", isDefault: false });
+      setForm({ name: "", code: "", branchId: "", type: "MAIN", isDefault: false });
     } catch (err) {
-      setError(err instanceof InvalidWarehouseError ? err.message : "تعذر إنشاء المستودع");
+      setError(err instanceof Error ? err.message : "تعذر إنشاء المستودع");
     }
   }
 
   return (
     <>
-      <DocumentList<Warehouse>
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل المستودعات.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<WarehouseDTO>
         eyebrow="Settings · Warehouses"
         title="المستودعات"
         description="خمسة أنواع مستودعات: رئيسي، مستودع وسيط، مرتجعات، إنتاج، وڤان (سيارة توزيع)"
@@ -123,9 +132,9 @@ export function WarehousesPage() {
           <TextField label="رمز المستودع" value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v }))} placeholder="WH-ALEX" />
           <SelectField
             label="اسم الفرع"
-            value={form.branchId}
+            value={formBranchId}
             onChange={(v) => setForm((f) => ({ ...f, branchId: v }))}
-            options={sampleBranches.map((b) => ({ value: b.id, label: b.name }))}
+            options={branches.map((b) => ({ value: b.id, label: b.name }))}
           />
           <SelectField
             label="نوع المستودع"
@@ -136,7 +145,7 @@ export function WarehousesPage() {
           <ToggleField label="مستودع افتراضي للفرع" checked={form.isDefault} onChange={(v) => setForm((f) => ({ ...f, isDefault: v }))} />
           <div className="flex justify-end gap-[9px]">
             <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
-            <Button variant="primary" onClick={submitNewWarehouse}>
+            <Button variant="primary" disabled={createWarehouse.isPending} onClick={() => void submitNewWarehouse()}>
               حفظ المستودع
             </Button>
           </div>

@@ -4,7 +4,7 @@ import { clickSidebarItem, expandSidebarGroup } from "./support/nav";
 
 /**
  * Users & Roles (apps/web/src/pages/UsersPage.tsx, RolesPage.tsx). Demo seed
- * (apps/web/src/sample-data.ts): 5 users — 4 company admins (one inactive)
+ * (the seeded tenant): 5 users — 4 company admins (one inactive)
  * plus كريم عزت on the single custom role "مندوب مبيعات" (VAN_SALES, 4
  * permissions) — 1 branch (الفرع الرئيسي) and 2 warehouses. Deep
  * PermissionMatrix behaviour (role editor) lives in permission-matrix.spec.ts.

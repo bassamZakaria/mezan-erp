@@ -15,7 +15,7 @@ import {
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
 import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
-import { unitLabel } from "../items-sample-data";
+import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
 
 const STATUS_LABEL: Record<PurchaseOrderStatusDTO, string> = {
@@ -144,6 +144,7 @@ export function PurchaseOrdersScreen() {
   }, [items]);
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
+  const unitLabel = useUnitLabel();
   const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);

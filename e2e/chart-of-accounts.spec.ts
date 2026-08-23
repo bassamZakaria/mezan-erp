@@ -4,7 +4,7 @@ import { clickSidebarItem } from "./support/nav";
 
 /**
  * Chart of Accounts screen (apps/web/src/screens/ChartOfAccountsScreen.tsx).
- * 23 demo accounts (apps/web/src/accounts-sample-data.ts); every header
+ * 23 demo accounts (the seeded chart of accounts); every header
  * account starts expanded, so the tree renders fully open on first load.
  */
 

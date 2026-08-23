@@ -23,12 +23,14 @@ import type {
   ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CostCenterDTO,
+  CostCenterPnLReportDTO,
   CreateAccountDTO,
   CreateActivityDTO,
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
   CreateBomDTO,
+  CreateBranchDTO,
   CreateChequeDTO,
   CreateConfigInstanceDTO,
   CreateCostCenterDTO,
@@ -38,7 +40,9 @@ import type {
   CreateGlJournalEntryDTO,
   CreateGoodsReceiptDTO,
   CreateInstallmentPlanDTO,
+  CreateItemCategoryDTO,
   CreateItemDTO,
+  CreateItemUnitDTO,
   CreateLandedCostDTO,
   CreateLeadDTO,
   CreateOpportunityDTO,
@@ -55,14 +59,27 @@ import type {
   CreateSalesInvoiceDTO,
   CreateSalesQuoteDTO,
   CreateSalesReturnDTO,
+  CreateStockAdjustmentDTO,
+  CreateStockTransferDTO,
+  CreateExchangeRateDTO,
   CreateSupplierDTO,
   CreateTaxRateDTO,
   CreateTreasuryAccountDTO,
   CreateUserDTO,
   CreateVoucherDTO,
+  CreateWarehouseDTO,
   CreateWorkOrderDTO,
   CustomerDTO,
   DashboardSummaryDTO,
+  EntitlementsDTO,
+  EtaConfigDTO,
+  EtaReadinessDTO,
+  EtaSubmissionDTO,
+  EtaSubmissionStatusDTO,
+  ExchangeRateDTO,
+  FxRevaluationPostResultDTO,
+  FxRevaluationPreviewDTO,
+  FxRevaluationRequestDTO,
   DepositChequeDTO,
   DepreciationRunDTO,
   DocumentStatusDTO,
@@ -73,7 +90,9 @@ import type {
   GoodsReceiptDTO,
   ImportBankStatementDTO,
   InstallmentPlanDocumentDTO,
+  ItemCategoryDTO,
   ItemDTO,
+  ItemUnitDTO,
   ItemPolicyDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
@@ -112,20 +131,35 @@ import type {
   SettleVanTripDTO,
   StatementColumnMappingDTO,
   StatementLineDTO,
+  PhysicalCountDTO,
+  PhysicalCountStatusDTO,
+  ReconciliationReportDTO,
+  RecordPhysicalCountEntryDTO,
+  StartPhysicalCountDTO,
+  StockAdjustmentDocumentDTO,
+  StockBalanceRowDTO,
+  StockTransferDocumentDTO,
   SupplierDTO,
   TaxRateDTO,
+  TenantSettingsDTO,
   TransitionLeadDTO,
   TreasuryAccountDTO,
   UpdateAccountDTO,
+  UpdateBranchDTO,
   UpdateCostCenterDTO,
+  UpdateEtaConfigDTO,
   UpdateCustomerDTO,
+  UpdateItemCategoryDTO,
   UpdateItemDTO,
+  UpdateItemUnitDTO,
   UpdateProjectDTO,
   UpdateRoleDTO,
   UpdateSupplierDTO,
   UpdateTaxRateDTO,
+  UpdateTenantSettingsDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
+  UpdateWarehouseDTO,
   UpsertConfigurableProductDTO,
   UserDTO,
   VanTripDTO,
@@ -205,15 +239,43 @@ export function useLogin() {
   });
 }
 
+/** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
+export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
+  const { request } = useApi();
+  return useQuery<{ name: string }, ApiError>({
+    queryKey: ["tenant"],
+    queryFn: async () => {
+      const res = await request("/tenant");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات المنشأة.");
+      return res.json<{ name: string }>();
+    },
+  });
+}
+
+/** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
+export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+  const { request } = useApi();
+  return useQuery<BootstrapSeedResultDTO, ApiError>({
+    queryKey: ["bootstrap", "status"],
+    queryFn: async () => {
+      const res = await request("/bootstrap/status");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر قراءة حالة البيانات الأساسية.");
+      return res.json<BootstrapSeedResultDTO>();
+    },
+  });
+}
+
 /** First-run wizard "seed base data" step — idempotently seeds an empty DB and returns what exists. */
 export function useBootstrapSeed() {
   const { request } = useApi();
+  const queryClient = useQueryClient();
   return useMutation<BootstrapSeedResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/bootstrap/seed", { method: "POST", body: JSON.stringify({}) });
       if (!res.ok) throw new ApiError(res.status, "تعذّرت تهيئة البيانات الأساسية.");
       return res.json<BootstrapSeedResultDTO>();
     },
+    onSuccess: (counts) => queryClient.setQueryData(["bootstrap", "status"], counts),
   });
 }
 
@@ -778,7 +840,24 @@ export function useDeleteRole() {
   });
 }
 
-/** الفروع (docs/catalog/09) — read-only list, used by the branch typeahead on real-data forms. */
+/**
+ * The tenant's live entitlements (plan / licensed modules / seats) — the same
+ * object `/roles` validates permission grants against, so the role editor
+ * offers exactly what the server would accept.
+ */
+export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
+  const { request } = useApi();
+  return useQuery<EntitlementsDTO, ApiError>({
+    queryKey: ["entitlements"],
+    queryFn: async () => {
+      const res = await request("/entitlements");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات الترخيص.");
+      return res.json<EntitlementsDTO>();
+    },
+  });
+}
+
+/** الفروع (docs/catalog/09) — list, create, edit; also the branch typeahead source on other screens. */
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
@@ -789,6 +868,32 @@ export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفروع.");
       return res.json<BranchDTO[]>();
     },
+  });
+}
+
+export function useCreateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, CreateBranchDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/branches", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
+  });
+}
+
+export function useUpdateBranch() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<BranchDTO, ApiError, { id: string; patch: UpdateBranchDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/branches/${id}`, { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الفرع."));
+      return res.json<BranchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
   });
 }
 
@@ -1048,7 +1153,7 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
   });
 }
 
-/** المستودعات (docs/catalog/09) — read-only here; a picker dependency for other real-data screens (e.g. sales invoices). */
+/** المستودعات (docs/catalog/09) — list, create, edit; also a picker dependency for other screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
@@ -1058,6 +1163,61 @@ export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
       const res = await request("/warehouses");
       if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستودعات.");
       return res.json<WarehouseDTO[]>();
+    },
+  });
+}
+
+export function useCreateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, CreateWarehouseDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/warehouses", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
+  });
+}
+
+export function useUpdateWarehouse() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WarehouseDTO, ApiError, { id: string; patch: UpdateWarehouseDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المستودع."));
+      return res.json<WarehouseDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
+  });
+}
+
+/** إعدادات المنشأة (docs/catalog/09) — the one tenant-config bag, read + partial patch. */
+export function useTenantSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<TenantSettingsDTO, ApiError>({
+    queryKey: ["settings"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات.");
+      return res.json<TenantSettingsDTO>();
+    },
+  });
+}
+
+export function useUpdateTenantSettings() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TenantSettingsDTO, ApiError, UpdateTenantSettingsDTO>({
+    mutationFn: async (patch) => {
+      const res = await request("/settings", { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ الإعدادات."));
+      return res.json<TenantSettingsDTO>();
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData(["settings"], next);
     },
   });
 }
@@ -2797,5 +2957,464 @@ export function useCancelFollowUp() {
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* عمق المحاسبة — Accounting depth (docs/catalog/04)                     */
+/* -------------------------------------------------------------------- */
+
+/** أسعار الصرف — the master rate table feeding FX revaluation. */
+export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ExchangeRateDTO[], ApiError>({
+    queryKey: ["exchange-rates"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/exchange-rates");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أسعار الصرف.");
+      return res.json<ExchangeRateDTO[]>();
+    },
+  });
+}
+
+export function useCreateExchangeRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة سعر الصرف."));
+      return res.json<ExchangeRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
+  });
+}
+
+export function useApproveExchangeRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ExchangeRateDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/exchange-rates/${id}/approve`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اعتماد سعر الصرف."));
+      return res.json<ExchangeRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
+  });
+}
+
+export function useLockExchangeRate() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ExchangeRateDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/exchange-rates/${id}/lock`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر قفل سعر الصرف."));
+      return res.json<ExchangeRateDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
+  });
+}
+
+/** أرباح مراكز التكلفة — grouped server-side from the posted ledger. */
+export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResult<CostCenterPnLReportDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<CostCenterPnLReportDTO, ApiError>({
+    queryKey: ["cost-center-pl", fromDate, toDate],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/cost-center-pl?fromDate=${fromDate}&toDate=${toDate}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرباح مراكز التكلفة.");
+      return res.json<CostCenterPnLReportDTO>();
+    },
+  });
+}
+
+/** مطابقة الأرصدة — sub-ledger vs GL control accounts, computed server-side. */
+export function useReconciliationReport(): UseQueryResult<ReconciliationReportDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ReconciliationReportDTO, ApiError>({
+    queryKey: ["reconciliation"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/reconciliation");
+      if (!res.ok) throw new ApiError(res.status, "تعذّرت مطابقة الأرصدة.");
+      return res.json<ReconciliationReportDTO>();
+    },
+  });
+}
+
+/**
+ * إعادة تقييم العملات الأجنبية — preview is a POST (the server needs the
+ * closing-date + currency filter to derive open balances), so it runs as a
+ * mutation the screen fires on demand rather than an idle query.
+ */
+export function usePreviewFxRevaluation() {
+  const { request } = useApi();
+  return useMutation<FxRevaluationPreviewDTO, ApiError, FxRevaluationRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/revaluation/preview", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت معاينة إعادة التقييم."));
+      return res.json<FxRevaluationPreviewDTO>();
+    },
+  });
+}
+
+export function usePostFxRevaluation() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<FxRevaluationPostResultDTO, ApiError, FxRevaluationRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/revaluation/post", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل إعادة التقييم."));
+      return res.json<FxRevaluationPostResultDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+      void queryClient.invalidateQueries({ queryKey: ["reconciliation"] });
+    },
+  });
+}
+
+/** `GET|PUT /eta/config` returns the config plus the server-computed readiness checklist. */
+export interface EtaConfigResponse {
+  readonly config: EtaConfigDTO;
+  readonly readiness: EtaReadinessDTO;
+}
+
+/** الفاتورة الإلكترونية (ETA) — config + the submission queue. */
+export function useEtaConfig(): UseQueryResult<EtaConfigResponse, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EtaConfigResponse, ApiError>({
+    queryKey: ["eta", "config"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/config");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات الفاتورة الإلكترونية.");
+      return res.json<EtaConfigResponse>();
+    },
+  });
+}
+
+export function useUpdateEtaConfig() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaConfigResponse, ApiError, UpdateEtaConfigDTO>({
+    mutationFn: async (patch) => {
+      const res = await request("/eta/config", { method: "PUT", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ إعدادات الفاتورة الإلكترونية."));
+      return res.json<EtaConfigResponse>();
+    },
+    onSuccess: (next) => queryClient.setQueryData(["eta", "config"], next),
+  });
+}
+
+export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResult<EtaSubmissionDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EtaSubmissionDTO[], ApiError>({
+    queryKey: ["eta", "submissions", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قائمة الإرسال.");
+      return res.json<EtaSubmissionDTO[]>();
+    },
+  });
+}
+
+export function useSubmitEtaSubmission() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/eta/submissions/${id}/submit`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستند."));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta", "submissions"] }),
+  });
+}
+
+export function useSubmitAllEtaSubmissions() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ submitted: EtaSubmissionDTO[]; queued: number }, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/eta/submissions/submit-all", { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستندات الجاهزة."));
+      return res.json<{ submitted: EtaSubmissionDTO[]; queued: number }>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta", "submissions"] }),
+  });
+}
+
+export function useExcludeEtaSubmission() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaSubmissionDTO, ApiError, { id: string; reason: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify({ reason }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استبعاد المستند."));
+      return res.json<EtaSubmissionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta", "submissions"] }),
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* عمليات المخزون — Inventory ops documents (docs/catalog/03)            */
+/* -------------------------------------------------------------------- */
+
+export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockAdjustmentDocumentDTO[], ApiError>({
+    queryKey: ["stock-adjustments", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-adjustments${status ? `?status=${status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تسويات المخزون.");
+      return res.json<StockAdjustmentDocumentDTO[]>();
+    },
+  });
+}
+
+/**
+ * A stock adjustment is only real once confirmed (that is what moves stock and
+ * posts GL), so the screen's single "post" action drafts then confirms — the
+ * same two calls the document framework requires, kept together here.
+ */
+export function usePostStockAdjustment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
+    mutationFn: async (body) => {
+      const draft = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
+      if (!draft.ok) throw new ApiError(draft.status, await readError(draft, "تعذّر إنشاء تسوية المخزون."));
+      const confirmed = await request(`/inventory/stock-adjustments/${body.id}/confirm`, { method: "POST" });
+      if (!confirmed.ok) throw new ApiError(confirmed.status, await readError(confirmed, "تعذّر ترحيل تسوية المخزون."));
+      return confirmed.json<StockAdjustmentDocumentDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+      void queryClient.invalidateQueries({ queryKey: ["journal-entries"] });
+    },
+  });
+}
+
+export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockTransferDocumentDTO[], ApiError>({
+    queryKey: ["stock-transfers", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-transfers${status ? `?status=${status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تحويلات المخزون.");
+      return res.json<StockTransferDocumentDTO[]>();
+    },
+  });
+}
+
+export function usePostStockTransfer() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
+    mutationFn: async (body) => {
+      const draft = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
+      if (!draft.ok) throw new ApiError(draft.status, await readError(draft, "تعذّر إنشاء التحويل."));
+      const confirmed = await request(`/inventory/stock-transfers/${body.id}/confirm`, { method: "POST" });
+      if (!confirmed.ok) throw new ApiError(confirmed.status, await readError(confirmed, "تعذّر ترحيل التحويل."));
+      return confirmed.json<StockTransferDocumentDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["stock-transfers"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+export function usePhysicalCounts(status?: PhysicalCountStatusDTO): UseQueryResult<PhysicalCountDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<PhysicalCountDTO[], ApiError>({
+    queryKey: ["physical-counts", status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/physical-counts${status ? `?status=${status}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات الجرد.");
+      return res.json<PhysicalCountDTO[]>();
+    },
+  });
+}
+
+export function useStartPhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر بدء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useRecordPhysicalCounts() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, { id: string; entries: RecordPhysicalCountEntryDTO[] }>({
+    mutationFn: async ({ id, entries }) => {
+      const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify({ entries }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الكميات."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useCompletePhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+export function useCancelPhysicalCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PhysicalCountDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء الجرد."));
+      return res.json<PhysicalCountDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
+  });
+}
+
+/** Turns a completed count's variances into a confirmed stock adjustment, server-side. */
+export function useGenerateAdjustmentFromCount() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, {
+        method: "POST",
+        body: JSON.stringify({ adjustmentId: crypto.randomUUID() }),
+      });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر توليد تسوية الجرد."));
+      return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["physical-counts"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] });
+      void queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+/** أرصدة المخزون — the cross-warehouse rollup, one row per item. */
+export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalanceRowDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<StockBalanceRowDTO[], ApiError>({
+    queryKey: ["stock-balance", warehouseId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-balance${warehouseId ? `?warehouseId=${warehouseId}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرصدة المخزون.");
+      const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
+      return body.rows;
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* كتالوجات الأصناف — units + categories (docs/catalog/03)               */
+/* -------------------------------------------------------------------- */
+
+/** وحدات القياس — the unit records an item's `baseUnitCode` resolves against. */
+export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemUnitDTO[], ApiError>({
+    queryKey: ["item-units"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-units");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل وحدات القياس.");
+      return res.json<ItemUnitDTO[]>();
+    },
+  });
+}
+
+export function useCreateItemUnit() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemUnitDTO, ApiError, CreateItemUnitDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/item-units", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة وحدة القياس."));
+      return res.json<ItemUnitDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
+  });
+}
+
+export function useUpdateItemUnit() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemUnitDTO, ApiError, { code: string; patch: UpdateItemUnitDTO }>({
+    mutationFn: async ({ code, patch }) => {
+      const res = await request(`/item-units/${code}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل وحدة القياس."));
+      return res.json<ItemUnitDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
+  });
+}
+
+/** تصنيفات الأصناف — the category records an item's `categoryId` resolves against. */
+export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ItemCategoryDTO[], ApiError>({
+    queryKey: ["item-categories"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-categories");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تصنيفات الأصناف.");
+      return res.json<ItemCategoryDTO[]>();
+    },
+  });
+}
+
+export function useCreateItemCategory() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemCategoryDTO, ApiError, CreateItemCategoryDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/item-categories", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة التصنيف."));
+      return res.json<ItemCategoryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
+  });
+}
+
+export function useUpdateItemCategory() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ItemCategoryDTO, ApiError, { id: string; patch: UpdateItemCategoryDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/item-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل التصنيف."));
+      return res.json<ItemCategoryDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
   });
 }

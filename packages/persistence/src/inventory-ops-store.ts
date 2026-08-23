@@ -83,11 +83,14 @@ export interface SqliteInventoryOpsStoreHandle {
   close(): void;
 }
 
-/** Open a SQLite-backed inventory-ops store. ":memory:" for tests, a path for real. */
-export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventoryOpsStoreHandle {
-  const sqlite = new Database(path);
-  sqlite.pragma("journal_mode = WAL");
+export interface SqliteInventoryOpsStores {
+  readonly stockAdjustments: DocumentRepository<StockAdjustmentDocLine>;
+  readonly stockTransfers: DocumentRepository<StockTransferDocLine>;
+  readonly physicalCounts: SqlitePhysicalCountStoreHandle;
+}
 
+/** Build the inventory-ops repositories on an EXISTING connection, so a composed app keeps one DB handle. */
+export function createSqliteInventoryOpsStores(sqlite: Database.Database): SqliteInventoryOpsStores {
   const stockAdjustments = createSqliteFrameworkDocumentStore<StockAdjustmentDocLine>(sqlite, {
     tableName: "stock_adjustment_document",
     docType: "STOCK_ADJUSTMENT",
@@ -102,12 +105,12 @@ export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventor
     lineFromWire: transferLineFromWire,
   });
 
-  const physicalCounts = createSqlitePhysicalCountStore(sqlite);
+  return { stockAdjustments, stockTransfers, physicalCounts: createSqlitePhysicalCountStore(sqlite) };
+}
 
-  return {
-    stockAdjustments,
-    stockTransfers,
-    physicalCounts,
-    close: () => sqlite.close(),
-  };
+/** Open a SQLite-backed inventory-ops store on its OWN connection. ":memory:" for tests, a path for real. */
+export function createSqliteInventoryOpsStore(path = ":memory:"): SqliteInventoryOpsStoreHandle {
+  const sqlite = new Database(path);
+  sqlite.pragma("journal_mode = WAL");
+  return { ...createSqliteInventoryOpsStores(sqlite), close: () => sqlite.close() };
 }

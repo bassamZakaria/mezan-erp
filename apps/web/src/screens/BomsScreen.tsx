@@ -14,8 +14,8 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
+import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
-import { unitLabel } from "../items-sample-data";
 
 type BomStatus = BomRecord["status"];
 
@@ -134,6 +134,7 @@ export function BomsScreen() {
     const map = new Map(items.map((i) => [i.id, i.costPrice ? Number(i.costPrice) : 0]));
     return (id: string) => map.get(id) ?? 0;
   }, [items]);
+  const unitLabel = useUnitLabel();
   const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);

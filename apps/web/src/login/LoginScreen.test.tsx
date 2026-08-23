@@ -11,9 +11,23 @@ function fillPin(pin: string) {
   });
 }
 
-const okTransport = () => stubTransport({ "POST /auth/login": () => ({ body: testAdminSession }) });
+const ENTITLEMENTS = {
+  plan: "ENTERPRISE",
+  activeModules: ["sales", "purchases", "inventory", "accounting"],
+  features: {},
+  seats: 10,
+  expiresAt: null,
+};
+
+const preAuth = {
+  "GET /tenant": () => ({ body: { name: "Cyag" } }),
+  "GET /entitlements": () => ({ body: ENTITLEMENTS }),
+};
+
+const okTransport = () => stubTransport({ ...preAuth, "POST /auth/login": () => ({ body: testAdminSession }) });
 const denyTransport = () =>
   stubTransport({
+    ...preAuth,
     "POST /auth/login": () => ({ status: 401, body: { error: "INVALID_CREDENTIALS", message: "اسم المستخدم أو رمز PIN غير صحيح." } }),
   });
 
@@ -22,13 +36,13 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("renders the tenant chip, prefilled username and licensed-modules summary", () => {
+  it("renders the tenant chip, prefilled username and licensed-modules summary", async () => {
     document.documentElement.setAttribute("data-theme", theme);
     renderWithProviders(<LoginScreen onLogin={() => {}} onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
-    expect(screen.getAllByText("Cyag").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Cyag")).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("اسم المستخدم")).toHaveValue("محمد الشهابي");
-    expect(screen.getByText("المبيعات")).toBeInTheDocument();
+    expect(await screen.findByText("المبيعات")).toBeInTheDocument();
   });
 
   it("keeps دخول disabled until username and all 4 PIN digits are filled", () => {

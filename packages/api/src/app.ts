@@ -15,6 +15,8 @@ import {
   type CustomerRepository,
   type SupplierRepository,
   type ItemRepository,
+  type ItemUnitRepository,
+  type ItemCategoryRepository,
   type Entitlements,
   type TaxRateRepository,
   type CostCenterRepository,
@@ -72,6 +74,7 @@ import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
+import { createItemCategoriesRoutes, createItemUnitsRoutes } from "./item-catalog-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -197,6 +200,16 @@ export interface CreateAppOptions {
    */
   readonly items?: {
     readonly repo: ItemRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/item-units` and `/item-categories` (docs/catalog/03 §"وحدة
+   * القياس" / §"تصنيفات الأصناف") when present — the item master-data
+   * catalogs an item's `baseUnitCode` / `categoryId` resolve against.
+   */
+  readonly itemCatalog?: {
+    readonly units: ItemUnitRepository;
+    readonly categories: ItemCategoryRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
@@ -641,6 +654,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
   }
+  if (options.itemCatalog) {
+    app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));
+    app.route(
+      "/item-categories",
+      createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
+    );
+  }
   if (options.inventory) {
     app.route(
       "/inventory",
@@ -794,6 +814,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
     );
   }
+
+  /**
+   * The live entitlements the roles engine validates every grant against —
+   * exposed so the role editor offers exactly the licensed modules/permissions
+   * the server would accept, instead of its own client-side copy.
+   */
+  app.get("/entitlements", async (c) => {
+    const entitlements = await resolveEntitlements(c);
+    if (!entitlements) return c.json({ error: "ENTITLEMENTS_UNAVAILABLE" }, 500);
+    return c.json(entitlements);
+  });
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
   app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));

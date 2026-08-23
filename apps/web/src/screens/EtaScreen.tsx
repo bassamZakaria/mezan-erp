@@ -1,8 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
-import type { EtaConfigDTO, EtaReadinessDTO, EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
-import { getEtaStatusLabel, getEtaDocumentTypeLabel, computeEtaReadiness, EtaOfflineError, type EtaSubmission } from "@mezan/domain";
-import { createAccountingDepthStore } from "../store/accounting-depth-store";
+import type { EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
+import { getEtaStatusLabel, getEtaDocumentTypeLabel } from "@mezan/domain";
+import {
+  useEtaConfig,
+  useEtaSubmissions,
+  useExcludeEtaSubmission,
+  useSubmitAllEtaSubmissions,
+  useSubmitEtaSubmission,
+} from "../data/hooks";
 
 const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
   ready: "info",
@@ -15,10 +21,6 @@ const STATUS_TONE: Record<EtaSubmissionStatusDTO, PillTone> = {
 
 const STATUS_TABS: Array<EtaSubmissionStatusDTO | "all"> = ["all", "ready", "pending_signature", "submitted", "accepted", "error", "excluded"];
 
-function toDTO(s: EtaSubmission): EtaSubmissionDTO {
-  return { id: s.id, internalId: s.internalId, documentType: s.documentType, status: s.status, etaUuid: s.etaUuid, errors: [...s.errors], exclusionReason: s.exclusionReason, createdAt: s.createdAt, updatedAt: s.updatedAt, submittedAt: s.submittedAt };
-}
-
 /**
  * الفاتورة الإلكترونية (ETA) — e-invoicing (docs/catalog/04). Config readiness +
  * the submission queue lifecycle (جاهز → بانتظار التوقيع → مرسل → مقبول, plus
@@ -26,26 +28,19 @@ function toDTO(s: EtaSubmission): EtaSubmissionDTO {
  * offline document keeps it queued and surfaces a notice.
  */
 export function EtaScreen() {
-  const store = useMemo(() => createAccountingDepthStore(), []);
-  const [config, setConfig] = useState<EtaConfigDTO | null>(null);
-  const [readiness, setReadiness] = useState<EtaReadinessDTO | null>(null);
-  const [subs, setSubs] = useState<EtaSubmissionDTO[]>([]);
+  const configQuery = useEtaConfig();
+  const submissionsQuery = useEtaSubmissions();
+  const submitOneMutation = useSubmitEtaSubmission();
+  const submitAllMutation = useSubmitAllEtaSubmissions();
+  const excludeMutation = useExcludeEtaSubmission();
   const [statusFilter, setStatusFilter] = useState<EtaSubmissionStatusDTO | "all">("all");
   const [notice, setNotice] = useState<string | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
 
-  async function refresh() {
-    const cfg = await store.eta.getConfig();
-    setConfig({ environment: cfg.environment, taxRegistrationNumber: cfg.taxRegistrationNumber, activityCode: cfg.activityCode, address: cfg.address, buyerDataThreshold: cfg.buyerDataThreshold, documentVersion: cfg.documentVersion, autoSubmitOnConfirm: cfg.autoSubmitOnConfirm, signingMethod: cfg.signingMethod, clientId: cfg.clientId, hasClientSecret: cfg.hasClientSecret });
-    const r = computeEtaReadiness(cfg);
-    setReadiness({ percent: r.percent, items: r.items.map((i) => ({ key: i.key, labelAr: i.labelAr, complete: i.complete })) });
-    setSubs((await store.refreshEta()).map(toDTO));
-  }
-
-  useEffect(() => {
-    void refresh();
-  }, []);
+  const config = configQuery.data?.config ?? null;
+  const readiness = configQuery.data?.readiness ?? null;
+  const subs = submissionsQuery.data ?? [];
 
   const filtered = statusFilter === "all" ? subs : subs.filter((s) => s.status === statusFilter);
   const countBy = (status: EtaSubmissionStatusDTO) => subs.filter((s) => s.status === status).length;
@@ -53,27 +48,27 @@ export function EtaScreen() {
   async function submitOne(id: string) {
     setNotice(null);
     try {
-      await store.eta.submit(id);
-      await refresh();
+      await submitOneMutation.mutateAsync(id);
     } catch (err) {
-      if (err instanceof EtaOfflineError) setNotice("الإرسال الفعلي متاح فقط عند الاتصال بالمصلحة (موقوف في هذه النسخة) — بقي المستند في قائمة الإرسال.");
-      else throw err;
+      setNotice(err instanceof Error ? err.message : "تعذر إرسال المستند.");
     }
   }
 
   async function submitAll() {
     setNotice(null);
-    const result = await store.eta.submitAllReady();
-    if (result.queued.length > 0) setNotice(`تعذر الإرسال الفعلي (متاح فقط عند الاتصال) — ${result.queued.length} مستند بقي في قائمة الإرسال.`);
-    await refresh();
+    try {
+      const result = await submitAllMutation.mutateAsync();
+      if (result.queued > 0) setNotice(`تعذر الإرسال الفعلي (متاح فقط عند الاتصال) — ${result.queued} مستند بقي في قائمة الإرسال.`);
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : "تعذر إرسال المستندات الجاهزة.");
+    }
   }
 
   async function confirmExclude() {
     if (!excludingId || reason.trim() === "") return;
-    await store.eta.exclude(excludingId, reason.trim());
+    await excludeMutation.mutateAsync({ id: excludingId, reason: reason.trim() });
     setExcludingId(null);
     setReason("");
-    await refresh();
   }
 
   const columns: DocumentListColumn<EtaSubmissionDTO>[] = [
@@ -87,7 +82,7 @@ export function EtaScreen() {
       header: "",
       render: (s) => (
         <div className="flex justify-end gap-[6px]">
-          {(s.status === "ready" || s.status === "pending_signature" || s.status === "error") ? <Button size="sm" onClick={() => submitOne(s.id)}>إرسال</Button> : null}
+          {(s.status === "ready" || s.status === "pending_signature" || s.status === "error") ? <Button size="sm" onClick={() => void submitOne(s.id)}>إرسال</Button> : null}
           {(s.status === "ready" || s.status === "pending_signature" || s.status === "error") ? <Button size="sm" onClick={() => { setExcludingId(s.id); setReason(""); }}>استبعاد</Button> : null}
         </div>
       ),
@@ -102,7 +97,7 @@ export function EtaScreen() {
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">الفاتورة الإلكترونية</h1>
           <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">قائمة إرسال المستندات المؤكدة إلى مصلحة الضرائب المصرية. الإرسال الفعلي متاح فقط عند الاتصال (موقوف في هذه النسخة) — تُبنى الحمولة وتُدرج في قائمة الإرسال دون اتصال.</p>
         </div>
-        <Button variant="primary" onClick={submitAll}>إرسال كل الجاهز</Button>
+        <Button variant="primary" disabled={submitAllMutation.isPending} onClick={() => void submitAll()}>إرسال كل الجاهز</Button>
       </div>
 
       {readiness ? (
@@ -126,7 +121,7 @@ export function EtaScreen() {
           <div className="mb-[8px] text-[12.5px] font-semibold text-ink">سبب الاستبعاد (إلزامي)</div>
           <div className="flex flex-wrap items-center gap-[8px]">
             <input aria-label="سبب الاستبعاد" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="اذكر سبب الاستبعاد..." className="min-w-[260px] flex-1 rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
-            <Button variant="primary" onClick={confirmExclude}>تأكيد الاستبعاد</Button>
+            <Button variant="primary" onClick={() => void confirmExclude()}>تأكيد الاستبعاد</Button>
             <Button onClick={() => setExcludingId(null)}>إلغاء</Button>
           </div>
         </div>

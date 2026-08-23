@@ -178,5 +178,13 @@ export {
 } from "./physical-count-store.js";
 export {
   createSqliteInventoryOpsStore,
+  createSqliteInventoryOpsStores,
   type SqliteInventoryOpsStoreHandle,
+  type SqliteInventoryOpsStores,
 } from "./inventory-ops-store.js";
+export {
+  createSqliteItemCatalogStore,
+  createSqliteItemCatalogStores,
+  type SqliteItemCatalogStoreHandle,
+  type SqliteItemCatalogStores,
+} from "./item-catalog-store.js";

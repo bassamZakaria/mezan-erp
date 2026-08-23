@@ -24,7 +24,7 @@ test.describe("App shell", () => {
 
     // Sales group is expanded by default — its items are visible without interaction.
     await expect(sidebar.getByText("فواتير المبيعات")).toBeVisible();
-    // Settings starts collapsed (sample-data.ts's defaultCollapsed: true).
+    // Settings starts collapsed (nav-config.ts's defaultCollapsed: true).
     await expect(sidebar.getByRole("button", { name: "الإعدادات", exact: true })).toHaveAttribute(
       "aria-expanded",
       "false",

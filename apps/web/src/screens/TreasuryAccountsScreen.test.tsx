@@ -15,6 +15,9 @@ const sampleAccounts: TreasuryAccountDTO[] = [
 function renderScreen(accounts: TreasuryAccountDTO[] = sampleAccounts) {
   let current = [...accounts];
   const transport = stubTransport({
+    "GET /branches": () => ({
+      body: [{ id: "b1", code: "MAIN", name: "الفرع الرئيسي", parentBranchId: null, phone: null, email: null, address: null, isMain: true, active: true }],
+    }),
     "GET /treasury-accounts": () => ({ body: current }),
     "POST /treasury-accounts": (init) => {
       const body = JSON.parse((init?.body as string) ?? "{}");

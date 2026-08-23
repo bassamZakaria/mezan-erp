@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { AgingCustomersRow, AgingSuppliersRow } from "@mezan/domain";
-import type { StockBalanceRowDTO } from "@mezan/contracts";
+import type { StockBalanceRowDTO, VoucherAllocationDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
@@ -100,6 +100,42 @@ export function agingBucketsFor(row: AgingCustomersRow | AgingSuppliersRow | und
     over120: row?.over120 ?? 0,
     total: row?.total ?? 0,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Voucher allocations                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The allocation sub-ledger rows of a set of vouchers — `GET
+ * /vouchers/:id/allocations` fanned out over `voucherIds` and flattened. This
+ * is what turns a partner statement's settlements into DATED movements: an
+ * allocation carries the invoice it was applied to, and its voucher carries the
+ * date and the GL posting.
+ */
+export function useVoucherAllocations(voucherIds: readonly string[]): UseQueryResult<VoucherAllocationDTO[], ApiError> {
+  const { request, session } = useApi();
+  const ids = [...voucherIds].sort();
+  return useQuery<VoucherAllocationDTO[], ApiError>({
+    queryKey: ["voucher-allocations", ids],
+    enabled: session !== null && ids.length > 0,
+    queryFn: async () => {
+      const perVoucher = await Promise.all(
+        ids.map(async (voucherId) => {
+          const res = await request(`/vouchers/${encodeURIComponent(voucherId)}/allocations`);
+          if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تخصيصات السندات.");
+          const body = await res.json<{ allocations: VoucherAllocationDTO[] }>();
+          return body.allocations;
+        }),
+      );
+      return perVoucher.flat();
+    },
+  });
+}
+
+/** Sums the ACTIVE allocations of one voucher — a reversed allocation moves no money. */
+export function sumActiveAllocations(allocations: readonly VoucherAllocationDTO[]): bigint {
+  return allocations.reduce<bigint>((total, alloc) => (alloc.status === "active" ? total + parseMoney(alloc.amount) : total), 0n);
 }
 
 /* ------------------------------------------------------------------ */

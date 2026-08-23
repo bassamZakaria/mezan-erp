@@ -28,8 +28,10 @@ import {
   moneyToNumber,
   multiplyMoney,
   parseMoney,
+  sumActiveAllocations,
   sumMoney,
   useCustomerAging,
+  useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 
@@ -40,9 +42,9 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
  *
  * الفواتير reads `GET /sales-invoices?customerId=…`. كشف حساب builds a running
  * AR balance from every movement this build records against the customer —
- * opening balance, live sales invoices (with the collection recorded on each),
- * confirmed sales returns, and confirmed treasury vouchers — and reconciles the
- * closing figure against `GET /reports/aging/customers`.
+ * opening balance, live sales invoices, confirmed sales returns, and confirmed
+ * treasury vouchers split over the invoices they were allocated onto — and
+ * reconciles the closing figure against `GET /reports/aging/customers`.
  *
  * There is NO attachments tab: this build has no file-storage subsystem of any
  * kind (no upload route, no blob store, no attachment table), so an attachments
@@ -177,6 +179,7 @@ interface StatementRow {
   readonly key: string;
   readonly date: string | null;
   readonly label: string;
+  readonly note: string | null;
   readonly reference: string;
   readonly debit: bigint;
   readonly credit: bigint;
@@ -184,10 +187,15 @@ interface StatementRow {
 
 /**
  * كشف حساب العميل — a dated AR movement ledger over every document this build
- * records against the customer. A collection taken through
- * `POST /sales-invoices/:id/payments` is stored as a cumulative `amountPaid` on
- * the invoice and carries no date of its own, so it is shown in the دائن column
- * of its own invoice row rather than being given an invented date.
+ * records against the customer.
+ *
+ * Collections are taken from the voucher allocation sub-ledger first: a
+ * confirmed sales invoice is written into it on confirmation, so an allocation
+ * (`GET /vouchers/:id/allocations`) carries both the invoice it settles and —
+ * through its voucher — a date and a GL posting. The cumulative `amountPaid`
+ * counter that `POST /sales-invoices/:id/payments` bumps carries no date and is
+ * used only for invoices the sub-ledger has no allocation for, labelled as such
+ * on the invoice's own row.
  */
 function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
   const invoicesQuery = useSalesInvoices({ customerId: customer.id });
@@ -195,13 +203,28 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
   const vouchersQuery = useVouchers();
   const agingQuery = useCustomerAging();
 
+  const customerVouchers = useMemo(
+    () =>
+      (vouchersQuery.data ?? []).filter(
+        (voucher) => voucher.customerId === customer.id && (voucher.status === "confirmed" || voucher.status === "posted"),
+      ),
+    [vouchersQuery.data, customer.id],
+  );
+  const allocationsQuery = useVoucherAllocations(customerVouchers.map((voucher) => voucher.id));
+
   const rows = useMemo<StatementRow[]>(() => {
+    const allocations = allocationsQuery.data ?? [];
+    const activeAllocations = allocations.filter((alloc) => alloc.status === "active");
+    const allocatedInvoiceIds = new Set(activeAllocations.map((alloc) => alloc.invoiceId));
+    const invoiceLabels = new Map((invoicesQuery.data ?? []).map((inv) => [inv.id, inv.docNo ?? inv.id]));
+
     const opening = parseMoney(customer.openingBalance);
     const built: StatementRow[] = [
       {
         key: "opening",
         date: null,
         label: "رصيد افتتاحي",
+        note: null,
         reference: "سجل العميل",
         debit: opening > 0n ? opening : 0n,
         credit: opening < 0n ? -opening : 0n,
@@ -210,13 +233,21 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
 
     for (const inv of invoicesQuery.data ?? []) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const counterPaid = parseMoney(inv.amountPaid);
+      const hasAllocations = allocatedInvoiceIds.has(inv.id);
       built.push({
         key: `inv-${inv.id}`,
         date: inv.date,
         label: "فاتورة مبيعات",
+        note:
+          counterPaid === 0n
+            ? null
+            : hasAllocations
+              ? "المحصّل على الفاتورة مُدرج من سندات القبض المخصصة عليها"
+              : "تحصيل مسجّل على الفاتورة نفسها — مبلغ تراكمي بلا تاريخ",
         reference: inv.docNo ?? inv.id,
         debit: parseMoney(inv.totals.grandTotal),
-        credit: parseMoney(inv.amountPaid),
+        credit: hasAllocations ? 0n : counterPaid,
       });
     }
 
@@ -232,24 +263,45 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
         key: `ret-${doc.id}`,
         date: doc.date,
         label: "مرتجع مبيعات",
+        note: null,
         reference: doc.docNo ?? doc.id,
         debit: 0n,
         credit: amount,
       });
     }
 
-    for (const voucher of vouchersQuery.data ?? []) {
-      if (voucher.customerId !== customer.id) continue;
-      if (voucher.status !== "confirmed" && voucher.status !== "posted") continue;
-      const amount = parseMoney(voucher.amount);
-      built.push({
-        key: `vch-${voucher.id}`,
-        date: voucher.date,
-        label: voucher.direction === "receipt" ? "سند قبض" : "سند صرف",
-        reference: voucher.docNo ?? voucher.id,
-        debit: voucher.direction === "receipt" ? 0n : amount,
-        credit: voucher.direction === "receipt" ? amount : 0n,
-      });
+    for (const voucher of customerVouchers) {
+      if (voucher.direction === "transfer") continue;
+      const isReceipt = voucher.direction === "receipt";
+      const label = isReceipt ? "سند قبض" : "سند صرف";
+      const voucherRef = voucher.docNo ?? voucher.id;
+      const mine = activeAllocations.filter((alloc) => alloc.voucherId === voucher.id);
+      for (const alloc of mine) {
+        const amount = parseMoney(alloc.amount);
+        built.push({
+          key: `alloc-${alloc.id}`,
+          date: voucher.date,
+          label,
+          note: `مخصص على الفاتورة ${invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId}`,
+          reference: voucherRef,
+          debit: isReceipt ? 0n : amount,
+          credit: isReceipt ? amount : 0n,
+        });
+      }
+      const remainder = parseMoney(voucher.amount) - sumActiveAllocations(mine);
+      if (remainder !== 0n) {
+        const amount = remainder < 0n ? -remainder : remainder;
+        const towardsCredit = remainder > 0n ? isReceipt : !isReceipt;
+        built.push({
+          key: `vch-${voucher.id}`,
+          date: voucher.date,
+          label,
+          note: "غير مخصص على فاتورة — تحت حساب العميل",
+          reference: voucherRef,
+          debit: towardsCredit ? 0n : amount,
+          credit: towardsCredit ? amount : 0n,
+        });
+      }
     }
 
     return built.sort((a, b) => {
@@ -257,10 +309,10 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
       if (b.date === null) return 1;
       return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
     });
-  }, [customer.id, customer.openingBalance, invoicesQuery.data, returnsQuery.data, vouchersQuery.data]);
+  }, [customer.openingBalance, invoicesQuery.data, returnsQuery.data, customerVouchers, allocationsQuery.data]);
 
-  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError;
-  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading;
+  const isError = invoicesQuery.isError || returnsQuery.isError || vouchersQuery.isError || allocationsQuery.isError;
+  const isLoading = invoicesQuery.isLoading || returnsQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading;
 
   if (isError) {
     return (
@@ -270,6 +322,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
           invoicesQuery.refetch();
           returnsQuery.refetch();
           vouchersQuery.refetch();
+          allocationsQuery.refetch();
         }}
       />
     );
@@ -302,7 +355,7 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
             رصيد التقرير <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
             {matchesAging
               ? " — محسوب من أرصدة الفواتير السارية."
-              : " — التقرير يحتسب أرصدة الفواتير السارية فقط، ولا يشمل الرصيد الافتتاحي ولا مرتجعات المبيعات ولا السندات النقدية."}
+              : " — التقرير يحتسب أرصدة الفواتير السارية من عدّاد «المحصّل» على الفاتورة فقط: لا يخصم تخصيصات سندات القبض، ولا يشمل الرصيد الافتتاحي ولا مرتجعات المبيعات."}
           </span>
         </div>
       ) : null}
@@ -325,7 +378,10 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
               return (
                 <tr key={row.key} className="border-b border-border last:border-b-0">
                   <td className="mz-num p-[10px] text-ink-muted">{row.date === null ? "—" : isoToDisplay(row.date)}</td>
-                  <td className="p-[10px] text-ink">{row.label}</td>
+                  <td className="p-[10px] text-ink">
+                    {row.label}
+                    {row.note ? <div className="mt-[3px] text-[11px] text-ink-faint">{row.note}</div> : null}
+                  </td>
                   <td className="mz-num p-[10px] text-ink-muted">{row.reference}</td>
                   <td className="p-[10px] text-end text-ink">
                     {row.debit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.debit)} showUnit={false} />}
@@ -344,8 +400,10 @@ function CustomerStatementTab({ customer }: { customer: CustomerDTO }) {
       </div>
 
       <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
-        التحصيل المُسجَّل مباشرة على الفاتورة يُحفظ كمبلغ تراكمي على الفاتورة نفسها ولا يحمل تاريخاً مستقلاً، لذلك يظهر في خانة «دائن»
-        الخاصة بفاتورته لا كسطر مستقل. القيود اليومية المُرحَّلة مباشرة على حساب الذمم المدينة (1105) لا ترتبط بعميل بعينه ولا تظهر في هذا الكشف.
+        التحصيل يُقرأ أولاً من دفتر تخصيص السندات: كل تخصيص يظهر بتاريخ سنده وبرقم الفاتورة المخصص عليها، وما لم يُخصَّص من السند يظهر
+        كدفعة تحت حساب العميل بتاريخ السند نفسه. أما التحصيل المُسجَّل مباشرة على الفاتورة عبر عدّاد «المحصّل» فهو مبلغ تراكمي بلا تاريخ،
+        ولا يُستخدم إلا للفواتير التي لا تخصيص عليها — ويظهر عندئذٍ في خانة «دائن» الخاصة بفاتورته مع بيان ذلك. القيود اليومية المُرحَّلة
+        مباشرة على حساب الذمم المدينة (1105) لا ترتبط بعميل بعينه ولا تظهر في هذا الكشف.
       </p>
     </div>
   );

@@ -12,8 +12,18 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
-import { useCreateSupplier, usePurchaseInvoices, useSuppliers, useUpdateSupplier } from "../data/hooks";
-import { agingBucketsFor, moneyToNumber, sumMoney, useSupplierAging } from "../data/partner-detail-hooks";
+import { useCreateSupplier, useOpenInvoices, usePurchaseInvoices, useSuppliers, useUpdateSupplier, useVouchers } from "../data/hooks";
+import {
+  MONEY_RECONCILIATION_TOLERANCE,
+  agingBucketsFor,
+  moneyFromNumber,
+  moneyToNumber,
+  parseMoney,
+  sumActiveAllocations,
+  sumMoney,
+  useSupplierAging,
+  useVoucherAllocations,
+} from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 
 /**
@@ -22,12 +32,12 @@ import { TextField, NumberField, ToggleField } from "../settings/form-controls";
  * backed by the real `/suppliers` API.
  *
  * فواتير المشتريات reads the live `GET /purchases/invoices` narrowed to this
- * supplier. كشف حساب المورد deliberately does NOT render a running balance:
- * nothing in this build records a settlement against a purchase invoice (the
- * invoice has no `amountPaid`, there is no payments route, and the voucher
- * allocation sub-ledger is never populated from purchase invoices), so a net
- * payable can only be stated as gross invoiced — the tab says exactly that and
- * shows the gross figures `GET /reports/aging/suppliers` can honestly give.
+ * supplier. كشف حساب المورد builds a dated running payable from the allocation
+ * sub-ledger a confirmed purchase invoice now writes into — opening balance,
+ * every confirmed invoice as a credit, every confirmed supplier voucher as a
+ * debit split over the invoices it was allocated onto — and reconciles the
+ * closing figure against both `GET /open-invoices?kind=purchase` and
+ * `GET /reports/aging/suppliers`.
  *
  * There is no attachments tab: this build has no file-storage subsystem of any
  * kind, so the tab would be a navigational dead end rather than an empty list.
@@ -153,59 +163,237 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   );
 }
 
+interface StatementRow {
+  readonly key: string;
+  readonly date: string | null;
+  readonly label: string;
+  readonly note: string | null;
+  readonly reference: string;
+  readonly debit: bigint;
+  readonly credit: bigint;
+}
+
 /**
- * كشف حساب المورد — deliberately NOT a running balance.
+ * كشف حساب المورد — a dated AP movement ledger with a running payable.
  *
- * A statement of account has to net settlements off the invoices, and this
- * build records none against a purchase invoice: `PurchaseInvoiceDTO` has no
- * paid/outstanding field, `/purchases/invoices` exposes no payments route, and
- * the voucher allocation sub-ledger (`/open-invoices`) is never populated from
- * purchase invoices — AP lives only on GL account 2100, with no per-supplier
- * dimension. So the tab names that gap and shows only the gross figures that
- * ARE true: total invoiced, and the AP aging ladder for this supplier.
+ * Confirming a purchase invoice now writes it into the voucher allocation
+ * sub-ledger, so AP has a per-supplier dimension: every confirmed invoice is a
+ * credit (raising the payable), and every confirmed supplier voucher is a debit
+ * split into the invoices it was allocated onto (`GET /vouchers/:id/allocations`,
+ * dated by the voucher and posted to the GL) plus any remainder still sitting
+ * on account. The closing figure is reconciled twice — against the open-invoice
+ * sub-ledger and against the أعمار ديون الموردين report.
  */
 function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
   const invoicesQuery = usePurchaseInvoices();
+  const vouchersQuery = useVouchers();
+  const openInvoicesQuery = useOpenInvoices("purchase", supplier.id);
   const agingQuery = useSupplierAging();
 
-  const confirmedTotal = useMemo(
+  const supplierVouchers = useMemo(
     () =>
-      sumMoney(
-        (invoicesQuery.data ?? []).filter((inv) => inv.supplierId === supplier.id && inv.status === "confirmed").map((inv) => inv.total),
+      (vouchersQuery.data ?? []).filter(
+        (voucher) => voucher.supplierId === supplier.id && (voucher.status === "confirmed" || voucher.status === "posted"),
       ),
+    [vouchersQuery.data, supplier.id],
+  );
+  const allocationsQuery = useVoucherAllocations(supplierVouchers.map((voucher) => voucher.id));
+
+  const confirmedInvoices = useMemo(
+    () => (invoicesQuery.data ?? []).filter((inv) => inv.supplierId === supplier.id && inv.status === "confirmed"),
     [invoicesQuery.data, supplier.id],
   );
 
+  const invoiceLabels = useMemo(() => {
+    const labels = new Map<string, string>();
+    for (const inv of openInvoicesQuery.data ?? []) labels.set(inv.id, inv.invoiceNo);
+    for (const inv of confirmedInvoices) labels.set(inv.id, inv.number);
+    return labels;
+  }, [openInvoicesQuery.data, confirmedInvoices]);
+
+  const rows = useMemo<StatementRow[]>(() => {
+    const opening = parseMoney(supplier.openingBalance);
+    const built: StatementRow[] = [
+      {
+        key: "opening",
+        date: null,
+        label: "رصيد افتتاحي",
+        note: null,
+        reference: "سجل المورد",
+        debit: opening < 0n ? -opening : 0n,
+        credit: opening > 0n ? opening : 0n,
+      },
+    ];
+
+    for (const inv of confirmedInvoices) {
+      built.push({
+        key: `inv-${inv.id}`,
+        date: inv.date,
+        label: "فاتورة مشتريات",
+        note: null,
+        reference: inv.number,
+        debit: 0n,
+        credit: parseMoney(inv.total),
+      });
+    }
+
+    const allocations = allocationsQuery.data ?? [];
+    for (const voucher of supplierVouchers) {
+      if (voucher.direction === "transfer") continue;
+      const isPayment = voucher.direction === "payment";
+      const label = isPayment ? "سند صرف للمورد" : "سند قبض من المورد";
+      const voucherRef = voucher.docNo ?? voucher.id;
+      const mine = allocations.filter((alloc) => alloc.voucherId === voucher.id && alloc.status === "active");
+      for (const alloc of mine) {
+        const amount = parseMoney(alloc.amount);
+        built.push({
+          key: `alloc-${alloc.id}`,
+          date: voucher.date,
+          label,
+          note: `مخصص على الفاتورة ${invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId}`,
+          reference: voucherRef,
+          debit: isPayment ? amount : 0n,
+          credit: isPayment ? 0n : amount,
+        });
+      }
+      const remainder = parseMoney(voucher.amount) - sumActiveAllocations(mine);
+      if (remainder !== 0n) {
+        const amount = remainder < 0n ? -remainder : remainder;
+        const towardsDebit = remainder > 0n ? isPayment : !isPayment;
+        built.push({
+          key: `vch-${voucher.id}`,
+          date: voucher.date,
+          label,
+          note: "غير مخصص على فاتورة — تحت حساب المورد",
+          reference: voucherRef,
+          debit: towardsDebit ? amount : 0n,
+          credit: towardsDebit ? 0n : amount,
+        });
+      }
+    }
+
+    return built.sort((a, b) => {
+      if (a.date === null) return -1;
+      if (b.date === null) return 1;
+      return a.date === b.date ? a.key.localeCompare(b.key) : a.date.localeCompare(b.date);
+    });
+  }, [supplier.openingBalance, confirmedInvoices, supplierVouchers, allocationsQuery.data, invoiceLabels]);
+
+  const isError = invoicesQuery.isError || vouchersQuery.isError || allocationsQuery.isError || openInvoicesQuery.isError;
+  const isLoading = invoicesQuery.isLoading || vouchersQuery.isLoading || allocationsQuery.isLoading || openInvoicesQuery.isLoading;
+
   const buckets = agingBucketsFor(agingQuery.data?.rows.find((row) => row.supplierId === supplier.id));
+
+  if (isError) {
+    return (
+      <TabError
+        message="تعذّر تحميل حركة حساب المورد."
+        onRetry={() => {
+          invoicesQuery.refetch();
+          vouchersQuery.refetch();
+          allocationsQuery.refetch();
+          openInvoicesQuery.refetch();
+        }}
+      />
+    );
+  }
+  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل كشف الحساب…</p>;
+
+  const totalDebit = rows.reduce<bigint>((total, row) => total + row.debit, 0n);
+  const totalCredit = rows.reduce<bigint>((total, row) => total + row.credit, 0n);
+  const closing = totalCredit - totalDebit;
+
+  const invoicedTotal = sumMoney(confirmedInvoices.map((inv) => inv.total));
+  const allocatedNet = (allocationsQuery.data ?? []).reduce<bigint>((total, alloc) => {
+    if (alloc.status !== "active") return total;
+    const voucher = supplierVouchers.find((v) => v.id === alloc.voucherId);
+    if (!voucher) return total;
+    return voucher.direction === "payment" ? total + parseMoney(alloc.amount) : total - parseMoney(alloc.amount);
+  }, 0n);
+  const subLedgerOutstanding = sumMoney((openInvoicesQuery.data ?? []).map((inv) => inv.outstanding));
+  const matchesSubLedger = absDiff(invoicedTotal - allocatedNet, subLedgerOutstanding) <= MONEY_RECONCILIATION_TOLERANCE;
+
+  const agingTotal = moneyFromNumber(buckets.total);
+  const agingKnown = agingQuery.isSuccess;
+  const matchesAging = absDiff(closing, agingTotal) <= MONEY_RECONCILIATION_TOLERANCE;
+
+  let running = 0n;
 
   return (
     <div className="flex flex-col gap-[16px]">
-      <div className="rounded-lg border border-warning bg-warning-soft p-[16px_18px]">
-        <p className="text-[13.5px] font-semibold text-warning-ink">كشف حساب المورد غير متاح في هذه النسخة</p>
-        <p className="mt-[8px] max-w-[80ch] text-[12.5px] leading-[1.9] text-warning-ink">
-          كشف الحساب يتطلب أستاذاً مساعداً لكل مورد يُخصم منه ما تم سداده. لا يسجّل هذا الإصدار أي سداد على فاتورة مشتريات: الفاتورة لا
-          تحمل حقل «المسدَّد»، ولا يوجد مسار لتسجيل دفعة عليها، ودفتر تخصيص السندات على الفواتير لا يُغذّى من فواتير المشتريات. الذمم
-          الدائنة متابَعة على مستوى حساب دفتر الأستاذ (2100) فقط دون بُعد للمورد — لذلك لا يمكن احتساب رصيد جارٍ صحيح لهذا المورد، ولن
-          نعرض رقماً تقريبياً مكانه.
-        </p>
-        <p className="mt-[8px] max-w-[80ch] text-[12.5px] leading-[1.9] text-warning-ink">
-          حركة الذمم الدائنة كاملةً متاحة الآن من «دفتر أستاذ الحساب» على الحساب 2100 — لكنها مجمَّعة لكل الموردين.
-        </p>
+      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
+        <MiniStat label="رصيد افتتاحي" value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
+        <MiniStat label="إجمالي المشتريات (دائن)" value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
+        <MiniStat label="إجمالي المسدَّد (مدين)" value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
+        <MiniStat label="الرصيد الختامي (مستحق للمورد)" value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
       </div>
 
-      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
-        <MiniStat label="الرصيد الافتتاحي (سجل المورد)" value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
-        <MiniStat
-          label="إجمالي المشتريات المؤكدة"
-          value={
-            invoicesQuery.isLoading ? (
-              <span className="text-[12.5px] font-normal text-ink-muted">جارٍ التحميل…</span>
-            ) : (
-              <MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />
-            )
-          }
-        />
-        <MiniStat label="إجمالي أعمار الفواتير (قائم)" value={<MoneyValue value={buckets.total} showUnit={false} />} />
+      <div className="flex flex-col gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
+        <div className="flex flex-wrap items-center gap-[10px]">
+          <StatusPill
+            label={matchesSubLedger ? "مطابق لدفتر الفواتير المفتوحة" : "يختلف عن دفتر الفواتير المفتوحة"}
+            tone={matchesSubLedger ? "success" : "warning"}
+          />
+          <span className="text-[12px] text-ink-muted">
+            المتبقي على الفواتير المفتوحة <MoneyValue value={moneyToNumber(subLedgerOutstanding)} showUnit={false} className="text-ink" />
+            {matchesSubLedger
+              ? " — يساوي إجمالي الفواتير المؤكدة ناقص ما خُصِّص عليها من سندات. الرصيد الختامي يضيف إليه الرصيد الافتتاحي ويخصم منه الدفعات غير المخصصة."
+              : " — لا يساوي إجمالي الفواتير المؤكدة ناقص ما خُصِّص عليها: قد تكون هناك فاتورة مؤكدة خارج دفتر التخصيص أو فاتورة أُلغيت بعد تخصيص سداد عليها."}
+          </span>
+        </div>
+        {agingKnown ? (
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <StatusPill
+              label={matchesAging ? "مطابق لتقرير أعمار الديون" : "يختلف عن تقرير أعمار الديون"}
+              tone={matchesAging ? "success" : "warning"}
+            />
+            <span className="text-[12px] text-ink-muted">
+              رصيد التقرير <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
+              {matchesAging
+                ? " — محسوب من إجمالي الفواتير المؤكدة."
+                : " — التقرير يحتسب إجمالي كل فاتورة مؤكدة دون خصم ما سُدِّد منها، ولا يشمل الرصيد الافتتاحي."}
+            </span>
+          </div>
+        ) : null}
+      </div>
+
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
+          <thead>
+            <tr className="border-b border-border text-ink-muted">
+              <th className="p-[10px] text-start font-semibold">التاريخ</th>
+              <th className="p-[10px] text-start font-semibold">الحركة</th>
+              <th className="p-[10px] text-start font-semibold">المرجع</th>
+              <th className="p-[10px] text-end font-semibold">مدين</th>
+              <th className="p-[10px] text-end font-semibold">دائن</th>
+              <th className="p-[10px] text-end font-semibold">الرصيد</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => {
+              running += row.credit - row.debit;
+              return (
+                <tr key={row.key} className="border-b border-border last:border-b-0">
+                  <td className="mz-num p-[10px] text-ink-muted">{row.date === null ? "—" : isoToDisplay(row.date)}</td>
+                  <td className="p-[10px] text-ink">
+                    {row.label}
+                    {row.note ? <div className="mt-[3px] text-[11px] text-ink-faint">{row.note}</div> : null}
+                  </td>
+                  <td className="mz-num p-[10px] text-ink-muted">{row.reference}</td>
+                  <td className="p-[10px] text-end text-ink">
+                    {row.debit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.debit)} showUnit={false} />}
+                  </td>
+                  <td className="p-[10px] text-end text-ink">
+                    {row.credit === 0n ? "—" : <MoneyValue value={moneyToNumber(row.credit)} showUnit={false} />}
+                  </td>
+                  <td className="p-[10px] text-end font-semibold text-ink">
+                    <MoneyValue value={moneyToNumber(running)} showUnit={false} />
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-[16px_18px]">
@@ -256,8 +444,19 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
           </div>
         )}
       </div>
+
+      <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
+        كل سداد يظهر بتاريخ سنده وبرقم الفاتورة المخصص عليها من دفتر تخصيص السندات. ما لم يُخصَّص من السند على فاتورة بعينه يظهر كدفعة
+        تحت حساب المورد بتاريخ السند نفسه. القيود اليومية المُرحَّلة مباشرة على حساب الذمم الدائنة (2100) لا ترتبط بمورد بعينه ولا تظهر في
+        هذا الكشف.
+      </p>
     </div>
   );
+}
+
+/** Absolute difference of two scaled integers — reconciliation stays in `bigint` space. */
+function absDiff(a: bigint, b: bigint): bigint {
+  return a > b ? a - b : b - a;
 }
 
 interface SupplierDraft {

@@ -82,6 +82,12 @@ import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
 import { SequencesPage } from "./settings/SequencesPage";
+import { DataMigrationPage } from "./settings/DataMigrationPage";
+import { BarcodeConfigPage } from "./settings/BarcodeConfigPage";
+import { ApprovalsScreen } from "./screens/ApprovalsScreen";
+import { NotificationRulesScreen } from "./screens/NotificationRulesScreen";
+import { useShellNotifications } from "./data/notification-hooks";
+import { WorkflowConfigPage } from "./settings/WorkflowConfigPage";
 import { ProfilePage } from "./settings/ProfilePage";
 import { ApiKeysPage } from "./settings/ApiKeysPage";
 import { WebhooksPage } from "./settings/WebhooksPage";
@@ -89,6 +95,17 @@ import { AuditLogScreen } from "./screens/AuditLogScreen";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { NavigationProvider } from "./navigation";
+import { SalesHubScreen } from "./screens/hubs/SalesHubScreen";
+import { PurchasesHubScreen } from "./screens/hubs/PurchasesHubScreen";
+import { InventoryHubScreen } from "./screens/hubs/InventoryHubScreen";
+import { AccountingHubScreen } from "./screens/hubs/AccountingHubScreen";
+import { TreasuryHubScreen } from "./screens/hubs/TreasuryHubScreen";
+import { CrmHubScreen } from "./screens/hubs/CrmHubScreen";
+import { AssetsHubScreen } from "./screens/hubs/AssetsHubScreen";
+import { ManufacturingHubScreen } from "./screens/hubs/ManufacturingHubScreen";
+import { ProductionDashboardScreen } from "./screens/hubs/ProductionDashboardScreen";
+import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
+import { useScopeSelector } from "./data/hub-hooks";
 import { navGroups, topNavItem } from "./navigation/registry";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser } from "@mezan/ui";
@@ -123,6 +140,16 @@ const NO_EMPLOYEES: { id: string; name: string; position: string }[] = [];
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
+  "sales-hub": SalesHubScreen,
+  "purchases-hub": PurchasesHubScreen,
+  "inventory-hub": InventoryHubScreen,
+  "accounting-hub": AccountingHubScreen,
+  "treasury-hub": TreasuryHubScreen,
+  "crm-hub": CrmHubScreen,
+  "assets-hub": AssetsHubScreen,
+  "manufacturing-hub": ManufacturingHubScreen,
+  "production-dashboard": ProductionDashboardScreen,
+  status: SystemStatusScreen,
   "sales-invoices": SalesInvoicesScreen,
   quotes: SalesQuotesScreen,
   "price-lists": PriceListsScreen,
@@ -188,6 +215,11 @@ const ROUTABLE_SCREENS = {
   "settings-warehouses": WarehousesPage,
   "settings-print": PrintTemplatesPage,
   "settings-sequences": SequencesPage,
+  "settings-data-migration": DataMigrationPage,
+  "settings-barcode": BarcodeConfigPage,
+  "settings-workflow": WorkflowConfigPage,
+  approvals: ApprovalsScreen,
+  "notification-rules": NotificationRulesScreen,
   "settings-profile": ProfilePage,
   "settings-api-keys": ApiKeysPage,
   "settings-webhooks": WebhooksPage,
@@ -242,6 +274,8 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
 
+  const { branchOptions, warehouseOptions, selection, setBranch, setWarehouse } = useScopeSelector();
+  const notificationFeed = useShellNotifications();
   const entitlementsQuery = useEntitlements();
   const entitlements = entitlementsQuery.data ?? null;
   const rolesQuery = useRoles();
@@ -400,6 +434,16 @@ export function App() {
       tenantName={session.tenantName}
       scopeLabel={scopeLabel}
       onLogout={handleLogout}
+      notifications={notificationFeed.notifications}
+      unreadNotificationCount={notificationFeed.unreadCount}
+      onMarkNotificationRead={notificationFeed.markRead}
+      onMarkAllNotificationsRead={notificationFeed.markAllRead}
+      branchOptions={branchOptions}
+      warehouseOptions={warehouseOptions}
+      selectedBranchId={selection.branchId}
+      selectedWarehouseId={selection.warehouseId}
+      onSelectBranch={setBranch}
+      onSelectWarehouse={setWarehouse}
     >
       <NavigationProvider navigate={(key) => setActiveScreen(key as ScreenKey)}>
         {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}

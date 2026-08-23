@@ -11,6 +11,7 @@ import { createSqliteSalesInvoiceStore } from "./sales-invoice-store.js";
 import { createSqliteSalesReturnStore } from "./sales-return-store.js";
 import { createSqlitePurchaseReturnStore } from "./purchase-return-store.js";
 import { createSqliteLandedCostStore } from "./landed-cost-store.js";
+import { createSqliteVoucherStore } from "./voucher-store.js";
 import type { SqliteConnectionInput } from "./sqlite-connection.js";
 import { openSqliteConnection } from "./sqlite-connection.js";
 
@@ -264,14 +265,6 @@ function extractDocId(requestId: string): string {
   return requestId.endsWith(suffix) ? requestId.slice(0, -suffix.length) : requestId;
 }
 
-interface VoucherHeaderRow {
-  doc_type: string;
-  doc_no: string | null;
-  date: string;
-  amount: number;
-  currency: string;
-}
-
 interface FrameworkHeaderRow {
   doc_type: string;
   doc_no: string | null;
@@ -290,14 +283,12 @@ export function createWorkflowSubjectResolver(
   input: SqliteConnectionInput,
 ): (requestId: string) => Promise<WorkflowSubject | null> {
   const { sqlite } = openSqliteConnection(input);
+  const vouchers = createSqliteVoucherStore(sqlite).documents;
   const salesInvoices = createSqliteSalesInvoiceStore(sqlite);
   const salesReturns = createSqliteSalesReturnStore(sqlite);
   const purchaseReturns = createSqlitePurchaseReturnStore(sqlite);
   const landedCosts = createSqliteLandedCostStore(sqlite);
 
-  const voucherHeader = sqlite.prepare(
-    `SELECT doc_type, doc_no, date, amount, currency FROM voucher WHERE id = ?`,
-  );
   const frameworkHeader = sqlite.prepare(
     `SELECT doc_type, doc_no, date FROM framework_document WHERE id = ?`,
   );
@@ -305,15 +296,15 @@ export function createWorkflowSubjectResolver(
   return async function resolveWorkflowSubject(requestId: string): Promise<WorkflowSubject | null> {
     const docId = extractDocId(requestId);
 
-    const voucherRow = voucherHeader.get(docId) as VoucherHeaderRow | undefined;
-    if (voucherRow) {
+    const voucherDoc = await vouchers.findById(docId);
+    if (voucherDoc) {
       return {
-        docType: voucherRow.doc_type,
+        docType: voucherDoc.docType,
         docId,
-        docNo: voucherRow.doc_no,
-        date: voucherRow.date,
-        amount: Money.fromScaled(voucherRow.amount).toString(),
-        currency: voucherRow.currency,
+        docNo: voucherDoc.docNo,
+        date: voucherDoc.date,
+        amount: Money.sum(voucherDoc.lines.map((l) => l.amount)).toString(),
+        currency: voucherDoc.lines[0]?.currency ?? null,
       };
     }
 

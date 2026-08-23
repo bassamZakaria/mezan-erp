@@ -57,3 +57,5 @@ export {
   createItemSpecificationsRouter,
   createProductTemplatesRouter,
 } from "./product-catalog-routes.js";
+
+export { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";

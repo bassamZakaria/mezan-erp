@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import { cn } from "../lib/cn";
 import { formatDate, formatNumber } from "../lib/format";
-import { Button, Money } from "../primitives/atoms";
-import { useElectronPrintToPdf } from "./useElectronPrintToPdf";
+import { Money } from "../primitives/atoms";
+import { PrintToolbar } from "./PrintToolbar";
 import { resolvePrintTemplateConfig, type PrintDocumentModel, type PrintTemplateConfig } from "./types";
 
 /**
@@ -24,28 +24,6 @@ export interface PrintViewProps {
 }
 
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
-
-function PrintToolbar({ pageSize }: { pageSize: "A4" | "A5" }) {
-  const { isAvailable, printToPdf } = useElectronPrintToPdf();
-
-  return (
-    <div className="mb-[14px] flex items-center gap-[9px] print:hidden">
-      <Button variant="primary" onClick={() => window.print()}>
-        طباعة
-      </Button>
-      {isAvailable ? (
-        <Button
-          variant="default"
-          onClick={() => {
-            void printToPdf({ pageSize });
-          }}
-        >
-          حفظ PDF
-        </Button>
-      ) : null}
-    </div>
-  );
-}
 
 export function PrintView({ config, document, showToolbar = true, className }: PrintViewProps) {
   const effective = useMemo(

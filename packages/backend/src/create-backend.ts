@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { createApp, type App } from "@mezan/api";
+import { createApp, createSalesInvoiceEventEnricher, type App } from "@mezan/api";
 import {
   StockLedgerService,
+  EventBus,
+  createDocumentEventBridge,
   PhysicalCountService,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
@@ -36,7 +38,14 @@ import {
   createSqliteCustomerRepository,
   createSqliteSupplierRepository,
   createSqliteItemStore,
+  createDataMigrationTransactor,
+  createSqliteNotificationRuleStore,
+  createSqliteNotificationStore,
   createSqliteApiKeyStore,
+  createSqliteBarcodeConfigStore,
+  createSqliteGateConfigStore,
+  createSqliteWorkflowRequestStore,
+  createWorkflowSubjectResolver,
   createSqliteAuditSink,
   createSqliteItemSpecificationStore,
   createSqliteItemUnitStore,
@@ -224,6 +233,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const sequenceCounters = createSqliteSequenceStore(sqlite);
   const auditSink = createSqliteAuditSink(sqlite);
   const apiKeys = createSqliteApiKeyStore(sqlite);
+  const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
+  const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
+  const workflowConfigStore = createSqliteGateConfigStore(sqlite);
+  const workflowRequestStore = createSqliteWorkflowRequestStore(sqlite);
+  const resolveWorkflowSubject = createWorkflowSubjectResolver(sqlite);
   const webhookStores = createSqliteWebhookStores(sqlite);
 
   const uow = createSqliteUnitOfWork(sqlite);
@@ -297,6 +311,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostStore = createStandaloneSqliteLandedCostStore(sqlite);
   const followUps = createStandaloneSqliteFollowUpStore(sqlite);
 
+  const notificationRules = createSqliteNotificationRuleStore(sqlite);
+  const notificationInbox = createSqliteNotificationStore(sqlite);
+  const domainEvents = new EventBus();
+  const documentEvents = createDocumentEventBridge(domainEvents);
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
@@ -335,6 +353,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
+    events: documentEvents,
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
@@ -342,6 +361,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
     numbering: { next: () => ledger.numbering.next("PURCHASE_RETURN") },
+    events: documentEvents,
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: noWorkflow,
@@ -349,6 +369,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
     numbering: { next: () => ledger.numbering.next("LANDED_COST") },
+    events: documentEvents,
     gl: documentGl,
     workflow: noWorkflow,
   });
@@ -356,6 +377,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
     numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
+    events: documentEvents,
     workflow: noWorkflow,
   });
 
@@ -421,6 +443,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
     audit: { store: auditSink },
     auditSink,
+    barcodeConfigStore: barcodeConfig,
+    dataMigration: {
+      customers,
+      suppliers,
+      items,
+      warehouses,
+      stockAdjustments: stockAdjustmentDocuments,
+      transact: dataMigrationTransactor,
+    },
+    workflow: {
+      uow,
+      configStore: workflowConfigStore,
+      requestStore: workflowRequestStore,
+      resolveSubject: resolveWorkflowSubject,
+    },
     apiKeys: { repo: apiKeys },
     webhooks: { webhooks: webhookStores.webhooks, deliveries: webhookStores.deliveries },
     taxRateRepo: taxRates,
@@ -440,6 +477,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
     },
     vouchers: {
+      events: documentEvents,
       documents: vouchers.documents,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
@@ -464,6 +502,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
       audit: auditSink,
+      events: documentEvents,
     },
     cheques: {
       cheques,
@@ -572,6 +611,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
       cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
     },
+    notifications: {
+      rules: notificationRules,
+      notifications: notificationInbox,
+      users: uow.users,
+      roles: uow.roles,
+      bus: domainEvents,
+      enricher: createSalesInvoiceEventEnricher(salesInvoices),
+    },
     reports: {
       salesInvoices,
       purchaseInvoices,
@@ -613,6 +660,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     itemCategories,
     itemSpecifications,
     productTemplates,
+    notificationRules,
+    notificationInbox,
     taxRates,
     costCenters,
     treasuryAccounts,

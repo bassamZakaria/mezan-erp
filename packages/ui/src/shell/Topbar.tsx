@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "../primitives/atoms";
 import type { ThemePreference } from "../hooks/useTheme";
@@ -9,6 +9,13 @@ export interface ShellNotification {
   title: string;
   body?: string;
   at?: string;
+  /** Undefined when the caller has no read-state to report (bell then shows every row as read). */
+  read?: boolean;
+}
+
+export interface TopbarScopeOption {
+  id: string;
+  label: string;
 }
 
 export interface TopbarProps {
@@ -20,9 +27,63 @@ export interface TopbarProps {
   onToggleTheme: () => void;
   /** Real notifications to render. An empty list renders the empty state — never a fabricated badge. */
   notifications?: ShellNotification[];
+  /** Server-side unread total; falls back to counting `notifications` when omitted. */
+  unreadNotificationCount?: number;
+  onMarkNotificationRead?: (id: string) => void;
+  onMarkAllNotificationsRead?: () => void;
   onLogout?: () => void;
   user: ShellUser;
   className?: string;
+  /**
+   * Working-branch / warehouse selectors — real dropdowns that narrow which
+   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
+   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
+   * not a cosmetic relabel. Omit `branchOptions` to render neither (e.g. the
+   * caller hasn't wired real branch/warehouse data yet) — never rendered with
+   * a fabricated option list.
+   */
+  branchOptions?: readonly TopbarScopeOption[];
+  warehouseOptions?: readonly TopbarScopeOption[];
+  selectedBranchId?: string | null;
+  selectedWarehouseId?: string | null;
+  onSelectBranch?: (branchId: string | null) => void;
+  onSelectWarehouse?: (warehouseId: string | null) => void;
+  allBranchesLabel?: string;
+  allWarehousesLabel?: string;
+}
+
+interface ScopeSelectProps {
+  ariaLabel: string;
+  value: string | null;
+  onChange?: (id: string | null) => void;
+  allLabel: string;
+  options: readonly TopbarScopeOption[];
+  icon: ReactNode;
+}
+
+/** One working-scope dropdown (branch or warehouse) — a native `<select>` styled as a topbar pill so it stays keyboard- and screen-reader-accessible. */
+function ScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon }: ScopeSelectProps) {
+  return (
+    <div className="relative flex items-center gap-[7px] rounded-pill border border-border bg-surface-2 ps-[12px] pe-[8px] py-[7px] text-[12.5px] font-medium text-ink-muted transition-colors hover:border-border-strong">
+      {icon}
+      <select
+        aria-label={ariaLabel}
+        value={value ?? ""}
+        onChange={(event) => onChange?.(event.target.value === "" ? null : event.target.value)}
+        className="cursor-pointer appearance-none bg-transparent pe-[14px] text-[12.5px] font-medium text-ink-muted outline-none"
+      >
+        <option value="">{allLabel}</option>
+        {options.map((opt) => (
+          <option key={opt.id} value={opt.id}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      <svg aria-hidden viewBox="0 0 12 12" fill="none" className="pointer-events-none absolute end-[8px] h-[9px] w-[9px] opacity-70">
+        <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </div>
+  );
 }
 
 /** Topbar — search launcher (Ctrl K), tenant chip, branch scope chip, theme toggle, notifications, user menu. */
@@ -34,13 +95,28 @@ export function Topbar({
   theme,
   onToggleTheme,
   notifications = [],
+  unreadNotificationCount,
+  onMarkNotificationRead,
+  onMarkAllNotificationsRead,
   onLogout,
   user,
   className,
+  branchOptions,
+  warehouseOptions = [],
+  selectedBranchId = null,
+  selectedWarehouseId = null,
+  onSelectBranch,
+  onSelectWarehouse,
+  allBranchesLabel = "كل الفروع",
+  allWarehousesLabel = "كل المخازن",
 }: TopbarProps) {
   const isDark = theme === "dark";
   const [openMenu, setOpenMenu] = useState<"none" | "notifications" | "user">("none");
+  const [notificationTab, setNotificationTab] = useState<"all" | "unread">("all");
   const menusRef = useRef<HTMLDivElement | null>(null);
+  const unreadCount = unreadNotificationCount ?? notifications.filter((n) => n.read === false).length;
+  const shownNotifications =
+    notificationTab === "unread" ? notifications.filter((n) => n.read === false) : notifications;
 
   useEffect(() => {
     if (openMenu === "none") return;
@@ -101,6 +177,37 @@ export function Topbar({
         </div>
       ) : null}
 
+      {branchOptions && branchOptions.length > 0 ? (
+        <ScopeSelect
+          ariaLabel="الفرع الحالي"
+          value={selectedBranchId}
+          onChange={onSelectBranch}
+          allLabel={allBranchesLabel}
+          options={branchOptions}
+          icon={
+            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
+              <path d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          }
+        />
+      ) : null}
+
+      {branchOptions && branchOptions.length > 0 ? (
+        <ScopeSelect
+          ariaLabel="المخزن الحالي"
+          value={selectedWarehouseId}
+          onChange={onSelectWarehouse}
+          allLabel={allWarehousesLabel}
+          options={warehouseOptions}
+          icon={
+            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
+              <rect x="3" y="7" width="14" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
+              <path d="M2.5 7 10 3l7.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          }
+        />
+      ) : null}
+
       <IconButton aria-label="تبديل المظهر" onClick={onToggleTheme}>
         {isDark ? (
           <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[18px] w-[18px]">
@@ -121,7 +228,7 @@ export function Topbar({
 
       <div ref={menusRef} className="relative flex items-center gap-[12px]">
         <IconButton
-          aria-label={notifications.length > 0 ? `الإشعارات (${notifications.length})` : "الإشعارات"}
+          aria-label={unreadCount > 0 ? `الإشعارات (${unreadCount} غير مقروء)` : "الإشعارات"}
           aria-expanded={openMenu === "notifications"}
           onClick={() => setOpenMenu((m) => (m === "notifications" ? "none" : "notifications"))}
         >
@@ -129,7 +236,7 @@ export function Topbar({
             <path d="M5 8a5 5 0 0 1 10 0c0 4 1.5 5 1.5 5h-13S5 12 5 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
             <path d="M8 15.5a2 2 0 0 0 4 0" stroke="currentColor" strokeWidth="1.5" />
           </svg>
-          {notifications.length > 0 ? (
+          {unreadCount > 0 ? (
             <span aria-hidden className="absolute top-[7px] end-[7px] h-[7px] w-[7px] rounded-full border-2 border-surface bg-danger" />
           ) : null}
         </IconButton>
@@ -156,18 +263,85 @@ export function Topbar({
             aria-label="الإشعارات"
             className="absolute top-[46px] end-0 z-30 w-[320px] rounded-lg border border-border bg-surface p-[12px] shadow-lg"
           >
-            <p className="mb-[8px] text-[12.5px] font-bold text-ink">الإشعارات</p>
-            {notifications.length === 0 ? (
-              <p className="py-[16px] text-center text-[12px] text-ink-muted">لا توجد إشعارات</p>
+            <div className="mb-[8px] flex items-center justify-between gap-[8px]">
+              <p className="text-[12.5px] font-bold text-ink">الإشعارات</p>
+              {onMarkAllNotificationsRead ? (
+                <button
+                  type="button"
+                  disabled={unreadCount === 0}
+                  onClick={() => onMarkAllNotificationsRead()}
+                  className="rounded-md px-[6px] py-[3px] text-[11px] font-semibold text-brand transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:text-ink-faint"
+                >
+                  تحديد الكل كمقروء
+                </button>
+              ) : null}
+            </div>
+
+            <div role="tablist" aria-label="تصفية الإشعارات" className="mb-[8px] flex gap-[4px]">
+              {(
+                [
+                  { key: "all" as const, label: "الكل" },
+                  { key: "unread" as const, label: `غير المقروءة${unreadCount > 0 ? ` (${unreadCount})` : ""}` },
+                ]
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  role="tab"
+                  aria-selected={notificationTab === tab.key}
+                  onClick={() => setNotificationTab(tab.key)}
+                  className={cn(
+                    "rounded-pill border px-[10px] py-[4px] text-[11.5px] font-semibold transition-colors",
+                    notificationTab === tab.key
+                      ? "border-brand bg-brand text-brand-ink"
+                      : "border-border bg-surface-2 text-ink-muted hover:border-border-strong",
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            {shownNotifications.length === 0 ? (
+              <p className="py-[16px] text-center text-[12px] text-ink-muted">
+                {notificationTab === "unread" ? "لا توجد إشعارات غير مقروءة" : "لا توجد إشعارات"}
+              </p>
             ) : (
-              <ul className="flex flex-col gap-[8px]">
-                {notifications.map((n) => (
-                  <li key={n.id} className="rounded-md border border-border bg-surface-2 p-[9px]">
-                    <p className="text-[12.5px] font-semibold text-ink">{n.title}</p>
-                    {n.body ? <p className="mt-[2px] text-[11.5px] text-ink-muted">{n.body}</p> : null}
-                    {n.at ? <p className="mz-lat mt-[2px] text-[10px] text-ink-faint">{n.at}</p> : null}
-                  </li>
-                ))}
+              <ul className="flex max-h-[320px] flex-col gap-[8px] overflow-y-auto">
+                {shownNotifications.map((n) => {
+                  const isUnread = n.read === false;
+                  const row = (
+                    <>
+                      <p className="text-[12.5px] font-semibold text-ink">{n.title}</p>
+                      {n.body ? <p className="mt-[2px] text-[11.5px] text-ink-muted">{n.body}</p> : null}
+                      {n.at ? <p className="mz-lat mt-[2px] text-[10px] text-ink-faint">{n.at}</p> : null}
+                    </>
+                  );
+                  return (
+                    <li
+                      key={n.id}
+                      className={cn(
+                        "rounded-md border p-[9px]",
+                        isUnread ? "border-brand bg-surface-2" : "border-border bg-surface-2",
+                      )}
+                    >
+                      {isUnread && onMarkNotificationRead ? (
+                        <button
+                          type="button"
+                          onClick={() => onMarkNotificationRead(n.id)}
+                          className="w-full text-start"
+                        >
+                          {row}
+                          <span className="mt-[4px] block text-[10px] font-semibold text-brand">
+                            تحديد كمقروء
+                          </span>
+                        </button>
+                      ) : (
+                        row
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>

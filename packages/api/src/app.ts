@@ -18,6 +18,7 @@ import {
   type ItemUnitRepository,
   type ItemCategoryRepository,
   type ApiKeyRepository,
+  type BarcodeConfigRepository,
   type AuditQueryPort,
   type AuditSink,
   type WebhookDeliveryRepository,
@@ -114,6 +115,10 @@ import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from ".
 import { createItemSpecificationsRouter, createProductTemplatesRouter } from "./product-catalog-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
+import { createDataMigrationRoutes, type DataMigrationTransactor } from "./data-migration-routes.js";
+import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
+import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
+import { createNotificationsRoutes, type NotificationRoutesDeps } from "./notifications-routes.js";
 import { createProfileRoutes } from "./profile-routes.js";
 import { createApiKeysRoutes } from "./api-keys-routes.js";
 import { createWebhooksRoutes } from "./webhooks-routes.js";
@@ -135,7 +140,7 @@ import {
  * `/roles` route validates grants against and as what `GET /entitlements`
  * reports. Listing a module here makes its permissions grantable, so an
  * unimplemented domain must stay out: `pos` and `hr` have no domain, routes or
- * persistence, and `notifications` has an event bus but no rules engine.
+ * persistence.
  */
 const DEFAULT_ACTIVE_MODULES = [
   "dashboard",
@@ -154,6 +159,7 @@ const DEFAULT_ACTIVE_MODULES = [
   "audit",
   "transactions",
   "admin",
+  "notifications",
   "projects",
 ];
 
@@ -242,6 +248,26 @@ export interface CreateAppOptions {
   };
   /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
   readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/data-migration` — the CSV import wizard's preview/commit surface — when present. */
+  readonly dataMigration?: {
+    readonly customers: CustomerRepository;
+    readonly suppliers: SupplierRepository;
+    readonly items: ItemRepository;
+    readonly warehouses: WarehouseRepository;
+    readonly stockAdjustments: DocumentService<StockAdjustmentDocLine>;
+    readonly transact: DataMigrationTransactor;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
+  /**
+   * Mounts `/notifications` when present — the rules CRUD, the trigger catalog
+   * and the caller's own inbox. Building the router also subscribes the engine
+   * to the event bus.
+   */
+  readonly notifications?: NotificationRoutesDeps;
+  /** Mounts `/workflow` — the approvals inbox and its gate configuration — when present. */
+  readonly workflow?: WorkflowRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/barcode-config` when present. */
+  readonly barcodeConfigStore?: BarcodeConfigRepository;
   /** Shared audit sink for profile security events and API-key/webhook writes. */
   readonly auditSink?: AuditSink;
   /** Mounts `/api-keys` when present. */
@@ -705,6 +731,35 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/item-categories",
       createItemCategoriesRouter(catalog.categories, catalog.items, catalog.resolveAuthContext),
     );
+  }
+  if (options.dataMigration) {
+    const migration = options.dataMigration;
+    app.route(
+      "/data-migration",
+      createDataMigrationRoutes(
+        {
+          customers: migration.customers,
+          suppliers: migration.suppliers,
+          items: migration.items,
+          warehouses: migration.warehouses,
+          stockAdjustments: migration.stockAdjustments,
+          transact: migration.transact,
+        },
+        migration.resolveAuthContext ?? options.resolveAuthContext,
+      ),
+    );
+  }
+  if (options.notifications) {
+    app.route(
+      "/notifications",
+      createNotificationsRoutes(options.notifications, options.notifications.resolveAuthContext ?? options.resolveAuthContext),
+    );
+  }
+  if (options.workflow) {
+    app.route("/workflow", createWorkflowRoutes(options.workflow, options.workflow.resolveAuthContext ?? options.resolveAuthContext));
+  }
+  if (options.barcodeConfigStore) {
+    app.route("/barcode-config", createBarcodeConfigRoutes({ store: options.barcodeConfigStore }, options.resolveAuthContext));
   }
   if (options.sequences) {
     app.route("/sequences", createSequencesRoutes(options.sequences, options.sequences.resolveAuthContext));

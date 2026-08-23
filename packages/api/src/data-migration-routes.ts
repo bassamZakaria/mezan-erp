@@ -29,7 +29,14 @@ import {
   type ItemImportRowDTO,
   type OpeningBalanceImportRowDTO,
 } from "@mezan/contracts";
-import type { DataMigrationTransactor } from "@mezan/persistence";
+/**
+ * Commit must be all-or-nothing, so the route needs a transaction boundary it
+ * does not own. Declared here as a port rather than imported from
+ * @mezan/persistence: no other production api module depends on a driver.
+ */
+export interface DataMigrationTransactor {
+  run<T>(fn: () => Promise<T>): Promise<T>;
+}
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**

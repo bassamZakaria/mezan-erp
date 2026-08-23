@@ -176,14 +176,14 @@ function fieldsFor(kind: ImportKind): FieldSpec[] {
   }
 }
 
-function normalizeDecimal(raw: string): string | undefined {
-  const cleaned = raw.trim().replace(/,/g, "");
+function normalizeDecimal(raw: string | undefined): string | undefined {
+  const cleaned = (raw ?? "").trim().replace(/,/g, "");
   if (cleaned === "") return undefined;
   return cleaned;
 }
-function normalizeNumber(raw: string): number | undefined {
-  if (raw.trim() === "") return undefined;
-  const n = Number(raw.trim());
+function normalizeNumber(raw: string | undefined): number | undefined {
+  if ((raw ?? "").trim() === "") return undefined;
+  const n = Number((raw ?? "").trim());
   return Number.isFinite(n) ? n : undefined;
 }
 function normalizeBool(raw: string): boolean | undefined {
@@ -275,10 +275,10 @@ export function DataMigrationPage() {
   }
 
   function resolveByCodeOrName<T extends { id: string; code: string; nameAr: string }>(
-    ref: string,
+    ref: string | undefined,
     list: readonly T[],
   ): T | undefined {
-    const q = ref.trim();
+    const q = (ref ?? "").trim();
     if (q === "") return undefined;
     return list.find((x) => x.id === q) ?? list.find((x) => x.code === q) ?? list.find((x) => x.nameAr === q);
   }
@@ -290,8 +290,8 @@ export function DataMigrationPage() {
       const v = rawRowValues(r);
       return {
         rowNumber: i + 1,
-        code: v.code,
-        nameAr: v.nameAr,
+        code: v.code ?? "",
+        nameAr: v.nameAr ?? "",
         nameEn: v.nameEn || null,
         phone: v.phone || null,
         email: v.email || null,
@@ -314,8 +314,8 @@ export function DataMigrationPage() {
       const v = rawRowValues(r);
       return {
         rowNumber: i + 1,
-        code: v.code,
-        nameAr: v.nameAr,
+        code: v.code ?? "",
+        nameAr: v.nameAr ?? "",
         nameEn: v.nameEn || null,
         phone: v.phone || null,
         email: v.email || null,
@@ -338,11 +338,11 @@ export function DataMigrationPage() {
       const v = rawRowValues(r);
       return {
         rowNumber: i + 1,
-        code: v.code,
-        nameAr: v.nameAr,
+        code: v.code ?? "",
+        nameAr: v.nameAr ?? "",
         nameEn: v.nameEn || null,
         type: (v.type || undefined) as "stock" | "service" | undefined,
-        baseUnitCode: v.baseUnitCode,
+        baseUnitCode: v.baseUnitCode ?? "",
         barcodes: v.barcodes ? v.barcodes.split(",").map((b) => b.trim()).filter(Boolean) : undefined,
         categoryId: v.categoryId || null,
         brand: v.brand || null,
@@ -359,7 +359,12 @@ export function DataMigrationPage() {
   function buildOpeningBalanceRows() {
     return (csv?.rows ?? []).map((r, i) => {
       const v = rawRowValues(r);
-      return { rowNumber: i + 1, itemCode: v.itemCode, qty: normalizeDecimal(v.qty) ?? "0", unitCost: normalizeDecimal(v.unitCost) ?? "0" };
+      return {
+        rowNumber: i + 1,
+        itemCode: v.itemCode ?? "",
+        qty: normalizeDecimal(v.qty) ?? "0",
+        unitCost: normalizeDecimal(v.unitCost) ?? "0",
+      };
     });
   }
 
@@ -374,9 +379,9 @@ export function DataMigrationPage() {
       return {
         rowNumber: i + 1,
         docType: (v.docType || "PURCHASE_INVOICE") as "PURCHASE_INVOICE" | "PURCHASE_RETURN",
-        documentNumber: v.documentNumber,
-        supplierId: supplier?.id ?? v.supplierRef,
-        date: v.date,
+        documentNumber: v.documentNumber ?? "",
+        supplierId: supplier?.id ?? v.supplierRef ?? "",
+        date: v.date ?? "",
         dueDate: v.dueDate || null,
         itemId: item?.id ?? null,
         description: v.description || null,
@@ -647,9 +652,9 @@ export function DataMigrationPage() {
             <>
               {"createdIds" in commitResult ? (
                 <StatusPill tone="success" label={`تم استيراد ${commitResult.createdIds?.length ?? 0} صف بنجاح`} />
-              ) : (
+              ) : "archivedIds" in commitResult ? (
                 <StatusPill tone="success" label={`تم أرشفة ${commitResult.archivedIds?.length ?? 0} مستند`} />
-              )}
+              ) : null}
               {(commitResult.errors?.length ?? 0) > 0 ? (
                 <>
                   <StatusPill tone="danger" label={`صفوف لم تُستورد: ${commitResult.errors.length}`} />

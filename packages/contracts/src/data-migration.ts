@@ -28,8 +28,12 @@ export const dataMigrationResultSchema = z.object({
 
 export const customerImportRowSchema = z.object({
   rowNumber: z.number().int().positive(),
-  code: z.string().min(1),
-  nameAr: z.string().min(1),
+  // Deliberately not `.min(1)` — a blank code/name is a per-row content
+  // problem the domain layer (previewCustomerImport) already reports as a
+  // friendly Arabic reason; requiring it here would instead reject the WHOLE
+  // batch with a generic Zod error on the first blank cell.
+  code: z.string(),
+  nameAr: z.string(),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
@@ -51,8 +55,8 @@ export const customerImportBatchSchema = z.object({ rows: z.array(customerImport
 
 export const supplierImportRowSchema = z.object({
   rowNumber: z.number().int().positive(),
-  code: z.string().min(1),
-  nameAr: z.string().min(1),
+  code: z.string(),
+  nameAr: z.string(),
   nameEn: z.string().nullable().optional(),
   phone: z.string().nullable().optional(),
   email: z.string().nullable().optional(),
@@ -73,11 +77,11 @@ export const supplierImportBatchSchema = z.object({ rows: z.array(supplierImport
 
 export const itemImportRowSchema = z.object({
   rowNumber: z.number().int().positive(),
-  code: z.string().min(1),
-  nameAr: z.string().min(1),
+  code: z.string(),
+  nameAr: z.string(),
   nameEn: z.string().nullable().optional(),
   type: z.enum(["stock", "service"]).optional(),
-  baseUnitCode: z.string().min(1),
+  baseUnitCode: z.string(),
   barcodes: z.array(z.string()).optional(),
   categoryId: z.string().nullable().optional(),
   brand: z.string().nullable().optional(),
@@ -95,7 +99,10 @@ export const itemImportBatchSchema = z.object({ rows: z.array(itemImportRowSchem
 
 export const openingBalanceImportRowSchema = z.object({
   rowNumber: z.number().int().positive(),
-  itemCode: z.string().min(1),
+  itemCode: z.string(),
+  // Unlike code/nameAr above, these ARE schema-level concerns: they get
+  // parsed straight into Qty/Money (Qty.fromMajor/Money.fromMajor), which
+  // would throw on garbage input rather than produce a friendly row error.
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
 });

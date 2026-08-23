@@ -39,7 +39,9 @@ CREATE TABLE IF NOT EXISTS stock_movement (
   source_doc_id     TEXT NOT NULL,
   source_doc_number TEXT,
   reason            TEXT,
-  occurred_at       TEXT NOT NULL
+  occurred_at       TEXT NOT NULL,
+  batch_no          TEXT,
+  expiry_date       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_movement_position ON stock_movement(item_id, warehouse_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_item ON stock_movement(item_id, seq);
@@ -69,7 +71,9 @@ CREATE TABLE IF NOT EXISTS cost_layer (
   source_doc_type   TEXT NOT NULL,
   source_doc_id     TEXT NOT NULL,
   source_doc_number TEXT,
-  created_at        TEXT NOT NULL
+  created_at        TEXT NOT NULL,
+  batch_no          TEXT,
+  expiry_date       TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_layer_position ON cost_layer(item_id, warehouse_id, seq);
 
@@ -94,6 +98,27 @@ CREATE TABLE IF NOT EXISTS wac_snapshot (
 );
 `;
 
+/**
+ * `batch_no` / `expiry_date` were added to both tables after they shipped;
+ * CREATE TABLE IF NOT EXISTS will not widen an existing database, so add them
+ * in place. Both stay NULLable: an existing layer has no batch and no expiry,
+ * which is exactly the "not perishable" case FEFO must leave alone.
+ *
+ * The expiry index is created HERE and not in CREATE_TABLES — on a pre-existing
+ * database the column does not exist until the ALTERs above have run.
+ */
+function addMissingColumns(sqlite: Database.Database): void {
+  for (const table of ["stock_movement", "cost_layer"]) {
+    const columns = sqlite.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[];
+    const has = (name: string) => columns.some((c) => c.name === name);
+    if (!has("batch_no")) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN batch_no TEXT`);
+    if (!has("expiry_date")) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN expiry_date TEXT`);
+  }
+  sqlite.exec(
+    `CREATE INDEX IF NOT EXISTS idx_layer_expiry ON cost_layer(expiry_date, seq) WHERE expiry_date IS NOT NULL`,
+  );
+}
+
 interface MovementRow {
   id: string;
   item_id: string;
@@ -106,6 +131,8 @@ interface MovementRow {
   source_doc_number: string | null;
   reason: string | null;
   occurred_at: string;
+  batch_no: string | null;
+  expiry_date: string | null;
 }
 
 interface LayerRow {
@@ -119,6 +146,8 @@ interface LayerRow {
   source_doc_id: string;
   source_doc_number: string | null;
   created_at: string;
+  batch_no: string | null;
+  expiry_date: string | null;
 }
 
 interface SnapshotRow {
@@ -142,6 +171,8 @@ function toMovement(row: MovementRow): StockMovement {
     sourceDocNumber: row.source_doc_number,
     reason: row.reason as AdjustmentReason | null,
     occurredAt: row.occurred_at,
+    batchNo: row.batch_no,
+    expiryDate: row.expiry_date,
   };
 }
 
@@ -157,6 +188,8 @@ function toLayer(row: LayerRow): CostLayer {
     sourceDocId: row.source_doc_id,
     sourceDocNumber: row.source_doc_number,
     createdAt: row.created_at,
+    batchNo: row.batch_no,
+    expiryDate: row.expiry_date,
   };
 }
 
@@ -196,10 +229,12 @@ class SqliteStockLedgerStore {
     this.insertMovement = sqlite.prepare(`
       INSERT INTO stock_movement
         (id, item_id, warehouse_id, direction, qty, unit_cost,
-         source_doc_type, source_doc_id, source_doc_number, reason, occurred_at)
+         source_doc_type, source_doc_id, source_doc_number, reason, occurred_at,
+         batch_no, expiry_date)
       VALUES
         (@id, @item_id, @warehouse_id, @direction, @qty, @unit_cost,
-         @source_doc_type, @source_doc_id, @source_doc_number, @reason, @occurred_at)
+         @source_doc_type, @source_doc_id, @source_doc_number, @reason, @occurred_at,
+         @batch_no, @expiry_date)
     `);
     this.selectMovByPosition = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE item_id = ? AND warehouse_id = ? ORDER BY occurred_at, seq`,
@@ -222,10 +257,12 @@ class SqliteStockLedgerStore {
     this.insertLayer = sqlite.prepare(`
       INSERT INTO cost_layer
         (id, item_id, warehouse_id, unit_cost, original_qty, remaining_qty,
-         source_doc_type, source_doc_id, source_doc_number, created_at)
+         source_doc_type, source_doc_id, source_doc_number, created_at,
+         batch_no, expiry_date)
       VALUES
         (@id, @item_id, @warehouse_id, @unit_cost, @original_qty, @remaining_qty,
-         @source_doc_type, @source_doc_id, @source_doc_number, @created_at)
+         @source_doc_type, @source_doc_id, @source_doc_number, @created_at,
+         @batch_no, @expiry_date)
     `);
     this.selectLayers = sqlite.prepare(
       `SELECT * FROM cost_layer WHERE item_id = ? AND warehouse_id = ? ORDER BY seq`,
@@ -262,6 +299,8 @@ class SqliteStockLedgerStore {
       source_doc_number: movement.sourceDocNumber,
       reason: movement.reason,
       occurred_at: movement.occurredAt,
+      batch_no: movement.batchNo ?? null,
+      expiry_date: movement.expiryDate ?? null,
     });
   }
 
@@ -303,6 +342,8 @@ class SqliteStockLedgerStore {
       source_doc_id: layer.sourceDocId,
       source_doc_number: layer.sourceDocNumber,
       created_at: layer.createdAt,
+      batch_no: layer.batchNo ?? null,
+      expiry_date: layer.expiryDate ?? null,
     });
   }
 
@@ -366,6 +407,7 @@ export interface SqliteStockLedgerHandle {
 export function createSqliteStockLedgerStore(path: SqliteConnectionInput = ":memory:"): SqliteStockLedgerHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
+  addMissingColumns(sqlite);
   const store = new SqliteStockLedgerStore(sqlite);
 
   const ledger: StockLedgerRepository = {

@@ -15,16 +15,18 @@
  *   - Receipt (IN): value += qty × unitCost; a new immutable layer is created
  *     at that receipt-time unit cost.
  *   - Issue (OUT): stock leaves at the CURRENT moving average; the average is
- *     unchanged by an issue. Layers are drawn down FIFO for the remaining-qty
- *     display, but each layer keeps its own original price — so layer value and
- *     WAC value legitimately diverge over time (the documented "drift").
+ *     unchanged by an issue. Layers are drawn down FEFO-then-FIFO
+ *     (cost-layer.ts) for the remaining-qty display — an ordering that does NOT
+ *     touch valuation, since the OUT unit cost is the moving average either
+ *     way. Each layer keeps its own original price, so layer value and WAC
+ *     value legitimately diverge over time (the documented "drift").
  *
  * No floats anywhere: a given movement sequence yields byte-identical scaled
  * integers on every engine, which the golden fixtures lock down.
  */
 
 import { Money, Qty } from "../money/index.js";
-import { CostLayer, drawDownLayer, layerRemainingValue } from "./cost-layer.js";
+import { CostLayer, drawDownLayer, layerRemainingValue, orderLayersForConsumption } from "./cost-layer.js";
 import { StockMovement, signedQty } from "./movement.js";
 import { extend, unitCostOf } from "./wac-math.js";
 
@@ -50,27 +52,37 @@ export function emptyPosition(itemId: string, warehouseId: string): WacPosition 
   };
 }
 
-/** Draw `qty` down across layers FIFO, returning the surviving/updated layers. */
-function consumeLayersFifo(layers: readonly CostLayer[], qty: Qty): CostLayer[] {
+/**
+ * Draw `qty` down across layers in `compareLayersForConsumption` order,
+ * returning the surviving/updated layers still in RECEIPT order — the order
+ * `WacPosition.layers` and the layer store both promise.
+ */
+function consumeLayers(layers: readonly CostLayer[], qty: Qty): CostLayer[] {
   let remaining = qty;
-  const out: CostLayer[] = [];
-  for (const layer of layers) {
-    if (remaining.isZero() || remaining.isNegative()) {
-      out.push(layer);
-      continue;
-    }
+  const drawn = new Map<string, CostLayer | null>();
+  for (const layer of orderLayersForConsumption(layers)) {
+    if (remaining.isZero() || remaining.isNegative()) break;
     if (layer.remainingQty.compare(remaining) <= 0) {
       // Whole layer consumed.
       remaining = remaining.subtract(layer.remainingQty);
-      // dropped (remainingQty would be zero) — not carried forward.
+      drawn.set(layer.id, null);
     } else {
-      out.push(drawDownLayer(layer, remaining));
+      drawn.set(layer.id, drawDownLayer(layer, remaining));
       remaining = Qty.zero();
     }
   }
   // If `remaining` is still positive here, the issue exceeded costed layers
   // (only reachable when negative stock is permitted). The deficit is simply
   // not represented as a layer; the drift report will surface the mismatch.
+  const out: CostLayer[] = [];
+  for (const layer of layers) {
+    if (!drawn.has(layer.id)) {
+      out.push(layer);
+      continue;
+    }
+    const replacement = drawn.get(layer.id);
+    if (replacement) out.push(replacement);
+  }
   return out;
 }
 
@@ -103,13 +115,15 @@ export function replay(
         sourceDocId: m.sourceDocId,
         sourceDocNumber: m.sourceDocNumber,
         createdAt: m.occurredAt,
+        batchNo: m.batchNo ?? null,
+        expiryDate: m.expiryDate ?? null,
       });
     } else {
       const movingAvg = unitCostOf(totalValue, onHand);
       const cogs = extend(m.qty, movingAvg);
       totalValue = totalValue.add(cogs.negate());
       onHand = onHand.subtract(m.qty);
-      layers = consumeLayersFifo(layers, m.qty);
+      layers = consumeLayers(layers, m.qty);
     }
   }
 

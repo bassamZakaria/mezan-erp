@@ -16,7 +16,7 @@
  */
 
 import { Money, Qty, allocate } from "../money/index.js";
-import type { CostLayer } from "./cost-layer.js";
+import { orderLayersForConsumption, type CostLayer } from "./cost-layer.js";
 import {
   NegativeStockError,
   InvalidStockMovementError,
@@ -110,6 +110,10 @@ export interface ReceiptLine {
   readonly qty: Qty;
   /** Receipt-time unit cost booked into the layer and the moving average. */
   readonly unitCost: Money;
+  /** Supplier/production lot. Optional — most goods here are not batch-tracked. */
+  readonly batchNo?: string | null;
+  /** ISO-8601 date the received goods expire; drives FEFO consumption. */
+  readonly expiryDate?: string | null;
 }
 
 /**
@@ -139,7 +143,7 @@ export interface ReverseReceiptPosition {
 /**
  * Reverse a prior `postReceipt` (docs/catalog/02 — cancelling a purchase
  * receipt/invoice whose "sold-item" guard passed). Unlike `postIssue`, this
- * does NOT draw down layers FIFO: it removes precisely the cost layer(s) this
+ * does NOT draw layers down in consumption order: it removes precisely the cost layer(s) this
  * `sourceDocId` created, at THEIR OWN immutable cost, and refuses if any of
  * them has already been drawn down (defense in depth — the caller's guard is
  * expected to have checked this already).
@@ -236,6 +240,8 @@ export class StockLedgerService {
     sourceDocNumber: string | null;
     reason: AdjustmentReason | null;
     occurredAt: string;
+    batchNo?: string | null;
+    expiryDate?: string | null;
   }): Promise<{ signedValue: Money; unitCost: Money }> {
     if (input.qty.isNegative() || input.qty.isZero()) {
       throw new InvalidStockMovementError(["qty must be a positive magnitude"]);
@@ -280,6 +286,8 @@ export class StockLedgerService {
       sourceDocNumber: input.sourceDocNumber,
       reason: input.reason,
       occurredAt: input.occurredAt,
+      batchNo: input.direction === "IN" ? (input.batchNo ?? null) : null,
+      expiryDate: input.direction === "IN" ? (input.expiryDate ?? null) : null,
     };
 
     await this.deps.ledger.append(movement);
@@ -296,6 +304,8 @@ export class StockLedgerService {
         sourceDocId: input.sourceDocId,
         sourceDocNumber: input.sourceDocNumber,
         createdAt: input.occurredAt,
+        batchNo: movement.batchNo,
+        expiryDate: movement.expiryDate,
       };
       await this.deps.layers.add(layer);
     } else {
@@ -321,9 +331,16 @@ export class StockLedgerService {
     return { signedValue: signed, unitCost };
   }
 
-  /** Draw `qty` down across a position's layers FIFO, persisting the changes. */
+  /**
+   * Draw `qty` down across a position's layers, persisting the changes.
+   *
+   * ORDER: `orderLayersForConsumption` (cost-layer.ts) — FEFO where an expiry
+   * is known, receipt order otherwise. The SAME comparator drives the ledger
+   * replay in wac.ts; if the two ever diverge, `rebuildPosition` would rewrite
+   * the surviving layers into a different set than the live engine produced.
+   */
   private async consumeLayers(itemId: string, warehouseId: string, qty: Qty): Promise<void> {
-    const layers = await this.deps.layers.listByPosition(itemId, warehouseId);
+    const layers = orderLayersForConsumption(await this.deps.layers.listByPosition(itemId, warehouseId));
     let remaining = qty;
     for (const layer of layers) {
       if (!remaining.isNegative() && !remaining.isZero()) {
@@ -557,6 +574,8 @@ export class StockLedgerService {
           sourceDocNumber: command.receiptNumber ?? null,
           reason: null,
           occurredAt,
+          batchNo: line.batchNo ?? null,
+          expiryDate: line.expiryDate ?? null,
         });
       }
     });

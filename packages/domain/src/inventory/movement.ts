@@ -46,6 +46,13 @@ export interface StockMovement {
   /** Set only for movements originating from a stock adjustment. */
   readonly reason: AdjustmentReason | null;
   readonly occurredAt: string; // ISO-8601 UTC
+  /**
+   * Batch/expiry the goods entered under, carried on the IN movement so a
+   * replay (wac.ts) rebuilds layers that consume in the SAME order the live
+   * engine used. Absent on an OUT and on any non-tracked receipt.
+   */
+  readonly batchNo?: string | null;
+  readonly expiryDate?: string | null;
 }
 
 /** Signed on-hand contribution of a movement (+qty for IN, −qty for OUT). */

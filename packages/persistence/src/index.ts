@@ -199,3 +199,15 @@ export {
   type SqliteHolidayRepositoryHandle,
   type SqliteLeaveRequestRepositoryHandle,
 } from "./hr-store.js";
+// --- hr-time-leave stores (hr/time-leave) ---
+export { createSqliteEmployeeRefRepository, type SqliteEmployeeRefRepositoryHandle } from "./hr-employee-ref-store.js";
+export {
+  createSqliteAttendanceRecordRepository,
+  type SqliteAttendanceRecordRepositoryHandle,
+} from "./hr-attendance-store.js";
+export { createSqliteLeavePolicyRepository, type SqliteLeavePolicyRepositoryHandle } from "./hr-leave-policy-store.js";
+export { createSqliteLeaveApplicationRepository, type SqliteLeaveApplicationRepositoryHandle } from "./hr-leave-request-store.js";
+export {
+  createSqliteLeaveAccrualBatchRepository,
+  type SqliteLeaveAccrualBatchRepositoryHandle,
+} from "./hr-leave-accrual-store.js";

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   DocumentList,
   DocumentDetail,
@@ -14,35 +14,24 @@ import {
 } from "@mezan/ui";
 import {
   Money,
+  Qty,
   ADJUSTMENT_REASON_DEFINITIONS,
   getAdjustmentReasonDefinition,
   stockAdjustmentDocumentType,
-  type DocumentStatus,
   type FrameworkDocument,
   type StockAdjustmentDocLine,
   type AdjustmentReason,
   type AdjustmentReasonDefinition,
   type StockMovementDirection,
-  type JournalEntry,
 } from "@mezan/domain";
-import { useInventoryOpsStore } from "../store/useInventoryOpsStore";
-import { sharedInventoryOpsStore } from "../store/shared-inventory-ops-store";
-import { demoWarehouses } from "../sample-data";
-import { demoAccounts } from "../accounts-sample-data";
-import { demoItems } from "../items-sample-data";
+import type { DocumentStatusDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
+import { useCreateStockAdjustment, useStockAdjustments, useAdjustmentJournalEntry } from "../data/inventory-ops-hooks";
+import { useAccounts, useItems, useWarehouses, ApiError } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
-
-/** The GL tab needs the FULL chart (1200/3100/5900 for this module's postings), not `items-sample-data.ts`'s item-mapping subset. */
-function accountLabel(id: string): string {
-  const account = demoAccounts.find((a) => a.id === id);
-  return account ? account.nameAr : id;
-}
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the document framework. */
 
-type AdjustmentDoc = FrameworkDocument<StockAdjustmentDocLine>;
-
-const STATUS_LABEL: Record<DocumentStatus, string> = {
+const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
   draft: "مسودة",
   pending: "بانتظار الموافقة",
   posted: "مرحل",
@@ -50,7 +39,7 @@ const STATUS_LABEL: Record<DocumentStatus, string> = {
   reversed: "معكوس",
   cancelled: "ملغي",
 };
-const STATUS_TONE: Record<DocumentStatus, PillTone> = {
+const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
   draft: "neutral",
   pending: "warning",
   posted: "success",
@@ -64,18 +53,35 @@ const STEPPER_STEPS: DocumentStatusStep[] = [
   { key: "confirmed", label: "مؤكد" },
 ];
 
-function warehouseLabel(id: string): string {
-  return demoWarehouses.find((w) => w.id === id)?.name ?? id;
-}
-
-function itemLabel(id: string): string {
-  const item = demoItems.find((i) => i.id === id);
-  return item ? `${item.nameAr} (${item.code})` : id;
-}
-
-function headerOf(doc: AdjustmentDoc): { warehouseId: string; reason: AdjustmentReason } {
+function headerOf(doc: StockAdjustmentDocumentDTO): { warehouseId: string; reason: AdjustmentReason } {
   const first = doc.lines[0];
   return first ? { warehouseId: first.warehouseId, reason: first.reason } : { warehouseId: "—", reason: "OTHER" };
+}
+
+/** `describeEffects` reads unitCost/qty for its value summary, so the DTO's decimal strings are converted into real Money/Qty here. */
+function toDomainAdjustment(dto: StockAdjustmentDocumentDTO): FrameworkDocument<StockAdjustmentDocLine> {
+  return {
+    id: dto.id,
+    docType: dto.docType,
+    docNo: dto.docNo,
+    date: dto.date,
+    memo: dto.memo,
+    status: dto.status,
+    lines: dto.lines.map((l) => ({
+      itemId: l.itemId,
+      warehouseId: l.warehouseId,
+      reason: l.reason,
+      direction: l.direction,
+      qty: Qty.fromMajor(l.qty),
+      unitCost: l.unitCost != null ? Money.fromMajor(l.unitCost) : undefined,
+    })),
+    createdAt: dto.createdAt,
+    confirmedAt: dto.confirmedAt,
+    reversesDocId: null,
+    reversedByDocId: null,
+    workflowRequestId: null,
+    journalEntryId: dto.journalEntryId,
+  };
 }
 
 /* -------------------------------------------------------------------- */
@@ -97,15 +103,34 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
-  const store = useInventoryOpsStore(sharedInventoryOpsStore);
+  const query = useStockAdjustments();
+  const itemsQuery = useItems();
+  const warehousesQuery = useWarehouses();
+  const accountsQuery = useAccounts();
 
   const [mode, setMode] = useState<"list" | "reason" | "create" | "detail">("list");
   const [selectedReason, setSelectedReason] = useState<AdjustmentReasonDefinition | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatus>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
 
-  const documents = store.stockAdjustments;
+  const documents = useMemo(() => query.data ?? [], [query.data]);
+  const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
+  const accounts = accountsQuery.data ?? [];
+
+  const warehouseLabel = useMemo(() => {
+    const map = new Map(warehouses.map((w) => [w.id, w.name]));
+    return (id: string) => map.get(id) ?? id;
+  }, [warehouses]);
+  const itemLabel = useMemo(() => {
+    const map = new Map(items.map((i) => [i.id, `${i.nameAr} (${i.code})`]));
+    return (id: string) => map.get(id) ?? id;
+  }, [items]);
+  const accountLabel = useMemo(() => {
+    const map = new Map(accounts.map((a) => [a.id, a.nameAr]));
+    return (id: string) => map.get(id) ?? id;
+  }, [accounts]);
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0 };
@@ -126,9 +151,9 @@ export function StockAdjustmentsScreen() {
     return rows;
   }, [documents, statusFilter, search]);
 
-  const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
+  const selected = selectedId ? (documents.find((d) => d.id === selectedId) ?? null) : null;
 
-  const columns: DocumentListColumn<AdjustmentDoc>[] = [
+  const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
       key: "docNo",
       header: "رقم التسوية",
@@ -191,8 +216,10 @@ export function StockAdjustmentsScreen() {
   if (mode === "create" && selectedReason) {
     return (
       <CreateAdjustmentView
-        store={store}
         reason={selectedReason}
+        warehouses={warehouses}
+        items={items}
+        warehouseLabel={warehouseLabel}
         onDone={() => {
           setSelectedReason(null);
           setMode("list");
@@ -205,7 +232,7 @@ export function StockAdjustmentsScreen() {
   if (mode === "detail" && selected) {
     const { warehouseId, reason } = headerOf(selected);
     const def = getAdjustmentReasonDefinition(reason);
-    const effects = stockAdjustmentDocumentType.describeEffects(selected);
+    const effects = stockAdjustmentDocumentType.describeEffects(toDomainAdjustment(selected));
     return (
       <div className="w-full">
         <DocumentDetail
@@ -230,12 +257,12 @@ export function StockAdjustmentsScreen() {
             {
               key: "lines",
               label: "بنود التسوية",
-              content: <AdjustmentLinesTable doc={selected} />,
+              content: <AdjustmentLinesTable doc={selected} itemLabel={itemLabel} />,
             },
             {
               key: "gl",
               label: "المحاسبة",
-              content: <AdjustmentGlTab store={store} docId={selected.id} />,
+              content: <AdjustmentGlTab docId={selected.id} accountLabel={accountLabel} />,
             },
           ]}
         />
@@ -245,7 +272,7 @@ export function StockAdjustmentsScreen() {
 
   return (
     <div className="w-full">
-      <DocumentList<AdjustmentDoc>
+      <DocumentList<StockAdjustmentDocumentDTO>
         eyebrow="Inventory · Stock Adjustments"
         title="تسويات المخزون"
         description="مسودة ← مؤكد — تسويات تُغيّر كمية المخزون وربما قيمته، على إطار المستندات الموحّد"
@@ -265,7 +292,7 @@ export function StockAdjustmentsScreen() {
           { key: "confirmed", label: "مؤكد", count: counts.confirmed },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatus)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder="بحث برقم التسوية..."
@@ -280,7 +307,11 @@ export function StockAdjustmentsScreen() {
             عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> تسوية
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد تسويات مطابقة</div>}
+        emptyState={
+          <div className="p-8 text-center text-sm text-ink-muted">
+            {query.isLoading ? "جارِ التحميل…" : query.isError ? (query.error?.message ?? "تعذّر تحميل تسويات المخزون.") : "لا توجد تسويات مطابقة"}
+          </div>
+        }
       />
     </div>
   );
@@ -290,7 +321,7 @@ export function StockAdjustmentsScreen() {
 /* Lines tab                                                            */
 /* -------------------------------------------------------------------- */
 
-function AdjustmentLinesTable({ doc }: { doc: AdjustmentDoc }) {
+function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocumentDTO; itemLabel: (id: string) => string }) {
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -306,16 +337,16 @@ function AdjustmentLinesTable({ doc }: { doc: AdjustmentDoc }) {
           </thead>
           <tbody>
             {doc.lines.map((l, i) => {
-              const value = l.unitCost ? Money.fromMajor(String(Number(l.qty.toString()) * Number(l.unitCost.toString()))) : null;
+              const value = l.unitCost ? Number(l.qty) * Number(l.unitCost) : null;
               return (
                 <tr key={i} className="border-b border-border last:border-b-0">
                   <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
                   <td className="px-[15px] py-[11px]">
                     <StatusPill label={l.direction === "IN" ? "زيادة" : "نقصان"} tone={l.direction === "IN" ? "success" : "danger"} />
                   </td>
-                  <td className="px-[15px] py-[11px] text-end mz-num">{l.qty.toString()}</td>
-                  <td className="px-[15px] py-[11px] text-end">{l.unitCost ? <MoneyDisplay value={Number(l.unitCost.toString())} /> : "—"}</td>
-                  <td className="px-[15px] py-[11px] text-end">{value ? <MoneyDisplay value={Number(value.toString())} /> : "يُحسب بمتوسط التكلفة الحالي"}</td>
+                  <td className="px-[15px] py-[11px] text-end mz-num">{l.qty}</td>
+                  <td className="px-[15px] py-[11px] text-end">{l.unitCost ? <MoneyDisplay value={Number(l.unitCost)} /> : "—"}</td>
+                  <td className="px-[15px] py-[11px] text-end">{value !== null ? <MoneyDisplay value={value} /> : "يُحسب بمتوسط التكلفة الحالي"}</td>
                 </tr>
               );
             })}
@@ -330,20 +361,14 @@ function AdjustmentLinesTable({ doc }: { doc: AdjustmentDoc }) {
 /* GL tab — looks the journal entry up by the adjustment's OWN id        */
 /* -------------------------------------------------------------------- */
 
-function AdjustmentGlTab({ store, docId }: { store: ReturnType<typeof useInventoryOpsStore>; docId: string }) {
-  const [entry, setEntry] = useState<JournalEntry | null | undefined>(undefined);
+function AdjustmentGlTab({ docId, accountLabel }: { docId: string; accountLabel: (id: string) => string }) {
+  const query = useAdjustmentJournalEntry(docId);
 
-  useEffect(() => {
-    let cancelled = false;
-    void store.findJournalEntry(docId).then((e) => {
-      if (!cancelled) setEntry(e);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [docId, store]);
-
-  if (entry === undefined) return <div className="p-4 text-[12.5px] text-ink-muted">جارٍ التحميل...</div>;
+  if (query.isLoading) return <div className="p-4 text-[12.5px] text-ink-muted">جارٍ التحميل...</div>;
+  if (query.isError) {
+    return <div className="p-4 text-[12.5px] text-danger-ink">{query.error?.message ?? "تعذّر تحميل القيد المحاسبي."}</div>;
+  }
+  const entry = query.data ?? null;
   if (entry === null) {
     return <div className="p-4 text-[12.5px] text-ink-muted">لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة).</div>;
   }
@@ -363,8 +388,8 @@ function AdjustmentGlTab({ store, docId }: { store: ReturnType<typeof useInvento
             {entry.lines.map((l, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
                 <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
-                <td className="px-[15px] py-[11px] text-end">{l.debit.scaled !== 0n ? <MoneyDisplay value={Number(l.debit.toString())} /> : "—"}</td>
-                <td className="px-[15px] py-[11px] text-end">{l.credit.scaled !== 0n ? <MoneyDisplay value={Number(l.credit.toString())} /> : "—"}</td>
+                <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay value={Number(l.debit)} /> : "—"}</td>
+                <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay value={Number(l.credit)} /> : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -379,29 +404,33 @@ function AdjustmentGlTab({ store, docId }: { store: ReturnType<typeof useInvento
 /* -------------------------------------------------------------------- */
 
 function CreateAdjustmentView({
-  store,
   reason,
+  warehouses,
+  items,
+  warehouseLabel,
   onDone,
   onBack,
 }: {
-  store: ReturnType<typeof useInventoryOpsStore>;
   reason: AdjustmentReasonDefinition;
+  warehouses: { id: string; name: string }[];
+  items: { id: string; nameAr: string; type: string }[];
+  warehouseLabel: (id: string) => string;
   onDone: () => void;
   onBack: () => void;
 }) {
+  const create = useCreateStockAdjustment();
   const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
-  const [warehouseId, setWarehouseId] = useState(demoWarehouses[0]?.id ?? "");
+  const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
   const defaultDirection: StockMovementDirection = reason.direction === "OUT" ? "OUT" : "IN";
   const [lines, setLines] = useState<LineDraft[]>([blankLine(defaultDirection)]);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   const itemOptions = useMemo(
-    () => [{ value: "", label: "اختر صنف..." }, ...demoItems.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
-    [],
+    () => [{ value: "", label: "اختر صنف..." }, ...items.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    [items],
   );
-  const warehouseOptions = useMemo(() => demoWarehouses.map((w) => ({ value: w.id, label: w.name })), []);
+  const warehouseOptions = useMemo(() => warehouses.map((w) => ({ value: w.id, label: w.name })), [warehouses]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -416,27 +445,29 @@ function CreateAdjustmentView({
   const allLinesValid = lines.every(
     (l) => l.itemId !== "" && l.qty > 0 && (l.direction === "OUT" || l.unitCost > 0),
   );
-  const canPost = allLinesValid && warehouseId !== "" && !busy;
+  const canPost = allLinesValid && warehouseId !== "" && !create.isPending;
 
   async function handlePost() {
     if (!canPost) return;
-    setBusy(true);
     setError(null);
-    const result = await store.postAdjustment({
-      date,
-      memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId)}`,
-      lines: lines.map((l) => ({
-        itemId: l.itemId,
-        warehouseId,
-        reason: reason.code,
-        direction: l.direction,
-        qty: l.qty,
-        unitCost: l.direction === "IN" ? l.unitCost : undefined,
-      })),
-    });
-    setBusy(false);
-    if (result.ok) onDone();
-    else setError(result.error ?? "تعذر اعتماد التسوية.");
+    try {
+      await create.mutateAsync({
+        id: crypto.randomUUID(),
+        date,
+        memo: memo.trim() || `${reason.labelAr} — ${warehouseLabel(warehouseId)}`,
+        lines: lines.map((l) => ({
+          itemId: l.itemId,
+          warehouseId,
+          reason: reason.code,
+          direction: l.direction,
+          qty: String(l.qty),
+          unitCost: l.direction === "IN" ? String(l.unitCost) : undefined,
+        })),
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "تعذر اعتماد التسوية.");
+    }
   }
 
   return (

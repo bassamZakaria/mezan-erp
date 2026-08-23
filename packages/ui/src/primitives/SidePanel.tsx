@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { IconButton } from "./atoms";
 
@@ -19,6 +19,14 @@ export interface SidePanelProps {
  * and not something the repo's left/right lint flags.
  */
 export function SidePanel({ open, onClose, title, description, children, className }: SidePanelProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  // `aria-hidden` is driven by this state (not directly by `open`) so closing
+  // can blur any focused descendant first — setting aria-hidden on an element
+  // that still contains focus is what triggers the browser's "Blocked
+  // aria-hidden on an element because its descendant retained focus" warning.
+  const [ariaHidden, setAriaHidden] = useState(!open);
+
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
@@ -27,6 +35,20 @@ export function SidePanel({ open, onClose, title, description, children, classNa
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
+
+  useLayoutEffect(() => {
+    if (open) {
+      previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      setAriaHidden(false);
+      return;
+    }
+    const active = document.activeElement;
+    if (panelRef.current && active instanceof HTMLElement && panelRef.current.contains(active)) {
+      active.blur();
+      previousFocusRef.current?.focus();
+    }
+    setAriaHidden(true);
+  }, [open]);
 
   return (
     <>
@@ -39,10 +61,11 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         )}
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={typeof title === "string" ? title : undefined}
-        aria-hidden={!open}
+        aria-hidden={ariaHidden}
         className={cn(
           "fixed inset-y-0 end-0 z-[61] w-[430px] max-w-[92vw] overflow-y-auto border-s border-border bg-surface shadow-2 transition-transform duration-200 ease-[cubic-bezier(.4,0,.2,1)]",
           open ? "translate-x-0" : "-translate-x-[105%]",

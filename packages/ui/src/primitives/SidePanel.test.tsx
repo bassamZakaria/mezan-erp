@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { SidePanel } from "./SidePanel";
@@ -56,6 +57,54 @@ describe("SidePanel", () => {
     );
     fireEvent.keyDown(document, { key: "Escape" });
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it("blurs the focused descendant before hiding, so aria-hidden never applies while focus is retained", () => {
+    function Wrapper() {
+      const [open, setOpen] = useState(true);
+      return (
+        <SidePanel open={open} onClose={() => setOpen(false)} title="لوحة العميل">
+          <div>محتوى</div>
+        </SidePanel>
+      );
+    }
+    render(<Wrapper />);
+
+    const closeButton = screen.getByRole("button", { name: "إغلاق اللوحة" });
+    closeButton.focus();
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.click(closeButton);
+
+    const dialog = screen.getByRole("dialog", { hidden: true });
+    expect(dialog).toHaveAttribute("aria-hidden", "true");
+    expect(dialog.contains(document.activeElement)).toBe(false);
+  });
+
+  it("restores focus to the previously-focused element (e.g. the trigger) after closing", () => {
+    function Wrapper() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onClick={() => setOpen(true)}>افتح</button>
+          <SidePanel open={open} onClose={() => setOpen(false)} title="لوحة العميل">
+            <div>محتوى</div>
+          </SidePanel>
+        </>
+      );
+    }
+    render(<Wrapper />);
+
+    const trigger = screen.getByRole("button", { name: "افتح" });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    const closeButton = screen.getByRole("button", { name: "إغلاق اللوحة" });
+    closeButton.focus();
+    expect(closeButton).toHaveFocus();
+    fireEvent.click(closeButton);
+
+    expect(trigger).toHaveFocus();
   });
 
   it("renders against a dark theme root without crashing", () => {

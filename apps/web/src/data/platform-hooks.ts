@@ -89,6 +89,7 @@ export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQue
       if (filter.actor) params.set("actor", filter.actor);
       if (filter.entityType) params.set("entityType", filter.entityType);
       if (filter.severity) params.set("severity", filter.severity);
+      if (filter.branchId) params.set("branchId", filter.branchId);
       if (filter.from) params.set("from", filter.from);
       if (filter.to) params.set("to", filter.to);
       if (filter.limit) params.set("limit", String(filter.limit));

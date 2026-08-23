@@ -59,6 +59,7 @@ interface Filters {
   actor: string;
   entityType: string;
   severity: "" | AuditSeverityDTO;
+  branchId: string;
   from: string;
   to: string;
 }
@@ -70,6 +71,7 @@ const BLANK_FILTERS: Filters = {
   actor: "",
   entityType: "",
   severity: "",
+  branchId: "",
   from: "",
   to: "",
 };
@@ -93,6 +95,7 @@ export function AuditLogScreen() {
     actor: filters.actor.trim() || undefined,
     entityType: filters.entityType.trim() || undefined,
     severity: filters.severity || undefined,
+    branchId: filters.branchId || undefined,
     from: filters.from.trim() || undefined,
     to: filters.to.trim() || undefined,
     limit: PAGE_SIZE,
@@ -189,6 +192,17 @@ export function AuditLogScreen() {
                 value={filters.severity}
                 onChange={(v) => updateFilters({ severity: v as Filters["severity"] })}
                 options={SEVERITY_OPTIONS}
+              />
+            </div>
+            <div className="w-[170px]">
+              <SelectField
+                label="الفرع"
+                value={filters.branchId}
+                onChange={(v) => updateFilters({ branchId: v })}
+                options={[
+                  { value: "", label: "كل الفروع" },
+                  ...branches.map((b) => ({ value: b.id, label: b.nameAr })),
+                ]}
               />
             </div>
             <div className="w-[140px]">

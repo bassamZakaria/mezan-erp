@@ -113,23 +113,23 @@ nothing sends); email and WhatsApp notification channels are modelled but
 unimplemented and labelled as such; purchases and vouchers do not accept an audit
 sink at their route layer.
 
-## Dead wiring found, not yet fixed
+## Decisions waiting on you
 
-**The voucher allocation sub-ledger is never populated.** Nothing in
-`packages/api` or `packages/backend` calls `AllocatableInvoiceRepository.save`,
-so `GET /open-invoices` is permanently empty and the allocation engine — which is
-fully built and tested — is never fed. The visible consequence is that accounts
-payable has no supplier dimension: `PurchaseInvoiceDTO` carries no
-paid/outstanding field and there is no purchase-payments route, so a supplier
-statement cannot be produced at all. **Populating that repository on sales- and
-purchase-invoice confirm is the single highest-value fix outstanding** — it
-unlocks the supplier statement, voucher allocation and per-partner balances at
-once, using engines that already exist.
-
-Related, smaller: `SalesInvoiceService.recordPayment` only increments a
-cumulative `amountPaid` with no date and no GL posting, so a collection cannot be
-placed chronologically on a statement; and `AuditEvent` has no branch field, so
-the audit trail cannot be scoped to a branch.
+1. **`recordPayment` and the allocation sub-ledger are two stores of the same
+   fact.** The UI prefers allocations and the aging reports take the larger of
+   the two, but the backend can still record one collection twice. Converging
+   `recordPayment` onto allocations removes the fallback entirely.
+2. **Purchase receipt/invoice cancel routes 404.** They mount only when
+   `purchases.layers` is supplied and `create-backend` does not pass it.
+   Enabling them changes GL and stock reversal behaviour, so it wants a decision.
+3. **Three reports need schema changes, not report code** — sales-by-salesperson
+   needs a rep field on invoices; expiring-soon (FEFO) needs batch/expiry on
+   stock layers; make-vs-buy needs purchase-cost comparison data.
+4. **Promotions are never persisted to documents.** The engine computes
+   discounts through an `/evaluate` preview only, so the promotions report
+   cannot count usage. Writing the applied promotion onto the invoice at confirm
+   is the prerequisite.
+5. **`AuditEvent` has no branch field**, so the trail cannot be branch-scoped.
 
 ## Partial work parked, not lost
 

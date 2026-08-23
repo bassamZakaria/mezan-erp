@@ -83,8 +83,13 @@ import {
   createSqliteContractRepository,
   createSqliteHolidayRepository,
   createSqliteLeaveRequestRepository,
+  createSqliteEmployeeRefRepository,
+  createSqliteAttendanceRecordRepository,
+  createSqliteLeavePolicyRepository,
+  createSqliteLeaveApplicationRepository,
+  createSqliteLeaveAccrualBatchRepository,
 } from "@mezan/persistence";
-import { EtaService } from "@mezan/domain";
+import { EtaService, createAccrualCreditSource } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -109,6 +114,16 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+};
+
+/**
+ * System-default leave-accrual GL accounts (packages/domain/src/accounts/
+ * coa-template.ts, added by hr/time-leave): leave accrual expense (5300),
+ * accrued leave liability (2250).
+ */
+const HR_LEAVE_ACCRUAL_GL_ACCOUNTS = {
+  leaveExpenseAccountId: "5300",
+  accruedLeaveLiabilityAccountId: "2250",
 };
 
 /**
@@ -264,6 +279,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const depreciationRuns = createSqliteDepreciationRunRepository(sqlite);
   const vanTrips = createSqliteVanTripRepository(sqlite);
 
+  // --- hr/time-leave — الحضور والانصراف, طلبات الإجازات, سياسات الإجازات, استحقاقات الإجازات. ---
+  const hrEmployeeRef = createSqliteEmployeeRefRepository(sqlite);
+  const hrAttendanceRecords = createSqliteAttendanceRecordRepository(sqlite);
+  const hrLeavePolicies = createSqliteLeavePolicyRepository(sqlite);
+  const hrLeaveApplications = createSqliteLeaveApplicationRepository(sqlite);
+  const hrLeaveAccrualBatches = createSqliteLeaveAccrualBatchRepository(sqlite);
+
   // --- sweep/finish-and-mount — manufacturing (docs/catalog/07: BOMs, work
   // orders, configurable products, custom manufacturing) and RFQ + historical
   // purchase import (docs/catalog/02). ---
@@ -415,6 +437,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     uow,
     hasher,
     pipelineStages,
+    hrEmployeeRef,
   };
   await seedIfEmpty(seedStores);
 
@@ -561,6 +584,29 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       runs: depreciationRuns,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
+    },
+    // --- hr/time-leave ---
+    hrEmployeeRef,
+    hrAttendance: {
+      records: hrAttendanceRecords,
+      employees: hrEmployeeRef,
+      settings,
+    },
+    hrLeavePolicies: {
+      policies: hrLeavePolicies,
+    },
+    hrLeaveApplications: {
+      requests: hrLeaveApplications,
+      numbering: ledger.numbering,
+      settings,
+      accrualCreditSource: createAccrualCreditSource(hrLeaveAccrualBatches),
+    },
+    hrLeaveAccrual: {
+      batches: hrLeaveAccrualBatches,
+      employees: hrEmployeeRef,
+      policies: hrLeavePolicies,
+      gl: salesInvoiceGl,
+      defaultAccounts: HR_LEAVE_ACCRUAL_GL_ACCOUNTS,
     },
     fieldSales: {
       trips: vanTrips,

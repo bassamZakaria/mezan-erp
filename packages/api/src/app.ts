@@ -117,6 +117,7 @@ import {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -486,6 +487,13 @@ export interface CreateAppOptions {
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
   readonly hasher?: ReturnType<typeof createScryptHasher>;
+  /**
+   * Mounts `/workflow` (docs/catalog/09 §سير العمل — إعدادات الموافقات
+   * chain-builder + الموافقات inbox) when present: `/workflow/configs` CRUD
+   * over the persisted `GateConfig` per action type, `/workflow/requests` for
+   * submitting/listing/deciding approval instances.
+   */
+  readonly workflow?: WorkflowRoutesDeps;
 }
 
 /**
@@ -894,6 +902,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         sseHeartbeatMs: options.lan.sseHeartbeatMs,
       }),
     );
+  }
+
+  if (options.workflow) {
+    app.route("/workflow", createWorkflowRoutes(options.workflow, options.resolveAuthContext));
   }
 
   return app;

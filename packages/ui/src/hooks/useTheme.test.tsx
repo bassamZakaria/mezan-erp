@@ -26,10 +26,10 @@ afterEach(() => {
 });
 
 describe("useTheme", () => {
-  it("defaults to system (no data-theme attribute) with no stored preference", () => {
+  it("defaults to light with no stored preference", () => {
     render(<ThemeProbe />);
-    expect(screen.getByTestId("theme")).toHaveTextContent("system");
-    expect(rootAttr()).toBe("none");
+    expect(screen.getByTestId("theme")).toHaveTextContent("light");
+    expect(rootAttr()).toBe("light");
   });
 
   it("setting an explicit theme applies [data-theme] on <html>", () => {

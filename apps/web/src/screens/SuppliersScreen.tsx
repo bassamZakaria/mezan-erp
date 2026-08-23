@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -11,30 +11,251 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import type { SupplierDTO } from "@mezan/contracts";
-import { useCreateSupplier, useSuppliers, useUpdateSupplier } from "../data/hooks";
+import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
+import { useCreateSupplier, usePurchaseInvoices, useSuppliers, useUpdateSupplier } from "../data/hooks";
+import { agingBucketsFor, moneyToNumber, sumMoney, useSupplierAging } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
  * of CustomersScreen.tsx: same DocumentList/DocumentDetail/SidePanel shape,
- * backed by the real `/suppliers` API. Purchase invoices/orders/returns and
- * the running "المستحق للمورد" balance are Phase-2 (document) work —
- * تبويبات فواتير المشتريات/كشف حساب/المرفقات render as explicit stubs; only
- * the supplier master record itself (incl. its `openingBalance`) is real.
+ * backed by the real `/suppliers` API.
+ *
+ * فواتير المشتريات reads the live `GET /purchases/invoices` narrowed to this
+ * supplier. كشف حساب المورد deliberately does NOT render a running balance:
+ * nothing in this build records a settlement against a purchase invoice (the
+ * invoice has no `amountPaid`, there is no payments route, and the voucher
+ * allocation sub-ledger is never populated from purchase invoices), so a net
+ * payable can only be stated as gross invoiced — the tab says exactly that and
+ * shows the gross figures `GET /reports/aging/suppliers` can honestly give.
+ *
+ * There is no attachments tab: this build has no file-storage subsystem of any
+ * kind, so the tab would be a navigational dead end rather than an empty list.
  */
+
+const PURCHASE_STATUS_LABEL: Record<PurchaseInvoiceStatusDTO, string> = {
+  draft: "مسودة",
+  confirmed: "مؤكد",
+  cancelled: "ملغي",
+};
+
+const PURCHASE_STATUS_TONE: Record<PurchaseInvoiceStatusDTO, PillTone> = {
+  draft: "neutral",
+  confirmed: "success",
+  cancelled: "danger",
+};
 
 function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-function StubTab({ label }: { label: string }) {
+function isoToDisplay(date: string): string {
+  return date.split("-").reverse().join("/");
+}
+
+function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-[8px] rounded-lg border border-dashed border-border p-[36px] text-center">
-      <StatusPill label="قريباً" tone="info" />
-      <p className="text-[12.5px] text-ink-muted">
-        تبويب "{label}" يُعرض فور ربط المستندات (فواتير المشتريات) بسجل المورد — المرحلة الثانية.
-      </p>
+    <Card className="p-[18px_20px]">
+      <p className="text-[13px] font-semibold text-danger-ink">{message}</p>
+      <Button size="sm" className="mt-[10px]" onClick={onRetry}>
+        إعادة المحاولة
+      </Button>
+    </Card>
+  );
+}
+
+function MiniStat({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
+      <div className="text-[11px] font-semibold text-ink-faint">{label}</div>
+      <div className="mt-[5px] text-[14.5px] font-bold text-ink">{value}</div>
+    </div>
+  );
+}
+
+/** فواتير مشتريات المورد — `GET /purchases/invoices`, narrowed to this supplier. */
+function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
+  const query = usePurchaseInvoices();
+  const invoices = useMemo(
+    () =>
+      (query.data ?? [])
+        .filter((inv) => inv.supplierId === supplierId)
+        .sort((a, b) => (a.date === b.date ? a.number.localeCompare(b.number) : b.date.localeCompare(a.date))),
+    [query.data, supplierId],
+  );
+
+  if (query.isError) return <TabError message="تعذّر تحميل فواتير المشتريات." onRetry={() => query.refetch()} />;
+  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل الفواتير…</p>;
+  if (invoices.length === 0) {
+    return (
+      <div className="rounded-lg border border-border bg-surface p-[22px_24px]">
+        <p className="text-[13.5px] font-semibold text-ink">لا توجد فواتير مشتريات مسجّلة لهذا المورد</p>
+        <p className="mt-[8px] max-w-[70ch] text-[12.5px] leading-[1.9] text-ink-muted">
+          أول فاتورة تُسجَّل لهذا المورد من شاشة «فواتير المشتريات» ستظهر هنا فور حفظها.
+        </p>
+      </div>
+    );
+  }
+
+  const confirmed = invoices.filter((inv) => inv.status === "confirmed");
+  const confirmedTotal = sumMoney(confirmed.map((inv) => inv.total));
+
+  return (
+    <div className="flex flex-col gap-[16px]">
+      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
+        <MiniStat label="عدد الفواتير" value={<span className="mz-num">{invoices.length}</span>} />
+        <MiniStat label="فواتير مؤكدة" value={<span className="mz-num">{confirmed.length}</span>} />
+        <MiniStat label="إجمالي المؤكد" value={<MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />} />
+        <MiniStat
+          label="آخر فاتورة"
+          value={<span className="mz-num">{invoices[0] ? isoToDisplay(invoices[0].date) : "—"}</span>}
+        />
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+        <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
+          <thead>
+            <tr className="border-b border-border text-ink-muted">
+              <th className="p-[10px] text-start font-semibold">رقم الفاتورة</th>
+              <th className="p-[10px] text-start font-semibold">رقم فاتورة المورد</th>
+              <th className="p-[10px] text-start font-semibold">التاريخ</th>
+              <th className="p-[10px] text-start font-semibold">الاستحقاق</th>
+              <th className="p-[10px] text-start font-semibold">الحالة</th>
+              <th className="p-[10px] text-end font-semibold">قبل الضريبة</th>
+              <th className="p-[10px] text-end font-semibold">الضريبة</th>
+              <th className="p-[10px] text-end font-semibold">الإجمالي</th>
+            </tr>
+          </thead>
+          <tbody>
+            {invoices.map((inv) => (
+              <tr key={inv.id} className="border-b border-border last:border-b-0">
+                <td className="mz-num p-[10px] font-semibold text-ink">{inv.number}</td>
+                <td className="mz-num p-[10px] text-ink-muted">{inv.supplierInvoiceNumber ?? "—"}</td>
+                <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.date)}</td>
+                <td className="mz-num p-[10px] text-ink-muted">{inv.dueDate ? isoToDisplay(inv.dueDate) : "—"}</td>
+                <td className="p-[10px]">
+                  <StatusPill label={PURCHASE_STATUS_LABEL[inv.status]} tone={PURCHASE_STATUS_TONE[inv.status]} />
+                </td>
+                <td className="p-[10px] text-end text-ink-muted">
+                  <MoneyValue value={num(inv.subtotal)} showUnit={false} />
+                </td>
+                <td className="p-[10px] text-end text-ink-muted">
+                  <MoneyValue value={num(inv.tax)} showUnit={false} />
+                </td>
+                <td className="p-[10px] text-end font-semibold text-ink">
+                  <MoneyValue value={num(inv.total)} showUnit={false} />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * كشف حساب المورد — deliberately NOT a running balance.
+ *
+ * A statement of account has to net settlements off the invoices, and this
+ * build records none against a purchase invoice: `PurchaseInvoiceDTO` has no
+ * paid/outstanding field, `/purchases/invoices` exposes no payments route, and
+ * the voucher allocation sub-ledger (`/open-invoices`) is never populated from
+ * purchase invoices — AP lives only on GL account 2100, with no per-supplier
+ * dimension. So the tab names that gap and shows only the gross figures that
+ * ARE true: total invoiced, and the AP aging ladder for this supplier.
+ */
+function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
+  const invoicesQuery = usePurchaseInvoices();
+  const agingQuery = useSupplierAging();
+
+  const confirmedTotal = useMemo(
+    () =>
+      sumMoney(
+        (invoicesQuery.data ?? []).filter((inv) => inv.supplierId === supplier.id && inv.status === "confirmed").map((inv) => inv.total),
+      ),
+    [invoicesQuery.data, supplier.id],
+  );
+
+  const buckets = agingBucketsFor(agingQuery.data?.rows.find((row) => row.supplierId === supplier.id));
+
+  return (
+    <div className="flex flex-col gap-[16px]">
+      <div className="rounded-lg border border-warning bg-warning-soft p-[16px_18px]">
+        <p className="text-[13.5px] font-semibold text-warning-ink">كشف حساب المورد غير متاح في هذه النسخة</p>
+        <p className="mt-[8px] max-w-[80ch] text-[12.5px] leading-[1.9] text-warning-ink">
+          كشف الحساب يتطلب أستاذاً مساعداً لكل مورد يُخصم منه ما تم سداده. لا يسجّل هذا الإصدار أي سداد على فاتورة مشتريات: الفاتورة لا
+          تحمل حقل «المسدَّد»، ولا يوجد مسار لتسجيل دفعة عليها، ودفتر تخصيص السندات على الفواتير لا يُغذّى من فواتير المشتريات. الذمم
+          الدائنة متابَعة على مستوى حساب دفتر الأستاذ (2100) فقط دون بُعد للمورد — لذلك لا يمكن احتساب رصيد جارٍ صحيح لهذا المورد، ولن
+          نعرض رقماً تقريبياً مكانه.
+        </p>
+        <p className="mt-[8px] max-w-[80ch] text-[12.5px] leading-[1.9] text-warning-ink">
+          حركة الذمم الدائنة كاملةً متاحة الآن من «دفتر أستاذ الحساب» على الحساب 2100 — لكنها مجمَّعة لكل الموردين.
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
+        <MiniStat label="الرصيد الافتتاحي (سجل المورد)" value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
+        <MiniStat
+          label="إجمالي المشتريات المؤكدة"
+          value={
+            invoicesQuery.isLoading ? (
+              <span className="text-[12.5px] font-normal text-ink-muted">جارٍ التحميل…</span>
+            ) : (
+              <MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />
+            )
+          }
+        />
+        <MiniStat label="إجمالي أعمار الفواتير (قائم)" value={<MoneyValue value={buckets.total} showUnit={false} />} />
+      </div>
+
+      <div className="rounded-lg border border-border bg-surface p-[16px_18px]">
+        <h3 className="font-display text-[13.5px] font-bold text-ink">أعمار فواتير هذا المورد</h3>
+        <p className="mt-[4px] max-w-[80ch] text-[11.5px] leading-[1.8] text-ink-faint">
+          من تقرير «أعمار ديون الموردين» — إجمالي كل فاتورة مؤكدة موزّعاً على شرائح التأخير، دون خصم أي سداد.
+        </p>
+        {agingQuery.isError ? (
+          <div className="mt-[12px]">
+            <TabError message="تعذّر تحميل تقرير أعمار ديون الموردين." onRetry={() => agingQuery.refetch()} />
+          </div>
+        ) : (
+          <div className="mt-[14px] overflow-x-auto">
+            <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
+              <thead>
+                <tr className="border-b border-border text-ink-muted">
+                  <th className="p-[8px] text-end font-semibold">جاري</th>
+                  <th className="p-[8px] text-end font-semibold">31-60 يوم</th>
+                  <th className="p-[8px] text-end font-semibold">61-90 يوم</th>
+                  <th className="p-[8px] text-end font-semibold">91-120 يوم</th>
+                  <th className="p-[8px] text-end font-semibold">أكثر من 120 يوم</th>
+                  <th className="p-[8px] text-end font-semibold">الإجمالي</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="p-[8px] text-end text-ink">
+                    <MoneyValue value={buckets.current} showUnit={false} />
+                  </td>
+                  <td className="p-[8px] text-end text-ink">
+                    <MoneyValue value={buckets.d31to60} showUnit={false} />
+                  </td>
+                  <td className="p-[8px] text-end text-ink">
+                    <MoneyValue value={buckets.d61to90} showUnit={false} />
+                  </td>
+                  <td className="p-[8px] text-end text-ink">
+                    <MoneyValue value={buckets.d91to120} showUnit={false} />
+                  </td>
+                  <td className="p-[8px] text-end text-ink">
+                    <MoneyValue value={buckets.over120} showUnit={false} />
+                  </td>
+                  <td className="p-[8px] text-end font-semibold text-ink">
+                    <MoneyValue value={buckets.total} showUnit={false} />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -123,7 +344,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
           label: "المستحق للمورد (الرصيد الافتتاحي)",
           value: <MoneyValue value={num(supplier.openingBalance)} />,
         },
-        { label: "تاريخ الإنشاء", value: "—" },
+        { label: "الرقم الضريبي", value: supplier.taxNumber ?? "لا يوجد" },
       ]}
       tabs={[
         {
@@ -151,9 +372,8 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
             </div>
           ),
         },
-        { key: "invoices", label: "فواتير المشتريات", content: <StubTab label="فواتير المشتريات" /> },
-        { key: "statement", label: "كشف حساب المورد", content: <StubTab label="كشف حساب المورد" /> },
-        { key: "attachments", label: "المرفقات", content: <StubTab label="المرفقات" /> },
+        { key: "invoices", label: "فواتير المشتريات", content: <SupplierInvoicesTab supplierId={supplier.id} /> },
+        { key: "statement", label: "كشف حساب المورد", content: <SupplierStatementTab supplier={supplier} /> },
       ]}
     />
   );

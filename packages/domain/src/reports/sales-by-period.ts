@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Money } from "../money/index.js";
-import { computeInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
@@ -75,7 +75,7 @@ export function createSalesByPeriodReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
-        const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+        const totals = salesInvoiceTotals(invoice);
         const discount = Money.fromScaled(totals.lineDiscountTotal.scaled + totals.invoiceDiscountTotal.scaled);
         const key = periodBucketKey(invoice.date, params.groupBy);
         const existing = buckets.get(key) ?? { bucket: key, count: 0, gross: 0, discount: 0, tax: 0, net: 0 };

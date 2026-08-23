@@ -13,7 +13,7 @@ import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "
 import type { DocumentGlHook } from "../documents/hooks.js";
 import type { StockLedgerService } from "../inventory/index.js";
 import { Money } from "../money/index.js";
-import { computeInvoiceTotals } from "./totals.js";
+import { salesInvoiceTotals } from "./totals.js";
 import type { SalesInvoiceRepository, SalesInvoiceStockHook, SalesInvoiceCustomerExposureHook } from "./ports.js";
 
 /** Bind the GL posting engine behind the framework's GL hook, posting as a system document. */
@@ -85,7 +85,7 @@ export function createSalesInvoiceCustomerExposureHook(
       for (const inv of invoices) {
         if (inv.id === excludeInvoiceId) continue;
         if (inv.status !== "confirmed" && inv.status !== "partially_paid") continue;
-        const totals = computeInvoiceTotals(inv.lines, inv.discount, { taxExempt: inv.customerTaxExempt });
+        const totals = salesInvoiceTotals(inv);
         total += totals.grandTotal.scaled - inv.amountPaid.scaled;
       }
       return Money.fromScaled(total);

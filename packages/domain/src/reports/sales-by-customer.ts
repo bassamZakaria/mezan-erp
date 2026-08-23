@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { Money } from "../money/index.js";
-import { computeInvoiceTotals } from "../sales-invoices/totals.js";
+import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
 import { withinDateRange } from "./period-bucket.js";
@@ -76,7 +76,7 @@ export function createSalesByCustomerReport(
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (!withinDateRange(invoice.date, params.dateFrom, params.dateTo)) continue;
-        const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
+        const totals = salesInvoiceTotals(invoice);
         const revenue = params.taxMode === "inc" ? totals.grandTotal : totals.taxableTotal;
         const outstanding = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);
         const existing = byCustomer.get(invoice.customerId) ?? {

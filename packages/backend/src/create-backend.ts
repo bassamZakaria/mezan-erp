@@ -896,6 +896,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
     reports: {
+      allocatable: vouchers.invoices,
       salesInvoices,
       purchaseInvoices,
       customers,
@@ -910,6 +911,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // accounting surface uses — no fixture ledger behind the statements.
       ledger,
       accounts,
+      // مبيعات المندوبين reads the same van-trip store /field/van-trips writes.
+      vanTrips,
+      employees: hrEmployees,
     },
     financialReports: {
       ledger,

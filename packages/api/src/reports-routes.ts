@@ -1,5 +1,7 @@
 import { Hono, type Context } from "hono";
 import {
+  Money,
+  type AllocatableInvoiceRepository,
   runReport,
   createSalesByPeriodReport,
   createSalesByItemReport,
@@ -19,6 +21,7 @@ import {
   createAgingSuppliersReport,
   createInstallmentsOverviewReport,
   createInstallmentsOverdueReport,
+  createVanSalesReport,
   createTrialBalanceReport,
   createIncomeStatementReport,
   createBalanceSheetReport,
@@ -42,6 +45,8 @@ import {
   type InstallmentLine,
   type LedgerRepository,
   type AccountRepository,
+  type VanTripRepository,
+  type EmployeeRepository,
   type RunReportOutcome,
 } from "@mezan/domain";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -57,6 +62,8 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
  */
 export interface ReportsRoutesDeps {
   readonly salesInvoices: SalesInvoiceRepository;
+  /** Allocation sub-ledger — lets the aging reports deduct what has actually been settled. */
+  readonly allocatable?: AllocatableInvoiceRepository;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   readonly customers: CustomerRepository;
   readonly suppliers: SupplierRepository;
@@ -74,6 +81,14 @@ export interface ReportsRoutesDeps {
    */
   readonly ledger: LedgerRepository;
   readonly accounts: AccountRepository;
+  /**
+   * مبيعات المندوبين data source. Optional: the van-sales report route is only
+   * mounted when a composition actually wires field sales, so an app without
+   * van trips serves no van-sales report at all rather than an empty one.
+   */
+  readonly vanTrips?: VanTripRepository;
+  /** Resolves van-trip crew ids to employee names; ids are shown verbatim when absent. */
+  readonly employees?: EmployeeRepository;
   /** ISO `YYYY-MM-DD` "today" — overridable for tests; defaults to the real date. */
   readonly today?: () => string;
 }
@@ -130,6 +145,15 @@ async function loadAllLayers(deps: ReportsRoutesDeps) {
   return lists.flat();
 }
 
+async function settledByInvoiceId(
+  deps: ReportsRoutesDeps,
+  kind: "sales" | "purchase",
+): Promise<ReadonlyMap<string, Money>> {
+  if (!deps.allocatable) return new Map();
+  const open = await deps.allocatable.listOpen({ kind });
+  return new Map(open.map((i) => [i.id, i.allocated]));
+}
+
 export function createReportsRoutes(
   deps: ReportsRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
@@ -149,14 +173,22 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createSalesByPeriodReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
@@ -186,7 +218,11 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createPurchasesBySupplierReport(firstOfMonth(today), today);
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+    );
   });
 
   app.get("/purchases/by-item", gate("purchases.invoice.view"), async (c) => {
@@ -257,7 +293,11 @@ export function createReportsRoutes(
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
     const definition = createAgingSuppliersReport(todayIso(deps));
     const [invoices, suppliers] = await Promise.all([deps.purchaseInvoices.list(), deps.suppliers.findAll()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers }));
+    const allocatedByInvoiceId = await settledByInvoiceId(deps, "purchase");
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, suppliers, allocatedByInvoiceId }),
+    );
   });
 
   // --- الأقساط ---------------------------------------------------------
@@ -273,6 +313,18 @@ export function createReportsRoutes(
     const [plans, customers] = await Promise.all([deps.installmentPlans.list(), deps.customers.findAll()]);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { plans, customers }));
   });
+
+  // --- المبيعات الميدانية ------------------------------------------------
+
+  if (deps.vanTrips) {
+    const vanTrips = deps.vanTrips;
+    app.get("/field/van-sales", gate("field.van_trip.view"), async (c) => {
+      const today = todayIso(deps);
+      const definition = createVanSalesReport(firstOfMonth(today), today);
+      const [trips, employees] = await Promise.all([vanTrips.list(), deps.employees?.list() ?? []]);
+      return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { trips, employees }));
+    });
+  }
 
   // --- القوائم المالية — Financial statements (docs/catalog/08) -------------
   // The seven statements below all compute from the REAL posted GL (loadGlContext),

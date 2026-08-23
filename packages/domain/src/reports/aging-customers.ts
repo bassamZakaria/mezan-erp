@@ -17,6 +17,13 @@ import type { ReportDefinition } from "./types.js";
 
 export interface AgingCustomersContext {
   readonly invoices: readonly SalesInvoice[];
+  /**
+   * Amount already settled per invoice id, from the allocation sub-ledger. A
+   * collection can be recorded either as `amountPaid` on the invoice or as a
+   * voucher allocation, so the outstanding balance nets whichever is larger —
+   * summing them would double-count an invoice settled through both paths.
+   */
+  readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
 }
 
 export interface AgingCustomersParams {
@@ -90,7 +97,9 @@ export function createAgingCustomersReport(
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
         if (invoice.date > params.asOfDate) continue;
         const totals = computeInvoiceTotals(invoice.lines, invoice.discount, { taxExempt: invoice.customerTaxExempt });
-        const balance = Money.fromScaled(totals.grandTotal.scaled - invoice.amountPaid.scaled);
+        const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
+        const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled);
         if (balance.scaled <= 0n) continue;
         const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr);
         const days = daysPastDue(invoice.dueDate, params.asOfDate);

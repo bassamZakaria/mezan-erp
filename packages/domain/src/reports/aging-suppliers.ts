@@ -7,14 +7,20 @@ import type { ReportDefinition } from "./types.js";
 /**
  * أعمار ديون الموردين — Supplier Debt Aging (docs/catalog/08-reports.md): the
  * AP mirror of أعمار ديون العملاء. Purchase invoices don't track payments
- * made against them yet, so every `confirmed` invoice's full total is
- * outstanding (see purchases-by-supplier.ts's note) — bucketed by days past
+ * outstanding — each invoice's total less whatever the allocation sub-ledger
+ * has settled against it, bucketed by days past
  * `dueDate` (falls back to the invoice `date` when no due date was set).
  */
 
 export interface AgingSuppliersContext {
   readonly invoices: readonly PurchaseInvoice[];
   readonly suppliers: readonly Supplier[];
+  /**
+   * Amount already settled per invoice id, from the allocation sub-ledger.
+   * Omit it and every confirmed invoice ages at its full total — which is what
+   * this report did before payments could be recorded against a supplier.
+   */
+  readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
 }
 
 export interface AgingSuppliersParams {
@@ -87,7 +93,8 @@ export function createAgingSuppliersReport(
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
         if (invoice.date > params.asOfDate) continue;
-        const outstanding = purchaseInvoiceTotal(invoice);
+        const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const outstanding = Money.fromScaled(purchaseInvoiceTotal(invoice).scaled - allocated.scaled);
         if (outstanding.scaled <= 0n) continue;
         const dueDate = invoice.dueDate ?? invoice.date;
         const existing = byBucketTotals.get(invoice.supplierId) ?? emptyBucketTotals();

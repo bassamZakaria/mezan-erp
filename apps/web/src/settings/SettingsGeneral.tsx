@@ -58,7 +58,8 @@ export function SettingsGeneral() {
     if (!draft) return;
     try {
       const validated = updateSettings(draft as TenantSettings, {});
-      const saved = await updateSettingsMutation.mutateAsync(validated);
+      const payload: TenantSettingsDTO = { ...validated, secondaryCurrencies: [...validated.secondaryCurrencies], weekendDays: [...validated.weekendDays] };
+      const saved = await updateSettingsMutation.mutateAsync(payload);
       setDraft(saved);
       setDirty(false);
       setError(null);

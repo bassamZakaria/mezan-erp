@@ -7,7 +7,7 @@ import {
   PhysicalCountService,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
-  createInventoryStockHook,
+  createInventoryOpsStockHook,
   createInventoryGlPostingHook,
   rollupStockBalance,
   extend,
@@ -311,7 +311,7 @@ export function createInventoryOpsStore(seed: InventoryOpsStoreSeed): InventoryO
     clock: now,
   });
 
-  const stockHook = createInventoryStockHook(stockLedger, (reason) => GL_ACCOUNTS_BY_REASON[reason] ?? null);
+  const stockHook = createInventoryOpsStockHook(stockLedger, (reason) => GL_ACCOUNTS_BY_REASON[reason] ?? null);
 
   const adjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: adjustmentsRepo,

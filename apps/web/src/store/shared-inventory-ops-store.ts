@@ -1,7 +1,6 @@
 import { createInventoryOpsStore } from "./inventory-ops-store";
 import { demoAccounts } from "../accounts-sample-data";
-import { demoOpenPeriod } from "../journals-sample-data";
-import { demoAdjustmentSeeds, demoTransferSeeds } from "../inventory-ops-sample-data";
+import { demoAdjustmentSeeds, demoOpenPeriod, demoTransferSeeds } from "../inventory-ops-sample-data";
 
 /**
  * ONE shared `InventoryOpsStore` instance for the 4 inventory-ops screens

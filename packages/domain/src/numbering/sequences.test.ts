@@ -16,8 +16,8 @@ describe("sequence definitions", () => {
   it("has unique codes and unique prefixes", () => {
     const codes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.code));
     const prefixes = new Set(SEQUENCE_DEFINITIONS.map((d) => d.prefix));
-    expect(codes.size).toBe(28);
-    expect(prefixes.size).toBe(28);
+    expect(codes.size).toBe(31);
+    expect(prefixes.size).toBe(31);
   });
 
   it("matches the catalog's next-number previews", () => {

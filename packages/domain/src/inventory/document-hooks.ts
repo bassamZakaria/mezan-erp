@@ -33,7 +33,7 @@ export interface AdjustmentGlAccounts {
  * the movements without a GL entry (e.g. no account mapping configured for that
  * reason yet).
  */
-export function createInventoryStockHook(
+export function createInventoryOpsStockHook(
   service: StockLedgerService,
   glAccountsForReason: (reason: AdjustmentReason) => AdjustmentGlAccounts | null = () => null,
 ): DocumentStockHook {

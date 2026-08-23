@@ -5,7 +5,7 @@ import { InMemoryDocumentRepository } from "../documents/test-helpers/in-memory-
 import { StockLedgerService } from "./stock-ledger-service.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "./test-helpers/in-memory-stores.js";
 import { stockAdjustmentDocumentType, type StockAdjustmentDocLine } from "./stock-adjustment-document.js";
-import { createInventoryStockHook } from "./document-hooks.js";
+import { createInventoryOpsStockHook } from "./document-hooks.js";
 import {
   PhysicalCountService,
   type PhysicalCount,
@@ -43,7 +43,7 @@ function harness() {
   const adjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: new InMemoryDocumentRepository<StockAdjustmentDocLine>(),
     numbering: { next: async () => ({ value: ++adjCounter, formatted: `ADJ-${String(adjCounter).padStart(6, "0")}` }) },
-    stock: createInventoryStockHook(stockLedger),
+    stock: createInventoryOpsStockHook(stockLedger),
   });
 
   let cntCounter = 0;

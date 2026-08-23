@@ -5,7 +5,7 @@ import {
   DocumentService,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
-  createInventoryStockHook,
+  createInventoryOpsStockHook,
   StockLedgerService,
   PhysicalCountService,
   type StockAdjustmentDocLine,
@@ -39,14 +39,14 @@ function harness() {
   const adjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: ops.stockAdjustments,
     numbering: { next: async () => ({ value: ++adjCounter, formatted: `ADJ-${String(adjCounter).padStart(6, "0")}` }) },
-    stock: createInventoryStockHook(stockLedger),
+    stock: createInventoryOpsStockHook(stockLedger),
   });
 
   let trfCounter = 0;
   const transfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: ops.stockTransfers,
     numbering: { next: async () => ({ value: ++trfCounter, formatted: `TRF-${String(trfCounter).padStart(6, "0")}` }) },
-    stock: createInventoryStockHook(stockLedger),
+    stock: createInventoryOpsStockHook(stockLedger),
   });
 
   let cntCounter = 0;

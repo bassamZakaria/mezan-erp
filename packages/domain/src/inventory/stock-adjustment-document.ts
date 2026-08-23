@@ -10,7 +10,7 @@
  * standalone `buildGlPosting` hook, because an OUT line's value depends on the
  * moving-average cost AT THE TIME OF POSTING — state `describeEffects` (a pure
  * function of the document) cannot read. So this type declares `buildStockPlan`
- * only; the stock-hook adapter (`createInventoryStockHook`, document-hooks.ts)
+ * only; the stock-hook adapter (`createInventoryOpsStockHook`, document-hooks.ts)
  * both applies the movements AND posts the balancing GL entry in one call to
  * the engine, reusing it wholesale instead of re-deriving WAC math here.
  *

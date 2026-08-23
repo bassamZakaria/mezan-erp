@@ -1,5 +1,15 @@
-import { Money, Qty, type AdjustmentReason, type StockAdjustmentDocLine, type StockMovementDirection, type StockTransferDocLine } from "@mezan/domain";
+import { Money, Qty, type AdjustmentReason, type FiscalPeriod, type StockAdjustmentDocLine, type StockMovementDirection, type StockTransferDocLine } from "@mezan/domain";
 import type { SeedAdjustmentCommand, SeedTransferCommand } from "./store/inventory-ops-store";
+
+/** Open fiscal period (أغسطس 2026) the inventory-ops demo posts into. */
+export const demoOpenPeriod: FiscalPeriod = {
+  id: "fp-2026-08",
+  year: 2026,
+  periodNumber: 8,
+  startDate: "2026-08-01",
+  endDate: "2026-08-31",
+  status: "open",
+};
 
 /**
  * Stock Adjustments / Transfers demo data (docs/catalog/03-inventory.md

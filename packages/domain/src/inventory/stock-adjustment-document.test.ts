@@ -5,7 +5,7 @@ import { InMemoryDocumentRepository } from "../documents/test-helpers/in-memory-
 import { StockLedgerService } from "./stock-ledger-service.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "./test-helpers/in-memory-stores.js";
 import { stockAdjustmentDocumentType, type StockAdjustmentDocLine } from "./stock-adjustment-document.js";
-import { createInventoryStockHook } from "./document-hooks.js";
+import { createInventoryOpsStockHook } from "./document-hooks.js";
 import type { InventoryGlPosting } from "./ports.js";
 
 function harness() {
@@ -25,7 +25,7 @@ function harness() {
   const service = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: new InMemoryDocumentRepository<StockAdjustmentDocLine>(),
     numbering: { next: async () => ({ value: ++counter, formatted: `ADJ-${String(counter).padStart(6, "0")}` }) },
-    stock: createInventoryStockHook(stockLedger, (reason) =>
+    stock: createInventoryOpsStockHook(stockLedger, (reason) =>
       reason === "INITIAL_STOCK" || reason === "OTHER"
         ? { inventoryAccountId: "1200", counterpartAccountId: reason === "INITIAL_STOCK" ? "3100" : "5900" }
         : { inventoryAccountId: "1200", counterpartAccountId: "5900" },

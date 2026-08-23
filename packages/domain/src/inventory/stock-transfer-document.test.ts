@@ -6,7 +6,7 @@ import { StockLedgerService } from "./stock-ledger-service.js";
 import { InMemoryStockLedger, InMemoryCostLayers, InMemorySnapshots } from "./test-helpers/in-memory-stores.js";
 import { stockTransferDocumentType, type StockTransferDocLine } from "./stock-transfer-document.js";
 import { stockAdjustmentDocumentType, type StockAdjustmentDocLine } from "./stock-adjustment-document.js";
-import { createInventoryStockHook } from "./document-hooks.js";
+import { createInventoryOpsStockHook } from "./document-hooks.js";
 import type { InventoryGlPosting } from "./ports.js";
 
 function harness() {
@@ -22,7 +22,7 @@ function harness() {
     gl: { post: async (p) => void postings.push(p) },
   });
 
-  const stockHook = createInventoryStockHook(stockLedger, () => ({
+  const stockHook = createInventoryOpsStockHook(stockLedger, () => ({
     inventoryAccountId: "1200",
     counterpartAccountId: "3100",
   }));

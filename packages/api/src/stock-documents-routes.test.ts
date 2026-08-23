@@ -6,7 +6,7 @@ import {
   StockLedgerService,
   stockAdjustmentDocumentType,
   stockTransferDocumentType,
-  createInventoryStockHook,
+  createInventoryOpsStockHook,
   createInventoryGlPostingHook,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
@@ -83,7 +83,7 @@ async function newHarness() {
     gl: glHook,
   });
 
-  const stockHook = createInventoryStockHook(stockLedger, (reason) =>
+  const stockHook = createInventoryOpsStockHook(stockLedger, (reason) =>
     reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null,
   );
 

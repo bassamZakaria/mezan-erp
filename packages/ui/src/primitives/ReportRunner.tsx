@@ -234,6 +234,17 @@ export function ReportRunner<Row>({
       </div>
       <FulcrumRule />
 
+      {/*
+        A server-side 400 names no single param, so it arrives under `_root`.
+        Without this it was looked up as a field key, matched nothing, and the
+        rejection was swallowed — the screen just sat on its empty placeholder.
+      */}
+      {fieldErrors?._root ? (
+        <Card role="alert" className="mb-[16px] border-danger p-[12px_16px] text-[12.5px] text-danger-ink">
+          {fieldErrors._root}
+        </Card>
+      ) : null}
+
       {paramFields.length > 0 ? (
         <Card className="mb-[16px] flex flex-wrap items-end gap-[16px] p-[14px_16px]">
           {paramFields.map((field) => (

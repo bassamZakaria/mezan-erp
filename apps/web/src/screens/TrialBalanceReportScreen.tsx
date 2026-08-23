@@ -26,7 +26,7 @@ export function TrialBalanceReportScreen() {
 
   const query = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", params, { enabled: hasRun });
 
-  const fieldErrors = query.error && "status" in query.error && query.error.status === 400 ? { _root: query.error.message } : undefined;
+  const fieldErrors = query.error?.fieldErrors;
   const result = query.data ?? null;
 
   return (

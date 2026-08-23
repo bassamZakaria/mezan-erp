@@ -266,6 +266,12 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    /**
+     * Per-field messages from a 400, keyed by the param they belong to, so a
+     * form can render each one against its own input. `_root` holds anything
+     * the server did not attribute to a field.
+     */
+    readonly fieldErrors?: Record<string, string>,
   ) {
     super(message);
     this.name = "ApiError";

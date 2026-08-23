@@ -53,7 +53,7 @@ export function ReportScreen<TParams extends object, Row>({ definition, apiPath,
 
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun });
 
-  const fieldErrors = query.error && "status" in query.error && query.error.status === 400 ? { _root: query.error.message } : undefined;
+  const fieldErrors = query.error?.fieldErrors;
   const result = query.data ?? null;
 
   return (

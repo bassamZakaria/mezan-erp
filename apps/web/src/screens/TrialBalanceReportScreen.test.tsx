@@ -41,7 +41,12 @@ function renderScreen() {
     "GET /financial-reports/trial-balance": (_init, path) => {
       const asOfDate = new URLSearchParams(path.split("?")[1] ?? "").get("asOfDate") ?? "";
       if (!/^\d{4}-\d{2}-\d{2}$/.test(asOfDate)) {
-        return { status: 400, body: { error: "VALIDATION_ERROR", message: "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD" } };
+        // Mirrors the real route's rejection shape (packages/api reports-routes
+        // `respond`): per-field errors, not a bare message.
+        return {
+          status: 400,
+          body: { error: "VALIDATION_ERROR", errors: [{ field: "asOfDate", message: "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD" }] },
+        };
       }
       return { body: bodyFor(asOfDate <= "2026-01-01" ? [OPENING_ROW] : [CASH_ROW, REVENUE_ROW]) };
     },

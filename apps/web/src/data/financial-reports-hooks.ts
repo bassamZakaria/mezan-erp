@@ -29,6 +29,31 @@ function toQueryString(params: Record<string, string>): string {
   return qs ? `?${qs}` : "";
 }
 
+interface ServerValidationError {
+  readonly field?: string;
+  readonly message?: string;
+}
+
+/**
+ * The report routes reject a bad parameter with
+ * `{ error, errors: [{ field, message }] }`. Discarding that body left the user
+ * staring at an unchanged empty report with no idea the server had refused it.
+ */
+async function readFieldErrors(res: { json<T>(): Promise<T> }): Promise<Record<string, string> | undefined> {
+  const body = await res
+    .json<{ errors?: readonly ServerValidationError[]; message?: string }>()
+    .catch(() => ({}) as { errors?: readonly ServerValidationError[]; message?: string });
+  const byField: Record<string, string> = {};
+  for (const e of body.errors ?? []) {
+    if (!e.message) continue;
+    const key = e.field || "_root";
+    byField[key] = byField[key] ? `${byField[key]} ${e.message}` : e.message;
+  }
+  // Routes outside the report engine reject with a bare `message` and no field.
+  if (Object.keys(byField).length === 0 && body.message) byField._root = body.message;
+  return Object.keys(byField).length > 0 ? byField : undefined;
+}
+
 export function useFinancialReport<Row>(
   reportId: string,
   apiPath: string,
@@ -41,7 +66,7 @@ export function useFinancialReport<Row>(
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/financial-reports${apiPath}${toQueryString(params)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القائمة المالية.");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القائمة المالية.", await readFieldErrors(res));
       return res.json<FinancialReportResult<Row>>();
     },
   });

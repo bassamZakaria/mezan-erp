@@ -82,6 +82,10 @@ import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
 import { StockTransfersScreen } from "./screens/StockTransfersScreen";
 import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
 import { StockBalanceScreen } from "./screens/StockBalanceScreen";
+import { AttendanceScreen } from "./screens/AttendanceScreen";
+import { LeaveRequestsScreen } from "./screens/LeaveRequestsScreen";
+import { LeavePoliciesScreen } from "./screens/LeavePoliciesScreen";
+import { LeaveAccrualBatchesScreen } from "./screens/LeaveAccrualBatchesScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
@@ -195,6 +199,10 @@ const ROUTABLE_SCREENS = {
   contracts: ContractsScreen,
   holidays: HolidaysScreen,
   "my-leave": MyLeaveScreen,
+  "hr-attendance": AttendanceScreen,
+  "hr-leave-applications": LeaveRequestsScreen,
+  "hr-leave-policies": LeavePoliciesScreen,
+  "hr-leave-accrual": LeaveAccrualBatchesScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;

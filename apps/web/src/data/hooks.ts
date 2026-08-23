@@ -3659,3 +3659,220 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
     },
   });
 }
+
+// ---------------------------------------------------------------------------
+// hr/time-leave — الحضور والانصراف / طلبات الإجازات / سياسات الإجازات / استحقاقات الإجازات
+// ---------------------------------------------------------------------------
+
+export function useHrEmployeesRef(departmentId?: string): UseQueryResult<EmployeeRefDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EmployeeRefDTO[], ApiError>({
+    queryKey: ["hr-employees-ref", departmentId ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = departmentId ? `?departmentId=${encodeURIComponent(departmentId)}` : "";
+      const res = await request(`/hr/employees-ref${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قائمة الموظفين.");
+      return res.json<EmployeeRefDTO[]>();
+    },
+  });
+}
+
+export function useAttendanceGrid(year: number, month: number): UseQueryResult<EmployeeMonthGridDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EmployeeMonthGridDTO[], ApiError>({
+    queryKey: ["hr-attendance-grid", year, month],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/attendance/grid?year=${year}&month=${month}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل جدول الحضور.");
+      return res.json<EmployeeMonthGridDTO[]>();
+    },
+  });
+}
+
+export function useAttendanceSummary(
+  employeeId: string | null,
+  year: number,
+  month: number,
+): UseQueryResult<MonthlyAttendanceSummaryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<MonthlyAttendanceSummaryDTO, ApiError>({
+    queryKey: ["hr-attendance-summary", employeeId, year, month],
+    enabled: session !== null && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/attendance/summary?employeeId=${employeeId}&year=${year}&month=${month}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل ملخص الحضور.");
+      return res.json<MonthlyAttendanceSummaryDTO>();
+    },
+  });
+}
+
+export function useMarkAttendance() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AttendanceRecordDTO, ApiError, MarkAttendanceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/attendance", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الحضور."));
+      return res.json<AttendanceRecordDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance-grid"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-attendance-summary"] });
+    },
+  });
+}
+
+export function useLeavePolicies(asOfDate?: string): UseQueryResult<LeavePolicyVersionDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeavePolicyVersionDTO[], ApiError>({
+    queryKey: ["hr-leave-policies", asOfDate ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = asOfDate ? `?asOfDate=${asOfDate}` : "";
+      const res = await request(`/hr/leave-policies${qs}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سياسات الإجازات.");
+      return res.json<LeavePolicyVersionDTO[]>();
+    },
+  });
+}
+
+/** The `/hr/leave-policies/presets` response — `@mezan/contracts` doesn't ship a schema for this read-only preset listing, so it's typed locally, matching `SalesQuoteRecord`'s precedent above. */
+export interface LeavePolicyPresetRow {
+  readonly leaveTypeCode: LeaveTypeCodeDTO;
+  readonly baseBalanceDays: number;
+  readonly accrualFrequency: string;
+  readonly carryover: string;
+  readonly carryoverMaxDays: number | null;
+  readonly payoutOnTermination: boolean;
+  readonly legallyMandatory: boolean;
+}
+
+export interface LeavePolicyPresetRecord {
+  readonly source: string;
+  readonly labelAr: string;
+  readonly effectiveDate: string;
+  readonly rows: readonly LeavePolicyPresetRow[];
+}
+
+export function useLeavePolicyPresets(): UseQueryResult<LeavePolicyPresetRecord[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeavePolicyPresetRecord[], ApiError>({
+    queryKey: ["hr-leave-policy-presets"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-policies/presets");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات الجاهزة.");
+      return res.json<LeavePolicyPresetRecord[]>();
+    },
+  });
+}
+
+export function useSetLeavePolicy() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeavePolicyVersionDTO, ApiError, SetLeavePolicyDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-policies", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ سياسة الإجازة."));
+      return res.json<LeavePolicyVersionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useApplyLeavePolicyPreset() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeavePolicyVersionDTO[], ApiError, ApplyLeavePolicyPresetDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-policies/apply-preset", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تطبيق الإعداد الجاهز."));
+      return res.json<LeavePolicyVersionDTO[]>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
+  });
+}
+
+export function useLeaveRequests(filter?: { employeeId?: string; status?: string }): UseQueryResult<LeaveRequestDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveRequestDTO[], ApiError>({
+    queryKey: ["hr-leave-requests", filter?.employeeId ?? null, filter?.status ?? null],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter?.employeeId) params.set("employeeId", filter.employeeId);
+      if (filter?.status) params.set("status", filter.status);
+      const qs = params.toString();
+      const res = await request(`/hr/leave-requests${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات الإجازات.");
+      return res.json<LeaveRequestDTO[]>();
+    },
+  });
+}
+
+export function useSubmitLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, SubmitLeaveRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+  });
+}
+
+export function useDecideLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, { id: string; body: DecideLeaveRequestDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/leave-requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل القرار."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+  });
+}
+
+export function useCancelLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] }),
+  });
+}
+
+export function useLeaveAccrualBatches(): UseQueryResult<LeaveAccrualBatchDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<LeaveAccrualBatchDTO[], ApiError>({
+    queryKey: ["hr-leave-accrual-batches"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-accrual");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل دورات استحقاق الإجازات.");
+      return res.json<LeaveAccrualBatchDTO[]>();
+    },
+  });
+}
+
+export function useRunLeaveAccrualNow() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveAccrualBatchDTO, ApiError, CreateAccrualBatchDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-accrual/run-now", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تشغيل دورة الاستحقاق."));
+      return res.json<LeaveAccrualBatchDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-accrual-batches"] }),
+  });
+}

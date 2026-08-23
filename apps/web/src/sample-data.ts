@@ -113,6 +113,10 @@ export const navGroups: NavGroup[] = [
       { key: "contracts", label: "العقود" },
       { key: "holidays", label: "الإجازات الرسمية" },
       { key: "my-leave", label: "إجازاتي" },
+      { key: "hr-attendance", label: "الحضور والانصراف" },
+      { key: "hr-leave-applications", label: "طلبات الإجازات" },
+      { key: "hr-leave-policies", label: "سياسات الإجازات" },
+      { key: "hr-leave-accrual", label: "استحقاقات الإجازات" },
     ],
   },
   {

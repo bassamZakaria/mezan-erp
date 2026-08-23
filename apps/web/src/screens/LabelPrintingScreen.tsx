@@ -1,0 +1,243 @@
+import { useMemo, useState } from "react";
+import bwipjs from "bwip-js/browser";
+import { Card, Button, EntityPicker, QtyInput, type EntityPickerOption } from "@mezan/ui";
+import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
+import { useItems } from "../data/hooks";
+
+/**
+ * طباعة الملصقات (Label Printing) — docs/catalog/03-inventory.md §"طباعة
+ * الملصقات". A stateless print builder (nothing persisted until printed,
+ * exactly like the reference screen): pick items + a label template, get a
+ * live barcode-fit check per item (`checkBarcodeFit`/`buildLabelBatch` in
+ * `@mezan/domain`), preview, and print through the same
+ * window.print()/`@page` pipeline every other printable document in this app
+ * uses (see `packages/ui/src/print/PrintView.tsx`).
+ */
+
+interface SelectedLine {
+  itemId: string;
+  nameAr: string;
+  code: string;
+  barcode: string;
+  priceMajor: string;
+  copies: number;
+}
+
+function renderBarcodeSvg(barcode: string): string | null {
+  const trimmed = barcode.trim();
+  if (trimmed === "") return null;
+  try {
+    return bwipjs.toSVG({ bcid: "code128", text: trimmed, scale: 2, height: 10, includetext: false });
+  } catch {
+    return null;
+  }
+}
+
+function LabelTile({ line, template }: { line: SelectedLine; template: (typeof LABEL_TEMPLATES)[number] }) {
+  const svg = useMemo(() => renderBarcodeSvg(line.barcode), [line.barcode]);
+  return (
+    <div
+      className="mz-label-tile flex flex-col items-center justify-between gap-[3px] overflow-hidden border border-dashed border-border bg-surface p-[2mm] text-center"
+      style={{ width: `${template.widthMm}mm`, height: `${template.heightMm}mm` }}
+    >
+      <div className="w-full truncate text-[9px] font-bold text-ink" dir="rtl">
+        {line.nameAr}
+      </div>
+      {svg ? (
+        <div className="mz-label-barcode w-full flex-1" dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : (
+        <div className="flex-1 text-[8px] text-ink-faint">لا يوجد باركود</div>
+      )}
+      <div className="flex w-full items-center justify-between text-[8px] text-ink-muted">
+        <span className="mz-num">{line.code}</span>
+        <span className="mz-num font-bold text-ink">{line.priceMajor} ج.م</span>
+      </div>
+    </div>
+  );
+}
+
+export function LabelPrintingScreen() {
+  const itemsQuery = useItems();
+  const items = itemsQuery.data ?? [];
+
+  const [pickerValue, setPickerValue] = useState<EntityPickerOption | null>(null);
+  const [lines, setLines] = useState<SelectedLine[]>([]);
+  const [templateCode, setTemplateCode] = useState<LabelTemplateCode>("THERMAL_40x30");
+
+  const options: EntityPickerOption[] = useMemo(() => {
+    const already = new Set(lines.map((l) => l.itemId));
+    return items.filter((it) => !already.has(it.id)).map((it) => ({ id: it.id, label: it.nameAr, sublabel: it.code }));
+  }, [items, lines]);
+
+  function addItem(option: EntityPickerOption | null) {
+    if (!option) return;
+    const item = items.find((it) => it.id === option.id);
+    if (!item) return;
+    setLines((prev) => [
+      ...prev,
+      {
+        itemId: item.id,
+        nameAr: item.nameAr,
+        code: item.code,
+        barcode: item.barcodes[0] ?? item.code,
+        priceMajor: item.salePrice ?? "0.00",
+        copies: 1,
+      },
+    ]);
+    setPickerValue(null);
+  }
+
+  function removeLine(itemId: string) {
+    setLines((prev) => prev.filter((l) => l.itemId !== itemId));
+  }
+
+  function setCopies(itemId: string, copies: number) {
+    setLines((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, copies } : l)));
+  }
+
+  const batchInputs: LabelBatchLineInput[] = useMemo(
+    () =>
+      lines.map((l) => ({
+        itemId: l.itemId,
+        nameAr: l.nameAr,
+        code: l.code,
+        barcode: l.barcode,
+        price: Money.fromMajor(l.priceMajor === "" ? "0" : l.priceMajor),
+        copies: l.copies,
+      })),
+    [lines],
+  );
+  const batch = useMemo(() => buildLabelBatch(templateCode, batchInputs), [templateCode, batchInputs]);
+  const template = batch.template;
+
+  const printableTiles = useMemo(
+    () => lines.flatMap((l) => Array.from({ length: Math.max(0, Math.trunc(l.copies)) }, (_, i) => ({ ...l, key: `${l.itemId}-${i}` }))),
+    [lines],
+  );
+
+  return (
+    <div className="w-full">
+      <style>{`@media print {
+        body * { visibility: hidden; }
+        .mz-print-sheet, .mz-print-sheet * { visibility: visible; }
+        .mz-print-sheet { position: absolute; inset: 0; }
+      }
+      @page { size: ${template.widthMm}mm ${template.heightMm}mm; margin: 0; }`}</style>
+
+      <div className="print:hidden">
+        <Card className="mb-[16px] p-[14px_18px]">
+          <p className="text-[12.5px] text-ink-muted">
+            السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر.
+          </p>
+        </Card>
+
+        <Card className="mb-[16px] p-[16px_18px]">
+          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">طباعة الملصقات</h2>
+
+          <div className="mb-[14px] flex flex-wrap items-end gap-[12px]">
+            <div className="min-w-[260px] flex-1">
+              <EntityPicker
+                label="إضافة صنف"
+                value={pickerValue}
+                onChange={addItem}
+                options={options}
+                placeholder="ابحث عن صنف بالاسم أو الكود..."
+                emptyMessage="لا توجد نتائج"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="label-template" className="mb-[4px] block text-[11.5px] font-semibold text-ink-faint">
+                قالب الملصق
+              </label>
+              <select
+                id="label-template"
+                value={templateCode}
+                onChange={(e) => setTemplateCode(e.target.value as LabelTemplateCode)}
+                className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-primary"
+              >
+                {LABEL_TEMPLATES.map((t) => (
+                  <option key={t.code} value={t.code}>
+                    {t.labelAr}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-surface-2 text-ink-faint">
+                <tr>
+                  <th className="p-[8px_10px] text-start font-semibold">الصنف</th>
+                  <th className="p-[8px_10px] text-start font-semibold">الباركود</th>
+                  <th className="p-[8px_10px] text-end font-semibold">السعر المطبوع</th>
+                  <th className="p-[8px_10px] text-end font-semibold">عدد النسخ</th>
+                  <th className="p-[8px_10px]" />
+                </tr>
+              </thead>
+              <tbody>
+                {batch.lines.map((line) => (
+                  <tr key={line.itemId} className="border-t border-border align-top">
+                    <td className="p-[8px_10px]">
+                      <div className="font-semibold text-ink">{line.nameAr}</div>
+                      <div className="mz-num text-[11px] text-ink-faint">{line.code}</div>
+                    </td>
+                    <td className="p-[8px_10px]">
+                      <div className="mz-num text-ink">{line.barcode || "—"}</div>
+                      {line.messageAr ? <div className="mt-[3px] text-[11px] font-semibold text-danger-ink">{line.messageAr}</div> : null}
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <span className="mz-num">{line.price.toString()}</span>
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <QtyInput value={line.copies} onChange={(v) => setCopies(line.itemId, v)} min={1} max={999} step={1} aria-label={`عدد نسخ ${line.nameAr}`} />
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <Button size="sm" onClick={() => removeLine(line.itemId)}>
+                        إزالة
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {batch.lines.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-[16px] text-center text-[12.5px] text-ink-muted">
+                      لم تتم إضافة أي صنف بعد.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-[12px] flex items-center justify-between">
+            <span className="text-[12.5px] font-semibold text-ink">
+              الإجمالي: <span className="mz-num">{batch.totalLabelCount}</span> ملصق
+            </span>
+            <Button variant="primary" disabled={batch.lines.length === 0 || batch.hasBlockingIssues} onClick={() => window.print()}>
+              معاينة وطباعة
+            </Button>
+          </div>
+        </Card>
+
+        {lines.length > 0 ? (
+          <Card className="p-[16px_18px]">
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">معاينة الملصق</h3>
+            <div className="flex flex-wrap gap-[10px]">
+              {lines.slice(0, 6).map((l) => (
+                <LabelTile key={l.itemId} line={l} template={template} />
+              ))}
+            </div>
+          </Card>
+        ) : null}
+      </div>
+
+      <div className="mz-print-sheet hidden flex-wrap gap-[2mm] print:flex">
+        {printableTiles.map((tile) => (
+          <LabelTile key={tile.key} line={tile} template={template} />
+        ))}
+      </div>
+    </div>
+  );
+}

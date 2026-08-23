@@ -48,7 +48,7 @@ export const MODULES: readonly ModuleDef[] = [
   { id: "dashboard", labelAr: "لوحة التحكم", count: 2 },
   { id: "sales", labelAr: "المبيعات", count: 29 },
   { id: "purchases", labelAr: "المشتريات", count: 34 },
-  { id: "inventory", labelAr: "المخزون", count: 15 },
+  { id: "inventory", labelAr: "المخزون", count: 21 },
   { id: "field", labelAr: "المبيعات الميدانية", count: 4 },
   { id: "accounting", labelAr: "المحاسبة", count: 17 },
   { id: "treasury", labelAr: "الخزينة", count: 26 },
@@ -150,7 +150,7 @@ const ROWS: readonly Row[] = [
   ["purchases.landed_cost.delete_draft", "purchases.landed_cost.view"],
   ["purchases.supplier360.view", "purchases.supplier.view"],
 
-  // 4. inventory — 12
+  // 4. inventory — 21
   ["inventory.item.view"],
   ["inventory.item.create", "inventory.item.view"],
   ["inventory.item.edit", "inventory.item.view"],
@@ -166,6 +166,13 @@ const ROWS: readonly Row[] = [
   ["inventory.count.view"],
   ["inventory.count.create", "inventory.count.view"],
   ["inventory.count.confirm", "inventory.count.view"],
+  // inv/labels-templates-writedown — label printing, product templates, aging write-down
+  ["inventory.label.print", "inventory.item.view"],
+  ["inventory.template.view"],
+  ["inventory.template.manage", "inventory.template.view"],
+  ["inventory.template.generate", "inventory.template.view"],
+  ["inventory.writedown.view"],
+  ["inventory.writedown.run", "inventory.writedown.view"],
 
   // 5. field (van sales) — 4
   ["field.van_trip.view"],

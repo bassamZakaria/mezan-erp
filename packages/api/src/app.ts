@@ -112,6 +112,14 @@ import {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
+import {
+  createInventoryWritedownRoutes,
+  type InventoryWritedownRoutesDeps,
+} from "./inventory-writedown-routes.js";
+import {
+  createProductTemplatesRoutes,
+  type ProductTemplatesRoutesDeps,
+} from "./product-templates-routes.js";
 
 /**
  * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
@@ -247,6 +255,21 @@ export interface CreateAppOptions {
     readonly service: PhysicalCountService;
     readonly resolveAuthContext?: AuthContextResolver;
   };
+  /**
+   * Mounts `/inventory/writedown-runs` (docs/tasks.md Phase 4 "Aging-based
+   * inventory write-down batch") when present: a manually-triggered,
+   * per-period-idempotent monthly provisioning job that posts Dr write-down
+   * expense / Cr the 1190-style contra-asset provision for slow-moving
+   * stock, through the REAL GL posting engine. Never touches an item's
+   * recorded WAC/cost layers.
+   */
+  readonly inventoryWritedown?: InventoryWritedownRoutesDeps;
+  /**
+   * Mounts `/inventory/product-templates` (docs/catalog/03-inventory.md
+   * §"قوالب المنتجات") when present: attribute-driven templates + the
+   * variant/SKU generator (creates REAL Items).
+   */
+  readonly productTemplates?: ProductTemplatesRoutesDeps;
   /**
    * Mounts the GL posting engine under `/gl` (docs/catalog/04 §القيود المحاسبية)
    * when present — omit it for no `/gl` routes. Bundles its own ledger,
@@ -792,6 +815,18 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/inventory/physical-counts",
       createPhysicalCountsRoutes(options.physicalCounts.service, options.physicalCounts.resolveAuthContext),
+    );
+  }
+  if (options.inventoryWritedown) {
+    app.route(
+      "/inventory/writedown-runs",
+      createInventoryWritedownRoutes(options.inventoryWritedown, options.resolveAuthContext),
+    );
+  }
+  if (options.productTemplates) {
+    app.route(
+      "/inventory/product-templates",
+      createProductTemplatesRoutes(options.productTemplates, options.resolveAuthContext),
     );
   }
 

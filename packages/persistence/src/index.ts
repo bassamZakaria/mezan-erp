@@ -180,3 +180,11 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+export {
+  createSqliteWritedownRunRepository,
+  type SqliteWritedownRunRepositoryHandle,
+} from "./writedown-run-store.js";
+export {
+  createSqliteProductTemplateStore,
+  type SqliteProductTemplateStoreHandle,
+} from "./product-template-store.js";

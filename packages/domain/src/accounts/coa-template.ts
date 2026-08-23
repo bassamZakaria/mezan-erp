@@ -51,7 +51,9 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2200", code: "2200", nameAr: "ضريبة القيمة المضافة مستحقة", nameEn: "Output VAT Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   // hr/master-data — employee-related liability accounts, appended so the
   // sibling HR sub-phases (payroll, leave-accrual) have a stable account to
-  // post against without needing their own COA-template edits.
+  // post against without needing their own COA-template edits. hr/time-leave's
+  // Leave Accrual Batches posts against 2180 (Accrued Leave Liability) below
+  // rather than adding a second, duplicate leaf.
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
 
@@ -77,6 +79,8 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Added by hr/time-leave — Leave Accrual Batches' GL posting default expense account.
+  { id: "5300", code: "5300", nameAr: "مصروف استحقاق الإجازات", nameEn: "Leave Accrual Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 ];
 
 /**

@@ -14,6 +14,35 @@
 
 ---
 
+## Build status (as of 2026-08-23)
+
+This section is maintained as the plan executes; §4 below stays the unmodified original phase design.
+
+**Done.** Every v1 domain named in §4 has landed: Foundations (persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing skeleton, numbering, audit trail, workflow-engine core, notification bus core, RTL app shell, Electron shell + backup/restore) through Phase 12 (CRM + Projects + Fixed Assets + Field/Van Sales). Concretely, `packages/domain/src` holds ~45 domain modules covering accounts, GL/journal posting, cost centers + cost-center P&L, fiscal periods, tax rates, exchange rates + FX revaluation, reconciliation, items, customers/suppliers/partners, sales quotes/invoices/returns, price lists, promotions, credit control, purchasing (RFQ→PO→GRN→invoice), purchase returns, landed costs, inventory, treasury accounts, vouchers, cheques, bank reconciliation, installments, manufacturing, CRM, projects, fixed assets, field sales, permissions, roles, users, workflow, entitlements, licensing, numbering, audit, events, ETA, settings and the LAN host. Each has a persistence + API layer and is mounted in `packages/backend`. The engines called out as the hardest parts of the plan — double-entry posting with balance/period enforcement, WAC costing with immutable cost layers, the 26-action-type workflow gate, the 25-sequence numbering engine, the 268-permission catalog with dependency resolution — are all implemented and covered by unit tests, plus a recent backfill pass added component/unit coverage for previously-thin modules. The real-data control panel described in `docs/web-data-wiring.md` (typed hooks over one platform-swapped transport, real loading/empty/error states, no static arrays driving a screen) is in place and is now the pattern nearly every screen follows; the most recent merge to `main` mounted the manufacturing/RFQ/historical-import/returns/landed-costs/installments backends and converted the remaining sample-data screens.
+
+**In progress.**
+- **Real-data sweep, finishing touches** — a handful of `*-sample-data.ts` files (`sample-data.ts`, `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`) still exist under `apps/web/src` and are being retired screen-by-screen per the pattern in `docs/web-data-wiring.md`; most consuming screens have already migrated but a final pass is needed to confirm zero remaining static-array-driven screens and delete the leftover files.
+- **Manufacturing/RFQ mount** — domain + persistence + API layers exist for Manufacturing (BOMs, work orders, configurable-product instances) and RFQs; the backend-mount and web-screen wiring landed in the most recent merge and needs a stabilization pass (edge cases, e2e coverage) before being considered fully hardened.
+- **SQLite write concurrency** — a dedicated `fix/sqlite-concurrency` branch/worktree is active, addressing correctness under concurrent writers (numbering counters, multi-till LAN usage, `BEGIN IMMEDIATE` locking behavior) ahead of the LAN multi-till feature being load-bearing.
+- **Bug-hunt** — an active sweep across the app looking for functional defects (the kind called out in `docs/backlog.md` §8 as worth deliberately avoiding, e.g. RTL direction handling, i18n fallback gaps, navigation-target mismatches) before the next stabilization checkpoint.
+- Several phase branches (`phase1/users-roles`, `phase4/inventory-ops`, `phase56/returns-landed-installments`, `phase9/accounting-depth`, `phase9/financial-statements`, `sweep/real-data-screens`) and Playwright e2e-stabilization worktrees remain open alongside already-merged work, reconciling incremental hardening and test coverage against what's landed on `main`.
+
+**Deferred (by product decision, not by gap — see §1 "v1 Scope" and `docs/backlog.md` §1).**
+- **HR & Payroll** (backlog Phase 13) — all 13 screens (employees, departments, job titles, attendance, holidays, contracts, leave requests/policies, leave accrual batches, payroll runs, advances, my-leave, shift settings). The payroll calculation-engine internals are flagged in `docs/backlog.md` as the single largest specification hole in the whole catalog and need a standalone design pass before implementation starts.
+- **POS** (backlog Phase 14) — terminals, sessions/shifts, sales/refunds ledgers, discount approvals, restaurant mode (tables/kitchen/reservations/deliveries), loyalty, and the net-new POS selling screen (no reference implementation exists anywhere — needs its own design spike with a real cashier before being built).
+- **Cloud/SaaS website edition** (backlog Phase 15) — Postgres dialect + dual-engine conformance suite, cloud JWT + Row-Level Security, `apps/server` as a real hosted multi-tenant server, SSE + Redis realtime fan-out, S3 storage, subscription→entitlements, tenant onboarding, API keys/webhooks/WhatsApp integration. The architecture (ports-first persistence, transport-agnostic Hono app layer) is deliberately built to make this additive later, not a rewrite — nothing here is started.
+
+**Remaining hardening (before v1 can be called release-ready).**
+- Finish the real-data sweep (above) and delete every dead `*-sample-data.ts` file once its last consumer is converted.
+- Close out the SQLite concurrency fix and land it on `main`, including a test that exercises concurrent numbering-sequence allocation and LAN multi-till writers.
+- Stabilize e2e coverage — several `test/e2e-*` worktrees are mid-flight; consolidate into a green, deterministic Playwright suite (browser project) run on every change, per the CI plan in §2.7.
+- Complete the bug-hunt sweep and fold findings into either immediate fixes or tracked backlog items, cross-checked against the known-defects list already called out in `docs/backlog.md` §8 (so known source-app bugs aren't silently reintroduced).
+- Merge the outstanding phase branches into `main` (or confirm their content already landed via a later merge) so the branch list reflects actual `main` state, not stale in-flight work.
+- Re-run the golden-ledger fixture suite and the permission/workflow/numbering invariant tests as a release gate once the above lands, per the testing strategy in §2.7.
+- Decide and record the open product decisions in §6.3 that are still genuinely open (licensing mechanism finalization, installment late-fee rule, FIFO-in-v1, delivery notes, branch-scoped numbering) — none block current development but several block calling specific v1 issues "done" rather than "buildable."
+
+---
+
 ## Market & competitive notes (for review)
 
 Inputs from a review of a competing Egyptian ERP's public marketing site, gathered to sanity-check our approach and surface possible catalog gaps. These are **discussion inputs for a "what do we actually need for v1" review, not decisions or committed scope** — each item needs a team call before it changes a plan or a backlog issue.

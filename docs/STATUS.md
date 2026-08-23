@@ -96,8 +96,9 @@ again" bugs.
 - **i18n and the language switcher** — not started. Every string is an inline
   Arabic literal and `lang` is hardcoded. Held back deliberately while ~30 screens
   were under construction; now unblocked.
-- **Reports** — 19 of 25. Missing: sales-by-salesperson, van sales, promotions,
-  expiring-soon (FEFO), make-vs-buy. The two POS reports wait on POS.
+- **Reports** — 21 of 25. Missing: sales-by-salesperson, promotions,
+  make-vs-buy. The two POS reports wait on POS. (Van sales was listed as missing
+  here while it was in fact built, routed and in the nav — corrected on audit.)
 - **WhatsApp settings** — the reference itself only exposes a module-gated stub.
 
 ## Known defects and open decisions
@@ -128,9 +129,10 @@ sink at their route layer.
 2. **Purchase receipt/invoice cancel routes 404.** They mount only when
    `purchases.layers` is supplied and `create-backend` does not pass it.
    Enabling them changes GL and stock reversal behaviour, so it wants a decision.
-3. **Three reports need schema changes, not report code** — sales-by-salesperson
-   needs a rep field on invoices; expiring-soon (FEFO) needs batch/expiry on
-   stock layers; make-vs-buy needs purchase-cost comparison data.
+3. **Two reports need schema changes, not report code** — sales-by-salesperson
+   needs a rep field on invoices; make-vs-buy needs purchase-cost comparison
+   data. (Expiring-soon (FEFO) was the third; stock layers now carry an optional
+   batch and expiry, so it is built.)
 4. **Promotions are never persisted to documents.** The engine computes
    discounts through an `/evaluate` preview only, so the promotions report
    cannot count usage. Writing the applied promotion onto the invoice at confirm

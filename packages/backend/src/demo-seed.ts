@@ -79,6 +79,12 @@ const ITEMS = [
   { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205" },
 ];
 
+/** Perishables — the only items that carry batches and expiry dates (FEFO). */
+const PERISHABLE_ITEMS = [
+  { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "لبن كامل الدسم ١ لتر", nameEn: "Full-Fat Milk 1L", salePrice: "38", costPrice: "27" },
+  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "زبادي طبيعي ١٠٠ جم", nameEn: "Plain Yoghurt 100g", salePrice: "12", costPrice: "8" },
+];
+
 const COST_CENTERS = [
   { id: "CC-DEMO-1", code: "CC-100", nameAr: "المبيعات", nameEn: "Sales" },
   { id: "CC-DEMO-2", code: "CC-200", nameAr: "الإدارة", nameEn: "Administration" },
@@ -111,6 +117,33 @@ const PURCHASE_INVOICES = [
   },
 ];
 
+/**
+ * The perishable receipts arrive OUT of expiry order on purpose: PI-DEMO-3
+ * lands the LATER-expiring milk batch first, PI-DEMO-4 the earlier one. The
+ * sale below then proves the issue took the earliest-expiring layer rather
+ * than the earliest-received one.
+ */
+const PERISHABLE_PURCHASE_INVOICES = [
+  {
+    id: "PI-DEMO-3",
+    supplierId: "SUPP-DEMO-1",
+    date: "2026-07-28",
+    lines: [
+      { itemId: "ITEM-DEMO-5", qty: "150", unitCost: "27", batchNo: "MLK-2607", expiryDate: "2026-10-20" },
+      { itemId: "ITEM-DEMO-6", qty: "400", unitCost: "8", batchNo: "YOG-2607", expiryDate: "2026-09-30" },
+    ],
+  },
+  {
+    id: "PI-DEMO-4",
+    supplierId: "SUPP-DEMO-2",
+    date: "2026-08-06",
+    lines: [
+      { itemId: "ITEM-DEMO-5", qty: "100", unitCost: "29", batchNo: "MLK-2708", expiryDate: "2026-09-05" },
+      { itemId: "ITEM-DEMO-6", qty: "250", unitCost: "9", batchNo: "YOG-2708", expiryDate: "2026-08-27" },
+    ],
+  },
+];
+
 const SALES_INVOICES = [
   {
     id: "INV-DEMO-1",
@@ -139,12 +172,22 @@ const SALES_INVOICES = [
       { itemId: "ITEM-DEMO-1", qty: "15", unitPrice: "180" },
     ],
   },
+  {
+    id: "INV-DEMO-4",
+    customerId: "CUST-DEMO-1",
+    date: "2026-08-20",
+    dueDate: "2026-09-19",
+    lines: [
+      { itemId: "ITEM-DEMO-5", qty: "60", unitPrice: "38" },
+      { itemId: "ITEM-DEMO-6", qty: "300", unitPrice: "12" },
+    ],
+  },
 ];
 
 const VAT_PERCENT = 14;
 
 function itemNameOf(itemId: string): string {
-  const item = ITEMS.find((i) => i.id === itemId);
+  const item = [...ITEMS, ...PERISHABLE_ITEMS].find((i) => i.id === itemId);
   if (!item) throw new Error(`[demo-seed] unknown item ${itemId}`);
   return item.nameAr;
 }
@@ -178,6 +221,20 @@ export async function seedDemoTenant(app: App): Promise<void> {
       inventoryAccountId: ACCOUNTS.inventory,
     });
   }
+  for (const item of PERISHABLE_ITEMS) {
+    await step(app, "POST", "/items", {
+      ...item,
+      type: "stock",
+      baseUnitCode: "PCS",
+      taxRatePercent: VAT_PERCENT,
+      trackInventory: true,
+      trackBatches: true,
+      trackExpiry: true,
+      revenueAccountId: ACCOUNTS.revenue,
+      cogsAccountId: ACCOUNTS.cogs,
+      inventoryAccountId: ACCOUNTS.inventory,
+    });
+  }
   for (const costCenter of COST_CENTERS) {
     await step(app, "POST", "/cost-centers", { ...costCenter, branchId: BRANCH_ID });
   }
@@ -185,7 +242,7 @@ export async function seedDemoTenant(app: App): Promise<void> {
     await step(app, "POST", "/treasury-accounts", { ...account, currency: "EGP", branchId: BRANCH_ID });
   }
 
-  for (const invoice of PURCHASE_INVOICES) {
+  for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
     await step(app, "POST", "/purchases/invoices", {
       id: invoice.id,
       supplierId: invoice.supplierId,

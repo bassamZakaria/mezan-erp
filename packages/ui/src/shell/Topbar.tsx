@@ -5,58 +5,6 @@ import type { ThemePreference } from "../hooks/useTheme";
 import { TopbarMenu } from "./TopbarMenu";
 import type { ShellUser, UserMenuItem } from "./types";
 
-/**
- * A notification row as the shell renders it. Kept here (rather than in the
- * app) because `apps/web`'s notification hooks type their feed against it.
- */
-export interface ShellNotification {
-  id: string;
-  title: string;
-  body?: string;
-  at?: string;
-  /** Undefined when the caller has no read-state to report. */
-  read?: boolean;
-}
-
-export interface TopbarScopeOption {
-  id: string;
-  label: string;
-}
-
-interface ScopeSelectProps {
-  ariaLabel: string;
-  value: string | null;
-  onChange?: (id: string | null) => void;
-  allLabel: string;
-  options: readonly TopbarScopeOption[];
-  icon: ReactNode;
-}
-
-/** One working-scope dropdown (branch or warehouse) — a native `<select>` styled as a topbar pill so it stays keyboard- and screen-reader-accessible. */
-function ScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon }: ScopeSelectProps) {
-  return (
-    <div className="relative flex items-center gap-[7px] rounded-pill border border-border bg-surface-2 ps-[12px] pe-[8px] py-[7px] text-[12.5px] font-medium text-ink-muted transition-colors hover:border-border-strong">
-      {icon}
-      <select
-        aria-label={ariaLabel}
-        value={value ?? ""}
-        onChange={(event) => onChange?.(event.target.value === "" ? null : event.target.value)}
-        className="cursor-pointer appearance-none bg-transparent pe-[14px] text-[12.5px] font-medium text-ink-muted outline-none"
-      >
-        <option value="">{allLabel}</option>
-        {options.map((opt) => (
-          <option key={opt.id} value={opt.id}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      <svg aria-hidden viewBox="0 0 12 12" fill="none" className="pointer-events-none absolute end-[8px] h-[9px] w-[9px] opacity-70">
-        <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </div>
-  );
-}
-
 export interface TopbarProps {
   onOpenCommandPalette: () => void;
   searchPlaceholder?: string;
@@ -72,21 +20,6 @@ export interface TopbarProps {
   userMenuItems?: UserMenuItem[];
   user: ShellUser;
   className?: string;
-  /**
-   * Working-branch / warehouse selectors — real dropdowns that narrow which
-   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
-   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
-   * not a cosmetic relabel. Omit `branchOptions` to render neither — never
-   * rendered with a fabricated option list.
-   */
-  branchOptions?: readonly TopbarScopeOption[];
-  warehouseOptions?: readonly TopbarScopeOption[];
-  selectedBranchId?: string | null;
-  selectedWarehouseId?: string | null;
-  onSelectBranch?: (branchId: string | null) => void;
-  onSelectWarehouse?: (warehouseId: string | null) => void;
-  allBranchesLabel?: string;
-  allWarehousesLabel?: string;
 }
 
 /** Topbar — search launcher (Ctrl K), tenant chip, branch scope chip, theme toggle, notifications, user menu. */
@@ -103,14 +36,6 @@ export function Topbar({
   userMenuItems = [],
   user,
   className,
-  branchOptions,
-  warehouseOptions = [],
-  selectedBranchId = null,
-  selectedWarehouseId = null,
-  onSelectBranch,
-  onSelectWarehouse,
-  allBranchesLabel = "كل الفروع",
-  allWarehousesLabel = "كل المخازن",
 }: TopbarProps) {
   const isDark = theme === "dark";
 
@@ -155,37 +80,6 @@ export function Topbar({
           </svg>
           {scopeLabel}
         </div>
-      ) : null}
-
-      {branchOptions && branchOptions.length > 0 ? (
-        <ScopeSelect
-          ariaLabel="الفرع الحالي"
-          value={selectedBranchId}
-          onChange={onSelectBranch}
-          allLabel={allBranchesLabel}
-          options={branchOptions}
-          icon={
-            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
-              <path d="M3 8.5 10 3l7 5.5V16a1 1 0 0 1-1 1h-3v-5H7v5H4a1 1 0 0 1-1-1V8.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-          }
-        />
-      ) : null}
-
-      {branchOptions && branchOptions.length > 0 ? (
-        <ScopeSelect
-          ariaLabel="المخزن الحالي"
-          value={selectedWarehouseId}
-          onChange={onSelectWarehouse}
-          allLabel={allWarehousesLabel}
-          options={warehouseOptions}
-          icon={
-            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-ink-faint">
-              <rect x="3" y="7" width="14" height="9" rx="1.2" stroke="currentColor" strokeWidth="1.4" />
-              <path d="M2.5 7 10 3l7.5 4" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-          }
-        />
       ) : null}
 
       <IconButton aria-label="تبديل المظهر" onClick={onToggleTheme}>

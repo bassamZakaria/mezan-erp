@@ -2,10 +2,11 @@ import type { Page } from "@playwright/test";
 
 /**
  * Phase 1 added a desktop login gate in front of the app shell
- * (apps/web/src/login/LoginScreen.tsx — App.tsx's `mode === "login"`).
+ * (apps/web/src/login/LoginScreen.tsx — App.tsx renders it whenever
+ * ApiContext has no session).
  * Every screen this suite exercises lives behind it, so every spec goes
  * through here first. The demo PIN (1234) is hardcoded sample data
- * (packages/backend/src/seed.ts's SEED_ADMIN_PIN) — not a secret.
+ * (the seeded admin PIN) — not a secret.
  */
 export async function loginAsDemoUser(page: Page): Promise<void> {
   await page.goto("/");

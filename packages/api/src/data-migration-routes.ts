@@ -1,9 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   Money,
-  Qty,
-  previewOpeningBalanceImport,
   createDepartment,
   createEmployee,
   createTreasuryAccount,
@@ -30,22 +27,7 @@ import {
   type CreateAssetCategoryCommand,
   type CreateAssetCommand,
   type AlternateUnit,
-  type WarehouseRepository,
-  type DocumentService,
-  type StockAdjustmentDocLine,
-  type OpeningBalanceImportRowInput,
-  type ImportRowError,
 } from "@mezan/domain";
-import { openingBalanceImportBatchSchema, type OpeningBalanceImportRowDTO } from "@mezan/contracts";
-
-/**
- * Commit must be all-or-nothing, so the route needs a transaction boundary it
- * does not own. Declared here as a port rather than imported from
- * @mezan/persistence: no other production api module depends on a driver.
- */
-export interface DataMigrationTransactor {
-  run<T>(fn: () => Promise<T>): Promise<T>;
-}
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -179,25 +161,7 @@ export interface DataMigrationRoutesDeps {
     purchaseInvoices: number;
     purchaseReturns: number;
   }>;
-  /**
-   * Optional — mounts the item opening-balance step (`/opening-balances`),
-   * which posts ONE `INITIAL_STOCK` stock adjustment per committed batch
-   * through the real document service. Omit all three and that step is simply
-   * not served.
-   */
-  readonly warehouses?: WarehouseRepository;
-  readonly stockAdjustments?: DocumentService<StockAdjustmentDocLine>;
-  readonly transact?: DataMigrationTransactor;
   readonly resolveAuthContext?: AuthContextResolver;
-}
-
-function toOpeningBalanceRows(rows: readonly OpeningBalanceImportRowDTO[]): OpeningBalanceImportRowInput[] {
-  return rows.map((r) => ({
-    rowNumber: r.rowNumber,
-    itemCode: r.itemCode,
-    qty: Qty.fromMajor(r.qty),
-    unitCost: Money.fromMajor(r.unitCost),
-  }));
 }
 
 async function resolveDefaultBranchId(branches: BranchRepository, branchCode: string | undefined): Promise<string | undefined> {
@@ -690,74 +654,6 @@ export function createDataMigrationRoutes(
       ...historical,
     });
   });
-
-
-  // --- item opening balances (one warehouse per batch — chosen once, not per row) ---
-  const openingBalanceWarehouses = deps.warehouses;
-  const openingBalanceAdjustments = deps.stockAdjustments;
-  if (openingBalanceWarehouses && openingBalanceAdjustments) {
-    async function resolveOpeningBalanceLines(c: Context, body: unknown) {
-      const parsed = openingBalanceImportBatchSchema.safeParse(body);
-      if (!parsed.success) {
-        return { response: c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400) } as const;
-      }
-      const warehouse = await openingBalanceWarehouses!.findById(parsed.data.warehouseId);
-      if (!warehouse) {
-        return { response: c.json({ error: "WAREHOUSE_NOT_FOUND" }, 404) } as const;
-      }
-      const preview = previewOpeningBalanceImport(toOpeningBalanceRows(parsed.data.rows));
-      const errors: ImportRowError[] = [...preview.errors];
-      const lines: { itemId: string; qty: Qty; unitCost: Money }[] = [];
-      for (const row of preview.valid) {
-        const item = await deps.items.findByCode(row.itemCode);
-        if (!item) {
-          errors.push({ rowNumber: row.rowNumber, reasons: [`الصنف بالكود "${row.itemCode}" غير موجود`] });
-          continue;
-        }
-        lines.push({ itemId: item.id, qty: row.qty, unitCost: row.unitCost });
-      }
-      errors.sort((a, b) => a.rowNumber - b.rowNumber);
-      return { data: parsed.data, lines, errors } as const;
-    }
-
-    app.post("/opening-balances/preview", gate("inventory.adjustment.create"), async (c) => {
-      const body = await c.req.json();
-      const resolved = await resolveOpeningBalanceLines(c, body);
-      if ("response" in resolved) return resolved.response;
-      const total = (body as { rows?: unknown[] }).rows?.length ?? 0;
-      return c.json({ validCount: resolved.lines.length, total, errors: resolved.errors });
-    });
-
-    app.post("/opening-balances/commit", gate("inventory.adjustment.create"), async (c) => {
-      const body = await c.req.json();
-      const resolved = await resolveOpeningBalanceLines(c, body);
-      if ("response" in resolved) return resolved.response;
-      const total = (body as { rows?: unknown[] }).rows?.length ?? 0;
-      if (resolved.errors.length > 0 || resolved.lines.length === 0) {
-        return c.json({ validCount: resolved.lines.length, total, errors: resolved.errors }, 422);
-      }
-      try {
-        const draft = await openingBalanceAdjustments!.createDraft({
-          id: randomUUID(),
-          date: resolved.data.date,
-          memo: "استيراد أرصدة افتتاحية",
-          lines: resolved.lines.map((l) => ({
-            itemId: l.itemId,
-            warehouseId: resolved.data.warehouseId,
-            reason: "INITIAL_STOCK",
-            direction: "IN",
-            qty: l.qty,
-            unitCost: l.unitCost,
-          })),
-        });
-        const { document } = await openingBalanceAdjustments!.confirm(draft.id);
-        return c.json({ validCount: resolved.lines.length, total, errors: [], createdIds: [document.id] }, 201);
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        return c.json({ error: "OPENING_BALANCE_IMPORT_FAILED", message }, 422);
-      }
-    });
-  }
 
   return app;
 }

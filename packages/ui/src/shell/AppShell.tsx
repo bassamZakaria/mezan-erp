@@ -3,7 +3,7 @@ import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
-import { Topbar, type TopbarScopeOption } from "./Topbar";
+import { Topbar } from "./Topbar";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 export interface AppShellProps {
@@ -22,13 +22,6 @@ export interface AppShellProps {
   brandSub?: string;
   children: ReactNode;
   className?: string;
-  /** Working-branch / warehouse selectors, forwarded straight to `<Topbar>` — see its own props doc. */
-  branchOptions?: readonly TopbarScopeOption[];
-  warehouseOptions?: readonly TopbarScopeOption[];
-  selectedBranchId?: string | null;
-  selectedWarehouseId?: string | null;
-  onSelectBranch?: (branchId: string | null) => void;
-  onSelectWarehouse?: (warehouseId: string | null) => void;
 }
 
 /**
@@ -51,12 +44,6 @@ export function AppShell({
   brandSub,
   children,
   className,
-  branchOptions,
-  warehouseOptions,
-  selectedBranchId,
-  selectedWarehouseId,
-  onSelectBranch,
-  onSelectWarehouse,
 }: AppShellProps) {
   const { theme, toggleTheme } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -87,12 +74,6 @@ export function AppShell({
           notificationsPanel={notificationsPanel}
           userMenuItems={userMenuItems}
           user={user}
-          branchOptions={branchOptions}
-          warehouseOptions={warehouseOptions}
-          selectedBranchId={selectedBranchId}
-          selectedWarehouseId={selectedWarehouseId}
-          onSelectBranch={onSelectBranch}
-          onSelectWarehouse={onSelectWarehouse}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
       </div>

@@ -1,23 +1,11 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import {
-  authHeaders,
-  loadPersistedScopeSelection,
-  loadPersistedSession,
-  NO_SCOPE_SELECTION,
-  persistScopeSelection,
-  persistSession,
-  type ScopeSelection,
-  type Session,
-} from "./session";
+import { authHeaders, loadPersistedSession, persistSession, type Session } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
 
 interface ApiContextValue {
   readonly session: Session | null;
   setSession(session: Session | null): void;
-  /** The topbar's working-branch/warehouse selector (data/hub-hooks.ts `useScopeSelector`). */
-  readonly scopeSelection: ScopeSelection;
-  setScopeSelection(selection: ScopeSelection): void;
-  /** Issues a request with the current session's auth headers (narrowed by `scopeSelection`) merged in. */
+  /** Issues a request with the current session's auth headers merged in. */
   request(path: string, init?: RequestInit): Promise<TransportResponse>;
 }
 
@@ -39,37 +27,25 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
   const [session, setSessionState] = useState<Session | null>(() =>
     initialSession !== undefined ? initialSession : loadPersistedSession(),
   );
-  const [scopeSelection, setScopeSelectionState] = useState<ScopeSelection>(loadPersistedScopeSelection);
   const resolvedTransport = useMemo<Transport>(() => transport ?? resolveDefaultTransport(), [transport]);
 
   const setSession = useCallback((next: Session | null) => {
     setSessionState(next);
     persistSession(next);
-    // A new session (login/logout/switch user) can carry a different branch/warehouse
-    // scope, so a stale narrower selection from a previous session is dropped.
-    setScopeSelectionState(NO_SCOPE_SELECTION);
-    persistScopeSelection(NO_SCOPE_SELECTION);
-  }, []);
-
-  const setScopeSelection = useCallback((next: ScopeSelection) => {
-    setScopeSelectionState(next);
-    persistScopeSelection(next);
   }, []);
 
   const value = useMemo<ApiContextValue>(
     () => ({
       session,
       setSession,
-      scopeSelection,
-      setScopeSelection,
       request(path, init) {
         const headers = new Headers(init?.headers);
-        for (const [k, v] of Object.entries(authHeaders(session, scopeSelection))) headers.set(k, v);
+        for (const [k, v] of Object.entries(authHeaders(session))) headers.set(k, v);
         if (init?.body && !headers.has("content-type")) headers.set("content-type", "application/json");
         return resolvedTransport(path, { ...init, headers });
       },
     }),
-    [session, setSession, scopeSelection, setScopeSelection, resolvedTransport],
+    [session, setSession, resolvedTransport],
   );
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;

@@ -18,7 +18,6 @@ export { createWarehousesRoutes } from "./warehouses-routes.js";
 export { createCustomersRouter } from "./customers-routes.js";
 export { createSuppliersRouter } from "./suppliers-routes.js";
 export { createItemsRouter } from "./items-routes.js";
-export { createLabelLayoutsRouter } from "./label-routes.js";
 export { createRolesRoutes } from "./roles-routes.js";
 export { createUsersRoutes } from "./users-routes.js";
 export { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -46,8 +45,5 @@ export {
   createStockTransfersRoutes,
   createPhysicalCountsRoutes,
 } from "./stock-documents-routes.js";
-
-export { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
 export { createNotificationRulesRoutes } from "./notification-rules-routes.js";
 export { createNotificationsRoutes } from "./notifications-routes.js";
-export { createItemUnitsRoutes, createItemCategoriesRoutes } from "./item-catalog-routes.js";

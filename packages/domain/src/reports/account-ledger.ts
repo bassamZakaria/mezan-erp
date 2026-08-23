@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
+import { type GlReportContext, accountNet, isPosted, moneyToNumber } from "./gl-shared.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
 
@@ -115,7 +115,7 @@ export function createAccountLedgerReport(
       let seq = 0;
       const inPeriod = ctx.journalEntries
         .filter(
-          (e) => isLedgerEffective(e) && e.date >= params.periodFrom && e.date <= params.periodTo && e.lines.some((l) => l.accountId === params.accountId),
+          (e) => isPosted(e) && e.date >= params.periodFrom && e.date <= params.periodTo && e.lines.some((l) => l.accountId === params.accountId),
         )
         .sort((a, b) => a.date.localeCompare(b.date) || (a.entryNo ?? a.id).localeCompare(b.entryNo ?? b.id));
 

@@ -17,13 +17,6 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
-  type ApiKeyRepository,
-  type BarcodeConfigRepository,
-  type AuditQueryPort,
-  type AuditSink,
-  type WebhookDeliveryRepository,
-  type WebhookRepository,
-  type LabelLayoutRepository,
   type Entitlements,
   type TaxRateRepository,
   type CostCenterRepository,
@@ -112,7 +105,7 @@ import { createManufacturingRoutes } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
-import { createDataMigrationRoutes, type DataMigrationTransactor } from "./data-migration-routes.js";
+import { createDataMigrationRoutes } from "./data-migration-routes.js";
 import { createSalesHistoricalImportRoutes } from "./sales-historical-import-routes.js";
 import { createPriceListsRoutes } from "./price-lists-routes.js";
 import { createPromotionsRoutes } from "./promotions-routes.js";
@@ -147,26 +140,15 @@ import {
   type ProductTemplatesRoutesDeps,
 } from "./product-templates-routes.js";
 import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
-import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
-import { createLabelLayoutsRouter } from "./label-routes.js";
-import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
-import { createAuditRoutes } from "./audit-routes.js";
-import { createBarcodeConfigRoutes } from "./barcode-config-routes.js";
-import { createProfileRoutes } from "./profile-routes.js";
-import { createApiKeysRoutes } from "./api-keys-routes.js";
-import { createWebhooksRoutes } from "./webhooks-routes.js";
 
 /**
- * Modules this build can actually serve, used as the default entitlements the
- * `/roles` route validates grants against and as what `GET /entitlements`
- * reports. Listing a module here makes its permissions grantable, so an
- * unimplemented domain must stay out: `pos` has no domain, routes or
- * persistence anywhere in this repo. Ids are ENTITLEMENT ids, not catalog
- * ids — the catalog's `cheques` module is the `financial_papers` entitlement
- * (packages/domain/src/permissions/module-licensing.ts).
+ * The demo tenant's module list (docs/catalog/09 §recon — "Cyag"), used as
+ * the default entitlements the `/roles` route validates grants against when
+ * the mounting app does not supply its own `resolveEntitlements`. Phase 1 has
+ * no real session/login wiring yet — apps/server / apps/desktop override this
+ * once real auth + a real entitlements source land.
  */
-const DEFAULT_ACTIVE_MODULES = [
-  "dashboard",
+const DEMO_ACTIVE_MODULES = [
   "sales",
   "purchases",
   "inventory",
@@ -175,22 +157,20 @@ const DEFAULT_ACTIVE_MODULES = [
   "installments",
   "financial_papers",
   "crm",
+  "pos",
   "hr",
   "manufacturing",
   "assets",
-  "field",
-  "workflow",
-  "audit",
-  "transactions",
-  "admin",
   "notifications",
+  "loyalty",
+  "field",
   "projects",
 ];
 
 function defaultEntitlementsResolver(): EntitlementsResolver {
   const entitlements: Entitlements = createEntitlements({
     plan: "ENTERPRISE",
-    activeModules: DEFAULT_ACTIVE_MODULES,
+    activeModules: DEMO_ACTIVE_MODULES,
     features: {},
     seats: 10,
     expiresAt: null,
@@ -257,29 +237,6 @@ export interface CreateAppOptions {
     readonly categories: ItemCategoryRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
-  /** Mounts `/sequences` (docs/catalog/09 §"تسلسلات الترقيم") when present. */
-  readonly sequences?: SequencesRoutesDeps & { readonly resolveAuthContext?: AuthContextResolver };
-  /** Mounts `/barcode-config` when present. */
-  readonly barcodeConfigStore?: BarcodeConfigRepository;
-  /** Shared audit sink for profile security events and API-key/webhook writes. */
-  readonly auditSink?: AuditSink;
-  /** Mounts `/api-keys` when present. */
-  readonly apiKeys?: { readonly repo: ApiKeyRepository; readonly resolveAuthContext?: AuthContextResolver };
-  /** Mounts `/webhooks` when present. */
-  readonly webhooks?: {
-    readonly webhooks: WebhookRepository;
-    readonly deliveries: WebhookDeliveryRepository;
-    readonly resolveAuthContext?: AuthContextResolver;
-  };
-  /** Mounts `/audit` — the read-only audit query surface — when present. */
-  readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
-  /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
-  readonly labelLayouts?: {
-    readonly repo: LabelLayoutRepository;
-    readonly resolveAuthContext?: AuthContextResolver;
-  };
-  /** Mounts `/financial-reports` (the 7 statements over the live posted ledger) when present. */
-  readonly financialReports?: FinancialReportsRoutesDeps;
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
@@ -560,10 +517,6 @@ export interface CreateAppOptions {
     readonly assetCategories: AssetCategoryRepository;
     readonly assets: AssetRepository;
     readonly branches: BranchRepository;
-    /** Optional — enables the item opening-balance step (`/data-migration/opening-balances`). */
-    readonly warehouses?: WarehouseRepository;
-    readonly stockAdjustments?: DocumentService<StockAdjustmentDocLine>;
-    readonly transact?: DataMigrationTransactor;
     readonly historicalCounts?: () => Promise<{
       salesInvoices: number;
       salesReturns: number;
@@ -614,8 +567,8 @@ export interface CreateAppOptions {
   /**
    * Entitlements resolver the `/roles` route validates permission grants
    * against (docs/catalog/09 §الأدوار — only licensed-module permissions are
-   * grantable), and that `GET /entitlements` reports. Defaults to
-   * `DEFAULT_ACTIVE_MODULES` until a real per-tenant source is wired up.
+   * grantable). Defaults to a broad demo entitlements set (`DEMO_ACTIVE_MODULES`)
+   * since there is no real per-tenant entitlements source wired up yet.
    */
   readonly resolveEntitlements?: EntitlementsResolver;
   /** Secret hasher for `/users` password/PIN storage. Defaults to `createScryptHasher()`. */
@@ -832,18 +785,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
     );
   }
-  if (options.barcodeConfigStore) {
-    app.route("/barcode-config", createBarcodeConfigRoutes({ store: options.barcodeConfigStore }, options.resolveAuthContext));
-  }
-  if (options.sequences) {
-    app.route("/sequences", createSequencesRoutes(options.sequences, options.sequences.resolveAuthContext));
-  }
-  if (options.audit) {
-    app.route("/audit", createAuditRoutes(options.audit.store, options.audit.resolveAuthContext));
-  }
-  if (options.labelLayouts) {
-    app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, options.labelLayouts.resolveAuthContext));
-  }
   if (options.inventory) {
     app.route(
       "/inventory",
@@ -979,9 +920,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.reports) {
     app.route("/reports", createReportsRoutes(options.reports, options.resolveAuthContext));
   }
-  if (options.financialReports) {
-    app.route("/financial-reports", createFinancialReportsRoutes(options.financialReports, options.resolveAuthContext));
-  }
   if (options.stockAdjustments) {
     app.route(
       "/inventory/stock-adjustments",
@@ -1026,23 +964,6 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
 
   app.route("/roles", createRolesRoutes(uow, resolveEntitlements, options.resolveAuthContext));
   app.route("/users", createUsersRoutes(uow, hasher, options.resolveAuthContext));
-  app.route("/profile", createProfileRoutes(uow, hasher, options.resolveAuthContext, options.auditSink));
-  if (options.apiKeys) {
-    app.route(
-      "/api-keys",
-      createApiKeysRoutes(options.apiKeys.repo, hasher, options.apiKeys.resolveAuthContext ?? options.resolveAuthContext, options.auditSink),
-    );
-  }
-  if (options.webhooks) {
-    app.route(
-      "/webhooks",
-      createWebhooksRoutes(
-        { webhooks: options.webhooks.webhooks, deliveries: options.webhooks.deliveries },
-        options.webhooks.resolveAuthContext ?? options.resolveAuthContext,
-        options.auditSink,
-      ),
-    );
-  }
 
   app.post("/journal-entries", async (c) => {
     const parsed = createJournalEntrySchema.safeParse(await c.req.json());

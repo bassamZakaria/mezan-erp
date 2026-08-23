@@ -9,12 +9,11 @@ import { createBackend } from "@mezan/backend";
  * first start.
  */
 const dbPath = process.env.MEZAN_DB ?? "./mezan.db";
-const seedDemoData = process.env.MEZAN_SEED_DEMO === "1";
-const { app } = await createBackend({ dbPath, seedDemoData });
+const { app } = await createBackend({ dbPath });
 const port = Number(process.env.PORT ?? 3000);
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`[server] Mezan API listening on http://127.0.0.1:${info.port} (db: ${dbPath}${seedDemoData ? ", demo seed ON" : ""})`);
+  console.log(`[server] Mezan API listening on http://127.0.0.1:${info.port} (db: ${dbPath})`);
   console.log(`[server] try: POST /auth/login , GET /dashboard/summary`);
   console.log(`[server] try: GET /reports/sales/by-period , /reports/inventory/valuation , /reports/aging/customers , etc. (docs/catalog/08-reports.md)`);
 });

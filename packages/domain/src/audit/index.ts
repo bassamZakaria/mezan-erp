@@ -11,7 +11,4 @@ export type {
   AuditEvent,
   AuditEventInput,
   AuditSink,
-  AuditQueryFilter,
-  AuditQueryResult,
-  AuditQueryPort,
 } from "./audit-event.js";

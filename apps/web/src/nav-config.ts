@@ -19,7 +19,6 @@ export const navGroups: NavGroup[] = [
     key: "sales",
     label: "المبيعات",
     items: [
-      { key: "sales-hub", label: "نظرة عامة" },
       { key: "customers", label: "العملاء" },
       { key: "quotes", label: "عروض الأسعار" },
       { key: "sales-invoices", label: "فواتير المبيعات", tag: { label: "نمط", tone: "pattern" } },
@@ -32,7 +31,6 @@ export const navGroups: NavGroup[] = [
     key: "purchases",
     label: "المشتريات",
     items: [
-      { key: "purchases-hub", label: "نظرة عامة" },
       { key: "vendors", label: "الموردون" },
       { key: "rfqs", label: "طلبات عروض الأسعار" },
       { key: "purchase-orders", label: "أوامر الشراء" },
@@ -46,7 +44,6 @@ export const navGroups: NavGroup[] = [
     key: "inventory",
     label: "المخزون",
     items: [
-      { key: "inventory-hub", label: "نظرة عامة" },
       { key: "items", label: "الأصناف" },
       { key: "stock-balance", label: "أرصدة المخزون" },
       { key: "stock-transfers", label: "تحويلات المخزون" },
@@ -62,8 +59,6 @@ export const navGroups: NavGroup[] = [
     key: "manufacturing",
     label: "التصنيع",
     items: [
-      { key: "manufacturing-hub", label: "نظرة عامة" },
-      { key: "production-dashboard", label: "لوحة الإنتاج" },
       { key: "work-orders", label: "أوامر التصنيع" },
       { key: "boms", label: "قوائم المواد" },
       { key: "custom-manufacturing", label: "التصنيع المخصص" },
@@ -73,7 +68,6 @@ export const navGroups: NavGroup[] = [
     key: "accounting",
     label: "المحاسبة",
     items: [
-      { key: "accounting-hub", label: "نظرة عامة" },
       { key: "coa", label: "دليل الحسابات" },
       { key: "cost-centers", label: "مراكز التكلفة" },
       { key: "cost-center-pl", label: "أرباح مراكز التكلفة" },
@@ -92,7 +86,6 @@ export const navGroups: NavGroup[] = [
     key: "treasury",
     label: "الخزينة",
     items: [
-      { key: "treasury-hub", label: "نظرة عامة" },
       { key: "treasury-accounts", label: "حسابات الخزينة" },
       { key: "treasury-vouchers", label: "السندات النقدية" },
       { key: "bank-reconciliation", label: "تسوية كشوف البنك" },
@@ -107,7 +100,6 @@ export const navGroups: NavGroup[] = [
     key: "crm",
     label: "إدارة علاقات العملاء",
     items: [
-      { key: "crm-hub", label: "نظرة عامة" },
       { key: "leads", label: "العملاء المحتملون" },
       { key: "opportunities", label: "الفرص" },
       { key: "pipeline", label: "خط المبيعات" },
@@ -137,7 +129,6 @@ export const navGroups: NavGroup[] = [
     key: "assets",
     label: "الأصول الثابتة",
     items: [
-      { key: "assets-hub", label: "نظرة عامة" },
       { key: "asset-register", label: "سجل الأصول" },
       { key: "depreciation-runs", label: "الإهلاك" },
       { key: "asset-categories", label: "تصنيفات الأصول" },
@@ -192,21 +183,9 @@ export const navGroups: NavGroup[] = [
       { key: "notification-rules", label: "قواعد الإشعارات" },
       { key: "settings-data-migration", label: "نقل البيانات" },
       { key: "settings-workflow", label: "إعدادات الموافقات" },
-      { key: "settings-sequences", label: "تسلسلات الترقيم" },
-      { key: "settings-barcode", label: "إعدادات الباركود" },
-      { key: "settings-profile", label: "الملف الشخصي" },
-      { key: "settings-api-keys", label: "مفاتيح API" },
-      { key: "settings-webhooks", label: "الويب هوك" },
-      { key: "audit", label: "سجل المراجعة" },
       { key: "users", label: "المستخدمون" },
       { key: "roles", label: "الأدوار والصلاحيات" },
     ],
-  },
-  {
-    key: "system",
-    label: "النظام",
-    defaultCollapsed: true,
-    items: [{ key: "status", label: "حالة النظام" }],
   },
 ];
 

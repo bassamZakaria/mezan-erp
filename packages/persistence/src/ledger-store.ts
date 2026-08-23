@@ -8,7 +8,6 @@ import {
   type JournalEntryStatus,
   type JournalLine,
   type SequenceStore,
-  type SequenceConfigStore,
   type AccountBalance,
   type AccountLedgerLine,
   type JournalListFilter,
@@ -396,22 +395,12 @@ export interface SqliteLedgerStoreHandle extends LedgerRepository {
  * {@link LedgerRepository} and the connection-bound numbering engine, so the
  * GL engine's `deps.ledger` and `deps.numbering` share one transaction.
  */
-/**
- * `configStore` is optional and additive: pass a {@link SequenceConfigStore}
- * (e.g. `createSqliteSequenceConfigStore(sqlite)` on the SAME shared
- * connection) so `deps.numbering` picks up admin prefix/pad-length/
- * annual-reset overrides from `/settings/sequences` on every allocation.
- * Omitted, this behaves exactly as before — the compiled-in defaults only.
- */
-export function createSqliteLedgerStore(
-  path: SqliteConnectionInput = ":memory:",
-  configStore?: SequenceConfigStore,
-): SqliteLedgerStoreHandle {
+export function createSqliteLedgerStore(path: SqliteConnectionInput = ":memory:"): SqliteLedgerStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
   const repo = new SqliteLedgerRepository(sqlite);
-  const numbering = new NextNumberService(new SharedSequenceStore(sqlite), configStore);
+  const numbering = new NextNumberService(new SharedSequenceStore(sqlite));
   return Object.assign(repo, {
     numbering,
     close: () => { if (owned) sqlite.close(); },

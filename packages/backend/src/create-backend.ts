@@ -96,20 +96,11 @@ import {
   createSqliteNotificationStore,
   createSqliteWorkflowConfigStore,
   createSqliteApprovalRequestStore,
-  createDataMigrationTransactor,
-  createSqliteApiKeyStore,
-  createSqliteBarcodeConfigStore,
-  createSqliteAuditSink,
-  createSqliteLabelLayoutStore,
-  createSqliteSequenceConfigStore,
-  createSqliteSequenceStore,
-  createSqliteWebhookStores,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
-import { seedDemoTenant } from "./demo-seed.js";
 
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
@@ -255,13 +246,6 @@ export interface CreateBackendOptions {
    * (web dev/e2e) that is freshly seeded on every start. Defaults to `:memory:`.
    */
   readonly dbPath?: string;
-  /**
-   * Seeds the demo tenant profile (`demo-seed.ts`) on top of the empty-tenant
-   * bootstrap. FOR TESTS AND LOCAL DEVELOPMENT ONLY — apps/server passes it
-   * only on `MEZAN_SEED_DEMO=1`, and apps/desktop never passes it, so a real
-   * install never receives invented data.
-   */
-  readonly seedDemoData?: boolean;
 }
 
 /**
@@ -292,17 +276,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // but harmless to set repeatedly on the same connection.
   const { sqlite } = openSqliteConnection(dbPath);
 
-  const sequenceConfig = createSqliteSequenceConfigStore(sqlite);
-  const sequenceCounters = createSqliteSequenceStore(sqlite);
-  // The ONE audit sink for the whole backend. Without it the `audit_event`
-  // table is never written and `/audit` reports an empty log.
-  const auditSink = createSqliteAuditSink(sqlite);
-  const apiKeys = createSqliteApiKeyStore(sqlite);
-  const barcodeConfig = createSqliteBarcodeConfigStore(sqlite);
-  const dataMigrationTransactor = createDataMigrationTransactor(sqlite);
-  const webhookStores = createSqliteWebhookStores(sqlite);
-  const labelLayouts = createSqliteLabelLayoutStore(sqlite);
-
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
@@ -316,7 +289,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const costCenters = createSqliteCostCenterRepository(sqlite);
   const treasuryAccounts = createSqliteTreasuryAccountRepository(sqlite);
   const fiscalPeriods = createSqliteFiscalPeriodRepository(sqlite);
-  const ledger = createSqliteLedgerStore(sqlite, sequenceConfig);
+  const ledger = createSqliteLedgerStore(sqlite);
   const priceLists = createSqlitePriceListStore(sqlite);
   const promotions = createSqlitePromotionStore(sqlite);
   const salesQuotes = createSqliteSalesQuoteStore(sqlite);
@@ -579,7 +552,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     hasher,
     pipelineStages,
     itemCatalog,
-    labelLayouts,
   };
   await seedIfEmpty(seedStores);
 
@@ -627,13 +599,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts: { repo: accounts },
     items: { repo: items },
     itemCatalog: { units: itemCatalog.units, categories: itemCatalog.categories },
-    labelLayouts: { repo: labelLayouts },
-    sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
-    audit: { store: auditSink },
-    auditSink,
-    barcodeConfigStore: barcodeConfig,
-    apiKeys: { repo: apiKeys },
-    webhooks: { webhooks: webhookStores.webhooks, deliveries: webhookStores.deliveries },
     taxRateRepo: taxRates,
     costCenterRepo: costCenters,
     treasuryAccountRepo: treasuryAccounts,
@@ -645,7 +610,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts,
       periods: fiscalPeriods,
       numbering: ledger.numbering,
-      audit: auditSink,
     },
     vouchers: {
       documents: vouchers.documents,
@@ -671,7 +635,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
-      audit: auditSink,
       events: salesInvoiceEventBridge,
     },
     cheques: {
@@ -793,9 +756,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       assetCategories,
       assets,
       branches,
-      warehouses,
-      stockAdjustments,
-      transact: dataMigrationTransactor,
       historicalCounts: async () => {
         const [purchaseArchives, salesArchives] = await Promise.all([
           historicalImportArchives.list(),
@@ -833,12 +793,6 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // accounting surface uses — no fixture ledger behind the statements.
       ledger,
       accounts,
-    },
-    financialReports: {
-      ledger,
-      accounts,
-      vatAccounts: { outputVatAccountId: "2200", inputVatAccountId: "1400" },
-      cashAccountIds: ["1300-1", "1310", "1315", "1320", "1330"],
     },
     notificationRuleRepo: notificationRules,
     notificationRepo: notifications,
@@ -918,18 +872,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     notifications,
     workflowConfigs,
     approvalRequests,
-    sequenceConfig,
-    sequenceCounters,
-    auditSink,
-    apiKeys,
-    barcodeConfig,
-    webhookStores,
-    labelLayouts,
   ];
-
-  if (options.seedDemoData) {
-    await seedDemoTenant(app);
-  }
 
   return {
     app,

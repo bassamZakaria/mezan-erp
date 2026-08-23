@@ -52,46 +52,10 @@ class SqliteSequenceStore implements SequenceStore {
       "BEGIN IMMEDIATE",
     );
   }
-
-  /**
-   * Read-only peek at the current counter value — never allocates a number.
-   * Used by the sequences admin screen to show "Current Value" without
-   * consuming one, unlike `increment`.
-   */
-  async peek(code: string, period: number | null): Promise<number> {
-    const p = period === null ? "" : String(period);
-    const row = this.read.get(code, p) as { value: number } | undefined;
-    return row?.value ?? 0;
-  }
-
-  /**
-   * Explicit, admin-guarded counter write — bypasses `increment`'s
-   * gap-free allocation path entirely. Callers (the `/sequences/:code/counter`
-   * route) must themselves refuse any value below the current counter: this
-   * method performs no such check, since going backward is exactly what would
-   * let two documents share a number.
-   */
-  async setCounter(code: string, period: number | null, value: number): Promise<void> {
-    const p = period === null ? "" : String(period);
-    await withSqliteTransaction(
-      this.sqlite,
-      async () => {
-        this.sqlite
-          .prepare(
-            `INSERT INTO sequence_counter (code, period, value) VALUES (?, ?, ?)
-             ON CONFLICT(code, period) DO UPDATE SET value = ?`,
-          )
-          .run(code, p, value, value);
-      },
-      "BEGIN IMMEDIATE",
-    );
-  }
 }
 
 export interface SqliteSequenceStoreHandle extends SequenceStore {
   close(): void;
-  peek(code: string, period: number | null): Promise<number>;
-  setCounter(code: string, period: number | null, value: number): Promise<void>;
 }
 
 /** Open a SQLite-backed SequenceStore. ":memory:" for tests, a path for real. */

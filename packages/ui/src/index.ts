@@ -75,7 +75,7 @@ export {
 
 export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
-export { Topbar, type TopbarProps, type ShellNotification, type TopbarScopeOption } from "./shell/Topbar";
+export { Topbar, type TopbarProps } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
 export {
   NotificationsPanel,
@@ -158,13 +158,4 @@ export {
 } from "./print/types";
 export { PrintView, type PrintViewProps } from "./print/PrintView";
 export { useElectronPrintToPdf, type PrintToPdfOptions, type UseElectronPrintToPdfResult } from "./print/useElectronPrintToPdf";
-export { PrintToolbar } from "./print/PrintToolbar";
-export { Barcode128, encodeCode128B, type Barcode128Props } from "./print/Barcode128";
-export {
-  LabelSheetView,
-  trimMoneyString,
-  type LabelSheetLayout,
-  type LabelSheetEntry,
-  type LabelSheetViewProps,
-} from "./print/LabelSheetView";
 export { createSampleInvoiceDocument } from "./print/sample-invoice";

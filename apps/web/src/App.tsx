@@ -94,23 +94,6 @@ import { useNotificationsBell } from "./notifications/NotificationsBell";
 import { DataMigrationPage } from "./settings/DataMigrationPage";
 import { WorkflowConfigPage } from "./settings/WorkflowConfigPage";
 import { ApprovalsInboxScreen } from "./screens/ApprovalsInboxScreen";
-import { AuditLogScreen } from "./screens/AuditLogScreen";
-import { SequencesPage } from "./settings/SequencesPage";
-import { BarcodeConfigPage } from "./settings/BarcodeConfigPage";
-import { ProfilePage } from "./settings/ProfilePage";
-import { ApiKeysPage } from "./settings/ApiKeysPage";
-import { WebhooksPage } from "./settings/WebhooksPage";
-import { SalesHubScreen } from "./screens/hubs/SalesHubScreen";
-import { PurchasesHubScreen } from "./screens/hubs/PurchasesHubScreen";
-import { InventoryHubScreen } from "./screens/hubs/InventoryHubScreen";
-import { AccountingHubScreen } from "./screens/hubs/AccountingHubScreen";
-import { TreasuryHubScreen } from "./screens/hubs/TreasuryHubScreen";
-import { CrmHubScreen } from "./screens/hubs/CrmHubScreen";
-import { AssetsHubScreen } from "./screens/hubs/AssetsHubScreen";
-import { ManufacturingHubScreen } from "./screens/hubs/ManufacturingHubScreen";
-import { ProductionDashboardScreen } from "./screens/hubs/ProductionDashboardScreen";
-import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
-import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { commandItems, navGroups, topNavItem } from "./nav-config";
@@ -140,16 +123,6 @@ import { NavigationProvider, type ScreenIntent } from "./navigation";
 /** Nav-item keys this shell can actually navigate to (the rest keep their static "قريباً" tag). */
 const ROUTABLE_SCREENS = {
   dashboard: DashboardScreen,
-  "sales-hub": SalesHubScreen,
-  "purchases-hub": PurchasesHubScreen,
-  "inventory-hub": InventoryHubScreen,
-  "accounting-hub": AccountingHubScreen,
-  "treasury-hub": TreasuryHubScreen,
-  "crm-hub": CrmHubScreen,
-  "assets-hub": AssetsHubScreen,
-  "manufacturing-hub": ManufacturingHubScreen,
-  "production-dashboard": ProductionDashboardScreen,
-  status: SystemStatusScreen,
   "sales-invoices": SalesInvoicesScreen,
   quotes: SalesQuotesScreen,
   "price-lists": PriceListsScreen,
@@ -218,12 +191,6 @@ const ROUTABLE_SCREENS = {
   "notification-rules": NotificationRulesPage,
   "settings-data-migration": DataMigrationPage,
   "settings-workflow": WorkflowConfigPage,
-  "settings-sequences": SequencesPage,
-  "settings-barcode": BarcodeConfigPage,
-  "settings-profile": ProfilePage,
-  "settings-api-keys": ApiKeysPage,
-  "settings-webhooks": WebhooksPage,
-  audit: AuditLogScreen,
   approvals: ApprovalsInboxScreen,
   leads: LeadsScreen,
   opportunities: OpportunitiesScreen,
@@ -322,7 +289,6 @@ export function App() {
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
   const notificationsBell = useNotificationsBell();
-  const { branchOptions, warehouseOptions, selection, setBranch, setWarehouse } = useScopeSelector();
 
   const allBranchIds = branches.map((b) => b.id);
   const allWarehouseIds = warehouses.map((w) => w.id);
@@ -488,12 +454,6 @@ export function App() {
       notificationCount={notificationsBell.unreadCount}
       onToggleNotifications={notificationsBell.onToggle}
       notificationsPanel={notificationsBell.panel}
-      branchOptions={branchOptions}
-      warehouseOptions={warehouseOptions}
-      selectedBranchId={selection.branchId}
-      selectedWarehouseId={selection.warehouseId}
-      onSelectBranch={setBranch}
-      onSelectWarehouse={setWarehouse}
     >
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 

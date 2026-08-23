@@ -64,35 +64,6 @@ export interface AuditSink {
   query(stream: AuditStream, limit?: number): Promise<readonly AuditEvent[]>;
 }
 
-/**
- * Multi-field filter for the audit viewer (`/audit`). Every field is
- * optional/AND-combined; `from`/`to` bound `timestamp` (ISO-8601, inclusive).
- * Additive to {@link AuditSink} — a store implements this separately so the
- * append-only write port never grows a read-shaped requirement.
- */
-export interface AuditQueryFilter {
-  readonly stream?: AuditStream;
-  readonly module?: string;
-  readonly action?: string;
-  readonly actor?: string;
-  readonly entityType?: string;
-  readonly severity?: AuditSeverity;
-  readonly from?: string;
-  readonly to?: string;
-  readonly limit?: number;
-  readonly offset?: number;
-}
-
-export interface AuditQueryResult {
-  readonly events: readonly AuditEvent[];
-  readonly total: number;
-}
-
-/** Read-only, filtered query port for the audit viewer — newest-first. */
-export interface AuditQueryPort {
-  queryEvents(filter: AuditQueryFilter): Promise<AuditQueryResult>;
-}
-
 /** Build a validated, timestamped AuditEvent from caller input. */
 export function createAuditEvent(input: AuditEventInput): AuditEvent {
   if (input.module.trim() === "") throw new RangeError("audit: module required");

@@ -11,15 +11,8 @@ import {
   type WacSnapshot,
   type DriftReport,
   type StockBalanceRow,
-  type PostedAdjustment,
-  type PostedTransfer,
 } from "@mezan/domain";
-import {
-  postAdjustmentSchema,
-  postTransferSchema,
-  postedAdjustmentListQuerySchema,
-  postedTransferListQuerySchema,
-} from "@mezan/contracts";
+import { postAdjustmentSchema, postTransferSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -81,41 +74,6 @@ function serializeDrift(d: DriftReport) {
     cacheDrift: d.cacheDrift.toString(),
     layerDrift: d.layerDrift.toString(),
     withinTolerance: d.withinTolerance,
-  };
-}
-
-function serializePostedAdjustment(a: PostedAdjustment) {
-  return {
-    id: a.id,
-    docNo: a.docNo,
-    warehouseId: a.warehouseId,
-    reason: a.reason,
-    occurredAt: a.occurredAt,
-    lines: a.lines.map((l) => ({
-      itemId: l.itemId,
-      direction: l.direction,
-      qty: l.qty.toString(),
-      unitCost: l.unitCost.toString(),
-      value: l.value.toString(),
-    })),
-    valueDelta: a.valueDelta.toString(),
-  };
-}
-
-function serializePostedTransfer(t: PostedTransfer) {
-  return {
-    id: t.id,
-    docNo: t.docNo,
-    fromWarehouseId: t.fromWarehouseId,
-    toWarehouseId: t.toWarehouseId,
-    occurredAt: t.occurredAt,
-    lines: t.lines.map((l) => ({
-      itemId: l.itemId,
-      qty: l.qty.toString(),
-      unitCost: l.unitCost.toString(),
-      value: l.value.toString(),
-    })),
-    totalValue: t.totalValue.toString(),
   };
 }
 
@@ -244,38 +202,6 @@ export function createInventoryRoutes(
     } catch (err) {
       return handleDomainError(c, err);
     }
-  });
-
-  // History for the adjustments screen, folded out of the movement ledger —
-  // the engine keeps no separate document row (posted-stock-documents.ts).
-  app.get("/adjustments", gate("inventory.adjustment.view"), async (c) => {
-    const parsed = postedAdjustmentListQuerySchema.safeParse(c.req.query());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const adjustments = await service.listPostedAdjustments(parsed.data);
-    return c.json(adjustments.map(serializePostedAdjustment));
-  });
-
-  app.get("/adjustments/:id", gate("inventory.adjustment.view"), async (c) => {
-    const adjustment = await service.getPostedAdjustment(c.req.param("id"));
-    if (!adjustment) return c.json({ error: "STOCK_ADJUSTMENT_NOT_FOUND" }, 404);
-    return c.json(serializePostedAdjustment(adjustment));
-  });
-
-  app.get("/transfers", gate("inventory.transfer.view"), async (c) => {
-    const parsed = postedTransferListQuerySchema.safeParse(c.req.query());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const transfers = await service.listPostedTransfers(parsed.data);
-    return c.json(transfers.map(serializePostedTransfer));
-  });
-
-  app.get("/transfers/:id", gate("inventory.transfer.view"), async (c) => {
-    const transfer = await service.getPostedTransfer(c.req.param("id"));
-    if (!transfer) return c.json({ error: "STOCK_TRANSFER_NOT_FOUND" }, 404);
-    return c.json(serializePostedTransfer(transfer));
   });
 
   app.post("/transfers", gate("inventory.transfer.create"), async (c) => {

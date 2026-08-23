@@ -83,60 +83,6 @@ export const driftReportSchema = z.object({
   withinTolerance: z.boolean(),
 });
 
-// --- Posted-document reads (folded out of the movement ledger) ---
-
-export const postedAdjustmentLineSchema = z.object({
-  itemId: z.string().min(1),
-  direction: stockMovementDirectionSchema,
-  qty: decimalString,
-  unitCost: decimalString,
-  value: decimalString,
-});
-
-export const postedAdjustmentSchema = z.object({
-  id: z.string().min(1),
-  docNo: z.string().nullable(),
-  warehouseId: z.string().min(1),
-  reason: adjustmentReasonSchema.nullable(),
-  occurredAt: z.string().min(1),
-  lines: z.array(postedAdjustmentLineSchema),
-  valueDelta: decimalString,
-});
-
-export const postedTransferLineSchema = z.object({
-  itemId: z.string().min(1),
-  qty: decimalString,
-  unitCost: decimalString,
-  value: decimalString,
-});
-
-export const postedTransferSchema = z.object({
-  id: z.string().min(1),
-  docNo: z.string().nullable(),
-  fromWarehouseId: z.string().min(1),
-  toWarehouseId: z.string().min(1),
-  occurredAt: z.string().min(1),
-  lines: z.array(postedTransferLineSchema),
-  totalValue: decimalString,
-});
-
-export const postedAdjustmentListQuerySchema = z.object({
-  fromDate: z.string().min(1).optional(),
-  toDate: z.string().min(1).optional(),
-  warehouseId: z.string().min(1).optional(),
-  reason: adjustmentReasonSchema.optional(),
-  search: z.string().optional(),
-});
-
-export const postedTransferListQuerySchema = z.object({
-  fromDate: z.string().min(1).optional(),
-  toDate: z.string().min(1).optional(),
-  warehouseId: z.string().min(1).optional(),
-  fromWarehouseId: z.string().min(1).optional(),
-  toWarehouseId: z.string().min(1).optional(),
-  search: z.string().optional(),
-});
-
 // --- Write requests ---
 
 export const adjustmentLineSchema = z.object({
@@ -183,12 +129,6 @@ export type StockBalanceDTO = z.infer<typeof stockBalanceSchema>;
 export type ValuationRowDTO = z.infer<typeof valuationRowSchema>;
 export type ValuationReportDTO = z.infer<typeof valuationReportSchema>;
 export type DriftReportDTO = z.infer<typeof driftReportSchema>;
-export type PostedAdjustmentLineDTO = z.infer<typeof postedAdjustmentLineSchema>;
-export type PostedAdjustmentDTO = z.infer<typeof postedAdjustmentSchema>;
-export type PostedTransferLineDTO = z.infer<typeof postedTransferLineSchema>;
-export type PostedTransferDTO = z.infer<typeof postedTransferSchema>;
-export type PostedAdjustmentListQueryDTO = z.infer<typeof postedAdjustmentListQuerySchema>;
-export type PostedTransferListQueryDTO = z.infer<typeof postedTransferListQuerySchema>;
 export type AdjustmentLineDTO = z.infer<typeof adjustmentLineSchema>;
 export type PostAdjustmentDTO = z.infer<typeof postAdjustmentSchema>;
 export type TransferLineDTO = z.infer<typeof transferLineSchema>;

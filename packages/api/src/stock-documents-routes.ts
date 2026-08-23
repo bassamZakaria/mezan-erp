@@ -14,9 +14,6 @@ import {
   DuplicatePhysicalCountError,
   InvalidPhysicalCountError,
   InvalidPhysicalCountStatusError,
-  revealsSystemQty,
-  varianceLinesOf,
-  summarizePhysicalCountVariance,
   type DocumentService,
   type FrameworkDocument,
   type StockAdjustmentDocLine,
@@ -85,15 +82,7 @@ function serializeTransfer(doc: FrameworkDocument<StockTransferDocLine>) {
   };
 }
 
-/**
- * A blind count (جرد أعمى) withholds the system snapshot — and therefore every
- * variance figure derived from it — from the READ side until the session is
- * closed. Suppressing it here rather than in the web client is the point: the
- * counter must not be able to read it off the wire.
- */
 function serializeCount(count: PhysicalCount) {
-  const reveal = revealsSystemQty(count);
-  const summary = reveal ? summarizePhysicalCountVariance(count) : null;
   return {
     id: count.id,
     countNo: count.countNo,
@@ -101,32 +90,11 @@ function serializeCount(count: PhysicalCount) {
     date: count.date,
     memo: count.memo,
     status: count.status,
-    blind: count.blind,
-    lines: varianceLinesOf(count).map((l) => ({
+    lines: count.lines.map((l) => ({
       itemId: l.itemId,
-      systemQty: reveal ? l.systemQty.toString() : null,
-      unitCost: reveal ? l.unitCost.toString() : null,
+      systemQty: l.systemQty.toString(),
       countedQty: l.countedQty ? l.countedQty.toString() : null,
-      varianceQty: reveal && l.varianceQty ? l.varianceQty.toString() : null,
-      varianceValue: reveal && l.varianceValue ? l.varianceValue.toString() : null,
     })),
-    variance: summary
-      ? {
-          totalLines: summary.totalLines,
-          countedLines: summary.countedLines,
-          uncountedLines: summary.uncountedLines,
-          matchedLines: summary.matchedLines,
-          overLines: summary.overLines,
-          shortLines: summary.shortLines,
-          overQty: summary.overQty.toString(),
-          shortQty: summary.shortQty.toString(),
-          netQty: summary.netQty.toString(),
-          overValue: summary.overValue.toString(),
-          shortValue: summary.shortValue.toString(),
-          netValue: summary.netValue.toString(),
-          absValue: summary.absValue.toString(),
-        }
-      : null,
     createdAt: count.createdAt,
     completedAt: count.completedAt,
     generatedAdjustmentId: count.generatedAdjustmentId,

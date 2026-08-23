@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
+import { type GlReportContext, isPosted, moneyToNumber } from "./gl-shared.js";
 import type { ReportDefinition } from "./types.js";
 
 /**
@@ -67,7 +67,7 @@ export function createGeneralLedgerReport(
       const rows: GeneralLedgerRow[] = [];
       let seq = 0;
       for (const entry of ctx.journalEntries) {
-        if (!isLedgerEffective(entry)) continue;
+        if (!isPosted(entry)) continue;
         if (entry.date < params.periodFrom || entry.date > params.periodTo) continue;
         for (const line of entry.lines) {
           const account = nameById.get(line.accountId);

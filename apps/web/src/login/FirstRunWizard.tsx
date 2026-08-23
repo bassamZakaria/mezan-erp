@@ -279,10 +279,13 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
               يمكنك استيراد بيانات العملاء والموردين والأصناف الحالية الآن، أو تخطي هذه الخطوة والقيام بذلك لاحقاً من "الإعدادات ← نقل
               البيانات".
             </p>
-            <p className="mt-[10px] text-[11.5px] text-ink-muted">
-              معالج الاستيراد الكامل (اختيار نوع البيانات، رفع أو لصق CSV، مطابقة الأعمدة، معاينة الأخطاء، ثم التأكيد) متاح من "الإعدادات ← نقل
-              البيانات" — أنهِ هذا المعالج الآن وارجع إليه لاحقاً في أي وقت.
-            </p>
+            <div className="mt-[14px] flex items-center gap-[10px]">
+              <Button type="button" disabled>
+                استيراد الآن
+              </Button>
+              <StatusPill label="قريباً" tone="info" />
+            </div>
+            <StubNote>معالج نقل البيانات (12 خطوة) موثّق في docs/catalog/09 لكنه غير مبني بعد في هذا العرض — تخطَّ هذه الخطوة للمتابعة.</StubNote>
           </section>
         ) : null}
 

@@ -162,7 +162,7 @@ export {
   accountNet,
   classifyAccount,
   isCashAccount,
-  isLedgerEffective,
+  isPosted,
   moneyToNumber,
   netBalancesByAccount,
 } from "./gl-shared.js";

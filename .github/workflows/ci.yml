@@ -12,7 +12,7 @@ env:
 
 jobs:
   build:
-    name: typecheck · lint · build
+    name: typecheck · lint · test · build
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -35,6 +35,9 @@ jobs:
 
       - name: Lint (layer boundaries + RTL logical properties)
         run: pnpm lint
+
+      - name: Test (vitest, SQLite)
+        run: pnpm test
 
       - name: Build (packages + web Vite bundle)
         run: pnpm build
@@ -64,8 +67,11 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Install Playwright browsers (Chromium only)
+        run: pnpm exec playwright install --with-deps chromium
+
       - name: Run Playwright E2E
-        run: echo "E2E running is disabled (see docs/testing-policy.md)."
+        run: pnpm test:e2e
 
       - name: Upload Playwright report
         if: always()

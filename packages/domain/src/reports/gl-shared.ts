@@ -15,12 +15,6 @@ import { Money } from "../money/index.js";
 export interface GlReportContext {
   readonly accounts: readonly Account[];
   readonly journalEntries: readonly JournalEntry[];
-  /**
-   * The GL accounts that are cash/bank (النقدية وما في حكمها), when the tenant's
-   * chart of accounts does not follow the 11xx-is-cash code convention
-   * {@link classifyAccount} falls back to. Authoritative when given.
-   */
-  readonly cashAccountIds?: readonly string[];
 }
 
 /**
@@ -63,21 +57,16 @@ function codeGroup(code: string): number {
 }
 
 /**
- * Classify an account into its statement section. `cashAccountIds`, when
- * supplied, is the authoritative cash/bank set; otherwise the code convention
- * applies: asset codes 11xx = cash/bank, 12xx–14xx = other current assets,
- * 15xx+ = non-current; liability codes 21xx–24xx = current, 25xx+ =
- * non-current. `type` always wins for the top-level class.
+ * Classify an account into its statement section. Convention (mirrors the
+ * seeded chart of accounts): asset codes 11xx = cash/bank, 12xx–14xx = other
+ * current assets, 15xx+ = non-current; liability codes 21xx–24xx = current,
+ * 25xx+ = non-current. `type` always wins for the top-level class.
  */
-export function classifyAccount(account: Account, cashAccountIds?: readonly string[]): AccountSection {
+export function classifyAccount(account: Account): AccountSection {
   const group = codeGroup(account.code);
   switch (account.type) {
     case "asset":
-      if (cashAccountIds) {
-        if (cashAccountIds.includes(account.id)) return "cash";
-      } else if (group === 11) {
-        return "cash";
-      }
+      if (group === 11) return "cash";
       return group >= 15 ? "non-current-asset" : "current-asset";
     case "liability":
       return group >= 25 ? "non-current-liability" : "current-liability";
@@ -90,8 +79,8 @@ export function classifyAccount(account: Account, cashAccountIds?: readonly stri
   }
 }
 
-export function isCashAccount(account: Account, cashAccountIds?: readonly string[]): boolean {
-  return classifyAccount(account, cashAccountIds) === "cash";
+export function isCashAccount(account: Account): boolean {
+  return classifyAccount(account) === "cash";
 }
 
 /** `Money` → its exact major-unit value as a JS number, for report rows/totals. */
@@ -112,16 +101,9 @@ function inRange(date: string, range: DateRange): boolean {
   return true;
 }
 
-/**
- * Whether an entry's lines are in effect on the ledger. A reversed entry still
- * counts: reversal never mutates or deletes it, it posts a mirror-image entry
- * alongside (gl/reverse.ts), so dropping the original while keeping the mirror
- * would unbalance every statement. Same rule as
- * `LedgerRepository.accountBalance` (`status IN ('posted','reversed')`).
- * Drafts and pending entries are excluded.
- */
-export function isLedgerEffective(entry: JournalEntry): boolean {
-  return entry.status === "posted" || entry.status === "reversed";
+/** Only posted entries feed the statements — drafts/pending/reversed are excluded. */
+export function isPosted(entry: JournalEntry): boolean {
+  return entry.status === "posted";
 }
 
 /**
@@ -135,7 +117,7 @@ export function netBalancesByAccount(
 ): Map<string, Money> {
   const balances = new Map<string, Money>();
   for (const entry of journalEntries) {
-    if (!isLedgerEffective(entry)) continue;
+    if (!isPosted(entry)) continue;
     if (!inRange(entry.date, range)) continue;
     for (const line of entry.lines) {
       const net = line.debit.add(line.credit.negate());

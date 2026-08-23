@@ -105,7 +105,7 @@ describe("FinancialReportsScreen (real GL API wiring)", () => {
     renderWithProviders(<FinancialReportsScreen />, { transport: fullTransport(capture), initialSession: testAdminSession });
     fireEvent.click(screen.getByRole("tab", { name: "دفتر الأستاذ العام" }));
     // Placeholder until run — no request fired yet.
-    expect(screen.getByText(/اضغط "عرض التقرير"/)).toBeInTheDocument();
+    expect(screen.getByText(/اضغط .عرض التقرير./)).toBeInTheDocument();
     expect(capture.paths.some((p) => p.includes("/reports/accounting/general-ledger"))).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: "عرض التقرير" }));

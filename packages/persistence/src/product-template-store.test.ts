@@ -49,7 +49,13 @@ describe("SqliteProductTemplateRepository", () => {
 
     const byId = await store.templates.findById("t1");
     expect(byId?.attributes).toHaveLength(2);
-    expect(byId?.attributes[0]).toEqual({ id: "color", nameAr: "اللون", nameEn: null, values: ["أحمر", "أزرق"] });
+    expect(byId?.attributes[0]).toEqual({
+      id: "color",
+      nameAr: "اللون",
+      nameEn: null,
+      specificationCode: null,
+      values: ["أحمر", "أزرق"],
+    });
     expect(byId?.defaultSalePrice?.toString()).toBe("150.000000");
     expect(byId?.defaultCost?.toString()).toBe("80.000000");
 

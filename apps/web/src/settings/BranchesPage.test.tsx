@@ -69,14 +69,15 @@ describe("BranchesPage", () => {
     expect(screen.getByText("فرع الإسكندرية")).toBeInTheDocument();
   });
 
-  it("opens the Branch 360 detail on row click, with an Overview tab and stub tabs", async () => {
+  it("opens the Branch 360 detail on row click, with an Overview tab and a real inventory tab", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("MAIN"));
     expect(screen.getByRole("heading", { name: /الفرع الرئيسي/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "نظرة عامة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "المخزون" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "المخزون" }));
-    expect(screen.getAllByText("قريباً").length).toBeGreaterThan(0);
+    // المخزون now reads the branch's linked warehouses for real, instead of a "قريباً" stub.
+    expect(screen.getByText("لا توجد مستودعات مرتبطة بهذا الفرع")).toBeInTheDocument();
   });
 
   it("returns to the list from the detail view", async () => {

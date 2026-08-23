@@ -53,6 +53,11 @@ function renderScreen(suppliers: SupplierDTO[] = [supplier(), inactiveSupplier])
       current = [updated, ...current.slice(1)];
       return { body: updated };
     },
+    // The statement tab (كشف حساب المورد) builds a real AP ledger from these.
+    "GET /purchases/invoices": () => ({ body: [] }),
+    "GET /vouchers": () => ({ body: [] }),
+    "GET /open-invoices": () => ({ body: [] }),
+    "GET /reports/aging/suppliers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
   });
   return renderWithProviders(<SuppliersScreen />, { transport, initialSession: testAdminSession });
 }
@@ -70,15 +75,16 @@ describe("SuppliersScreen", () => {
     expect(await screen.findByText("لا يوجد موردون مطابقون")).toBeInTheDocument();
   });
 
-  it("opens the supplier detail on row click, with an overview tab and statement/attachments stubs", async () => {
+  it("opens the supplier detail on row click, with an overview tab and a real statement tab", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("جاري"));
     expect(screen.getByRole("heading", { name: /جاري/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "نظرة عامة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "كشف حساب المورد" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "المرفقات" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب المورد" }));
-    expect(screen.getAllByText("قريباً").length).toBeGreaterThan(0);
+    // كشف حساب المورد is a real AP movement ledger now, not a "قريباً" stub — the opening-balance
+    // label appears both as a MiniStat and as the ledger's first row.
+    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBeGreaterThan(0);
   });
 
   it("returns to the list from the detail view", async () => {

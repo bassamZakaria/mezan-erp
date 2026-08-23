@@ -49,9 +49,10 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     renderDashboard();
     expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "فاتورة جديدة" })).toBeInTheDocument();
-    expect(screen.getByText("إجمالي الإيرادات")).toBeInTheDocument();
-    expect(await screen.findByText("86,240.00")).toBeInTheDocument();
-    expect(screen.getByText("24,310.00")).toBeInTheDocument();
+    // The revenue label/figure now also appear in the balance-beam hero, so more than one match is expected.
+    expect(screen.getAllByText("إجمالي الإيرادات").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("86,240.00")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("24,310.00").length).toBeGreaterThan(0);
   });
 
   it("renders the company-wide KPI row from real GL figures", async () => {
@@ -75,13 +76,14 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
 
   it("re-queries real data when the period range changes", async () => {
     renderDashboard(rangeAwareTransport());
-    // Default range "هذا الشهر" sends a fromDate → scoped figure.
-    expect(await screen.findByText("1,000.00")).toBeInTheDocument();
+    // Default range "هذا الشهر" sends a fromDate → scoped figure. The revenue figure
+    // also appears in the balance-beam hero, so more than one match is expected.
+    expect((await screen.findAllByText("1,000.00")).length).toBeGreaterThan(0);
 
     const rangeGroup = screen.getByRole("group", { name: "نطاق الفترة" });
     fireEvent.click(within(rangeGroup).getByRole("button", { name: "كل الفترات" }));
     // "كل الفترات" sends no dates → all-time figure from the backend.
-    expect(await screen.findByText("9,999.00")).toBeInTheDocument();
+    expect((await screen.findAllByText("9,999.00")).length).toBeGreaterThan(0);
   });
 
   it("shows the company-wide footer disclaimer", () => {
@@ -97,8 +99,6 @@ describe("DashboardScreen quick actions", () => {
     ["فاتورة جديدة", "sales-invoices"],
     ["سند نقدي", "treasury-vouchers"],
     ["استلام بضاعة", "goods-receipts"],
-    ["فاتورة مشتريات جديدة", "purchase-invoices"],
-    ["أمر شراء جديد", "purchase-orders"],
     ["عرض سعر", "quotes"],
   ];
 

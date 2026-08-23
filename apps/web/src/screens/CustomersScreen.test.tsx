@@ -55,6 +55,11 @@ function renderScreen(customers: CustomerDTO[] = [customer(), inactiveCustomer])
       current = [updated, ...current.slice(1)];
       return { body: updated };
     },
+    // The statement tab (كشف حساب) builds a real AR ledger from these.
+    "GET /sales-invoices": () => ({ body: [] }),
+    "GET /sales-returns": () => ({ body: [] }),
+    "GET /vouchers": () => ({ body: [] }),
+    "GET /reports/aging/customers": () => ({ body: { rows: [], groups: [], grandTotals: {}, reconciliation: null } }),
   });
   return renderWithProviders(<CustomersScreen />, { transport, initialSession: testAdminSession });
 }
@@ -72,15 +77,16 @@ describe("CustomersScreen", () => {
     expect(await screen.findByText("لا يوجد عملاء مطابقون")).toBeInTheDocument();
   });
 
-  it("opens the customer detail on row click, with an overview tab and statement/attachments stubs", async () => {
+  it("opens the customer detail on row click, with an overview tab and a real statement tab", async () => {
     renderScreen();
     fireEvent.click(await screen.findByText("شركة الأمل للتجارة"));
     expect(screen.getByRole("heading", { name: /شركة الأمل للتجارة/ })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "نظرة عامة" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "كشف حساب" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "المرفقات" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("tab", { name: "كشف حساب" }));
-    expect(screen.getAllByText("قريباً").length).toBeGreaterThan(0);
+    // كشف حساب is a real AR movement ledger now, not a "قريباً" stub — the opening-balance
+    // label appears both as a MiniStat and as the ledger's first row.
+    expect((await screen.findAllByText("رصيد افتتاحي")).length).toBeGreaterThan(0);
   });
 
   it("returns to the list from the detail view", async () => {

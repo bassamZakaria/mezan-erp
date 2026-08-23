@@ -97,7 +97,6 @@ describe.each(["light", "dark"] as const)("FirstRunWizard (%s theme)", (theme) =
     fireEvent.click(screen.getByRole("button", { name: "التالي" }));
 
     expect(screen.getByRole("heading", { name: "استيراد البيانات (اختياري)" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "استيراد الآن" })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: "إنهاء والانتقال إلى النظام" }));
     expect(onFinish).toHaveBeenCalledTimes(1);

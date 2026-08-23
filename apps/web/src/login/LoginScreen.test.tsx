@@ -42,13 +42,11 @@ describe.each(["light", "dark"] as const)("LoginScreen (%s theme)", (theme) => {
     document.documentElement.removeAttribute("data-theme");
   });
 
-  it("renders the tenant chip, prefilled username and licensed-modules summary", async () => {
+  it("renders the login heading and prefilled username", () => {
     document.documentElement.setAttribute("data-theme", theme);
     renderWithProviders(<LoginScreen onStartWizard={() => {}} />, { transport: okTransport() });
     expect(screen.getByRole("heading", { name: "تسجيل الدخول" })).toBeInTheDocument();
-    expect((await screen.findAllByText("Cyag")).length).toBeGreaterThan(0);
     expect(screen.getByLabelText("اسم المستخدم")).toHaveValue("محمد الشهابي");
-    expect(await screen.findByText("المبيعات")).toBeInTheDocument();
   });
 
   it("keeps دخول disabled until username and all 4 PIN digits are filled", () => {

@@ -2,6 +2,7 @@ import {
   createSalesByPeriodReport,
   createSalesByItemReport,
   createSalesByCustomerReport,
+  createSalesBySalespersonReport,
   createTopProductsReport,
 } from "@mezan/domain";
 import { ReportScreen } from "./ReportScreen";
@@ -21,6 +22,10 @@ export function SalesByItemReportScreen() {
 
 export function SalesByCustomerReportScreen() {
   return <ReportScreen eyebrow="المبيعات · التقارير" definition={createSalesByCustomerReport(MONTH_START, TODAY)} apiPath="/sales/by-customer" />;
+}
+
+export function SalesBySalespersonReportScreen() {
+  return <ReportScreen eyebrow="المبيعات · التقارير" definition={createSalesBySalespersonReport(MONTH_START, TODAY)} apiPath="/sales/by-salesperson" />;
 }
 
 export function TopProductsReportScreen() {

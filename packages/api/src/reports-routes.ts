@@ -6,6 +6,7 @@ import {
   createSalesByPeriodReport,
   createSalesByItemReport,
   createSalesByCustomerReport,
+  createSalesBySalespersonReport,
   createTopProductsReport,
   createPurchasesByPeriodReport,
   createPurchasesBySupplierReport,
@@ -194,6 +195,13 @@ export function createReportsRoutes(
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
+    const invoices = await deps.salesInvoices.list();
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+  });
+
+  app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createSalesBySalespersonReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
   });

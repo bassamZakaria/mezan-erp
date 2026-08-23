@@ -43,6 +43,7 @@ import {
   SalesByPeriodReportScreen,
   SalesByItemReportScreen,
   SalesByCustomerReportScreen,
+  SalesBySalespersonReportScreen,
   TopProductsReportScreen,
 } from "./screens/reports/SalesReportsScreens";
 import {
@@ -208,6 +209,7 @@ const ROUTABLE_SCREENS = {
   "report-sales-by-period": SalesByPeriodReportScreen,
   "report-sales-by-item": SalesByItemReportScreen,
   "report-sales-by-customer": SalesByCustomerReportScreen,
+  "report-sales-by-salesperson": SalesBySalespersonReportScreen,
   "report-sales-top-products": TopProductsReportScreen,
   "report-purchases-by-period": PurchasesByPeriodReportScreen,
   "report-purchases-by-supplier": PurchasesBySupplierReportScreen,

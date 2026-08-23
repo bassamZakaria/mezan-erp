@@ -18,7 +18,7 @@
 - ✅ Settings foundation: tenant settings, branches, warehouses
 - ✅ Electron shell: window, IPC bridge, `app.fetch()` mount via `window.mezan.fetch`, auto-update, backup/restore
 - ✅ Hono app layer + command/query routing (`packages/api`, `packages/backend`)
-- 🟡 LAN multi-till host — implemented (`apps/desktop/src/main/lan-host.ts`, `apps/web/src/lan`), concurrency hardening under the `fix/sqlite-concurrency` branch
+- ✅ LAN multi-till host — implemented (`apps/desktop/src/main/lan-host.ts`, `apps/web/src/lan`); a real cross-connection SQLite `SQLITE_BUSY` deadlock (confirm flows sharing one on-disk file across ~35 separate connections) has been fixed on `main` via shared `openSqliteConnection`/`withSqliteTransaction`
 
 ## Phase 1 — Master data & key pages
 
@@ -181,7 +181,7 @@ Not started. Postgres dialect + dual-engine conformance suite, cloud JWT + refre
 ## Cross-cutting hardening (not phase-specific)
 
 - 🟡 **Real-data sweep** — retire the last `*-sample-data.ts` files (`apps/web/src/sample-data.ts`, `accounts-sample-data.ts`, `items-sample-data.ts`, `accounting-treasury-sample-data.ts`, `settings/sample-data.ts`, `login/login-sample-data.ts`) and confirm every screen is real-data-driven per `docs/web-data-wiring.md`.
-- 🟡 **SQLite write concurrency** — active fix branch (`fix/sqlite-concurrency`) hardening concurrent-writer correctness ahead of LAN multi-till going live.
+- ✅ **SQLite write concurrency** — the cross-connection `SQLITE_BUSY` deadlock in confirm flows (stock issue + GL posting sharing one file across separate connections) is fixed on `main`; ⬜ follow-up: add a regression test exercising concurrent numbering-sequence allocation and LAN multi-till writers.
 - 🟡 **Bug-hunt sweep** — active pass looking for functional defects across the app, cross-checked against the known-defects list in `docs/backlog.md` §8 so they aren't silently reintroduced.
 - 🟡 **E2E stabilization** — several `test/e2e-*` worktrees mid-flight; needs consolidation into one green, deterministic Playwright suite.
 - ⬜ **Open product decisions** (`docs/backlog.md` §5, `docs/plan.md` §6.3) — licensing mechanism finalization, installment late-fee rule, FIFO-in-v1 scope, delivery notes, branch-scoped numbering, lead→opportunity conversion mechanism, projects progress billing (مستخلصات), third locale (German) — none block ongoing development, but each blocks calling its specific issue fully "done."

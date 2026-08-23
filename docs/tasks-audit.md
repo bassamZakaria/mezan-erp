@@ -6,6 +6,13 @@
 >
 > Produced by 8 parallel read-only audits, one per phase-group, each independently grepping/reading the code. Evidence is file:line, not paraphrase.
 
+> **Reconciliation note (added after the fact).** This audit was produced against `main` @ `ee8c2d3`; commit `8763b67` then rewrote several `docs/tasks.md` lines, so the `docs/tasks.md:NN` references below have shifted — read them as pointers to the item, not to a line. Two verdicts disagree with live probing of a running `pnpm run server` and should be read as PARTIAL, not VERIFIED full:
+>
+> - **Electron shell (line 21)** — the files exist, but `apps/desktop/src/main/updater.ts:5` calls itself "CONFIG ONLY" (`autoDownload = false`, no check/apply UX), and `restore-service.ts` has no entry point: `apps/desktop/src/preload/index.ts:48-51` exposes only the fetch and print channels, and no screen references backup or restore.
+> - **LAN multi-till (line 23)** — `lan-host.ts` exists, but `/lan/*` mounts only when `options.lan` is supplied (`packages/api/src/app.ts:176`) and `createBackend` never supplies it; `/lan/status` returns **404** live, and `apps/web/src/lan/ConnectedDevicesPanel.tsx` is imported by no screen.
+>
+> Both misses share one shape: file existence and runtime reachability are different questions. Diffing the optional deps `packages/api/src/app.ts` declares against what `packages/backend/src/create-backend.ts` actually passes catches the second kind cheaply — it is how the audit, credit-control, LAN and inventory-ops gaps surfaced.
+
 ---
 
 ## Phase 0 — Foundations (desktop)

@@ -96,8 +96,10 @@ again" bugs.
 - **i18n and the language switcher** — not started. Every string is an inline
   Arabic literal and `lang` is hardcoded. Held back deliberately while ~30 screens
   were under construction; now unblocked.
-- **Reports** — 19 of 25. Missing: sales-by-salesperson, van sales, promotions,
-  expiring-soon (FEFO), make-vs-buy. The two POS reports wait on POS.
+- **Reports** — 19 operational reports are routed. Missing: sales-by-salesperson,
+  promotions, expiring-soon (FEFO), make-vs-buy. The two POS reports wait on POS.
+  (Van sales is **not** missing — `field-van-sales.ts`, the `/field/van-sales`
+  route, the screen and the `report-van-sales` nav entry all exist.)
 - **WhatsApp settings** — the reference itself only exposes a module-gated stub.
 
 ## Known defects and open decisions
@@ -114,10 +116,22 @@ both are written up in full in `tasks.md`:
    permission set as `actorRoles`, so a role-gated step can only be satisfied
    there by the company-admin `"*"` bypass.
 
-Also outstanding: no webhook dispatcher (subscriptions and delivery records exist,
-nothing sends); email and WhatsApp notification channels are modelled but
-unimplemented and labelled as such; purchases and vouchers do not accept an audit
-sink at their route layer.
+Also outstanding: email and WhatsApp notification channels are modelled but
+unimplemented and labelled as such.
+
+**The webhook dispatcher and the purchases/voucher audit sink both exist** — this
+file previously said neither did. The dispatcher sits behind transport and
+signature ports with a bounded 3-attempt retry, and a failing delivery cannot
+roll back the business operation that triggered it (verified: a confirm returned
+in 47 ms while its retries were still in flight).
+
+**This build emits 5 of the 39 catalogued events**, not the 9 this file and
+`tasks.md` have claimed. The number is derived live from the bridge mappings in
+`create-backend.ts`, and `/notification-rules/triggers` and `/webhooks/events`
+agree with it exactly. The purchase order/receipt/invoice chain publishes
+nothing because it is not a `DocumentService` and so has no
+`DocumentEventPublisher` — **that is the decision to make**, and inventing
+bridges for it was declined.
 
 ## Decisions waiting on you
 
@@ -135,7 +149,10 @@ sink at their route layer.
    discounts through an `/evaluate` preview only, so the promotions report
    cannot count usage. Writing the applied promotion onto the invoice at confirm
    is the prerequisite.
-5. **`AuditEvent` has no branch field**, so the trail cannot be branch-scoped.
+5. ~~**`AuditEvent` has no branch field.**~~ **Done** — `branchId` is recorded
+   from the scope the shell already sends, filterable in the viewer. Historical
+   rows stay null: the table is append-only by trigger, so a back-fill is
+   impossible by design and a default would fabricate evidence.
 
 ## Partial work parked, not lost
 

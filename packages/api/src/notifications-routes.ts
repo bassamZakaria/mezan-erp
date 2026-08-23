@@ -115,6 +115,18 @@ function handleDomainError(c: Context, err: unknown) {
  * `{{amount}}` / `{{customerName}}`. The raw document event carries only the
  * document's identity — this is the adapter that reads the real invoice back.
  */
+/**
+ * Money's `toString()` carries the full 10^-6 scale. A notification is read by
+ * a person, so trim to 2 decimals by string surgery — never via a float, which
+ * would defeat the scaled-integer arithmetic the totals were computed with.
+ * Numeric condition operators parse this fine, and money thresholds do not need
+ * sub-cent precision.
+ */
+function forDisplay(amount: string): string {
+  const [whole = "0", fraction = ""] = amount.split(".");
+  return `${whole}.${`${fraction}00`.slice(0, 2)}`;
+}
+
 export function createSalesInvoiceEventEnricher(
   repo: SalesInvoiceRepository,
 ): NotificationPayloadEnricher {
@@ -130,8 +142,12 @@ export function createSalesInvoiceEventEnricher(
         taxExempt: invoice.customerTaxExempt,
       });
       return {
-        amount: Number(totals.grandTotal.toString()),
+        // Exact decimal string, never a float: money keeps its scale so a
+        // template renders 478.80 rather than 478.8. Numeric condition
+        // operators parse this, so gt/lt still compare correctly.
+        amount: forDisplay(totals.grandTotal.toString()),
         currency: invoice.currency,
+        documentNumber: invoice.docNo ?? invoice.id,
         customerId: invoice.customerId,
         customerName: invoice.customerNameAr,
         status: invoice.status,

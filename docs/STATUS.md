@@ -139,9 +139,15 @@ bridges for it was declined.
    fact.** The UI prefers allocations and the aging reports take the larger of
    the two, but the backend can still record one collection twice. Converging
    `recordPayment` onto allocations removes the fallback entirely.
-2. **Purchase receipt/invoice cancel routes 404.** They mount only when
-   `purchases.layers` is supplied and `create-backend` does not pass it.
-   Enabling them changes GL and stock reversal behaviour, so it wants a decision.
+2. ~~**Purchase receipt/invoice cancel routes 404.**~~ **Done** — `create-backend`
+   now passes `purchases.layers`, which mounts both. Nothing that already worked
+   changed: the routes were fully built (domain guards, the GL reversal port in
+   `app.ts`, the sold-item gate) and only the composition root omitted one line.
+   Verified end to end — cancelling a confirmed invoice marks the original entry
+   `reversed` and posts a linked mirror entry («عكس فاتورة مشتريات»), the trial
+   balance drops by exactly the invoice's 300.00 and still balances, and an
+   invoice whose goods were already sold is refused with
+   `PURCHASE_ITEMS_ALREADY_CONSUMED` rather than silently reversing.
 3. **Three reports need schema changes, not report code** — sales-by-salesperson
    needs a rep field on invoices; expiring-soon (FEFO) needs batch/expiry on
    stock layers; make-vs-buy needs purchase-cost comparison data.

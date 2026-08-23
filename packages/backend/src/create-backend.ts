@@ -764,6 +764,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       accounts: PURCHASE_GL_ACCOUNTS,
       allocatable: vouchers.invoices,
       audit: auditSink,
+      // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
+      // which 404 without it. app.ts derives the GL reversal port from this
+      // being present, so omitting it silently disables both.
+      layers: stockLedger.layers,
     },
     salesInvoices: {
       repo: salesInvoices,

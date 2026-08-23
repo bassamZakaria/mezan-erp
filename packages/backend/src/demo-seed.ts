@@ -116,8 +116,8 @@ const BOMS = [
 
 /** Perishables — the only items that carry batches and expiry dates (FEFO). */
 const PERISHABLE_ITEMS = [
-  { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "لبن كامل الدسم ١ لتر", nameEn: "Full-Fat Milk 1L", salePrice: "38", costPrice: "27" },
-  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "زبادي طبيعي ١٠٠ جم", nameEn: "Plain Yoghurt 100g", salePrice: "12", costPrice: "8" },
+  { id: "ITEM-DEMO-7", code: "IT-0007", nameAr: "لبن كامل الدسم ١ لتر", nameEn: "Full-Fat Milk 1L", salePrice: "38", costPrice: "27" },
+  { id: "ITEM-DEMO-8", code: "IT-0008", nameAr: "زبادي طبيعي ١٠٠ جم", nameEn: "Plain Yoghurt 100g", salePrice: "12", costPrice: "8" },
 ];
 
 const COST_CENTERS = [
@@ -159,28 +159,28 @@ const PURCHASE_INVOICES = [
 ];
 
 /**
- * The perishable receipts arrive OUT of expiry order on purpose: PI-DEMO-3
- * lands the LATER-expiring milk batch first, PI-DEMO-4 the earlier one. The
+ * The perishable receipts arrive OUT of expiry order on purpose: PI-DEMO-4
+ * lands the LATER-expiring milk batch first, PI-DEMO-5 the earlier one. The
  * sale below then proves the issue took the earliest-expiring layer rather
  * than the earliest-received one.
  */
 const PERISHABLE_PURCHASE_INVOICES = [
   {
-    id: "PI-DEMO-3",
+    id: "PI-DEMO-4",
     supplierId: "SUPP-DEMO-1",
     date: "2026-07-28",
     lines: [
-      { itemId: "ITEM-DEMO-5", qty: "150", unitCost: "27", batchNo: "MLK-2607", expiryDate: "2026-10-20" },
-      { itemId: "ITEM-DEMO-6", qty: "400", unitCost: "8", batchNo: "YOG-2607", expiryDate: "2026-09-30" },
+      { itemId: "ITEM-DEMO-7", qty: "150", unitCost: "27", batchNo: "MLK-2607", expiryDate: "2026-10-20" },
+      { itemId: "ITEM-DEMO-8", qty: "400", unitCost: "8", batchNo: "YOG-2607", expiryDate: "2026-09-30" },
     ],
   },
   {
-    id: "PI-DEMO-4",
+    id: "PI-DEMO-5",
     supplierId: "SUPP-DEMO-2",
     date: "2026-08-06",
     lines: [
-      { itemId: "ITEM-DEMO-5", qty: "100", unitCost: "29", batchNo: "MLK-2708", expiryDate: "2026-09-05" },
-      { itemId: "ITEM-DEMO-6", qty: "250", unitCost: "9", batchNo: "YOG-2708", expiryDate: "2026-08-27" },
+      { itemId: "ITEM-DEMO-7", qty: "100", unitCost: "29", batchNo: "MLK-2708", expiryDate: "2026-09-05" },
+      { itemId: "ITEM-DEMO-8", qty: "250", unitCost: "9", batchNo: "YOG-2708", expiryDate: "2026-08-27" },
     ],
   },
 ];
@@ -219,8 +219,8 @@ const SALES_INVOICES = [
     date: "2026-08-20",
     dueDate: "2026-09-19",
     lines: [
-      { itemId: "ITEM-DEMO-5", qty: "60", unitPrice: "38" },
-      { itemId: "ITEM-DEMO-6", qty: "300", unitPrice: "12" },
+      { itemId: "ITEM-DEMO-7", qty: "60", unitPrice: "38" },
+      { itemId: "ITEM-DEMO-8", qty: "300", unitPrice: "12" },
     ],
   },
 ];

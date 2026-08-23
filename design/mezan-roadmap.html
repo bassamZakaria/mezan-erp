@@ -131,6 +131,18 @@
   .pill-xl{ background:var(--danger-soft); color:var(--danger-ink); }
   .pill-v1{ background:var(--brand-soft); color:var(--brand); }
   .pill-deferred{ background:var(--surface-3); color:var(--text-muted); border-color:var(--border-strong); border-style:dashed; }
+  .pill-built{ background:var(--success-soft); color:var(--success-ink); border-color:var(--success); }
+  .pill-partial{ background:var(--warning-soft); color:var(--warning-ink); border-color:var(--warning); }
+  .pill-nostart{ background:var(--surface-3); color:var(--text-faint); border-color:var(--border-strong); }
+  .phase-status-note{ margin:0 0 12px; padding:9px 12px; border-radius:var(--r-md); background:var(--surface-2); border:1px solid var(--border); color:var(--text-muted); font-size:12.5px; line-height:1.55; }
+  .phase-status-note b{ color:var(--text); }
+  .status-panel h3 .dot{ background:var(--success); }
+  .status-metrics{ display:flex; flex-wrap:wrap; gap:8px; margin:10px 0 12px; }
+  .status-metric{ background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-md); padding:7px 11px; font-size:12px; color:var(--text-muted); }
+  .status-metric b{ display:block; font-family:var(--font-mono); font-size:15px; color:var(--text); }
+  .status-gaps{ margin:0; padding-inline-start:18px; font-size:12.5px; color:var(--text-muted); line-height:1.6; }
+  .status-gaps li{ margin:3px 0; }
+  .status-gaps b{ color:var(--text); }
   .pill-par{ background:transparent; color:var(--brand); border-color:color-mix(in srgb, var(--brand) 45%, transparent); }
   .pill-par .ic{ display:inline-flex; flex-direction:column; gap:1.5px; }
   .pill-par .ic i{ display:block; width:8px; height:1.6px; background:var(--brand); border-radius:1px; }
@@ -251,6 +263,10 @@
         <span class="legend-item"><span class="pill pill-v1">v1</span> ships in v1</span>
         <span class="legend-item"><span class="pill pill-deferred">deferred</span> later phase</span>
         <span class="legend-sep"></span>
+        <span class="legend-item"><span class="pill pill-built">built</span> landed on <span class="num">main</span></span>
+        <span class="legend-item"><span class="pill pill-partial">partial</span> gaps inside the phase</span>
+        <span class="legend-item"><span class="pill pill-nostart">not started</span> nothing built</span>
+        <span class="legend-sep"></span>
         <span class="legend-item"><span class="pill pill-priority">★ priority</span> stakeholder top-6</span>
         <span class="legend-item"><span class="pill pill-risk">spec-risk</span> thin/inferred evidence</span>
         <span class="legend-item"><span class="pill pill-dec">decision</span> open product call</span>
@@ -258,6 +274,24 @@
         <span class="legend-sep"></span>
         <span class="legend-item">Deps <span class="num" style="color:var(--text)">↑</span> — same as the row above</span>
       </div>
+    </div>
+    <div class="panel status-panel">
+      <h3><span class="dot"></span>Build status — verified 2026-08-23 against <span class="num">main</span></h3>
+      <div class="status-metrics">
+        <div class="status-metric"><b>306 / 2078</b>test files / tests passing</div>
+        <div class="status-metric"><b>28</b>Playwright specs</div>
+        <div class="status-metric"><b>49</b>domain modules</div>
+        <div class="status-metric"><b>33</b>mounted API routes</div>
+        <div class="status-metric"><b>74</b>web components</div>
+        <div class="status-metric"><b>18 / 33</b>catalog reports built</div>
+      </div>
+      <p style="margin:0 0 8px;font-size:12.5px;color:var(--text-muted)">Phases 0–9 and 11–12 are on <span class="num">main</span>; <b>typecheck and lint pass</b>. The gaps that remain in v1 are narrower than the phase list suggests, and concentrated in one place:</p>
+      <ul class="status-gaps">
+        <li><b>Phase 10 is the outlier</b> — the engines (workflow gate, numbering, audit) exist, but none of the admin UIs do, and there is no notification <i>rules</i> engine at all, only an event bus.</li>
+        <li><b>9 screens run the domain in the browser</b>, not through their mounted API routes: stock balance/transfers/adjustments/counts, exchange rates, FX revaluation, cost-center P&amp;L, reconciliation, ETA. Real rules, no persistence.</li>
+        <li><b>Never built:</b> label printing, product templates/variants, inventory write-down batch, all 8 domain hub pages, branch 360, profile screen, production dashboard, the print-template designer (the page is a live preview instead).</li>
+        <li><b>Deferred by decision</b> (Phases 13–15): HR/Payroll, POS, cloud/SaaS.</li>
+      </ul>
     </div>
     <div class="panel howto">
       <h3><span class="dot"></span>How to pick up work</h3>
@@ -301,7 +335,28 @@
   "use strict";
 
   // issue tuple: [title, size, deps, tags[]]  tags: par|risk|dec|cross
-  var PHASES = [
+    var STATUS = {
+    0:{s:"built",  t:"Landed. Persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing, numbering, audit, workflow gate, RTL shell, Electron shell + backup/restore, LAN host."},
+    1:{s:"built",  t:"Landed. Items, customers, suppliers, tax rates, chart of accounts, cost centers, treasury accounts, fiscal periods — all API-backed screens."},
+    2:{s:"built",  t:"Landed. Double-entry posting with balance + period enforcement, WAC with immutable cost layers, stock movement ledger, golden-ledger fixtures."},
+    3:{s:"partial",t:"Landed except the two hub pages, which were never built."},
+    4:{s:"partial",t:"Operations landed, but the four screens run the domain in-browser rather than through the API — nothing persists. Label printing, product templates/variants, the aging write-down batch and the inventory hub were never built."},
+    5:{s:"partial",t:"Landed. Delivery notes remain an open product decision, not a build gap."},
+    6:{s:"built",  t:"Landed — RFQ chain, returns, landed costs, strictness gates, historical import."},
+    7:{s:"partial",t:"Landed except the treasury hub. Vouchers, allocation, cheques, bank reconciliation, installments and follow-ups are API-backed."},
+    8:{s:"partial",t:"Engines landed, but exchange rates, FX revaluation, cost-center P&L, reconciliation and ETA run in-browser rather than through their mounted routes. No accounting hub."},
+    9:{s:"partial",t:"Report engine, export pipeline, print renderer, Arabic amount-in-words and the full financial-statement set landed — 18 of the catalog's 33 reports. Sales-by-salesperson, van-sales and POS packs are unbuilt."},
+    10:{s:"partial",t:"The least-built v1 phase. Engines exist (workflow gate, numbering, audit); the admin UIs do not — no approvals inbox, notification-rules builder (no rules engine either), numbering admin, barcode config, data-migration wizard or audit-log viewer. Users, roles, dashboard, command palette and the settings tabs did land."},
+    11:{s:"partial",t:"BOMs, 4-stage work orders with WIP cost accumulation, and configurable-product instances landed. No production dashboard."},
+    12:{s:"partial",t:"CRM, projects, fixed assets + depreciation and van trips landed. No CRM or assets hub."},
+    13:{s:"nostart",t:"Deferred by product decision. Nothing built."},
+    14:{s:"nostart",t:"Deferred by product decision. Nothing built."},
+    15:{s:"nostart",t:"Deferred by product decision. Nothing built — the ports-first architecture keeps it additive."}
+  };
+  var STATUS_LABEL = { built:"built", partial:"partial", nostart:"not started" };
+  var STATUS_CLASS = { built:"pill-built", partial:"pill-partial", nostart:"pill-nostart" };
+
+var PHASES = [
     {n:0, en:"Foundations (desktop)", ar:"الأساسيات", scope:"v1", size:"XL",
      goal:"Monorepo, SQLite-behind-ports persistence, Money/Qty, auth, permissions engine, entitlements/licensing skeleton, numbering engine, audit trail, workflow engine core, notification bus core, RTL app shell + UI-audit spike, Electron shell + backup/restore.",
      issues:[
@@ -667,12 +722,14 @@
         '</div>'+
         '<div class="phase-meta">'+
           '<span class="pill pill-'+p.scope+'">'+(p.scope==="v1"?"v1":"deferred")+'</span>'+
+          (STATUS[p.n] ? '<span class="pill '+STATUS_CLASS[STATUS[p.n].s]+'">'+STATUS_LABEL[STATUS[p.n].s]+'</span>' : '')+
           sizePill(p.size)+
           '<span class="phase-count num">'+p.issues.length+' issues</span>'+
           '<svg class="chev" viewBox="0 0 20 20" fill="none"><path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>'+
         '</div>'+
       '</summary>'+
       '<div class="phase-body">'+
+        (STATUS[p.n] ? '<p class="phase-status-note"><b>Status:</b> '+esc(STATUS[p.n].t)+'</p>' : '')+
         '<div class="table-scroll"><table class="issues">'+
           '<thead><tr><th>Issue</th><th>Size</th><th>Depends on</th><th>Flags</th></tr></thead>'+
           '<tbody>'+rowsHtml+'</tbody>'+

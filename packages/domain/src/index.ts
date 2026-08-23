@@ -182,3 +182,9 @@ export * from "./fixed-assets/index.js";
 
 // --- field-sales/ — Field/Van Sales (phase11) ---
 export * from "./field-sales/index.js";
+
+// --- hr-shared/ — stable cross-domain seam (hr/master-data); attendance/leave/payroll depend on this, not hr/ directly ---
+export * from "./hr-shared/employee-ref.js";
+
+// --- hr/ — HR master data: employees, departments, job titles, contracts, holidays, leave requests (hr/master-data) ---
+export * from "./hr/index.js";

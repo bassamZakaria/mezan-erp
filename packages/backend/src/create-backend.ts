@@ -76,6 +76,12 @@ import {
   createStandaloneSqliteLandedCostStore,
   createStandaloneSqliteFollowUpStore,
   createSqliteInventoryOpsStore,
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
 } from "@mezan/persistence";
 import { EtaService } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
@@ -276,6 +282,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // (createSqliteInventoryOpsStore reuses `sqlite` here rather than opening
   // its own — see packages/persistence/src/sqlite-connection.ts). ---
   const inventoryOps = createSqliteInventoryOpsStore(sqlite);
+
+  // --- hr/master-data — departments, job titles, employees, contracts, holidays, leave requests (docs/catalog/06 §"الموارد البشرية"). ---
+  const hrDepartments = createSqliteDepartmentRepository(sqlite);
+  const hrJobTitles = createSqliteJobTitleRepository(sqlite);
+  const hrEmployees = createSqliteEmployeeRepository(sqlite);
+  const hrContracts = createSqliteContractRepository(sqlite);
+  const hrHolidays = createSqliteHolidayRepository(sqlite);
+  const hrLeaveRequests = createSqliteLeaveRequestRepository(sqlite);
 
   const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
   const stockService = new StockLedgerService({
@@ -524,6 +538,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       activities,
       customers,
     },
+    // --- hr/master-data ---
+    hr: {
+      departments: hrDepartments,
+      jobTitles: hrJobTitles,
+      employees: hrEmployees,
+      contracts: hrContracts,
+      holidays: hrHolidays,
+      leaveRequests: hrLeaveRequests,
+      users: uow.users,
+      numbering: ledger.numbering,
+    },
     projects: {
       projects,
       costCenters,
@@ -642,6 +667,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     landedCostStore,
     inventoryOps,
     followUps,
+    hrDepartments,
+    hrJobTitles,
+    hrEmployees,
+    hrContracts,
+    hrHolidays,
+    hrLeaveRequests,
   ];
 
   return {

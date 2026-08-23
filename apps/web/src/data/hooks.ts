@@ -162,6 +162,24 @@ import type {
   VoucherDTO,
   VoucherListQueryDTO,
   WarehouseDTO,
+  DepartmentDTO,
+  CreateDepartmentDTO,
+  UpdateDepartmentDTO,
+  JobTitleDTO,
+  CreateJobTitleDTO,
+  UpdateJobTitleDTO,
+  EmployeeDTO,
+  CreateEmployeeDTO,
+  UpdateEmployeeDTO,
+  TransitionEmployeeDTO,
+  ContractDTO,
+  CreateContractDTO,
+  HolidayDTO,
+  CreateHolidayDTO,
+  UpdateHolidayDTO,
+  LeaveRequestDTO,
+  CreateLeaveRequestDTO,
+  HrDashboardSummaryDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 
@@ -3326,5 +3344,318 @@ export function useCancelFollowUp() {
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// HR master data (docs/catalog/06 "الموارد البشرية") — hr/master-data
+// ---------------------------------------------------------------------------
+
+export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<DepartmentDTO[], ApiError>({
+    queryKey: ["hr-departments"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/departments");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأقسام.");
+      return res.json<DepartmentDTO[]>();
+    },
+  });
+}
+
+export function useCreateDepartment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepartmentDTO, ApiError, CreateDepartmentDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/departments", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القسم."));
+      return res.json<DepartmentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
+  });
+}
+
+export function useUpdateDepartment() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<DepartmentDTO, ApiError, { id: string; body: UpdateDepartmentDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/departments/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل القسم."));
+      return res.json<DepartmentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
+  });
+}
+
+export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<JobTitleDTO[], ApiError>({
+    queryKey: ["hr-job-titles"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/job-titles");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المسميات الوظيفية.");
+      return res.json<JobTitleDTO[]>();
+    },
+  });
+}
+
+export function useCreateJobTitle() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JobTitleDTO, ApiError, CreateJobTitleDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/job-titles", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المسمى الوظيفي."));
+      return res.json<JobTitleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
+  });
+}
+
+export function useUpdateJobTitle() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<JobTitleDTO, ApiError, { id: string; body: UpdateJobTitleDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/job-titles/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المسمى الوظيفي."));
+      return res.json<JobTitleDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
+  });
+}
+
+export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<EmployeeDTO[], ApiError>({
+    queryKey: ["hr-employees"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/employees");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموظفين.");
+      return res.json<EmployeeDTO[]>();
+    },
+  });
+}
+
+export function useEmployeeContracts(employeeId: string | null): UseQueryResult<ContractDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ContractDTO[], ApiError>({
+    queryKey: ["hr-employee-contracts", employeeId],
+    enabled: session !== null && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/employees/${employeeId}/contracts`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عقود الموظف.");
+      return res.json<ContractDTO[]>();
+    },
+  });
+}
+
+export function useCreateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, CreateEmployeeDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/employees", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useUpdateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, { id: string; body: UpdateEmployeeDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/employees/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useTransitionEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, { id: string; body: TransitionEmployeeDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/employees/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحديث حالة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useTerminateEmployee() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء خدمة الموظف."));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
+  });
+}
+
+export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<ContractDTO[], ApiError>({
+    queryKey: ["hr-contracts"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/contracts");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العقود.");
+      return res.json<ContractDTO[]>();
+    },
+  });
+}
+
+export function useCreateContract() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ContractDTO, ApiError, CreateContractDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/contracts", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العقد."));
+      return res.json<ContractDTO>();
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["hr-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-employee-contracts", variables.employeeId] });
+    },
+  });
+}
+
+export function useTerminateContract() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ContractDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/contracts/${id}/terminate`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء العقد."));
+      return res.json<ContractDTO>();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["hr-contracts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-employee-contracts", data.employeeId] });
+    },
+  });
+}
+
+export function useHolidays(year: number): UseQueryResult<HolidayDTO[], ApiError> {
+  const { request, session } = useApi();
+  return useQuery<HolidayDTO[], ApiError>({
+    queryKey: ["hr-holidays", year],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/holidays?year=${year}`);
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإجازات الرسمية.");
+      return res.json<HolidayDTO[]>();
+    },
+  });
+}
+
+export function useCreateHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HolidayDTO, ApiError, CreateHolidayDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/holidays", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الإجازة."));
+      return res.json<HolidayDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export function useUpdateHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<HolidayDTO, ApiError, { id: string; body: UpdateHolidayDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/holidays/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الإجازة."));
+      return res.json<HolidayDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export function useDeleteHoliday() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<void, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/holidays/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الإجازة."));
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
+  });
+}
+
+export interface MyLeaveDTO {
+  readonly employeeId: string | null;
+  readonly requests: LeaveRequestDTO[];
+}
+
+export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<MyLeaveDTO, ApiError>({
+    queryKey: ["hr-my-leave"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/leave-requests/me");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إجازاتي.");
+      return res.json<MyLeaveDTO>();
+    },
+  });
+}
+
+export function useCreateLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, CreateLeaveRequestDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+  });
+}
+
+export function useCancelLeaveRequest() {
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<LeaveRequestDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء طلب الإجازة."));
+      return res.json<LeaveRequestDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+  });
+}
+
+export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError> {
+  const { request, session } = useApi();
+  return useQuery<HrDashboardSummaryDTO, ApiError>({
+    queryKey: ["hr-dashboard"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/dashboard");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل لوحة الموارد البشرية.");
+      return res.json<HrDashboardSummaryDTO>();
+    },
   });
 }

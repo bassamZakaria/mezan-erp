@@ -103,6 +103,19 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    key: "hr",
+    label: "الموارد البشرية",
+    items: [
+      { key: "hr-dashboard", label: "لوحة الموارد البشرية" },
+      { key: "employees", label: "الموظفون" },
+      { key: "departments", label: "الأقسام" },
+      { key: "job-titles", label: "المسميات الوظيفية" },
+      { key: "contracts", label: "العقود" },
+      { key: "holidays", label: "الإجازات الرسمية" },
+      { key: "my-leave", label: "إجازاتي" },
+    ],
+  },
+  {
     key: "projects",
     label: "المشاريع",
     items: [{ key: "projects", label: "المشاريع والمقاولات" }],

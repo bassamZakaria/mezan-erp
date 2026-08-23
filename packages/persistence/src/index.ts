@@ -180,3 +180,18 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
+// --- hr-store.ts — HR master data (hr/master-data) ---
+export {
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  type SqliteDepartmentRepositoryHandle,
+  type SqliteJobTitleRepositoryHandle,
+  type SqliteEmployeeRepositoryHandle,
+  type SqliteContractRepositoryHandle,
+  type SqliteHolidayRepositoryHandle,
+  type SqliteLeaveRequestRepositoryHandle,
+} from "./hr-store.js";

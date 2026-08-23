@@ -104,6 +104,7 @@ import { createReportsRoutes, type ReportsRoutesDeps } from "./reports-routes.js
 import { createChequesRoutes, type ChequeRoutesDeps } from "./cheques-routes.js";
 import { createBankReconciliationRoutes, type BankReconciliationRoutesDeps } from "./bank-reconciliation-routes.js";
 import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
+import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
 import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
@@ -313,6 +314,12 @@ export interface CreateAppOptions {
    * present: leads, opportunities, pipeline stages, activities.
    */
   readonly crm?: CrmRoutesDeps;
+  /**
+   * Mounts HR master data (docs/catalog/06 "الموارد البشرية") under `/hr`
+   * when present: departments, job titles, employees, contracts, holidays,
+   * the HR dashboard, and the leave-request slice backing إجازاتي (My Leave).
+   */
+  readonly hr?: HrRoutesDeps;
   /**
    * Mounts Projects (docs/catalog/07 "المشاريع والمقاولات") under `/projects`
    * when present. Creating a project auto-creates its linked `PRJ-{code}`
@@ -538,6 +545,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.crm) {
     app.route("/crm", createCrmRoutes(options.crm, options.resolveAuthContext));
+  }
+  if (options.hr) {
+    app.route("/hr", createHrRoutes(options.hr, options.resolveAuthContext));
   }
   if (options.projects) {
     app.route("/projects", createProjectsRoutes(options.projects, options.resolveAuthContext));

@@ -67,6 +67,13 @@ import { PipelineScreen } from "./screens/PipelineScreen";
 import { PipelineStagesScreen } from "./screens/PipelineStagesScreen";
 import { ActivitiesScreen } from "./screens/ActivitiesScreen";
 import { ProjectsScreen } from "./screens/ProjectsScreen";
+import { HrDashboardScreen } from "./screens/HrDashboardScreen";
+import { EmployeesScreen } from "./screens/EmployeesScreen";
+import { DepartmentsScreen } from "./screens/DepartmentsScreen";
+import { JobTitlesScreen } from "./screens/JobTitlesScreen";
+import { ContractsScreen } from "./screens/ContractsScreen";
+import { HolidaysScreen } from "./screens/HolidaysScreen";
+import { MyLeaveScreen } from "./screens/MyLeaveScreen";
 import { AssetCategoriesScreen } from "./screens/AssetCategoriesScreen";
 import { AssetRegisterScreen } from "./screens/AssetRegisterScreen";
 import { DepreciationRunsScreen } from "./screens/DepreciationRunsScreen";
@@ -181,6 +188,13 @@ const ROUTABLE_SCREENS = {
   "asset-register": AssetRegisterScreen,
   "depreciation-runs": DepreciationRunsScreen,
   "van-trips": VanTripsScreen,
+  "hr-dashboard": HrDashboardScreen,
+  employees: EmployeesScreen,
+  departments: DepartmentsScreen,
+  "job-titles": JobTitlesScreen,
+  contracts: ContractsScreen,
+  holidays: HolidaysScreen,
+  "my-leave": MyLeaveScreen,
 } as const;
 
 type RoutableKey = keyof typeof ROUTABLE_SCREENS;

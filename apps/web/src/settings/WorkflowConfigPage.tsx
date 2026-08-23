@@ -1,0 +1,268 @@
+import { useMemo, useState } from "react";
+import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
+import type { GateStepDTO, WorkflowConfigDTO } from "@mezan/contracts";
+import { useCreateWorkflowConfig, useDeleteWorkflowConfig, useRoles, useUpdateWorkflowConfig, useWorkflowConfigs } from "../data/hooks";
+import { SelectField, TextField } from "./form-controls";
+
+/**
+ * إعدادات الموافقات — the workflow chain-builder (docs/catalog/09 §إعدادات
+ * الموافقات): pick one of the 26 gateable action types, add ordered steps,
+ * each assigning an approver ROLE from the tenant's CUSTOM roles only (built-
+ * in/admin roles hold `"*"` and bypass every gate — see gate.ts's
+ * `hasAdminRole`), persist the chain. Consumed by the real gate engine at
+ * confirm time through `createDocumentWorkflowGate` (create-backend.ts).
+ */
+
+const ACTION_TYPE_LABEL = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, a.labelAr]));
+
+function actionTypeLabel(code: string): string {
+  return ACTION_TYPE_LABEL.get(code) ?? code;
+}
+
+interface StepDraft {
+  role: string;
+  description: string;
+}
+
+export function WorkflowConfigPage() {
+  const configsQuery = useWorkflowConfigs();
+  const rolesQuery = useRoles();
+  const createConfig = useCreateWorkflowConfig();
+  const updateConfig = useUpdateWorkflowConfig();
+  const deleteConfig = useDeleteWorkflowConfig();
+
+  const configs = configsQuery.data ?? [];
+  const customRoles = useMemo(() => (rolesQuery.data ?? []).filter((r) => !r.isSystem), [rolesQuery.data]);
+
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [editing, setEditing] = useState<WorkflowConfigDTO | null>(null); // null = creating
+  const [actionType, setActionType] = useState<string>("");
+  const [steps, setSteps] = useState<StepDraft[]>([{ role: "", description: "" }]);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const configuredActionTypes = useMemo(() => new Set(configs.map((c) => c.actionType)), [configs]);
+  const availableActionTypes = useMemo(
+    () => GATEABLE_ACTION_TYPES.filter((a) => !configuredActionTypes.has(a.code)),
+    [configuredActionTypes],
+  );
+
+  const filtered = useMemo(() => {
+    if (search.trim() === "") return configs;
+    const q = search.trim();
+    return configs.filter((c) => actionTypeLabel(c.actionType).includes(q));
+  }, [configs, search]);
+
+  function openCreate() {
+    setEditing(null);
+    setActionType(availableActionTypes[0]?.code ?? "");
+    setSteps([{ role: customRoles[0]?.code ?? "", description: "" }]);
+    setError(null);
+    setPanelOpen(true);
+  }
+
+  function openEdit(config: WorkflowConfigDTO) {
+    setEditing(config);
+    setActionType(config.actionType);
+    setSteps(config.steps.map((s) => ({ role: s.role, description: s.description ?? "" })));
+    setError(null);
+    setPanelOpen(true);
+  }
+
+  function addStep() {
+    setSteps((prev) => [...prev, { role: customRoles[0]?.code ?? "", description: "" }]);
+  }
+
+  function removeStep(index: number) {
+    setSteps((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateStep(index: number, patch: Partial<StepDraft>) {
+    setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+  }
+
+  async function save() {
+    setError(null);
+    const cleanSteps: GateStepDTO[] = steps
+      .filter((s) => s.role.trim() !== "")
+      .map((s) => ({ role: s.role, description: s.description.trim() === "" ? undefined : s.description }));
+    if (cleanSteps.length === 0) {
+      setError("أضف خطوة واحدة على الأقل مع اختيار الدور المعتمد.");
+      return;
+    }
+    try {
+      if (editing) {
+        await updateConfig.mutateAsync({ id: editing.id, body: { steps: cleanSteps } });
+      } else {
+        if (!actionType) {
+          setError("اختر نوع الإجراء.");
+          return;
+        }
+        await createConfig.mutateAsync({ actionType, steps: cleanSteps });
+      }
+      setPanelOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر حفظ سير العمل");
+    }
+  }
+
+  async function remove(config: WorkflowConfigDTO) {
+    try {
+      await deleteConfig.mutateAsync(config.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر حذف سير العمل");
+    }
+  }
+
+  const columns: DocumentListColumn<WorkflowConfigDTO>[] = [
+    {
+      key: "actionType",
+      header: "نوع الإجراء",
+      render: (c) => <span className="font-semibold text-ink">{actionTypeLabel(c.actionType)}</span>,
+    },
+    { key: "steps", header: "عدد الخطوات", align: "end", render: (c) => <span className="mz-num">{c.steps.length}</span> },
+    { key: "status", header: "الحالة", render: () => <StatusPill label="نشط" tone="success" /> },
+    {
+      key: "actions",
+      header: "",
+      align: "end",
+      render: (c) => (
+        <div className="flex justify-end gap-[6px]">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              openEdit(c);
+            }}
+          >
+            تعديل
+          </Button>
+          <Button
+            size="sm"
+            variant="danger-outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              void remove(c);
+            }}
+          >
+            حذف
+          </Button>
+        </div>
+      ),
+    },
+  ];
+
+  if (configsQuery.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل إعدادات سير العمل.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => configsQuery.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
+  return (
+    <>
+      <DocumentList<WorkflowConfigDTO>
+        eyebrow="Settings · Workflow"
+        title="إعدادات الموافقات"
+        description="تحديد سلاسل موافقة متعددة الخطوات مبنية على الأدوار لكل نوع إجراء قابل للموافقة."
+        actions={
+          <Button variant="primary" onClick={openCreate} disabled={availableActionTypes.length === 0}>
+            إضافة سير عمل جديد
+          </Button>
+        }
+        stats={[{ label: "سير عمل مُعرّف", value: <span className="mz-num">{configs.length}</span> }]}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="بحث بنوع الإجراء…"
+        columns={columns}
+        rows={filtered}
+        rowKey={(c) => c.id}
+        onRowClick={openEdit}
+        page={1}
+        pageCount={1}
+        pageSummary={
+          <>
+            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{configs.length}</span>
+          </>
+        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد إعدادات موافقات</div>}
+      />
+
+      <SidePanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        title={editing ? "تعديل سير عمل" : "إضافة سير عمل جديد"}
+        description="سلسلة موافقة متسلسلة — كل خطوة تُسند إلى دور معتمد واحد."
+      >
+        <div className="flex flex-col gap-[16px]">
+          {error ? (
+            <div className="rounded-md border border-danger bg-danger-soft px-[12px] py-[7px] text-[12px] text-danger-ink">{error}</div>
+          ) : null}
+
+          <SelectField
+            label="نوع الإجراء"
+            value={actionType}
+            onChange={setActionType}
+            disabled={!!editing}
+            options={
+              editing
+                ? [{ value: editing.actionType, label: actionTypeLabel(editing.actionType) }]
+                : availableActionTypes.map((a) => ({ value: a.code, label: a.labelAr }))
+            }
+          />
+
+          <div className="flex flex-col gap-[10px]">
+            <div className="flex items-center justify-between">
+              <span className="text-[12.5px] font-semibold text-ink">خطوات الموافقة</span>
+              <Button size="sm" onClick={addStep} disabled={customRoles.length === 0}>
+                إضافة خطوة
+              </Button>
+            </div>
+            {customRoles.length === 0 ? (
+              <p className="text-[11.5px] text-ink-faint">لا توجد أدوار مخصصة — أنشئ دورًا مخصصًا أولًا من صفحة الأدوار والصلاحيات.</p>
+            ) : null}
+            {steps.map((step, index) => (
+              <div key={index} className="flex flex-col gap-[8px] rounded-lg border border-border bg-surface p-[12px_14px]">
+                <div className="flex items-center justify-between">
+                  <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[2px] text-[11px] font-bold text-brand">
+                    خطوة {index + 1}
+                  </span>
+                  {steps.length > 1 ? (
+                    <Button size="sm" variant="ghost" onClick={() => removeStep(index)}>
+                      إزالة
+                    </Button>
+                  ) : null}
+                </div>
+                <SelectField
+                  label="اختر الدور"
+                  value={step.role}
+                  onChange={(v) => updateStep(index, { role: v })}
+                  options={customRoles.map((r) => ({ value: r.code, label: r.name }))}
+                />
+                <TextField
+                  label="وصف الخطوة"
+                  value={step.description}
+                  onChange={(v) => updateStep(index, { description: v })}
+                  placeholder="مثال: مراجعة المشرف المباشر"
+                />
+              </div>
+            ))}
+          </div>
+
+          <div className="flex justify-end gap-[9px]">
+            <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button variant="primary" onClick={() => void save()}>
+              حفظ سير العمل
+            </Button>
+          </div>
+        </div>
+      </SidePanel>
+    </>
+  );
+}

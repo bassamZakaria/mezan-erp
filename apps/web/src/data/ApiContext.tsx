@@ -1,5 +1,5 @@
-import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
-import { authHeaders, type Session } from "./session";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { authHeaders, loadPersistedSession, persistSession, type Session } from "./session";
 import { resolveDefaultTransport, type Transport, type TransportResponse } from "./transport";
 
 interface ApiContextValue {
@@ -15,13 +15,24 @@ export interface ApiProviderProps {
   readonly children: ReactNode;
   /** Overridable for tests; defaults to the platform-resolved transport (HTTP or Electron IPC). */
   readonly transport?: Transport;
-  /** Seed an initial session (tests / restored sessions). */
+  /**
+   * Seed an initial session (tests / restored sessions). Omit it to restore
+   * the last persisted session (e.g. after a page reload); pass `null`
+   * explicitly to start signed out regardless of what's persisted.
+   */
   readonly initialSession?: Session | null;
 }
 
-export function ApiProvider({ children, transport, initialSession = null }: ApiProviderProps) {
-  const [session, setSession] = useState<Session | null>(initialSession);
+export function ApiProvider({ children, transport, initialSession }: ApiProviderProps) {
+  const [session, setSessionState] = useState<Session | null>(() =>
+    initialSession !== undefined ? initialSession : loadPersistedSession(),
+  );
   const resolvedTransport = useMemo<Transport>(() => transport ?? resolveDefaultTransport(), [transport]);
+
+  const setSession = useCallback((next: Session | null) => {
+    setSessionState(next);
+    persistSession(next);
+  }, []);
 
   const value = useMemo<ApiContextValue>(
     () => ({
@@ -34,7 +45,7 @@ export function ApiProvider({ children, transport, initialSession = null }: ApiP
         return resolvedTransport(path, { ...init, headers });
       },
     }),
-    [session, resolvedTransport],
+    [session, setSession, resolvedTransport],
   );
 
   return <ApiContext.Provider value={value}>{children}</ApiContext.Provider>;

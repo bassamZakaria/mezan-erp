@@ -84,13 +84,13 @@ export interface SqliteInventoryOpsStoreHandle {
 }
 
 /**
- * Open a SQLite-backed inventory-ops store. ":memory:" for tests, a path for
- * real storage, or an already-open connection to share one writer with the
- * other stores (see `openSqliteConnection` — `createBackend` depends on this).
+ * Open a SQLite-backed inventory-ops store. `path` is `":memory:"`/a file path
+ * (opens and owns its own connection — every existing standalone/test call
+ * site) or an already-open connection to REUSE (create-backend.ts's ONE
+ * shared connection — see sqlite-connection.ts's `openSqliteConnection` doc
+ * comment for why a second writer connection onto the same file is unsafe).
  */
-export function createSqliteInventoryOpsStore(
-  path: SqliteConnectionInput = ":memory:",
-): SqliteInventoryOpsStoreHandle {
+export function createSqliteInventoryOpsStore(path: SqliteConnectionInput = ":memory:"): SqliteInventoryOpsStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
 
   const stockAdjustments = createSqliteFrameworkDocumentStore<StockAdjustmentDocLine>(sqlite, {
@@ -113,8 +113,6 @@ export function createSqliteInventoryOpsStore(
     stockAdjustments,
     stockTransfers,
     physicalCounts,
-    close: () => {
-      if (owned) sqlite.close();
-    },
+    close: () => { if (owned) sqlite.close(); },
   };
 }

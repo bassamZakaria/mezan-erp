@@ -85,6 +85,10 @@ export function persistScopeSelection(selection: ScopeSelection): void {
  * scope headers to the ONE chosen branch/warehouse instead of the session's
  * full granted set — it can only narrow, never widen: a selection outside the
  * session's own scope is ignored and the full session scope is sent instead.
+ *
+ * `x-role-code` is separate from `x-permissions`: the workflow gate's steps
+ * assign an approver ROLE (see `/workflow` routes' `actorRoles`), not a
+ * permission code, so it isn't folded into the resolved permission set.
  */
 export function authHeaders(session: Session | null, selection?: ScopeSelection): Record<string, string> {
   if (!session) return {};
@@ -99,6 +103,7 @@ export function authHeaders(session: Session | null, selection?: ScopeSelection)
   return {
     "x-user-id": session.userId,
     "x-permissions": session.permissions.join(","),
+    "x-role-code": session.roleCode ?? "",
     "x-branch-scope": branchScope,
     "x-warehouse-scope": warehouseScope,
   };

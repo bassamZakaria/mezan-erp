@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, screen, within } from "@testing-library/react";
 import type { DashboardSummaryDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./DashboardScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
+import { NavigationProvider } from "../navigation";
 
 function summary(overrides: Partial<DashboardSummaryDTO> = {}): DashboardSummaryDTO {
   return {
@@ -88,5 +89,29 @@ describe.each(["light", "dark"] as const)("DashboardScreen (%s theme)", (theme) 
     expect(
       screen.getByText("جميع الأرقام المالية مصدرها القيود المحاسبية المرحلة · نطاق الفرع لا يؤثر على الأرقام على مستوى الشركة"),
     ).toBeInTheDocument();
+  });
+});
+
+describe("DashboardScreen quick actions", () => {
+  const EXPECTED: ReadonlyArray<readonly [string, string]> = [
+    ["فاتورة جديدة", "sales-invoices"],
+    ["سند نقدي", "treasury-vouchers"],
+    ["استلام بضاعة", "goods-receipts"],
+    ["فاتورة مشتريات جديدة", "purchase-invoices"],
+    ["أمر شراء جديد", "purchase-orders"],
+    ["عرض سعر", "quotes"],
+  ];
+
+  it.each(EXPECTED)("%s navigates to %s with a create intent", (label, screenKey) => {
+    const navigate = vi.fn();
+    renderWithProviders(
+      <NavigationProvider value={{ navigate, intent: null, clearIntent: () => {} }}>
+        <DashboardScreen />
+      </NavigationProvider>,
+      { transport: stubTransport({ "GET /dashboard/summary": () => ({ body: summary() }) }), initialSession: testAdminSession },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(navigate).toHaveBeenCalledWith(screenKey, "create");
   });
 });

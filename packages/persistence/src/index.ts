@@ -61,10 +61,6 @@ export {
   type SqliteItemStoreHandle,
 } from "./item-store.js";
 export {
-  createSqliteItemUnitStore,
-  type SqliteItemUnitStoreHandle,
-} from "./item-unit-store.js";
-export {
   createSqliteNotificationRuleStore,
   type SqliteNotificationRuleStoreHandle,
 } from "./notification-rule-store.js";
@@ -72,10 +68,6 @@ export {
   createSqliteNotificationStore,
   type SqliteNotificationStoreHandle,
 } from "./notification-store.js";
-export {
-  createSqliteItemCategoryStore,
-  type SqliteItemCategoryStoreHandle,
-} from "./item-category-store.js";
 export { createScryptHasher } from "./secret-hasher.js";
 export {
   createSqliteTaxRateRepository,
@@ -131,6 +123,10 @@ export {
   type DataMigrationTransactorHandle,
 } from "./data-migration-transactor.js";
 export {
+  createSqliteHistoricalSalesArchiveStore,
+  type SqliteHistoricalSalesArchiveStoreHandle,
+} from "./sales-historical-import-store.js";
+export {
   createSqliteDocumentStore,
   createStandaloneSqliteDocumentStore,
   ensureDocumentTable,
@@ -164,6 +160,14 @@ export {
   createSqliteExchangeRateRepository,
   type SqliteExchangeRateRepositoryHandle,
 } from "./exchange-rate-repository.js";
+export {
+  createSqliteWorkflowConfigStore,
+  type SqliteWorkflowConfigStoreHandle,
+} from "./workflow-config-store.js";
+export {
+  createSqliteApprovalRequestStore,
+  type SqliteApprovalRequestStoreHandle,
+} from "./approval-request-store.js";
 export {
   createSqliteEtaStore,
   type SqliteEtaStoreHandle,
@@ -209,11 +213,30 @@ export {
   createSqliteInventoryOpsStore,
   type SqliteInventoryOpsStoreHandle,
 } from "./inventory-ops-store.js";
-
 export {
-  createSqliteItemSpecificationStore,
-  type SqliteItemSpecificationStoreHandle,
-} from "./item-specification-store.js";
+  createSqlitePrintTemplateConfigStore,
+  type SqlitePrintTemplateConfigStoreHandle,
+} from "./print-template-config-store.js";
+
+// --- hr-store.ts — HR master data (hr/master-data) ---
+export {
+  createSqliteDepartmentRepository,
+  createSqliteJobTitleRepository,
+  createSqliteEmployeeRepository,
+  createSqliteContractRepository,
+  createSqliteHolidayRepository,
+  createSqliteLeaveRequestRepository,
+  type SqliteDepartmentRepositoryHandle,
+  type SqliteJobTitleRepositoryHandle,
+  type SqliteEmployeeRepositoryHandle,
+  type SqliteContractRepositoryHandle,
+  type SqliteHolidayRepositoryHandle,
+  type SqliteLeaveRequestRepositoryHandle,
+} from "./hr-store.js";
+export {
+  createSqliteWritedownRunRepository,
+  type SqliteWritedownRunRepositoryHandle,
+} from "./writedown-run-store.js";
 export {
   createSqliteProductTemplateStore,
   type SqliteProductTemplateStoreHandle,
@@ -228,15 +251,8 @@ export {
 } from "./label-layout-store.js";
 
 export {
-  ensureWorkflowTables,
-  createSqliteGateConfigStore,
-  createSqliteWorkflowRequestStore,
-  createWorkflowSubjectResolver,
-  workflowDocTypeLabelAr,
-  type StoredGateConfig,
-  type GateConfigInput,
-  type GateConfigStore,
-  type StoredApprovalRequest,
-  type WorkflowRequestStore,
-  type WorkflowSubject,
-} from "./workflow-store.js";
+  createSqliteItemCatalogStore,
+  createSqliteItemCatalogStores,
+  type SqliteItemCatalogStoreHandle,
+  type SqliteItemCatalogStores,
+} from "./item-catalog-store.js";

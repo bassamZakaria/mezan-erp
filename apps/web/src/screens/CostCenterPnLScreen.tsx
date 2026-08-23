@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { DocumentList, StatCard, type DocumentListColumn } from "@mezan/ui";
+import { DocumentList, StatCard, Card, Button, type DocumentListColumn } from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
-import { useCostCenterPnL } from "../data/accounting-hooks";
+import { useCostCenterPnL } from "../data/hooks";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
@@ -10,8 +10,9 @@ function fmt(value: string): string {
 
 /**
  * أرباح مراكز التكلفة — Cost Center P&L (docs/catalog/04). Groups posted
- * revenue/expense by the cost-center dimension carried on each journal line.
- * Backed by `GET /cost-center-pl?fromDate&toDate`.
+ * revenue/expense by the cost-center dimension carried on each journal line,
+ * on the real `GET /cost-center-pl` route (packages/api/src/cost-center-pl-routes.ts),
+ * which runs the SAME `computeCostCenterPnL` domain function server-side.
  */
 export function CostCenterPnLScreen() {
   const [fromDate, setFromDate] = useState("2026-08-01");
@@ -48,9 +49,12 @@ export function CostCenterPnLScreen() {
       </div>
 
       {query.isError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {query.error?.message ?? "تعذّر تحميل أرباح مراكز التكلفة."}
-        </div>
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرباح مراكز التكلفة.</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            إعادة المحاولة
+          </Button>
+        </Card>
       ) : null}
 
       <div className="mb-[18px] grid grid-cols-1 gap-[14px] sm:grid-cols-3">
@@ -68,7 +72,7 @@ export function CostCenterPnLScreen() {
         page={1}
         pageCount={1}
         pageSummary={<>عرض <span className="mz-num">{report?.rows.length ?? 0}</span> مركز تكلفة</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? "جارِ التحميل…" : "لا توجد حركات في هذه الفترة"}</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد حركات في هذه الفترة</div>}
       />
     </div>
   );

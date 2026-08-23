@@ -1,0 +1,83 @@
+import { z } from "zod";
+
+/**
+ * Wire contracts for Product Templates (docs/catalog/03-inventory.md
+ * §"قوالب المنتجات"): attribute-driven variant/SKU generation. Money fields
+ * cross the wire as exact decimal strings, never a float.
+ */
+
+export const productTemplateStatusSchema = z.enum(["active", "inactive"]);
+
+export const productTemplateAttributeSchema = z.object({
+  id: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
+  values: z.array(z.string().min(1)),
+});
+
+export const productTemplateSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
+  baseUnitCode: z.string().min(1),
+  categoryId: z.string().nullable(),
+  brand: z.string().nullable(),
+  costingMethod: z.enum(["WAC", "FIFO"]),
+  defaultSalePrice: z.string().nullable(),
+  defaultCost: z.string().nullable(),
+  taxRatePercent: z.number(),
+  attributes: z.array(productTemplateAttributeSchema),
+  status: productTemplateStatusSchema,
+});
+
+export const createProductTemplateSchema = z.object({
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable().optional(),
+  baseUnitCode: z.string().min(1),
+  categoryId: z.string().nullable().optional(),
+  brand: z.string().nullable().optional(),
+  costingMethod: z.enum(["WAC", "FIFO"]).optional(),
+  defaultSalePrice: z.string().nullable().optional(),
+  defaultCost: z.string().nullable().optional(),
+  taxRatePercent: z.number().optional(),
+});
+
+export const addTemplateAttributeSchema = z.object({
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable().optional(),
+  values: z.array(z.string().min(1)).min(1),
+});
+
+export const addAttributeValueSchema = z.object({
+  value: z.string().min(1),
+});
+
+export const productTemplateVariantSchema = z.object({
+  id: z.string().min(1),
+  templateId: z.string().min(1),
+  itemId: z.string().min(1),
+  itemCode: z.string().min(1),
+  values: z.record(z.string(), z.string()),
+  createdAt: z.string(),
+});
+
+export const generateVariantsSchema = z.object({
+  selections: z.array(z.object({ values: z.record(z.string(), z.string()) })).min(1),
+});
+
+export const generateVariantsResultSchema = z.object({
+  created: z.array(productTemplateVariantSchema),
+  skippedExisting: z.number().int().nonnegative(),
+});
+
+export type ProductTemplateStatusDTO = z.infer<typeof productTemplateStatusSchema>;
+export type ProductTemplateAttributeDTO = z.infer<typeof productTemplateAttributeSchema>;
+export type ProductTemplateDTO = z.infer<typeof productTemplateSchema>;
+export type CreateProductTemplateDTO = z.infer<typeof createProductTemplateSchema>;
+export type AddTemplateAttributeDTO = z.infer<typeof addTemplateAttributeSchema>;
+export type AddAttributeValueDTO = z.infer<typeof addAttributeValueSchema>;
+export type ProductTemplateVariantDTO = z.infer<typeof productTemplateVariantSchema>;
+export type GenerateVariantsDTO = z.infer<typeof generateVariantsSchema>;
+export type GenerateVariantsResultDTO = z.infer<typeof generateVariantsResultSchema>;

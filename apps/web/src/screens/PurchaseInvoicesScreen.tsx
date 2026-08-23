@@ -24,6 +24,7 @@ import {
   useSuppliers,
 } from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 const STATUS_LABEL: Record<PurchaseInvoiceStatusDTO, string> = {
   draft: "مسودة",
@@ -183,6 +184,7 @@ export function PurchaseInvoicesScreen() {
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  useScreenIntent(() => openCreate());
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);

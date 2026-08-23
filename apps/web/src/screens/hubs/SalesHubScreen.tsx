@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCustomers, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * المبيعات hub — KPI tiles + quick actions + recent activity, all computed
@@ -12,7 +13,7 @@ import { useNavigate } from "../../navigation";
 
 const OUTSTANDING_INVOICE_STATUSES = new Set(["confirmed", "partially_paid"]);
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "فاتورة مبيعات جديدة", screen: "sales-invoices" },
   { label: "عرض سعر جديد", screen: "quotes" },
   { label: "قوائم الأسعار", screen: "price-lists" },
@@ -25,7 +26,7 @@ function num(value: string | undefined | null): number {
 }
 
 export function SalesHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const invoicesQuery = useSalesInvoices();
   const quotesQuery = useSalesQuotes();
   const customersQuery = useCustomers();

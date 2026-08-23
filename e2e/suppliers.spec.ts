@@ -4,7 +4,7 @@ import { clickSidebarItem } from "./support/nav";
 
 /**
  * Suppliers screen (apps/web/src/screens/SuppliersScreen.tsx), the mirror of
- * CustomersScreen.tsx. 5 demo suppliers (apps/web/src/partners-sample-data.ts's
+ * CustomersScreen.tsx. 5 demo suppliers (the seeded
  * demoSuppliers, 4 active + 1 inactive). List (DocumentList) + add/edit form
  * (SidePanel) + detail view (DocumentDetail) with a real "نظرة عامة" tab and
  * three Phase-2 stub tabs (فواتير المشتريات/كشف حساب المورد/المرفقات).

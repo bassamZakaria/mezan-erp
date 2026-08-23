@@ -27,7 +27,7 @@ import {
   type VoucherPaymentMethod,
   type VoucherType,
 } from "@mezan/domain";
-import type { AccountDTO, BranchDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
+import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
   useBranches,
@@ -46,6 +46,7 @@ import {
   type VoucherRowDTO,
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -141,9 +142,9 @@ export function TreasuryVouchersScreen() {
   const suppliersQuery = useSuppliers();
   const treasuryQuery = useTreasuryAccounts();
   const accountsQuery = useAccounts();
-  const branchesQuery = useBranches();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
+  useScreenIntent(() => setMode("create"));
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
@@ -154,7 +155,6 @@ export function TreasuryVouchersScreen() {
   const suppliers = suppliersQuery.data ?? [];
   const treasuryAccounts = treasuryQuery.data ?? [];
   const accounts = accountsQuery.data ?? [];
-  const branches = branchesQuery.data ?? [];
 
   const partyName = useMemo(() => {
     const map = new Map<string, string>();
@@ -269,7 +269,6 @@ export function TreasuryVouchersScreen() {
         suppliers={suppliers}
         treasuryAccounts={treasuryAccounts}
         accounts={accounts}
-        branches={branches}
         onDone={() => setMode("list")}
       />
     );
@@ -624,18 +623,17 @@ function CreateVoucherView({
   suppliers,
   treasuryAccounts,
   accounts,
-  branches,
   onDone,
 }: {
   customers: CustomerDTO[];
   suppliers: SupplierDTO[];
   treasuryAccounts: TreasuryAccountDTO[];
   accounts: AccountDTO[];
-  branches: BranchDTO[];
   onDone: () => void;
 }) {
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
+  const branchesQuery = useBranches();
 
   const [type, setType] = useState<VoucherType | null>(null);
   const [draft, setDraft] = useState<CreateDraft>({
@@ -686,7 +684,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: branches[0]?.id ?? "MAIN",
+      branchId: branchesQuery.data?.[0]?.id ?? "MAIN",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

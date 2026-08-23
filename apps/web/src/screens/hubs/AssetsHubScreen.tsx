@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useAssetCategories, useAssets, useDepreciationRuns } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * الأصول الثابتة hub — asset register + categories + depreciation runs over
@@ -12,14 +13,14 @@ function num(value: string | undefined | null): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "أصل جديد", screen: "asset-register" },
   { label: "تشغيل إهلاك جديد", screen: "depreciation-runs" },
   { label: "تصنيفات الأصول", screen: "asset-categories" },
 ];
 
 export function AssetsHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const assetsQuery = useAssets();
   const categoriesQuery = useAssetCategories();
   const runsQuery = useDepreciationRuns();

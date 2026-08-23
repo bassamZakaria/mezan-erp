@@ -15,8 +15,9 @@ import {
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
 import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
-import { unitLabel, useItemUnits } from "../data/item-catalog-hooks";
+import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useScreenIntent } from "../navigation";
 
 const STATUS_LABEL: Record<PurchaseOrderStatusDTO, string> = {
   draft: "مسودة",
@@ -133,7 +134,6 @@ export function PurchaseOrdersScreen() {
   const orders = query.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
   const items = itemsQuery.data ?? [];
-  const units = useItemUnits().data ?? [];
 
   const supplierName = useMemo(() => {
     const map = new Map(suppliers.map((s) => [s.id, s.nameAr]));
@@ -145,12 +145,14 @@ export function PurchaseOrdersScreen() {
   }, [items]);
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(units, i.baseUnitCode) }));
+  const unitLabel = useUnitLabel();
+  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
+  useScreenIntent(() => openCreate());
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");

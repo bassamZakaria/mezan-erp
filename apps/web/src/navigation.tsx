@@ -1,13 +1,47 @@
-import { createContext, useContext, type ReactNode } from "react";
+/// <reference types="vite/client" />
+import { createContext, useContext, useEffect, useRef, type ReactNode } from "react";
+import type { ScreenKey } from "./App";
 
-type NavigateFn = (screenKey: string) => void;
+/** An optional "do this on arrival" hint carried alongside a navigation. */
+export type ScreenIntent = "create";
 
-const NavigationContext = createContext<NavigateFn | null>(null);
+type NavigationValue = {
+  navigate: (screen: ScreenKey, intent?: ScreenIntent) => void;
+  intent: ScreenIntent | null;
+  clearIntent: () => void;
+};
 
-export function NavigationProvider({ navigate, children }: { navigate: NavigateFn; children: ReactNode }) {
-  return <NavigationContext.Provider value={navigate}>{children}</NavigationContext.Provider>;
+const NavigationContext = createContext<NavigationValue | null>(null);
+
+export function NavigationProvider({ value, children }: { value: NavigationValue; children: ReactNode }) {
+  return <NavigationContext.Provider value={value}>{children}</NavigationContext.Provider>;
 }
 
-export function useNavigate(): NavigateFn {
-  return useContext(NavigationContext) ?? (() => {});
+const FALLBACK: NavigationValue = {
+  navigate: (screen) => {
+    if (import.meta.env.DEV) console.warn(`navigate(${screen}) called outside <NavigationProvider> — no-op`);
+  },
+  intent: null,
+  clearIntent: () => {},
+};
+
+export function useNavigation(): NavigationValue {
+  return useContext(NavigationContext) ?? FALLBACK;
+}
+
+/**
+ * Runs `onIntent` once when a screen is entered with a pending intent, then
+ * clears it. Only the active routable screen is mounted, so the pending intent
+ * is unambiguously this screen's.
+ */
+export function useScreenIntent(onIntent: (intent: ScreenIntent) => void): void {
+  const { intent, clearIntent } = useNavigation();
+  const handler = useRef(onIntent);
+  handler.current = onIntent;
+
+  useEffect(() => {
+    if (!intent) return;
+    handler.current(intent);
+    clearIntent();
+  }, [intent, clearIntent]);
 }

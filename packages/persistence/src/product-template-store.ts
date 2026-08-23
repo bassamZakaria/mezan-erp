@@ -4,43 +4,46 @@ import {
   Money,
   type CostingMethod,
   type ProductTemplate,
-  type ProductTemplateOption,
+  type ProductTemplateAttribute,
   type ProductTemplateRepository,
   type ProductTemplateStatus,
   type ProductTemplateVariant,
+  type ProductTemplateVariantRepository,
 } from "@mezan/domain";
 
 /**
- * SQLite-backed ProductTemplateRepository (قوالب المنتجات — the variant matrix).
- * Header row + one row per generated variant; the option matrix is a JSON
- * column (mirrors `configurable_product`'s `inputs`/`materials`). Prices are
- * INTEGER at Money's fixed 1e-6 scale, never REAL.
+ * SQLite-backed store for Product Templates (docs/catalog/03-inventory.md
+ * §"قوالب المنتجات"): the template row (scalar fields + an `attributes` JSON
+ * column, mirroring how `depreciation_run.lines` is stored) and the generated
+ * variants table (one row per real Item the generator has produced). Money
+ * is stored as scaled INTEGER, round-tripped via `.toString()`/`Money.fromMajor`
+ * — never floats.
  */
 
 const CREATE_TABLES = `
 CREATE TABLE IF NOT EXISTS product_template (
-  id               TEXT PRIMARY KEY,
-  code             TEXT NOT NULL UNIQUE,
-  name_ar          TEXT NOT NULL,
-  name_en          TEXT,
-  base_unit_code   TEXT NOT NULL,
-  category_id      TEXT,
-  base_price       INTEGER,
-  tax_rate_percent REAL NOT NULL,
-  costing_method   TEXT NOT NULL,
-  options_json     TEXT NOT NULL,
-  status           TEXT NOT NULL,
-  created_at       TEXT NOT NULL
+  id                  TEXT PRIMARY KEY,
+  code                TEXT NOT NULL UNIQUE,
+  name_ar             TEXT NOT NULL,
+  name_en             TEXT,
+  base_unit_code      TEXT NOT NULL,
+  category_id         TEXT,
+  brand               TEXT,
+  costing_method      TEXT NOT NULL,
+  default_sale_price  INTEGER,
+  default_cost        INTEGER,
+  tax_rate_percent    REAL NOT NULL,
+  attributes          TEXT NOT NULL,
+  status              TEXT NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS product_template_variant (
-  template_id TEXT NOT NULL REFERENCES product_template(id),
-  line_no     INTEGER NOT NULL,
-  sku         TEXT NOT NULL,
-  values_json TEXT NOT NULL,
-  name_ar     TEXT NOT NULL,
-  sale_price  INTEGER,
-  item_id     TEXT,
-  PRIMARY KEY (template_id, line_no)
+  id           TEXT PRIMARY KEY,
+  template_id  TEXT NOT NULL,
+  item_id      TEXT NOT NULL,
+  item_code    TEXT NOT NULL,
+  values_json  TEXT NOT NULL,
+  created_at   TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_product_template_variant_template ON product_template_variant(template_id);
 `;
@@ -52,33 +55,16 @@ interface ProductTemplateRow {
   name_en: string | null;
   base_unit_code: string;
   category_id: string | null;
-  base_price: number | null;
-  tax_rate_percent: number;
+  brand: string | null;
   costing_method: string;
-  options_json: string;
+  default_sale_price: number | null;
+  default_cost: number | null;
+  tax_rate_percent: number;
+  attributes: string;
   status: string;
-  created_at: string;
 }
 
-interface ProductTemplateVariantRow {
-  sku: string;
-  values_json: string;
-  name_ar: string;
-  sale_price: number | null;
-  item_id: string | null;
-}
-
-function toVariant(row: ProductTemplateVariantRow): ProductTemplateVariant {
-  return {
-    sku: row.sku,
-    values: JSON.parse(row.values_json) as string[],
-    nameAr: row.name_ar,
-    salePrice: row.sale_price === null ? null : Money.fromScaled(row.sale_price),
-    itemId: row.item_id,
-  };
-}
-
-function toTemplate(row: ProductTemplateRow, variants: ProductTemplateVariant[]): ProductTemplate {
+function toProductTemplate(row: ProductTemplateRow): ProductTemplate {
   return {
     id: row.id,
     code: row.code,
@@ -86,130 +72,147 @@ function toTemplate(row: ProductTemplateRow, variants: ProductTemplateVariant[])
     nameEn: row.name_en,
     baseUnitCode: row.base_unit_code,
     categoryId: row.category_id,
-    basePrice: row.base_price === null ? null : Money.fromScaled(row.base_price),
-    taxRatePercent: row.tax_rate_percent,
+    brand: row.brand,
     costingMethod: row.costing_method as CostingMethod,
-    options: JSON.parse(row.options_json) as ProductTemplateOption[],
-    variants,
+    defaultSalePrice: row.default_sale_price === null ? null : Money.fromScaled(row.default_sale_price),
+    defaultCost: row.default_cost === null ? null : Money.fromScaled(row.default_cost),
+    taxRatePercent: row.tax_rate_percent,
+    attributes: JSON.parse(row.attributes) as ProductTemplateAttribute[],
     status: row.status as ProductTemplateStatus,
-    createdAt: row.created_at,
   };
 }
 
-class SqliteProductTemplateStore implements ProductTemplateRepository {
+class SqliteProductTemplateRepository implements ProductTemplateRepository {
   private readonly upsert: Database.Statement;
-  private readonly deleteVariants: Database.Statement;
-  private readonly insertVariant: Database.Statement;
-  private readonly selectAll: Database.Statement;
   private readonly selectById: Database.Statement;
   private readonly selectByCode: Database.Statement;
-  private readonly selectVariants: Database.Statement;
-  private readonly deleteById: Database.Statement;
+  private readonly selectAll: Database.Statement;
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO product_template
-        (id, code, name_ar, name_en, base_unit_code, category_id, base_price,
-         tax_rate_percent, costing_method, options_json, status, created_at)
-      VALUES
-        (@id, @code, @nameAr, @nameEn, @baseUnitCode, @categoryId, @basePrice,
-         @taxRatePercent, @costingMethod, @options, @status, @createdAt)
+      INSERT INTO product_template (id, code, name_ar, name_en, base_unit_code, category_id, brand, costing_method, default_sale_price, default_cost, tax_rate_percent, attributes, status)
+      VALUES (@id, @code, @name_ar, @name_en, @base_unit_code, @category_id, @brand, @costing_method, @default_sale_price, @default_cost, @tax_rate_percent, @attributes, @status)
       ON CONFLICT(id) DO UPDATE SET
-        code = @code, name_ar = @nameAr, name_en = @nameEn,
-        base_unit_code = @baseUnitCode, category_id = @categoryId,
-        base_price = @basePrice, tax_rate_percent = @taxRatePercent,
-        costing_method = @costingMethod, options_json = @options, status = @status
+        code = excluded.code,
+        name_ar = excluded.name_ar,
+        name_en = excluded.name_en,
+        base_unit_code = excluded.base_unit_code,
+        category_id = excluded.category_id,
+        brand = excluded.brand,
+        costing_method = excluded.costing_method,
+        default_sale_price = excluded.default_sale_price,
+        default_cost = excluded.default_cost,
+        tax_rate_percent = excluded.tax_rate_percent,
+        attributes = excluded.attributes,
+        status = excluded.status
     `);
-    this.deleteVariants = sqlite.prepare(`DELETE FROM product_template_variant WHERE template_id = ?`);
-    this.insertVariant = sqlite.prepare(`
-      INSERT INTO product_template_variant (template_id, line_no, sku, values_json, name_ar, sale_price, item_id)
-      VALUES (@templateId, @lineNo, @sku, @values, @nameAr, @salePrice, @itemId)
-    `);
-    this.selectAll = sqlite.prepare(`SELECT * FROM product_template ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM product_template WHERE id = ?`);
     this.selectByCode = sqlite.prepare(`SELECT * FROM product_template WHERE code = ?`);
-    this.selectVariants = sqlite.prepare(
-      `SELECT sku, values_json, name_ar, sale_price, item_id
-       FROM product_template_variant WHERE template_id = ? ORDER BY line_no ASC`,
-    );
-    this.deleteById = sqlite.prepare(`DELETE FROM product_template WHERE id = ?`);
-  }
-
-  private variantsOf(templateId: string): ProductTemplateVariant[] {
-    return (this.selectVariants.all(templateId) as ProductTemplateVariantRow[]).map(toVariant);
-  }
-
-  async list(): Promise<ProductTemplate[]> {
-    return (this.selectAll.all() as ProductTemplateRow[]).map((row) =>
-      toTemplate(row, this.variantsOf(row.id)),
-    );
+    this.selectAll = sqlite.prepare(`SELECT * FROM product_template`);
   }
 
   async findById(id: string): Promise<ProductTemplate | null> {
     const row = this.selectById.get(id) as ProductTemplateRow | undefined;
-    return row ? toTemplate(row, this.variantsOf(row.id)) : null;
+    return row ? toProductTemplate(row) : null;
   }
 
   async findByCode(code: string): Promise<ProductTemplate | null> {
     const row = this.selectByCode.get(code) as ProductTemplateRow | undefined;
-    return row ? toTemplate(row, this.variantsOf(row.id)) : null;
+    return row ? toProductTemplate(row) : null;
   }
 
-  async save(template: ProductTemplate): Promise<void> {
-    const write = this.sqlite.transaction(() => {
-      this.upsert.run({
-        id: template.id,
-        code: template.code,
-        nameAr: template.nameAr,
-        nameEn: template.nameEn,
-        baseUnitCode: template.baseUnitCode,
-        categoryId: template.categoryId,
-        basePrice: template.basePrice === null ? null : template.basePrice.toScaledNumber(),
-        taxRatePercent: template.taxRatePercent,
-        costingMethod: template.costingMethod,
-        options: JSON.stringify(template.options),
-        status: template.status,
-        createdAt: template.createdAt,
-      });
-      this.deleteVariants.run(template.id);
-      template.variants.forEach((variant, index) => {
-        this.insertVariant.run({
-          templateId: template.id,
-          lineNo: index + 1,
-          sku: variant.sku,
-          values: JSON.stringify(variant.values),
-          nameAr: variant.nameAr,
-          salePrice: variant.salePrice === null ? null : variant.salePrice.toScaledNumber(),
-          itemId: variant.itemId,
-        });
-      });
-    });
-    write();
+  async list(): Promise<ProductTemplate[]> {
+    return (this.selectAll.all() as ProductTemplateRow[]).map(toProductTemplate);
   }
 
-  async delete(id: string): Promise<void> {
-    const remove = this.sqlite.transaction(() => {
-      this.deleteVariants.run(id);
-      this.deleteById.run(id);
+  async create(template: ProductTemplate): Promise<void> {
+    this.write(template);
+  }
+
+  async update(template: ProductTemplate): Promise<void> {
+    this.write(template);
+  }
+
+  private write(template: ProductTemplate): void {
+    this.upsert.run({
+      id: template.id,
+      code: template.code,
+      name_ar: template.nameAr,
+      name_en: template.nameEn,
+      base_unit_code: template.baseUnitCode,
+      category_id: template.categoryId,
+      brand: template.brand,
+      costing_method: template.costingMethod,
+      default_sale_price: template.defaultSalePrice === null ? null : template.defaultSalePrice.toScaledNumber(),
+      default_cost: template.defaultCost === null ? null : template.defaultCost.toScaledNumber(),
+      tax_rate_percent: template.taxRatePercent,
+      attributes: JSON.stringify(template.attributes),
+      status: template.status,
     });
-    remove();
   }
 }
 
-export interface SqliteProductTemplateStoreHandle extends ProductTemplateRepository {
+interface ProductTemplateVariantRow {
+  id: string;
+  template_id: string;
+  item_id: string;
+  item_code: string;
+  values_json: string;
+  created_at: string;
+}
+
+function toVariant(row: ProductTemplateVariantRow): ProductTemplateVariant {
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    itemId: row.item_id,
+    itemCode: row.item_code,
+    values: JSON.parse(row.values_json) as Record<string, string>,
+    createdAt: row.created_at,
+  };
+}
+
+class SqliteProductTemplateVariantRepository implements ProductTemplateVariantRepository {
+  private readonly insert: Database.Statement;
+  private readonly selectByTemplate: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.insert = sqlite.prepare(`
+      INSERT INTO product_template_variant (id, template_id, item_id, item_code, values_json, created_at)
+      VALUES (@id, @template_id, @item_id, @item_code, @values_json, @created_at)
+    `);
+    this.selectByTemplate = sqlite.prepare(`SELECT * FROM product_template_variant WHERE template_id = ?`);
+  }
+
+  async listByTemplate(templateId: string): Promise<readonly ProductTemplateVariant[]> {
+    return (this.selectByTemplate.all(templateId) as ProductTemplateVariantRow[]).map(toVariant);
+  }
+
+  async create(variant: ProductTemplateVariant): Promise<void> {
+    this.insert.run({
+      id: variant.id,
+      template_id: variant.templateId,
+      item_id: variant.itemId,
+      item_code: variant.itemCode,
+      values_json: JSON.stringify(variant.values),
+      created_at: variant.createdAt,
+    });
+  }
+}
+
+export interface SqliteProductTemplateStoreHandle {
+  readonly templates: ProductTemplateRepository;
+  readonly variants: ProductTemplateVariantRepository;
   close(): void;
 }
 
-/** Open a SQLite-backed ProductTemplateRepository. ":memory:" for tests, a path for real. */
-export function createSqliteProductTemplateStore(
-  path: SqliteConnectionInput = ":memory:",
-): SqliteProductTemplateStoreHandle {
+/** Open a SQLite-backed Product Template store. ":memory:" for tests, a path for real. */
+export function createSqliteProductTemplateStore(path: SqliteConnectionInput = ":memory:"): SqliteProductTemplateStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLES);
-  const store = new SqliteProductTemplateStore(sqlite);
-  return Object.assign(store, {
-    close: () => {
-      if (owned) sqlite.close();
-    },
-  }) as SqliteProductTemplateStoreHandle;
+  return {
+    templates: new SqliteProductTemplateRepository(sqlite),
+    variants: new SqliteProductTemplateVariantRepository(sqlite),
+    close: () => { if (owned) sqlite.close(); },
+  };
 }

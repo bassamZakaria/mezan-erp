@@ -34,3 +34,11 @@ export interface CommandItem {
   icon?: ReactNode;
   onSelect: () => void;
 }
+
+
+export interface UserMenuItem {
+  key: string;
+  label: string;
+  onSelect: () => void;
+  tone?: "default" | "danger";
+}

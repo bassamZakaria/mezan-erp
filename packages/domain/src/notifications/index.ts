@@ -1,61 +1,41 @@
 export {
-  NOTIFICATION_CHANNELS,
-  IMPLEMENTED_NOTIFICATION_CHANNELS,
   NOTIFICATION_PRIORITIES,
+  NOTIFICATION_CHANNELS,
+  CONDITION_OPERATORS,
   NOTIFICATION_RECIPIENT_TYPES,
-  NOTIFICATION_CONDITION_OPERATORS,
-  createNotificationRule,
-  updateNotificationRule,
-  setNotificationRuleEnabled,
-  deleteNotificationRule,
-} from "./rule.js";
-export type {
-  NotificationChannel,
-  NotificationPriority,
-  NotificationRecipientType,
-  NotificationConditionOperator,
-  NotificationCondition,
-  NotificationRule,
-  NotificationRuleRepository,
-  CreateNotificationRuleCommand,
-  UpdateNotificationRuleCommand,
-} from "./rule.js";
+  type NotificationPriority,
+  type NotificationChannel,
+  type ConditionOperator,
+  type NotificationRecipientType,
+  type NotificationCondition,
+  type NotificationRule,
+  type NotificationRuleListFilter,
+  type NotificationRuleRepository,
+  type NotificationReadStatus,
+  type NotificationChannelStatus,
+  type Notification,
+  type NotificationListFilter,
+  type NotificationRepository,
+} from "./types.js";
 
-export { NOTIFICATION_TRIGGERS, findNotificationTrigger } from "./triggers.js";
-export type { NotificationTrigger, TriggerConditionField } from "./triggers.js";
-
-export { matchesCondition, readPayloadField } from "./condition.js";
-
-export { evaluateRule, evaluateRules, renderTemplate } from "./evaluate.js";
-export type { NotificationDraft, NotificationEvaluationContext } from "./evaluate.js";
-
-export { createInAppDelivery } from "./notification.js";
-export type {
-  Notification,
-  NotificationListFilter,
-  NotificationRepository,
-  NotificationDeliveryPort,
-} from "./notification.js";
-
-export { createNotificationDirectory, resolveRecipients } from "./recipients.js";
-export type { NotificationDirectory } from "./recipients.js";
+export { evaluateCondition } from "./condition.js";
+export { renderTemplate, defaultNotificationTitle, defaultNotificationBody } from "./template.js";
 
 export {
-  NotificationEngine,
-  subscribeNotificationEngine,
-  implementedChannels,
-} from "./engine.js";
-export type {
-  NotificationEngineDeps,
-  NotificationDispatchResult,
-  NotificationPayloadEnricher,
-} from "./engine.js";
-
-export { createDocumentEventBridge, toNotificationEventCode } from "./document-event-bridge.js";
-export type { DocumentEventPayload } from "./document-event-bridge.js";
-
-export {
-  NotificationRuleNotFoundError,
   InvalidNotificationRuleError,
+  NotificationRuleNotFoundError,
   NotificationNotFoundError,
 } from "./errors.js";
+
+export {
+  saveNotificationRule,
+  updateNotificationRule,
+  deleteNotificationRule,
+  setNotificationRuleActive,
+  type SaveNotificationRuleCommand,
+  type UpdateNotificationRuleCommand,
+} from "./save-rule.js";
+
+export { markNotificationRead, markAllNotificationsRead } from "./actions.js";
+
+export { NotificationRulesEngine, type NotificationRulesEngineDeps } from "./engine.js";

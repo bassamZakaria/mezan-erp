@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * إدارة علاقات العملاء hub — leads, opportunities and activities over the
@@ -14,7 +15,7 @@ function num(value: string | undefined | null): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "عميل محتمل جديد", screen: "leads" },
   { label: "فرصة جديدة", screen: "opportunities" },
   { label: "خط المبيعات", screen: "pipeline" },
@@ -22,7 +23,7 @@ const quickActions: { label: string; screen: string }[] = [
 ];
 
 export function CrmHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const leadsQuery = useLeads();
   const opportunitiesQuery = useOpportunities();
   const activitiesQuery = useCrmActivities();

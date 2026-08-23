@@ -7,6 +7,13 @@ import type {
   WacSnapshot,
   WacSnapshotRepository,
 } from "../ports.js";
+import type { WritedownRun, WritedownRunRepository } from "../writedown-run.js";
+import type {
+  ProductTemplate,
+  ProductTemplateRepository,
+  ProductTemplateVariant,
+  ProductTemplateVariantRepository,
+} from "../product-template.js";
 
 /** In-memory StockLedgerRepository preserving append order (ledger order). */
 export class InMemoryStockLedger implements StockLedgerRepository {
@@ -70,5 +77,65 @@ export class InMemorySnapshots implements WacSnapshotRepository {
   }
   async list(): Promise<readonly WacSnapshot[]> {
     return [...this.byKey.values()];
+  }
+}
+
+/** In-memory WritedownRunRepository (inv/labels-templates-writedown). */
+export class InMemoryWritedownRuns implements WritedownRunRepository {
+  private readonly rows = new Map<string, WritedownRun>();
+
+  async findById(id: string): Promise<WritedownRun | null> {
+    return this.rows.get(id) ?? null;
+  }
+  async findByPeriod(period: string, warehouseId: string | null): Promise<WritedownRun | null> {
+    for (const row of this.rows.values()) {
+      if (row.period === period && row.warehouseId === warehouseId) return row;
+    }
+    return null;
+  }
+  async list(): Promise<WritedownRun[]> {
+    return [...this.rows.values()];
+  }
+  async create(run: WritedownRun): Promise<void> {
+    this.rows.set(run.id, run);
+  }
+  async update(run: WritedownRun): Promise<void> {
+    this.rows.set(run.id, run);
+  }
+}
+
+/** In-memory ProductTemplateRepository (inv/labels-templates-writedown). */
+export class InMemoryProductTemplates implements ProductTemplateRepository {
+  private readonly rows = new Map<string, ProductTemplate>();
+
+  async findById(id: string): Promise<ProductTemplate | null> {
+    return this.rows.get(id) ?? null;
+  }
+  async findByCode(code: string): Promise<ProductTemplate | null> {
+    for (const row of this.rows.values()) {
+      if (row.code === code) return row;
+    }
+    return null;
+  }
+  async list(): Promise<ProductTemplate[]> {
+    return [...this.rows.values()];
+  }
+  async create(template: ProductTemplate): Promise<void> {
+    this.rows.set(template.id, template);
+  }
+  async update(template: ProductTemplate): Promise<void> {
+    this.rows.set(template.id, template);
+  }
+}
+
+/** In-memory ProductTemplateVariantRepository (inv/labels-templates-writedown). */
+export class InMemoryProductTemplateVariants implements ProductTemplateVariantRepository {
+  private readonly rows: ProductTemplateVariant[] = [];
+
+  async listByTemplate(templateId: string): Promise<readonly ProductTemplateVariant[]> {
+    return this.rows.filter((v) => v.templateId === templateId);
+  }
+  async create(variant: ProductTemplateVariant): Promise<void> {
+    this.rows.push(variant);
   }
 }

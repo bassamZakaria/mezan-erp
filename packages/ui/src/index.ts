@@ -75,10 +75,15 @@ export {
 
 export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
-export { Topbar, type TopbarProps, type ShellNotification } from "./shell/Topbar";
+export { Topbar, type TopbarProps, type ShellNotification, type TopbarScopeOption } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
+export {
+  NotificationsPanel,
+  type NotificationsPanelProps,
+  type NotificationPanelItem,
+} from "./shell/NotificationsPanel";
 export { BrandMark } from "./shell/BrandMark";
-export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem } from "./shell/types";
+export type { NavGroup, NavItem, NavTag, ShellUser, CommandItem, UserMenuItem } from "./shell/types";
 
 export {
   TrendChart,
@@ -118,6 +123,15 @@ export {
   type HistoricalImportParseError,
   type HistoricalImportParseResult,
 } from "./lib/historical-import-file";
+
+export {
+  buildDataMigrationTemplate,
+  parseDataMigrationFile,
+  type DataMigrationColumn,
+  type DataMigrationStepSpec,
+  type DataMigrationParseError,
+  type DataMigrationParseResult,
+} from "./lib/data-migration-file";
 
 export {
   DEFAULT_PRINT_TEMPLATE_CONFIG,

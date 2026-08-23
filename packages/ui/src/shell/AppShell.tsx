@@ -3,8 +3,8 @@ import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { CommandPalette } from "./CommandPalette";
 import { Sidebar } from "./Sidebar";
-import { Topbar, type ShellNotification, type TopbarScopeOption } from "./Topbar";
-import type { CommandItem, NavGroup, NavItem, ShellUser } from "./types";
+import { Topbar, type TopbarScopeOption } from "./Topbar";
+import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 export interface AppShellProps {
   activeNavKey?: string;
@@ -14,11 +14,10 @@ export interface AppShellProps {
   commandItems?: CommandItem[];
   tenantName?: string;
   scopeLabel?: string;
-  notifications?: ShellNotification[];
-  unreadNotificationCount?: number;
-  onMarkNotificationRead?: (id: string) => void;
-  onMarkAllNotificationsRead?: () => void;
-  onLogout?: () => void;
+  notificationCount?: number;
+  onToggleNotifications?: () => void;
+  notificationsPanel?: ReactNode;
+  userMenuItems?: UserMenuItem[];
   brandName?: string;
   brandSub?: string;
   children: ReactNode;
@@ -44,11 +43,10 @@ export function AppShell({
   commandItems = [],
   tenantName,
   scopeLabel,
-  notifications,
-  unreadNotificationCount,
-  onMarkNotificationRead,
-  onMarkAllNotificationsRead,
-  onLogout,
+  notificationCount,
+  onToggleNotifications,
+  notificationsPanel,
+  userMenuItems,
   brandName,
   brandSub,
   children,
@@ -84,11 +82,10 @@ export function AppShell({
           scopeLabel={scopeLabel}
           theme={theme}
           onToggleTheme={toggleTheme}
-          notifications={notifications}
-          unreadNotificationCount={unreadNotificationCount}
-          onMarkNotificationRead={onMarkNotificationRead}
-          onMarkAllNotificationsRead={onMarkAllNotificationsRead}
-          onLogout={onLogout}
+          notificationCount={notificationCount}
+          onToggleNotifications={onToggleNotifications}
+          notificationsPanel={notificationsPanel}
+          userMenuItems={userMenuItems}
           user={user}
           branchOptions={branchOptions}
           warehouseOptions={warehouseOptions}

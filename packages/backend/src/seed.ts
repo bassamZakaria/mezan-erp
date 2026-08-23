@@ -6,7 +6,6 @@ import {
   generateFiscalYear,
   saveUser,
   createPipelineStage,
-  createItemUnit,
   createLabelLayout,
   ALL_SCOPE,
   type AccountRepository,
@@ -20,7 +19,10 @@ import {
   type Role,
   type TaxRate,
   type PipelineStageRepository,
+  type ItemUnit,
   type ItemUnitRepository,
+  type ItemCategory,
+  type ItemCategoryRepository,
   type CreateLabelLayoutCommand,
   type LabelLayoutRepository,
 } from "@mezan/domain";
@@ -57,12 +59,11 @@ export interface SeedStores {
    */
   readonly pipelineStages?: PipelineStageRepository;
   /**
-   * Optional — seeds the standard units of measure (docs/catalog/03 "وحدات
-   * القياس") on an empty DB when supplied. Reference data every tenant needs
-   * (items require a base unit), not demo data. Omit it and the unit catalog
-   * simply starts empty.
+   * Optional — seeds the standard units of measure and a starter category
+   * tree (docs/catalog/03 §"وحدة القياس" / §"تصنيفات الأصناف") on an empty DB
+   * when supplied. Omit it and the item catalogs simply start empty.
    */
-  readonly itemUnits?: ItemUnitRepository;
+  readonly itemCatalog?: { readonly units: ItemUnitRepository; readonly categories: ItemCategoryRepository };
   /**
    * Optional — seeds the standard sticker-sheet geometries (docs/catalog/03
    * §"طباعة الباركود والملصقات") on an empty DB when supplied. Configuration
@@ -74,6 +75,26 @@ export interface SeedStores {
 }
 
 /** True when the tenant has never been seeded (no chart of accounts yet). */
+/** The unit codes docs/catalog/03's "وحدة القياس" picker ships with. */
+const SEED_ITEM_UNITS: readonly ItemUnit[] = [
+  { code: "PCS", nameAr: "قطعة", nameEn: "Piece", status: "active" },
+  { code: "CTN", nameAr: "كرتونة", nameEn: "Carton", status: "active" },
+  { code: "BOX", nameAr: "صندوق", nameEn: "Box", status: "active" },
+  { code: "KG", nameAr: "كيلوجرام", nameEn: "Kilogram", status: "active" },
+  { code: "G", nameAr: "جرام", nameEn: "Gram", status: "active" },
+  { code: "L", nameAr: "لتر", nameEn: "Litre", status: "active" },
+  { code: "M", nameAr: "متر", nameEn: "Metre", status: "active" },
+  { code: "SVC", nameAr: "خدمة", nameEn: "Service", status: "active" },
+];
+
+/** A starter category tree (docs/catalog/03 §"تصنيفات الأصناف"); editable like any other tenant record. */
+const SEED_ITEM_CATEGORIES: readonly ItemCategory[] = [
+  { id: "cat-food", nameAr: "مواد غذائية", nameEn: "Food", parentId: null, status: "active" },
+  { id: "cat-office", nameAr: "مستلزمات مكتبية", nameEn: "Office supplies", parentId: null, status: "active" },
+  { id: "cat-spares", nameAr: "قطع غيار", nameEn: "Spare parts", parentId: null, status: "active" },
+  { id: "cat-services", nameAr: "خدمات", nameEn: "Services", parentId: null, status: "active" },
+];
+
 export async function isEmptyTenant(stores: Pick<SeedStores, "accounts">): Promise<boolean> {
   return (await stores.accounts.list()).length === 0;
 }
@@ -122,23 +143,9 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
     }),
   );
 
-  if (stores.itemUnits) {
-    // The standard base units of measure (docs/catalog/03 "وحدات القياس").
-    // Item categories are deliberately NOT seeded — every tenant defines its
-    // own tree, so that catalog starts empty.
-    const seedUnits: ReadonlyArray<{ readonly code: string; readonly nameAr: string }> = [
-      { code: "PCS", nameAr: "قطعة" },
-      { code: "CTN", nameAr: "كرتونة" },
-      { code: "BOX", nameAr: "صندوق" },
-      { code: "KG", nameAr: "كيلوجرام" },
-      { code: "G", nameAr: "جرام" },
-      { code: "L", nameAr: "لتر" },
-      { code: "M", nameAr: "متر" },
-      { code: "SVC", nameAr: "خدمة" },
-    ];
-    for (const unit of seedUnits) {
-      await createItemUnit({ id: `UOM-${unit.code}`, code: unit.code, nameAr: unit.nameAr }, stores.itemUnits);
-    }
+  if (stores.itemCatalog) {
+    for (const unit of SEED_ITEM_UNITS) await stores.itemCatalog.units.create(unit);
+    for (const category of SEED_ITEM_CATEGORIES) await stores.itemCatalog.categories.create(category);
   }
 
   await generateFiscalYear(now().getUTCFullYear(), stores.fiscalPeriods);
@@ -269,7 +276,8 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
   return currentCounts(stores);
 }
 
-async function currentCounts(stores: SeedStores): Promise<BootstrapSeedResultDTO> {
+/** Current tenant counts WITHOUT seeding — what the first-run wizard reads to show which base data already exists. */
+export async function currentCounts(stores: SeedStores): Promise<BootstrapSeedResultDTO> {
   const [accounts, taxRates, branches, warehouses, fiscalPeriods, users] = await Promise.all([
     stores.accounts.list(),
     stores.taxRates.list(),

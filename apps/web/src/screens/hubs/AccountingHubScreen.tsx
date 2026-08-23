@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useAccounts, useDashboardSummary, useFiscalPeriods } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * المحاسبة hub — reuses the SAME `/dashboard/summary` figures the main
@@ -14,7 +15,7 @@ function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "قيد محاسبي جديد", screen: "journals" },
   { label: "دليل الحسابات", screen: "coa" },
   { label: "ميزان المراجعة", screen: "trial-balance-report" },
@@ -22,7 +23,7 @@ const quickActions: { label: string; screen: string }[] = [
 ];
 
 export function AccountingHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const summaryQuery = useDashboardSummary({});
   const accountsQuery = useAccounts();
   const periodsQuery = useFiscalPeriods();

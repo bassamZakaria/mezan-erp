@@ -1,58 +1,57 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the two item reference catalogs (docs/catalog/03-inventory.md
- * "وحدات القياس" / "تصنيفات الأصناف"). Items reference a unit by `code` and a
- * category by `id`, so those are the identifiers that cross the wire.
+ * Wire contracts for the item master-data catalogs (docs/catalog/03
+ * §"وحدة القياس" / §"تصنيفات الأصناف"): units of measure and item categories.
+ * Both are tenant data, not fixed enums — an item's `baseUnitCode` and
+ * `categoryId` point at these records.
  */
+
+export const itemCatalogStatusSchema = z.enum(["active", "inactive"]);
+
 export const itemUnitSchema = z.object({
-  id: z.string().min(1),
-  code: z.string().min(1),
+  /** The unit code an item's `baseUnitCode` / alternate units refer to (e.g. "PCS"). */
+  code: z.string().regex(/^[A-Z0-9_-]{1,12}$/),
   nameAr: z.string().min(1),
-  baseUnitCode: z.string().nullable(),
-  factor: z.number().positive(),
-  active: z.boolean(),
+  nameEn: z.string().nullable(),
+  status: itemCatalogStatusSchema,
 });
 
 export const createItemUnitSchema = z.object({
-  id: z.string().min(1),
-  code: z.string().min(1),
+  code: z.string().regex(/^[A-Z0-9_-]{1,12}$/),
   nameAr: z.string().min(1),
-  baseUnitCode: z.string().nullable().optional(),
-  factor: z.number().positive().optional(),
-  active: z.boolean().optional(),
+  nameEn: z.string().nullable().optional(),
 });
 
-/** `code` is immutable after creation — items reference units by code. */
 export const updateItemUnitSchema = z.object({
   nameAr: z.string().min(1).optional(),
-  baseUnitCode: z.string().nullable().optional(),
-  factor: z.number().positive().optional(),
-  active: z.boolean().optional(),
+  nameEn: z.string().nullable().optional(),
+  status: itemCatalogStatusSchema.optional(),
 });
 
 export const itemCategorySchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
   nameAr: z.string().min(1),
-  parentId: z.string().nullable(),
-  active: z.boolean(),
+  nameEn: z.string().nullable(),
+  parentId: z.string().min(1).nullable(),
+  status: itemCatalogStatusSchema,
 });
 
 export const createItemCategorySchema = z.object({
   id: z.string().min(1),
-  code: z.string().min(1),
   nameAr: z.string().min(1),
-  parentId: z.string().nullable().optional(),
-  active: z.boolean().optional(),
+  nameEn: z.string().nullable().optional(),
+  parentId: z.string().min(1).nullable().optional(),
 });
 
 export const updateItemCategorySchema = z.object({
   nameAr: z.string().min(1).optional(),
-  parentId: z.string().nullable().optional(),
-  active: z.boolean().optional(),
+  nameEn: z.string().nullable().optional(),
+  parentId: z.string().min(1).nullable().optional(),
+  status: itemCatalogStatusSchema.optional(),
 });
 
+export type ItemCatalogStatusDTO = z.infer<typeof itemCatalogStatusSchema>;
 export type ItemUnitDTO = z.infer<typeof itemUnitSchema>;
 export type CreateItemUnitDTO = z.infer<typeof createItemUnitSchema>;
 export type UpdateItemUnitDTO = z.infer<typeof updateItemUnitSchema>;

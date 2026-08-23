@@ -1,370 +1,242 @@
 import { useMemo, useState } from "react";
-import { Button, Card, LabelSheetView, type LabelSheetEntry, type LabelSheetLayout } from "@mezan/ui";
-import type { ItemDTO, LabelLayoutDTO } from "@mezan/contracts";
+import bwipjs from "bwip-js/browser";
+import { Card, Button, EntityPicker, QtyInput, type EntityPickerOption } from "@mezan/ui";
+import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
 import { useItems } from "../data/hooks";
-import { useItemCategories } from "../data/item-catalog-hooks";
-import { useStockAdjustments, useStockTransfers } from "../data/inventory-ops-hooks";
-import { useLabelLayouts } from "../data/label-hooks";
-import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 
 /**
- * طباعة الملصقات والباركود (label / barcode printing) — docs/catalog/03.
- * Pick items (by search, by category, or from a stock document), pick a
- * sticker layout and copies per item, then print the sheet through the SAME
- * print pipeline every document uses (`LabelSheetView` → `PrintToolbar` →
- * window.print / Electron printToPDF).
+ * طباعة الملصقات (Label Printing) — docs/catalog/03-inventory.md §"طباعة
+ * الملصقات". A stateless print builder (nothing persisted until printed,
+ * exactly like the reference screen): pick items + a label template, get a
+ * live barcode-fit check per item (`checkBarcodeFit`/`buildLabelBatch` in
+ * `@mezan/domain`), preview, and print through the same
+ * window.print()/`@page` pipeline every other printable document in this app
+ * uses (see `packages/ui/src/print/PrintView.tsx`).
  */
 
-type SourceMode = "search" | "category" | "document";
-
-const SOURCE_LABEL: Record<SourceMode, string> = {
-  search: "بحث في الأصناف",
-  category: "حسب التصنيف",
-  document: "من مستند مخزني",
-};
-
-function toSheetLayout(layout: LabelLayoutDTO): LabelSheetLayout {
-  return {
-    pageSize: layout.pageSize,
-    columns: layout.columns,
-    rows: layout.rows,
-    labelWidthMm: layout.labelWidthMm,
-    labelHeightMm: layout.labelHeightMm,
-    columnGapMm: layout.columnGapMm,
-    rowGapMm: layout.rowGapMm,
-    marginBlockMm: layout.marginBlockMm,
-    marginInlineMm: layout.marginInlineMm,
-    showItemName: layout.showItemName,
-    showItemCode: layout.showItemCode,
-    showPrice: layout.showPrice,
-    showUnit: layout.showUnit,
-    showBarcode: layout.showBarcode,
-    showBarcodeText: layout.showBarcodeText,
-    barcodeHeightMm: layout.barcodeHeightMm,
-  };
+interface SelectedLine {
+  itemId: string;
+  nameAr: string;
+  code: string;
+  barcode: string;
+  priceMajor: string;
+  copies: number;
 }
 
-/** Qty arrives as an exact decimal string; take its whole part as the copy count. */
-function wholePartOf(qty: string): number {
-  const whole = Number.parseInt(qty.split(".")[0] ?? "0", 10);
-  return Number.isFinite(whole) ? Math.max(1, whole) : 1;
+function renderBarcodeSvg(barcode: string): string | null {
+  const trimmed = barcode.trim();
+  if (trimmed === "") return null;
+  try {
+    return bwipjs.toSVG({ bcid: "code128", text: trimmed, scale: 2, height: 10, includetext: false });
+  } catch {
+    return null;
+  }
+}
+
+function LabelTile({ line, template }: { line: SelectedLine; template: (typeof LABEL_TEMPLATES)[number] }) {
+  const svg = useMemo(() => renderBarcodeSvg(line.barcode), [line.barcode]);
+  return (
+    <div
+      className="mz-label-tile flex flex-col items-center justify-between gap-[3px] overflow-hidden border border-dashed border-border bg-surface p-[2mm] text-center"
+      style={{ width: `${template.widthMm}mm`, height: `${template.heightMm}mm` }}
+    >
+      <div className="w-full truncate text-[9px] font-bold text-ink" dir="rtl">
+        {line.nameAr}
+      </div>
+      {svg ? (
+        <div className="mz-label-barcode w-full flex-1" dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : (
+        <div className="flex-1 text-[8px] text-ink-faint">لا يوجد باركود</div>
+      )}
+      <div className="flex w-full items-center justify-between text-[8px] text-ink-muted">
+        <span className="mz-num">{line.code}</span>
+        <span className="mz-num font-bold text-ink">{line.priceMajor} ج.م</span>
+      </div>
+    </div>
+  );
 }
 
 export function LabelPrintingScreen() {
   const itemsQuery = useItems();
-  const categoriesQuery = useItemCategories();
-  const layoutsQuery = useLabelLayouts();
-  const adjustmentsQuery = useStockAdjustments("confirmed");
-  const transfersQuery = useStockTransfers("confirmed");
+  const items = itemsQuery.data ?? [];
 
-  const [mode, setMode] = useState<SourceMode>("search");
-  const [search, setSearch] = useState("");
-  const [categoryId, setCategoryId] = useState("");
-  const [documentId, setDocumentId] = useState("");
-  const [layoutId, setLayoutId] = useState("");
-  const [copies, setCopies] = useState<Record<string, number>>({});
-  const [defaultCopies, setDefaultCopies] = useState(1);
-  const [fallbackToCode, setFallbackToCode] = useState(false);
+  const [pickerValue, setPickerValue] = useState<EntityPickerOption | null>(null);
+  const [lines, setLines] = useState<SelectedLine[]>([]);
+  const [templateCode, setTemplateCode] = useState<LabelTemplateCode>("THERMAL_40x30");
 
-  const items = useMemo(() => itemsQuery.data ?? [], [itemsQuery.data]);
-  const categories = categoriesQuery.data ?? [];
-  const layouts = useMemo(
-    () => (layoutsQuery.data ?? []).filter((l) => l.active),
-    [layoutsQuery.data],
-  );
+  const options: EntityPickerOption[] = useMemo(() => {
+    const already = new Set(lines.map((l) => l.itemId));
+    return items.filter((it) => !already.has(it.id)).map((it) => ({ id: it.id, label: it.nameAr, sublabel: it.code }));
+  }, [items, lines]);
 
-  const documents = useMemo(() => {
-    const adjustments = (adjustmentsQuery.data ?? []).map((doc) => ({
-      id: doc.id,
-      label: `تسوية ${doc.docNo ?? doc.id} — ${doc.date}`,
-      itemQtys: doc.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
-    }));
-    const transfers = (transfersQuery.data ?? []).map((doc) => ({
-      id: doc.id,
-      label: `تحويل ${doc.docNo ?? doc.id} — ${doc.date}`,
-      itemQtys: doc.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
-    }));
-    return [...adjustments, ...transfers];
-  }, [adjustmentsQuery.data, transfersQuery.data]);
-
-  const activeLayout = useMemo(
-    () => layouts.find((l) => l.id === layoutId) ?? layouts[0] ?? null,
-    [layouts, layoutId],
-  );
-
-  const visibleItems = useMemo(() => {
-    if (mode === "category") {
-      return categoryId === "" ? [] : items.filter((i) => i.categoryId === categoryId);
-    }
-    if (mode === "document") {
-      const doc = documents.find((d) => d.id === documentId);
-      if (!doc) return [];
-      const ids = new Set(doc.itemQtys.map((l) => l.itemId));
-      return items.filter((i) => ids.has(i.id));
-    }
-    const q = search.trim().toLowerCase();
-    if (q === "") return items;
-    return items.filter(
-      (i) =>
-        i.nameAr.toLowerCase().includes(q) ||
-        i.code.toLowerCase().includes(q) ||
-        i.barcodes.some((b) => b.toLowerCase().includes(q)),
-    );
-  }, [mode, items, search, categoryId, documentId, documents]);
-
-  const selectedItems = useMemo(
-    () => items.filter((i) => (copies[i.id] ?? 0) > 0),
-    [items, copies],
-  );
-
-  const entries: LabelSheetEntry[] = useMemo(
-    () =>
-      selectedItems.map((item) => ({
-        key: item.id,
-        name: item.nameAr,
+  function addItem(option: EntityPickerOption | null) {
+    if (!option) return;
+    const item = items.find((it) => it.id === option.id);
+    if (!item) return;
+    setLines((prev) => [
+      ...prev,
+      {
+        itemId: item.id,
+        nameAr: item.nameAr,
         code: item.code,
-        unit: item.baseUnitCode,
-        price: item.salePrice,
-        barcode: item.barcodes[0] ?? (fallbackToCode ? item.code : null),
-        copies: copies[item.id] ?? 0,
+        barcode: item.barcodes[0] ?? item.code,
+        priceMajor: item.salePrice ?? "0.00",
+        copies: 1,
+      },
+    ]);
+    setPickerValue(null);
+  }
+
+  function removeLine(itemId: string) {
+    setLines((prev) => prev.filter((l) => l.itemId !== itemId));
+  }
+
+  function setCopies(itemId: string, copies: number) {
+    setLines((prev) => prev.map((l) => (l.itemId === itemId ? { ...l, copies } : l)));
+  }
+
+  const batchInputs: LabelBatchLineInput[] = useMemo(
+    () =>
+      lines.map((l) => ({
+        itemId: l.itemId,
+        nameAr: l.nameAr,
+        code: l.code,
+        barcode: l.barcode,
+        price: Money.fromMajor(l.priceMajor === "" ? "0" : l.priceMajor),
+        copies: l.copies,
       })),
-    [selectedItems, copies, fallbackToCode],
+    [lines],
   );
+  const batch = useMemo(() => buildLabelBatch(templateCode, batchInputs), [templateCode, batchInputs]);
+  const template = batch.template;
 
-  const totalLabels = entries.reduce((sum, e) => sum + e.copies, 0);
-  const perPage = activeLayout ? activeLayout.columns * activeLayout.rows : 0;
-  const pageCount = perPage > 0 ? Math.ceil(totalLabels / perPage) : 0;
-
-  function toggleItem(item: ItemDTO) {
-    setCopies((prev) => {
-      const next = { ...prev };
-      if ((next[item.id] ?? 0) > 0) delete next[item.id];
-      else next[item.id] = defaultCopies;
-      return next;
-    });
-  }
-
-  function setItemCopies(itemId: string, value: number) {
-    setCopies((prev) => ({ ...prev, [itemId]: Math.max(0, Math.floor(value) || 0) }));
-  }
-
-  function selectAllVisible() {
-    setCopies((prev) => {
-      const next = { ...prev };
-      for (const item of visibleItems) next[item.id] = next[item.id] ?? defaultCopies;
-      return next;
-    });
-  }
-
-  function selectFromDocument() {
-    const doc = documents.find((d) => d.id === documentId);
-    if (!doc) return;
-    setCopies((prev) => {
-      const next = { ...prev };
-      for (const line of doc.itemQtys) next[line.itemId] = wholePartOf(line.qty);
-      return next;
-    });
-  }
+  const printableTiles = useMemo(
+    () => lines.flatMap((l) => Array.from({ length: Math.max(0, Math.trunc(l.copies)) }, (_, i) => ({ ...l, key: `${l.itemId}-${i}` }))),
+    [lines],
+  );
 
   return (
     <div className="w-full">
-      <div className="mb-[22px]">
-        <div className="font-lat text-[10.5px] font-semibold uppercase tracking-[1.6px] text-accent-strong">
-          Inventory · Labels
-        </div>
-        <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">طباعة الملصقات والباركود</h1>
-        <p className="mt-[4px] text-[12.5px] text-ink-muted">
-          اختر الأصناف وعدد النسخ وتخطيط الملصقات، ثم اطبع الورقة مباشرة.
-        </p>
-      </div>
+      <style>{`@media print {
+        body * { visibility: hidden; }
+        .mz-print-sheet, .mz-print-sheet * { visibility: visible; }
+        .mz-print-sheet { position: absolute; inset: 0; }
+      }
+      @page { size: ${template.widthMm}mm ${template.heightMm}mm; margin: 0; }`}</style>
 
-      <div className="flex flex-col gap-[16px] xl:flex-row xl:items-start">
-        <div className="flex w-full flex-col gap-[14px] xl:max-w-[560px]">
-          <Card className="flex flex-col gap-[12px] p-[16px]">
-            <div className="flex flex-wrap gap-[6px]">
-              {(Object.keys(SOURCE_LABEL) as SourceMode[]).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setMode(key)}
-                  className={`rounded-full border px-[12px] py-[5px] text-[12px] font-semibold transition-colors ${
-                    mode === key
-                      ? "border-brand bg-brand-soft text-brand-ink"
-                      : "border-border bg-surface text-ink-muted hover:text-ink"
-                  }`}
-                >
-                  {SOURCE_LABEL[key]}
-                </button>
+      <div className="print:hidden">
+        <Card className="mb-[16px] p-[14px_18px]">
+          <p className="text-[12.5px] text-ink-muted">
+            السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر.
+          </p>
+        </Card>
+
+        <Card className="mb-[16px] p-[16px_18px]">
+          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">طباعة الملصقات</h2>
+
+          <div className="mb-[14px] flex flex-wrap items-end gap-[12px]">
+            <div className="min-w-[260px] flex-1">
+              <EntityPicker
+                label="إضافة صنف"
+                value={pickerValue}
+                onChange={addItem}
+                options={options}
+                placeholder="ابحث عن صنف بالاسم أو الكود..."
+                emptyMessage="لا توجد نتائج"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="label-template" className="mb-[4px] block text-[11.5px] font-semibold text-ink-faint">
+                قالب الملصق
+              </label>
+              <select
+                id="label-template"
+                value={templateCode}
+                onChange={(e) => setTemplateCode(e.target.value as LabelTemplateCode)}
+                className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-primary"
+              >
+                {LABEL_TEMPLATES.map((t) => (
+                  <option key={t.code} value={t.code}>
+                    {t.labelAr}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="overflow-hidden rounded-lg border border-border">
+            <table className="w-full text-[12.5px]">
+              <thead className="bg-surface-2 text-ink-faint">
+                <tr>
+                  <th className="p-[8px_10px] text-start font-semibold">الصنف</th>
+                  <th className="p-[8px_10px] text-start font-semibold">الباركود</th>
+                  <th className="p-[8px_10px] text-end font-semibold">السعر المطبوع</th>
+                  <th className="p-[8px_10px] text-end font-semibold">عدد النسخ</th>
+                  <th className="p-[8px_10px]" />
+                </tr>
+              </thead>
+              <tbody>
+                {batch.lines.map((line) => (
+                  <tr key={line.itemId} className="border-t border-border align-top">
+                    <td className="p-[8px_10px]">
+                      <div className="font-semibold text-ink">{line.nameAr}</div>
+                      <div className="mz-num text-[11px] text-ink-faint">{line.code}</div>
+                    </td>
+                    <td className="p-[8px_10px]">
+                      <div className="mz-num text-ink">{line.barcode || "—"}</div>
+                      {line.messageAr ? <div className="mt-[3px] text-[11px] font-semibold text-danger-ink">{line.messageAr}</div> : null}
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <span className="mz-num">{line.price.toString()}</span>
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <QtyInput value={line.copies} onChange={(v) => setCopies(line.itemId, v)} min={1} max={999} step={1} aria-label={`عدد نسخ ${line.nameAr}`} />
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <Button size="sm" onClick={() => removeLine(line.itemId)}>
+                        إزالة
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+                {batch.lines.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="p-[16px] text-center text-[12.5px] text-ink-muted">
+                      لم تتم إضافة أي صنف بعد.
+                    </td>
+                  </tr>
+                ) : null}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="mt-[12px] flex items-center justify-between">
+            <span className="text-[12.5px] font-semibold text-ink">
+              الإجمالي: <span className="mz-num">{batch.totalLabelCount}</span> ملصق
+            </span>
+            <Button variant="primary" disabled={batch.lines.length === 0 || batch.hasBlockingIssues} onClick={() => window.print()}>
+              معاينة وطباعة
+            </Button>
+          </div>
+        </Card>
+
+        {lines.length > 0 ? (
+          <Card className="p-[16px_18px]">
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">معاينة الملصق</h3>
+            <div className="flex flex-wrap gap-[10px]">
+              {lines.slice(0, 6).map((l) => (
+                <LabelTile key={l.itemId} line={l} template={template} />
               ))}
             </div>
-
-            {mode === "search" ? (
-              <TextField label="بحث" value={search} onChange={setSearch} placeholder="اسم الصنف أو الكود أو الباركود..." />
-            ) : null}
-            {mode === "category" ? (
-              <SelectField
-                label="التصنيف"
-                value={categoryId}
-                onChange={setCategoryId}
-                options={[
-                  { value: "", label: "— اختر تصنيفاً —" },
-                  ...categories.map((c) => ({ value: c.id, label: c.nameAr })),
-                ]}
-                hint={categories.length === 0 ? "لا توجد تصنيفات معرّفة بعد." : undefined}
-              />
-            ) : null}
-            {mode === "document" ? (
-              <div className="flex flex-col gap-[10px]">
-                <SelectField
-                  label="المستند المخزني"
-                  value={documentId}
-                  onChange={setDocumentId}
-                  options={[
-                    { value: "", label: "— اختر مستنداً —" },
-                    ...documents.map((d) => ({ value: d.id, label: d.label })),
-                  ]}
-                  hint={documents.length === 0 ? "لا توجد مستندات مخزنية مؤكدة." : undefined}
-                />
-                <div>
-                  <Button onClick={selectFromDocument} disabled={documentId === ""}>
-                    تحميل أصناف المستند بكمياتها
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="flex flex-wrap items-end gap-[10px]">
-              <div className="w-[150px]">
-                <NumberField
-                  label="عدد النسخ الافتراضي"
-                  min={1}
-                  value={defaultCopies}
-                  onChange={(v) => setDefaultCopies(Math.max(1, Math.floor(v) || 1))}
-                />
-              </div>
-              <Button onClick={selectAllVisible} disabled={visibleItems.length === 0}>
-                تحديد الكل ({visibleItems.length})
-              </Button>
-              <Button onClick={() => setCopies({})} disabled={selectedItems.length === 0}>
-                مسح التحديد
-              </Button>
-            </div>
-
-            <ToggleField
-              label="استخدام كود الصنف كباركود عند عدم وجود باركود"
-              checked={fallbackToCode}
-              onChange={setFallbackToCode}
-            />
           </Card>
+        ) : null}
+      </div>
 
-          <Card className="overflow-hidden">
-            <div className="max-h-[420px] overflow-auto">
-              <table className="w-full border-collapse text-[13px]">
-                <thead>
-                  <tr>
-                    <th scope="col" className="sticky top-0 border-b border-border bg-surface-2 px-[12px] py-[9px] text-start text-[11px] font-bold uppercase text-ink-muted">
-                      الصنف
-                    </th>
-                    <th scope="col" className="sticky top-0 border-b border-border bg-surface-2 px-[12px] py-[9px] text-start text-[11px] font-bold uppercase text-ink-muted">
-                      الباركود
-                    </th>
-                    <th scope="col" className="sticky top-0 border-b border-border bg-surface-2 px-[12px] py-[9px] text-end text-[11px] font-bold uppercase text-ink-muted">
-                      النسخ
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {visibleItems.map((item) => {
-                    const itemCopies = copies[item.id] ?? 0;
-                    return (
-                      <tr key={item.id} className="border-b border-border last:border-b-0">
-                        <td className="px-[12px] py-[8px]">
-                          <label className="flex items-center gap-[8px] text-ink">
-                            <input
-                              type="checkbox"
-                              checked={itemCopies > 0}
-                              onChange={() => toggleItem(item)}
-                              className="size-[15px] accent-[var(--mz-brand,#2563eb)]"
-                            />
-                            <span>
-                              {item.nameAr} <span className="mz-num text-ink-faint">({item.code})</span>
-                            </span>
-                          </label>
-                        </td>
-                        <td className="px-[12px] py-[8px]">
-                          {item.barcodes[0] ? (
-                            <span className="mz-num text-ink-muted" dir="ltr">
-                              {item.barcodes[0]}
-                            </span>
-                          ) : (
-                            <span className="text-[11.5px] text-ink-faint">لا يوجد</span>
-                          )}
-                        </td>
-                        <td className="px-[12px] py-[6px] text-end">
-                          <input
-                            type="number"
-                            min={0}
-                            aria-label={`عدد نسخ ملصق ${item.nameAr}`}
-                            value={itemCopies}
-                            onChange={(e) => setItemCopies(item.id, e.target.valueAsNumber)}
-                            className="mz-num w-[80px] rounded-md border border-border bg-surface px-[8px] py-[6px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
-                          />
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              {visibleItems.length === 0 ? (
-                <div className="p-[20px] text-center text-[12.5px] text-ink-muted">
-                  {itemsQuery.isLoading ? "جارِ التحميل…" : "لا توجد أصناف مطابقة."}
-                </div>
-              ) : null}
-            </div>
-          </Card>
-        </div>
-
-        <div className="flex w-full flex-col gap-[14px]">
-          <Card className="flex flex-col gap-[12px] p-[16px]">
-            <SelectField
-              label="تخطيط الملصقات"
-              value={activeLayout?.id ?? ""}
-              onChange={setLayoutId}
-              options={layouts.map((l) => ({ value: l.id, label: l.nameAr }))}
-              hint={
-                layouts.length === 0
-                  ? "لا توجد تخطيطات ملصقات معرّفة — عرّف تخطيطاً واحداً على الأقل."
-                  : undefined
-              }
-            />
-            <div className="flex flex-wrap gap-x-[20px] gap-y-[6px] text-[12px] text-ink-muted">
-              <span>
-                الأصناف المحددة: <span className="mz-num font-semibold text-ink">{selectedItems.length}</span>
-              </span>
-              <span>
-                إجمالي الملصقات: <span className="mz-num font-semibold text-ink">{totalLabels}</span>
-              </span>
-              <span>
-                ملصقات لكل صفحة: <span className="mz-num font-semibold text-ink">{perPage}</span>
-              </span>
-              <span>
-                عدد الصفحات: <span className="mz-num font-semibold text-ink">{pageCount}</span>
-              </span>
-            </div>
-          </Card>
-
-          {activeLayout ? (
-            <LabelSheetView layout={toSheetLayout(activeLayout)} entries={entries} />
-          ) : (
-            <Card className="p-[20px] text-center text-[12.5px] text-ink-muted">
-              {layoutsQuery.isLoading
-                ? "جارِ تحميل التخطيطات…"
-                : layoutsQuery.isError
-                  ? (layoutsQuery.error?.message ?? "تعذّر تحميل تخطيطات الملصقات.")
-                  : "لا يوجد تخطيط ملصقات لعرض المعاينة."}
-            </Card>
-          )}
-        </div>
+      <div className="mz-print-sheet hidden flex-wrap gap-[2mm] print:flex">
+        {printableTiles.map((tile) => (
+          <LabelTile key={tile.key} line={tile} template={template} />
+        ))}
       </div>
     </div>
   );

@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard } from "../../data/hub-hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * التصنيع hub — the manufacturing-domain landing page. Its KPI tiles reuse
@@ -16,7 +17,7 @@ function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "أمر تصنيع جديد", screen: "work-orders" },
   { label: "لوحة الإنتاج", screen: "production-dashboard" },
   { label: "قوائم المواد", screen: "boms" },
@@ -24,7 +25,7 @@ const quickActions: { label: string; screen: string }[] = [
 ];
 
 export function ManufacturingHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const dashboardQuery = useManufacturingDashboard();
   const dashboard = dashboardQuery.data;
 

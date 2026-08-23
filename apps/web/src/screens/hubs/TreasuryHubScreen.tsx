@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCheques, useDashboardSummary, useTreasuryAccounts, useVouchers } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * الخزينة hub — treasury accounts + vouchers + cheques over the real
@@ -16,7 +17,7 @@ function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "سند نقدي جديد", screen: "treasury-vouchers" },
   { label: "حسابات الخزينة", screen: "treasury-accounts" },
   { label: "تسوية كشف بنك", screen: "bank-reconciliation" },
@@ -24,7 +25,7 @@ const quickActions: { label: string; screen: string }[] = [
 ];
 
 export function TreasuryHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const accountsQuery = useTreasuryAccounts();
   const vouchersQuery = useVouchers();
   const chequesQuery = useCheques();

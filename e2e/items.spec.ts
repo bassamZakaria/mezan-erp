@@ -7,7 +7,7 @@ const SCREENSHOT_DIR = "e2e-results/screenshots";
 
 /**
  * Items screen (apps/web/src/screens/ItemsScreen.tsx) — الأصناف. 8 demo items
- * (apps/web/src/items-sample-data.ts), page size 5 (2 pages). List
+ * (the seeded item catalog), page size 5 (2 pages). List
  * (DocumentList: status chips, search, category/unit selects, sortable
  * table, pager) → detail (DocumentDetail with 5 tabs) → add/edit form
  * (SidePanel) with repeatable alternate-unit and barcode editors.

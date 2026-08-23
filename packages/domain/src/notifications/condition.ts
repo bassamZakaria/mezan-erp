@@ -1,61 +1,57 @@
-import type { NotificationCondition } from "./rule.js";
+import type { NotificationCondition } from "./types.js";
 
 /**
- * Pure condition evaluation over an event payload. A rule with no condition
- * always matches; a rule whose field is absent from the payload never does
- * (a guard that cannot be evaluated must not open the gate).
+ * Evaluates a rule's optional condition against the triggering event's
+ * payload. `null` condition always passes (docs/plan.md §5.6: the condition
+ * is optional, unlike the workflow gate's unconditional action types).
+ *
+ * Missing/non-object payload or a missing field fails the match rather than
+ * throwing — a malformed payload should silently suppress the rule, not crash
+ * the engine for every other rule/event still waiting to be processed.
  */
-
-/** Reads a possibly-dotted path out of a plain payload object. */
-export function readPayloadField(
-  payload: Readonly<Record<string, unknown>>,
-  field: string,
-): unknown {
-  let cursor: unknown = payload;
-  for (const segment of field.split(".")) {
-    if (cursor === null || typeof cursor !== "object") return undefined;
-    cursor = (cursor as Record<string, unknown>)[segment];
-  }
-  return cursor;
-}
-
-function asNumber(value: unknown): number | null {
-  if (typeof value === "number") return Number.isFinite(value) ? value : null;
-  if (typeof value === "string" && value.trim() !== "") {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-  }
-  return null;
-}
-
-export function matchesCondition(
+export function evaluateCondition(
   condition: NotificationCondition | null,
-  payload: Readonly<Record<string, unknown>>,
+  payload: unknown,
 ): boolean {
   if (!condition) return true;
-  const actual = readPayloadField(payload, condition.field);
-  if (actual === undefined || actual === null) return false;
+  if (typeof payload !== "object" || payload === null) return false;
+
+  const raw = (payload as Record<string, unknown>)[condition.field];
+  if (raw === undefined || raw === null) return false;
 
   switch (condition.operator) {
     case "eq":
-      return String(actual) === condition.value;
+      return String(raw) === condition.value;
     case "neq":
-      return String(actual) !== condition.value;
+      return String(raw) !== condition.value;
     case "contains":
-      return String(actual).includes(condition.value);
+      return String(raw).includes(condition.value);
     case "gt":
     case "gte":
     case "lt":
-    case "lte": {
-      const left = asNumber(actual);
-      const right = asNumber(condition.value);
-      if (left === null || right === null) return false;
-      if (condition.operator === "gt") return left > right;
-      if (condition.operator === "gte") return left >= right;
-      if (condition.operator === "lt") return left < right;
-      return left <= right;
-    }
+    case "lte":
+      return compareNumeric(raw, condition.value, condition.operator);
     default:
       return false;
+  }
+}
+
+function compareNumeric(
+  raw: unknown,
+  target: string,
+  operator: "gt" | "gte" | "lt" | "lte",
+): boolean {
+  const a = Number(raw);
+  const b = Number(target);
+  if (Number.isNaN(a) || Number.isNaN(b)) return false;
+  switch (operator) {
+    case "gt":
+      return a > b;
+    case "gte":
+      return a >= b;
+    case "lt":
+      return a < b;
+    case "lte":
+      return a <= b;
   }
 }

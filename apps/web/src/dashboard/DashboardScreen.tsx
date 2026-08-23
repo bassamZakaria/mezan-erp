@@ -1,16 +1,21 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Chip, Money, StatCard } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
+import { useNavigation } from "../navigation";
+import type { ScreenKey } from "../App";
+import type { ScreenIntent } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
-import { useNavigate } from "../navigation";
 
-const quickActions: { label: string; screen: string }[] = [
-  { label: "فاتورة جديدة", screen: "sales-invoices" },
-  { label: "سند نقدي", screen: "treasury-vouchers" },
-  { label: "استلام بضاعة", screen: "goods-receipts" },
-  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices" },
-  { label: "أمر شراء جديد", screen: "purchase-orders" },
-  { label: "عرض سعر", screen: "quotes" },
+type QuickAction = { label: string; screen: ScreenKey; intent?: ScreenIntent; primary?: boolean };
+
+/** Quick-action launchers: each navigates to its screen and opens that screen's create flow. */
+const quickActions: QuickAction[] = [
+  { label: "فاتورة جديدة", screen: "sales-invoices", intent: "create" },
+  { label: "سند نقدي", screen: "treasury-vouchers", intent: "create" },
+  { label: "استلام بضاعة", screen: "goods-receipts", intent: "create", primary: true },
+  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices", intent: "create" },
+  { label: "أمر شراء جديد", screen: "purchase-orders", intent: "create" },
+  { label: "عرض سعر", screen: "quotes", intent: "create" },
 ];
 
 const RANGE_OPTIONS = [
@@ -50,7 +55,7 @@ function num(value: string | undefined): number {
  */
 export function DashboardScreen() {
   const { session } = useApi();
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const [range, setRange] = useState<RangeValue>("month");
   const dates = useMemo(() => rangeToDates(range), [range]);
   const query = useDashboardSummary(dates);
@@ -81,8 +86,13 @@ export function DashboardScreen() {
           </p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
-          {quickActions.map((action, index) => (
-            <Button key={action.label} size="sm" variant={index === 2 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
+          {quickActions.map((action) => (
+            <Button
+              key={action.label}
+              size="sm"
+              variant={action.primary ? "primary" : "default"}
+              onClick={() => navigate(action.screen, action.intent)}
+            >
               {action.label}
             </Button>
           ))}

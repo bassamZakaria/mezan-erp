@@ -161,14 +161,17 @@ class SqliteFrameworkDocumentStore<Line> implements DocumentRepository<Line> {
   }
 
   /**
-   * Confirming a document calls the stock/GL engines from INSIDE this
-   * transaction, and on `createBackend`'s shared connection those engines are
-   * further transactions on the SAME connection — so this must go through
-   * `withSqliteTransaction` (SAVEPOINT when nested, queued when outermost)
-   * rather than a raw BEGIN, which SQLite rejects as a nested transaction.
+   * `withSqliteTransaction` — matches every other store in this package
+   * (document-store.ts, sqlite-connection.ts's own doc comment): safe both for
+   * re-entrancy (a nested call on the SAME shared connection, e.g. this
+   * document's own confirm() driving the stock-ledger engine's GL posting,
+   * becomes a SAVEPOINT instead of a second top-level BEGIN — which SQLite
+   * rejects with "cannot start a transaction within a transaction") and for
+   * concurrent outermost calls on a connection several stores now share
+   * (create-backend.ts's ONE connection).
    */
   async transaction<T>(fn: () => Promise<T>): Promise<T> {
-    return withSqliteTransaction(this.sqlite, fn, "BEGIN");
+    return withSqliteTransaction(this.sqlite, fn);
   }
 }
 

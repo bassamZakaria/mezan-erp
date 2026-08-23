@@ -1,223 +1,268 @@
 import { useMemo, useState } from "react";
-import {
-  Button,
-  Card,
-  Chip,
-  DocumentList,
-  MoneyInput,
-  SidePanel,
-  StatusPill,
-  type DocumentListColumn,
-  type DocumentListStatusChip,
-} from "@mezan/ui";
-import type { GateStepDTO, WorkflowActionCategoryDTO, WorkflowConfigDTO } from "@mezan/contracts";
-import { useRoles } from "../data/hooks";
-import { useSetWorkflowConfig, useWorkflowConfig } from "../data/workflow-hooks";
+import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
+import type { GateStepDTO, WorkflowConfigDTO } from "@mezan/contracts";
+import { useCreateWorkflowConfig, useDeleteWorkflowConfig, useRoles, useUpdateWorkflowConfig, useWorkflowConfigs } from "../data/hooks";
 import { SelectField, TextField } from "./form-controls";
 
 /**
- * إعدادات الموافقات — the workflow/approvals config screen (docs/catalog/09
- * §إعدادات الموافقات, route `/settings/workflow`). Builds ONE editor over
- * exactly the 26 gateable action types `packages/domain/src/workflow/
- * action-types.ts` declares (read via `GET /workflow/config`, which already
- * enumerates them) — per action type: an ordered chain of approver roles
- * (only tenant-defined custom roles, matching the reference product's role
- * picker) and an optional minimum-amount threshold.
+ * إعدادات الموافقات — the workflow chain-builder (docs/catalog/09 §إعدادات
+ * الموافقات): pick one of the 26 gateable action types, add ordered steps,
+ * each assigning an approver ROLE from the tenant's CUSTOM roles only (built-
+ * in/admin roles hold `"*"` and bypass every gate — see gate.ts's
+ * `hasAdminRole`), persist the chain. Consumed by the real gate engine at
+ * confirm time through `createDocumentWorkflowGate` (create-backend.ts).
  */
 
-const CATEGORY_LABEL: Record<WorkflowActionCategoryDTO, string> = {
-  sales: "المبيعات",
-  purchases: "المشتريات",
-  treasury: "الخزينة",
-  inventory: "المخزون",
-  accounting: "المحاسبة",
-  hr_payroll: "الرواتب",
-  hr_leave: "الإجازات",
-  manufacturing: "التصنيع",
-};
+const ACTION_TYPE_LABEL = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, a.labelAr]));
 
-function blankStep(): GateStepDTO {
-  return { role: "", description: "" };
+function actionTypeLabel(code: string): string {
+  return ACTION_TYPE_LABEL.get(code) ?? code;
+}
+
+interface StepDraft {
+  role: string;
+  description: string;
 }
 
 export function WorkflowConfigPage() {
-  const query = useWorkflowConfig();
+  const configsQuery = useWorkflowConfigs();
   const rolesQuery = useRoles();
-  const setConfig = useSetWorkflowConfig();
+  const createConfig = useCreateWorkflowConfig();
+  const updateConfig = useUpdateWorkflowConfig();
+  const deleteConfig = useDeleteWorkflowConfig();
 
-  const configs = useMemo(() => query.data ?? [], [query.data]);
-  const approverRoles = useMemo(() => (rolesQuery.data ?? []).filter((r) => !r.isSystem), [rolesQuery.data]);
+  const configs = configsQuery.data ?? [];
+  const customRoles = useMemo(() => (rolesQuery.data ?? []).filter((r) => !r.isSystem), [rolesQuery.data]);
 
-  const [category, setCategory] = useState<WorkflowActionCategoryDTO | "all">("all");
-  const [selectedActionType, setSelectedActionType] = useState<string | null>(null);
-  const [draftSteps, setDraftSteps] = useState<GateStepDTO[]>([]);
-  const [draftMinAmount, setDraftMinAmount] = useState<number | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [editing, setEditing] = useState<WorkflowConfigDTO | null>(null); // null = creating
+  const [actionType, setActionType] = useState<string>("");
+  const [steps, setSteps] = useState<StepDraft[]>([{ role: "", description: "" }]);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
 
-  const visible = category === "all" ? configs : configs.filter((c) => c.category === category);
-  const selected = selectedActionType ? (configs.find((c) => c.actionType === selectedActionType) ?? null) : null;
+  const configuredActionTypes = useMemo(() => new Set(configs.map((c) => c.actionType)), [configs]);
+  const availableActionTypes = useMemo(
+    () => GATEABLE_ACTION_TYPES.filter((a) => !configuredActionTypes.has(a.code)),
+    [configuredActionTypes],
+  );
 
-  function openEditor(row: WorkflowConfigDTO) {
-    setSelectedActionType(row.actionType);
-    setDraftSteps(row.steps.length > 0 ? row.steps.map((s) => ({ ...s })) : []);
-    setDraftMinAmount(row.minAmount ? Number(row.minAmount) : null);
-    setFormError(null);
+  const filtered = useMemo(() => {
+    if (search.trim() === "") return configs;
+    const q = search.trim();
+    return configs.filter((c) => actionTypeLabel(c.actionType).includes(q));
+  }, [configs, search]);
+
+  function openCreate() {
+    setEditing(null);
+    setActionType(availableActionTypes[0]?.code ?? "");
+    setSteps([{ role: customRoles[0]?.code ?? "", description: "" }]);
+    setError(null);
+    setPanelOpen(true);
+  }
+
+  function openEdit(config: WorkflowConfigDTO) {
+    setEditing(config);
+    setActionType(config.actionType);
+    setSteps(config.steps.map((s) => ({ role: s.role, description: s.description ?? "" })));
+    setError(null);
+    setPanelOpen(true);
   }
 
   function addStep() {
-    setDraftSteps((steps) => [...steps, blankStep()]);
-  }
-
-  function updateStep(index: number, patch: Partial<GateStepDTO>) {
-    setDraftSteps((steps) => steps.map((s, i) => (i === index ? { ...s, ...patch } : s)));
+    setSteps((prev) => [...prev, { role: customRoles[0]?.code ?? "", description: "" }]);
   }
 
   function removeStep(index: number) {
-    setDraftSteps((steps) => steps.filter((_, i) => i !== index));
+    setSteps((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function updateStep(index: number, patch: Partial<StepDraft>) {
+    setSteps((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   }
 
   async function save() {
-    if (!selected) return;
-    if (draftSteps.some((s) => s.role.trim() === "")) {
-      setFormError("اختر دوراً معتمِداً لكل خطوة.");
+    setError(null);
+    const cleanSteps: GateStepDTO[] = steps
+      .filter((s) => s.role.trim() !== "")
+      .map((s) => ({ role: s.role, description: s.description.trim() === "" ? undefined : s.description }));
+    if (cleanSteps.length === 0) {
+      setError("أضف خطوة واحدة على الأقل مع اختيار الدور المعتمد.");
       return;
     }
-    setFormError(null);
     try {
-      await setConfig.mutateAsync({
-        actionType: selected.actionType,
-        body: {
-          steps: draftSteps.map((s) => ({ role: s.role, description: s.description?.trim() || undefined })),
-          minAmount: draftMinAmount === null ? null : String(draftMinAmount),
-        },
-      });
-      setSelectedActionType(null);
+      if (editing) {
+        await updateConfig.mutateAsync({ id: editing.id, body: { steps: cleanSteps } });
+      } else {
+        if (!actionType) {
+          setError("اختر نوع الإجراء.");
+          return;
+        }
+        await createConfig.mutateAsync({ actionType, steps: cleanSteps });
+      }
+      setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : String(err));
+      setError(err instanceof Error ? err.message : "تعذر حفظ سير العمل");
     }
   }
 
-  const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: configs.length },
-    ...(Object.keys(CATEGORY_LABEL) as WorkflowActionCategoryDTO[]).map((c) => ({
-      key: c,
-      label: CATEGORY_LABEL[c],
-      count: configs.filter((x) => x.category === c).length,
-    })),
-  ];
+  async function remove(config: WorkflowConfigDTO) {
+    try {
+      await deleteConfig.mutateAsync(config.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "تعذر حذف سير العمل");
+    }
+  }
 
   const columns: DocumentListColumn<WorkflowConfigDTO>[] = [
-    { key: "labelAr", header: "نوع الإجراء", render: (r) => <span className="font-semibold text-ink">{r.labelAr}</span> },
-    { key: "category", header: "المجموعة", render: (r) => <Chip>{CATEGORY_LABEL[r.category]}</Chip> },
     {
-      key: "steps",
-      header: "عدد الخطوات",
-      align: "end",
-      render: (r) => <span className="mz-num text-ink">{r.steps.length}</span>,
+      key: "actionType",
+      header: "نوع الإجراء",
+      render: (c) => <span className="font-semibold text-ink">{actionTypeLabel(c.actionType)}</span>,
     },
+    { key: "steps", header: "عدد الخطوات", align: "end", render: (c) => <span className="mz-num">{c.steps.length}</span> },
+    { key: "status", header: "الحالة", render: () => <StatusPill label="نشط" tone="success" /> },
     {
-      key: "minAmount",
-      header: "الحد الأدنى للمبلغ",
+      key: "actions",
+      header: "",
       align: "end",
-      render: (r) => (r.minAmount ? <span className="mz-num text-ink">{r.minAmount}</span> : <span className="text-ink-faint">—</span>),
-    },
-    {
-      key: "status",
-      header: "الحالة",
-      render: (r) =>
-        r.configured ? (
-          <StatusPill label="مفعّل" tone="success" />
-        ) : (
-          <StatusPill label="بدون موافقة" tone="neutral" />
-        ),
+      render: (c) => (
+        <div className="flex justify-end gap-[6px]">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={(e) => {
+              e.stopPropagation();
+              openEdit(c);
+            }}
+          >
+            تعديل
+          </Button>
+          <Button
+            size="sm"
+            variant="danger-outline"
+            onClick={(e) => {
+              e.stopPropagation();
+              void remove(c);
+            }}
+          >
+            حذف
+          </Button>
+        </div>
+      ),
     },
   ];
 
+  if (configsQuery.isError) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل إعدادات سير العمل.</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => configsQuery.refetch()}>
+          إعادة المحاولة
+        </Button>
+      </Card>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-4 p-5">
-      <DocumentList
-        eyebrow="الإعدادات"
-        title="سير العمل والموافقات"
-        description="حدّد الإجراءات التي تتطلب موافقة، ومن يعتمدها، وأي حد أدنى للمبلغ."
-        statusChips={statusChips}
-        activeStatusKey={category}
-        onStatusChange={(key) => setCategory(key as WorkflowActionCategoryDTO | "all")}
+    <>
+      <DocumentList<WorkflowConfigDTO>
+        eyebrow="Settings · Workflow"
+        title="إعدادات الموافقات"
+        description="تحديد سلاسل موافقة متعددة الخطوات مبنية على الأدوار لكل نوع إجراء قابل للموافقة."
+        actions={
+          <Button variant="primary" onClick={openCreate} disabled={availableActionTypes.length === 0}>
+            إضافة سير عمل جديد
+          </Button>
+        }
+        stats={[{ label: "سير عمل مُعرّف", value: <span className="mz-num">{configs.length}</span> }]}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="بحث بنوع الإجراء…"
         columns={columns}
-        rows={visible}
-        rowKey={(r) => r.actionType}
-        onRowClick={openEditor}
+        rows={filtered}
+        rowKey={(c) => c.id}
+        onRowClick={openEdit}
         page={1}
         pageCount={1}
-        emptyState={<div className="p-6 text-center text-[13px] text-ink-muted">لا توجد إعدادات موافقات.</div>}
+        pageSummary={
+          <>
+            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{configs.length}</span>
+          </>
+        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد إعدادات موافقات</div>}
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedActionType(null)} title={selected?.labelAr ?? "إعداد الموافقة"}>
-        {selected ? (
-          <div className="flex flex-col gap-4 p-5">
-            <Card className="p-3">
-              <MoneyInput value={draftMinAmount} onChange={setDraftMinAmount} placeholder="بدون حد أدنى" />
-              <span className="mt-1 block text-[11.5px] text-ink-faint">
-                اتركه فارغاً لتطبيق الموافقة على كل عملية بغض النظر عن المبلغ.
-              </span>
-            </Card>
+      <SidePanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        title={editing ? "تعديل سير عمل" : "إضافة سير عمل جديد"}
+        description="سلسلة موافقة متسلسلة — كل خطوة تُسند إلى دور معتمد واحد."
+      >
+        <div className="flex flex-col gap-[16px]">
+          {error ? (
+            <div className="rounded-md border border-danger bg-danger-soft px-[12px] py-[7px] text-[12px] text-danger-ink">{error}</div>
+          ) : null}
 
-            <div className="flex flex-col gap-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[12.5px] font-semibold text-ink">خطوات الاعتماد</span>
-                <Button variant="default" onClick={addStep}>
-                  إضافة خطوة
-                </Button>
-              </div>
+          <SelectField
+            label="نوع الإجراء"
+            value={actionType}
+            onChange={setActionType}
+            disabled={!!editing}
+            options={
+              editing
+                ? [{ value: editing.actionType, label: actionTypeLabel(editing.actionType) }]
+                : availableActionTypes.map((a) => ({ value: a.code, label: a.labelAr }))
+            }
+          />
 
-              {draftSteps.length === 0 ? (
-                <div className="text-[12.5px] text-ink-muted">لا توجد خطوات — سيُعتمد الإجراء تلقائياً دون موافقة.</div>
-              ) : (
-                draftSteps.map((step, index) => (
-                  <Card key={index} className="flex flex-col gap-2 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="mz-num text-[11px] font-semibold text-ink-faint">خطوة {index + 1}</span>
-                      <Button variant="ghost" onClick={() => removeStep(index)}>
-                        حذف
-                      </Button>
-                    </div>
-                    <SelectField
-                      label="اختر الدور"
-                      value={step.role}
-                      onChange={(role) => updateStep(index, { role })}
-                      options={[
-                        { value: "", label: "— اختر دوراً —" },
-                        ...approverRoles.map((r) => ({ value: r.code, label: r.name })),
-                      ]}
-                    />
-                    <TextField
-                      label="وصف الخطوة (اختياري)"
-                      value={step.description ?? ""}
-                      onChange={(description) => updateStep(index, { description })}
-                    />
-                  </Card>
-                ))
-              )}
+          <div className="flex flex-col gap-[10px]">
+            <div className="flex items-center justify-between">
+              <span className="text-[12.5px] font-semibold text-ink">خطوات الموافقة</span>
+              <Button size="sm" onClick={addStep} disabled={customRoles.length === 0}>
+                إضافة خطوة
+              </Button>
             </div>
-
-            {approverRoles.length === 0 ? (
-              <div className="text-[12px] text-ink-faint">
-                لا توجد أدوار مخصَّصة في هذا المستأجر بعد — أنشئ دوراً من صفحة الأدوار والصلاحيات أولاً لتتمكن من اختياره كمعتمِد.
-              </div>
+            {customRoles.length === 0 ? (
+              <p className="text-[11.5px] text-ink-faint">لا توجد أدوار مخصصة — أنشئ دورًا مخصصًا أولًا من صفحة الأدوار والصلاحيات.</p>
             ) : null}
-
-            {formError ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{formError}</div> : null}
-
-            <div className="flex gap-2">
-              <Button variant="primary" disabled={setConfig.isPending} onClick={save}>
-                حفظ
-              </Button>
-              <Button variant="default" onClick={() => setSelectedActionType(null)}>
-                إلغاء
-              </Button>
-            </div>
+            {steps.map((step, index) => (
+              <div key={index} className="flex flex-col gap-[8px] rounded-lg border border-border bg-surface p-[12px_14px]">
+                <div className="flex items-center justify-between">
+                  <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[2px] text-[11px] font-bold text-brand">
+                    خطوة {index + 1}
+                  </span>
+                  {steps.length > 1 ? (
+                    <Button size="sm" variant="ghost" onClick={() => removeStep(index)}>
+                      إزالة
+                    </Button>
+                  ) : null}
+                </div>
+                <SelectField
+                  label="اختر الدور"
+                  value={step.role}
+                  onChange={(v) => updateStep(index, { role: v })}
+                  options={customRoles.map((r) => ({ value: r.code, label: r.name }))}
+                />
+                <TextField
+                  label="وصف الخطوة"
+                  value={step.description}
+                  onChange={(v) => updateStep(index, { description: v })}
+                  placeholder="مثال: مراجعة المشرف المباشر"
+                />
+              </div>
+            ))}
           </div>
-        ) : null}
+
+          <div className="flex justify-end gap-[9px]">
+            <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button variant="primary" onClick={() => void save()}>
+              حفظ سير العمل
+            </Button>
+          </div>
+        </div>
       </SidePanel>
-    </div>
+    </>
   );
 }

@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useGoodsReceipts, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * المشتريات hub — KPI tiles + quick actions + recent activity over the real
@@ -11,7 +12,7 @@ import { useNavigate } from "../../navigation";
 
 const OPEN_PO_STATUSES = new Set(["sent", "partially_received"]);
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "أمر شراء جديد", screen: "purchase-orders" },
   { label: "استلام بضاعة", screen: "goods-receipts" },
   { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices" },
@@ -24,7 +25,7 @@ function num(value: string | undefined | null): number {
 }
 
 export function PurchasesHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const ordersQuery = usePurchaseOrders();
   const receiptsQuery = useGoodsReceipts();
   const invoicesQuery = usePurchaseInvoices();

@@ -22,6 +22,14 @@ export const sessionSchema = z.object({
   isCompanyAdmin: z.boolean(),
   /** Resolved effective permission codes; `["*"]` for a tenant admin. */
   permissions: z.array(z.string()),
+  /**
+   * The user's own custom-role code (e.g. `"VAN_SALES"`) — `null` for a
+   * company admin, or a user with no role assigned. Distinct from
+   * `permissions`: the workflow gate's steps assign an approver ROLE, not a
+   * permission code, so `/workflow` routes read this off `x-role-code`
+   * (see `authHeaders` in apps/web/src/data/session.ts).
+   */
+  roleCode: z.string().nullable(),
   branchScope: scopeSelectionSchema,
   warehouseScope: scopeSelectionSchema,
   tenantName: z.string(),

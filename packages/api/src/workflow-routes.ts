@@ -1,276 +1,231 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
-  GATEABLE_ACTION_TYPES,
+  can,
   isGateableActionType,
-  decide,
-  isTenantAdmin,
+  saveWorkflowConfig,
+  deleteWorkflowConfig,
+  submitApproval,
+  decideApproval,
+  UnknownActionTypeError,
+  EmptyStepsError,
+  InvalidStepRoleError,
+  DuplicateWorkflowConfigError,
+  WorkflowConfigNotFoundError,
+  ApprovalRequestNotFoundError,
   WorkflowError,
-  type ApprovalRequest,
-  type UnitOfWork,
+  type ApprovalRequestRecord,
+  type ApprovalRequestRepository,
+  type WorkflowConfigRecord,
+  type WorkflowConfigRepository,
 } from "@mezan/domain";
-import {
-  workflowConfigInputSchema,
-  workflowDecisionCommentSchema,
-  type ApprovalRequestDTO,
-  type WorkflowConfigDTO,
-  type WorkflowRequestScopeDTO,
-} from "@mezan/contracts";
-import type {
-  GateConfigStore,
-  StoredApprovalRequest,
-  WorkflowRequestStore,
-  WorkflowSubject,
-} from "@mezan/persistence";
-import { workflowDocTypeLabelAr } from "@mezan/persistence";
+import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
-/**
- * Workflow/approvals routes (docs/catalog/09 §الموافقات), mounted at
- * `/workflow`:
- *
- *   GET  /workflow/config              every gateable action type + its configured chain
- *   PUT  /workflow/config/:actionType  set (or clear, with an empty `steps`) an action type's chain
- *   GET  /workflow/requests            the approvals inbox — `?scope=inbox|mine|acted`
- *   GET  /workflow/requests/:id        one request's full detail
- *   POST /workflow/requests/:id/approve
- *   POST /workflow/requests/:id/reject
- *
- * The gate engine itself (`packages/domain/src/workflow/gate.ts`) is pure and
- * already wired into document confirm flows via the persisted adapter
- * (`createPersistedDocumentWorkflowGate`) — these routes are the read/act
- * surface over the state that adapter produces.
- *
- * "Role" here means a tenant-defined role's `code` (matching `GateStep.role`
- * per gate.ts's own contract) — the acting user's role is resolved via
- * `uow.users`/`uow.roles`, not from the request's `x-permissions` header
- * (which, note for whoever wires document confirm handlers next, is what
- * `sales-invoices-routes.ts`/`vouchers-routes.ts` currently pass as
- * `actorRoles` — a permission code is not a role code, so a role-gated step
- * configured here cannot be satisfied by those two confirm handlers today;
- * only the tenant-admin `"*"` bypass works through them).
- */
+export interface WorkflowRoutesDeps {
+  readonly configs: WorkflowConfigRepository;
+  readonly requests: ApprovalRequestRepository;
+}
 
-function handleWorkflowError(c: Context, err: unknown) {
-  if (err instanceof WorkflowError) {
-    if (err.code === "WRONG_APPROVER") return c.json({ error: err.code, message: err.message }, 403);
-    if (err.code === "NOT_PENDING" || err.code === "NOT_MODIFIABLE") {
-      return c.json({ error: err.code, message: err.message }, 409);
-    }
+function serializeConfig(config: WorkflowConfigRecord) {
+  return {
+    id: config.id,
+    actionType: config.actionType,
+    steps: config.steps,
+    createdAt: config.createdAt,
+    updatedAt: config.updatedAt,
+  };
+}
+
+function serializeRequest(request: ApprovalRequestRecord) {
+  return {
+    id: request.id,
+    actionType: request.actionType,
+    submittedBy: request.submittedBy,
+    steps: request.steps,
+    currentStep: request.currentStep,
+    status: request.status,
+    decisions: request.decisions,
+    entityLabel: request.entityLabel,
+    createdAt: request.createdAt,
+    updatedAt: request.updatedAt,
+  };
+}
+
+function configErrorResponse(c: Context, err: unknown) {
+  if (err instanceof UnknownActionTypeError || err instanceof EmptyStepsError || err instanceof InvalidStepRoleError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof DuplicateWorkflowConfigError) {
+    return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof WorkflowConfigNotFoundError) {
+    return c.json({ error: err.code, message: err.message }, 404);
   }
   throw err;
 }
 
-async function resolveActorRoleCode(uow: UnitOfWork, userId: string): Promise<string | null> {
-  const user = await uow.users.findById(userId);
-  if (!user?.roleId) return null;
-  const role = await uow.roles.findById(user.roleId);
-  return role?.code ?? null;
+/**
+ * `x-role-codes` (comma-separated custom-role codes the caller holds) drives
+ * the workflow gate's `actorRoles` — distinct from `x-permissions`, since a
+ * gate step names an approver ROLE, not a permission code (see
+ * `session.ts`'s `authHeaders`, which sends the single `x-role-code` a user's
+ * one assigned role carries). A tenant admin (`"*"` in `x-permissions`)
+ * bypasses every gate exactly as `gate.ts`'s `hasAdminRole` does.
+ */
+function actorRoles(c: Context): string[] {
+  const permissions = (c.req.header("x-permissions") ?? "").split(",").map((s) => s.trim());
+  if (permissions.includes("*")) return ["*"];
+  const header = c.req.header("x-role-codes") ?? c.req.header("x-role-code") ?? "";
+  return header
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
-function canActOn(request: ApprovalRequest, isAdmin: boolean, actorRoleCode: string | null): boolean {
-  if (request.status !== "pending") return false;
-  if (isAdmin) return true;
-  const step = request.steps[request.currentStep];
-  return !!step && !!actorRoleCode && step.role === actorRoleCode;
-}
-
-function actionLabelAr(actionType: string): string {
-  return GATEABLE_ACTION_TYPES.find((a) => a.code === actionType)?.labelAr ?? actionType;
-}
-
-function serializeSubject(subject: WorkflowSubject | null) {
-  if (!subject) return null;
-  return {
-    docType: subject.docType,
-    docTypeLabelAr: workflowDocTypeLabelAr(subject.docType),
-    docId: subject.docId,
-    docNo: subject.docNo,
-    date: subject.date,
-    amount: subject.amount,
-    currency: subject.currency,
-  };
-}
-
-function serializeRequest(
-  request: StoredApprovalRequest,
-  subject: WorkflowSubject | null,
-  nameOf: (userId: string) => string | null,
-  isAdmin: boolean,
-  actorRoleCode: string | null,
-): ApprovalRequestDTO {
-  return {
-    id: request.id,
-    actionType: request.actionType,
-    actionLabelAr: actionLabelAr(request.actionType),
-    submittedBy: request.submittedBy,
-    submittedByName: nameOf(request.submittedBy),
-    currentStep: request.currentStep,
-    totalSteps: request.steps.length,
-    currentStepRole: request.steps[request.currentStep]?.role ?? null,
-    status: request.status,
-    steps: request.steps.map((s) => ({ role: s.role, description: s.description })),
-    decisions: request.decisions.map((d) => ({
-      stepIndex: d.stepIndex,
-      kind: d.kind,
-      actorId: d.actorId,
-      actorName: nameOf(d.actorId),
-      comment: d.comment ?? null,
-      at: d.at ? new Date(d.at).toISOString() : null,
-    })),
-    createdAt: request.createdAt,
-    updatedAt: request.updatedAt,
-    subject: serializeSubject(subject),
-    canAct: canActOn(request, isAdmin, actorRoleCode),
-  };
-}
-
-export interface WorkflowRoutesDeps {
-  readonly uow: UnitOfWork;
-  readonly configStore: GateConfigStore;
-  readonly requestStore: WorkflowRequestStore;
-  readonly resolveSubject: (requestId: string) => Promise<WorkflowSubject | null>;
-}
-
+/**
+ * إعدادات الموافقات + الموافقات — the workflow-config chain-builder and the
+ * approvals-inbox API (docs/catalog/09 §سير العمل), mounted at `/workflow`.
+ * Permissions per the catalog's `workflow.*` group: `workflow.config.view` /
+ * `.config.manage` gate the config CRUD; `workflow.view` gates the inbox;
+ * `workflow.approve` gates approve/request-modification decisions,
+ * `workflow.reject` gates reject decisions.
+ */
 export function createWorkflowRoutes(
   deps: WorkflowRoutesDeps,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
 ) {
-  const { uow, configStore, requestStore, resolveSubject } = deps;
   const gate = createPermissionGate(resolveAuthContext);
   const app = new Hono();
 
-  async function nameLookup(): Promise<(userId: string) => string | null> {
-    const users = await uow.users.list();
-    const byId = new Map(users.map((u) => [u.id, u.fullName]));
-    return (userId: string) => byId.get(userId) ?? null;
-  }
-
-  app.get("/config", gate("workflow.config.view"), async (c) => {
-    const stored = await configStore.list();
-    const byActionType = new Map(stored.map((s) => [s.actionType, s]));
-    const result: WorkflowConfigDTO[] = GATEABLE_ACTION_TYPES.map((def) => {
-      const existing = byActionType.get(def.code);
-      return {
-        actionType: def.code,
-        labelAr: def.labelAr,
-        category: def.category,
-        steps: existing?.steps.map((s) => ({ role: s.role, description: s.description })) ?? [],
-        minAmount: existing?.minAmount ?? null,
-        configured: !!existing && existing.steps.length > 0,
-        updatedAt: existing?.updatedAt ?? null,
-      };
-    });
-    return c.json(result);
+  app.get("/configs", gate("workflow.config.view"), async (c) => {
+    const configs = await deps.configs.list();
+    return c.json(configs.map(serializeConfig));
   });
 
-  app.put("/config/:actionType", gate("workflow.config.manage"), async (c) => {
-    const actionType = c.req.param("actionType");
-    if (!isGateableActionType(actionType)) {
-      return c.json({ error: "UNKNOWN_ACTION_TYPE", message: `"${actionType}" is not a gateable action type.` }, 400);
+  app.get("/configs/:id", gate("workflow.config.view"), async (c) => {
+    const config = await deps.configs.findById(c.req.param("id"));
+    if (!config) return c.json({ error: "NOT_FOUND" }, 404);
+    return c.json(serializeConfig(config));
+  });
+
+  app.post("/configs", gate("workflow.config.manage"), async (c) => {
+    const parsed = createWorkflowConfigSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const config = await saveWorkflowConfig(
+        { id: randomUUID(), actionType: parsed.data.actionType, steps: parsed.data.steps, createdAt: new Date().toISOString() },
+        deps.configs,
+      );
+      return c.json(serializeConfig(config), 201);
+    } catch (err) {
+      return configErrorResponse(c, err);
     }
-    const parsed = workflowConfigInputSchema.safeParse(await c.req.json());
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+  });
+
+  app.put("/configs/:id", gate("workflow.config.manage"), async (c) => {
+    const id = c.req.param("id");
+    const existing = await deps.configs.findById(id);
+    if (!existing) return c.json({ error: "NOT_FOUND" }, 404);
+    const parsed = updateWorkflowConfigSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const config = await saveWorkflowConfig(
+        { id, actionType: existing.actionType, steps: parsed.data.steps, createdAt: existing.createdAt },
+        deps.configs,
+      );
+      return c.json(serializeConfig(config));
+    } catch (err) {
+      return configErrorResponse(c, err);
     }
-    const stored = await configStore.set(actionType, {
-      steps: parsed.data.steps,
-      minAmount: parsed.data.minAmount ?? null,
-    });
-    const def = GATEABLE_ACTION_TYPES.find((a) => a.code === actionType);
-    const result: WorkflowConfigDTO = {
-      actionType: stored.actionType,
-      labelAr: def?.labelAr ?? actionType,
-      category: def?.category ?? "sales",
-      steps: stored.steps.map((s) => ({ role: s.role, description: s.description })),
-      minAmount: stored.minAmount,
-      configured: stored.steps.length > 0,
-      updatedAt: stored.updatedAt,
-    };
-    return c.json(result);
+  });
+
+  app.delete("/configs/:id", gate("workflow.config.manage"), async (c) => {
+    try {
+      await deleteWorkflowConfig(c.req.param("id"), deps.configs);
+      return c.body(null, 204);
+    } catch (err) {
+      return configErrorResponse(c, err);
+    }
+  });
+
+  // --- الموافقات inbox ----------------------------------------------------
+
+  app.get("/requests/pending", gate("workflow.view"), async (c) => {
+    const roles = actorRoles(c);
+    const rows = await deps.requests.listPendingForRoles(roles);
+    return c.json(rows.map(serializeRequest));
+  });
+
+  app.get("/requests/pending-count", gate("workflow.view"), async (c) => {
+    const roles = actorRoles(c);
+    const rows = await deps.requests.listPendingForRoles(roles);
+    return c.json({ count: rows.length });
+  });
+
+  app.get("/requests/mine", gate("workflow.view"), async (c) => {
+    const ctx = getAuthContext(c);
+    const rows = ctx ? await deps.requests.listBySubmitter(ctx.userId) : [];
+    return c.json(rows.map(serializeRequest));
   });
 
   app.get("/requests", gate("workflow.view"), async (c) => {
-    const ctx = getAuthContext(c);
-    if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
-    const scopeParam = (c.req.query("scope") ?? "inbox") as WorkflowRequestScopeDTO;
-    if (!["inbox", "mine", "acted"].includes(scopeParam)) {
-      return c.json({ error: "VALIDATION_ERROR", message: "scope must be inbox, mine or acted" }, 400);
+    const rows = await deps.requests.list();
+    return c.json(rows.map(serializeRequest));
+  });
+
+  /**
+   * Submits a new approval request for a gateable action type. Ungated
+   * beyond a resolvable identity: the permission catalog has no
+   * `workflow.submit` code — submitting is a side effect of whatever the
+   * caller was already allowed to do (e.g. `sales.invoice.confirm`), the
+   * same way a document's own `confirm` route would call this.
+   */
+  app.post("/requests", async (c) => {
+    const parsed = submitApprovalRequestSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    if (!isGateableActionType(parsed.data.actionType)) {
+      return c.json({ error: "UNKNOWN_ACTION_TYPE", message: `"${parsed.data.actionType}" is not a gateable action type.` }, 400);
     }
-
-    const isAdmin = isTenantAdmin(ctx);
-    const actorRoleCode = isAdmin ? null : await resolveActorRoleCode(uow, ctx.userId);
-    const all = await requestStore.list();
-
-    let rows: StoredApprovalRequest[];
-    if (scopeParam === "inbox") {
-      rows = all.filter((r) => canActOn(r, isAdmin, actorRoleCode));
-    } else if (scopeParam === "mine") {
-      rows = all.filter((r) => r.submittedBy === ctx.userId);
-    } else {
-      rows = all.filter((r) => r.decisions.some((d) => d.actorId === ctx.userId));
-    }
-
-    const nameOf = await nameLookup();
-    const result = await Promise.all(
-      rows.map(async (r) => serializeRequest(r, await resolveSubject(r.id), nameOf, isAdmin, actorRoleCode)),
+    const actionType = parsed.data.actionType;
+    const ctx = await resolveAuthContext(c);
+    const config = await deps.configs.findByActionType(actionType);
+    const record = await submitApproval(
+      {
+        requestId: parsed.data.requestId ?? randomUUID(),
+        actionType,
+        submittedBy: ctx.userId,
+        submitterRoles: actorRoles(c),
+        entityLabel: parsed.data.entityLabel ?? null,
+      },
+      config ? { actionType: config.actionType, steps: config.steps } : { actionType, steps: [] },
+      deps.requests,
     );
-    return c.json(result);
+    return c.json(serializeRequest(record), 201);
   });
 
-  app.get("/requests/:id", gate("workflow.view"), async (c) => {
+  app.post("/requests/:id/decide", gate("workflow.view"), async (c) => {
+    const parsed = decideApprovalRequestSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     const ctx = getAuthContext(c);
     if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
-    const request = await requestStore.findById(c.req.param("id"));
-    if (!request) return c.json({ error: "NOT_FOUND" }, 404);
-    const isAdmin = isTenantAdmin(ctx);
-    const actorRoleCode = isAdmin ? null : await resolveActorRoleCode(uow, ctx.userId);
-    const nameOf = await nameLookup();
-    const subject = await resolveSubject(request.id);
-    return c.json(serializeRequest(request, subject, nameOf, isAdmin, actorRoleCode));
-  });
-
-  async function act(c: Context, decision: "approve" | "reject") {
-    const ctx = getAuthContext(c);
-    if (!ctx) return c.json({ error: "UNAUTHENTICATED" }, 401);
-    let body: unknown = {};
-    try {
-      body = await c.req.json();
-    } catch {
-      body = {};
+    const requiredPermission = parsed.data.decision === "reject" ? "workflow.reject" : "workflow.approve";
+    if (!can(ctx, requiredPermission)) {
+      return c.json({ error: "PERMISSION_DENIED", permission: requiredPermission }, 403);
     }
-    const parsed = workflowDecisionCommentSchema.safeParse(body);
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const request = await requestStore.findById(c.req.param("id") ?? "");
-    if (!request) return c.json({ error: "NOT_FOUND" }, 404);
-
-    const isAdmin = isTenantAdmin(ctx);
-    const actorRoleCode = isAdmin ? null : await resolveActorRoleCode(uow, ctx.userId);
-    const actorRoles = isAdmin ? ["*"] : actorRoleCode ? [actorRoleCode] : [];
-
     try {
-      const { request: next } = decide(request, {
-        actorId: ctx.userId,
-        actorRoles,
-        decision,
-        comment: parsed.data.comment,
-        at: Date.now(),
-      });
-      await requestStore.save(next);
-      const stored = await requestStore.findById(next.id);
-      if (!stored) return c.json({ error: "NOT_FOUND" }, 404);
-      const nameOf = await nameLookup();
-      const subject = await resolveSubject(stored.id);
-      return c.json(serializeRequest(stored, subject, nameOf, isAdmin, actorRoleCode));
+      const record = await decideApproval(
+        c.req.param("id"),
+        { actorId: ctx.userId, actorRoles: actorRoles(c), decision: parsed.data.decision, comment: parsed.data.comment },
+        deps.requests,
+      );
+      return c.json(serializeRequest(record));
     } catch (err) {
-      return handleWorkflowError(c, err);
+      if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);
+      if (err instanceof WorkflowError) return c.json({ error: err.code, message: err.message }, 409);
+      throw err;
     }
-  }
-
-  app.post("/requests/:id/approve", gate("workflow.approve"), (c) => act(c, "approve"));
-  app.post("/requests/:id/reject", gate("workflow.reject"), (c) => act(c, "reject"));
+  });
 
   return app;
 }

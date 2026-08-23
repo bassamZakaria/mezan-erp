@@ -3,7 +3,8 @@ import { Button, Card, Money, StatCard } from "@mezan/ui";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
 import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * المخزون hub — item counts from `/items`, and stock value + at-risk items
@@ -14,7 +15,7 @@ import { useNavigate } from "../../navigation";
  * fabricated "recent items" ordering.
  */
 
-const quickActions: { label: string; screen: string }[] = [
+const quickActions: { label: string; screen: ScreenKey }[] = [
   { label: "صنف جديد", screen: "items" },
   { label: "أرصدة المخزون", screen: "stock-balance" },
   { label: "تحويل مخزون", screen: "stock-transfers" },
@@ -24,7 +25,7 @@ const quickActions: { label: string; screen: string }[] = [
 const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 
 export function InventoryHubScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const itemsQuery = useItems();
   const stockLevelsQuery = useReport<InventoryStockLevelsRow>(
     "inventory.stock-levels",

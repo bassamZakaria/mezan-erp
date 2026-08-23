@@ -1,6 +1,7 @@
 import { Button, Card, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard, type ProductionBucketOrderDTO } from "../../data/hub-hooks";
-import { useNavigate } from "../../navigation";
+import { useNavigation } from "../../navigation";
+import type { ScreenKey } from "../../App";
 
 /**
  * لوحة الإنتاج (docs/catalog/07 §"لوحة الإنتاج") — the reference app's
@@ -51,7 +52,7 @@ function BucketList({ title, orders }: { title: string; orders: readonly Product
 }
 
 export function ProductionDashboardScreen() {
-  const navigate = useNavigate();
+  const { navigate } = useNavigation();
   const query = useManufacturingDashboard();
   const dashboard = query.data;
 

@@ -1,560 +1,192 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { DocumentList, StatusPill, Card, Button, SidePanel, type DocumentListColumn } from "@mezan/ui";
+import type { CreateProductTemplateDTO, ProductTemplateDTO } from "@mezan/contracts";
 import {
-  Button,
-  Card,
-  DocumentDetail,
-  DocumentList,
-  Money,
-  MoneyInput,
-  SidePanel,
-  StatusPill,
-  type DocumentListColumn,
-  type PillTone,
-} from "@mezan/ui";
-import type { ProductTemplateDTO, ProductTemplateStatusDTO } from "@mezan/contracts";
-import { MultiChipField, NumberField, SelectField, TextField } from "../settings/form-controls";
-import { useItemCategories, useItemUnits } from "../data/item-catalog-hooks";
-import {
+  ApiError,
+  useAddAttributeValue,
+  useAddTemplateAttribute,
   useCreateProductTemplate,
-  useDeleteProductTemplate,
-  useGenerateProductTemplateVariants,
-  useItemSpecifications,
+  useDeleteAttributeValue,
+  useDeleteTemplateAttribute,
+  useGenerateVariants,
   useProductTemplates,
-  useSetProductTemplateVariantPrice,
-} from "../data/product-catalog-hooks";
+  useTemplateVariants,
+} from "../data/hooks";
+import { TextField } from "../settings/form-controls";
 
 /**
- * قوالب المنتجات ("منتجات بخيارات") — a template picks select-list
- * specifications (اللون × المقاس) and generates their cartesian product as
- * concrete catalog items, one SKU per combination. Distinct from المنتجات
- * القابلة للتهيئة, which computes made-to-order materials from formulas.
+ * قوالب المنتجات (Product Templates) — docs/catalog/03-inventory.md §"قوالب
+ * المنتجات". Attribute-driven variant/SKU generation: define a product once
+ * with named characteristics (color, size, ...), enumerate each attribute's
+ * values, then mass-generate the resulting combinations as real, independent
+ * Items.
  */
 
-const STATUS_LABEL: Record<ProductTemplateStatusDTO, string> = {
-  draft: "مسودة",
-  generated: "تم التوليد",
-};
-const STATUS_TONE: Record<ProductTemplateStatusDTO, PillTone> = {
-  draft: "warning",
-  generated: "success",
-};
-
-interface OptionDraft {
-  specificationId: string;
-  values: string[];
-}
-
-interface Draft {
+interface CreateDraft {
   code: string;
   nameAr: string;
-  nameEn: string;
   baseUnitCode: string;
-  categoryId: string;
-  basePrice: number | null;
-  taxRatePercent: number;
-  costingMethod: "WAC" | "FIFO";
-  options: OptionDraft[];
+  defaultSalePrice: string;
+  defaultCost: string;
 }
 
-function blankDraft(): Draft {
-  return {
-    code: "",
-    nameAr: "",
-    nameEn: "",
-    baseUnitCode: "",
-    categoryId: "",
-    basePrice: null,
-    taxRatePercent: 14,
-    costingMethod: "WAC",
-    options: [{ specificationId: "", values: [] }],
-  };
+function blankCreateDraft(): CreateDraft {
+  return { code: "", nameAr: "", baseUnitCode: "PCS", defaultSalePrice: "", defaultCost: "" };
 }
 
-function combinationsOf(options: readonly OptionDraft[]): number {
-  const usable = options.filter((o) => o.specificationId !== "" && o.values.length > 0);
-  if (usable.length === 0) return 0;
-  return usable.reduce((total, option) => total * option.values.length, 1);
+/** Order-independent key matching the domain's `variantKey` exactly. */
+function comboKey(values: Record<string, string>): string {
+  return Object.keys(values).sort().map((k) => `${k}=${values[k]}`).join("|");
+}
+
+function cartesianCombinations(attributes: ProductTemplateDTO["attributes"]): Record<string, string>[] {
+  return attributes.reduce<Record<string, string>[]>((acc, attr) => {
+    if (attr.values.length === 0) return acc;
+    if (acc.length === 0) return attr.values.map((v) => ({ [attr.id]: v }));
+    return acc.flatMap((combo) => attr.values.map((v) => ({ ...combo, [attr.id]: v })));
+  }, []);
+}
+
+function comboLabel(attributes: ProductTemplateDTO["attributes"], values: Record<string, string>): string {
+  return attributes.map((a) => values[a.id]).join(" / ");
 }
 
 export function ProductTemplatesScreen() {
   const query = useProductTemplates();
-  const specificationsQuery = useItemSpecifications();
-  const unitsQuery = useItemUnits();
-  const categoriesQuery = useItemCategories();
   const createTemplate = useCreateProductTemplate();
-  const generateVariants = useGenerateProductTemplateVariants();
-  const setVariantPrice = useSetProductTemplateVariantPrice();
-  const deleteTemplate = useDeleteProductTemplate();
+  const addAttribute = useAddTemplateAttribute();
+  const deleteAttribute = useDeleteTemplateAttribute();
+  const addValue = useAddAttributeValue();
+  const deleteValue = useDeleteAttributeValue();
+  const generate = useGenerateVariants();
 
   const templates = query.data ?? [];
-  const specifications = specificationsQuery.data ?? [];
-  const selectSpecifications = specifications.filter((s) => s.type === "select");
-  const units = unitsQuery.data ?? [];
-  const categories = categoriesQuery.data ?? [];
 
-  const specificationName = useMemo(() => {
-    const map = new Map(specifications.map((s) => [s.id, s.nameAr]));
-    return (id: string) => map.get(id) ?? id;
-  }, [specifications]);
+  const [formOpen, setFormOpen] = useState(false);
+  const [draft, setDraft] = useState<CreateDraft>(blankCreateDraft());
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<ProductTemplateStatusDTO | "all">("all");
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [draft, setDraft] = useState<Draft>(blankDraft());
-  const [formError, setFormError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [busyTemplateId, setBusyTemplateId] = useState<string | null>(null);
-  const [pricingSku, setPricingSku] = useState<string | null>(null);
-  const [priceDraft, setPriceDraft] = useState<number | null>(null);
+  const [attrError, setAttrError] = useState<string | null>(null);
+  const [newAttrName, setNewAttrName] = useState("");
+  const [newAttrValues, setNewAttrValues] = useState("");
+  const [selectedCombos, setSelectedCombos] = useState<Set<string>>(new Set());
 
-  const selected = templates.find((t) => t.id === selectedId) ?? null;
+  const selected = selectedId ? templates.find((t) => t.id === selectedId) ?? null : null;
+  const variantsQuery = useTemplateVariants(selectedId);
+  const variants = variantsQuery.data ?? [];
+  const existingKeys = useMemo(() => new Set(variants.map((v) => comboKey(v.values))), [variants]);
+  const combos = useMemo(() => (selected ? cartesianCombinations(selected.attributes) : []), [selected]);
 
-  const filtered = useMemo(() => {
-    let rows = templates;
-    if (statusFilter !== "all") rows = rows.filter((t) => t.status === statusFilter);
-    const q = search.trim();
-    if (q !== "") {
-      rows = rows.filter((t) => t.code.toLowerCase().includes(q.toLowerCase()) || t.nameAr.includes(q));
-    }
-    return rows;
-  }, [templates, statusFilter, search]);
-
-  function openCreate() {
-    setDraft({ ...blankDraft(), baseUnitCode: units[0]?.code ?? "" });
+  function openCreateForm() {
+    setDraft(blankCreateDraft());
     setFormError(null);
-    setPanelOpen(true);
+    setFormOpen(true);
   }
 
-  async function submit(event: FormEvent) {
+  async function handleCreateSubmit(event: FormEvent) {
     event.preventDefault();
-    const options = draft.options.filter((o) => o.specificationId !== "" && o.values.length > 0);
-    if (!/^[A-Z0-9_-]{1,20}$/.test(draft.code.trim())) {
-      setFormError("الكود مطلوب — حروف إنجليزية كبيرة أو أرقام أو - أو _ (20 حرفاً كحد أقصى).");
-      return;
-    }
-    if (draft.nameAr.trim() === "") {
-      setFormError("الاسم بالعربية مطلوب.");
-      return;
-    }
-    if (draft.baseUnitCode.trim() === "") {
-      setFormError("وحدة القياس مطلوبة.");
-      return;
-    }
-    if (options.length === 0) {
-      setFormError("اختر مواصفة واحدة على الأقل مع قيمها.");
+    if (draft.code.trim() === "" || draft.nameAr.trim() === "" || draft.baseUnitCode.trim() === "") {
+      setFormError("الكود والاسم ووحدة القياس مطلوبة.");
       return;
     }
     setFormError(null);
+    const body: CreateProductTemplateDTO = {
+      code: draft.code.trim(),
+      nameAr: draft.nameAr.trim(),
+      baseUnitCode: draft.baseUnitCode.trim(),
+      defaultSalePrice: draft.defaultSalePrice.trim() === "" ? null : draft.defaultSalePrice.trim(),
+      defaultCost: draft.defaultCost.trim() === "" ? null : draft.defaultCost.trim(),
+    };
     try {
-      await createTemplate.mutateAsync({
-        id: crypto.randomUUID(),
-        code: draft.code.trim(),
-        nameAr: draft.nameAr.trim(),
-        nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
-        baseUnitCode: draft.baseUnitCode,
-        categoryId: draft.categoryId === "" ? null : draft.categoryId,
-        basePrice: draft.basePrice === null ? null : draft.basePrice.toFixed(2),
-        taxRatePercent: draft.taxRatePercent,
-        costingMethod: draft.costingMethod,
-        options,
-      });
-      setPanelOpen(false);
+      const created = await createTemplate.mutateAsync(body);
+      setFormOpen(false);
+      setSelectedId(created.id);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof ApiError ? err.message : "تعذّر إنشاء قالب المنتج.");
     }
   }
 
-  async function generate(template: ProductTemplateDTO) {
-    if (busyTemplateId) return;
-    setBusyTemplateId(template.id);
-    setActionError(null);
+  async function handleAddAttribute() {
+    if (!selected) return;
+    const values = newAttrValues.split(",").map((v) => v.trim()).filter((v) => v !== "");
+    if (newAttrName.trim() === "" || values.length === 0) {
+      setAttrError("اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة.");
+      return;
+    }
+    setAttrError(null);
     try {
-      await generateVariants.mutateAsync(template.id);
+      await addAttribute.mutateAsync({ templateId: selected.id, body: { nameAr: newAttrName.trim(), values } });
+      setNewAttrName("");
+      setNewAttrValues("");
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر توليد المتغيرات.");
-    } finally {
-      setBusyTemplateId(null);
+      setAttrError(err instanceof ApiError ? err.message : "تعذّر إضافة الخاصية.");
     }
   }
 
-  async function remove(template: ProductTemplateDTO) {
-    if (busyTemplateId) return;
-    setBusyTemplateId(template.id);
-    setActionError(null);
+  async function handleDeleteAttribute(attributeId: string) {
+    if (!selected) return;
+    setAttrError(null);
     try {
-      await deleteTemplate.mutateAsync(template.id);
-      if (selectedId === template.id) setSelectedId(null);
+      await deleteAttribute.mutateAsync({ templateId: selected.id, attributeId });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر حذف القالب.");
-    } finally {
-      setBusyTemplateId(null);
+      setAttrError(err instanceof ApiError ? err.message : "تعذّر حذف الخاصية.");
     }
   }
 
-  async function commitPrice(template: ProductTemplateDTO, sku: string) {
-    setActionError(null);
+  async function handleDeleteValue(attributeId: string, value: string) {
+    if (!selected) return;
+    setAttrError(null);
     try {
-      await setVariantPrice.mutateAsync({
-        id: template.id,
-        sku,
-        salePrice: priceDraft === null ? null : priceDraft.toFixed(2),
-      });
-      setPricingSku(null);
+      await deleteValue.mutateAsync({ templateId: selected.id, attributeId, value });
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر تعديل سعر المتغير.");
+      setAttrError(err instanceof ApiError ? err.message : "تعذّر حذف القيمة.");
+    }
+  }
+
+  async function handleAddValue(attributeId: string, value: string) {
+    if (!selected || value.trim() === "") return;
+    setAttrError(null);
+    try {
+      await addValue.mutateAsync({ templateId: selected.id, attributeId, body: { value: value.trim() } });
+    } catch (err) {
+      setAttrError(err instanceof ApiError ? err.message : "تعذّر إضافة القيمة.");
+    }
+  }
+
+  function toggleCombo(key: string) {
+    setSelectedCombos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  async function handleGenerate() {
+    if (!selected) return;
+    const selections = combos.filter((c) => selectedCombos.has(comboKey(c))).map((values) => ({ values }));
+    if (selections.length === 0) return;
+    setAttrError(null);
+    try {
+      await generate.mutateAsync({ templateId: selected.id, body: { selections } });
+      setSelectedCombos(new Set());
+    } catch (err) {
+      setAttrError(err instanceof ApiError ? err.message : "تعذّر توليد المتغيرات.");
     }
   }
 
   const columns: DocumentListColumn<ProductTemplateDTO>[] = [
-    {
-      key: "code",
-      header: "الكود",
-      render: (t) => <span className="font-semibold text-ink">{t.code}</span>,
-    },
-    { key: "nameAr", header: "الاسم", render: (t) => t.nameAr },
-    {
-      key: "options",
-      header: "الخيارات",
-      render: (t) =>
-        t.options.length === 0
-          ? "—"
-          : t.options.map((o) => `${specificationName(o.specificationId)} (${o.values.length})`).join(" × "),
-    },
-    {
-      key: "combinations",
-      header: "التركيبات",
-      align: "end",
-      render: (t) => <span className="mz-num">{t.combinationCount}</span>,
-    },
-    {
-      key: "variants",
-      header: "متغيرات مولّدة",
-      align: "end",
-      render: (t) => <span className="mz-num">{t.variants.length}</span>,
-    },
-    {
-      key: "status",
-      header: "الحالة",
-      render: (t) => <StatusPill label={STATUS_LABEL[t.status]} tone={STATUS_TONE[t.status]} />,
-    },
+    { key: "name", header: "اسم المنتج", render: (t) => <span className="font-semibold text-ink">{t.nameAr}</span> },
+    { key: "code", header: "الكود", render: (t) => <span className="mz-num text-ink-faint">{t.code}</span> },
+    { key: "attributes", header: "الخصائص", align: "end", render: (t) => <span className="mz-num">{t.attributes.length}</span> },
+    { key: "status", header: "الحالة", render: (t) => <StatusPill label={t.status === "active" ? "نشط" : "غير نشط"} tone={t.status === "active" ? "success" : "neutral"} /> },
   ];
 
-  const panel = (
-    <SidePanel
-      open={panelOpen}
-      onClose={() => setPanelOpen(false)}
-      title="قالب منتج جديد"
-      description="اختر المواصفات وقيمها — يولّد النظام صنفاً لكل تركيبة"
-    >
-      <form onSubmit={submit} className="flex flex-col gap-[14px]">
-        {formError ? (
-          <div
-            role="alert"
-            className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-          >
-            {formError}
-          </div>
-        ) : null}
-
-        <div className="grid grid-cols-2 gap-[10px]">
-          <TextField
-            label="الكود *"
-            value={draft.code}
-            onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
-            hint="يبدأ به كود كل متغير"
-          />
-          <TextField
-            label="الاسم بالعربية *"
-            value={draft.nameAr}
-            onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
-          />
-        </div>
-        <TextField
-          label="الاسم بالإنجليزية"
-          value={draft.nameEn}
-          onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
-        />
-        <div className="grid grid-cols-2 gap-[10px]">
-          <SelectField
-            label="وحدة القياس *"
-            value={draft.baseUnitCode}
-            onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
-            options={units.map((u) => ({ value: u.code, label: `${u.nameAr} (${u.code})` }))}
-          />
-          <SelectField
-            label="التصنيف"
-            value={draft.categoryId}
-            onChange={(v) => setDraft((d) => ({ ...d, categoryId: v }))}
-            options={[{ value: "", label: "بدون تصنيف" }, ...categories.map((c) => ({ value: c.id, label: c.nameAr }))]}
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-[10px]">
-          <div className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">سعر البيع الأساسي</span>
-            <MoneyInput
-              value={draft.basePrice}
-              onChange={(v) => setDraft((d) => ({ ...d, basePrice: v }))}
-              aria-label="سعر البيع الأساسي"
-            />
-          </div>
-          <NumberField
-            label="نسبة الضريبة %"
-            value={draft.taxRatePercent}
-            min={0}
-            onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v }))}
-          />
-        </div>
-        <SelectField
-          label="طريقة التكلفة"
-          value={draft.costingMethod}
-          onChange={(v) => setDraft((d) => ({ ...d, costingMethod: v as "WAC" | "FIFO" }))}
-          options={[
-            { value: "WAC", label: "المتوسط المرجح" },
-            { value: "FIFO", label: "الوارد أولاً صادر أولاً" },
-          ]}
-        />
-
-        <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">الخيارات *</span>
-          {selectSpecifications.length === 0 ? (
-            <p className="text-[12px] text-ink-muted">
-              لا توجد مواصفات من نوع قائمة اختيار — أضفها أولاً من شاشة المواصفات.
-            </p>
-          ) : null}
-          {draft.options.map((option, index) => {
-            const specification = selectSpecifications.find((s) => s.id === option.specificationId);
-            return (
-              <div key={index} className="rounded-lg border border-border bg-surface p-[12px]">
-                <SelectField
-                  label="المواصفة"
-                  value={option.specificationId}
-                  onChange={(v) =>
-                    setDraft((d) => ({
-                      ...d,
-                      options: d.options.map((o, j) =>
-                        j === index ? { specificationId: v, values: [] } : o,
-                      ),
-                    }))
-                  }
-                  options={[
-                    { value: "", label: "اختر مواصفة…" },
-                    ...selectSpecifications.map((s) => ({ value: s.id, label: s.nameAr })),
-                  ]}
-                />
-                {specification ? (
-                  <div className="mt-[10px]">
-                    <MultiChipField
-                      label="القيم"
-                      options={specification.values.map((v) => ({ value: v, label: v }))}
-                      value={option.values}
-                      onChange={(values) =>
-                        setDraft((d) => ({
-                          ...d,
-                          options: d.options.map((o, j) => (j === index ? { ...o, values } : o)),
-                        }))
-                      }
-                    />
-                  </div>
-                ) : null}
-                {draft.options.length > 1 ? (
-                  <div className="mt-[8px] flex justify-end">
-                    <Button
-                      type="button"
-                      size="sm"
-                      onClick={() =>
-                        setDraft((d) => ({ ...d, options: d.options.filter((_, j) => j !== index) }))
-                      }
-                    >
-                      حذف الخيار
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-          <Button
-            type="button"
-            onClick={() =>
-              setDraft((d) => ({ ...d, options: [...d.options, { specificationId: "", values: [] }] }))
-            }
-          >
-            إضافة خيار
-          </Button>
-          <p className="text-[12px] text-ink-muted">
-            التركيبات المتوقعة: <span className="mz-num">{combinationsOf(draft.options)}</span>
-          </p>
-        </div>
-
-        <div className="flex justify-end gap-[9px]">
-          <Button type="button" onClick={() => setPanelOpen(false)}>
-            إلغاء
-          </Button>
-          <Button type="submit" variant="primary" disabled={createTemplate.isPending}>
-            حفظ
-          </Button>
-        </div>
-      </form>
-    </SidePanel>
-  );
-
-  if (selected) {
-    return (
-      <>
-        {actionError ? (
-          <div
-            role="alert"
-            className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-          >
-            {actionError}
-          </div>
-        ) : null}
-        <DocumentDetail
-          title={`${selected.nameAr} (${selected.code})`}
-          statusLabel={STATUS_LABEL[selected.status]}
-          statusTone={STATUS_TONE[selected.status]}
-          subtitle="قالب منتج — منتج بخيارات"
-          actions={
-            <>
-              {selected.status === "draft" ? (
-                <Button
-                  variant="primary"
-                  onClick={() => generate(selected)}
-                  disabled={busyTemplateId !== null}
-                >
-                  توليد المتغيرات
-                </Button>
-              ) : null}
-              {selected.variants.length === 0 ? (
-                <Button onClick={() => remove(selected)} disabled={busyTemplateId !== null}>
-                  حذف القالب
-                </Button>
-              ) : null}
-              <Button onClick={() => setSelectedId(null)}>رجوع لقوالب المنتجات</Button>
-            </>
-          }
-          summary={[
-            { label: "الكود", value: selected.code },
-            { label: "وحدة القياس", value: selected.baseUnitCode },
-            {
-              label: "سعر البيع الأساسي",
-              value: <Money value={Number(selected.basePrice ?? 0)} />,
-            },
-            { label: "نسبة الضريبة", value: <span className="mz-num">{selected.taxRatePercent}%</span> },
-            { label: "التركيبات", value: <span className="mz-num">{selected.combinationCount}</span> },
-            { label: "متغيرات مولّدة", value: <span className="mz-num">{selected.variants.length}</span> },
-          ]}
-          effects={[
-            "التوليد ينشئ صنفاً حقيقياً في كتالوج الأصناف لكل تركيبة، بكود ومواصفات وسعر خاص به.",
-            "بعد التوليد تُجمّد مصفوفة الخيارات — الأكواد المولّدة مرتبطة بترتيب القيم.",
-          ]}
-          tabs={[
-            {
-              key: "options",
-              label: `الخيارات (${selected.options.length})`,
-              content: (
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[420px] border-collapse text-[13px]">
-                    <thead>
-                      <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                        <th className="px-[12px] py-[9px] text-start">المواصفة</th>
-                        <th className="px-[12px] py-[9px] text-start">القيم</th>
-                        <th className="px-[12px] py-[9px] text-end">عدد القيم</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selected.options.map((option) => (
-                        <tr key={option.specificationId} className="border-b border-border last:border-b-0">
-                          <td className="px-[12px] py-[10px]">{specificationName(option.specificationId)}</td>
-                          <td className="px-[12px] py-[10px]">{option.values.join("، ")}</td>
-                          <td className="mz-num px-[12px] py-[10px] text-end">{option.values.length}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ),
-            },
-            {
-              key: "variants",
-              label: `المتغيرات (${selected.variants.length})`,
-              content:
-                selected.variants.length === 0 ? (
-                  <p className="p-[18px] text-center text-[13px] text-ink-muted">
-                    لم تُولَّد متغيرات بعد — اضغط «توليد المتغيرات».
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full min-w-[560px] border-collapse text-[13px]">
-                      <thead>
-                        <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                          <th className="px-[12px] py-[9px] text-start">الكود</th>
-                          <th className="px-[12px] py-[9px] text-start">الاسم</th>
-                          <th className="px-[12px] py-[9px] text-start">القيم</th>
-                          <th className="px-[12px] py-[9px] text-end">سعر البيع</th>
-                          <th className="px-[12px] py-[9px] text-end" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selected.variants.map((variant) => (
-                          <tr key={variant.sku} className="border-b border-border last:border-b-0">
-                            <td className="px-[12px] py-[10px] font-mono">{variant.sku}</td>
-                            <td className="px-[12px] py-[10px]">{variant.nameAr}</td>
-                            <td className="px-[12px] py-[10px]">{variant.values.join(" / ")}</td>
-                            <td className="px-[12px] py-[10px] text-end">
-                              {pricingSku === variant.sku ? (
-                                <MoneyInput
-                                  value={priceDraft}
-                                  onChange={setPriceDraft}
-                                  aria-label={`سعر ${variant.sku}`}
-                                />
-                              ) : (
-                                <Money value={Number(variant.salePrice ?? 0)} />
-                              )}
-                            </td>
-                            <td className="px-[12px] py-[10px] text-end">
-                              {pricingSku === variant.sku ? (
-                                <div className="flex justify-end gap-[6px]">
-                                  <Button size="sm" onClick={() => setPricingSku(null)}>
-                                    إلغاء
-                                  </Button>
-                                  <Button
-                                    size="sm"
-                                    variant="primary"
-                                    disabled={setVariantPrice.isPending}
-                                    onClick={() => commitPrice(selected, variant.sku)}
-                                  >
-                                    حفظ
-                                  </Button>
-                                </div>
-                              ) : (
-                                <Button
-                                  size="sm"
-                                  onClick={() => {
-                                    setPricingSku(variant.sku);
-                                    setPriceDraft(variant.salePrice === null ? null : Number(variant.salePrice));
-                                  }}
-                                >
-                                  تعديل السعر
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ),
-            },
-          ]}
-        />
-        {panel}
-      </>
-    );
-  }
+  const newComboCount = combos.filter((c) => !existingKeys.has(comboKey(c))).length;
 
   return (
-    <>
+    <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل قوالب المنتجات.</p>
@@ -563,69 +195,201 @@ export function ProductTemplatesScreen() {
           </Button>
         </Card>
       ) : null}
-      {actionError ? (
-        <div
-          role="alert"
-          className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink"
-        >
-          {actionError}
-        </div>
-      ) : null}
+
       <DocumentList<ProductTemplateDTO>
-        eyebrow="Inventory · Product templates"
-        title="منتجات بخيارات"
-        description="قوالب تولّد صنفاً لكل تركيبة من المواصفات المختارة — كود وسعر مستقل لكل متغير"
+        eyebrow="Inventory · Product Templates"
+        title="قوالب المنتجات"
+        description="أنشئ منتجاً بخصائص (مثل اللون والمقاس) وولد المتغيرات كأصناف مستقلة"
         actions={
-          <Button variant="primary" onClick={openCreate}>
-            قالب منتج جديد
+          <Button variant="primary" onClick={openCreateForm}>
+            قالب جديد
           </Button>
         }
-        stats={[
-          { label: "إجمالي القوالب", value: <span className="mz-num">{templates.length}</span> },
-          {
-            label: "مسودات",
-            value: <span className="mz-num">{templates.filter((t) => t.status === "draft").length}</span>,
-          },
-          {
-            label: "متغيرات مولّدة",
-            value: (
-              <span className="mz-num">{templates.reduce((sum, t) => sum + t.variants.length, 0)}</span>
-            ),
-          },
-        ]}
-        statusChips={[
-          { key: "all", label: "الكل", count: templates.length },
-          { key: "draft", label: STATUS_LABEL.draft, count: templates.filter((t) => t.status === "draft").length },
-          {
-            key: "generated",
-            label: STATUS_LABEL.generated,
-            count: templates.filter((t) => t.status === "generated").length,
-          },
-        ]}
-        activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as ProductTemplateStatusDTO | "all")}
-        searchValue={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="بحث بالكود أو الاسم…"
+        stats={[{ label: "إجمالي القوالب", value: <span className="mz-num">{templates.length}</span> }]}
         columns={columns}
-        rows={filtered}
+        rows={templates}
         rowKey={(t) => t.id}
-        onRowClick={(t) => setSelectedId(t.id)}
+        onRowClick={(t) => {
+          setSelectedId(t.id);
+          setSelectedCombos(new Set());
+          setAttrError(null);
+        }}
         page={1}
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من{" "}
-            <span className="mz-num">{templates.length}</span> قالب
+            عرض <span className="mz-num">{templates.length}</span> من <span className="mz-num">{templates.length}</span> قالب
           </>
         }
-        emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد قوالب منتجات — أضف قالباً جديداً"}
-          </div>
-        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد قوالب منتجات — أنشئ قالباً جديداً للبدء</div>}
       />
-      {panel}
-    </>
+
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="قالب منتج جديد">
+        <form onSubmit={handleCreateSubmit} className="flex flex-col gap-[14px]">
+          {formError ? (
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+              {formError}
+            </div>
+          ) : null}
+          <TextField label="اسم المنتج *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label="الكود *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
+          <TextField label="وحدة القياس الأساسية *" value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
+          <TextField label="السعر الافتراضي" value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
+          <TextField label="التكلفة الافتراضية" value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
+          <div className="mt-[6px] flex justify-end gap-[9px]">
+            <Button type="button" onClick={() => setFormOpen(false)}>
+              إلغاء
+            </Button>
+            <Button type="submit" variant="primary">
+              إنشاء
+            </Button>
+          </div>
+        </form>
+      </SidePanel>
+
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.nameAr : ""} description={selected ? selected.code : undefined}>
+        {selected ? (
+          <div className="flex flex-col gap-[18px]">
+            {attrError ? (
+              <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                {attrError}
+              </div>
+            ) : null}
+
+            <div>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">الخصائص</h3>
+              <div className="flex flex-col gap-[10px]">
+                {selected.attributes.map((attr) => (
+                  <Card key={attr.id} className="p-[12px_14px]">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[13px] font-semibold text-ink">
+                        {attr.nameAr} <span className="text-ink-faint">({attr.values.length})</span>
+                      </span>
+                      <Button size="sm" onClick={() => void handleDeleteAttribute(attr.id)}>
+                        حذف الخاصية
+                      </Button>
+                    </div>
+                    <div className="mt-[8px] flex flex-wrap gap-[6px]">
+                      {attr.values.map((value) => (
+                        <span key={value} className="inline-flex items-center gap-[6px] rounded-full border border-border bg-surface-2 px-[10px] py-[3px] text-[12px] text-ink">
+                          {value}
+                          <button
+                            type="button"
+                            className="text-ink-faint hover:text-danger-ink"
+                            aria-label={`حذف ${value}`}
+                            onClick={() => void handleDeleteValue(attr.id, value)}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                      <AddValueInline onAdd={(v) => void handleAddValue(attr.id, v)} />
+                    </div>
+                  </Card>
+                ))}
+                {selected.attributes.length === 0 ? <p className="text-[12.5px] text-ink-muted">لا توجد خصائص بعد.</p> : null}
+              </div>
+
+              <Card className="mt-[10px] p-[12px_14px]">
+                <div className="flex flex-col gap-[8px]">
+                  <TextField label="اسم الخاصية" value={newAttrName} onChange={setNewAttrName} placeholder="مثال: اللون" />
+                  <TextField label="القيم مفصولة بفواصل" value={newAttrValues} onChange={setNewAttrValues} placeholder="أحمر, أزرق, أخضر" />
+                  <Button size="sm" onClick={() => void handleAddAttribute()}>
+                    إضافة خاصية
+                  </Button>
+                </div>
+              </Card>
+            </div>
+
+            {selected.attributes.length > 0 ? (
+              <div>
+                <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">
+                  توليد المتغيرات — <span className="mz-num">{combos.length}</span> تركيبة ممكنة،{" "}
+                  <span className="mz-num">{existingKeys.size}</span> موجودة بالفعل
+                </h3>
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <table className="w-full text-[12.5px]">
+                    <thead className="bg-surface-2 text-ink-faint">
+                      <tr>
+                        <th className="p-[8px_10px] text-start font-semibold" />
+                        <th className="p-[8px_10px] text-start font-semibold">التركيبة</th>
+                        <th className="p-[8px_10px] text-end font-semibold">الحالة</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {combos.map((combo) => {
+                        const key = comboKey(combo);
+                        const exists = existingKeys.has(key);
+                        return (
+                          <tr key={key} className="border-t border-border">
+                            <td className="p-[8px_10px]">
+                              <input
+                                type="checkbox"
+                                disabled={exists}
+                                checked={exists || selectedCombos.has(key)}
+                                onChange={() => toggleCombo(key)}
+                                aria-label={comboLabel(selected.attributes, combo)}
+                              />
+                            </td>
+                            <td className="mz-num p-[8px_10px] text-ink">{comboLabel(selected.attributes, combo)}</td>
+                            <td className="p-[8px_10px] text-end">{exists ? <StatusPill label="موجود" tone="neutral" /> : <StatusPill label="جديد" tone="success" />}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Button
+                  variant="primary"
+                  className="mt-[10px]"
+                  disabled={selectedCombos.size === 0}
+                  onClick={() => void handleGenerate()}
+                >
+                  توليد ({selectedCombos.size})
+                </Button>
+                {newComboCount === 0 && combos.length > 0 ? <p className="mt-[6px] text-[12px] text-ink-muted">تم توليد كل التركيبات الممكنة.</p> : null}
+              </div>
+            ) : null}
+
+            <div>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">
+                المتغيرات (<span className="mz-num">{variants.length}</span>)
+              </h3>
+              <div className="flex flex-col gap-[8px]">
+                {variants.map((v) => (
+                  <Card key={v.id} className="flex items-center justify-between p-[10px_14px]">
+                    <span className="text-[13px] font-semibold text-ink">{comboLabel(selected.attributes, v.values)}</span>
+                    <span className="mz-num text-[12px] text-ink-faint">{v.itemCode}</span>
+                  </Card>
+                ))}
+                {variants.length === 0 ? <p className="text-[12.5px] text-ink-muted">لم يتم توليد أي متغير بعد.</p> : null}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </SidePanel>
+    </div>
+  );
+}
+
+function AddValueInline({ onAdd }: { onAdd: (value: string) => void }) {
+  const [value, setValue] = useState("");
+  return (
+    <span className="inline-flex items-center gap-[4px]">
+      <input
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        placeholder="+ قيمة"
+        aria-label="إضافة قيمة"
+        className="w-[90px] rounded-full border border-dashed border-border bg-transparent px-[10px] py-[3px] text-[12px] text-ink outline-none focus:border-primary"
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && value.trim() !== "") {
+            e.preventDefault();
+            onAdd(value.trim());
+            setValue("");
+          }
+        }}
+      />
+    </span>
   );
 }

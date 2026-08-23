@@ -290,6 +290,7 @@
         <li><b>Phase 10 is the outlier</b> — the engines (workflow gate, numbering, audit) exist, but none of the admin UIs do, and there is no notification <i>rules</i> engine at all, only an event bus.</li>
         <li><b>9 screens run the domain in the browser</b>, not through their mounted API routes: stock balance/transfers/adjustments/counts, exchange rates, FX revaluation, cost-center P&amp;L, reconciliation, ETA. Real rules, no persistence.</li>
         <li><b>Never built:</b> label printing, product templates/variants, inventory write-down batch, all 8 domain hub pages, branch 360, profile screen, production dashboard, the print-template designer (the page is a live preview instead).</li>
+        <li><b>Implemented but never wired:</b> the audit trail, the credit-control check, LAN multi-till and four route groups (stock transfers/adjustments, physical counts, balance reconciliation) are engine-complete and test-covered, but <span class="num">createBackend</span> never supplies them to <span class="num">createApp</span> — they 404 or silently no-op in the running app. There is also <b>no i18n layer</b>: the language selector writes to state nothing reads.</li>
         <li><b>Deferred by decision</b> (Phases 13–15): HR/Payroll, POS, cloud/SaaS.</li>
       </ul>
     </div>
@@ -336,15 +337,15 @@
 
   // issue tuple: [title, size, deps, tags[]]  tags: par|risk|dec|cross
     var STATUS = {
-    0:{s:"built",  t:"Landed. Persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing, numbering, audit, workflow gate, RTL shell, Electron shell + backup/restore, LAN host."},
+    0:{s:"built",  t:"Mostly landed, but four bundled items did not ship: i18n (ar/en) does not exist, the audit sink is never supplied to the app so nothing is recorded, LAN routes are never mounted, and the desktop shell has config-only auto-update with no restore entry point."},
     1:{s:"built",  t:"Landed. Items, customers, suppliers, tax rates, chart of accounts, cost centers, treasury accounts, fiscal periods — all API-backed screens."},
     2:{s:"built",  t:"Landed. Double-entry posting with balance + period enforcement, WAC with immutable cost layers, stock movement ledger, golden-ledger fixtures."},
     3:{s:"partial",t:"Landed except the two hub pages, which were never built."},
-    4:{s:"partial",t:"Operations landed, but the four screens run the domain in-browser rather than through the API — nothing persists. Label printing, product templates/variants, the aging write-down batch and the inventory hub were never built."},
-    5:{s:"partial",t:"Landed. Delivery notes remain an open product decision, not a build gap."},
+    4:{s:"partial",t:"Operations landed, but the four screens run the domain in-browser and their routes are never mounted (404 live) — nothing persists. Label printing, product templates/variants, the aging write-down batch and the inventory hub were never built."},
+    5:{s:"partial",t:"Landed, except that credit control never fires — the route takes an optional dep createBackend never supplies. Delivery notes remain an open product decision."},
     6:{s:"built",  t:"Landed — RFQ chain, returns, landed costs, strictness gates, historical import."},
     7:{s:"partial",t:"Landed except the treasury hub. Vouchers, allocation, cheques, bank reconciliation, installments and follow-ups are API-backed."},
-    8:{s:"partial",t:"Engines landed, but exchange rates, FX revaluation, cost-center P&L, reconciliation and ETA run in-browser rather than through their mounted routes. No accounting hub."},
+    8:{s:"partial",t:"Engines landed, but exchange rates, FX revaluation, cost-center P&L, reconciliation and ETA run in-browser; /reconciliation is not mounted at all. No accounting hub."},
     9:{s:"partial",t:"Report engine, export pipeline, print renderer, Arabic amount-in-words and the full financial-statement set landed — 18 of the catalog's 33 reports. Sales-by-salesperson, van-sales and POS packs are unbuilt."},
     10:{s:"partial",t:"The least-built v1 phase. Engines exist (workflow gate, numbering, audit); the admin UIs do not — no approvals inbox, notification-rules builder (no rules engine either), numbering admin, barcode config, data-migration wizard or audit-log viewer. Users, roles, dashboard, command palette and the settings tabs did land."},
     11:{s:"partial",t:"BOMs, 4-stage work orders with WIP cost accumulation, and configurable-product instances landed. No production dashboard."},

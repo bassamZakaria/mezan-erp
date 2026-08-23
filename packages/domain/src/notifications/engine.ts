@@ -1,136 +1,134 @@
-import type { DomainEvent, EventBus } from "../events/event-bus.js";
-import { evaluateRules, type NotificationDraft } from "./evaluate.js";
-import type { Notification, NotificationDeliveryPort } from "./notification.js";
-import { resolveRecipients, type NotificationDirectory } from "./recipients.js";
-import {
-  IMPLEMENTED_NOTIFICATION_CHANNELS,
-  type NotificationChannel,
-  type NotificationRuleRepository,
-} from "./rule.js";
+import { getEventDefinition } from "../events/catalog.js";
+import type { DomainEvent } from "../events/event-bus.js";
+import { resolvePermissions } from "../permissions/resolve.js";
+import type { Role, RoleRepository } from "../roles/role.js";
+import type { User, UserRepository } from "../users/user.js";
+import { evaluateCondition } from "./condition.js";
+import { defaultNotificationBody, defaultNotificationTitle, renderTemplate } from "./template.js";
+import type {
+  Notification,
+  NotificationChannelStatus,
+  NotificationRepository,
+  NotificationRule,
+  NotificationRuleRepository,
+} from "./types.js";
+
+export interface NotificationRulesEngineDeps {
+  readonly rules: NotificationRuleRepository;
+  readonly notifications: NotificationRepository;
+  readonly users: UserRepository;
+  readonly roles: RoleRepository;
+  readonly generateId: () => string;
+  readonly now?: () => string;
+  /** Reports a per-rule dispatch failure without stopping the other rules/recipients. */
+  readonly onError?: (error: unknown, context: { rule: NotificationRule; event: DomainEvent }) => void;
+}
 
 /**
- * The notification engine — the only piece that joins the pure rule evaluation
- * to the outside world. It listens on the in-process `EventBus`, evaluates every
- * enabled rule, resolves recipients through the directory port, and hands each
- * produced notification to the delivery adapter registered for its channel.
+ * NotificationRulesEngine — the "قواعد الإشعارات" runtime (docs/catalog/09,
+ * docs/plan.md §5.6). Subscribes to the domain `EventBus` (via `handle`,
+ * typically wired through `eventBus.subscribeAll`) and, for every ACTIVE rule
+ * targeting the incoming event's code whose optional condition matches,
+ * resolves the recipient set and persists one `Notification` per recipient.
  *
- * Channels with no adapter (email, WhatsApp — modelled, not implemented in this
- * build) are counted in `skippedChannels` instead of being silently dropped.
+ * In-app is the only channel actually delivered (a persisted, readable
+ * notification row); email/push are recorded on the notification's
+ * `channelStatus` as `"queued"` — this repo has no outbound transport for
+ * either yet (docs/plan.md line 535: online-only channels must degrade, not
+ * block the in-app one).
  */
+export class NotificationRulesEngine {
+  constructor(private readonly deps: NotificationRulesEngineDeps) {}
 
-/** Fills in payload fields the raw event could not carry (e.g. a document's total). */
-export interface NotificationPayloadEnricher {
-  enrich(event: DomainEvent): Promise<Readonly<Record<string, unknown>>>;
-}
+  async handle(event: DomainEvent): Promise<void> {
+    const rules = await this.deps.rules.listActiveByEventCode(event.code);
+    if (rules.length === 0) return;
 
-export interface NotificationEngineDeps {
-  readonly rules: NotificationRuleRepository;
-  readonly directory: NotificationDirectory;
-  /** One adapter per channel this build can actually deliver on. */
-  readonly delivery: Readonly<Partial<Record<NotificationChannel, NotificationDeliveryPort>>>;
-  readonly enricher?: NotificationPayloadEnricher;
-  readonly idGen: () => string;
-  readonly now?: () => string;
-  readonly onError?: (error: unknown, event: DomainEvent) => void;
-}
+    const payload = isPlainObject(event.payload) ? event.payload : {};
+    const def = getEventDefinition(event.code);
 
-export interface NotificationDispatchResult {
-  readonly matchedRules: number;
-  readonly delivered: readonly Notification[];
-  readonly skippedChannels: readonly NotificationChannel[];
-}
+    for (const rule of rules) {
+      try {
+        if (!evaluateCondition(rule.condition, payload)) continue;
 
-const EMPTY_RESULT: NotificationDispatchResult = {
-  matchedRules: 0,
-  delivered: [],
-  skippedChannels: [],
-};
+        const recipientIds = await this.resolveRecipients(rule);
+        if (recipientIds.length === 0) continue;
 
-export class NotificationEngine {
-  constructor(private readonly deps: NotificationEngineDeps) {}
-
-  private now(): string {
-    return this.deps.now ? this.deps.now() : new Date().toISOString();
-  }
-
-  /** Evaluates every rule against one event and delivers what fires. */
-  async handleEvent(event: DomainEvent): Promise<NotificationDispatchResult> {
-    const rules = await this.deps.rules.list();
-    if (rules.length === 0) return EMPTY_RESULT;
-
-    const enrichment = this.deps.enricher ? await this.deps.enricher.enrich(event) : undefined;
-    const drafts = evaluateRules(rules, event, { now: this.now(), enrichment });
-    if (drafts.length === 0) return EMPTY_RESULT;
-
-    const delivered: Notification[] = [];
-    const skipped = new Set<NotificationChannel>();
-
-    for (const draft of drafts) {
-      const recipients = await resolveRecipients(draft, this.deps.directory);
-      for (const channel of draft.channels) {
-        const adapter = this.deps.delivery[channel];
-        if (!adapter) {
-          skipped.add(channel);
-          continue;
+        const title = rule.titleAr ? renderTemplate(rule.titleAr, payload) : defaultNotificationTitle(def);
+        const body = rule.bodyAr ? renderTemplate(rule.bodyAr, payload) : defaultNotificationBody(def, payload);
+        const createdAt = this.deps.now?.() ?? new Date().toISOString();
+        const channelStatus: Record<string, NotificationChannelStatus> = {};
+        for (const channel of rule.channels) {
+          channelStatus[channel] = channel === "in_app" ? "delivered" : "queued";
         }
-        for (const userId of recipients) {
-          const notification = this.materialize(draft, userId, channel);
-          await adapter.deliver(notification);
-          delivered.push(notification);
+
+        for (const userId of recipientIds) {
+          const notification: Notification = {
+            id: this.deps.generateId(),
+            ruleId: rule.id,
+            recipientUserId: userId,
+            eventCode: event.code,
+            title,
+            body,
+            priority: rule.priority,
+            channels: rule.channels,
+            channelStatus,
+            status: "unread",
+            payload,
+            createdAt,
+            readAt: null,
+          };
+          await this.deps.notifications.save(notification);
         }
+      } catch (error) {
+        if (this.deps.onError) this.deps.onError(error, { rule, event });
+        else throw error;
       }
     }
-
-    return { matchedRules: drafts.length, delivered, skippedChannels: [...skipped] };
   }
 
-  private materialize(
-    draft: NotificationDraft,
-    userId: string,
-    channel: NotificationChannel,
-  ): Notification {
-    return {
-      id: this.deps.idGen(),
-      userId,
-      ruleId: draft.ruleId,
-      eventCode: draft.eventCode,
-      channel,
-      priority: draft.priority,
-      title: draft.title,
-      body: draft.body,
-      reference: draft.reference,
-      createdAt: draft.createdAt,
-      readAt: null,
-    };
+  /** WHO a rule notifies: one explicit user, every active user in one role, or every active user (or admin) holding one permission. */
+  private async resolveRecipients(rule: NotificationRule): Promise<readonly string[]> {
+    if (rule.recipientType === "user") {
+      const user = await this.deps.users.findById(rule.recipientValue);
+      return user && user.status === "active" ? [user.id] : [];
+    }
+
+    const users = await this.deps.users.list();
+    const activeUsers = users.filter((u) => u.status === "active");
+
+    if (rule.recipientType === "role") {
+      return activeUsers.filter((u) => u.roleId === rule.recipientValue).map((u) => u.id);
+    }
+
+    // recipientType === "permission"
+    const roleCache = new Map<string, Role | null>();
+    const result: string[] = [];
+    for (const user of activeUsers) {
+      if (await this.userHoldsPermission(user, rule.recipientValue, roleCache)) result.push(user.id);
+    }
+    return result;
   }
 
-  /**
-   * Subscribes to every event on the bus. The bus is synchronous and its
-   * handlers return void, so dispatch runs as a detached promise — a delivery
-   * failure is reported through `onError` and can never abort the business
-   * transaction that published the event.
-   */
-  subscribeTo(bus: EventBus): () => void {
-    return bus.subscribeAll((event) => {
-      void this.handleEvent(event).catch((error) => {
-        this.deps.onError?.(error, event);
-      });
-    });
+  private async userHoldsPermission(
+    user: User,
+    permission: string,
+    roleCache: Map<string, Role | null>,
+  ): Promise<boolean> {
+    if (user.isCompanyAdmin) return true;
+    if (!user.roleId) return false;
+
+    let role = roleCache.get(user.roleId);
+    if (role === undefined) {
+      role = await this.deps.roles.findById(user.roleId);
+      roleCache.set(user.roleId, role);
+    }
+    if (!role) return false;
+
+    return resolvePermissions(role.permissions).has(permission);
   }
 }
 
-/** Convenience for the composition root: build the engine and attach it to the bus. */
-export function subscribeNotificationEngine(
-  bus: EventBus,
-  deps: NotificationEngineDeps,
-): { readonly engine: NotificationEngine; readonly unsubscribe: () => void } {
-  const engine = new NotificationEngine(deps);
-  return { engine, unsubscribe: engine.subscribeTo(bus) };
-}
-
-/** The channels this build has a delivery adapter for, for the API/UI to report honestly. */
-export function implementedChannels(
-  delivery: Readonly<Partial<Record<NotificationChannel, NotificationDeliveryPort>>>,
-): readonly NotificationChannel[] {
-  return IMPLEMENTED_NOTIFICATION_CHANNELS.filter((channel) => delivery[channel] !== undefined);
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

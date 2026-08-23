@@ -18,14 +18,8 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
-import {
-  categoryLabel,
-  unitLabel,
-  useCreateItemCategory,
-  useItemCategories,
-  useItemUnits,
-} from "../data/item-catalog-hooks";
-import { useAccounts, useCreateItem, useItems, useUpdateItem } from "../data/hooks";
+import { useAccounts, useCreateItem, useItemCategories, useItemUnits, useItems, useUpdateItem } from "../data/hooks";
+import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 
 const TYPE_LABEL: Record<ItemTypeDTO, string> = { stock: "منتج مخزون", service: "خدمة" };
@@ -128,8 +122,9 @@ function draftFromItem(item: ItemDTO): ItemDraft {
  * enforce (packages/domain/src/items) — unique code, non-blank name,
  * positive/unique alternate-unit conversions, non-blank/unique barcodes, a
  * service item can't track inventory, batch/expiry tracking requires
- * trackInventory. Kept here so the form fails fast with the same messages the
- * API returns, without pulling the whole domain package into the web bundle.
+ * trackInventory. The server re-validates on save; this runs first so the form
+ * shows the same messages inline without importing the whole domain package
+ * into the web bundle.
  */
 function validateDraft(draft: ItemDraft, existing: ItemDTO[], editingId: string | null): string | null {
   if (!editingId && existing.some((i) => i.code === draft.code)) {
@@ -190,13 +185,6 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
   };
 }
 
-function nextCategoryCode(existing: readonly { code: string }[]): string {
-  const taken = new Set(existing.map((c) => c.code));
-  let n = existing.length + 1;
-  while (taken.has(`CAT-${String(n).padStart(3, "0")}`)) n += 1;
-  return `CAT-${String(n).padStart(3, "0")}`;
-}
-
 function nextItemCode(items: ItemDTO[]): string {
   return `ITM-${String(items.length + 1).padStart(6, "0")}`;
 }
@@ -209,11 +197,10 @@ export function ItemsScreen() {
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
   const categoriesQuery = useItemCategories();
-  const createCategory = useCreateItemCategory();
   const items = query.data ?? [];
   const glAccounts = accountsQuery.data ?? [];
-  const units = unitsQuery.data ?? [];
-  const categories = categoriesQuery.data ?? [];
+  const itemUnits = unitsQuery.data ?? [];
+  const itemCategories = categoriesQuery.data ?? [];
 
   function glAccountLabel(id: string | null): string {
     if (!id) return "الافتراضي حسب نوع الصنف";
@@ -236,8 +223,6 @@ export function ItemsScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ItemDraft>(BLANK_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [categoryError, setCategoryError] = useState<string | null>(null);
 
   const totalCount = items.length;
   const activeCount = items.filter((i) => i.status === "active").length;
@@ -270,8 +255,8 @@ export function ItemsScreen() {
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
-    () => [NO_CATEGORY_OPTION, ...categories.map((c) => ({ id: c.id, label: c.nameAr }))],
-    [categories],
+    () => [NO_CATEGORY_OPTION, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
+    [itemCategories],
   );
   const glOptions: EntityPickerOption[] = useMemo(
     () => [DEFAULT_GL_OPTION, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
@@ -280,29 +265,9 @@ export function ItemsScreen() {
 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
 
-  async function handleAddCategory() {
-    const nameAr = newCategoryName.trim();
-    if (nameAr === "" || createCategory.isPending) return;
-    setCategoryError(null);
-    try {
-      const created = await createCategory.mutateAsync({
-        id: crypto.randomUUID(),
-        code: nextCategoryCode(categories),
-        nameAr,
-      });
-      setDraft((d) => ({ ...d, categoryId: created.id }));
-      setNewCategoryName("");
-    } catch (err) {
-      setCategoryError(err instanceof Error ? err.message : "تعذّر إضافة التصنيف.");
-    }
-  }
-
   function openCreateForm() {
     setEditingId(null);
-    const defaultUnit = units.some((u) => u.code === BLANK_DRAFT.baseUnitCode)
-      ? BLANK_DRAFT.baseUnitCode
-      : (units[0]?.code ?? "");
-    setDraft({ ...BLANK_DRAFT, code: nextItemCode(items), baseUnitCode: defaultUnit });
+    setDraft({ ...BLANK_DRAFT, code: nextItemCode(items) });
     setFormError(null);
     setFormOpen(true);
   }
@@ -367,7 +332,7 @@ export function ItemsScreen() {
         </div>
       ),
     },
-    { key: "unit", header: "وحدة", render: (row) => unitLabel(units, row.baseUnitCode) },
+    { key: "unit", header: "وحدة", render: (row) => unitLabel(row.baseUnitCode, itemUnits) },
     { key: "salePrice", header: "سعر البيع", align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
     { key: "costPrice", header: "سعر التكلفة", align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
     { key: "status", header: "الحالة", render: (row) => <StatusPill label={STATUS_LABEL[row.status]} tone={STATUS_TONE[row.status]} /> },
@@ -442,42 +407,15 @@ export function ItemsScreen() {
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
-          options={units.map((u) => ({ value: u.code, label: `${u.nameAr} (${u.code})` }))}
+          options={itemUnits.map((u) => ({ value: u.code, label: `${u.nameAr} (${u.code})` }))}
         />
 
-        <div className="flex flex-col gap-[8px]">
-          <EntityPicker
-            label="التصنيف"
-            options={categoryOptions}
-            value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : NO_CATEGORY_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_OPTION.id ? null : option.id }))}
-          />
-          <div className="flex items-center gap-[8px]">
-            <input
-              aria-label="اسم تصنيف جديد"
-              value={newCategoryName}
-              onChange={(e) => {
-                setNewCategoryName(e.target.value);
-                setCategoryError(null);
-              }}
-              placeholder="تصنيف جديد…"
-              className="min-w-0 flex-1 rounded-md border border-border bg-surface px-[11px] py-[8px] text-[12.5px] text-ink"
-            />
-            <Button
-              type="button"
-              size="sm"
-              disabled={newCategoryName.trim() === "" || createCategory.isPending}
-              onClick={handleAddCategory}
-            >
-              {createCategory.isPending ? "جارٍ الإضافة…" : "إضافة تصنيف"}
-            </Button>
-          </div>
-          {categoryError ? (
-            <p role="alert" className="text-[11.5px] font-semibold text-danger-ink">
-              {categoryError}
-            </p>
-          ) : null}
-        </div>
+        <EntityPicker
+          label="التصنيف"
+          options={categoryOptions}
+          value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : NO_CATEGORY_OPTION}
+          onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_OPTION.id ? null : option.id }))}
+        />
         <TextField label="الماركة" value={draft.brand} onChange={(v) => setDraft((d) => ({ ...d, brand: v }))} />
 
         <FieldGroup label="وحدات القياس البديلة" hint="مثال: كرتونة = 12 قطعة">
@@ -665,7 +603,7 @@ export function ItemsScreen() {
           <Card className="grid grid-cols-1 gap-0 overflow-hidden sm:grid-cols-2">
             {[
               ["نوع الصنف", TYPE_LABEL[item.type]],
-              ["التصنيف", categoryLabel(categories, item.categoryId)],
+              ["التصنيف", categoryLabel(item.categoryId, itemCategories)],
               ["الماركة", item.brand ?? "—"],
               ["طريقة التكلفة", COSTING_LABEL[item.costingMethod]],
               ["تتبع المخزون", item.trackInventory ? "نعم" : "لا"],
@@ -689,7 +627,7 @@ export function ItemsScreen() {
             <Card className="p-[14px_16px]">
               <div className="text-[11px] font-semibold text-ink-faint">الوحدة الأساسية</div>
               <div className="mt-[5px] text-[13.5px] font-bold text-ink">
-                {unitLabel(units, item.baseUnitCode)} ({item.baseUnitCode})
+                {unitLabel(item.baseUnitCode, itemUnits)} ({item.baseUnitCode})
               </div>
             </Card>
             <div>
@@ -812,7 +750,7 @@ export function ItemsScreen() {
           title={`${item.code} — ${item.nameAr}`}
           statusLabel={STATUS_LABEL[item.status]}
           statusTone={STATUS_TONE[item.status]}
-          subtitle={`${TYPE_LABEL[item.type]} · ${categoryLabel(categories, item.categoryId)}`}
+          subtitle={`${TYPE_LABEL[item.type]} · ${categoryLabel(item.categoryId, itemCategories)}`}
           actions={
             <>
               <Button
@@ -830,8 +768,8 @@ export function ItemsScreen() {
           }
           summary={[
             { label: "نوع الصنف", value: TYPE_LABEL[item.type] },
-            { label: "التصنيف", value: categoryLabel(categories, item.categoryId) },
-            { label: "الوحدة", value: unitLabel(units, item.baseUnitCode) },
+            { label: "التصنيف", value: categoryLabel(item.categoryId, itemCategories) },
+            { label: "الوحدة", value: unitLabel(item.baseUnitCode, itemUnits) },
             { label: "طريقة التكلفة", value: COSTING_LABEL[item.costingMethod] },
             { label: "سعر البيع", value: <Money value={Number(item.salePrice ?? 0)} /> },
             { label: "سعر التكلفة", value: <Money value={Number(item.costPrice ?? 0)} /> },
@@ -894,7 +832,7 @@ export function ItemsScreen() {
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
               <option value="all">كل التصنيفات</option>
-              {categories.map((c) => (
+              {itemCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nameAr}
                 </option>
@@ -910,7 +848,7 @@ export function ItemsScreen() {
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
               <option value="all">كل الوحدات</option>
-              {units.map((u) => (
+              {itemUnits.map((u) => (
                 <option key={u.code} value={u.code}>
                   {u.nameAr}
                 </option>

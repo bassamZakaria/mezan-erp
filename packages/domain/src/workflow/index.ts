@@ -26,6 +26,24 @@ export {
 } from "./gate.js";
 
 export {
-  createPersistedDocumentWorkflowGate,
-  type ApprovalRequestStore,
-} from "./persisted-gate.js";
+  saveWorkflowConfig,
+  deleteWorkflowConfig,
+  UnknownActionTypeError,
+  EmptyStepsError,
+  InvalidStepRoleError,
+  DuplicateWorkflowConfigError,
+  WorkflowConfigNotFoundError,
+  type WorkflowConfigRecord,
+  type WorkflowConfigRepository,
+  type SaveWorkflowConfigCommand,
+} from "./config.js";
+
+export {
+  submitApproval,
+  decideApproval,
+  resubmitApproval,
+  ApprovalRequestNotFoundError,
+  type ApprovalRequestRecord,
+  type ApprovalRequestRepository,
+  type SubmitApprovalCommand,
+} from "./requests.js";

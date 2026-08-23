@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { DocumentList, StatCard, Chip, Button, type DocumentListColumn } from "@mezan/ui";
-import type { FxRevaluationDetailDTO, FxRevaluationPreviewDTO } from "@mezan/contracts";
+import type { FxRevaluationDetailDTO } from "@mezan/contracts";
 import { nextDay } from "@mezan/domain";
-import { FxRevaluationError, useFxRevaluationPost, useFxRevaluationPreview } from "../data/accounting-hooks";
+import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
 
 function fmt(value: string, digits = 2): string {
   return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -10,29 +10,21 @@ function fmt(value: string, digits = 2): string {
 
 const CURRENCIES = ["USD", "EUR", "SAR", "AED", "QAR", "KWD", "GBP"];
 
-function fxErrorMessage(err: unknown, toDate: string, fallback: string): string {
-  if (err instanceof FxRevaluationError && err.currency) {
-    return `لا يوجد سعر إقفال معتمد للعملة ${err.currency} حتى ${toDate}.`;
-  }
-  return err instanceof Error ? err.message : fallback;
-}
-
 /**
  * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04). Revalues open
  * foreign-currency balances at the approved closing rate and posts the FX
- * gain/loss — auto-reversing the next day by default. Preview/post run through
- * `POST /revaluation/preview` and `POST /revaluation/post`.
+ * gain/loss — auto-reversing the next day by default. Runs the REAL
+ * `computeFxRevaluation` / `postFxRevaluation` domain services server-side
+ * via `POST /revaluation/preview` and `/revaluation/post`.
  */
 export function FxRevaluationScreen() {
+  const previewMutation = useFxRevaluationPreview();
+  const postMutation = useFxRevaluationPost();
   const [toDate, setToDate] = useState("2026-08-31");
   const [autoReverse, setAutoReverse] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
-  const [preview, setPreview] = useState<FxRevaluationPreviewDTO | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ entryNo: string | null; reversalNo: string | null } | null>(null);
-
-  const previewMutation = useFxRevaluationPreview();
-  const postMutation = useFxRevaluationPost();
 
   function toggleCurrency(c: string) {
     setSelected((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -42,11 +34,9 @@ export function FxRevaluationScreen() {
     setError(null);
     setPosted(null);
     try {
-      const result = await previewMutation.mutateAsync({ date: toDate, currencies: selected, autoReverse });
-      setPreview(result);
+      await previewMutation.mutateAsync({ date: toDate, currencies: selected, autoReverse });
     } catch (err) {
-      setPreview(null);
-      setError(fxErrorMessage(err, toDate, "تعذر حساب إعادة التقييم."));
+      setError(err instanceof Error ? err.message : "تعذر حساب إعادة التقييم.");
     }
   }
 
@@ -55,9 +45,9 @@ export function FxRevaluationScreen() {
     try {
       const result = await postMutation.mutateAsync({ date: toDate, currencies: selected, autoReverse });
       setPosted({ entryNo: result.entryNo, reversalNo: result.reversalNo });
-      setPreview(result.preview);
+      await runPreview();
     } catch (err) {
-      setError(fxErrorMessage(err, toDate, "تعذر ترحيل إعادة التقييم."));
+      setError(err instanceof Error ? err.message : "تعذر ترحيل إعادة التقييم.");
     }
   }
 
@@ -71,8 +61,7 @@ export function FxRevaluationScreen() {
     { key: "gl", header: "الفرق (ربح/خسارة)", render: (d) => <span className={`mz-num font-bold ${Number(d.gainLoss) < 0 ? "text-danger-ink" : "text-success-ink"}`}>{fmt(d.gainLoss)}</span> },
   ];
 
-  const p = preview;
-  const busy = previewMutation.isPending || postMutation.isPending;
+  const p = previewMutation.data ?? null;
 
   return (
     <div className="w-full">
@@ -92,8 +81,8 @@ export function FxRevaluationScreen() {
             العكس التلقائي (قيد عكسي في {nextDay(toDate)})
           </label>
           <div className="flex-1" />
-          <Button variant="primary" disabled={busy} onClick={runPreview}>معاينة</Button>
-          <Button disabled={busy} onClick={runPost}>ترحيل التقييم</Button>
+          <Button variant="primary" onClick={runPreview}>معاينة</Button>
+          <Button onClick={runPost}>ترحيل التقييم</Button>
         </div>
         <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
           <span className="text-[12px] text-ink-muted">العملات:</span>

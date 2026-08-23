@@ -45,8 +45,8 @@ Deferred (not in v1): Phase 13 HR/Payroll, Phase 14 POS (incl. selling screen), 
 W1–W5 and W7 are merged; W6 shipped 18 of the catalog's 33 reports plus the financial-statement
 family; W8 shipped only its FX/exchange-rates and ETA rows (and those two screens still run
 in-browser rather than through their mounted API routes); W9 has not started — no signing,
-notarization, updater feed or release pipeline exists. Playwright has 24 specs, and
-`pnpm test` covers 2071 unit/component tests.
+notarization, updater feed or release pipeline exists. Playwright has 28 specs, and
+`pnpm test` covers 2078 unit/component tests.
 
 ## Checkpoints
 - Report token actuals at each wave boundary (commitment tracking). Phase 0 actual ≈ 1.1M tokens → v1 tracking ~15–30M, well under the original 75–95M estimate.

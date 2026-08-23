@@ -85,11 +85,11 @@ Measured on `main`, not estimated:
 
 | Signal | Value |
 |---|---|
-| Unit + component tests | **305 files / 2071 tests, all passing** (`pnpm test`) |
+| Unit + component tests | **306 files / 2078 tests, all passing** (`pnpm test`) |
 | Typecheck / lint | **passing** (`pnpm typecheck`, `pnpm lint` incl. the RTL logical-CSS rule) |
-| Playwright e2e specs | 24 spec files under `e2e/` |
-| Domain modules | 51 under `packages/domain/src` |
-| Mounted API route prefixes | 32 in `packages/api/src/app.ts` |
+| Playwright e2e specs | 28 spec files under `e2e/` |
+| Domain modules | 49 under `packages/domain/src` |
+| Mounted API route prefixes | 33 in `packages/api/src/app.ts` |
 | Web screens / components | 74 non-test `.tsx` files; ~70 reachable nav entries |
 
 ### What is not built

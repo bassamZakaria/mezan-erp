@@ -2,7 +2,7 @@
 
 > Grounded in `docs/backlog.md` (phase table, §3) and re-verified against the code on `main` on 2026-08-23 (`git rev-parse --short HEAD` = `7b65887`). ✅ = implemented (domain + persistence + API + backend mount, and generally a real-data web screen); 🟡 = implemented but with known follow-up work; ⬜ = not started — either deferred by product decision (`docs/backlog.md` §1) or an outright gap, stated per line.
 >
-> **Verification gate:** `pnpm test` → 305 files / 2071 tests passing · `pnpm typecheck` and `pnpm lint` passing · 24 Playwright specs under `e2e/` · 51 domain modules · 32 mounted API route prefixes · 74 web components. A line only carries ✅ if a file implementing it was found; several Phase 4/10/11/12 lines were corrected downward in this pass.
+> **Verification gate:** `pnpm test` → 306 files / 2078 tests passing · `pnpm typecheck` and `pnpm lint` passing · 28 Playwright specs under `e2e/` · 49 domain modules · 33 mounted API route prefixes · 74 web components. A line only carries ✅ if a file implementing it was found; several Phase 4/10/11/12 lines were corrected downward in this pass.
 
 ## Phase 0 — Foundations (desktop)
 

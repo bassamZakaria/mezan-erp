@@ -49,6 +49,7 @@ import {
   createSqliteAuditSink,
   createSqliteItemSpecificationStore,
   createSqliteItemUnitStore,
+  createSqliteLabelLayoutStore,
   createSqliteSequenceConfigStore,
   createSqliteSequenceStore,
   createSqliteWebhookStores,
@@ -250,6 +251,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const items = createSqliteItemStore(sqlite);
   const itemUnits = createSqliteItemUnitStore(sqlite);
   const itemCategories = createSqliteItemCategoryStore(sqlite);
+  const labelLayouts = createSqliteLabelLayoutStore(sqlite);
   const itemSpecifications = createSqliteItemSpecificationStore(sqlite);
   const productTemplates = createSqliteProductTemplateStore(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
@@ -382,6 +384,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
 
   const seedStores: SeedStores = {
+    labelLayouts,
     accounts,
     branches,
     warehouses,
@@ -440,6 +443,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     items: { repo: items },
     itemCatalog: { units: itemUnits, categories: itemCategories, items },
     productCatalog: { specifications: itemSpecifications, templates: productTemplates, items },
+    labelLayouts: { repo: labelLayouts },
     sequences: { counters: sequenceCounters, config: sequenceConfig, audit: auditSink },
     audit: { store: auditSink },
     auditSink,
@@ -658,6 +662,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     items,
     itemUnits,
     itemCategories,
+    labelLayouts,
     itemSpecifications,
     productTemplates,
     notificationRules,

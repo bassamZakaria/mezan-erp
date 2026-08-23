@@ -24,6 +24,7 @@ import {
   type WebhookDeliveryRepository,
   type WebhookRepository,
   type ItemSpecificationRepository,
+  type LabelLayoutRepository,
   type ProductTemplateRepository,
   type Entitlements,
   type TaxRateRepository,
@@ -113,6 +114,7 @@ import { createEtaRoutes, type EtaRoutesDeps } from "./eta-routes.js";
 import type { ExchangeRateRepository } from "@mezan/domain";
 import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
 import { createItemSpecificationsRouter, createProductTemplatesRouter } from "./product-catalog-routes.js";
+import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
 import { createAuditRoutes } from "./audit-routes.js";
 import { createDataMigrationRoutes, type DataMigrationTransactor } from "./data-migration-routes.js";
@@ -280,6 +282,11 @@ export interface CreateAppOptions {
   };
   /** Mounts `/audit` — the read-only audit query surface — when present. */
   readonly audit?: { readonly store: AuditQueryPort; readonly resolveAuthContext?: AuthContextResolver };
+  /** Mounts `/label-layouts` when present — the sticker-sheet geometries the label screen renders. */
+  readonly labelLayouts?: {
+    readonly repo: LabelLayoutRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
   /** Mounts `/settings` (docs/catalog/09) when present — omit it for no `/settings` route. */
   readonly settingsStore?: SettingsRepository;
   /** Mounts `/branches` (docs/catalog/09) when present — omit it for no `/branches` route. */
@@ -766,6 +773,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.audit) {
     app.route("/audit", createAuditRoutes(options.audit.store, options.audit.resolveAuthContext));
+  }
+  if (options.labelLayouts) {
+    app.route("/label-layouts", createLabelLayoutsRouter(options.labelLayouts.repo, options.labelLayouts.resolveAuthContext));
   }
   if (options.productCatalog) {
     const productCatalog = options.productCatalog;

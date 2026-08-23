@@ -76,6 +76,7 @@ import { VanTripsScreen } from "./screens/VanTripsScreen";
 import { StockAdjustmentsScreen } from "./screens/StockAdjustmentsScreen";
 import { StockTransfersScreen } from "./screens/StockTransfersScreen";
 import { PhysicalCountsScreen } from "./screens/PhysicalCountsScreen";
+import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { StockBalanceScreen } from "./screens/StockBalanceScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
 import { BranchesPage } from "./settings/BranchesPage";
@@ -178,6 +179,7 @@ const ROUTABLE_SCREENS = {
   "stock-transfers": StockTransfersScreen,
   "stock-adjustments": StockAdjustmentsScreen,
   "physical-counts": PhysicalCountsScreen,
+  "label-printing": LabelPrintingScreen,
   "cost-centers": CostCentersScreen,
   "cost-center-pl": CostCenterPnLScreen,
   "fiscal-periods": FiscalPeriodsScreen,

@@ -1,6 +1,6 @@
 # Mezan — Status
 
-**Updated 2026-08-23** · Branch `main` @ `3146461` (pushed to GitHub) · v1 = Electron desktop, SQLite, real data.
+**Updated 2026-08-23** · Branch `main` @ `e756e50` (pushed to GitHub) · v1 = Electron desktop, SQLite, real data.
 
 > **This is the only status document.** Everything else under `docs/` is durable
 > reference that does not go stale. Point-in-time audits live in `docs/archive/`
@@ -27,8 +27,8 @@ Measured against the running app, not the checklist:
 
 | Signal | Value |
 |---|---|
-| Screens routed | **103** (from 122 nav entries) |
-| Read surfaces answering `pnpm smoke` | **100** |
+| Screens routed | **110** (from 129 nav entries) |
+| Read surfaces answering `pnpm smoke` | **113** |
 | Reference screens still absent | ~22 |
 | Typecheck / lint / build | passing |
 | Business-logic test execution | disabled by decision — see `testing-policy.md` |
@@ -71,9 +71,20 @@ again" bugs.
 
 ## Open
 
-- **HR** — the domain, persistence, routes and 36 permissions exist on `main`, but
-  only the dashboard is in the nav; ~12 screens are built and unreachable.
-  Attendance, leave policies/balances/accruals, payroll and advances are absent.
+- **HR payroll rules.** The module is built and reachable — employees,
+  departments, job titles, contracts, holidays, attendance, leave
+  requests/balances/accruals/policies, payroll runs, payslips and advances. But
+  payroll deliberately does **not** compute Egyptian income tax, social insurance
+  (either share), the Article 47 seniority bonus, overtime, hourly/daily pay
+  bases, non-monthly frequency, end-of-service gratuity, or multi-currency runs —
+  `docs/catalog/06-crm-hr.md` captured no formula for any of them. Each
+  unsupported case is skipped with a named warning rather than silently computing
+  a wrong net. **A payslip therefore shows a net that is missing statutory
+  deductions, and the UI does not yet say so** — surfacing that is the next task
+  and is the highest-priority open item in HR.
+- **Leave-policy presets carry inferred statutory numbers.** Annual 21 and sick
+  180 are solid; **casual 7 and paternity 1 under Law 14/2025 are the least
+  certain** and want a legal review before release. Each line cites its article.
 - **POS** — absent in every layer. Deferred by decision.
 - **i18n and the language switcher** — not started. Every string is an inline
   Arabic literal and `lang` is hardcoded. Held back deliberately while ~30 screens
@@ -101,11 +112,24 @@ nothing sends); email and WhatsApp notification channels are modelled but
 unimplemented and labelled as such; purchases and vouchers do not accept an audit
 sink at their route layer.
 
+## Partial work parked, not lost
+
+Branch `wip/partial-partner-tabs-hr-notices` holds two half-finished pieces,
+stopped mid-edit so the tree could be finalised green:
+
+1. **Customer / supplier / branch detail tabs.** Ten tabs still render a «قريباً»
+   stub: customer and supplier invoices, statements and attachments, and the
+   Branch-360 KPIs/inventory/employees/assets/activity tabs. Most are now
+   buildable from endpoints that exist; the **supplier statement probably is not**,
+   because AP is tracked at GL-account level with no per-supplier subledger.
+   Attachments have no file-storage subsystem at all.
+2. **Payroll scope notices** — the UI work described above.
+
 ## Lost in the merge with main
 
 Two teams built overlapping features in parallel. Where both built the same thing,
 main's implementation won — 36 commits already depended on it. Two capabilities
-had no main equivalent and were lost; both are being restored:
+had no main equivalent and were lost. **Both are now restored** and verified:
 
 - **Item specifications registry** — a reusable attribute catalog found by live
   inspection of the reference app and documented nowhere in `docs/catalog/`.

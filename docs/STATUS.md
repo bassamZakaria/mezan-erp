@@ -28,6 +28,7 @@ Measured against the running app, not the checklist:
 | Signal | Value |
 |---|---|
 | Screens routed | **110** (from 129 nav entries) |
+| «قريباً» markers outside HR | **0** |
 | Read surfaces answering `pnpm smoke` | **113** |
 | Reference screens still absent | ~22 |
 | Typecheck / lint / build | passing |
@@ -112,18 +113,30 @@ nothing sends); email and WhatsApp notification channels are modelled but
 unimplemented and labelled as such; purchases and vouchers do not accept an audit
 sink at their route layer.
 
+## Dead wiring found, not yet fixed
+
+**The voucher allocation sub-ledger is never populated.** Nothing in
+`packages/api` or `packages/backend` calls `AllocatableInvoiceRepository.save`,
+so `GET /open-invoices` is permanently empty and the allocation engine — which is
+fully built and tested — is never fed. The visible consequence is that accounts
+payable has no supplier dimension: `PurchaseInvoiceDTO` carries no
+paid/outstanding field and there is no purchase-payments route, so a supplier
+statement cannot be produced at all. **Populating that repository on sales- and
+purchase-invoice confirm is the single highest-value fix outstanding** — it
+unlocks the supplier statement, voucher allocation and per-partner balances at
+once, using engines that already exist.
+
+Related, smaller: `SalesInvoiceService.recordPayment` only increments a
+cumulative `amountPaid` with no date and no GL posting, so a collection cannot be
+placed chronologically on a statement; and `AuditEvent` has no branch field, so
+the audit trail cannot be scoped to a branch.
+
 ## Partial work parked, not lost
 
-Branch `wip/partial-partner-tabs-hr-notices` holds two half-finished pieces,
-stopped mid-edit so the tree could be finalised green:
-
-1. **Customer / supplier / branch detail tabs.** Ten tabs still render a «قريباً»
-   stub: customer and supplier invoices, statements and attachments, and the
-   Branch-360 KPIs/inventory/employees/assets/activity tabs. Most are now
-   buildable from endpoints that exist; the **supplier statement probably is not**,
-   because AP is tracked at GL-account level with no per-supplier subledger.
-   Attachments have no file-storage subsystem at all.
-2. **Payroll scope notices** — the UI work described above.
+Branch `wip/partial-partner-tabs-hr-notices` holds the **payroll scope notices** —
+making visible in the UI that a payslip's net omits income tax and social
+insurance. The customer/supplier/branch tabs it also held are now finished and
+merged.
 
 ## Lost in the merge with main
 

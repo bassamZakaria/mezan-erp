@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  WorkflowConfigDTO,
+  CreateWorkflowConfigDTO,
+  UpdateWorkflowConfigDTO,
+  ApprovalRequestDTO,
+  SubmitApprovalRequestDTO,
+  DecideApprovalRequestDTO,
   AccountDTO,
   ActivityDTO,
   AddAttributeValueDTO,

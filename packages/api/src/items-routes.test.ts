@@ -100,7 +100,7 @@ describe("items router — permission gate", () => {
 });
 
 describe("items router — CRUD", () => {
-  it("creates an item and retrieves it by id, including the stock stub", async () => {
+  it("creates an item and retrieves it by id", async () => {
     const { app } = newApp();
     const createRes = await app.fetch(
       req("/", {
@@ -116,10 +116,7 @@ describe("items router — CRUD", () => {
 
     const getRes = await app.fetch(req("/itm-1", { permissions: "inventory.item.view" }));
     expect(getRes.status).toBe(200);
-    const body = (await getRes.json()) as { stockStubbed: boolean; stock: { onHand: string } };
-    expect(body).toMatchObject({ id: "itm-1", code: "ITM-0001", type: "stock", status: "active" });
-    expect(body.stockStubbed).toBe(true);
-    expect(body.stock.onHand).toBe("0");
+    expect(await getRes.json()).toMatchObject({ id: "itm-1", code: "ITM-0001", type: "stock", status: "active" });
   });
 
   it("404s for an unknown item", async () => {

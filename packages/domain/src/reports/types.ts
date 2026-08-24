@@ -63,7 +63,7 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly id: string;
   readonly titleAr: string;
   readonly descriptionAr?: string;
-  readonly paramsSchema: z.ZodType<TParams>;
+  readonly paramsSchema: z.ZodType<TParams, z.ZodTypeDef, unknown>;
   readonly defaultParams: TParams;
   readonly paramFields: readonly ReportParamField[];
   /**

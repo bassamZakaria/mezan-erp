@@ -48,7 +48,7 @@ export interface CashFlowRow {
 
 const DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "تاريخ غير صالح — استخدم الصيغة YYYY-MM-DD");
 const paramsSchema = z
-  .object({ periodFrom: DATE, periodTo: DATE, compareTo: z.enum(["previous", "lastYear"]) })
+  .object({ periodFrom: DATE, periodTo: DATE, compareTo: z.enum(["previous", "lastYear"]).default("previous") })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",
     path: ["periodFrom"],

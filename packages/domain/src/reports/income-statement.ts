@@ -46,7 +46,7 @@ const paramsSchema = z
   .object({
     periodFrom: DATE,
     periodTo: DATE,
-    compareTo: z.enum(["previous", "lastYear"]),
+    compareTo: z.enum(["previous", "lastYear"]).default("previous"),
   })
   .refine((p) => p.periodFrom <= p.periodTo, {
     message: "تاريخ البداية يجب أن يسبق تاريخ النهاية",

@@ -5,9 +5,8 @@ import type { Money } from "../money/index.js";
  * An `Item` is either a stock item (تتبع المخزون — carries a quantity
  * balance tracked/costed through warehouses) or a service item (لا يتتبع
  * مخزون — sold without a quantity balance). Phase 1 ships the master-data
- * record only: stock balances/movements/cost layers wire in once Phase 2
- * lands the movements ledger (docs' phased backlog) — see the API's
- * `stockStubbed` marker on the item-detail response.
+ * record; stock balances/movements/cost layers live in the movements ledger
+ * and reach the item-detail response as its `stock` block.
  */
 
 export type ItemType = "stock" | "service";

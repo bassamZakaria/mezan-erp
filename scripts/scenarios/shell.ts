@@ -17,6 +17,13 @@ interface ReportCheck {
   readonly id: string;
   readonly path: string;
   readonly totals: readonly string[];
+  /**
+   * Columns whose grand total is deliberately NOT the plain row sum, with the
+   * figure it should be instead. The VAT return's two sides carry opposite
+   * signs, so summing its tax column across both is meaningless — the number
+   * the dashboard read as "VAT due" while the return said refundable.
+   */
+  readonly netTotals?: Readonly<Record<string, (rows: readonly any[], n: (v: unknown) => number) => number>>;
   readonly invalid?: { readonly qs: string; readonly field: string };
 }
 
@@ -50,7 +57,16 @@ const FINANCIAL_REPORTS: readonly ReportCheck[] = [
   { id: "accounting.income-statement", path: "/financial-reports/income-statement", totals: ["amount", "priorAmount", "variance"], invalid: { qs: "?periodFrom=not-a-date", field: "periodFrom" } },
   { id: "accounting.balance-sheet", path: "/financial-reports/balance-sheet", totals: ["amount"], invalid: { qs: "?asOfDate=not-a-date", field: "asOfDate" } },
   { id: "accounting.cash-flow", path: "/financial-reports/cash-flow", totals: ["amount", "priorAmount", "variance"], invalid: { qs: "?periodFrom=not-a-date", field: "periodFrom" } },
-  { id: "accounting.vat-return", path: "/financial-reports/vat-return", totals: ["base", "tax"], invalid: { qs: "?periodFrom=not-a-date", field: "periodFrom" } },
+  {
+    id: "accounting.vat-return",
+    path: "/financial-reports/vat-return",
+    totals: ["base", "tax"],
+    netTotals: {
+      base: (rs, n) => rs.filter((r) => r.side === "output").reduce((s, r) => s + n(r.base), 0) - rs.filter((r) => r.side === "input").reduce((s, r) => s + n(r.base), 0),
+      tax: (rs, n) => rs.filter((r) => r.side === "output").reduce((s, r) => s + n(r.tax), 0) - rs.filter((r) => r.side === "input").reduce((s, r) => s + n(r.tax), 0),
+    },
+    invalid: { qs: "?periodFrom=not-a-date", field: "periodFrom" },
+  },
   { id: "accounting.general-ledger", path: "/financial-reports/general-ledger", totals: ["debit", "credit"], invalid: { qs: "?periodFrom=not-a-date", field: "periodFrom" } },
   { id: "accounting.account-ledger", path: "/financial-reports/account-ledger", totals: ["debit", "credit"], invalid: { qs: "?accountId=ACCT-DOES-NOT-EXIST", field: "accountId" } },
 ];
@@ -201,7 +217,9 @@ export async function run(ctx: Ctx): Promise<void> {
           );
         }
         for (const key of spec.totals) {
-          checkEq(`grand total "${key}" = sum of its rows`, n(res.body?.grandTotals?.[key]), sumRows(rs, key));
+          const net = spec.netTotals?.[key];
+          if (net) checkEq(`grand total "${key}" = output − input, not the meaningless row sum`, n(res.body?.grandTotals?.[key]), net(rs, n));
+          else checkEq(`grand total "${key}" = sum of its rows`, n(res.body?.grandTotals?.[key]), sumRows(rs, key));
         }
       }
       if (spec.invalid) {

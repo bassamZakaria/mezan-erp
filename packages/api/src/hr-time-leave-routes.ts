@@ -6,6 +6,8 @@ import {
   availableLeaveDays,
   correctAttendance,
   createLeaveBalance,
+  assertLeaveBalanceCovers,
+  LeaveBalanceExceededError,
   createEmployeeDirectory,
   createLeavePolicy,
   decideApproval,
@@ -190,6 +192,7 @@ function handleTimeLeaveError(c: Context, err: unknown): Response {
     err instanceof InvalidLeaveBalanceError ||
     err instanceof InvalidLeaveAccrualBatchError ||
     err instanceof InvalidLeaveRequestTransitionError ||
+    err instanceof LeaveBalanceExceededError ||
     err instanceof UnknownLeavePolicyPresetError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -487,6 +490,14 @@ export function createHrTimeLeaveRoutes(deps: HrTimeLeaveRoutesDeps, resolveAuth
             request: serializeLeaveRequest(current),
           },
           202,
+        );
+      }
+      if (outcome.decision === "approved") {
+        const year = Number(current.startDate.slice(0, 4));
+        assertLeaveBalanceCovers(
+          current.leaveType,
+          current.days,
+          await deps.leaveBalances.find(current.employeeId, current.leaveType, year),
         );
       }
       const next = decideLeaveRequest(current, outcome.decision, ctx.userId);

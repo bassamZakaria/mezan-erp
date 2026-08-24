@@ -187,9 +187,14 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const invoiceAfter = (await req("GET", "/sales-invoices/SCN-INV-1")).body;
     checkEq(
-      "D9 — the invoice's remainingBalance still ignores this confirmed return (grandTotal − amountPaid only)",
+      "D9 — the confirmed return comes off the invoice's remainingBalance, the same credit the GL posted to AR",
       n(invoiceAfter.remainingBalance),
-      n(invoiceAfter.totals.grandTotal) - n(invoiceAfter.amountPaid),
+      n(invoiceAfter.totals.grandTotal) - n(invoiceAfter.amountPaid) - n(invoiceAfter.returnedCredit),
+    );
+    checkEq(
+      "D9 — the reported returnedCredit is this return's own grand total",
+      n(invoiceAfter.returnedCredit),
+      returnGrandTotal,
     );
   });
 
@@ -501,7 +506,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 13. D1 + D9 on the real seeded example, read live rather than assumed ---
 
-  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance still ignores its confirmed returns and the voucher collection", async () => {
+  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns; the voucher collection is still D1", async () => {
     const invoice = (await req("GET", "/sales-invoices/INV-DEMO-1")).body;
     check("D1: amountPaid never reflects VCH-DEMO-1's Treasury-voucher collection", n(invoice.amountPaid) === 0, JSON.stringify(invoice.amountPaid));
 
@@ -512,12 +517,13 @@ export async function run(ctx: Ctx): Promise<void> {
       (sum: number, r: any) => sum + r.lines.reduce((s: number, l: any) => s + n(l.qty) * n(l.unitPrice) + n(l.taxAmount), 0),
       0,
     );
-    check("those confirmed returns are worth something (D9 has something real to ignore)", returnedTotal > 0, String(returnedTotal));
+    check("those confirmed returns are worth something (so D9 has something real to net off)", returnedTotal > 0, String(returnedTotal));
 
+    checkEq("D9: the reported returnedCredit equals the confirmed returns against this invoice", n(invoice.returnedCredit), returnedTotal);
     checkEq(
-      "D9: remainingBalance = grandTotal − amountPaid ONLY, never − confirmed returns",
+      "D9: remainingBalance = grandTotal − amountPaid − confirmed returns",
       n(invoice.remainingBalance),
-      n(invoice.totals.grandTotal) - n(invoice.amountPaid),
+      n(invoice.totals.grandTotal) - n(invoice.amountPaid) - returnedTotal,
     );
   });
 

@@ -178,6 +178,26 @@ export class DuplicateAttendanceEntryError extends Error {
   }
 }
 
+/**
+ * Raised when approving a leave request would take the employee's balance
+ * negative. Approving used to be unconditional: the balance simply went
+ * negative and nothing refused it, so an employee could be granted leave the
+ * tenant had never accrued.
+ */
+export class LeaveBalanceExceededError extends Error {
+  readonly code = "LEAVE_BALANCE_EXCEEDED";
+  constructor(
+    readonly requestedDays: number,
+    readonly availableDays: number,
+  ) {
+    super(
+      `الرصيد المتاح ${availableDays} يوم لا يغطي الطلب (${requestedDays} يوم). ` +
+        "عدّل الطلب أو زد الرصيد قبل الاعتماد.",
+    );
+    this.name = "LeaveBalanceExceededError";
+  }
+}
+
 /** Raised when a leave-policy create/update command fails validation. */
 export class InvalidLeavePolicyError extends Error {
   readonly code = "INVALID_LEAVE_POLICY";

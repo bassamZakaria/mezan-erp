@@ -70,7 +70,7 @@ async function warehouseScoping(ctx: Ctx): Promise<void> {
   // so it can never prove narrowing. A third warehouse and a transfer that
   // never touches WH-DEMO-2 makes the scoping provable.
   const thirdWarehouse = await ctx.req("POST", "/warehouses", {
-    id: "WH-SCN-3", code: "WH-SCN-3", name: "مخزن سيناريو الثالث", branchId: "BR-MAIN", type: "main", active: true,
+    id: "WH-SCN-3", code: "WH-SCN-3", name: "مخزن سيناريو الثالث", branchId: "BR-MAIN", type: "MAIN", active: true,
   });
   ctx.check("third warehouse created for the scoping proof", thirdWarehouse.status === 201, `${thirdWarehouse.status}: ${JSON.stringify(thirdWarehouse.body)}`);
   const offScope = await draftAndConfirm(ctx, "stock-transfers", "SCN-TRF-SCOPE", {

@@ -474,7 +474,7 @@ export async function run(ctx: Ctx): Promise<void> {
     ctx.check("AD-15 — the mismatched-currency advance recovers nothing this run", !slip.lines.some((l: any) => l.referenceId === mismatchedAdvance.id));
   });
 
-  await ctx.scenario("hr / leave — D11: a request exceeding the balance is ACCEPTED, balance goes negative (LB-06)", async () => {
+  await ctx.scenario("hr / leave — D11: a request exceeding the available balance is refused (LB-06)", async () => {
     const emp = await ctx.req("POST", "/hr/employees", { id: "SCN-EMP-LEAVE", firstName: "Scenario", lastName: "Leave", branchId, hireDate: "2020-01-01" });
     ctx.check("SCN employee for D11 created", emp.status === 201, `status ${emp.status}`);
 
@@ -486,17 +486,43 @@ export async function run(ctx: Ctx): Promise<void> {
 
       const decide = await ctx.req("POST", `/hr/leave-requests/${submit.body.id}/approve`, {});
       ctx.check(
-        "D11 — approving a request that exceeds the (zero) available balance is ACCEPTED, not refused",
-        decide.status === 200 && decide.body.request.status === "approved",
-        `status ${decide.status}`,
+        "D11 — approving a request that exceeds the (zero) available balance is REFUSED",
+        decide.status === 422 && decide.body?.error === "LEAVE_BALANCE_EXCEEDED",
+        `${decide.status}: ${JSON.stringify(decide.body)}`,
       );
+      ctx.check(
+        "D11 — the refusal names both the requested days and what is actually available",
+        typeof decide.body?.message === "string" && decide.body.message.includes("10") && decide.body.message.includes("0"),
+        decide.body?.message,
+      );
+
+      const mine = ctx.rows((await ctx.req("GET", `/hr/leave-requests?employeeId=${emp.body.id}`)).body);
+      const after = mine.find((r: any) => r.id === submit.body.id);
+      ctx.check("D11 — the refused request stays بانتظار الموافقة, it is not half-approved", after?.status === "pending", JSON.stringify(after?.status));
 
       const balances = ctx.rows((await ctx.req("GET", `/hr/leave-balances?employeeId=${emp.body.id}&year=2029`)).body);
       const annual = balances.find((b: any) => b.leaveType === "annual");
-      ctx.check("LB-06 — the negative balance row IS created and returned, not hidden or dropped", !!annual, "no balance row was created for the employee/type/year");
-      if (annual) {
-        ctx.checkEq("D11 — available balance goes to exactly -10.00 (0 entitled - 10 used), not clamped or refused", ctx.n(annual.available), -10);
-      }
+      ctx.check("D11 — no balance was consumed by the refused approval", !annual || ctx.n(annual.used) === 0, JSON.stringify(annual));
+
+      // Unpaid leave draws on no entitlement, so the same zero balance must not block it.
+      const unpaid = await ctx.req("POST", "/hr/leave-requests", { leaveType: "unpaid", startDate: "2029-11-01", endDate: "2029-11-03", reason: "سيناريو D11 بدون أجر" });
+      ctx.check("an unpaid-leave request submits", unpaid.status === 201, `status ${unpaid.status}`);
+      const unpaidDecide = await ctx.req("POST", `/hr/leave-requests/${unpaid.body.id}/approve`, {});
+      ctx.check(
+        "D11 — unpaid leave is exempt from the balance guard and still approves",
+        unpaidDecide.status === 200 && unpaidDecide.body.request.status === "approved",
+        `${unpaidDecide.status}: ${JSON.stringify(unpaidDecide.body)}`,
+      );
+
+      // Grant the entitlement the request needs, and the same approval goes through.
+      const grant = await ctx.req("POST", "/hr/leave-balances", { employeeId: emp.body.id, leaveType: "annual", year: 2029, entitled: "21", carriedOver: "0" });
+      ctx.check("an annual entitlement can be granted for the year", grant.status === 201, `${grant.status}: ${JSON.stringify(grant.body)}`);
+      const retry = await ctx.req("POST", `/hr/leave-requests/${submit.body.id}/approve`, {});
+      ctx.check("D11 — with the entitlement in place the same request approves", retry.status === 200 && retry.body.request.status === "approved", `${retry.status}: ${JSON.stringify(retry.body)}`);
+
+      const afterBalances = ctx.rows((await ctx.req("GET", `/hr/leave-balances?employeeId=${emp.body.id}&year=2029`)).body);
+      const annualAfter = afterBalances.find((b: any) => b.leaveType === "annual");
+      ctx.checkEq("the approved request consumes exactly its 10 days (21 − 10 = 11 available)", ctx.n(annualAfter?.available), 11);
     } finally {
       await linkAdmin(ctx, original);
     }

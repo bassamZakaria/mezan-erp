@@ -146,6 +146,7 @@ export {
   accrualPeriodKey,
   runLeaveAccrual,
   consumeLeaveBalance,
+  assertLeaveBalanceCovers,
   createUnpaidLeaveDaysProvider,
 } from "./leave-balance.js";
 
@@ -256,6 +257,7 @@ export {
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
   NegativeNetPayError,
+  LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
 } from "./errors.js";

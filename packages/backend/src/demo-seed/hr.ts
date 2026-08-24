@@ -447,6 +447,10 @@ const LEAVE_BALANCES = [
   { employeeId: "EMP-DEMO-2", leaveType: "annual", year: 2025, entitled: "21", carriedOver: "0", used: "19" },
   { employeeId: "EMP-DEMO-3", leaveType: "annual", year: 2025, entitled: "30", carriedOver: "4", used: "25" },
   { employeeId: "EMP-DEMO-5", leaveType: "annual", year: 2025, entitled: "21", carriedOver: "0", used: "13" },
+  // The accrual run alone credits 5.25 annual days for 2026, which does not
+  // cover LR-DEMO-6's eight — and an approval may no longer take a balance
+  // negative. These are the year's full entitlements, granted up front.
+  { employeeId: "EMP-DEMO-4", leaveType: "annual", year: 2026, entitled: "21", carriedOver: "0" },
   { employeeId: "EMP-DEMO-1", leaveType: "annual", year: 2026, carriedOver: "6" },
   { employeeId: "EMP-DEMO-2", leaveType: "annual", year: 2026, carriedOver: "2" },
   { employeeId: "EMP-DEMO-3", leaveType: "annual", year: 2026, carriedOver: "9" },

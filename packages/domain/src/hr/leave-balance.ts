@@ -1,6 +1,6 @@
 import { Qty } from "../money/index.js";
 import type { EmployeeDirectory } from "../hr-shared/employee-ref.js";
-import { InvalidLeaveAccrualBatchError, InvalidLeaveBalanceError } from "./errors.js";
+import { InvalidLeaveAccrualBatchError, InvalidLeaveBalanceError, LeaveBalanceExceededError } from "./errors.js";
 import { accrualDaysPerPeriod, type LeaveAccrualFrequency, type LeavePolicy, type LeavePolicyRepository } from "./leave-policy.js";
 import { isUnpaidLeaveType, type LeaveRequestRepository, type LeaveType } from "./leave-request.js";
 
@@ -244,6 +244,23 @@ export async function runLeaveAccrual(
   };
   await deps.batches.create(batch);
   return { batch, created: true };
+}
+
+/**
+ * Refuses an approval the employee's balance cannot cover.
+ *
+ * Unpaid leave is exempt by definition — it draws on no entitlement — and a
+ * missing balance row counts as zero available, which is the case that used to
+ * slip through: with no row at all, nothing was there to compare against.
+ */
+export function assertLeaveBalanceCovers(
+  leaveType: LeaveType,
+  requestedDays: number,
+  balance: Pick<LeaveBalance, "entitled" | "carriedOver" | "used"> | null,
+): void {
+  if (isUnpaidLeaveType(leaveType)) return;
+  const available = balance ? Number(availableLeaveDays(balance).toString()) : 0;
+  if (requestedDays > available) throw new LeaveBalanceExceededError(requestedDays, available);
 }
 
 /**

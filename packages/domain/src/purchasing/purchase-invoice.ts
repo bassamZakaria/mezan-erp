@@ -30,6 +30,7 @@ import {
   type PurchaseStockPostingPort,
 } from "./types.js";
 import {
+  GoodsReceiptAlreadyInvoicedError,
   DuplicatePurchaseDocumentError,
   GoodsReceiptNotFoundError,
   InvalidPurchaseDocumentError,
@@ -299,6 +300,10 @@ export async function createPurchaseInvoice(
         `goods receipt "${command.receiptId}" is "${receipt.status}"; only a confirmed receipt can be invoiced`,
       ]);
     }
+    // Only the status was checked, never this flag — so a second invoice
+    // against the same receipt was accepted and posted a duplicate Dr
+    // Inventory with no matching stock movement.
+    if (receipt.invoiced) throw new GoodsReceiptAlreadyInvoicedError(command.receiptId);
   }
   if (await deps.invoices.findById(command.id)) {
     throw new DuplicatePurchaseDocumentError(command.id);

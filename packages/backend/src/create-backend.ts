@@ -658,7 +658,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     }
     for (const doc of landedCostDocs) {
       if (doc.status !== "confirmed") continue;
-      for (const line of doc.lines) apScaled += totalLandedCost(line.costItems).scaled;
+      // costItems is denormalized onto EVERY target line, so summing per line
+      // multiplies the document's total by its line count. One document, one
+      // credit to AP — take the cost items from any single line.
+      const costItems = doc.lines[0]?.costItems;
+      if (costItems) apScaled += totalLandedCost(costItems).scaled;
     }
 
     let inventoryScaled = 0n;

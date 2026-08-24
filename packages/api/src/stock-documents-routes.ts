@@ -209,7 +209,15 @@ export function createStockAdjustmentsRoutes(
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
-    return c.json(docs.map(serializeAdjustment));
+    // The warehouse is on the LINES, not the header, so a document is in scope
+    // when any of its lines is. These are the routes the adjustments and
+    // transfers screens actually call — the raw-engine routes were scoped
+    // first and these were missed, so the selector still did nothing here.
+    const scope = warehouseScopeOf(c);
+    const visible = !scope
+      ? docs
+      : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId)));
+    return c.json(visible.map(serializeAdjustment));
   });
 
   app.get("/:id", gate("inventory.adjustment.view"), async (c) => {
@@ -266,7 +274,13 @@ export function createStockTransfersRoutes(
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
-    return c.json(docs.map(serializeTransfer));
+    // Visible from EITHER end: hiding a transfer from the receiving warehouse
+    // would make its stock appear from nowhere.
+    const scope = warehouseScopeOf(c);
+    const visible = !scope
+      ? docs
+      : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId)));
+    return c.json(visible.map(serializeTransfer));
   });
 
   app.get("/:id", gate("inventory.transfer.view"), async (c) => {

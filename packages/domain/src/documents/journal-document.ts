@@ -16,7 +16,15 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
-import { startApproval, submitApproval, type ApprovalRequestRepository, type GateConfig, type GateableActionType } from "../workflow/index.js";
+import {
+  ApprovalRequestRejectedError,
+  resubmitApproval,
+  startApproval,
+  submitApproval,
+  type ApprovalRequestRepository,
+  type GateConfig,
+  type GateableActionType,
+} from "../workflow/index.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
 import { buildEffects } from "./effects.js";
 import type { DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
@@ -171,6 +179,18 @@ export function createDocumentWorkflowGate(
     async evaluate(input) {
       const config = resolveConfig(input.actionType) ?? { actionType: input.actionType, steps: [] };
       if (requests) {
+        // A confirm of an already-submitted document must READ its standing
+        // request, never overwrite it: submitting afresh on every confirm threw
+        // away the approval that had just been granted, so an approved document
+        // could never be posted by anyone.
+        const existing = await requests.findById(input.requestId);
+        if (existing) {
+          if (existing.status === "approved") return { granted: true, requestId: existing.id };
+          if (existing.status === "pending") return { granted: false, requestId: existing.id };
+          if (existing.status === "rejected") throw new ApprovalRequestRejectedError(existing.id);
+          const resumed = await resubmitApproval(existing.id, { submittedBy: input.submittedBy }, requests);
+          return { granted: resumed.status === "approved", requestId: resumed.id };
+        }
         const record = await submitApproval(
           {
             requestId: input.requestId,

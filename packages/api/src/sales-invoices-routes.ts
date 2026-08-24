@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   type AllocatableInvoiceRepository,
+  ApprovalRequestRejectedError,
   Money,
   Qty,
   SalesInvoiceService,
@@ -187,6 +188,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof DuplicateSalesInvoiceError ||
     err instanceof InvalidSalesInvoiceTransitionError ||
+    err instanceof ApprovalRequestRejectedError ||
     err instanceof DuplicateJournalEntryError
   ) {
     return c.json({ error: err.code, message: err.message }, 409);

@@ -256,5 +256,6 @@ export {
   DuplicatePayrollPeriodError,
   NoPayableEmployeesError,
   NegativeNetPayError,
+  TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
 } from "./errors.js";

@@ -203,6 +203,9 @@ export class SalesInvoiceService {
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
       });
       if (!decision.granted) {
+        // Re-confirming while the request is still in the inbox is a no-op, not
+        // an illegal pending → pending transition.
+        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null };
         assertTransition(id, existing.status, "pending");
         const held: SalesInvoice = {
           ...existing,
@@ -333,6 +336,21 @@ export class SalesInvoiceService {
       throw new CreditLimitExceededError(invoice.customerId, result.message ?? "تجاوز الحد الائتماني للعميل.");
     }
     return result.status === "warning" ? result : null;
+  }
+
+  /**
+   * Return an invoice held بانتظار الموافقة to its submitter as an editable
+   * draft — what a rejection or a "طلب تعديل" means for the INVOICE, as opposed
+   * to for the approval request.
+   */
+  async returnToDraft(id: string): Promise<SalesInvoice> {
+    const existing = await this.require(id);
+    if (existing.status === "draft") return existing;
+    assertTransition(id, existing.status, "draft");
+    const returned: SalesInvoice = { ...existing, status: "draft", workflowRequestId: null };
+    await this.deps.repo.update(returned);
+    this.emit("DOCUMENT_DRAFTED", returned);
+    return returned;
   }
 
   /** Cancel a draft/pending invoice (never a live one — those are corrected by a return). */

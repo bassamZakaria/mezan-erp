@@ -163,7 +163,8 @@ export function startApproval(
 /**
  * Records a decision on the current step.
  *
- * - Admin actor (`"*"`): approves the whole request regardless of step.
+ * - Admin actor (`"*"`): may act on any step; an approve grants the whole
+ *   request, a reject rejects it, a modification request bounces it.
  * - Non-admin: must hold the current step's role, else `WRONG_APPROVER`.
  * - approve (non-final): advance, emit REQUESTED for the next approver.
  * - approve (final): grant, emit GRANTED.
@@ -184,7 +185,10 @@ export function decide(
   const step = request.steps[request.currentStep];
   const admin = hasAdminRole(input.actorRoles);
 
-  if (admin) {
+  // An admin bypasses the ROLE check on every step, but never the decision
+  // itself: an admin rejecting someone else's request must reject it. Only an
+  // admin *approval* short-circuits the remaining steps.
+  if (admin && input.decision === "approve") {
     const decisions = appendDecision(request, {
       stepIndex: request.currentStep,
       kind: "bypass",
@@ -211,7 +215,7 @@ export function decide(
     };
   }
 
-  if (!step || !input.actorRoles.includes(step.role)) {
+  if (!admin && (!step || !input.actorRoles.includes(step.role))) {
     throw new WorkflowError(
       "WRONG_APPROVER",
       `Actor ${input.actorId} may not act on step ${request.currentStep} ` +
@@ -234,7 +238,7 @@ export function decide(
       events: [
         event("WORKFLOW_APPROVAL_REJECTED", next, {
           stepIndex: request.currentStep,
-          role: step.role,
+          role: step?.role,
           actorId: input.actorId,
           comment: input.comment,
           at: input.at,
@@ -254,7 +258,7 @@ export function decide(
       events: [
         event("WORKFLOW_MODIFICATION_REQUESTED", next, {
           stepIndex: request.currentStep,
-          role: step.role,
+          role: step?.role,
           actorId: input.actorId,
           comment: input.comment,
           at: input.at,
@@ -277,7 +281,7 @@ export function decide(
       events: [
         event("WORKFLOW_APPROVAL_GRANTED", next, {
           stepIndex: request.currentStep,
-          role: step.role,
+          role: step?.role,
           actorId: input.actorId,
           comment: input.comment,
           at: input.at,

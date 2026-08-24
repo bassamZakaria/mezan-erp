@@ -153,6 +153,10 @@ export class DocumentService<Line> {
         entityLabel: existing.docNo ?? existing.id,
       });
       if (!decision.granted) {
+        // Confirming an already-held document is a no-op, not an illegal
+        // pending → pending transition: the UI's confirm button stays clickable
+        // while the request sits in the inbox.
+        if (existing.status === "pending") return { document: existing, held: true };
         assertTransition(this.def.code, id, existing.status, "pending");
         const held: FrameworkDocument<Line> = {
           ...existing,
@@ -211,6 +215,21 @@ export class DocumentService<Line> {
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { document: confirmed, held: false };
+  }
+
+  /**
+   * Return a document held بانتظار الموافقة to its submitter as an editable
+   * draft — what "طلب تعديل" (request modification) and a rejection mean for
+   * the DOCUMENT, as opposed to for the approval request.
+   */
+  async returnToDraft(id: string): Promise<FrameworkDocument<Line>> {
+    const existing = await this.require(id);
+    if (existing.status === "draft") return existing;
+    assertTransition(this.def.code, id, existing.status, "draft");
+    const returned: FrameworkDocument<Line> = { ...existing, status: "draft", workflowRequestId: null };
+    await this.deps.repo.update(returned);
+    this.emit("DOCUMENT_DRAFTED", returned);
+    return returned;
   }
 
   /** Cancel a draft/pending document (never a live one — those are reversed). */

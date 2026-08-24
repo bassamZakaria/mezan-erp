@@ -374,7 +374,7 @@ export async function run(ctx: Ctx): Promise<void> {
     },
   );
 
-  await ctx.scenario("treasury voucher — a configured approval gate should hold a non-admin's confirm as pending", async () => {
+  await ctx.scenario("treasury voucher — a configured approval gate holds a non-admin's confirm as pending", async () => {
     const cfg = await ctx.req("POST", "/workflow/configs", {
       actionType: "TREASURY_VOUCHER_CONFIRM",
       steps: [{ role: "FINANCE_MANAGER", description: "مراجعة سند يتجاوز الحد" }],
@@ -401,19 +401,27 @@ export async function run(ctx: Ctx): Promise<void> {
     const financeHeaders = { "x-permissions": "treasury.cash_voucher.confirm", "x-role-codes": "FINANCE_MANAGER" };
     const confirm = await ctx.req("POST", `/vouchers/${voucherId}/confirm`, {}, financeHeaders);
     ctx.check(
-      "NEW DEFECT — TREASURY_VOUCHER_CONFIRM's workflow gate is wired to a config that is always empty: a non-admin's confirm is granted and posted immediately instead of held pending. " +
-        "Root cause: packages/backend/src/create-backend.ts's `vouchers:` options object (feeding createVouchersRoutes) never sets `resolveGateConfig`, so VoucherService's " +
-        "`createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null))` always falls back to the no-op resolver — every configured chain on TREASURY_VOUCHER_CONFIRM is silently ignored. " +
-        "(The sibling `resolveGateConfig` at that file's HR-treasury-disbursement construction is a red herring — it wires a DIFFERENT service.)",
+      "a configured TREASURY_VOUCHER_CONFIRM chain holds a non-admin's confirm بانتظار الموافقة instead of posting it",
       confirm.status === 200 && confirm.body?.held === true && confirm.body?.status === "pending",
       `status ${confirm.status} body ${JSON.stringify(confirm.body)}`,
     );
+    ctx.check("the held voucher has posted NO journal entry", !confirm.body?.journalEntryId, JSON.stringify(confirm.body?.journalEntryId));
 
-    // Leave the tenant consistent regardless of which way the assertion above went.
+    const requestId = confirm.body?.workflowRequestId ?? `${voucherId}:confirm`;
+    const inbox = await ctx.req("GET", "/workflow/requests");
+    ctx.check("the held voucher's request reaches the approvals inbox", ctx.rows(inbox.body).some((r: any) => r.id === requestId), requestId);
+
+    const decide = await ctx.req("POST", `/workflow/requests/${requestId}/decide`, { decision: "approve", comment: "SCN — approved" });
+    ctx.check("approving the request succeeds", decide.status === 200 && decide.body?.status === "approved", `status ${decide.status} body ${JSON.stringify(decide.body)}`);
+
     const after = await ctx.req("GET", `/vouchers/${voucherId}`);
-    if (after.body?.status !== "confirmed" && after.body?.status !== "cancelled") {
-      await ctx.req("POST", `/vouchers/${voucherId}/confirm`, {});
-    }
+    ctx.check("approving the request POSTS the held voucher", after.body?.status === "confirmed", JSON.stringify(after.body?.status));
+    ctx.check("the posted voucher carries its journal entry", !!after.body?.journalEntryId, JSON.stringify(after.body?.journalEntryId));
+
+    // Every later module runs against this same tenant: a scenario-only chain
+    // left behind here silently held HR's payroll and advance disbursements.
+    const del = await ctx.req("DELETE", `/workflow/configs/${cfg.body?.id}`);
+    ctx.check("scenario TREASURY_VOUCHER_CONFIRM config deleted", del.status === 204, `status ${del.status}`);
   });
 
   await ctx.scenario("cheque — a bounce reverses cleanly and returns the party's control-account balance to its prior value", async () => {

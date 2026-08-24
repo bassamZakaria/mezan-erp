@@ -28,6 +28,7 @@ import {
   NoPayableEmployeesError,
   PayrollRunNotFoundError,
   PeriodNotOpenForPostingError,
+  TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
   UnbalancedEntryError,
   type EmployeeAdvance,
@@ -165,6 +166,9 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof TreasuryDisbursementUnavailableError) {
     return c.json({ error: err.code, message: "لم يتم إعداد مسار الصرف من الخزينة." }, 409);
+  }
+  if (err instanceof TreasuryDisbursementHeldError) {
+    return c.json({ error: err.code, message: err.message, voucherId: err.voucherId }, 409);
   }
   if (
     err instanceof CashBalanceWouldGoNegativeError ||

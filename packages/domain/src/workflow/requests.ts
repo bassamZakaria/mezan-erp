@@ -32,6 +32,19 @@ export interface ApprovalRequestRepository {
   listBySubmitter(submittedBy: string): Promise<readonly ApprovalRequestRecord[]>;
 }
 
+/**
+ * Thrown when a document whose approval request was REJECTED is confirmed
+ * again. A rejected request is terminal: re-confirming must not silently open
+ * a fresh one and post the document behind the rejecter's back.
+ */
+export class ApprovalRequestRejectedError extends Error {
+  readonly code = "APPROVAL_REQUEST_REJECTED" as const;
+  constructor(readonly id: string) {
+    super("طلب الموافقة على هذا المستند مرفوض، ولا يمكن تأكيده.");
+    this.name = "ApprovalRequestRejectedError";
+  }
+}
+
 export class ApprovalRequestNotFoundError extends Error {
   readonly code = "APPROVAL_REQUEST_NOT_FOUND" as const;
   constructor(readonly id: string) {

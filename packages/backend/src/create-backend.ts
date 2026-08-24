@@ -776,6 +776,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     vouchers: {
       audit: auditSink,
+      // A configured TREASURY_VOUCHER_CONFIRM chain used to be ignored
+      // outright: without these two the gate resolved every config to null and
+      // held requests were never persisted for the inbox.
+      resolveGateConfig: (actionType) => workflowConfigs.resolveSync(actionType),
+      approvalRequests,
       documents: vouchers.documents,
       allocations: vouchers.allocations,
       invoices: vouchers.invoices,
@@ -805,6 +810,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
+      // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
+      // SalesInvoiceService.confirm skips its gate entirely when absent.
+      workflow: documentWorkflowGate,
       audit: auditSink,
       events: salesInvoiceEventBridge,
       allocatable: vouchers.invoices,

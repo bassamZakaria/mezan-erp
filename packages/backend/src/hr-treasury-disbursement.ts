@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  TreasuryDisbursementHeldError,
   VoucherService,
   type TreasuryAccountRepository,
   type TreasuryDisbursementPort,
@@ -29,20 +30,31 @@ export function createHrTreasuryDisbursementPort(
         throw new Error(`Treasury account "${request.treasuryAccountId}" has no GL account.`);
       }
       const voucherId = request.id || randomUUID();
-      await vouchers.createVoucher({
-        id: voucherId,
-        date: request.date,
-        memo: request.memo,
-        voucherType: "other_expense",
-        amount: request.amount,
-        branchId: request.branchId,
-        paymentMethod: request.paymentMethod ?? "cash",
-        treasuryAccountId: request.treasuryAccountId,
-        treasuryGlAccountId: treasury.glAccountId,
-        counterpartyGlAccountId: request.counterpartyGlAccountId,
-        referenceNo: request.referenceNo ?? null,
-      });
-      const { document } = await vouchers.confirmVoucher(voucherId);
+      // A gated disbursement is a TWO-step flow: the first call leaves the
+      // voucher بانتظار الموافقة and refuses, and the call after the approval
+      // finds that same voucher already posted. Re-creating it would collide on
+      // its deterministic id.
+      const existing = await vouchers.findById(voucherId);
+      if (existing?.status === "confirmed") {
+        return { voucherId, voucherNo: existing.docNo, journalEntryId: existing.journalEntryId };
+      }
+      if (!existing) {
+        await vouchers.createVoucher({
+          id: voucherId,
+          date: request.date,
+          memo: request.memo,
+          voucherType: "other_expense",
+          amount: request.amount,
+          branchId: request.branchId,
+          paymentMethod: request.paymentMethod ?? "cash",
+          treasuryAccountId: request.treasuryAccountId,
+          treasuryGlAccountId: treasury.glAccountId,
+          counterpartyGlAccountId: request.counterpartyGlAccountId,
+          referenceNo: request.referenceNo ?? null,
+        });
+      }
+      const { document, held } = await vouchers.confirmVoucher(voucherId);
+      if (held) throw new TreasuryDisbursementHeldError(voucherId);
       return {
         voucherId,
         voucherNo: document.docNo,

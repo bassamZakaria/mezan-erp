@@ -38,6 +38,7 @@ export async function run(ctx: Ctx): Promise<void> {
   let submitterUserId = "";
   let approverUserId = "";
 
+  let scnReturnConfigId = "";
   await ctx.scenario("platform / setup — SCN approver role, users, workflow chain", async () => {
     const role = await req("POST", "/roles", {
       code: "SCN_APPROVER",
@@ -69,6 +70,7 @@ export async function run(ctx: Ctx): Promise<void> {
       steps: [{ role: "SCN_APPROVER", description: "SCN scenario approval step" }],
     });
     check("create SALES_RETURN_CONFIRM workflow config", cfg.status === 201, `${cfg.status}: ${JSON.stringify(cfg.body)}`);
+    scnReturnConfigId = cfg.body?.id ?? "";
   });
 
   const invoice = (await req("GET", "/sales-invoices/INV-DEMO-1")).body;
@@ -127,10 +129,11 @@ export async function run(ctx: Ctx): Promise<void> {
     check("approved request leaves the approver's pending inbox", !rows(stillPending.body).some((r: any) => r.id === approveOutcome!.workflowRequestId), JSON.stringify(rows(stillPending.body).map((r: any) => r.id)));
 
     const doc = await req("GET", `/sales-returns/${approveOutcome.documentId}`, undefined, {});
-    check("DEFECT — an approved request actually posts its held document", doc.body?.status === "confirmed", `document status is "${doc.body?.status}" — deciding via /workflow/requests/:id/decide never re-invokes the document's confirm; nothing in the backend subscribes to WORKFLOW_APPROVAL_GRANTED`);
+    check("an approved request actually posts its held document", doc.body?.status === "confirmed", `document status is "${doc.body?.status}"`);
+    check("the posted document carries the journal entry its confirm produced", typeof doc.body?.journalEntryId === "string" && doc.body.journalEntryId.length > 0, JSON.stringify(doc.body?.journalEntryId));
 
     const reconfirm = await req("POST", `/sales-returns/${approveOutcome.documentId}/confirm`, {}, submitterHeaders());
-    check("DEFECT — re-confirming after approval is at least a viable path to actually post it", reconfirm.status === 200, `${reconfirm.status}: ${JSON.stringify(reconfirm.body)} — the document is already "pending", and the gate re-evaluates a FRESH (non-granted) decision on every confirm call, so pending→pending is an illegal transition (409); there is no route that resolves an approved-but-held document`);
+    check("a document already posted by its approval cannot be confirmed a second time", reconfirm.status === 409, `${reconfirm.status}: ${JSON.stringify(reconfirm.body)}`);
   });
 
   // ---------------------------------------------------------------------
@@ -149,6 +152,10 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const doc = await req("GET", `/sales-returns/${outcome.documentId}`, undefined, {});
     check("a rejected document must not post", doc.body?.status !== "confirmed", doc.body?.status);
+    check("a rejected document is handed back to its submitter as a draft", doc.body?.status === "draft", doc.body?.status);
+
+    const reconfirm = await req("POST", `/sales-returns/${outcome.documentId}/confirm`, {}, submitterHeaders());
+    check("re-confirming a rejected document is refused, not silently re-submitted", reconfirm.status === 409 && reconfirm.body?.error === "APPROVAL_REQUEST_REJECTED", `${reconfirm.status}: ${JSON.stringify(reconfirm.body)}`);
   });
 
   // ---------------------------------------------------------------------
@@ -164,22 +171,34 @@ export async function run(ctx: Ctx): Promise<void> {
     check("request-modification records the real approver as actor", lastDecision?.kind === "request_modification" && lastDecision?.actorId === approverUserId, JSON.stringify(lastDecision));
 
     const doc = await req("GET", `/sales-returns/${outcome.documentId}`, undefined, {});
-    check("DEFECT — a modification-requested document returns editable (draft) to its submitter", doc.body?.status === "draft", `document status is "${doc.body?.status}" — decide() only mutates the ApprovalRequestRecord; nothing links a "modification_requested" outcome back to the document, and no route calls the domain's own resubmit()`);
+    check("a modification-requested document returns editable (draft) to its submitter", doc.body?.status === "draft", `document status is "${doc.body?.status}"`);
 
     const mine = await req("GET", "/workflow/requests/mine", undefined, submitterHeaders());
     check("the submitter can at least see their own bounced-back request via /workflow/requests/mine", rows(mine.body).some((r: any) => r.id === outcome.workflowRequestId), JSON.stringify(rows(mine.body).map((r: any) => r.id)));
   });
 
   // ---------------------------------------------------------------------
-  // D8 — an admin rejecting someone else's pending request approves it.
+  // D8 — an admin bypasses the step's ROLE, never the decision itself.
   // ---------------------------------------------------------------------
-  await ctx.scenario("platform / approvals — D8: admin decide-side bypass", async () => {
+  await ctx.scenario("platform / approvals — D8: an admin's reject rejects", async () => {
     const outcome = await submitPendingReturn("SCN-RET-D8");
 
-    const decide = await req("POST", `/workflow/requests/${outcome.workflowRequestId}/decide`, { decision: "reject", comment: "D8 probe — admin attempts to reject someone else's step" }, {});
-    check("D8 — an admin clicking reject on someone else's pending request approves it instead", decide.status === 200 && decide.body?.status === "approved", `${decide.status}: ${JSON.stringify(decide.body)}`);
+    const decide = await req("POST", `/workflow/requests/${outcome.workflowRequestId}/decide`, { decision: "reject", comment: "D8 probe — admin rejects someone else's step" }, {});
+    check("D8 — an admin clicking reject on someone else's pending request REJECTS it", decide.status === 200 && decide.body?.status === "rejected", `${decide.status}: ${JSON.stringify(decide.body)}`);
     const lastDecision = decide.body?.decisions?.at(-1);
-    check("D8 — the recorded decision kind is bypass, not reject; input.decision was never read", lastDecision?.kind === "bypass" && lastDecision?.actorId === "USER-ADMIN", JSON.stringify(lastDecision));
+    check("D8 — the recorded decision kind is the one the admin chose", lastDecision?.kind === "reject" && lastDecision?.actorId === "USER-ADMIN", JSON.stringify(lastDecision));
+
+    const doc = await req("GET", `/sales-returns/${outcome.documentId}`, undefined, {});
+    check("D8 — the admin-rejected document did not post", doc.body?.status === "draft", doc.body?.status);
+  });
+
+  // An admin approving still bypasses every remaining step.
+  await ctx.scenario("platform / approvals — an admin's approve still bypasses the chain", async () => {
+    const outcome = await submitPendingReturn("SCN-RET-ADMIN-OK");
+    const decide = await req("POST", `/workflow/requests/${outcome.workflowRequestId}/decide`, { decision: "approve", comment: "admin bypass" }, {});
+    check("admin approve grants the whole request", decide.status === 200 && decide.body?.status === "approved", `${decide.status}: ${JSON.stringify(decide.body)}`);
+    const doc = await req("GET", `/sales-returns/${outcome.documentId}`, undefined, {});
+    check("the admin-approved document posts", doc.body?.status === "confirmed", doc.body?.status);
   });
 
   // ---------------------------------------------------------------------
@@ -203,9 +222,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const confirm = await req("POST", "/sales-invoices/SCN-INV-GATE-CHECK/confirm", {}, nonAdmin("SCN-USER-SALESREP", "sales.invoice.view_own,sales.invoice.create,sales.invoice.confirm", "SCN_SALESREP"));
     check(
-      "DEFECT — SALES_INVOICE_CONFIRM's configured approval chain holds a non-SUPERVISOR submitter's confirm pending",
+      "SALES_INVOICE_CONFIRM's configured approval chain holds a non-SUPERVISOR submitter's confirm pending",
       confirm.body?.status === "pending",
-      `confirm returned status "${confirm.body?.status}" — a seeded SALES_INVOICE_CONFIRM chain (role SUPERVISOR) exists, but create-backend.ts never wires "workflow: documentWorkflowGate" into the salesInvoices dependency object, so SalesInvoiceService.confirm's "if (this.deps.workflow)" branch is always skipped and the chain has zero effect for every sales invoice, admin or not`,
+      `confirm returned status "${confirm.body?.status}"`,
     );
   });
 
@@ -425,5 +444,17 @@ export async function run(ctx: Ctx): Promise<void> {
     const workflowConfigs = await req("GET", "/workflow/configs", undefined, {});
     const seededConfigCount = rows(workflowConfigs.body).filter((c: any) => c.actionType === "SALES_INVOICE_CONFIRM" || c.actionType === "PURCHASE_INVOICE_CONFIRM").length;
     check("2 seeded workflow configs (SALES/PURCHASE invoice confirm)", seededConfigCount === 2, seededConfigCount);
+  });
+
+  // ---------------------------------------------------------------------
+  // Teardown — every later module runs against this same tenant, so the
+  // scenario-only approval chain must not outlive this file: it silently held
+  // the sales module's own returns بانتظار الموافقة and hid what they assert.
+  // ---------------------------------------------------------------------
+  await ctx.scenario("platform / teardown — remove the scenario-only approval chain", async () => {
+    const del = await req("DELETE", `/workflow/configs/${scnReturnConfigId}`, undefined, {});
+    check("scenario SALES_RETURN_CONFIRM config deleted", del.status === 204, `${del.status}: ${JSON.stringify(del.body)}`);
+    const configs = await req("GET", "/workflow/configs", undefined, {});
+    check("no SALES_RETURN_CONFIRM chain is left behind", !rows(configs.body).some((c: any) => c.actionType === "SALES_RETURN_CONFIRM"), JSON.stringify(rows(configs.body).map((c: any) => c.actionType)));
   });
 }

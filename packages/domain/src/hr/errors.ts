@@ -339,6 +339,20 @@ export class NegativeNetPayError extends Error {
   }
 }
 
+/**
+ * Raised when the disbursement's treasury voucher is held بانتظار الموافقة by a
+ * configured TREASURY_VOUCHER_CONFIRM chain. The advance / payroll run must NOT
+ * be marked صرف: no cash has moved and no journal entry exists yet. Approving
+ * the request posts the voucher; disbursing again then completes.
+ */
+export class TreasuryDisbursementHeldError extends Error {
+  readonly code = "TREASURY_DISBURSEMENT_HELD";
+  constructor(readonly voucherId: string) {
+    super("سند الصرف بانتظار الموافقة — لن يُعتبر الصرف تماً قبل اعتماده.");
+    this.name = "TreasuryDisbursementHeldError";
+  }
+}
+
 /** Raised when a cash disbursement is requested but no treasury voucher path is wired. */
 export class TreasuryDisbursementUnavailableError extends Error {
   readonly code = "TREASURY_DISBURSEMENT_UNAVAILABLE";

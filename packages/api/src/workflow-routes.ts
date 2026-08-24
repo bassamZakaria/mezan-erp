@@ -22,9 +22,38 @@ import {
 import { createWorkflowConfigSchema, updateWorkflowConfigSchema, submitApprovalRequestSchema, decideApprovalRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
+/**
+ * Acts on the DOCUMENT behind an approval request once a decision is recorded.
+ * Deciding used to mutate only the `ApprovalRequestRecord`: an approved
+ * document stayed بانتظار الموافقة forever, because nothing re-invoked its
+ * confirm and no route could resolve it.
+ */
+export interface HeldDocumentActions {
+  /**
+   * The request's own workflow-request id, or null when no such document
+   * exists. A request submitted straight through `POST /workflow/requests`
+   * (the approvals inbox' own demo rows) gates no document at all.
+   */
+  heldRequestId(docId: string): Promise<string | null>;
+  /** Post the document the request was gating (its gate now grants). */
+  confirm(docId: string, actor: string): Promise<void>;
+  /** Hand the document back to its submitter as an editable draft. */
+  returnToDraft(docId: string): Promise<void>;
+}
+
 export interface WorkflowRoutesDeps {
   readonly configs: WorkflowConfigRepository;
   readonly requests: ApprovalRequestRepository;
+  /** Resolves the held document for a decided request, by action type. Omit and a decision only moves the request. */
+  readonly heldDocuments?: (record: ApprovalRequestRecord) => HeldDocumentActions | null;
+}
+
+/**
+ * A gated confirm names its request `${docId}:confirm` (DocumentService's own
+ * default), so the document id is recoverable from the request id.
+ */
+function heldDocumentId(requestId: string): string {
+  return requestId.endsWith(":confirm") ? requestId.slice(0, -":confirm".length) : requestId;
 }
 
 function serializeConfig(config: WorkflowConfigRecord) {
@@ -219,6 +248,29 @@ export function createWorkflowRoutes(
         { actorId: ctx.userId, actorRoles: actorRoles(c), decision: parsed.data.decision, comment: parsed.data.comment },
         deps.requests,
       );
+      const actions = deps.heldDocuments?.(record) ?? null;
+      if (actions) {
+        const docId = heldDocumentId(record.id);
+        try {
+          if ((await actions.heldRequestId(docId)) !== record.id) return c.json(serializeRequest(record));
+          if (record.status === "approved") await actions.confirm(docId, ctx.userId);
+          else if (record.status === "rejected" || record.status === "modification_requested") {
+            await actions.returnToDraft(docId);
+          }
+        } catch (err) {
+          // The decision itself stands — it is already persisted. Report the
+          // document-side failure instead of swallowing it, so an approval that
+          // could not post its document never reads as a clean success.
+          return c.json(
+            {
+              error: "HELD_DOCUMENT_NOT_RESOLVED",
+              message: err instanceof Error ? err.message : String(err),
+              request: serializeRequest(record),
+            },
+            409,
+          );
+        }
+      }
       return c.json(serializeRequest(record));
     } catch (err) {
       if (err instanceof ApprovalRequestNotFoundError) return c.json({ error: err.code, message: err.message }, 404);

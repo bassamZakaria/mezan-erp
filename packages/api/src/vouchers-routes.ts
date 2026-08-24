@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
+  ApprovalRequestRejectedError,
   Money,
   VoucherService,
   voucherLine,
@@ -143,6 +144,7 @@ function handleDomainError(c: Context, err: unknown): Response {
   if (
     err instanceof DuplicateDocumentError ||
     err instanceof InvalidDocumentTransitionError ||
+    err instanceof ApprovalRequestRejectedError ||
     err instanceof VoucherNotAllocatableError ||
     err instanceof VoucherNotConfirmedError ||
     err instanceof AllocationAlreadyReversedError

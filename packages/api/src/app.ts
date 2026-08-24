@@ -86,6 +86,10 @@ import {
   type EmployeeRepository,
   type AssetCategoryRepository,
   type AssetRepository,
+  VoucherService,
+  SalesInvoiceService,
+  type ApprovalRequestRecord,
+  type GateableActionType,
 } from "@mezan/domain";
 import { createScryptHasher } from "@mezan/persistence";
 import { createJournalEntrySchema } from "@mezan/contracts";
@@ -155,7 +159,7 @@ import {
   createProductTemplatesRoutes,
   type ProductTemplatesRoutesDeps,
 } from "./product-templates-routes.js";
-import { createWorkflowRoutes, type WorkflowRoutesDeps } from "./workflow-routes.js";
+import { createWorkflowRoutes, type HeldDocumentActions, type WorkflowRoutesDeps } from "./workflow-routes.js";
 import { createFinancialReportsRoutes, type FinancialReportsRoutesDeps } from "./financial-reports-routes.js";
 import { createLabelLayoutsRouter } from "./label-routes.js";
 import { createSequencesRoutes, type SequencesRoutesDeps } from "./sequences-routes.js";
@@ -1193,10 +1197,64 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
 
   if (options.workflow) {
-    app.route("/workflow", createWorkflowRoutes(options.workflow, options.resolveAuthContext));
+    app.route(
+      "/workflow",
+      createWorkflowRoutes(
+        { ...options.workflow, heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options) },
+        options.resolveAuthContext,
+      ),
+    );
   }
 
   return app;
 }
 
 export type App = ReturnType<typeof createApp>;
+
+/**
+ * Maps a decided approval request back to the document it was gating, so an
+ * approval actually POSTS that document and a rejection hands it back as a
+ * draft. Only the action types whose documents this app actually mounts are
+ * resolvable; anything else decides the request alone.
+ */
+function buildHeldDocumentResolver(options: CreateAppOptions) {
+  const fromDocumentService = <L>(svc: DocumentService<L>): HeldDocumentActions => ({
+    heldRequestId: async (docId) => (await svc.findById(docId))?.workflowRequestId ?? null,
+    confirm: async (docId, actor) => {
+      await svc.confirm(docId, { actor });
+    },
+    returnToDraft: async (docId) => {
+      await svc.returnToDraft(docId);
+    },
+  });
+
+  const actions: Partial<Record<GateableActionType, HeldDocumentActions>> = {};
+  if (options.salesReturns) actions.SALES_RETURN_CONFIRM = fromDocumentService(options.salesReturns.service);
+  if (options.purchaseReturns) actions.PURCHASE_RETURN_CONFIRM = fromDocumentService(options.purchaseReturns.service);
+  if (options.landedCosts) actions.PURCHASE_LANDED_COST_CONFIRM = fromDocumentService(options.landedCosts.documents);
+  if (options.vouchers) {
+    const vouchers = options.vouchers;
+    actions.TREASURY_VOUCHER_CONFIRM = {
+      heldRequestId: async (docId) => (await new VoucherService(vouchers).findById(docId))?.workflowRequestId ?? null,
+      confirm: async (docId, actor) => {
+        await new VoucherService({ ...vouchers, actor }).confirmVoucher(docId);
+      },
+      returnToDraft: async (docId) => {
+        await new VoucherService(vouchers).returnVoucherToDraft(docId);
+      },
+    };
+  }
+  if (options.salesInvoices) {
+    const invoices = options.salesInvoices;
+    actions.SALES_INVOICE_CONFIRM = {
+      heldRequestId: async (docId) => (await new SalesInvoiceService(invoices).findById(docId))?.workflowRequestId ?? null,
+      confirm: async (docId, actor) => {
+        await new SalesInvoiceService({ ...invoices, actor }).confirm(docId);
+      },
+      returnToDraft: async (docId) => {
+        await new SalesInvoiceService(invoices).returnToDraft(docId);
+      },
+    };
+  }
+  return (record: ApprovalRequestRecord): HeldDocumentActions | null => actions[record.actionType] ?? null;
+}

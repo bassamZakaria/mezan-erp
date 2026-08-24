@@ -17,7 +17,7 @@ import type { AccountRepository } from "../accounts/account.js";
 import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { AuditSink } from "../audit/index.js";
-import type { GateConfig, GateableActionType } from "../workflow/index.js";
+import type { ApprovalRequestRepository, GateConfig, GateableActionType } from "../workflow/index.js";
 import type { TreasuryAccountRepository } from "../treasury-accounts/treasury-account.js";
 import type { SettingsRepository } from "../settings/ports.js";
 import {
@@ -95,6 +95,12 @@ export interface VoucherServiceDeps {
   readonly settings?: SettingsRepository;
   /** Resolves the configured approval chain per action type (null = none → auto-grant). */
   readonly resolveGateConfig?: (actionType: GateableActionType) => GateConfig | null;
+  /**
+   * Persists held approval requests so a gated voucher reaches the approvals
+   * inbox. Without it a configured TREASURY_VOUCHER_CONFIRM chain holds the
+   * voucher with no request anyone can act on.
+   */
+  readonly approvalRequests?: ApprovalRequestRepository;
   readonly audit?: AuditSink;
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
@@ -145,7 +151,7 @@ export class VoucherService {
       repo: deps.documents,
       numbering: { next: () => deps.numbering.next("CASH_VOUCHER") },
       gl: createVoucherGlHook(glDeps),
-      workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null)),
+      workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
       audit: deps.audit,
       events: deps.events,
       auditModule: "treasury",
@@ -206,6 +212,11 @@ export class VoucherService {
       }, existing.date);
     }
     return this.service.confirm(id, opts);
+  }
+
+  /** Hand a voucher held بانتظار الموافقة back to its submitter as a draft. */
+  async returnVoucherToDraft(id: string): Promise<VoucherDocument> {
+    return this.service.returnToDraft(id);
   }
 
   /** Cancel a draft/pending voucher (a live one is reversed instead). */

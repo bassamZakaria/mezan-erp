@@ -43,6 +43,7 @@ export {
   decideApproval,
   resubmitApproval,
   ApprovalRequestNotFoundError,
+  ApprovalRequestRejectedError,
   type ApprovalRequestRecord,
   type ApprovalRequestRepository,
   type SubmitApprovalCommand,

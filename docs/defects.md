@@ -46,6 +46,7 @@ through as "oh, that's the known one".
 | D13 | Fixed assets | No disposal action exists — the status value and permission exist, the route and button do not | | Medium |
 | D14 | Reports | F3's fix covers only the 7 financial statements; `useReport` still swallows validation errors for all 22 operational reports | Same symptom, 22 of 30 unfixed | Medium |
 | D15 | UX | Domain state-machine refusals surface in **English** inside the Arabic UI, and the hourly-payroll exclusion embeds the raw string `"hourly"` | | Low |
+| D17 | Demo data | The seeded tenant never funds its bank account, so the dashboard shows cash at **−100,524.88** and looks broken | GL 1310: 113,704 credited vs 5,100 debited — payroll and supplier payments disburse from an account with no opening balance | Medium |
 | D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
 
 ### D1 — collection voucher does not move `amountPaid`

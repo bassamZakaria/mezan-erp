@@ -22,33 +22,19 @@ import {
   useSuppliers,
   useWarehouses,
 } from "../data/hooks";
+import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
 
-const REASON_LABEL: Record<PurchaseReturnReasonDTO, string> = {
-  DEFECTIVE: "بضاعة معيبة",
-  WRONG_ITEM: "صنف خاطئ",
-  EXCESS_QTY: "كمية زائدة",
-  QUALITY_ISSUE: "مشكلة جودة",
-  OTHER: "أخرى",
+const REASON_KEY: Record<PurchaseReturnReasonDTO, AppTranslationKey> = {
+  DEFECTIVE: "purchaseReturns.reason.DEFECTIVE",
+  WRONG_ITEM: "purchaseReturns.reason.WRONG_ITEM",
+  EXCESS_QTY: "purchaseReturns.reason.EXCESS_QTY",
+  QUALITY_ISSUE: "purchaseReturns.reason.QUALITY_ISSUE",
+  OTHER: "purchaseReturns.reason.OTHER",
 };
 
-const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  confirmed: "مؤكد",
-  posted: "مرحل",
-  cancelled: "ملغي",
-  reversed: "معكوس",
-};
-const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
-  draft: "neutral",
-  pending: "warning",
-  confirmed: "success",
-  posted: "success",
-  cancelled: "neutral",
-  reversed: "danger",
-};
 
 const num = (v: string) => Number(v);
 const lineTotal = (l: PurchaseReturnLineDTO) => num(l.unitCost) * num(l.qty) + num(l.taxAmount);
@@ -65,6 +51,7 @@ function blankLine(defaultItemId: string): LineDraft {
 }
 
 export function PurchaseReturnsScreen() {
+  const { t } = useAppTranslation();
   const query = usePurchaseReturns();
   const invoicesQuery = usePurchaseInvoices();
   const warehousesQuery = useWarehouses();
@@ -155,7 +142,7 @@ export function PurchaseReturnsScreen() {
     setError(null);
     const invoice = invoices.find((i) => i.id === invoiceId);
     if (!invoice || !warehouseId) {
-      setError("اختر الفاتورة الأصلية والمستودع.");
+      setError(t("purchaseReturns.error.needInvoice"));
       return;
     }
     const returnLines: PurchaseReturnLineDTO[] = lines
@@ -179,7 +166,7 @@ export function PurchaseReturnsScreen() {
         };
       });
     if (returnLines.length === 0) {
-      setError("أضف بنداً واحداً على الأقل بكمية أكبر من صفر.");
+      setError(t("purchaseReturns.error.needLine"));
       return;
     }
     try {
@@ -211,50 +198,50 @@ export function PurchaseReturnsScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all },
-    { key: "draft", label: "مسودة", count: counts.draft },
-    { key: "confirmed", label: "مؤكد", count: counts.confirmed },
-    { key: "cancelled", label: "ملغي", count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all },
+    { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
   ];
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
     {
       key: "docNo",
-      header: "رقم المرتجع",
+      header: t("purchaseReturns.col.docNo"),
       render: (d) => (
         <div>
-          <div className="mz-num font-semibold text-ink">{d.docNo ?? "مسودة"}</div>
+          <div className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</div>
           <div className="text-[11px] text-ink-muted">{d.lines[0]?.sourceInvoiceNumber ?? "—"}</div>
         </div>
       ),
     },
-    { key: "supplier", header: "المورد", render: (d) => (d.lines[0] ? supplierName(d.lines[0].supplierId) : "—") },
-    { key: "total", header: "قيمة المرتجع", align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
-    { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
+    { key: "supplier", header: t("common.supplier"), render: (d) => (d.lines[0] ? supplierName(d.lines[0].supplierId) : "—") },
+    { key: "total", header: t("purchaseReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مرتجعات المشتريات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseReturns.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<(typeof documents)[number]>
         eyebrow="Purchases · Returns"
-        title="مرتجعات المشتريات"
-        description="إرجاع بضاعة لمورد ضد فاتورة مشتريات مؤكدة — يخصم المخزون ويخفض المستحق للمورد."
+        title={t("purchaseReturns.title")}
+        description={t("purchaseReturns.description")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            مرتجع جديد
+            {t("purchaseReturns.new")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المرتجعات", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مؤكدة", value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("purchaseReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("purchaseReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -267,38 +254,38 @@ export function PurchaseReturnsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> مرتجع
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("purchaseReturns.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد مرتجعات — أنشئ مرتجعاً جديداً</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseReturns.empty")}</div>}
       />
 
-      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title="مرتجع مشتريات جديد">
+      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("purchaseReturns.panel.title")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
-            label="الفاتورة الأصلية *"
+            label={t("purchaseReturns.field.sourceInvoice")}
             value={invoiceId}
             onChange={changeInvoice}
             options={invoices.map((i) => ({ value: i.id, label: `${i.number} — ${supplierName(i.supplierId)}` }))}
           />
-          <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
+          <SelectField label={t("purchaseReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField
-            label="السبب *"
+            label={t("purchaseReturns.field.reason")}
             value={reason}
             onChange={(v) => setReason(v as PurchaseReturnReasonDTO)}
-            options={Object.entries(REASON_LABEL).map(([value, label]) => ({ value, label }))}
+            options={Object.entries(REASON_KEY).map(([value, key]) => ({ value, label: t(key) }))}
           />
 
           <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-bold text-ink-muted">بنود المرتجع</span>
+            <span className="text-[12px] font-bold text-ink-muted">{t("purchaseReturns.linesHeading")}</span>
             {returnableLines.length === 0 ? (
-              <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة</div>
+              <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">{t("purchaseReturns.noReturnable")}</div>
             ) : null}
             {lines.map((line) => (
               <div key={line.key} className="flex items-end gap-2 rounded-[10px] border border-border p-2.5">
                 <div className="flex-1">
                   <SelectField
-                    label="الصنف"
+                    label={t("common.item")}
                     value={line.itemId}
                     onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
                     options={returnableLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
@@ -306,14 +293,14 @@ export function PurchaseReturnsScreen() {
                 </div>
                 <div className="w-[90px]">
                   <NumberField
-                    label="الكمية"
+                    label={t("common.qty")}
                     value={line.qty}
                     onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))}
                     min={0}
                   />
                 </div>
                 <Button variant="ghost" onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))} disabled={lines.length === 1}>
-                  حذف
+                  {t("common.delete")}
                 </Button>
               </div>
             ))}
@@ -322,7 +309,7 @@ export function PurchaseReturnsScreen() {
               disabled={returnableLines.length === 0}
               onClick={() => setLines((prev) => [...prev, blankLine((returnableLines[0]?.itemId as string) ?? "")])}
             >
-              إضافة بند
+              {t("purchaseReturns.addLine")}
             </Button>
           </div>
 
@@ -330,20 +317,20 @@ export function PurchaseReturnsScreen() {
 
           <div className="flex gap-2 pt-2">
             <Button variant="default" onClick={() => submit(false)}>
-              حفظ كمسودة
+              {t("purchaseReturns.saveDraft")}
             </Button>
             <Button variant="primary" onClick={() => submit(true)}>
-              حفظ وتأكيد
+              {t("purchaseReturns.saveConfirm")}
             </Button>
           </div>
         </div>
       </SidePanel>
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? "مرتجع مشتريات"}>
+      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("purchaseReturns.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
-            <div className="text-[12.5px] text-ink-muted">الفاتورة الأصلية: {selected.lines[0]?.sourceInvoiceNumber ?? "—"}</div>
+            <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <div className="text-[12.5px] text-ink-muted">{t("purchaseReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
@@ -358,16 +345,16 @@ export function PurchaseReturnsScreen() {
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
-                  تأكيد المرتجع
+                  {t("purchaseReturns.confirm")}
                 </Button>
                 <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                  إلغاء
+                  {t("common.cancel")}
                 </Button>
               </div>
             ) : null}
             {selected.status === "confirmed" ? (
               <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                إلغاء المرتجع
+                {t("purchaseReturns.void")}
               </Button>
             ) : null}
           </div>

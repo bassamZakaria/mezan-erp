@@ -3,6 +3,7 @@ import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
 import { useGoodsReceipts, usePurchaseInvoices, usePurchaseOrders, useSuppliers } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * المشتريات hub — KPI tiles + quick actions + recent activity over the real
@@ -12,12 +13,12 @@ import type { ScreenKey } from "../../App";
 
 const OPEN_PO_STATUSES = new Set(["sent", "partially_received"]);
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "أمر شراء جديد", screen: "purchase-orders" },
-  { label: "استلام بضاعة", screen: "goods-receipts" },
-  { label: "فاتورة مشتريات جديدة", screen: "purchase-invoices" },
-  { label: "طلب عرض سعر", screen: "rfqs" },
-  { label: "مرتجعات المشتريات", screen: "purchase-returns" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "purchasesHub.action.newOrder", screen: "purchase-orders" },
+  { label: "purchasesHub.action.receipt", screen: "goods-receipts" },
+  { label: "purchasesHub.action.newInvoice", screen: "purchase-invoices" },
+  { label: "purchasesHub.action.rfq", screen: "rfqs" },
+  { label: "purchasesHub.action.returns", screen: "purchase-returns" },
 ];
 
 function num(value: string | undefined | null): number {
@@ -25,6 +26,7 @@ function num(value: string | undefined | null): number {
 }
 
 export function PurchasesHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const ordersQuery = usePurchaseOrders();
   const receiptsQuery = useGoodsReceipts();
@@ -56,13 +58,13 @@ export function PurchasesHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Purchases</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">المشتريات</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">سلسلة الشراء الكاملة — أوامر الشراء والاستلام والفواتير</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("purchasesHub.title")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("purchasesHub.description")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -73,20 +75,20 @@ export function PurchasesHubScreen() {
 
       {isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات المشتريات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("purchasesHub.loadFailed")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="أوامر شراء مفتوحة" value={isLoading ? "—" : openOrders} sub="مرسلة أو مستلمة جزئياً" />
-        <StatCard label="استلامات غير مفوترة" value={isLoading ? "—" : uninvoicedReceipts} sub="بانتظار فاتورة المورد" />
-        <StatCard label="فواتير المشتريات" value={isLoading ? "—" : invoices.length} sub="إجمالي الفواتير المسجّلة" />
-        <StatCard label="عدد الموردين" value={isLoading ? "—" : suppliers.length} sub="موردون مسجّلون" />
+        <StatCard label={t("purchasesHub.stat.openOrders")} value={isLoading ? "—" : openOrders} sub={t("purchasesHub.stat.openOrdersSub")} />
+        <StatCard label={t("purchasesHub.stat.uninvoiced")} value={isLoading ? "—" : uninvoicedReceipts} sub={t("purchasesHub.stat.uninvoicedSub")} />
+        <StatCard label={t("purchasesHub.stat.invoices")} value={isLoading ? "—" : invoices.length} sub={t("purchasesHub.stat.invoicesSub")} />
+        <StatCard label={t("purchasesHub.stat.suppliers")} value={isLoading ? "—" : suppliers.length} sub={t("purchasesHub.stat.suppliersSub")} />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">أحدث فواتير المشتريات</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">آخر 5 فواتير مسجّلة</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("purchasesHub.recent")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("purchasesHub.recentSub")}</div>
         {recentInvoices.length > 0 ? (
           <ul className="flex flex-col gap-[10px]">
             {recentInvoices.map((inv) => (
@@ -103,7 +105,7 @@ export function PurchasesHubScreen() {
             ))}
           </ul>
         ) : (
-          <p className="text-[12.5px] text-ink-muted">لا توجد فواتير مشتريات بعد — ستظهر هنا فور إنشاء أول فاتورة.</p>
+          <p className="text-[12.5px] text-ink-muted">{t("purchasesHub.empty")}</p>
         )}
       </Card>
     </div>

@@ -114,6 +114,8 @@ export interface DocumentWorkflowInput {
   readonly requestId: string;
   readonly submittedBy: string;
   readonly submitterRoles?: readonly string[];
+  /** Human-readable identifier shown in the approvals inbox — usually the document number. */
+  readonly entityLabel?: string | null;
 }
 
 /**

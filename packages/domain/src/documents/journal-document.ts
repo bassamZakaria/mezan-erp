@@ -16,7 +16,7 @@
 
 import { Money } from "../money/index.js";
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
-import { startApproval, type GateConfig, type GateableActionType } from "../workflow/index.js";
+import { startApproval, submitApproval, type ApprovalRequestRepository, type GateConfig, type GateableActionType } from "../workflow/index.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "./document.js";
 import { buildEffects } from "./effects.js";
 import type { DocumentGlHook, DocumentGlPosting, DocumentWorkflowGate } from "./hooks.js";
@@ -158,10 +158,32 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
  */
 export function createDocumentWorkflowGate(
   resolveConfig: (actionType: GateableActionType) => GateConfig | null,
+  /**
+   * Persists a request that is actually held, so it reaches the approvals
+   * inbox. Without it the gate built the request in memory, returned
+   * `granted: false`, and dropped it — the document sat pending while no
+   * approval request existed anywhere, so nobody could ever approve or reject
+   * it and the inbox showed nothing.
+   */
+  requests?: ApprovalRequestRepository,
 ): DocumentWorkflowGate {
   return {
     async evaluate(input) {
       const config = resolveConfig(input.actionType) ?? { actionType: input.actionType, steps: [] };
+      if (requests) {
+        const record = await submitApproval(
+          {
+            requestId: input.requestId,
+            actionType: input.actionType,
+            submittedBy: input.submittedBy,
+            submitterRoles: input.submitterRoles,
+            entityLabel: input.entityLabel ?? null,
+          },
+          config,
+          requests,
+        );
+        return { granted: record.status === "approved", requestId: record.id };
+      }
       const { request } = startApproval(config, {
         requestId: input.requestId,
         submittedBy: input.submittedBy,

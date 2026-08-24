@@ -523,7 +523,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     gl: createInventoryGlPostingHook(salesInvoiceGl),
   });
   const documentGl = createJournalGlHook(salesInvoiceGl);
-  const documentWorkflowGate = createDocumentWorkflowGate((actionType) => workflowConfigs.resolveSync(actionType));
+  const documentWorkflowGate = createDocumentWorkflowGate(
+    (actionType) => workflowConfigs.resolveSync(actionType),
+    approvalRequests,
+  );
 
   // Returns' notification events carry only `documentNumber` (the generic
   // framework doesn't expose a uniform customer/amount field across every

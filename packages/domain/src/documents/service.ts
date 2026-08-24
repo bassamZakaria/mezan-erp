@@ -150,6 +150,7 @@ export class DocumentService<Line> {
         requestId: opts.requestId ?? `${id}:confirm`,
         submittedBy: opts.actor ?? this.deps.actor ?? "system",
         submitterRoles: opts.actorRoles ?? this.deps.actorRoles,
+        entityLabel: existing.docNo ?? existing.id,
       });
       if (!decision.granted) {
         assertTransition(this.def.code, id, existing.status, "pending");

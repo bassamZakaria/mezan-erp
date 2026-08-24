@@ -5,6 +5,7 @@ import {
   isAwaitingRefund,
   type DocumentService,
   type FrameworkDocument,
+  type SalesInvoiceLookupPort,
   type SalesReturnLine,
 } from "@mezan/domain";
 import { createSalesReturnSchema } from "@mezan/contracts";
@@ -56,9 +57,30 @@ function serialize(doc: FrameworkDocument<SalesReturnLine>) {
 export function createSalesReturnsRoutes(
   service: DocumentService<SalesReturnLine>,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * Resolves the source invoice so the returnable quantity is derived HERE.
+   * Without it the server validated the requested qty against an
+   * `availableQty` the client supplied, so a caller could return the same
+   * goods repeatedly by sending the full invoiced quantity every time.
+   */
+  invoices?: SalesInvoiceLookupPort,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * The client's `availableQty` is a hint, never the cap. When the invoice is
+   * resolvable the server uses what the invoice actually has left; otherwise it
+   * falls back to the claim, which is the pre-existing behaviour for editions
+   * that mount returns without an invoices module.
+   */
+  async function resolveAvailableQty(sourceInvoiceId: string, itemId: string, claimed: string): Promise<Qty> {
+    if (!invoices) return Qty.fromMajor(claimed);
+    const invoice = await invoices.findConfirmedInvoice(sourceInvoiceId);
+    const line = invoice?.lines.find((il) => il.itemId === itemId);
+    if (!line) return Qty.zero();
+    return line.qty.subtract(line.alreadyReturnedQty);
+  }
 
   app.get("/", gate("sales.return.view"), async (c) => {
     const status = c.req.query("status");
@@ -88,19 +110,19 @@ export function createSalesReturnsRoutes(
         id: parsed.data.id,
         date: parsed.data.date,
         memo: parsed.data.memo,
-        lines: parsed.data.lines.map((l) => ({
+        lines: await Promise.all(parsed.data.lines.map(async (l) => ({
           itemId: l.itemId,
           warehouseId: l.warehouseId,
           customerId: l.customerId,
           sourceInvoiceId: l.sourceInvoiceId,
           sourceInvoiceNumber: l.sourceInvoiceNumber,
           reason: l.reason,
-          availableQty: Qty.fromMajor(l.availableQty),
+          availableQty: await resolveAvailableQty(l.sourceInvoiceId, l.itemId, l.availableQty),
           qty: Qty.fromMajor(l.qty),
           unitPrice: Money.fromMajor(l.unitPrice),
           unitCost: Money.fromMajor(l.unitCost),
           taxAmount: Money.fromMajor(l.taxAmount),
-        })),
+        }))),
       });
       return c.json(serialize(doc), 201);
     } catch (err) {

@@ -42,6 +42,7 @@ import {
   type PurchaseInvoiceRepository,
   type PurchaseGlAccounts,
   type PurchaseGlPosting,
+  type WacSnapshotRepository,
   type PurchaseGlPostingPort,
   type PurchaseGlReversalPort,
   type PurchasePolicy,
@@ -66,6 +67,7 @@ import {
   reverseJournalEntry,
   type DocumentService,
   type LandedCostService,
+  type SalesInvoiceLookupPort,
   type SalesReturnLine,
   type PurchaseReturnLine,
   type LandedCostLine,
@@ -252,6 +254,8 @@ export interface CreateAppOptions {
   readonly items?: {
     readonly repo: ItemRepository;
     readonly resolveAuthContext?: AuthContextResolver;
+    /** Supplies the item detail's real on-hand position; omit and it reports none. */
+    readonly snapshots?: WacSnapshotRepository;
   };
   /**
    * Mounts `/item-units` and `/item-categories` (docs/catalog/03 §"وحدة
@@ -606,7 +610,12 @@ export interface CreateAppOptions {
    * hook + `createInventoryStockHook` + workflow gate) — omit it for no
    * `/sales-returns` routes.
    */
-  readonly salesReturns?: { readonly service: DocumentService<SalesReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  readonly salesReturns?: {
+    readonly service: DocumentService<SalesReturnLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+    /** Lets the server derive the returnable quantity rather than trusting the client's. */
+    readonly invoices?: SalesInvoiceLookupPort;
+  };
   /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
   readonly purchaseReturns?: { readonly service: DocumentService<PurchaseReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
   /**
@@ -832,7 +841,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.salesReturns) {
     app.route(
       "/sales-returns",
-      createSalesReturnsRoutes(options.salesReturns.service, options.salesReturns.resolveAuthContext),
+      createSalesReturnsRoutes(options.salesReturns.service, options.salesReturns.resolveAuthContext, options.salesReturns.invoices),
     );
   }
   if (options.purchaseReturns) {
@@ -870,7 +879,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
 
   if (options.items) {
-    app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext));
+    app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots));
   }
   if (options.itemCatalog) {
     app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));

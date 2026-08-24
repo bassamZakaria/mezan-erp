@@ -3,12 +3,14 @@ import {
   createItem,
   updateItem,
   Money,
+  Qty,
   DuplicateItemCodeError,
   InvalidItemError,
   ItemNotFoundError,
   type Item,
   type ItemRepository,
   type AlternateUnit,
+  type WacSnapshotRepository,
 } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
@@ -68,14 +70,18 @@ function handleDomainError(c: Context, err: unknown) {
 }
 
 /**
- * Items routes (docs/catalog/03-inventory.md "الأصناف"): list, get one (with
- * a stock stub — real on-hand/movement figures wire in once Phase 2 lands the
- * movements ledger), create, edit. Every route is permission-gated via the
+ * Items routes (docs/catalog/03-inventory.md "الأصناف"): list, get one with its
+ * real on-hand position, create, edit. Every route is permission-gated via the
  * permissions engine (`inventory.item.view` / `.create` / `.edit`).
+ *
+ * `snapshots` is optional only so editions that mount items without an
+ * inventory ledger still work; when it is absent the detail reports no
+ * position rather than a fabricated zero.
  */
 export function createItemsRouter(
   repo: ItemRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  snapshots?: WacSnapshotRepository,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -88,13 +94,18 @@ export function createItemsRouter(
   app.get("/:id", gate("inventory.item.view"), async (c) => {
     const item = await repo.findById(c.req.param("id"));
     if (!item) return c.json({ error: "NOT_FOUND" }, 404);
+    if (!snapshots) return c.json({ ...serialize(item), stock: null });
+    const positions = (await snapshots.list()).filter((s) => s.itemId === item.id);
     return c.json({
       ...serialize(item),
-      // Stock levels/movements are stubbed until the movements ledger lands
-      // (Phase 2) — the shape is final so the web detail panel can render an
-      // empty state today and light up once a real UnitOfWork backs this.
-      stock: { onHand: "0", byWarehouse: [] as unknown[] },
-      stockStubbed: true,
+      stock: {
+        onHand: positions.reduce((sum, p) => sum.add(p.onHand), Qty.zero()).toString(),
+        byWarehouse: positions.map((p) => ({
+          warehouseId: p.warehouseId,
+          onHand: p.onHand.toString(),
+          totalValue: p.totalValue.toString(),
+        })),
+      },
     });
   });
 

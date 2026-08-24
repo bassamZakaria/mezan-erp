@@ -25,6 +25,7 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
+  Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
   totalLandedCost,
@@ -740,7 +741,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     customerStore: customers,
     supplierStore: suppliers,
     accounts: { repo: accounts },
-    items: { repo: items },
+    items: { repo: items, snapshots: stockLedger.snapshots },
     itemCatalog: { units: itemCatalog.units, categories: itemCatalog.categories },
     itemSpecifications: {
       repo: itemSpecifications,
@@ -955,7 +956,47 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     salesHistoricalImport: {
       archives: salesHistoricalImportArchives,
     },
-    salesReturns: { service: salesReturns },
+    salesReturns: {
+      service: salesReturns,
+      /**
+       * Derives the returnable quantity from the invoice minus what confirmed
+       * returns have already taken. Before this the server validated against a
+       * figure the CLIENT supplied, so the same goods could be returned
+       * repeatedly by claiming the full invoiced quantity each time.
+       */
+      invoices: {
+        async findConfirmedInvoice(id: string) {
+          const invoice = await salesInvoices.findById(id);
+          if (!invoice || !SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) return null;
+          const priorReturns = await salesReturns.list();
+          const returnedByItem = new Map<string, Qty>();
+          for (const doc of priorReturns) {
+            if (doc.status !== "confirmed") continue;
+            for (const line of doc.lines) {
+              if (line.sourceInvoiceId !== id) continue;
+              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
+            }
+          }
+          return {
+            id: invoice.id,
+            number: invoice.docNo ?? invoice.id,
+            customerId: invoice.customerId,
+            warehouseId: invoice.warehouseId,
+            date: invoice.date,
+            status: "confirmed" as const,
+            lines: invoice.lines.map((l) => ({
+              itemId: l.itemId,
+              itemName: l.itemNameAr,
+              qty: l.qty,
+              alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
+              unitPrice: l.unitPrice,
+              unitCost: l.unitPrice,
+              taxAmount: Money.zero(),
+            })),
+          };
+        },
+      },
+    },
     purchaseReturns: { service: purchaseReturns },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },

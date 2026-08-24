@@ -29,10 +29,14 @@ const ROWS: Record<string, Record<string, string>[]> = {
     { code: "OPS", nameAr: "العمليات", nameEn: "Operations" },
     { code: "SALES", nameAr: "مكرر — كود موجود بالفعل", nameEn: "Duplicate" },
   ],
+  // hireDate and baseUnitCode below are REQUIRED columns. Leaving them blank on
+  // every row made these two workbooks reject themselves wholesale — the commit
+  // gate is all-or-nothing per file, so a fixture meant to demonstrate one bad
+  // row imported nothing at all.
   employees: [
-    { code: "E-101", nameAr: "أحمد سيد", departmentCode: "SALES" },
-    { code: "E-102", nameAr: "منى رضا", departmentCode: "FIN" },
-    { code: "E-103", nameAr: "بدون قسم", departmentCode: "NOPE" },
+    { code: "E-101", nameAr: "أحمد سيد", departmentCode: "SALES", hireDate: "2026-01-05" },
+    { code: "E-102", nameAr: "منى رضا", departmentCode: "FIN", hireDate: "2026-02-17" },
+    { code: "E-103", nameAr: "بدون قسم", departmentCode: "NOPE", hireDate: "2026-03-01" },
   ],
   customers: [
     { code: "C-9001", nameAr: "شركة النيل للتوريدات", phone: "01005550001", paymentTermsDays: "30", openingBalance: "12500" },
@@ -44,9 +48,9 @@ const ROWS: Record<string, Record<string, string>[]> = {
     { code: "S-9002", nameAr: "شركة الشرق للتغليف", phone: "01115550002", paymentTermsDays: "60", openingBalance: "0" },
   ],
   items: [
-    { code: "IT-9001", nameAr: "دقيق فاخر ١ كجم", salePrice: "28", costPrice: "19" },
-    { code: "IT-9002", nameAr: "عسل نحل ٥٠٠ جم", salePrice: "185", costPrice: "132" },
-    { code: "IT-9003", nameAr: "سعر غير رقمي", salePrice: "غير رقمي", costPrice: "10" },
+    { code: "IT-9001", nameAr: "دقيق فاخر ١ كجم", type: "stock", baseUnitCode: "PCS", salePrice: "28", costPrice: "19" },
+    { code: "IT-9002", nameAr: "عسل نحل ٥٠٠ جم", type: "stock", baseUnitCode: "PCS", salePrice: "185", costPrice: "132" },
+    { code: "IT-9003", nameAr: "سعر غير رقمي", type: "stock", baseUnitCode: "PCS", salePrice: "غير رقمي", costPrice: "10" },
   ],
 };
 

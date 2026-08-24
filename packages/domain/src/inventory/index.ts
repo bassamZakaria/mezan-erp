@@ -18,6 +18,7 @@ export {
 export {
   STOCK_SOURCE_DOC_TYPES,
   signedQty,
+  occurredAtFromDocumentDate,
   signedValue,
   type StockMovement,
   type StockMovementDirection,

@@ -44,6 +44,7 @@ const ACCOUNTS = {
   outputVat: "2200",
   revenue: "4100",
   cogs: "5100",
+  capital: "3100",
 } as const;
 
 async function call(app: App, method: string, path: string, body?: unknown): Promise<Response> {
@@ -161,6 +162,14 @@ const COST_CENTERS = [
   { id: "CC-DEMO-1", code: "CC-100", nameAr: "المبيعات", nameEn: "Sales" },
   { id: "CC-DEMO-2", code: "CC-200", nameAr: "الإدارة", nameEn: "Administration" },
 ];
+
+/**
+ * The opening bank deposit, dated before the first purchase so every later
+ * disbursement draws on funded cash. Sized to cover the seeded payroll and
+ * supplier payments with a working balance left over.
+ */
+const OPENING_BALANCE_DATE = "2026-07-01";
+const OPENING_BANK_BALANCE = "250000";
 
 const TREASURY_ACCOUNTS = [
   { id: "TR-DEMO-CASH", code: "CASH-001", name: "الخزينة الرئيسية", type: "cash", glAccountId: ACCOUNTS.cash },
@@ -351,6 +360,21 @@ export async function seedDemoTenant(app: App): Promise<void> {
   for (const account of TREASURY_ACCOUNTS) {
     await step(app, "POST", "/treasury-accounts", { ...account, currency: "EGP", branchId: BRANCH_ID });
   }
+
+  // The tenant's opening capital. Without it the bank account was never funded
+  // at all: payroll and every supplier payment disbursed from an account with
+  // no opening balance, so the dashboard's cash tile read −100,524.88 and the
+  // whole demo looked broken (D17).
+  await step(app, "POST", "/gl/journal-entries", {
+    id: "JE-DEMO-OPENING-CAPITAL",
+    date: OPENING_BALANCE_DATE,
+    memo: "رأس المال الافتتاحي — إيداع بنكي",
+    source: "manual",
+    lines: [
+      { accountId: ACCOUNTS.bank, debit: OPENING_BANK_BALANCE, credit: "0", memo: "الرصيد الافتتاحي للبنك" },
+      { accountId: ACCOUNTS.capital, debit: "0", credit: OPENING_BANK_BALANCE, memo: "رأس المال المدفوع" },
+    ],
+  });
 
   for (const invoice of [...PURCHASE_INVOICES, ...PERISHABLE_PURCHASE_INVOICES]) {
     await step(app, "POST", "/purchases/invoices", {

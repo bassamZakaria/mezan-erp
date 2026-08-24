@@ -56,6 +56,21 @@ export interface StockMovement {
 }
 
 /** Signed on-hand contribution of a movement (+qty for IN, −qty for OUT). */
+/**
+ * The ledger timestamp for a movement a DOCUMENT caused.
+ *
+ * Confirms used to stamp `occurredAt` with the wall clock while
+ * document-dated movements (transfers, adjustments, physical counts) carried a
+ * plain calendar date. A bare "2026-08-20" sorts BEFORE any timestamp on the
+ * same day, so the drift report's replay consumed stock before the receipt
+ * that funded it and reported a gap that was not real (D4). Every movement now
+ * carries the same shape, derived from the document's own date, and same-day
+ * movements fall back to insertion order — the ledger's documented tie-break.
+ */
+export function occurredAtFromDocumentDate(date: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? `${date}T00:00:00.000Z` : date;
+}
+
 export function signedQty(movement: StockMovement): Qty {
   return movement.direction === "IN" ? movement.qty : movement.qty.negate();
 }

@@ -13,6 +13,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
 import type {
@@ -231,7 +232,10 @@ export class SalesInvoiceService {
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next();
       const docNo = number.formatted;
-      const occurredAt = this.now();
+      // The LEDGER timestamp is the invoice's own date, never the wall clock:
+      // a document-dated movement and a now()-stamped one cannot be replayed in
+      // a single order (D4). `confirmedAt` below stays the real wall clock.
+      const occurredAt = occurredAtFromDocumentDate(promoted.date);
 
       // Issue stock OUT for stock lines; capture the moving-average cost.
       const stockLines = promoted.lines.filter((l) => l.isStock);
@@ -270,7 +274,7 @@ export class SalesInvoiceService {
       const next: SalesInvoice = {
         ...numbered,
         status: "confirmed",
-        confirmedAt: occurredAt,
+        confirmedAt: this.now(),
         journalEntryId: glResult.journalEntryId,
         workflowRequestId: null,
       };

@@ -9,7 +9,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
-import { extend, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import {
   applyReceiptToOrder,
@@ -321,7 +321,7 @@ export async function confirmGoodsReceipt(
       batchNo: l.batchNo,
       expiryDate: l.expiryDate,
     })),
-    occurredAt: nowIso(deps),
+    occurredAt: occurredAtFromDocumentDate(receipt.date),
   });
 
   if (receipt.purchaseOrderId) {
@@ -384,7 +384,7 @@ export async function cancelGoodsReceipt(
       sourceDocType: "PURCHASE_RECEIPT",
       sourceDocId: receipt.id,
       positions: receipt.lines.map((l) => ({ itemId: l.itemId, warehouseId: receipt.warehouseId })),
-      occurredAt: nowIso(deps),
+      occurredAt: occurredAtFromDocumentDate(receipt.date),
     });
 
     if (receipt.purchaseOrderId) {

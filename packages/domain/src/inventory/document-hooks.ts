@@ -17,6 +17,7 @@
 import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import type { DocumentStockHook, DocumentStockPlan } from "../documents/hooks.js";
 import type { InventoryGlPosting, InventoryGlPostingPort } from "./ports.js";
+import { occurredAtFromDocumentDate } from "./movement.js";
 import type { AdjustmentReason } from "./reasons.js";
 import type { StockLedgerService } from "./stock-ledger-service.js";
 
@@ -45,7 +46,7 @@ export function createInventoryOpsStockHook(
           transferNumber: plan.sourceDocNumber,
           fromWarehouseId: plan.warehouseId,
           toWarehouseId: plan.toWarehouseId,
-          occurredAt: plan.date,
+          occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
           lines: plan.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
         });
         return;
@@ -57,7 +58,7 @@ export function createInventoryOpsStockHook(
         adjustmentNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         reason,
-        occurredAt: plan.date,
+        occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
         lines: plan.lines.map((l) => ({
           itemId: l.itemId,
           direction: l.direction,

@@ -13,7 +13,7 @@
  * `buildGlPosting` owns that).
  */
 
-import type { StockLedgerService, StockSourceDocType } from "../inventory/index.js";
+import { occurredAtFromDocumentDate, type StockLedgerService, type StockSourceDocType } from "../inventory/index.js";
 import type { DocumentStockHook, DocumentStockPlan } from "./hooks.js";
 
 export function createInventoryStockHook(service: StockLedgerService): DocumentStockHook {
@@ -29,6 +29,9 @@ export function createInventoryStockHook(service: StockLedgerService): DocumentS
         sourceDocNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         lines: plan.lines,
+        // The document's own date, not the wall clock, so a replay of the
+        // ledger can order these against every other document-dated movement.
+        occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
       });
     },
   };

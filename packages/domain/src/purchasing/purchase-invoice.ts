@@ -13,7 +13,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
-import { extend, type CostLayerRepository } from "../inventory/index.js";
+import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
@@ -401,7 +401,7 @@ export async function confirmPurchaseInvoice(
         warehouseId: invoice.warehouseId,
         sourceDocType: "PURCHASE_INVOICE",
         lines: stockLines,
-        occurredAt: nowIso(deps),
+        occurredAt: occurredAtFromDocumentDate(invoice.date),
       });
     }
   }
@@ -490,7 +490,7 @@ export async function cancelPurchaseInvoice(
           itemId: l.itemId as string,
           warehouseId: invoice.warehouseId,
         })),
-        occurredAt: nowIso(deps),
+        occurredAt: occurredAtFromDocumentDate(invoice.date),
       });
     }
   }

@@ -85,8 +85,8 @@ export async function run(ctx: Ctx): Promise<void> {
 
       const hourlyWarning = (run.warnings as string[]).find((w) => w.includes(amrName) && w.includes(amr.code));
       ctx.check(
-        `PR-08/D15 ${runId} — hourly employee excluded with a NAMED warning embedding the raw, untranslated string "hourly"`,
-        !!hourlyWarning && hourlyWarning.includes('"hourly"'),
+        `PR-08/D15 ${runId} — hourly employee excluded with a NAMED warning that reads in Arabic, not the raw code "hourly"`,
+        !!hourlyWarning && hourlyWarning.includes("بالساعة") && !hourlyWarning.includes("hourly"),
         hourlyWarning ?? "no warning found naming the employee",
       );
       ctx.check(`PR-08 ${runId} — no payslip issued for the excluded hourly employee (not a zero payslip, not a blank row)`, !run.payslips.some((p: any) => p.employeeId === "EMP-DEMO-8"));
@@ -149,23 +149,23 @@ export async function run(ctx: Ctx): Promise<void> {
   // The next two scenarios rely on PR-DEMO-1/2/3 still sitting at their seeded
   // disbursed/approved/calculated states — every refusal below must run BEFORE
   // "advance recovery" and "payroll disbursement" mutate PR-DEMO-3.
-  await ctx.scenario("hr / payroll lifecycle — every transition is refused from the wrong state (D15: refusal is English)", async () => {
+  await ctx.scenario("hr / payroll lifecycle — every transition is refused from the wrong state, in Arabic (D15)", async () => {
     const draft = await ctx.req("POST", "/hr/payroll/runs", { id: "SCN-PR-DRAFT-1", year: 2029, month: 5, branchId, currency: "EGP" });
     ctx.check("draft run created for the refusal test", draft.status === 201, `status ${draft.status}`);
 
     const approveUncalculated = await ctx.req("POST", `/hr/payroll/runs/${draft.body.id}/approve`, {});
     ctx.check("PR-26 — approving an uncalculated (مسودة) run is refused", approveUncalculated.status === 422, `status ${approveUncalculated.status}`);
     ctx.check(
-      'D15 — refusal surfaces in English inside the Arabic UI: `Cannot transition payroll run from "draft" to "approved".`',
-      /Cannot transition payroll run from "draft" to "approved"/.test(approveUncalculated.body?.message ?? ""),
+      "D15 — the refusal reads in Arabic and names both states (مسودة → معتمد)",
+      /لا يمكن نقل مسير الرواتب من "مسودة" إلى "معتمد"/.test(approveUncalculated.body?.message ?? ""),
       approveUncalculated.body?.message,
     );
 
     const recalcDisbursed = await ctx.req("POST", "/hr/payroll/runs/PR-DEMO-1/calculate", {});
     ctx.check("calculating an already-disbursed (مصروف) run is refused", recalcDisbursed.status === 422, `status ${recalcDisbursed.status}`);
     ctx.check(
-      'D15 — message names the real from/to states in English: `Cannot transition payroll run from "disbursed" to "calculated".`',
-      /Cannot transition payroll run from "disbursed" to "calculated"/.test(recalcDisbursed.body?.message ?? ""),
+      "D15 — the refusal names the real from/to states in Arabic (مصروف → محتسب)",
+      /لا يمكن نقل مسير الرواتب من "مصروف" إلى "محتسب"/.test(recalcDisbursed.body?.message ?? ""),
       recalcDisbursed.body?.message,
     );
 

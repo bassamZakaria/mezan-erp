@@ -1,3 +1,4 @@
+import { getLeadStatusLabel, type LeadStatus } from "./lead.js";
 /** Raised when an operation references a lead id that does not exist. */
 export class LeadNotFoundError extends Error {
   readonly code = "LEAD_NOT_FOUND";
@@ -20,10 +21,10 @@ export class InvalidLeadError extends Error {
 export class InvalidLeadTransitionError extends Error {
   readonly code = "INVALID_LEAD_TRANSITION";
   constructor(
-    readonly from: string,
-    readonly to: string,
+    readonly from: LeadStatus,
+    readonly to: LeadStatus,
   ) {
-    super(`Cannot transition lead from "${from}" to "${to}".`);
+    super(`لا يمكن نقل العميل المحتمل من "${getLeadStatusLabel(from)}" إلى "${getLeadStatusLabel(to)}".`);
     this.name = "InvalidLeadTransitionError";
   }
 }

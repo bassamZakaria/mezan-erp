@@ -240,7 +240,11 @@ const ACTIVITIES = [
   },
 ] as const;
 
-/** Projects always start `planned`; `status` (when not `null`) is applied afterwards via PATCH. */
+/**
+ * Projects always start `planned`; `statusPath` walks the real lifecycle
+ * afterwards via PATCH. It is a PATH, not a destination: مخطط → مكتمل is not a
+ * legal move, so a completed project is seeded the way a real one gets there.
+ */
 const PROJECTS = [
   {
     id: "PRJ-DEMO-1",
@@ -254,7 +258,7 @@ const PROJECTS = [
     budget: "1200000",
     siteAddress: "القاهرة الجديدة، التجمع الخامس",
     notes: "مشروع إنشاء برج سكني بالكامل.",
-    status: "active",
+    statusPath: ["active"],
   },
   {
     id: "PRJ-DEMO-2",
@@ -268,7 +272,7 @@ const PROJECTS = [
     budget: "350000",
     siteAddress: "المنطقة الصناعية، العاشر من رمضان",
     notes: "توسعة مساحة التخزين للمخزن الرئيسي.",
-    status: null,
+    statusPath: [],
   },
   {
     id: "PRJ-DEMO-3",
@@ -282,7 +286,7 @@ const PROJECTS = [
     budget: "180000",
     siteAddress: "الإسكندرية، سموحة",
     notes: "تم تسليم الفرع وتشغيله بالكامل.",
-    status: "completed",
+    statusPath: ["active", "completed"],
   },
   {
     id: "PRJ-DEMO-4",
@@ -296,7 +300,7 @@ const PROJECTS = [
     budget: "60000",
     siteAddress: null,
     notes: "متوقف بانتظار توريد قطع غيار.",
-    status: "on_hold",
+    statusPath: ["active", "on_hold"],
   },
   {
     id: "PRJ-DEMO-5",
@@ -310,7 +314,7 @@ const PROJECTS = [
     budget: "20000",
     siteAddress: null,
     notes: "تم إلغاء المشروع بعد تغيير أولويات العميل.",
-    status: "cancelled",
+    statusPath: ["active", "cancelled"],
   },
 ] as const;
 
@@ -529,8 +533,8 @@ export async function seedCrm(app: App): Promise<void> {
       siteAddress: project.siteAddress,
       notes: project.notes,
     });
-    if (project.status) {
-      await step(app, "PATCH", `/projects/${project.id}`, { status: project.status });
+    for (const status of project.statusPath) {
+      await step(app, "PATCH", `/projects/${project.id}`, { status });
     }
   }
 

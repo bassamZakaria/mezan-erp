@@ -33,6 +33,27 @@ export function getContractTypeLabel(type: ContractType): string {
   return CONTRACT_TYPE_DEFINITIONS.find((d) => d.code === type)?.labelAr ?? type;
 }
 
+const PAY_BASIS_LABELS_AR: Readonly<Record<PayBasis, string>> = {
+  monthly: "شهري",
+  hourly: "بالساعة",
+  daily: "يومي",
+};
+
+const PAY_FREQUENCY_LABELS_AR: Readonly<Record<PayFrequency, string>> = {
+  monthly: "شهري",
+  biweekly: "كل أسبوعين",
+  weekly: "أسبوعي",
+};
+
+/** Arabic label for a pay basis — payroll warnings embedded the raw code ("hourly") in Arabic prose. */
+export function getPayBasisLabel(basis: PayBasis): string {
+  return PAY_BASIS_LABELS_AR[basis] ?? basis;
+}
+
+export function getPayFrequencyLabel(frequency: PayFrequency): string {
+  return PAY_FREQUENCY_LABELS_AR[frequency] ?? frequency;
+}
+
 export interface ContractLineItem {
   readonly id: string;
   readonly name: string;

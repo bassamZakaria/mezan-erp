@@ -13,6 +13,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
+import { canTransitionProject } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
 import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -35,7 +36,17 @@ const STATUS_TONE: Record<ProjectStatusDTO, PillTone> = {
   cancelled: "danger",
 };
 
-const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as ProjectStatusDTO[]).map((value) => ({ value, label: STATUS_LABEL[value] }));
+/**
+ * Only the statuses the project lifecycle actually allows from where it is —
+ * the same `PROJECT_TRANSITIONS` map the server enforces, so the picker can
+ * never offer a move the save will refuse. A terminal project (مكتمل / ملغي)
+ * offers only its own status back.
+ */
+function statusOptionsFrom(current: ProjectStatusDTO) {
+  return (Object.keys(STATUS_LABEL) as ProjectStatusDTO[])
+    .filter((value) => canTransitionProject(current, value))
+    .map((value) => ({ value, label: STATUS_LABEL[value] }));
+}
 
 const NO_CUSTOMER_OPTION: EntityPickerOption = { id: "__none__", label: "بدون عميل" };
 const NO_MANAGER_OPTION: EntityPickerOption = { id: "__none__", label: "بدون مدير" };
@@ -312,7 +323,9 @@ export function ProjectsScreen() {
               ) : null}
               <div className="flex items-end gap-[10px]">
                 <div className="flex-1">
-                  <SelectField label="الحالة" value={statusDraft} onChange={(v) => setStatusDraft(v as ProjectStatusDTO)} options={STATUS_OPTIONS} />
+                  <SelectField label="الحالة" value={statusDraft} onChange={(v) => setStatusDraft(v as ProjectStatusDTO)} options={statusOptionsFrom(selected.status)}
+                    disabled={statusOptionsFrom(selected.status).length <= 1}
+                  />
                 </div>
                 <Button variant="primary" onClick={handleStatusSave}>
                   حفظ

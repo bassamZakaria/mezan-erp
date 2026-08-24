@@ -1,6 +1,6 @@
 import { Money, allocate } from "../money/index.js";
 import type { EmployeeDirectory, EmployeeRef } from "../hr-shared/employee-ref.js";
-import type { Contract, ContractRepository } from "./contract.js";
+import { getPayBasisLabel, getPayFrequencyLabel, type Contract, type ContractRepository } from "./contract.js";
 import {
   amountDueBy,
   type EmployeeAdvance,
@@ -181,7 +181,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       continue;
     }
     if (contract.payBasis !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${contract.payBasis}" يحتاج بيانات حضور — تم استبعاده.`);
+      warnings.push(`${employee.fullNameAr} (${employee.code}): أساس الدفع "${getPayBasisLabel(contract.payBasis)}" يحتاج بيانات حضور — تم استبعاده.`);
       continue;
     }
     if (contract.currency !== run.currency) {
@@ -189,7 +189,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
       continue;
     }
     if (contract.payFrequency !== "monthly") {
-      warnings.push(`${employee.fullNameAr} (${employee.code}): تكرار الدفع "${contract.payFrequency}" — احتُسب راتب شهر كامل للفترة.`);
+      warnings.push(`${employee.fullNameAr} (${employee.code}): تكرار الدفع "${getPayFrequencyLabel(contract.payFrequency)}" — احتُسب راتب شهر كامل للفترة.`);
     }
     const paidStart = maxDate(maxDate(run.periodStart, contract.startDate), employee.hireDate);
     const paidEnd = minDate(run.periodEnd, contract.endDate ?? run.periodEnd);

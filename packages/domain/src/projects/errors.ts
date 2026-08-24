@@ -1,3 +1,5 @@
+import { getProjectStatusLabel, type ProjectStatus } from "./project.js";
+
 /** Raised when a project code already exists (codes are unique across projects). */
 export class DuplicateProjectCodeError extends Error {
   readonly code = "DUPLICATE_PROJECT_CODE";
@@ -22,5 +24,19 @@ export class InvalidProjectError extends Error {
   constructor(readonly reasons: readonly string[]) {
     super(reasons.join("، "));
     this.name = "InvalidProjectError";
+  }
+}
+
+/** Raised when a project status change is not one the project lifecycle allows. */
+export class InvalidProjectTransitionError extends Error {
+  readonly code = "INVALID_PROJECT_TRANSITION";
+  constructor(
+    readonly from: ProjectStatus,
+    readonly to: ProjectStatus,
+  ) {
+    super(
+      `لا يمكن نقل المشروع من "${getProjectStatusLabel(from)}" إلى "${getProjectStatusLabel(to)}".`,
+    );
+    this.name = "InvalidProjectTransitionError";
   }
 }

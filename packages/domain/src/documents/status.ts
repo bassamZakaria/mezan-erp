@@ -28,6 +28,16 @@ export type DocumentStatus =
   | "cancelled"
   | "reversed";
 
+/** Arabic label per status, for messages the user actually reads. */
+export const DOCUMENT_STATUS_LABELS_AR: Readonly<Record<DocumentStatus, string>> = {
+  draft: "مسودة",
+  pending: "بانتظار الموافقة",
+  confirmed: "مؤكد",
+  posted: "مرحّل",
+  cancelled: "ملغي",
+  reversed: "معكوس",
+};
+
 /** Statuses in which a document is live in the ledger / sub-ledgers (its effects have been applied). */
 export const ACTIVE_STATUSES: ReadonlySet<DocumentStatus> = new Set(["confirmed", "posted"]);
 

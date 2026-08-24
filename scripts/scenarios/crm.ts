@@ -190,22 +190,37 @@ export async function run(ctx: Ctx): Promise<void> {
     check("auto-creates a linked cost center 'cc-prj-{id}'", created.body.costCenterId === "cc-prj-SCN-PRJ-1");
   });
 
-  await scenario("projects · D12: no status-transition guard, client or server — any status reaches any other (docs/defects.md D12)", async () => {
+  await scenario("projects · D12: the status lifecycle is guarded on the server, and مكتمل/ملغي are terminal", async () => {
     const before3 = await req("GET", "/projects/PRJ-DEMO-3");
     check("PRJ-DEMO-3 seeded 'completed'", before3.body.status === "completed");
 
     const backward = await req("PATCH", "/projects/PRJ-DEMO-3", { status: "planned" });
-    checkEq("D12: completed → planned (a backward move) succeeds with no rejection", backward.status, 200);
-    check("the status actually changed", backward.body.status === "planned");
-    await req("PATCH", "/projects/PRJ-DEMO-3", { status: "completed" });
+    checkEq("D12: completed → planned (a backward move) is refused", backward.status, 409);
+    check("refused as INVALID_PROJECT_TRANSITION", backward.body?.error === "INVALID_PROJECT_TRANSITION", JSON.stringify(backward.body));
+    check("the refusal reads in Arabic and names both states", /لا يمكن نقل المشروع من "مكتمل" إلى "مخطط"/.test(backward.body?.message ?? ""), backward.body?.message);
+    const after3 = await req("GET", "/projects/PRJ-DEMO-3");
+    check("D12: the refused move left the status untouched", after3.body.status === "completed", after3.body.status);
 
     const before5 = await req("GET", "/projects/PRJ-DEMO-5");
     check("PRJ-DEMO-5 seeded 'cancelled'", before5.body.status === "cancelled");
 
     const jump = await req("PATCH", "/projects/PRJ-DEMO-5", { status: "active" });
-    checkEq("D12: cancelled → active (an illegal jump) succeeds with no rejection", jump.status, 200);
-    check("the status actually changed", jump.body.status === "active");
-    await req("PATCH", "/projects/PRJ-DEMO-5", { status: "cancelled" });
+    checkEq("D12: cancelled → active (an illegal jump) is refused", jump.status, 409);
+    const after5 = await req("GET", "/projects/PRJ-DEMO-5");
+    check("D12: the refused jump left the status untouched", after5.body.status === "cancelled", after5.body.status);
+
+    // The legal path still works, and editing other fields on a terminal
+    // project must not be blocked by the guard (same status in = same out).
+    const legal = await req("PATCH", "/projects/SCN-PRJ-1", { status: "active" });
+    checkEq("D12: planned → active is allowed", legal.status, 200);
+    check("the status actually changed", legal.body.status === "active", legal.body.status);
+    const hold = await req("PATCH", "/projects/SCN-PRJ-1", { status: "on_hold" });
+    checkEq("D12: active → on_hold is allowed", hold.status, 200);
+    const resume = await req("PATCH", "/projects/SCN-PRJ-1", { status: "active" });
+    checkEq("D12: on_hold → active is allowed (a hold is not terminal)", resume.status, 200);
+
+    const rename = await req("PATCH", "/projects/PRJ-DEMO-3", { notes: "ملاحظة بعد الإغلاق" });
+    checkEq("D12: a terminal project's other fields are still editable", rename.status, 200);
   });
 
   // --- Fixed Assets priority 3: straight-line matches category method/life; run posts a balanced entry ---

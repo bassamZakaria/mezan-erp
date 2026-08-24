@@ -1,3 +1,4 @@
+import { SALES_INVOICE_STATUS_LABELS_AR } from "./sales-invoice.js";
 /** Sales-invoice errors. Stable `code`s so the api/UI can branch on them. */
 
 import type { SalesInvoiceStatus } from "./sales-invoice.js";
@@ -33,7 +34,7 @@ export class InvalidSalesInvoiceTransitionError extends Error {
     readonly from: SalesInvoiceStatus,
     readonly to: SalesInvoiceStatus,
   ) {
-    super(`Sales invoice "${invoiceId}" cannot transition ${from} → ${to}.`);
+    super(`لا يمكن نقل الفاتورة ${invoiceId} من "${SALES_INVOICE_STATUS_LABELS_AR[from]}" إلى "${SALES_INVOICE_STATUS_LABELS_AR[to]}".`);
     this.name = "InvalidSalesInvoiceTransitionError";
   }
 }

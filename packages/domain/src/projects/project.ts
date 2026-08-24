@@ -22,6 +22,28 @@ export const PROJECT_STATUS_DEFINITIONS: readonly ProjectStatusDefinition[] = [
   { code: "cancelled", labelAr: "ملغي" },
 ] as const;
 
+/**
+ * Legal project status transitions. A project is planned before it starts, may
+ * be paused and resumed any number of times, and ends either مكتمل or ملغي —
+ * both terminal, because a completed or cancelled project that can be dragged
+ * back to نشط makes its cost centre's closed figures meaningless.
+ *
+ * Nothing guarded this before: any status reached any other, on the client and
+ * on the server alike, so a completed project could go back to "planned".
+ */
+export const PROJECT_TRANSITIONS: Readonly<Record<ProjectStatus, readonly ProjectStatus[]>> = {
+  planned: ["active", "cancelled"],
+  active: ["on_hold", "completed", "cancelled"],
+  on_hold: ["active", "completed", "cancelled"],
+  completed: [],
+  cancelled: [],
+};
+
+/** Whether `from → to` is a legal project transition. Staying put is always legal. */
+export function canTransitionProject(from: ProjectStatus, to: ProjectStatus): boolean {
+  return from === to || PROJECT_TRANSITIONS[from].includes(to);
+}
+
 export function getProjectStatusLabel(status: ProjectStatus): string {
   return PROJECT_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
 }

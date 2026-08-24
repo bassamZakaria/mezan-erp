@@ -6,6 +6,7 @@ import {
   DuplicateProjectCodeError,
   ProjectNotFoundError,
   InvalidProjectError,
+  InvalidProjectTransitionError,
   DuplicateCostCenterCodeError,
   type Project,
   type ProjectRepository,
@@ -41,6 +42,9 @@ function handleDomainError(c: Context, err: unknown) {
   }
   if (err instanceof InvalidProjectError) {
     return c.json({ error: err.code, message: err.message, reasons: err.reasons }, 422);
+  }
+  if (err instanceof InvalidProjectTransitionError) {
+    return c.json({ error: err.code, message: err.message, from: err.from, to: err.to }, 409);
   }
   throw err;
 }

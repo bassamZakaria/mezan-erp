@@ -14,6 +14,12 @@ export type FollowUpType = (typeof FOLLOW_UP_TYPES)[number];
 export const FOLLOW_UP_STATUSES = ["pending", "completed", "cancelled"] as const;
 export type FollowUpStatus = (typeof FOLLOW_UP_STATUSES)[number];
 
+export const FOLLOW_UP_STATUS_LABELS_AR: Readonly<Record<FollowUpStatus, string>> = {
+  pending: "قيد المتابعة",
+  completed: "مكتملة",
+  cancelled: "ملغاة",
+};
+
 export interface CollectionFollowUp {
   readonly id: string;
   readonly customerId: string;

@@ -1,6 +1,6 @@
 /** Document-framework errors. Stable `code`s so the api/UI can branch on them. */
 
-import type { DocumentStatus } from "./status.js";
+import { DOCUMENT_STATUS_LABELS_AR, type DocumentStatus } from "./status.js";
 
 export class InvalidDocumentTransitionError extends Error {
   readonly code = "INVALID_DOCUMENT_TRANSITION";
@@ -10,7 +10,7 @@ export class InvalidDocumentTransitionError extends Error {
     readonly from: DocumentStatus,
     readonly to: DocumentStatus,
   ) {
-    super(`Document ${docType}/${docId} cannot transition ${from} → ${to}.`);
+    super(`لا يمكن نقل المستند ${docId} من "${DOCUMENT_STATUS_LABELS_AR[from]}" إلى "${DOCUMENT_STATUS_LABELS_AR[to]}".`);
     this.name = "InvalidDocumentTransitionError";
   }
 }
@@ -21,7 +21,7 @@ export class DocumentNotFoundError extends Error {
     readonly docType: string,
     readonly docId: string,
   ) {
-    super(`Document ${docType}/${docId} was not found.`);
+    super(`المستند ${docId} غير موجود.`);
     this.name = "DocumentNotFoundError";
   }
 }

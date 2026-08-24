@@ -4,11 +4,12 @@ export type {
   ProjectStatus,
   ProjectStatusDefinition,
 } from "./project.js";
-export { PROJECT_STATUS_DEFINITIONS, getProjectStatusLabel } from "./project.js";
+export { PROJECT_STATUS_DEFINITIONS, PROJECT_TRANSITIONS, canTransitionProject, getProjectStatusLabel } from "./project.js";
 export {
   DuplicateProjectCodeError,
   ProjectNotFoundError,
   InvalidProjectError,
+  InvalidProjectTransitionError,
 } from "./errors.js";
 export {
   createProject,

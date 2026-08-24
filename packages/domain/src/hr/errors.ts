@@ -1,3 +1,8 @@
+import { getEmployeeStatusLabel, type EmployeeStatus } from "./employee.js";
+import { getLeaveRequestStatusLabel, type LeaveRequestStatus } from "./leave-request.js";
+import { getPayrollRunStatusLabel, type PayrollRunStatus } from "./payroll-run.js";
+import { getEmployeeAdvanceStatusLabel, type EmployeeAdvanceStatus } from "./advance.js";
+
 /** Raised when an operation references a department id/code that does not exist. */
 export class DepartmentNotFoundError extends Error {
   readonly code = "DEPARTMENT_NOT_FOUND";
@@ -56,10 +61,10 @@ export class InvalidEmployeeError extends Error {
 export class InvalidEmployeeTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_TRANSITION";
   constructor(
-    readonly from: string,
-    readonly to: string,
+    readonly from: EmployeeStatus,
+    readonly to: EmployeeStatus,
   ) {
-    super(`Cannot transition employee from "${from}" to "${to}".`);
+    super(`لا يمكن نقل الموظف من "${getEmployeeStatusLabel(from)}" إلى "${getEmployeeStatusLabel(to)}".`);
     this.name = "InvalidEmployeeTransitionError";
   }
 }
@@ -140,10 +145,10 @@ export class InvalidLeaveRequestError extends Error {
 export class InvalidLeaveRequestTransitionError extends Error {
   readonly code = "INVALID_LEAVE_REQUEST_TRANSITION";
   constructor(
-    readonly from: string,
-    readonly to: string,
+    readonly from: LeaveRequestStatus,
+    readonly to: LeaveRequestStatus,
   ) {
-    super(`Cannot transition leave request from "${from}" to "${to}".`);
+    super(`لا يمكن نقل طلب الإجازة من "${getLeaveRequestStatusLabel(from)}" إلى "${getLeaveRequestStatusLabel(to)}".`);
     this.name = "InvalidLeaveRequestTransitionError";
   }
 }
@@ -283,10 +288,10 @@ export class InvalidEmployeeAdvanceError extends Error {
 export class InvalidEmployeeAdvanceTransitionError extends Error {
   readonly code = "INVALID_EMPLOYEE_ADVANCE_TRANSITION";
   constructor(
-    readonly from: string,
-    readonly to: string,
+    readonly from: EmployeeAdvanceStatus,
+    readonly to: EmployeeAdvanceStatus,
   ) {
-    super(`Cannot transition employee advance from "${from}" to "${to}".`);
+    super(`لا يمكن نقل السلفة من "${getEmployeeAdvanceStatusLabel(from)}" إلى "${getEmployeeAdvanceStatusLabel(to)}".`);
     this.name = "InvalidEmployeeAdvanceTransitionError";
   }
 }
@@ -313,10 +318,10 @@ export class InvalidPayrollRunError extends Error {
 export class InvalidPayrollRunTransitionError extends Error {
   readonly code = "INVALID_PAYROLL_RUN_TRANSITION";
   constructor(
-    readonly from: string,
-    readonly to: string,
+    readonly from: PayrollRunStatus,
+    readonly to: PayrollRunStatus,
   ) {
-    super(`Cannot transition payroll run from "${from}" to "${to}".`);
+    super(`لا يمكن نقل مسير الرواتب من "${getPayrollRunStatusLabel(from)}" إلى "${getPayrollRunStatusLabel(to)}".`);
     this.name = "InvalidPayrollRunTransitionError";
   }
 }

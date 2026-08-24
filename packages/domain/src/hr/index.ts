@@ -43,6 +43,8 @@ export type {
 export {
   CONTRACT_TYPE_DEFINITIONS,
   getContractTypeLabel,
+  getPayBasisLabel,
+  getPayFrequencyLabel,
   CONTRACT_EXPIRING_SOON_WINDOW_DAYS,
   isContractExpiringSoon,
 } from "./contract.js";

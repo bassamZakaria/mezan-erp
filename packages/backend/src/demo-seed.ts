@@ -1,5 +1,11 @@
 import type { App } from "@mezan/api";
 import { assertLocalOrTest } from "./demo-seed/shared.js";
+import { seedHr } from "./demo-seed/hr.js";
+import { seedCrm } from "./demo-seed/crm.js";
+import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
+import { seedPurchasing } from "./demo-seed/purchasing.js";
+import { seedTreasury } from "./demo-seed/treasury.js";
+import { seedPlatform } from "./demo-seed/platform.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -392,4 +398,12 @@ export async function seedDemoTenant(app: App): Promise<void> {
     });
     await step(app, "POST", `/sales-invoices/${invoice.id}/confirm`, {});
   }
+
+  // Order matters: every module below references the core entities above.
+  await seedHr(app);
+  await seedCrm(app);
+  await seedInventoryOps(app);
+  await seedPurchasing(app);
+  await seedTreasury(app);
+  await seedPlatform(app);
 }

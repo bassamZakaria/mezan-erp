@@ -5,6 +5,7 @@ export {
   formatDate,
   formatMoney,
   formatNumber,
+  formatQty,
   toArabicDigits,
   type DateFormatStyle,
   type NumeralSystem,
@@ -50,6 +51,7 @@ export {
   StatusPill,
   Chip,
   Money,
+  Qty,
   StatCard,
   type ButtonProps,
   type ButtonVariant,
@@ -59,6 +61,7 @@ export {
   type StatusPillProps,
   type ChipProps,
   type MoneyProps,
+  type QtyProps,
   type StatCardProps,
 } from "./primitives/atoms";
 

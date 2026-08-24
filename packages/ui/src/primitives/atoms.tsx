@@ -174,6 +174,18 @@ export function Money({ value, currencyLabel, showUnit = true, className, numFon
   );
 }
 
+export interface QtyProps {
+  /** Accepts the API's string form ("40.000000") as well as a number. */
+  value: number | string;
+  className?: string;
+}
+
+/** A quantity, LTR-isolated like every other figure, with trailing zeros trimmed. */
+export function Qty({ value, className }: QtyProps) {
+  const format = useFormat();
+  return <span className={cn("mz-num", className)}>{format.qty(typeof value === "string" ? Number(value) : value)}</span>;
+}
+
 /* ------------------------------------------------------------------ */
 /* Stat card — used by the KPI/stat strip                              */
 /* ------------------------------------------------------------------ */

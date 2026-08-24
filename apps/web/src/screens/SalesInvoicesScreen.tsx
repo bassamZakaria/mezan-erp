@@ -16,6 +16,7 @@ import {
   type PillTone,
   type EntityPickerOption,
   useFormat,
+  Qty as QtyDisplay,
 } from "@mezan/ui";
 import {
   Money,
@@ -608,7 +609,7 @@ function InvoiceDetailView({
                       return (
                         <tr key={l.lineId} className="border-b border-border last:border-b-0">
                           <td className="px-[15px] py-[11px] text-ink">{l.itemNameAr}</td>
-                          <td className="mz-num px-[15px] py-[11px] text-end">{l.qty}</td>
+                          <td className="px-[15px] py-[11px] text-end"><QtyDisplay value={l.qty} /></td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(l.unitPrice)} /></td>
                           <td className="mz-num px-[15px] py-[11px] text-end">{l.discountPercent}</td>
                           <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.tax.toString())} /> : "—"}</td>

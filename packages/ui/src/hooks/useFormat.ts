@@ -4,6 +4,7 @@ import {
   formatDate,
   formatMoney,
   formatNumber,
+  formatQty,
   type DateFormatStyle,
   type NumeralSystem,
 } from "../lib/format";
@@ -21,6 +22,8 @@ export interface UseFormatResult {
   money: (value: number) => string;
   /** Figure only, e.g. "86,240" — wrap in <span className="mz-num"> for RTL-safe rendering. */
   number: (value: number) => string;
+  /** Quantity, trailing zeros trimmed — the API carries six decimal places. */
+  qty: (value: number) => string;
   date: (value: Date | string, style?: DateFormatStyle) => string;
   currencyLabel: string;
 }
@@ -37,13 +40,14 @@ export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
 
   const money = useCallback((value: number) => formatMoney(value, { numerals }), [numerals]);
   const number = useCallback((value: number) => formatNumber(value, { numerals }), [numerals]);
+  const qty = useCallback((value: number) => formatQty(value, { numerals }), [numerals]);
   const date = useCallback(
     (value: Date | string, style: DateFormatStyle = "short") => formatDate(value, { numerals, style }),
     [numerals],
   );
 
   return useMemo(
-    () => ({ numerals, money, number, date, currencyLabel }),
-    [numerals, money, number, date, currencyLabel],
+    () => ({ numerals, money, number, qty, date, currencyLabel }),
+    [numerals, money, number, qty, date, currencyLabel],
   );
 }

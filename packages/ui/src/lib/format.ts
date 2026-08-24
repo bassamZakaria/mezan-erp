@@ -58,6 +58,16 @@ export function formatMoney(value: number, options: FormatMoneyOptions = {}): st
   });
 }
 
+/**
+ * Formats a quantity. The API carries quantities at six decimal places, so a
+ * raw render reads "40.000000" next to a money column that reads "12,756.60".
+ * Fractional quantities are real (2.5 kg), so this keeps up to three decimals
+ * and drops the trailing zeros rather than fixing the width.
+ */
+export function formatQty(value: number, options: FormatNumberOptions = {}): string {
+  return formatNumber(value, { minimumFractionDigits: 0, maximumFractionDigits: 3, ...options });
+}
+
 export type DateFormatStyle = "short" | "long";
 
 export interface FormatDateOptions {

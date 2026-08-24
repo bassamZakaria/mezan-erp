@@ -122,7 +122,13 @@ import {
   createSqliteSequenceStore,
   createSqliteWebhookStores,
 } from "@mezan/persistence";
-import { EtaService } from "@mezan/domain";
+import {
+  EtaService,
+  DuplicateEtaSubmissionError,
+  type SalesInvoiceRepository,
+  type SalesInvoiceLine,
+  type CustomerRepository,
+} from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
 import { seedIfEmpty, type SeedStores } from "./seed.js";
@@ -277,6 +283,74 @@ function createDocumentEventBridge(
         .catch((error: unknown) => {
           console.error(`[notifications] event bridge enrichment failed for ${event.docType}/${event.type}`, error);
         });
+    },
+  };
+}
+
+/**
+ * The producer the ETA queue never had (D5): every confirmed sales invoice is
+ * built into an ETA submission in status جاهز, ready for the e-invoicing screen
+ * to submit. `EtaService.enqueue` and the whole submission lifecycle existed
+ * already — no route and no event bridge ever called it, so `/eta/submissions`
+ * could not have a row no matter what the user did.
+ *
+ * Deliberately fire-and-forget, like the notification and webhook bridges: a
+ * queueing failure must never fail the confirm that emitted it. A document
+ * already queued (a re-confirm after an approval) is not an error.
+ */
+function createEtaEnqueueBridge(deps: {
+  readonly eta: EtaService;
+  readonly invoices: Pick<SalesInvoiceRepository, "findById">;
+  readonly customers: Pick<CustomerRepository, "findById">;
+}): DocumentEventPublisher {
+  return {
+    publish(event) {
+      if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_INVOICE") return;
+      void (async () => {
+        const invoice = await deps.invoices.findById(event.docId);
+        if (!invoice) return;
+        const customer = await deps.customers.findById(invoice.customerId);
+        const totals = salesInvoiceTotals(invoice);
+        const lineTotals = new Map(totals.lines.map((l) => [l.lineId, l]));
+        await deps.eta.enqueue({
+          internalId: invoice.docNo ?? invoice.id,
+          documentType: "invoice",
+          issueDateTime: event.occurredAt,
+          receiver: {
+            registrationNumber: customer?.taxNumber ?? null,
+            name: invoice.customerNameAr,
+            type: customer?.taxNumber ? "B" : "P",
+          },
+          lines: invoice.lines.map((line: SalesInvoiceLine) => {
+            const lt = lineTotals.get(line.lineId);
+            return {
+              description: line.itemNameAr,
+              itemCode: line.itemId,
+              quantity: line.qty.toString(),
+              unitPrice: line.unitPrice.toString(),
+              netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
+              taxSubType: "V009",
+              taxRate: String(line.taxRatePercent),
+              taxAmount: (lt?.tax ?? Money.zero()).toString(),
+            };
+          }),
+          totalNet: totals.taxableTotal.toString(),
+          totalTax: totals.taxTotal.toString(),
+          totalAmount: totals.grandTotal.toString(),
+        });
+      })().catch((error: unknown) => {
+        if (error instanceof DuplicateEtaSubmissionError) return;
+        console.error(`[eta] could not queue ${event.docType}/${event.docId}`, error);
+      });
+    },
+  };
+}
+
+/** Publishes one document event to several publishers — a document type has room for exactly one. */
+function fanOutDocumentEvents(...publishers: readonly DocumentEventPublisher[]): DocumentEventPublisher {
+  return {
+    publish(event) {
+      for (const publisher of publishers) publisher.publish(event);
     },
   };
 }
@@ -556,6 +630,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
   );
 
+  const salesInvoiceEvents = fanOutDocumentEvents(
+    salesInvoiceEventBridge,
+    createEtaEnqueueBridge({ eta: etaService, invoices: salesInvoices, customers }),
+  );
+
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
     numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
@@ -814,7 +893,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // SalesInvoiceService.confirm skips its gate entirely when absent.
       workflow: documentWorkflowGate,
       audit: auditSink,
-      events: salesInvoiceEventBridge,
+      events: salesInvoiceEvents,
       allocatable: vouchers.invoices,
     },
     cheques: {

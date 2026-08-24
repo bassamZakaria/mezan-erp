@@ -229,12 +229,19 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------
-  // D5 — nothing ever calls EtaService.enqueue, so /eta/submissions can
-  // never have a row.
+  // D5 — confirming a sales invoice queues it for the ETA.
   // ---------------------------------------------------------------------
-  await ctx.scenario("platform / D5 — ETA submission queue has no producer", async () => {
+  await ctx.scenario("platform / D5 — a confirmed sales invoice reaches the ETA queue", async () => {
     const submissions = await req("GET", "/eta/submissions", undefined, {});
-    check("D5 — /eta/submissions is always empty (no route/event bridge ever calls EtaService.enqueue)", submissions.status === 200 && rows(submissions.body).length === 0, `${submissions.status}: ${JSON.stringify(submissions.body)}`);
+    const queued = rows(submissions.body);
+    check("D5 — /eta/submissions has rows: a confirmed invoice now produces one", submissions.status === 200 && queued.length > 0, `${submissions.status}: ${queued.length} rows`);
+
+    const confirmed = rows((await req("GET", "/sales-invoices", undefined, {})).body).filter(
+      (i: any) => i.status !== "draft" && i.status !== "pending" && i.status !== "cancelled",
+    );
+    check("D5 — every live sales invoice is queued exactly once", queued.length === confirmed.length, `queued=${queued.length} live invoices=${confirmed.length}`);
+    check("D5 — a queued submission starts جاهز", queued.every((s: any) => s.status === "ready"), JSON.stringify(queued.map((s: any) => s.status)));
+    check("D5 — the queue keys each row by the invoice's own document number", queued.every((s: any) => confirmed.some((i: any) => (i.docNo ?? i.id) === s.internalId)), JSON.stringify(queued.map((s: any) => s.internalId)));
   });
 
   // ---------------------------------------------------------------------

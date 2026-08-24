@@ -20,6 +20,7 @@
 | What is the plan for HR / POS / Cloud? | `deferred-plan.md` |
 | How do we parallelise the build? | `execution-plan.md` |
 | What is done and what is left? | **this file** |
+| What is broken right now? | **`defects.md`** — the defect register |
 | What did an earlier audit find? | `archive/` |
 
 ## Current state
@@ -138,38 +139,24 @@ nothing because it is not a `DocumentService` and so has no
 `DocumentEventPublisher` — **that is the decision to make**, and inventing
 bridges for it was declined.
 
-## Found by seeding every screen
+## Known defects
 
-Making all 102 list surfaces non-empty (`pnpm check:seed`) surfaced four defects
-that only appear once real documents exist. Each was measured, not inferred:
+**`docs/defects.md`** is the register — six open, six fixed, and a list of
+readings that look like defects and are not. It is read before every test run
+and updated after.
 
-1. **A confirmed collection voucher never moves the invoice's `amountPaid`.**
-   `VCH-DEMO-1` collects 6,279.12 and credits AR in the GL, while every invoice
-   still reports `amountPaid: 0`. The AR sub-ledger derives from
-   `grandTotal − amountPaid`, so it overstates by the whole collection. This is
-   decision 1 below, now with a reproduction.
-2. **A `PHYSICAL_COUNT` adjustment moves stock with no journal entry.**
-   `adjustmentGlAccountsForReason` maps only `INITIAL_STOCK`, so a count
-   variance changes the sub-ledger and not the control account — measured at
-   exactly 122.00 for a single-sided count. The demo seed nets its two counts to
-   zero to work around this.
-3. **`completeWorkOrder` never touches GL 1200.** It posts to 1220 and to
-   1210/5110/5210, so completing a work order was measured leaving inventory off
-   by exactly 80.00. No work order in the seed is completed for this reason.
-4. **`occurredAt` is stamped `now()` rather than the document date** on
-   purchase/sales confirms, while document-dated movements carry a calendar
-   date. The drift report replays in `occurred_at` order and therefore consumes
-   stock before the receipt that funded it, reporting a gap that is not real —
-   verified analytically (`valueDiff 2400 = 120 × (160 − 140)`).
+Making all 102 list surfaces non-empty surfaced four of the six open ones. None
+was visible on an empty tenant, which is the argument for the seeding gate in
+`testing-plan.md`.
 
-**`/eta/submissions` cannot be seeded at all**: `EtaService.enqueue` exists but
-no route and no event bridge calls it, so no user action can enqueue a document.
-That is a build gap, tracked in `scripts/check-seed-coverage.ts`.
+Two of them the demo seed deliberately steers around: its physical counts net to
+zero and no work order is completed, both to keep the books exact. **So the demo
+data is not evidence those two paths are sound.**
 
 ## Decisions waiting on you
 
 1. **`recordPayment` and the allocation sub-ledger are two stores of the same
-   fact.** The UI prefers allocations and the aging reports take the larger of
+   fact** — tracked as **D1** in `defects.md`, now with a reproduction. The UI prefers allocations and the aging reports take the larger of
    the two, but the backend can still record one collection twice. Converging
    `recordPayment` onto allocations removes the fallback entirely.
 2. ~~**Purchase receipt/invoice cancel routes 404.**~~ **Done** — `create-backend`

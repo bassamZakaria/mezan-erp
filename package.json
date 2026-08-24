@@ -8,6 +8,7 @@
     "typecheck": "tsc -p tsconfig.json && pnpm --filter @mezan/ui typecheck && pnpm --filter web typecheck",
     "test": "echo 'Business-logic tests are disabled (see docs/testing-policy.md). Run `pnpm smoke` and verify in the running app instead.' && exit 0",
     "smoke": "tsx scripts/smoke.ts",
+    "check:seed": "tsx scripts/check-seed-coverage.ts",
     "test:vitest:disabled": "vitest run",
     "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens",
     "lint:eslint": "eslint .",

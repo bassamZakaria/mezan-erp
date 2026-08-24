@@ -135,7 +135,11 @@ automated signal is a shortlist, not a verdict.
 ## Phase 3 — Behaviour that matters (manual, per module)
 
 Automation proves a control reacts. It cannot prove it did the *right* thing.
-For each module, one pass:
+
+**The business scenarios live in `testing-scenarios.md`** — 29 end-to-end
+lifecycles taken from the captured catalog, each with its assertions. Run those
+for document behaviour. The generic checks below apply to every list screen and
+are what the scenarios assume already works.
 
 **Filters** — apply each filter and confirm the row count actually narrows and
 the remaining rows match the criterion. Clear it and confirm the count returns.

@@ -16,6 +16,7 @@
 | What is left to build, as issues? | `backlog.md` |
 | How do I wire a screen to data? | `web-data-wiring.md` |
 | How is anything verified now? | `testing-policy.md` |
+| How do I test after a big change? | `testing-plan.md` + `testing-scenarios.md` |
 | Is the UX enhancement signed off? | `enhancements/meeting/2026-08-23-design-review.md` |
 | What is the plan for HR / POS / Cloud? | `deferred-plan.md` |
 | How do we parallelise the build? | `execution-plan.md` |

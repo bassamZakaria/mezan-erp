@@ -8,6 +8,7 @@ export {
   DOC_TYPE as SALES_RETURN_DOC_TYPE,
   SALES_RETURN_REASONS,
   isAwaitingRefund,
+  salesReturnGrandTotal,
   createSalesReturnDocumentType,
   type SalesReturnReason,
   type SalesReturnLine,

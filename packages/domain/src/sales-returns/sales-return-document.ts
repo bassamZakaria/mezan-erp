@@ -74,6 +74,16 @@ function totals(lines: readonly SalesReturnLine[]) {
   return { revenueValue, costValue, taxValue, grandTotal: revenueValue.add(taxValue) };
 }
 
+/**
+ * What a confirmed return takes OFF the customer's receivable — the same figure
+ * its GL posting credits to AR. Exported so the AR control-account
+ * reconciliation can net returns out of the sub-ledger; without it the GL moves
+ * and the sub-ledger does not.
+ */
+export function salesReturnGrandTotal(doc: SalesReturnDocument): Money {
+  return totals(doc.lines).grandTotal;
+}
+
 /** A confirmed return is always بانتظار دفع المبلغ (awaiting a manual cash refund) — no auto-refund in this PR. */
 export function isAwaitingRefund(doc: SalesReturnDocument): boolean {
   return doc.status === "confirmed";

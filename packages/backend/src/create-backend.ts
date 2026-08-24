@@ -25,6 +25,9 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
+  purchaseReturnGrandTotal,
+  salesReturnGrandTotal,
+  totalLandedCost,
   Money,
   type AdjustmentReason,
   type StockAdjustmentDocLine,
@@ -615,10 +618,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * reports/aging-suppliers.ts's own documented assumption.
    */
   async function resolveReconciliationControls() {
-    const [invoices, purchInvoices, snapshots] = await Promise.all([
+    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs] = await Promise.all([
       salesInvoices.list(),
       purchaseInvoices.list(),
       stockLedger.snapshots.list(),
+      salesReturns.list(),
+      purchaseReturns.list(),
+      landedCostDocuments.list(),
     ]);
 
     let arScaled = 0n;
@@ -627,11 +633,28 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       const totals = salesInvoiceTotals(inv);
       arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
     }
+    // A confirmed sales return credits AR in the GL. Omitting it here left the
+    // control account moving while the sub-ledger stood still, so every tenant
+    // that ever posted a return saw a false mismatch.
+    for (const doc of salesReturnDocs) {
+      if (doc.status !== "confirmed") continue;
+      arScaled -= salesReturnGrandTotal(doc).scaled;
+    }
 
     let apScaled = 0n;
     for (const inv of purchInvoices) {
       if (inv.status !== "confirmed") continue;
       apScaled += purchaseInvoiceTotal(inv).scaled;
+    }
+    // A purchase return debits AP; a landed cost credits it (the freight and
+    // customs owed to a third party accrue to the same control account).
+    for (const doc of purchaseReturnDocs) {
+      if (doc.status !== "confirmed") continue;
+      apScaled -= purchaseReturnGrandTotal(doc).scaled;
+    }
+    for (const doc of landedCostDocs) {
+      if (doc.status !== "confirmed") continue;
+      for (const line of doc.lines) apScaled += totalLandedCost(line.costItems).scaled;
     }
 
     let inventoryScaled = 0n;

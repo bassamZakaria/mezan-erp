@@ -8,6 +8,7 @@ export {
   DOC_TYPE as PURCHASE_RETURN_DOC_TYPE,
   PURCHASE_RETURN_REASONS,
   createPurchaseReturnDocumentType,
+  purchaseReturnGrandTotal,
   type PurchaseReturnReason,
   type PurchaseReturnLine,
   type PurchaseReturnDocument,

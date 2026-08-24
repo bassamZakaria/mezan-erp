@@ -61,6 +61,15 @@ function totals(lines: readonly PurchaseReturnLine[]) {
   return { costValue, taxValue, grandTotal: costValue.add(taxValue) };
 }
 
+/**
+ * What a confirmed return takes OFF the supplier payable — the same figure its
+ * GL posting debits to AP. Exported so the AP control-account reconciliation
+ * can net returns out of the sub-ledger.
+ */
+export function purchaseReturnGrandTotal(doc: PurchaseReturnDocument): Money {
+  return totals(doc.lines).grandTotal;
+}
+
 export function createPurchaseReturnDocumentType(
   accounts: PurchaseReturnGlAccounts,
 ): DocumentTypeDefinition<PurchaseReturnLine> {

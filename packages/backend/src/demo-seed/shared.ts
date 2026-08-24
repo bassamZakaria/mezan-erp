@@ -50,7 +50,7 @@ export const CORE = {
   boms: ["BOM-DEMO-1", "BOM-DEMO-2"],
   employees: ["EMP-DEMO-1", "EMP-DEMO-2"],
   costCenters: ["CC-DEMO-1", "CC-DEMO-2"],
-  treasuryAccounts: ["TRA-DEMO-1", "TRA-DEMO-2"],
+  treasuryAccounts: ["TR-DEMO-CASH", "TR-DEMO-BANK"],
   salesInvoices: ["INV-DEMO-1", "INV-DEMO-2", "INV-DEMO-3", "INV-DEMO-4", "INV-DEMO-5"],
   purchaseInvoices: ["PI-DEMO-1", "PI-DEMO-2", "PI-DEMO-3", "PI-DEMO-4", "PI-DEMO-5"],
 } as const;

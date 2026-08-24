@@ -12,7 +12,9 @@ import {
 } from "@mezan/domain";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { entitySegment, permissionLabel, subgroupLabel } from "../permission-labels";
+import { moduleLabel } from "../domain-labels";
 import type { StoreResult } from "./UsersPage";
+import { useAppTranslation } from "../i18n";
 
 export interface RoleEditorPageProps {
   role: Role | null;
@@ -22,6 +24,7 @@ export interface RoleEditorPageProps {
 }
 
 export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEditorPageProps) {
+  const { t } = useAppTranslation();
   const [name, setName] = useState(role?.name ?? "");
   const [code, setCode] = useState(role?.code ?? "");
   const [description, setDescription] = useState(role?.description ?? "");
@@ -45,13 +48,13 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           const key = entitySegment(p.code);
           const item: PermissionMatrixItem = {
             code: p.code,
-            label: permissionLabel(p),
+            label: permissionLabel(p, t),
             sensitive: p.sensitive,
             platformAdminOnly: p.platformAdminOnly,
             dependsOn: p.deps.length > 0 ? [...p.deps] : undefined,
             selected: selected.has(p.code),
             disabled: p.platformAdminOnly,
-            disabledReason: p.platformAdminOnly ? "صلاحية مخصصة لمدير المنصة فقط" : undefined,
+            disabledReason: p.platformAdminOnly ? t("roles.editor.adminOnly") : undefined,
           };
           if (!subgroupItems.has(key)) {
             subgroupItems.set(key, []);
@@ -63,7 +66,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
 
         return {
           key: mod.id,
-          label: mod.labelAr,
+          label: moduleLabel(mod, t),
           subgroups: subgroupOrder.map((key) => ({
             key,
             label: subgroupLabels.get(key) ?? key,
@@ -72,7 +75,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
         };
       })
       .filter((mod) => mod.subgroups.length > 0);
-  }, [entitlements, selected]);
+  }, [entitlements, selected, t]);
 
   const summary = useMemo(() => {
     const touchedModules = new Set<string>();
@@ -100,28 +103,28 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
   async function handleSave() {
     setFormError(null);
     if (!name.trim() || !code.trim()) {
-      setFormError("اسم الدور ورمزه مطلوبان");
+      setFormError(t("roles.editor.nameAndCodeRequired"));
       return;
     }
     setSaving(true);
     const result = await onSave({ code: code.trim(), name: name.trim(), description, permissions: Array.from(selected) });
     setSaving(false);
-    if (!result.ok) setFormError(result.error ?? "تعذر حفظ الدور");
+    if (!result.ok) setFormError(result.error ?? t("roles.editor.saveFailed"));
   }
 
-  const moduleLabelById = new Map(licensedModules(entitlements).map((m) => [m.id, m.labelAr]));
+  const moduleLabelById = new Map(licensedModules(entitlements).map((m) => [m.id, moduleLabel(m, t)]));
 
   return (
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-start justify-between gap-[14px]">
         <div>
           <div className="mz-eyebrow">Settings · Roles</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{role ? "تعديل الدور" : "دور جديد"}</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{role ? t("roles.editor.title.edit") : t("roles.editor.title.new")}</h1>
         </div>
         <div className="flex gap-[9px]">
-          <Button variant="ghost" onClick={onCancel}>إلغاء</Button>
+          <Button variant="ghost" onClick={onCancel}>{t("roles.editor.cancel")}</Button>
           <Button variant="primary" disabled={saving || role?.isSystem} onClick={() => void handleSave()}>
-            {saving ? "جارٍ الحفظ…" : "حفظ الدور"}
+            {saving ? t("roles.editor.saving") : t("roles.editor.save")}
           </Button>
         </div>
       </div>
@@ -135,7 +138,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
 
       <Card className="mb-[18px] p-[15px] flex flex-col gap-[12px] sm:flex-row sm:items-start">
         <label className="flex-1">
-          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">اسم الدور *</span>
+          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.name")}</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -144,7 +147,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           />
         </label>
         <label className="flex-1">
-          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">رمز الدور *</span>
+          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.code")}</span>
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
@@ -154,7 +157,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           />
         </label>
         <label className="flex-[2]">
-          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">وصف الدور</span>
+          <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.description")}</span>
           <input
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -176,14 +179,14 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
         <div className="flex flex-col gap-[14px]">
           <Card className="p-[15px]">
             <div className="grid grid-cols-3 gap-[10px] text-center">
-              <SummaryStat label="الصلاحيات المحددة" value={summary.selectedCount} />
-              <SummaryStat label="الوحدة" value={summary.moduleCount} />
-              <SummaryStat label="حساسة" value={summary.sensitiveCount} tone={summary.sensitiveCount > 0 ? "warning" : undefined} />
+              <SummaryStat label={t("roles.editor.stat.selected")} value={summary.selectedCount} />
+              <SummaryStat label={t("roles.editor.stat.modules")} value={summary.moduleCount} />
+              <SummaryStat label={t("roles.editor.stat.sensitive")} value={summary.sensitiveCount} tone={summary.sensitiveCount > 0 ? "warning" : undefined} />
             </div>
           </Card>
           {summary.perModule.size > 0 ? (
             <Card className="p-[15px]">
-              <h3 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">الوحدة</h3>
+              <h3 className="mb-[10px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">{t("roles.editor.moduleHeading")}</h3>
               <ul className="flex flex-col gap-[7px]">
                 {Array.from(summary.perModule.entries()).map(([moduleId, count]) => (
                   <li key={moduleId} className="flex items-center justify-between text-[12.5px]">

@@ -14,6 +14,8 @@ import {
 } from "@mezan/domain";
 import type { NotificationRuleDTO } from "@mezan/contracts";
 import { permissionLabel } from "../permission-labels";
+import { eventLabel, eventLabelArByCode, eventLabelByCode } from "../domain-labels";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { MultiChipField, SelectField, TextAreaField, TextField, ToggleField } from "./form-controls";
 import {
   useCreateNotificationRule,
@@ -25,13 +27,11 @@ import {
   useUsers,
 } from "../data/hooks";
 
-const EVENT_LABEL = new Map<string, string>(DOMAIN_EVENT_CATALOG.map((e) => [e.code, e.labelAr]));
-
-const PRIORITY_LABEL: Record<NotificationPriority, string> = {
-  low: "منخفضة",
-  normal: "عادية",
-  high: "عالية",
-  urgent: "عاجلة",
+const PRIORITY_KEY: Record<NotificationPriority, AppTranslationKey> = {
+  low: "notifRules.priority.low",
+  normal: "notifRules.priority.normal",
+  high: "notifRules.priority.high",
+  urgent: "notifRules.priority.urgent",
 };
 const PRIORITY_TONE: Record<NotificationPriority, "neutral" | "info" | "warning" | "danger"> = {
   low: "neutral",
@@ -40,32 +40,29 @@ const PRIORITY_TONE: Record<NotificationPriority, "neutral" | "info" | "warning"
   urgent: "danger",
 };
 
-const CHANNEL_LABEL: Record<NotificationChannel, string> = {
-  in_app: "داخل التطبيق",
-  email: "بريد إلكتروني",
-  push: "إشعار فوري",
+const CHANNEL_KEY: Record<NotificationChannel, AppTranslationKey> = {
+  in_app: "notifRules.channel.in_app",
+  email: "notifRules.channel.email",
+  push: "notifRules.channel.push",
 };
 
-const RECIPIENT_TYPE_LABEL: Record<NotificationRecipientType, string> = {
-  permission: "حسب الصلاحية",
-  role: "دور محدد",
-  user: "مستخدم محدد",
+const RECIPIENT_TYPE_KEY: Record<NotificationRecipientType, AppTranslationKey> = {
+  permission: "notifRules.recipient.permission",
+  role: "notifRules.recipient.role",
+  user: "notifRules.recipient.user",
 };
 
-const OPERATOR_LABEL: Record<ConditionOperator, string> = {
-  eq: "يساوي",
-  neq: "لا يساوي",
-  gt: "أكبر من",
-  gte: "أكبر من أو يساوي",
-  lt: "أصغر من",
-  lte: "أصغر من أو يساوي",
-  contains: "يحتوي على",
+const OPERATOR_KEY: Record<ConditionOperator, AppTranslationKey> = {
+  eq: "notifRules.operator.eq",
+  neq: "notifRules.operator.neq",
+  gt: "notifRules.operator.gt",
+  gte: "notifRules.operator.gte",
+  lt: "notifRules.operator.lt",
+  lte: "notifRules.operator.lte",
+  contains: "notifRules.operator.contains",
 };
 
-const EVENT_OPTIONS = DOMAIN_EVENT_CATALOG.map((e) => ({ value: e.code, label: `${e.labelAr} (${e.code})` }));
-const NOT_EMITTED_HINT =
-  "الأحداث المعلَّمة (لا يُطلق بعد) مسجَّلة في الكتالوج لكن لا يوجد في هذا الإصدار ما يطلقها — القاعدة المبنية عليها لن تعمل.";
-const PERMISSION_OPTIONS = PERMISSIONS.map((p) => ({ value: p.code, label: `${permissionLabel(p)} — ${p.code}` }));
+
 
 interface FormState {
   name: string;
@@ -107,6 +104,7 @@ function emptyForm(): FormState {
  * go through `/notification-rules`.
  */
 export function NotificationRulesPage() {
+  const { t } = useAppTranslation();
   const query = useNotificationRules();
   const triggerCatalog = useNotificationTriggers();
   const rules = query.data ?? [];
@@ -128,20 +126,22 @@ export function NotificationRulesPage() {
   // Falls back to the static catalog until (or unless) /notification-rules/triggers answers.
   const eventOptions = useMemo(() => {
     const triggers = triggerCatalog.data?.triggers;
-    if (!triggers) return EVENT_OPTIONS;
-    return triggers.map((t) => ({
-      value: t.code,
-      label: `${t.labelAr} (${t.code})${t.emitted ? "" : " — لا يُطلق بعد"}`,
+    if (!triggers) {
+      return DOMAIN_EVENT_CATALOG.map((e) => ({ value: e.code, label: `${eventLabel(e, t)} (${e.code})` }));
+    }
+    return triggers.map((trigger) => ({
+      value: trigger.code,
+      label: `${eventLabel(trigger, t)} (${trigger.code})${trigger.emitted ? "" : t("notifRules.notEmittedSuffix")}`,
     }));
-  }, [triggerCatalog.data]);
+  }, [triggerCatalog.data, t]);
 
   const channelOptions = useMemo(() => {
     const implemented = triggerCatalog.data?.implementedChannels;
     return NOTIFICATION_CHANNELS.map((c) => ({
       value: c,
-      label: !implemented || implemented.includes(c) ? CHANNEL_LABEL[c] : `${CHANNEL_LABEL[c]} — قيد الإرسال فقط`,
+      label: !implemented || implemented.includes(c) ? t(CHANNEL_KEY[c]) : `${t(CHANNEL_KEY[c])}${t("notifRules.channelQueuedSuffix")}`,
     }));
-  }, [triggerCatalog.data]);
+  }, [triggerCatalog.data, t]);
 
   const filtered = rules.filter((r) => {
     if (statusFilter === "active") return r.active;
@@ -150,7 +150,7 @@ export function NotificationRulesPage() {
   });
 
   function recipientValueOptions() {
-    if (form.recipientType === "permission") return PERMISSION_OPTIONS;
+    if (form.recipientType === "permission") return PERMISSIONS.map((p) => ({ value: p.code, label: `${permissionLabel(p, t)} — ${p.code}` }));
     if (form.recipientType === "role") return (rolesQuery.data ?? []).map((r) => ({ value: r.id, label: r.name }));
     return (usersQuery.data ?? []).map((u) => ({ value: u.id, label: u.fullName }));
   }
@@ -180,42 +180,42 @@ export function NotificationRulesPage() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.total },
-    { key: "active", label: "نشط", count: counts.active },
-    { key: "inactive", label: "غير نشط", count: counts.inactive },
+    { key: "all", label: t("notifRules.tab.all"), count: counts.total },
+    { key: "active", label: t("notifRules.tab.active"), count: counts.active },
+    { key: "inactive", label: t("notifRules.tab.inactive"), count: counts.inactive },
   ];
 
   const columns: DocumentListColumn<NotificationRuleDTO>[] = [
     {
       key: "name",
-      header: "اسم القاعدة",
+      header: t("notifRules.col.name"),
       render: (r) => (
         <div>
           <div className="font-semibold text-ink">{r.name}</div>
-          <div className="text-[11px] text-ink-muted">{EVENT_LABEL.get(r.eventCode) ?? r.eventCode}</div>
+          <div className="text-[11px] text-ink-muted">{eventLabelByCode(r.eventCode, t) ?? r.eventCode}</div>
         </div>
       ),
     },
     {
       key: "priority",
-      header: "الأولوية",
-      render: (r) => <StatusPill label={PRIORITY_LABEL[r.priority]} tone={PRIORITY_TONE[r.priority]} />,
+      header: t("notifRules.col.priority"),
+      render: (r) => <StatusPill label={t(PRIORITY_KEY[r.priority])} tone={PRIORITY_TONE[r.priority]} />,
     },
     {
       key: "channels",
-      header: "قنوات الإرسال",
-      render: (r) => <span className="text-[12.5px] text-ink-muted">{r.channels.map((c) => CHANNEL_LABEL[c]).join("، ")}</span>,
+      header: t("notifRules.col.channels"),
+      render: (r) => <span className="text-[12.5px] text-ink-muted">{r.channels.map((c) => t(CHANNEL_KEY[c])).join(t("notifRules.channelSeparator"))}</span>,
     },
     {
       key: "status",
-      header: "الحالة",
+      header: t("notifRules.col.status"),
       render: (r) => (
         <button
           type="button"
           onClick={() => setActive.mutate({ id: r.id, active: !r.active })}
           disabled={setActive.isPending}
         >
-          <StatusPill label={r.active ? "نشط" : "غير نشط"} tone={r.active ? "success" : "neutral"} />
+          <StatusPill label={r.active ? t("notifRules.tab.active") : t("notifRules.tab.inactive")} tone={r.active ? "success" : "neutral"} />
         </button>
       ),
     },
@@ -225,7 +225,7 @@ export function NotificationRulesPage() {
       align: "end",
       render: (r) => (
         <Button variant="default" onClick={() => deleteRule.mutate(r.id)} disabled={deleteRule.isPending}>
-          حذف
+          {t("notifRules.delete")}
         </Button>
       ),
     },
@@ -234,18 +234,18 @@ export function NotificationRulesPage() {
   return (
     <div className="w-full">
       <DocumentList<NotificationRuleDTO>
-        eyebrow="الإعدادات · الأتمتة والقواعد"
-        title="قواعد الإشعارات"
-        description="قواعد تحدد أي أحداث النظام تُرسل إشعاراً، لمن، بأي أولوية وقنوات، وبأي نص عربي — بناءً على فهرس الأحداث الـ 39."
+        eyebrow={t("notifRules.eyebrow")}
+        title={t("notifRules.title")}
+        description={t("notifRules.description")}
         actions={
           <Button variant="primary" onClick={() => setPanelOpen(true)}>
-            إضافة قاعدة
+            {t("notifRules.add")}
           </Button>
         }
         stats={[
-          { label: "إجمالي القواعد", value: <span className="mz-num">{counts.total}</span> },
-          { label: "القواعد النشطة", value: <span className="mz-num">{counts.active}</span> },
-          { label: "القواعد المعطلة", value: <span className="mz-num">{counts.inactive}</span> },
+          { label: t("notifRules.stat.total"), value: <span className="mz-num">{counts.total}</span> },
+          { label: t("notifRules.stat.active"), value: <span className="mz-num">{counts.active}</span> },
+          { label: t("notifRules.stat.inactive"), value: <span className="mz-num">{counts.inactive}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -257,90 +257,90 @@ export function NotificationRulesPage() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{rules.length}</span> قاعدة
+            {t("notifRules.showingPrefix")} <span className="mz-num">{filtered.length}</span> {t("notifRules.showingOf")} <span className="mz-num">{rules.length}</span> {t("notifRules.showingSuffix")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? "جارِ التحميل…" : "لا توجد قواعد إشعارات"}</div>
+          <div className="p-8 text-center text-sm text-ink-muted">{query.isLoading ? t("notifRules.loading") : t("notifRules.empty")}</div>
         }
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="إضافة قاعدة">
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("notifRules.panel.title")}>
         <div className="flex flex-col gap-4 p-5">
-          <TextField label="اسم القاعدة *" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="فاتورة مبيعات جديدة" />
+          <TextField label={t("notifRules.field.name")} value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder={t("notifRules.field.namePlaceholder")} />
 
           <SelectField
-            label="الحدث *"
+            label={t("notifRules.field.event")}
             value={form.eventCode}
             onChange={(v) => setForm((f) => ({ ...f, eventCode: v }))}
             options={eventOptions}
-            hint={triggerCatalog.data ? NOT_EMITTED_HINT : undefined}
+            hint={triggerCatalog.data ? t("notifRules.notEmittedHint") : undefined}
           />
 
           <SelectField
-            label="نوع المستلم *"
+            label={t("notifRules.field.recipientType")}
             value={form.recipientType}
             onChange={(v) => setForm((f) => ({ ...f, recipientType: v as NotificationRecipientType, recipientValue: "" }))}
-            options={NOTIFICATION_RECIPIENT_TYPES.map((t) => ({ value: t, label: RECIPIENT_TYPE_LABEL[t] }))}
+            options={NOTIFICATION_RECIPIENT_TYPES.map((kind) => ({ value: kind, label: t(RECIPIENT_TYPE_KEY[kind]) }))}
           />
           <SelectField
-            label="قيمة المستلم *"
+            label={t("notifRules.field.recipientValue")}
             value={form.recipientValue}
             onChange={(v) => setForm((f) => ({ ...f, recipientValue: v }))}
-            options={[{ value: "", label: "اختر..." }, ...recipientValueOptions()]}
+            options={[{ value: "", label: t("notifRules.field.choose") }, ...recipientValueOptions()]}
           />
 
           <SelectField
-            label="الأولوية *"
+            label={t("notifRules.field.priority")}
             value={form.priority}
             onChange={(v) => setForm((f) => ({ ...f, priority: v as NotificationPriority }))}
-            options={NOTIFICATION_PRIORITIES.map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+            options={NOTIFICATION_PRIORITIES.map((p) => ({ value: p, label: t(PRIORITY_KEY[p]) }))}
           />
 
           <MultiChipField
-            label="قنوات الإرسال *"
+            label={t("notifRules.field.channels")}
             value={form.channels}
             onChange={(v) => setForm((f) => ({ ...f, channels: v as NotificationChannel[] }))}
             options={channelOptions}
-            hint="داخل التطبيق يعمل دائماً بدون اتصال؛ البريد والإشعار الفوري يُسجَّلان قيد الإرسال (queued) فقط."
+            hint={t("notifRules.field.channelsHint")}
           />
 
           <TextField
-            label="عنوان مخصص (عربي)"
+            label={t("notifRules.field.titleAr")}
             value={form.titleAr}
             onChange={(v) => setForm((f) => ({ ...f, titleAr: v }))}
-            placeholder={EVENT_LABEL.get(form.eventCode) ?? ""}
+            placeholder={eventLabelArByCode(form.eventCode) ?? ""}
           />
           <TextAreaField
-            label="نص الإشعار (عربي)"
+            label={t("notifRules.field.bodyAr")}
             value={form.bodyAr}
             onChange={(v) => setForm((f) => ({ ...f, bodyAr: v }))}
-            placeholder="تم إنشاء الفاتورة {{documentNumber}} بقيمة {{amount}} للعميل {{customerName}}."
-            hint="المتغيرات المتاحة: {{customerName}}، {{amount}}، {{documentNumber}}"
+            placeholder={t("notifRules.field.bodyPlaceholder")}
+            hint={t("notifRules.field.bodyHint")}
           />
 
           <ToggleField
-            label="إضافة شرط"
+            label={t("notifRules.field.addCondition")}
             checked={form.hasCondition}
             onChange={(checked) => setForm((f) => ({ ...f, hasCondition: checked }))}
-            hint="اختياري — يُطبَّق فقط عند تحقق الشرط على بيانات الحدث (مثال: المبلغ أكبر من 1000)."
+            hint={t("notifRules.field.conditionHint")}
           />
           {form.hasCondition ? (
             <div className="flex flex-col gap-3 rounded-md border border-border p-3">
               <TextField
-                label="حقل الشرط"
+                label={t("notifRules.field.conditionField")}
                 value={form.conditionField}
                 onChange={(v) => setForm((f) => ({ ...f, conditionField: v }))}
                 placeholder="amount"
               />
               <SelectField
-                label="العامل"
+                label={t("notifRules.field.conditionOperator")}
                 value={form.conditionOperator}
                 onChange={(v) => setForm((f) => ({ ...f, conditionOperator: v as ConditionOperator }))}
-                options={CONDITION_OPERATORS.map((op) => ({ value: op, label: OPERATOR_LABEL[op] }))}
+                options={CONDITION_OPERATORS.map((op) => ({ value: op, label: t(OPERATOR_KEY[op]) }))}
               />
               <TextField
-                label="قيمة الشرط"
+                label={t("notifRules.field.conditionValue")}
                 value={form.conditionValue}
                 onChange={(v) => setForm((f) => ({ ...f, conditionValue: v }))}
                 placeholder="1000"
@@ -354,14 +354,14 @@ export function NotificationRulesPage() {
 
           <div className="flex gap-2 pt-2">
             <Button variant="default" onClick={() => setPanelOpen(false)}>
-              إلغاء
+              {t("notifRules.cancel")}
             </Button>
             <Button
               variant="primary"
               onClick={submit}
               disabled={create.isPending || !form.name.trim() || !form.recipientValue.trim() || form.channels.length === 0}
             >
-              إضافة
+              {t("notifRules.submit")}
             </Button>
           </div>
         </div>

@@ -1,74 +1,76 @@
 import type { PermissionDef } from "@mezan/domain";
+import type { AppTranslationKey } from "./i18n";
 
 /**
  * Presentation-only labels for the permission matrix. The catalog
- * (`@mezan/domain` `permissions/catalog.ts`) intentionally carries no Arabic
- * copy per permission — only per-module names (`MODULES[i].labelAr`) — so the
- * ~268 individual permission labels shown here are DERIVED, not sourced from
- * the catalog: `<entity segment> — <action verb, Arabic>`. This keeps every
- * card's meaning traceable to its exact `module.entity.action` code (always
- * shown alongside, monospace) rather than inventing bespoke prose per
- * permission. A hand-authored bilingual copy pass is real follow-up work, not
- * something to fabricate here.
+ * (`@mezan/domain` `permissions/catalog.ts`) intentionally carries no per-permission
+ * copy — only per-module names (`MODULES[i].labelAr`) — so the ~268 individual
+ * permission labels shown here are DERIVED, not sourced from the catalog:
+ * `<action verb> — <entity segment>`. This keeps every card's meaning traceable
+ * to its exact `module.entity.action` code (always shown alongside, monospace)
+ * rather than inventing bespoke prose per permission. Only the action verb is
+ * translated; the entity segment stays the identifier it is in the code.
  */
 
-const ACTION_LABELS: Readonly<Record<string, string>> = {
-  view: "عرض",
-  view_own: "عرض الخاص بي",
-  view_all: "عرض الكل",
-  view_cost: "عرض التكلفة",
-  view_salary: "عرض الراتب",
-  view_personal: "عرض البيانات الشخصية",
-  create: "إنشاء",
-  edit: "تعديل",
-  edit_cost: "تعديل التكلفة",
-  delete_draft: "حذف المسودة",
-  confirm: "تأكيد",
-  void: "إبطال",
-  cancel: "إلغاء",
-  approve: "اعتماد",
-  reject: "رفض",
-  manage: "إدارة",
-  print: "طباعة",
-  merge: "دمج",
-  close: "إغلاق",
-  reopen: "إعادة فتح",
-  run: "تشغيل",
-  deactivate: "تعطيل",
-  assign: "إسناد",
-  convert: "تحويل",
-  override: "تجاوز",
-  rebuild: "إعادة بناء",
-  open: "فتح",
-  open_session: "فتح الوردية",
-  close_session: "إغلاق الوردية",
-  settle: "تسوية",
-  terminate: "إنهاء الخدمة",
-  apply_preset: "تطبيق نموذج",
-  calculate: "احتساب",
-  pay: "دفع",
-  dispose: "استبعاد",
-  submit: "إرسال",
-  import: "استيراد",
-  match: "مطابقة",
-  finalize: "إنهاء نهائي",
-  force_close: "إغلاق قسري",
-  set_priority: "تحديد الأولوية",
-  discount: "خصم",
-  refund: "استرداد",
-  suspend: "تعليق",
-  resume: "استئناف",
-  collect: "تحصيل",
-  bounce: "ارتداد",
-  deposit: "إيداع",
-  migrate_open: "ترحيل الرصيد الافتتاحي",
-  year_end: "إغلاق نهاية السنة",
-  order: "طلب",
-  operate: "تشغيل",
-  recall: "استدعاء",
-  manage_own: "إدارة الخاص بي",
-  execute: "تنفيذ",
-};
+const ACTION_KEYS = [
+  "view",
+  "view_own",
+  "view_all",
+  "view_cost",
+  "view_salary",
+  "view_personal",
+  "create",
+  "edit",
+  "edit_cost",
+  "delete_draft",
+  "confirm",
+  "void",
+  "cancel",
+  "approve",
+  "reject",
+  "manage",
+  "print",
+  "merge",
+  "close",
+  "reopen",
+  "run",
+  "deactivate",
+  "assign",
+  "convert",
+  "override",
+  "rebuild",
+  "open",
+  "open_session",
+  "close_session",
+  "settle",
+  "terminate",
+  "apply_preset",
+  "calculate",
+  "pay",
+  "dispose",
+  "submit",
+  "import",
+  "match",
+  "finalize",
+  "force_close",
+  "set_priority",
+  "discount",
+  "refund",
+  "suspend",
+  "resume",
+  "collect",
+  "bounce",
+  "deposit",
+  "migrate_open",
+  "year_end",
+  "order",
+  "operate",
+  "recall",
+  "manage_own",
+  "execute",
+] as const;
+
+const KNOWN_ACTIONS: ReadonlySet<string> = new Set(ACTION_KEYS);
 
 /** `module.entity.action` -> `entity`; `module.action` (no entity) -> `module`. */
 export function entitySegment(code: string): string {
@@ -81,10 +83,11 @@ function actionSegment(code: string): string {
   return parts[parts.length - 1] as string;
 }
 
-/** Human-ish label: Arabic verb for the action, entity segment kept as a readable identifier. */
-export function permissionLabel(permission: PermissionDef): string {
+/** Human-ish label: translated verb for the action, entity segment kept as a readable identifier. */
+export function permissionLabel(permission: PermissionDef, t: (key: AppTranslationKey) => string): string {
   const entity = entitySegment(permission.code).replace(/_/g, " ");
-  const action = ACTION_LABELS[actionSegment(permission.code)] ?? actionSegment(permission.code);
+  const segment = actionSegment(permission.code);
+  const action = KNOWN_ACTIONS.has(segment) ? t(`perm.action.${segment}` as AppTranslationKey) : segment;
   return `${action} — ${entity}`;
 }
 

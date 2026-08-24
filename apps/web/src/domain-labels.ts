@@ -1,4 +1,10 @@
-import { DOMAIN_EVENT_CATALOG, MODULES, WAREHOUSE_TYPE_DEFINITIONS } from "@mezan/domain";
+import {
+  DOMAIN_EVENT_CATALOG,
+  GATEABLE_ACTION_TYPES,
+  MODULES,
+  SEQUENCE_DEFINITIONS,
+  WAREHOUSE_TYPE_DEFINITIONS,
+} from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 
 /**
@@ -39,4 +45,16 @@ const WAREHOUSE_TYPE_CODES: ReadonlySet<string> = new Set(WAREHOUSE_TYPE_DEFINIT
 
 export function warehouseTypeLabel(type: string, t: Translate): string {
   return WAREHOUSE_TYPE_CODES.has(type) ? t(`warehouseType.${type}` as AppTranslationKey) : type;
+}
+
+const SEQUENCE_CODES: ReadonlySet<string> = new Set(SEQUENCE_DEFINITIONS.map((d) => d.code));
+
+export function sequenceLabel(sequence: { code: string; labelAr: string }, t: Translate): string {
+  return SEQUENCE_CODES.has(sequence.code) ? t(`sequence.${sequence.code}` as AppTranslationKey) : sequence.labelAr;
+}
+
+const ACTION_TYPE_CODES: ReadonlySet<string> = new Set(GATEABLE_ACTION_TYPES.map((a) => a.code));
+
+export function actionTypeLabel(code: string, t: Translate): string {
+  return ACTION_TYPE_CODES.has(code) ? t(`actionType.${code}` as AppTranslationKey) : code;
 }

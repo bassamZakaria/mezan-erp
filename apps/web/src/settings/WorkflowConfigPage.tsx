@@ -4,6 +4,8 @@ import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { GateStepDTO, WorkflowConfigDTO } from "@mezan/contracts";
 import { useCreateWorkflowConfig, useDeleteWorkflowConfig, useRoles, useUpdateWorkflowConfig, useWorkflowConfigs } from "../data/hooks";
 import { SelectField, TextField } from "./form-controls";
+import { actionTypeLabel } from "../domain-labels";
+import { useAppTranslation } from "../i18n";
 
 /**
  * إعدادات الموافقات — the workflow chain-builder (docs/catalog/09 §إعدادات
@@ -14,18 +16,13 @@ import { SelectField, TextField } from "./form-controls";
  * confirm time through `createDocumentWorkflowGate` (create-backend.ts).
  */
 
-const ACTION_TYPE_LABEL = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, a.labelAr]));
-
-function actionTypeLabel(code: string): string {
-  return ACTION_TYPE_LABEL.get(code) ?? code;
-}
-
 interface StepDraft {
   role: string;
   description: string;
 }
 
 export function WorkflowConfigPage() {
+  const { t } = useAppTranslation();
   const configsQuery = useWorkflowConfigs();
   const rolesQuery = useRoles();
   const createConfig = useCreateWorkflowConfig();
@@ -51,8 +48,8 @@ export function WorkflowConfigPage() {
   const filtered = useMemo(() => {
     if (search.trim() === "") return configs;
     const q = search.trim();
-    return configs.filter((c) => actionTypeLabel(c.actionType).includes(q));
-  }, [configs, search]);
+    return configs.filter((c) => actionTypeLabel(c.actionType, t).includes(q));
+  }, [configs, search, t]);
 
   function openCreate() {
     setEditing(null);
@@ -88,7 +85,7 @@ export function WorkflowConfigPage() {
       .filter((s) => s.role.trim() !== "")
       .map((s) => ({ role: s.role, description: s.description.trim() === "" ? undefined : s.description }));
     if (cleanSteps.length === 0) {
-      setError("أضف خطوة واحدة على الأقل مع اختيار الدور المعتمد.");
+      setError(t("workflowConfig.error.needStep"));
       return;
     }
     try {
@@ -96,14 +93,14 @@ export function WorkflowConfigPage() {
         await updateConfig.mutateAsync({ id: editing.id, body: { steps: cleanSteps } });
       } else {
         if (!actionType) {
-          setError("اختر نوع الإجراء.");
+          setError(t("workflowConfig.error.needActionType"));
           return;
         }
         await createConfig.mutateAsync({ actionType, steps: cleanSteps });
       }
       setPanelOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ سير العمل");
+      setError(err instanceof Error ? err.message : t("workflowConfig.error.saveFailed"));
     }
   }
 
@@ -111,18 +108,18 @@ export function WorkflowConfigPage() {
     try {
       await deleteConfig.mutateAsync(config.id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حذف سير العمل");
+      setError(err instanceof Error ? err.message : t("workflowConfig.error.deleteFailed"));
     }
   }
 
   const columns: DocumentListColumn<WorkflowConfigDTO>[] = [
     {
       key: "actionType",
-      header: "نوع الإجراء",
-      render: (c) => <span className="font-semibold text-ink">{actionTypeLabel(c.actionType)}</span>,
+      header: t("workflowConfig.col.actionType"),
+      render: (c) => <span className="font-semibold text-ink">{actionTypeLabel(c.actionType, t)}</span>,
     },
-    { key: "steps", header: "عدد الخطوات", align: "end", render: (c) => <span className="mz-num">{c.steps.length}</span> },
-    { key: "status", header: "الحالة", render: () => <StatusPill label="نشط" tone="success" /> },
+    { key: "steps", header: t("workflowConfig.col.steps"), align: "end", render: (c) => <span className="mz-num">{c.steps.length}</span> },
+    { key: "status", header: t("workflowConfig.col.status"), render: () => <StatusPill label={t("workflowConfig.active")} tone="success" /> },
     {
       key: "actions",
       header: "",
@@ -137,7 +134,7 @@ export function WorkflowConfigPage() {
               openEdit(c);
             }}
           >
-            تعديل
+            {t("workflowConfig.edit")}
           </Button>
           <Button
             size="sm"
@@ -147,7 +144,7 @@ export function WorkflowConfigPage() {
               void remove(c);
             }}
           >
-            حذف
+            {t("workflowConfig.delete")}
           </Button>
         </div>
       ),
@@ -157,9 +154,9 @@ export function WorkflowConfigPage() {
   if (configsQuery.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل إعدادات سير العمل.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("workflowConfig.loadFailed")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => configsQuery.refetch()}>
-          إعادة المحاولة
+          {t("workflowConfig.retry")}
         </Button>
       </Card>
     );
@@ -169,17 +166,17 @@ export function WorkflowConfigPage() {
     <>
       <DocumentList<WorkflowConfigDTO>
         eyebrow="Settings · Workflow"
-        title="إعدادات الموافقات"
-        description="تحديد سلاسل موافقة متعددة الخطوات مبنية على الأدوار لكل نوع إجراء قابل للموافقة."
+        title={t("workflowConfig.title")}
+        description={t("workflowConfig.description")}
         actions={
           <Button variant="primary" onClick={openCreate} disabled={availableActionTypes.length === 0}>
-            إضافة سير عمل جديد
+            {t("workflowConfig.add")}
           </Button>
         }
-        stats={[{ label: "سير عمل مُعرّف", value: <span className="mz-num">{configs.length}</span> }]}
+        stats={[{ label: t("workflowConfig.stat.defined"), value: <span className="mz-num">{configs.length}</span> }]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بنوع الإجراء…"
+        searchPlaceholder={t("workflowConfig.searchPlaceholder")}
         columns={columns}
         rows={filtered}
         rowKey={(c) => c.id}
@@ -188,17 +185,17 @@ export function WorkflowConfigPage() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{configs.length}</span>
+            {t("workflowConfig.showingPrefix")} <span className="mz-num">{filtered.length}</span> {t("workflowConfig.showingOf")} <span className="mz-num">{configs.length}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد إعدادات موافقات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("workflowConfig.empty")}</div>}
       />
 
       <SidePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        title={editing ? "تعديل سير عمل" : "إضافة سير عمل جديد"}
-        description="سلسلة موافقة متسلسلة — كل خطوة تُسند إلى دور معتمد واحد."
+        title={editing ? t("workflowConfig.panel.edit") : t("workflowConfig.panel.new")}
+        description={t("workflowConfig.panel.description")}
       >
         <div className="flex flex-col gap-[16px]">
           {error ? (
@@ -206,59 +203,59 @@ export function WorkflowConfigPage() {
           ) : null}
 
           <SelectField
-            label="نوع الإجراء"
+            label={t("workflowConfig.field.actionType")}
             value={actionType}
             onChange={setActionType}
             disabled={!!editing}
             options={
               editing
-                ? [{ value: editing.actionType, label: actionTypeLabel(editing.actionType) }]
-                : availableActionTypes.map((a) => ({ value: a.code, label: a.labelAr }))
+                ? [{ value: editing.actionType, label: actionTypeLabel(editing.actionType, t) }]
+                : availableActionTypes.map((a) => ({ value: a.code, label: actionTypeLabel(a.code, t) }))
             }
           />
 
           <div className="flex flex-col gap-[10px]">
             <div className="flex items-center justify-between">
-              <span className="text-[12.5px] font-semibold text-ink">خطوات الموافقة</span>
+              <span className="text-[12.5px] font-semibold text-ink">{t("workflowConfig.stepsHeading")}</span>
               <Button size="sm" onClick={addStep} disabled={customRoles.length === 0}>
-                إضافة خطوة
+                {t("workflowConfig.addStep")}
               </Button>
             </div>
             {customRoles.length === 0 ? (
-              <p className="text-[11.5px] text-ink-faint">لا توجد أدوار مخصصة — أنشئ دورًا مخصصًا أولًا من صفحة الأدوار والصلاحيات.</p>
+              <p className="text-[11.5px] text-ink-faint">{t("workflowConfig.noRoles")}</p>
             ) : null}
             {steps.map((step, index) => (
               <div key={index} className="flex flex-col gap-[8px] rounded-lg border border-border bg-surface p-[12px_14px]">
                 <div className="flex items-center justify-between">
                   <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[2px] text-[11px] font-bold text-brand">
-                    خطوة {index + 1}
+                    {t("workflowConfig.step", { number: index + 1 })}
                   </span>
                   {steps.length > 1 ? (
                     <Button size="sm" variant="ghost" onClick={() => removeStep(index)}>
-                      إزالة
+                      {t("workflowConfig.removeStep")}
                     </Button>
                   ) : null}
                 </div>
                 <SelectField
-                  label="اختر الدور"
+                  label={t("workflowConfig.field.role")}
                   value={step.role}
                   onChange={(v) => updateStep(index, { role: v })}
                   options={customRoles.map((r) => ({ value: r.code, label: r.name }))}
                 />
                 <TextField
-                  label="وصف الخطوة"
+                  label={t("workflowConfig.field.stepDescription")}
                   value={step.description}
                   onChange={(v) => updateStep(index, { description: v })}
-                  placeholder="مثال: مراجعة المشرف المباشر"
+                  placeholder={t("workflowConfig.field.stepPlaceholder")}
                 />
               </div>
             ))}
           </div>
 
           <div className="flex justify-end gap-[9px]">
-            <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button onClick={() => setPanelOpen(false)}>{t("workflowConfig.cancel")}</Button>
             <Button variant="primary" onClick={() => void save()}>
-              حفظ سير العمل
+              {t("workflowConfig.save")}
             </Button>
           </div>
         </div>

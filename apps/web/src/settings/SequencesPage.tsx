@@ -4,6 +4,8 @@ import type { SequenceListItemDTO } from "@mezan/contracts";
 import { useSequences, useUpdateSequence, useResetSequenceCounter } from "../data/platform-hooks";
 import { ApiError } from "../data/hooks";
 import { TextField, NumberField, ToggleField } from "./form-controls";
+import { sequenceLabel } from "../domain-labels";
+import { useAppTranslation } from "../i18n";
 
 /**
  * تسلسلات الترقيم (Numbering Sequences) — `/settings/sequences`. Reads the
@@ -21,6 +23,7 @@ function editForm(seq: SequenceListItemDTO) {
 }
 
 export function SequencesPage() {
+  const { t } = useAppTranslation();
   const query = useSequences();
   const updateSequence = useUpdateSequence();
   const resetCounter = useResetSequenceCounter();
@@ -43,16 +46,16 @@ export function SequencesPage() {
   const annualResetCount = sequences.filter((s) => s.annualReset).length;
 
   const columns: DocumentListColumn<SequenceListItemDTO>[] = [
-    { key: "code", header: "النوع", render: (s) => <span className="mz-num font-semibold text-ink">{s.code}</span> },
-    { key: "labelAr", header: "نوع المستند", render: (s) => <span className="text-ink">{s.labelAr}</span> },
-    { key: "prefix", header: "البادئة", render: (s) => <span className="mz-num text-ink-muted">{s.prefix || "—"}</span> },
-    { key: "padLength", header: "طول الترقيم", align: "end", render: (s) => <span className="mz-num">{s.padLength}</span> },
-    { key: "currentValue", header: "القيمة الحالية", align: "end", render: (s) => <span className="mz-num">{s.currentValue}</span> },
-    { key: "nextNumber", header: "الرقم التالي", align: "end", render: (s) => <span className="mz-num font-semibold text-brand">{s.nextNumber}</span> },
+    { key: "code", header: t("sequences.col.code"), render: (s) => <span className="mz-num font-semibold text-ink">{s.code}</span> },
+    { key: "labelAr", header: t("sequences.col.label"), render: (s) => <span className="text-ink">{sequenceLabel(s, t)}</span> },
+    { key: "prefix", header: t("sequences.col.prefix"), render: (s) => <span className="mz-num text-ink-muted">{s.prefix || "—"}</span> },
+    { key: "padLength", header: t("sequences.col.padLength"), align: "end", render: (s) => <span className="mz-num">{s.padLength}</span> },
+    { key: "currentValue", header: t("sequences.col.currentValue"), align: "end", render: (s) => <span className="mz-num">{s.currentValue}</span> },
+    { key: "nextNumber", header: t("sequences.col.nextNumber"), align: "end", render: (s) => <span className="mz-num font-semibold text-brand">{s.nextNumber}</span> },
     {
       key: "annualReset",
-      header: "إعادة الضبط بالسنة المالية",
-      render: (s) => <StatusPill label={s.annualReset ? "نعم" : "لا"} tone={(s.annualReset ? "info" : "neutral") as PillTone} />,
+      header: t("sequences.col.annualReset"),
+      render: (s) => <StatusPill label={s.annualReset ? t("sequences.yes") : t("sequences.no")} tone={(s.annualReset ? "info" : "neutral") as PillTone} />,
     },
   ];
 
@@ -74,7 +77,7 @@ export function SequencesPage() {
     if (!selected || !form) return;
     setError(null);
     if (form.prefix.trim() === "" || form.padLength < 1) {
-      setError("البادئة وطول الترقيم مطلوبان");
+      setError(t("sequences.error.prefixRequired"));
       return;
     }
     try {
@@ -84,7 +87,7 @@ export function SequencesPage() {
       });
       closePanel();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "تعذّر حفظ إعدادات التسلسل");
+      setError(err instanceof ApiError ? err.message : t("sequences.error.saveFailed"));
     }
   }
 
@@ -92,23 +95,23 @@ export function SequencesPage() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تسلسلات الترقيم.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("sequences.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("sequences.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<SequenceListItemDTO>
         eyebrow="Settings · Numbering Sequences"
-        title="تسلسلات الترقيم"
-        description="إعدادات ترقيم المستندات — البادئة وطول الترقيم وإعادة الضبط السنوي، فوق محرك الترقيم الحقيقي بلا فجوات"
+        title={t("sequences.title")}
+        description={t("sequences.description")}
         stats={[
-          { label: "إجمالي التسلسلات", value: <span className="mz-num">{sequences.length}</span> },
-          { label: "إعادة ضبط سنوية", value: <span className="mz-num">{annualResetCount}</span> },
+          { label: t("sequences.stat.total"), value: <span className="mz-num">{sequences.length}</span> },
+          { label: t("sequences.stat.annualReset"), value: <span className="mz-num">{annualResetCount}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالنوع أو الاسم..."
+        searchPlaceholder={t("sequences.searchPlaceholder")}
         columns={columns}
         rows={filtered}
         rowKey={(s) => s.code}
@@ -117,17 +120,17 @@ export function SequencesPage() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{sequences.length}</span> تسلسل
+            {t("sequences.showingPrefix")} <span className="mz-num">{filtered.length}</span> {t("sequences.showingOf")} <span className="mz-num">{sequences.length}</span> {t("sequences.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد تسلسلات مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("sequences.empty")}</div>}
       />
 
       <SidePanel
         open={selected !== null && form !== null}
         onClose={closePanel}
-        title={selected ? `${selected.labelAr} · ${selected.code}` : ""}
-        description="تعديل البادئة وطول الترقيم وإعادة الضبط السنوي"
+        title={selected ? `${sequenceLabel(selected, t)} · ${selected.code}` : ""}
+        description={t("sequences.panel.description")}
       >
         {selected && form ? (
           <div className="flex flex-col gap-[16px]">
@@ -136,38 +139,38 @@ export function SequencesPage() {
             <div className="rounded-md border border-border bg-surface-2 p-[12px_14px]">
               <dl className="flex flex-col gap-[6px] text-[12.5px]">
                 <div className="flex items-center justify-between">
-                  <dt className="text-ink-muted">القيمة الحالية للعداد</dt>
+                  <dt className="text-ink-muted">{t("sequences.counterCurrent")}</dt>
                   <dd className="mz-num font-semibold text-ink">{selected.currentValue}</dd>
                 </div>
                 <div className="flex items-center justify-between">
-                  <dt className="text-ink-muted">الرقم التالي</dt>
+                  <dt className="text-ink-muted">{t("sequences.counterNext")}</dt>
                   <dd className="mz-num font-semibold text-brand">{selected.nextNumber}</dd>
                 </div>
               </dl>
               <p className="mt-[8px] text-[11.5px] text-ink-faint">
-                العداد للقراءة فقط هنا — لا يمكن تعديله بحرية حتى لا تنكسر ضمانة عدم وجود فجوات في الترقيم. لتعديله صراحةً انظر أدناه.
+                {t("sequences.counterReadOnly")}
               </p>
             </div>
 
-            <TextField label="البادئة" value={form.prefix} onChange={(v) => setForm((f) => (f ? { ...f, prefix: v } : f))} />
+            <TextField label={t("sequences.field.prefix")} value={form.prefix} onChange={(v) => setForm((f) => (f ? { ...f, prefix: v } : f))} />
             <NumberField
-              label="طول الترقيم (عدد الأصفار)"
+              label={t("sequences.field.padLength")}
               value={form.padLength}
               min={1}
               max={12}
               onChange={(v) => setForm((f) => (f ? { ...f, padLength: v } : f))}
             />
             <ToggleField
-              label="إعادة الضبط بالسنة المالية"
-              hint="عند التفعيل يبدأ العداد من جديد في بداية كل سنة ميلادية"
+              label={t("sequences.field.annualReset")}
+              hint={t("sequences.field.annualResetHint")}
               checked={form.annualReset}
               onChange={(v) => setForm((f) => (f ? { ...f, annualReset: v } : f))}
             />
 
             <div className="flex justify-end gap-[9px]">
-              <Button onClick={closePanel}>إلغاء</Button>
+              <Button onClick={closePanel}>{t("sequences.cancel")}</Button>
               <Button variant="primary" onClick={() => void saveEdit()}>
-                حفظ
+                {t("sequences.save")}
               </Button>
             </div>
 
@@ -184,7 +187,7 @@ export function SequencesPage() {
                 />
               ) : (
                 <Button variant="danger-outline" size="sm" onClick={() => setCounterOpen(true)}>
-                  تعديل العداد يدويًا…
+                  {t("sequences.editCounter")}
                 </Button>
               )}
             </div>
@@ -212,6 +215,7 @@ function CounterAdjustPanel({
   onCancel: () => void;
   onConfirm: (value: number) => Promise<void>;
 }) {
+  const { t } = useAppTranslation();
   const [value, setValue] = useState(sequence.currentValue);
   const [ack, setAck] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -225,33 +229,32 @@ function CounterAdjustPanel({
     try {
       await onConfirm(value);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "تعذّر تعديل العداد");
+      setError(err instanceof ApiError ? err.message : t("sequences.error.counterFailed"));
     }
   }
 
   return (
     <div className="flex flex-col gap-[12px] rounded-md border border-danger bg-danger-soft p-[14px]">
       <p className="text-[12.5px] font-semibold text-danger-ink">
-        تعديل عداد الترقيم عملية استثنائية وحساسة — إنقاص القيمة مرفوض دائمًا لأنه قد يُكرر رقم مستند سبق إصداره،
-        وزيادتها تُحدث فجوة متعمدة في التسلسل.
+        {t("sequences.counterWarning")}
       </p>
       {error ? <StatusPill label={error} tone="danger" /> : null}
-      <NumberField label="القيمة الجديدة للعداد" value={value} min={sequence.currentValue} onChange={setValue} />
+      <NumberField label={t("sequences.field.newValue")} value={value} min={sequence.currentValue} onChange={setValue} />
       {belowCurrent ? (
         <p className="text-[11.5px] font-semibold text-danger-ink">
-          القيمة الجديدة أقل من القيمة الحالية ({sequence.currentValue}) — هذا التعديل مرفوض من الخادم.
+          {t("sequences.belowCurrent", { current: sequence.currentValue })}
         </p>
       ) : null}
       <label className="flex items-start gap-[8px] text-[12px] text-ink">
         <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-[2px]" />
-        <span>أؤكد أنني أدرك أثر هذا التعديل على تسلسل الترقيم وأنه لا يمكن التراجع عنه.</span>
+        <span>{t("sequences.counterConfirm")}</span>
       </label>
       <div className="flex justify-end gap-[9px]">
         <Button size="sm" onClick={onCancel}>
-          إلغاء
+          {t("sequences.cancel")}
         </Button>
         <Button size="sm" variant="danger-outline" disabled={!canConfirm} onClick={() => void handleConfirm()}>
-          تأكيد تعديل العداد
+          {t("sequences.counterSubmit")}
         </Button>
       </div>
     </div>

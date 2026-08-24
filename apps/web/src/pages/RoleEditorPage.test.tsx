@@ -1,8 +1,12 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import { createEntitlements } from "@mezan/domain";
 import { RoleEditorPage } from "./RoleEditorPage";
+import { AppI18nProvider } from "../i18n";
+
+/** The page reads the web catalogue, which only the provider supplies. */
+const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
 
 function entitlements(activeModules: string[]) {
   return createEntitlements({ plan: "STANDARD", activeModules, features: {}, seats: 5, expiresAt: null });

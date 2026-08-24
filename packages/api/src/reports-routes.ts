@@ -53,7 +53,7 @@ import {
   type EmployeeRepository,
   type RunReportOutcome,
 } from "@mezan/domain";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * التقارير — operational reports (docs/catalog/08-reports.md), mounted under
@@ -254,7 +254,8 @@ export function createReportsRoutes(
 
   app.get("/inventory/stock-levels", gate("inventory.stock.view"), async (c) => {
     const definition = createInventoryStockLevelsReport();
-    const [items, snapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
   });
 
@@ -273,7 +274,8 @@ export function createReportsRoutes(
 
   app.get("/inventory/valuation", gate("inventory.valuation.view"), async (c) => {
     const definition = createInventoryValuationReport();
-    const [items, snapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const [items, allSnapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const snapshots = withinScope(allSnapshots, warehouseScopeOf(c), (s) => s.warehouseId);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { items, snapshots }));
   });
 

@@ -61,3 +61,35 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
 export function getAuthContext(c: Context): AuthContext | undefined {
   return c.get(AUTH_CONTEXT_KEY) as AuthContext | undefined;
 }
+
+/**
+ * The warehouses this request may see, or `undefined` for all of them.
+ *
+ * The shell's warehouse selector sends `x-warehouse-scope`, and
+ * `headerAuthContextResolver` resolves it — but until this existed no list
+ * route consulted it, so changing the selector relabelled the chrome and
+ * changed nothing on screen. A list route must narrow by this; it must never
+ * widen past it.
+ */
+export function warehouseScopeOf(c: Context): readonly string[] | undefined {
+  const scope = getAuthContext(c)?.warehouseScope;
+  return !scope || scope === ALL_SCOPE ? undefined : scope;
+}
+
+/** The branches this request may see, or `undefined` for all of them. See {@link warehouseScopeOf}. */
+export function branchScopeOf(c: Context): readonly string[] | undefined {
+  const scope = getAuthContext(c)?.branchScope;
+  return !scope || scope === ALL_SCOPE ? undefined : scope;
+}
+
+/** Narrows `rows` to the scope, by whichever key carries the id. Returns `rows` untouched when unscoped. */
+export function withinScope<T>(rows: readonly T[], scope: readonly string[] | undefined, idOf: (row: T) => string | null | undefined): readonly T[] {
+  if (!scope) return rows;
+  const allowed = new Set(scope);
+  return rows.filter((row) => {
+    const id = idOf(row);
+    // A row with no id on the scoping dimension is not attributable, so it
+    // stays visible rather than silently vanishing under a narrowed scope.
+    return id == null || allowed.has(id);
+  });
+}

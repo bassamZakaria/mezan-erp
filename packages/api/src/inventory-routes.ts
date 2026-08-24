@@ -20,7 +20,7 @@ import {
   postedAdjustmentListQuerySchema,
   postedTransferListQuerySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Permission-gated routes for the costing + stock-ledger engine (docs/catalog/03).
@@ -175,10 +175,13 @@ export function createInventoryRoutes(
   });
 
   app.get("/valuation", gate("inventory.valuation.view"), async (c) => {
-    const { positions, totalValue } = await service.getValuation();
+    const { positions } = await service.getValuation();
+    const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
     return c.json({
-      rows: positions.map(serializeBalance),
-      totalValue: totalValue.toString(),
+      rows: scoped.map(serializeBalance),
+      // Recomputed over the scoped rows: a total that still covered every
+      // warehouse would contradict the list beneath it.
+      totalValue: scoped.reduce((sum, p) => sum.add(p.totalValue), Money.zero()).toString(),
     });
   });
 
@@ -186,7 +189,8 @@ export function createInventoryRoutes(
   app.get("/stock-balance", gate("inventory.stock.view"), async (c) => {
     const { positions } = await service.getValuation();
     const warehouseId = c.req.query("warehouseId");
-    const rows = rollupStockBalance(positions, { warehouseId });
+    const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
+    const rows = rollupStockBalance(scoped, { warehouseId });
     return c.json({ rows: rows.map(serializeBalanceRow) });
   });
 
@@ -254,7 +258,7 @@ export function createInventoryRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const adjustments = await service.listPostedAdjustments(parsed.data);
-    return c.json(adjustments.map(serializePostedAdjustment));
+    return c.json(withinScope(adjustments, warehouseScopeOf(c), (a) => a.warehouseId).map(serializePostedAdjustment));
   });
 
   app.get("/adjustments/:id", gate("inventory.adjustment.view"), async (c) => {
@@ -269,7 +273,13 @@ export function createInventoryRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const transfers = await service.listPostedTransfers(parsed.data);
-    return c.json(transfers.map(serializePostedTransfer));
+    // A transfer is visible from either end: hiding it from the receiving
+    // warehouse would make stock appear from nowhere.
+    const scope = warehouseScopeOf(c);
+    const visible = !scope
+      ? transfers
+      : transfers.filter((t) => scope.includes(t.fromWarehouseId) || scope.includes(t.toWarehouseId));
+    return c.json(visible.map(serializePostedTransfer));
   });
 
   app.get("/transfers/:id", gate("inventory.transfer.view"), async (c) => {

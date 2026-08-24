@@ -32,7 +32,7 @@ import {
   recordPhysicalCountEntriesSchema,
   generateAdjustmentFromCountSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * Document-layer routes for the phase4/inventory-ops document types, built on
@@ -348,10 +348,11 @@ export function createPhysicalCountsRoutes(
 
   app.get("/", gate("inventory.count.view"), async (c) => {
     const status = c.req.query("status") as PhysicalCountStatus | undefined;
-    const counts = await service.list({
-      status,
-      warehouseId: c.req.query("warehouseId"),
-    });
+    const counts = withinScope(
+      await service.list({ status, warehouseId: c.req.query("warehouseId") }),
+      warehouseScopeOf(c),
+      (count) => count.warehouseId,
+    );
     return c.json(counts.map(serializeCount));
   });
 

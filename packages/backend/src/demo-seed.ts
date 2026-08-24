@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { assertLocalOrTest } from "./demo-seed/shared.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -297,6 +298,7 @@ async function alreadySeeded(app: App): Promise<boolean> {
 }
 
 export async function seedDemoTenant(app: App): Promise<void> {
+  assertLocalOrTest();
   if (await alreadySeeded(app)) return;
 
   for (const customer of CUSTOMERS) {

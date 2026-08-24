@@ -29,6 +29,7 @@ import {
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -42,11 +43,11 @@ import { TextField, NumberField } from "../settings/form-controls";
  * not `Money`/`Qty` domain instances.
  */
 
-const STATUS_LABEL: Record<PurchaseRfqStatusDTO, string> = {
-  draft: "مسودة",
-  sent: "مرسل",
-  closed: "مغلق",
-  cancelled: "ملغي",
+const STATUS_KEY: Record<PurchaseRfqStatusDTO, AppTranslationKey> = {
+  draft: "rfqs.status.draft",
+  sent: "rfqs.status.sent",
+  closed: "rfqs.status.closed",
+  cancelled: "rfqs.status.cancelled",
 };
 const STATUS_TONE: Record<PurchaseRfqStatusDTO, PillTone> = {
   draft: "neutral",
@@ -99,6 +100,7 @@ function RfqDetail({
   createRfqQuote: ReturnType<typeof useCreateRfqQuote>;
   convertRfq: ReturnType<typeof useConvertRfq>;
 }) {
+  const { t } = useAppTranslation();
   const [quoteSupplier, setQuoteSupplier] = useState<EntityPickerOption | null>(null);
   const [quoteLines, setQuoteLines] = useState<QuoteDraftLine[]>(rfq.lines.map((l) => ({ itemId: l.itemId, unitPrice: 0 })));
   const [quoteNotes, setQuoteNotes] = useState("");
@@ -159,58 +161,58 @@ function RfqDetail({
 
   return (
     <DocumentDetail
-      title={`طلب عرض سعر ${rfq.number}`}
-      statusLabel={STATUS_LABEL[rfq.status]}
+      title={t("rfqs.detailTitle", { number: rfq.number })}
+      statusLabel={t(STATUS_KEY[rfq.status])}
       statusTone={STATUS_TONE[rfq.status]}
-      subtitle={`${fmtDate(rfq.date)} · ${rfq.lines.length} بند`}
+      subtitle={t("rfqs.subtitle", { date: fmtDate(rfq.date), count: rfq.lines.length })}
       actions={
         <>
           {rfq.status === "draft" ? (
             <Button variant="primary" onClick={() => sendRfq.mutate(rfq.id)} disabled={sendRfq.isPending}>
-              إرسال
+              {t("rfqs.send")}
             </Button>
           ) : null}
           {rfq.status === "sent" ? (
             <Button onClick={() => closeRfq.mutate(rfq.id)} disabled={closeRfq.isPending}>
-              إغلاق بدون تحويل
+              {t("rfqs.closeWithout")}
             </Button>
           ) : null}
           {rfq.status === "draft" || rfq.status === "sent" ? (
             <Button onClick={() => cancelRfq.mutate(rfq.id)} disabled={cancelRfq.isPending}>
-              إلغاء الطلب
+              {t("rfqs.cancel")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>رجوع لطلبات عروض الأسعار</Button>
+          <Button onClick={onBack}>{t("rfqs.backToList")}</Button>
         </>
       }
       summary={[
-        { label: "التاريخ", value: fmtDate(rfq.date) },
-        { label: "مطلوب بحلول", value: fmtDate(rfq.requiredByDate) },
-        { label: "المستودع", value: rfq.warehouseId },
-        { label: "عدد العروض المستلمة", value: <span className="mz-num">{quotes.length}</span> },
+        { label: t("common.date"), value: fmtDate(rfq.date) },
+        { label: t("rfqs.detail.requiredBy"), value: fmtDate(rfq.requiredByDate) },
+        { label: t("common.warehouse"), value: rfq.warehouseId },
+        { label: t("rfqs.detail.quotesReceived"), value: <span className="mz-num">{quotes.length}</span> },
         {
-          label: "أمر الشراء المرتبط",
+          label: t("rfqs.detail.linkedOrder"),
           value: rfq.purchaseOrderId ?? "—",
         },
-        { label: "أنشئ بواسطة", value: rfq.createdBy },
+        { label: t("rfqs.detail.createdBy"), value: rfq.createdBy },
       ]}
       effects={[
-        "لا يؤثر طلب عرض السعر على المخزون أو الحسابات — مستند تحضيري فقط.",
-        "بعد الإرسال يمكن تسجيل عروض أسعار الموردين ومقارنتها في التبويبات أدناه.",
-        "تحويل عرض مختار إلى أمر شراء يُغلق طلب عرض السعر ويربطه بالأمر الجديد.",
+        t("rfqs.effect.noImpact"),
+        t("rfqs.effect.afterSend"),
+        t("rfqs.effect.onConvert"),
       ]}
       tabs={[
         {
           key: "lines",
-          label: `البنود (${rfq.lines.length})`,
+          label: t("rfqs.tab.lines", { count: rfq.lines.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[520px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-end">الكمية</th>
-                    <th className="px-[12px] py-[9px] text-start">ملاحظات</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.notes")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -228,12 +230,12 @@ function RfqDetail({
         },
         {
           key: "quotes",
-          label: `العروض (${quotes.length})`,
+          label: t("rfqs.tab.quotes", { count: quotes.length }),
           content: (
             <div className="flex flex-col gap-[16px]">
               {quotes.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border p-[16px] text-center text-[13px] text-ink-muted">
-                  لا توجد عروض أسعار مسجلة بعد
+                  {t("rfqs.noQuotes")}
                 </div>
               ) : (
                 <div className="flex flex-col gap-[10px]">
@@ -263,13 +265,13 @@ function RfqDetail({
 
               {rfq.status === "sent" && availableQuoteSuppliers.length > 0 ? (
                 <div className="rounded-lg border border-border bg-surface p-[14px]">
-                  <div className="mb-[10px] text-[13px] font-semibold text-ink">تسجيل عرض سعر جديد</div>
+                  <div className="mb-[10px] text-[13px] font-semibold text-ink">{t("rfqs.newQuoteHeading")}</div>
                   <div className="flex flex-col gap-[10px]">
-                    <EntityPicker label="المورد" value={quoteSupplier} onChange={setQuoteSupplier} options={availableQuoteSuppliers} placeholder="اختر المورد…" />
+                    <EntityPicker label={t("rfqs.field.supplier")} value={quoteSupplier} onChange={setQuoteSupplier} options={availableQuoteSuppliers} placeholder={t("rfqs.field.supplierPlaceholder")} />
                     {rfq.lines.map((line, i) => (
                       <NumberField
                         key={line.itemId}
-                        label={`سعر ${itemLabel(line.itemId)}`}
+                        label={t("rfqs.field.priceFor", { item: itemLabel(line.itemId) })}
                         value={quoteLines[i]?.unitPrice ?? 0}
                         min={0}
                         onChange={(v) =>
@@ -277,10 +279,10 @@ function RfqDetail({
                         }
                       />
                     ))}
-                    <TextField label="ملاحظات" value={quoteNotes} onChange={setQuoteNotes} />
+                    <TextField label={t("common.notes")} value={quoteNotes} onChange={setQuoteNotes} />
                     <div className="flex justify-end">
                       <Button variant="primary" onClick={submitQuote} disabled={!quoteSupplier || createRfqQuote.isPending}>
-                        حفظ العرض
+                        {t("rfqs.saveQuote")}
                       </Button>
                     </div>
                   </div>
@@ -291,15 +293,15 @@ function RfqDetail({
         },
         {
           key: "comparison",
-          label: "مقارنة العروض",
+          label: t("rfqs.tab.compare"),
           content:
             quotes.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border p-[16px] text-center text-[13px] text-ink-muted">
-                سجّل عرضاً واحداً على الأقل لعرض المقارنة
+                {t("rfqs.compareEmpty")}
               </div>
             ) : comparisonQuery.isLoading || !comparison ? (
               <div className="rounded-lg border border-dashed border-border p-[16px] text-center text-[13px] text-ink-muted">
-                جارِ تحميل المقارنة…
+                {t("rfqs.compareLoading")}
               </div>
             ) : (
               <div className="flex flex-col gap-[10px]">
@@ -308,7 +310,7 @@ function RfqDetail({
                   <table className="w-full min-w-[560px] border-collapse text-[13px]">
                     <thead>
                       <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                        <th className="px-[12px] py-[9px] text-start">الصنف</th>
+                        <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                         {comparison.supplierIds.map((sid) => (
                           <th key={sid} className="px-[12px] py-[9px] text-end">{supplierLabel(sid)}</th>
                         ))}
@@ -332,12 +334,12 @@ function RfqDetail({
                     </tbody>
                     <tfoot>
                       <tr className="border-t border-border font-semibold">
-                        <td className="px-[12px] py-[10px]">الإجمالي (سلة كاملة)</td>
+                        <td className="px-[12px] py-[10px]">{t("rfqs.basketTotal")}</td>
                         {comparison.supplierIds.map((sid) => {
                           const total = comparison.totalsBySupplier[sid];
                           return (
                             <td key={sid} className="px-[12px] py-[10px] text-end">
-                              {total ? <MoneyValue value={Number(total)} showUnit={false} /> : "غير مكتمل"}
+                              {total ? <MoneyValue value={Number(total)} showUnit={false} /> : t("rfqs.incomplete")}
                             </td>
                           );
                         })}
@@ -353,7 +355,7 @@ function RfqDetail({
                                   onClick={() => handleConvert(sid)}
                                   disabled={pendingConvertSupplierId !== null}
                                 >
-                                  تحويل إلى أمر شراء
+                                  {t("rfqs.convertToOrder")}
                                 </Button>
                               ) : null}
                             </td>
@@ -372,6 +374,7 @@ function RfqDetail({
 }
 
 export function RfqsScreen() {
+  const { t } = useAppTranslation();
   const workingLocation = useWorkingLocation();
   const rfqsQuery = useRfqs();
   const rfqs = rfqsQuery.data ?? [];
@@ -424,19 +427,19 @@ export function RfqsScreen() {
   }, [rfqs]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all },
-    { key: "draft", label: STATUS_LABEL.draft, count: counts.draft },
-    { key: "sent", label: STATUS_LABEL.sent, count: counts.sent },
-    { key: "closed", label: STATUS_LABEL.closed, count: counts.closed },
-    { key: "cancelled", label: STATUS_LABEL.cancelled, count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all },
+    { key: "draft", label: t(STATUS_KEY.draft), count: counts.draft },
+    { key: "sent", label: t(STATUS_KEY.sent), count: counts.sent },
+    { key: "closed", label: t(STATUS_KEY.closed), count: counts.closed },
+    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: counts.cancelled },
   ];
 
   const columns: DocumentListColumn<PurchaseRfqDTO>[] = [
-    { key: "number", header: "رقم الطلب", render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
-    { key: "date", header: "التاريخ", render: (r) => <span className="mz-num">{fmtDate(r.date)}</span> },
-    { key: "lines", header: "البنود", align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
-    { key: "po", header: "أمر الشراء", render: (r) => r.purchaseOrderId ?? "—" },
-    { key: "status", header: "الحالة", render: (r) => <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} /> },
+    { key: "number", header: t("rfqs.col.number"), render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
+    { key: "date", header: t("common.date"), render: (r) => <span className="mz-num">{fmtDate(r.date)}</span> },
+    { key: "lines", header: t("rfqs.col.lines"), align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
+    { key: "po", header: t("rfqs.col.po"), render: (r) => r.purchaseOrderId ?? "—" },
+    { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
   ];
 
   function openCreate() {
@@ -455,7 +458,7 @@ export function RfqsScreen() {
     if (usable.length === 0) return;
     setCreateError(null);
     if (!workingLocation.branchId || !workingLocation.warehouseId) {
-      setCreateError("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.");
+      setCreateError(t("rfqs.error.noScope"));
       return;
     }
     try {
@@ -480,40 +483,40 @@ export function RfqsScreen() {
   }
 
   const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="طلب عرض سعر جديد" description="اختر الأصناف والكميات المطلوبة لمقارنة عروض الموردين">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("rfqs.panel.title")} description={t("rfqs.panel.description")}>
       <div className="flex flex-col gap-[14px]">
-        <TextField label="التاريخ" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-        <TextField label="مطلوب بحلول" value={requiredByDate} onChange={setRequiredByDate} placeholder="YYYY-MM-DD" />
+        <TextField label={t("rfqs.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+        <TextField label={t("rfqs.detail.requiredBy")} value={requiredByDate} onChange={setRequiredByDate} placeholder="YYYY-MM-DD" />
         <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">الأصناف المطلوبة</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("rfqs.itemsHeading")}</span>
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
-                label="الصنف"
+                label={t("common.item")}
                 value={itemOptions.find((o) => o.id === line.itemId) ?? null}
                 onChange={(opt) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "" } : l)))}
                 options={itemOptions}
-                placeholder="اختر صنفاً…"
+                placeholder={t("rfqs.field.itemPlaceholder")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
-                <NumberField label="الكمية" value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
-                <TextField label="ملاحظات" value={line.notes} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, notes: v } : l)))} />
+                <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
+                <TextField label={t("common.notes")} value={line.notes} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, notes: v } : l)))} />
               </div>
               {lines.length > 1 ? (
                 <div className="mt-[8px] flex justify-end">
-                  <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>حذف البند</Button>
+                  <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>{t("rfqs.deleteLine")}</Button>
                 </div>
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, notes: "" }])}>إضافة بند</Button>
+          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, notes: "" }])}>{t("rfqs.addLine")}</Button>
         </div>
-        <TextField label="ملاحظات عامة" value={notes} onChange={setNotes} />
+        <TextField label={t("rfqs.field.generalNotes")} value={notes} onChange={setNotes} />
         {createError ? <div className="rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{createError}</div> : null}
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createRfq.isPending}>
-            حفظ
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -545,35 +548,35 @@ export function RfqsScreen() {
     <>
       <DocumentList<PurchaseRfqDTO>
         eyebrow="Purchases · RFQs"
-        title="طلبات عروض الأسعار"
-        description="اجمع عروض أسعار الموردين وقارنها قبل إصدار أمر الشراء"
+        title={t("rfqs.title")}
+        description={t("rfqs.description")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            طلب عرض سعر جديد
+            {t("rfqs.new")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الطلبات", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مرسلة", value: <span className="mz-num">{counts.sent}</span> },
-          { label: "مغلقة (محوّلة)", value: <span className="mz-num">{counts.closed}</span> },
-          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("rfqs.stat.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("rfqs.stat.sent"), value: <span className="mz-num">{counts.sent}</span> },
+          { label: t("rfqs.stat.closed"), value: <span className="mz-num">{counts.closed}</span> },
+          { label: t("rfqs.stat.draft"), value: <span className="mz-num">{counts.draft}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as PurchaseRfqStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="ابحث برقم الطلب…"
+        searchPlaceholder={t("rfqs.searchPlaceholder")}
         columns={columns}
         rows={filtered}
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelectedId(r.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> طلب</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {rfqsQuery.isLoading ? "جارِ التحميل…" : "لا توجد طلبات عروض أسعار — أنشئ طلب عرض سعر لمقارنة أسعار الموردين قبل إصدار أمر الشراء"}
+            {rfqsQuery.isLoading ? t("common.loading") : t("rfqs.empty")}
           </div>
         }
       />

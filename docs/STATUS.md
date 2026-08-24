@@ -1,6 +1,6 @@
 # Mezan — Status
 
-**Updated 2026-08-23** · Branch `ui-enhancements` @ `1aa6a51` (pushed) · v1 = Electron desktop, SQLite, real data.
+**Updated 2026-08-24** · Branch `main` · v1 = Electron desktop, SQLite, real data.
 
 > **This is the only status document.** Everything else under `docs/` is durable
 > reference that does not go stale. Point-in-time audits live in `docs/archive/`
@@ -32,12 +32,13 @@ Measured against the running app, not the checklist:
 |---|---|
 | Screens routed | **110** (from 129 nav entries) |
 | «قريباً» markers outside HR | **0** |
-| Read surfaces answering `pnpm smoke` | **114** |
+| Read surfaces answering `pnpm smoke` | **116** |
 | Reference screens still absent | ~22 |
 | Typecheck / lint / build / smoke | passing |
 | UX enhancement spec (§2–§8) | built; 4 items await a human decision |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow |
 | Business-logic test execution | disabled by decision — see `testing-policy.md` |
+| `pnpm scenarios` | **1,412 assertions passing, 4 failing** — the 4 are the 4 open defects in `defects.md` |
 
 ## Verification
 

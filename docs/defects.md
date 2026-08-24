@@ -4,7 +4,7 @@
 and updates it before finishing. Nothing else tracks defects — if it is not
 here, it is not tracked.
 
-Updated 2026-08-24 (after the 964-scenario authoring pass and the fixes it triggered).
+Updated 2026-08-24 (after the fix pass on the register's own OPEN table).
 
 ## How to use this file
 
@@ -32,22 +32,14 @@ through as "oh, that's the known one".
 
 | # | Area | Defect | Measured evidence | Severity |
 |---|---|---|---|---|
-| D1 | Treasury / AR | A confirmed collection voucher never moves the invoice's `amountPaid` | `VCH-DEMO-1` collects **6,279.12** and credits AR in the GL; every invoice still reports `amountPaid: 0` | High |
+| D1 | Treasury / AR | A confirmed collection voucher never moves the invoice's `amountPaid` | `VCH-DEMO-1` collects **6,279.12** and credits AR in the GL; every invoice still reports `amountPaid: 0`. AP is the same defect on the other side: the sub-ledger counts every confirmed purchase invoice in full and ignores supplier payments, so it stands **35,554.00** above GL 2100 | High |
 | D2 | Inventory / GL | A `PHYSICAL_COUNT` adjustment moves stock with **no journal entry** | Single-sided count leaves inventory off by exactly **122.00** | High |
 | D3 | Manufacturing / GL | `completeWorkOrder` never touches GL 1200 | BOM-DEMO-1 at qty 10 leaves inventory off by exactly **80.00** | High |
-| D4 | Inventory reporting | `occurredAt` stamped `now()` instead of the document date | Drift reports `valueDiff 2400 = 120 × (160 − 140)` — a gap that is not real | Medium |
-| D5 | E-invoicing | The ETA queue has no producer | `EtaService.enqueue` exists; **no route and no event bridge calls it**, so no user action can enqueue a document | Medium |
-| D7 | Shell / scope | **Branch** scope still filters nothing | No list route reads `branchScope`; unprovable either way while the tenant has one branch | Medium |
-| D8 | Approvals | An admin rejecting someone else's pending request **approves** it instead | Decide-side bypass, distinct from the submit-side one | High |
-| D9 | Sales | An invoice's `remainingBalance` never subtracts confirmed returns | `INV-DEMO-1` shows its full 13,953.60 despite 1,197.00 returned | Medium |
-| D10 | Purchases | Document creation hardcodes `branchId: "MAIN"`, `warehouseId: "MAIN-WH"` — ids that do not exist in this tenant (`BR-MAIN`/`WH-MAIN`) | RFQ, PO and invoice create paths | Medium |
-| D11 | HR | A leave request exceeding the balance is **accepted**, not refused — the balance simply goes negative | `consumeLeaveBalance` | Medium |
-| D12 | Projects | No status-transition guard, client or server — any status reaches any other | | Medium |
 | D13 | Fixed assets | No disposal action exists — the status value and permission exist, the route and button do not | | Medium |
-| D14 | Reports | F3's fix covers only the 7 financial statements; `useReport` still swallows validation errors for all 22 operational reports | Same symptom, 22 of 30 unfixed | Medium |
-| D15 | UX | Domain state-machine refusals surface in **English** inside the Arabic UI, and the hourly-payroll exclusion embeds the raw string `"hourly"` | | Low |
-| D17 | Demo data | The seeded tenant never funds its bank account, so the dashboard shows cash at **−100,524.88** and looks broken | GL 1310: 113,704 credited vs 5,100 debited — payroll and supplier payments disburse from an account with no opening balance | Medium |
-| D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
+| D18 | Inventory reporting | A landed cost writes **no stock movement**, so it cannot be replayed | `applyLandedCostRevaluation` bumps the snapshot and rewrites cost layers directly. `GET /inventory/drift` therefore reports `cacheDrift` on a healthy tenant: ITEM-DEMO-1 cached **146.827936** vs recomputed **140.000000** — and the field's own docstring says a nonzero value "means the cache is CORRUPTED" | Medium |
+| D19 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by **5,486.12** | The tile sums EVERY code-11xx asset account (trade AR 1105, installment AR 1110, retention 1150, employee advances 1160, and the credit-natural provision 1190 sign-flipped positive); aging covers sales-invoice trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic | Medium |
+
+Every other row that stood here has moved to FIXED below.
 
 ### D1 — collection voucher does not move `amountPaid`
 
@@ -77,22 +69,22 @@ no subtree rollup, so the inventory control account never sees the movement.
 **No work order in the seed is completed**, for this reason. Same caveat as D2:
 the path is unproven, not proven.
 
-### D4 — `occurredAt` is the wall clock, not the document date
+### D18 — a landed cost is invisible to the movement ledger
 
-Purchase and sales confirms stamp `occurredAt = now()`. Document-dated movements
-(transfers, adjustments, count-generated adjustments) carry a plain calendar
-date, which sorts *before* them. The drift report replays each position in
-`occurred_at` order and therefore consumes stock before the receipt that funded
-it.
+`applyLandedCostRevaluation` raises the position's value by mutating the WAC
+snapshot and deleting + re-adding cost layers at a higher unit cost. It appends
+nothing to the movement ledger, and `StockMovement` has no value-only shape to
+append, so `replay()` — which sums IN/OUT movements — can never reproduce the
+snapshot on any position a landed cost has touched.
 
-**The WAC snapshots themselves are correct** — reconciliation against the GL is
-exact. Only the replay-based drift report is affected.
+The snapshots themselves are correct, and reconciliation against GL 1200 is
+exact. What is wrong is the **diagnostic**: `cacheDrift` is documented as
+"nonzero means the cache is CORRUPTED and needs a rebuild", and it is nonzero on
+a perfectly healthy tenant. Fixing it needs a value-carrying movement kind —
+a change to the ledger's shape, not a patch.
 
-### D5 — the ETA queue has no producer
-
-`/eta/submissions` is the one list surface `pnpm check:seed` cannot fill, and it
-is exempted there with a pointer back here. Remove the exemption when a route or
-event bridge actually calls `enqueue`.
+This was found while fixing D4, and is the residue of what D4's original
+evidence (`valueDiff 2400`) was reading.
 
 ---
 
@@ -116,10 +108,31 @@ event bridge actually calls `enqueue`.
 | F15 | **The warehouse selector still did nothing on the adjustments and transfers screens.** F8 scoped the raw-engine routes; the document-layer routes those screens actually call were missed. A transfer stays visible from both its ends by design | this commit |
 | F12 | **A negative invoice-level discount inflated the total.** Every line-level discount was validated 0–100; the invoice-level one was not validated at all, so a negative amount applied as a literal subtraction and turned 950.00 into 1,140.00. Found by the executable sales suite on its first run | this commit |
 | F11 | **Webhook retries outlived shutdown**, waking against a closed store and throwing while recording — losing the final delivery record and printing stack traces that read like smoke failures. `stop()` is now called before the connection closes, and guards both the pause and the write. Verified: shutdown errors went from a flood to **0** | this commit |
+| F18 | **An admin rejecting someone else's pending request approved it instead** (D8). The gate's admin branch never read `input.decision`; an admin now bypasses the step's ROLE only | this commit |
+| F19 | **An approved request never posted its document.** Every confirm re-submitted a FRESH request over the standing one, discarding the approval that had just been granted, and deciding moved only the `ApprovalRequestRecord`. An approval now posts the held document; a rejection or a modification request hands it back as an editable draft; a rejected request refuses a re-confirm outright | this commit |
+| F20 | **TREASURY_VOUCHER_CONFIRM's gate was wired to a resolver that always returned null**, and held voucher requests were never persisted — no configured chain had any effect and nothing reached the inbox. `SALES_INVOICE_CONFIRM`'s seeded chain was equally inert: `salesInvoices` was never given the workflow gate at all | this commit |
+| F21 | **HR reported a disbursement as done while its treasury voucher sat unapproved** — the run went مصروف with no cash moved and no journal entry. It now refuses with `TREASURY_DISBURSEMENT_HELD`, and disbursing again after the approval finds the same voucher already posted | this commit |
+| F22 | **The VAT return's grand total summed the tax column across BOTH sides** — a figure with no accounting meaning, which the dashboard read as "VAT due". A report column can now declare its own grand total; the VAT return's declares output − input (D of the F17 family, on the server side this time) | this commit |
+| F23 | **The 22 operational reports still swallowed server parameter-validation errors** (D14) — F3 had covered only the 7 financial statements. Both hooks now share one extractor | this commit |
+| F24 | **An invoice's `remainingBalance` never subtracted confirmed returns** (D9), so a fully-returned invoice read as owed in full while the GL had credited AR. It nets them off and reports `returnedCredit` | this commit |
+| F25 | **RFQs, purchase orders and purchase invoices stamped the ids `"MAIN"` / `"MAIN-WH"`** (D10), which exist in no tenant this app seeds. They resolve branch and warehouse from the caller's own scope, and refuse to save when none is available | this commit |
+| F26 | **Approving leave drove the balance negative** (D11) — nothing checked the entitlement. It now refuses with `LEAVE_BALANCE_EXCEEDED`, naming days requested vs available; unpaid leave is exempt. The seed had taken the same shortcut and now grants the entitlement it uses | this commit |
+| F27 | **A project's status was never guarded** (D12) — any status reached any other, so a completed project could go back to "planned". `PROJECT_TRANSITIONS` is now enforced on the server and the picker only offers legal moves | this commit |
+| F28 | **Every domain state-machine refusal reached the Arabic UI in English**, naming raw status codes (D15), and the payroll exclusion embedded the code `"hourly"` in Arabic prose. Nine error types now read in Arabic through their module's own labels | this commit |
+| F29 | **Stock movements were dated by the wall clock on a confirm** but by the document date elsewhere (D4), so a replay consumed stock before the receipt that funded it. Every document-caused movement now derives its timestamp from its document's date | this commit |
+| F30 | **The seeded tenant never funded its bank account** (D17): cash read **−100,524.88**. An opening capital deposit precedes the first purchase; cash reads **+149,475.12** | this commit |
+| F31 | **`employees.xlsx` and `items.xlsx` shipped with a required column blank on every row** (D16), so each rejected all of its own rows. The generator's rows now carry hire date and base unit code | this commit |
+| F32 | **The branch selector filtered nothing** (D7) — the same failure F8 fixed for warehouses. Twelve branch-owned list routes now narrow; proven against a second branch that owns nothing | this commit |
+| F33 | **The ETA queue had no producer** (D5): `enqueue` existed and nothing called it, so `/eta/submissions` could not hold a row. A confirmed sales invoice now queues one, and `check:seed`'s exemption is gone — 102 surfaces populated, 0 empty | this commit |
 | F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.
+
+`pnpm scenarios` now fails on the approvals, scope, lifecycle and report-total
+classes: the executable suite asserts the FIXED behaviour, so a regression in
+any of F18–F33 turns it red. The four assertions still failing are the four
+defects still open above — deliberately, so the register and the suite agree.
 
 ---
 

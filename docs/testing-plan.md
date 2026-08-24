@@ -56,6 +56,55 @@ Fixtures for import screens live in `test-fixtures/` (see its README).
 
 ---
 
+## Known open defects — do not re-report these as new
+
+These are real, measured, and already recorded. A test run will hit them. Note
+that you saw them and move on; re-filing them as fresh findings buries whatever
+is actually new.
+
+Each was found by seeding every screen — none is visible on an empty tenant.
+
+1. **A confirmed collection voucher never moves the invoice's `amountPaid`.**
+   `VCH-DEMO-1` collects **6,279.12** and credits AR in the GL, while every
+   invoice still reports `amountPaid: 0`. The AR sub-ledger derives from
+   `grandTotal − amountPaid`, so it overstates by the full collection. This is
+   the `recordPayment`-vs-allocations split — two stores of the same fact — now
+   with a reproduction.
+
+2. **A `PHYSICAL_COUNT` adjustment moves stock with no journal entry.**
+   `adjustmentGlAccountsForReason` maps only `INITIAL_STOCK`, so a count
+   variance changes the sub-ledger and never the control account. Measured at
+   exactly **122.00** off for a single-sided count. The demo seed nets its two
+   counts to zero to work around this — which means **the demo data is not
+   evidence this path is sound**.
+
+3. **`completeWorkOrder` never touches GL 1200.** It posts to 1220 and to
+   1210 / 5110 / 5210, leaving inventory off by exactly **80.00** at BOM-DEMO-1
+   qty 10. No work order in the seed is completed, for this reason — so this
+   path is likewise unproven by the demo data.
+
+4. **`occurredAt` is stamped `now()` rather than the document date** on
+   purchase and sales confirms, while document-dated movements carry a plain
+   calendar date. The drift report replays each position in `occurred_at` order
+   and therefore consumes stock before the receipt that funded it, reporting a
+   gap that is not real. Verified analytically:
+   `valueDiff 2400 = 120 × (160 − 140)`, the average you get when a 2026-08-12
+   transfer OUT replays ahead of a 2026-07-06 purchase IN. **The WAC snapshots
+   themselves are correct** — reconciliation against the GL is exact.
+
+Consequences for a test run:
+
+- `مطابقة الأرصدة` **will** show an AR mismatch, from (1). Inventory and AP
+  should be exact; if inventory is not, that IS new — report it.
+- `/reports/inventory/drift` **will** show non-empty spurious rows, from (4).
+- Do not "fix" the numbers by confirming a count or completing a work order —
+  (2) and (3) mean either will genuinely unbalance the books.
+
+Remove an entry from this list the moment its defect is fixed. A stale
+do-not-report list is how a real regression gets waved through.
+
+---
+
 ## Phase 1 — Reachability and integrity (automated, ~10 min)
 
 One pass over every screen in the nav, measuring:

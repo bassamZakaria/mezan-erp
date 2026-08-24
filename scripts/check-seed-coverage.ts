@@ -29,6 +29,10 @@ const NEEDS_PARAMS = new Set(["/inventory/drift"]);
 const ALLOWED_EMPTY: Record<string, string> = {
   "/hr/leave-requests/me": "the seed admin is not an employee, so their own queue is correctly empty",
   "/notifications": "per-user inbox; the seed admin has received none",
+  "/eta/submissions":
+    "BUILD GAP, not a seeding gap: EtaService.enqueue exists but no route and no " +
+    "event bridge ever calls it, so no user action can put a row in this queue. " +
+    "Remove this entry once that is wired — see docs/STATUS.md.",
 };
 
 function countOf(body: unknown): number | null {

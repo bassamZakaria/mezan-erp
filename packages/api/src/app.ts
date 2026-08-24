@@ -67,6 +67,7 @@ import {
   reverseJournalEntry,
   type DocumentService,
   type LandedCostService,
+  type PurchaseInvoiceLookupPort,
   type SalesInvoiceLookupPort,
   type SalesReturnLine,
   type PurchaseReturnLine,
@@ -617,7 +618,12 @@ export interface CreateAppOptions {
     readonly invoices?: SalesInvoiceLookupPort;
   };
   /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
-  readonly purchaseReturns?: { readonly service: DocumentService<PurchaseReturnLine>; readonly resolveAuthContext?: AuthContextResolver };
+  readonly purchaseReturns?: {
+    readonly service: DocumentService<PurchaseReturnLine>;
+    readonly resolveAuthContext?: AuthContextResolver;
+    /** Lets the server derive the returnable quantity rather than trusting the client's. */
+    readonly invoices?: PurchaseInvoiceLookupPort;
+  };
   /**
    * Mounts `/landed-costs` (docs/catalog/02 §"التكاليف الإضافية") when
    * present. `documents` drives list/create/cancel; `service` (the same
@@ -847,7 +853,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.purchaseReturns) {
     app.route(
       "/purchase-returns",
-      createPurchaseReturnsRoutes(options.purchaseReturns.service, options.purchaseReturns.resolveAuthContext),
+      createPurchaseReturnsRoutes(options.purchaseReturns.service, options.purchaseReturns.resolveAuthContext, options.purchaseReturns.invoices),
     );
   }
   if (options.landedCosts) {

@@ -997,7 +997,43 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         },
       },
     },
-    purchaseReturns: { service: purchaseReturns },
+    purchaseReturns: {
+      service: purchaseReturns,
+      /** See salesReturns.invoices — same defect, same fix. */
+      invoices: {
+        async findConfirmedInvoice(id: string) {
+          const invoice = await purchaseInvoices.findById(id);
+          if (!invoice || invoice.status !== "confirmed") return null;
+          const priorReturns = await purchaseReturns.list();
+          const returnedByItem = new Map<string, Qty>();
+          for (const doc of priorReturns) {
+            if (doc.status !== "confirmed") continue;
+            for (const line of doc.lines) {
+              if (line.sourceInvoiceId !== id) continue;
+              returnedByItem.set(line.itemId, (returnedByItem.get(line.itemId) ?? Qty.zero()).add(line.qty));
+            }
+          }
+          return {
+            id: invoice.id,
+            number: invoice.number ?? invoice.id,
+            supplierId: invoice.supplierId,
+            warehouseId: invoice.warehouseId,
+            date: invoice.date,
+            status: "confirmed" as const,
+            lines: invoice.lines
+              .filter((l) => l.itemId !== null)
+              .map((l) => ({
+                itemId: l.itemId as string,
+                itemName: l.description ?? (l.itemId as string),
+                qty: l.qty,
+                alreadyReturnedQty: returnedByItem.get(l.itemId as string) ?? Qty.zero(),
+                unitCost: l.unitCost,
+                taxAmount: Money.zero(),
+              })),
+          };
+        },
+      },
+    },
     landedCosts: { documents: landedCostDocuments, service: landedCosts },
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
     reports: {

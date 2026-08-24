@@ -12,6 +12,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
 import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
@@ -19,13 +20,14 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-const STATUS_LABEL: Record<PurchaseOrderStatusDTO, string> = {
-  draft: "مسودة",
-  sent: "مرسل",
-  partially_received: "مستلم جزئياً",
-  fully_received: "مستلم بالكامل",
-  cancelled: "ملغي",
+const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
+  draft: "purchaseOrders.status.draft",
+  sent: "purchaseOrders.status.sent",
+  partially_received: "purchaseOrders.status.partially_received",
+  fully_received: "purchaseOrders.status.fully_received",
+  cancelled: "purchaseOrders.status.cancelled",
 };
 const STATUS_TONE: Record<PurchaseOrderStatusDTO, PillTone> = {
   draft: "neutral",
@@ -58,57 +60,58 @@ function OrderDetail({
   onBack: () => void;
   onConfirm: () => void;
 }) {
+  const { t } = useAppTranslation();
   return (
     <DocumentDetail
-      title={`أمر شراء ${order.number}`}
-      statusLabel={STATUS_LABEL[order.status]}
+      title={t("purchaseOrders.detailTitle", { number: order.number })}
+      statusLabel={t(STATUS_KEY[order.status])}
       statusTone={STATUS_TONE[order.status]}
       subtitle={`${supplierName(order.supplierId)} · ${order.date.split("-").reverse().join("/")}`}
       actions={
         <>
           {order.status === "draft" ? (
             <Button variant="primary" onClick={onConfirm}>
-              تأكيد وإرسال
+              {t("purchaseOrders.confirmSend")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>رجوع لأوامر الشراء</Button>
+          <Button onClick={onBack}>{t("purchaseOrders.backToList")}</Button>
         </>
       }
       summary={[
-        { label: "المورد", value: supplierName(order.supplierId) },
-        { label: "التاريخ", value: order.date.split("-").reverse().join("/") },
-        { label: "التسليم المتوقع", value: order.expectedDeliveryDate?.split("-").reverse().join("/") ?? "—" },
-        { label: "المستودع", value: order.warehouseId },
-        { label: "الإجمالي", value: <MoneyValue value={num(order.subtotal)} /> },
-        { label: "أنشئ بواسطة", value: order.createdBy },
+        { label: t("common.supplier"), value: supplierName(order.supplierId) },
+        { label: t("common.date"), value: order.date.split("-").reverse().join("/") },
+        { label: t("purchaseOrders.detail.expectedDelivery"), value: order.expectedDeliveryDate?.split("-").reverse().join("/") ?? "—" },
+        { label: t("common.warehouse"), value: order.warehouseId },
+        { label: t("common.total"), value: <MoneyValue value={num(order.subtotal)} /> },
+        { label: t("purchaseOrders.detail.createdBy"), value: order.createdBy },
       ]}
       effects={[
-        "لا يؤثر أمر الشراء على المخزون أو الحسابات — يسجّل التزاماً بالشراء لدى المورد فقط.",
-        "عند تأكيد إيصال الاستلام المرتبط تزيد كمية المخزون (استلام البضاعة).",
-        "عند تأكيد فاتورة المشتريات يزيد المستحق للمورد وتُسجّل الضريبة.",
+        t("purchaseOrders.effect.noStock"),
+        t("purchaseOrders.effect.onReceipt"),
+        t("purchaseOrders.effect.onInvoice"),
       ]}
       tabs={[
         {
           key: "lines",
-          label: `البنود (${order.lines.length})`,
+          label: t("purchaseOrders.tab.lines", { count: order.lines.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-end">الكمية</th>
-                    <th className="px-[12px] py-[9px] text-end">سعر الوحدة</th>
-                    <th className="px-[12px] py-[9px] text-end">مستلم</th>
-                    <th className="px-[12px] py-[9px] text-end">المتبقي</th>
-                    <th className="px-[12px] py-[9px] text-end">إجمالي البند</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseOrders.col.unitPrice")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseOrders.col.received")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseOrders.col.remaining")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseOrders.col.lineTotal")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {order.lines.map((l, i) => (
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{itemName(l.itemId)}</td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.qty}</td>
+                      <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
                       <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitPrice)} showUnit={false} /></td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{l.receivedQty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{outstandingQty(l)}</td>
@@ -126,6 +129,7 @@ function OrderDetail({
 }
 
 export function PurchaseOrdersScreen() {
+  const { t } = useAppTranslation();
   const query = usePurchaseOrders();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
@@ -173,20 +177,20 @@ export function PurchaseOrdersScreen() {
   }, [orders, statusFilter, search, supplierName]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: orders.length },
-    ...(Object.keys(STATUS_LABEL) as PurchaseOrderStatusDTO[]).map((s) => ({
+    { key: "all", label: t("common.all"), count: orders.length },
+    ...(Object.keys(STATUS_KEY) as PurchaseOrderStatusDTO[]).map((s) => ({
       key: s,
-      label: STATUS_LABEL[s],
+      label: t(STATUS_KEY[s]),
       count: orders.filter((o) => o.status === s).length,
     })),
   ];
 
   const columns: DocumentListColumn<PurchaseOrderDTO>[] = [
-    { key: "number", header: "رقم الأمر", render: (o) => <span className="mz-num font-semibold text-ink">{o.number}</span> },
-    { key: "supplier", header: "المورد", render: (o) => supplierName(o.supplierId) },
-    { key: "date", header: "التاريخ", render: (o) => <span className="mz-num">{o.date.split("-").reverse().join("/")}</span> },
-    { key: "total", header: "الإجمالي", align: "end", render: (o) => <MoneyValue value={num(o.subtotal)} /> },
-    { key: "status", header: "الحالة", render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
+    { key: "number", header: t("purchaseOrders.col.number"), render: (o) => <span className="mz-num font-semibold text-ink">{o.number}</span> },
+    { key: "supplier", header: t("common.supplier"), render: (o) => supplierName(o.supplierId) },
+    { key: "date", header: t("common.date"), render: (o) => <span className="mz-num">{o.date.split("-").reverse().join("/")}</span> },
+    { key: "total", header: t("common.total"), align: "end", render: (o) => <MoneyValue value={num(o.subtotal)} /> },
+    { key: "status", header: t("common.status"), render: (o) => <StatusPill label={t(STATUS_KEY[o.status])} tone={STATUS_TONE[o.status]} /> },
   ];
 
   function openCreate() {
@@ -214,7 +218,7 @@ export function PurchaseOrdersScreen() {
     if (!supplier) return;
     setFormError(null);
     if (!workingLocation.branchId || !workingLocation.warehouseId) {
-      setFormError("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.");
+      setFormError(t("purchaseOrders.error.noScope"));
       return;
     }
     try {
@@ -231,7 +235,7 @@ export function PurchaseOrdersScreen() {
       });
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذر حفظ أمر الشراء.");
+      setFormError(err instanceof Error ? err.message : t("purchaseOrders.error.saveFailed"));
     }
   }
 
@@ -242,51 +246,51 @@ export function PurchaseOrdersScreen() {
           {formError}
         </div>
       ) : null}
-      <EntityPicker label="المورد *" value={supplier} onChange={setSupplier} options={supplierOptions} placeholder="اختر المورد…" />
-      <TextField label="التاريخ" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+      <EntityPicker label={t("purchaseOrders.field.supplier")} value={supplier} onChange={setSupplier} options={supplierOptions} placeholder={t("purchaseOrders.field.supplierPlaceholder")} />
+      <TextField label={t("purchaseOrders.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
       <div className="flex flex-col gap-[10px]">
-        <span className="text-[12.5px] font-semibold text-ink">بنود أمر الشراء</span>
+        <span className="text-[12.5px] font-semibold text-ink">{t("purchaseOrders.linesHeading")}</span>
         {lines.map((line, i) => (
           <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
             <EntityPicker
-              label="الصنف"
+              label={t("common.item")}
               value={itemOptions.find((o) => o.id === line.itemId) ?? null}
               onChange={(opt) => {
                 const item = items.find((it) => it.id === opt?.id);
                 setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "", unitPrice: item?.costPrice ? Number(item.costPrice) : l.unitPrice } : l)));
               }}
               options={itemOptions}
-              placeholder="اختر صنفاً…"
+              placeholder={t("purchaseOrders.field.itemPlaceholder")}
             />
             <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
-              <NumberField label="الكمية" value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
-              <NumberField label="سعر الوحدة" value={line.unitPrice} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitPrice: v } : l)))} />
+              <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
+              <NumberField label={t("purchaseOrders.col.unitPrice")} value={line.unitPrice} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, unitPrice: v } : l)))} />
             </div>
             {lines.length > 1 ? (
               <div className="mt-[8px] flex justify-end">
-                <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>حذف البند</Button>
+                <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>{t("purchaseOrders.deleteLine")}</Button>
               </div>
             ) : null}
           </div>
         ))}
-        <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, unitPrice: 0 }])}>إضافة صنف</Button>
+        <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, unitPrice: 0 }])}>{t("purchaseOrders.addLine")}</Button>
       </div>
-      <TextField label="ملاحظات" value={notes} onChange={setNotes} />
+      <TextField label={t("common.notes")} value={notes} onChange={setNotes} />
       <div className="flex items-center justify-between border-t border-border pt-[12px]">
-        <span className="text-[12.5px] text-ink-muted">الإجمالي</span>
+        <span className="text-[12.5px] text-ink-muted">{t("common.total")}</span>
         <MoneyValue value={draftSubtotal} />
       </div>
       <div className="flex justify-end gap-[9px]">
-        <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+        <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={save} disabled={!canSave}>
-          حفظ مسودة
+          {t("purchaseOrders.saveDraft")}
         </Button>
       </div>
     </div>
   );
 
   const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="أمر شراء جديد" description="اختر المورد والأصناف والكميات">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("purchaseOrders.panel.title")} description={t("purchaseOrders.panel.description")}>
       {form}
     </SidePanel>
   );
@@ -304,41 +308,41 @@ export function PurchaseOrdersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أوامر الشراء.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseOrders.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<PurchaseOrderDTO>
         eyebrow="Purchases · Orders"
-        title="أوامر الشراء"
-        description="أمر رسمي للمورد بطلب البضائع — يقود إيصالات الاستلام ثم فواتير المشتريات"
+        title={t("purchaseOrders.title")}
+        description={t("purchaseOrders.description")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            أمر شراء جديد
+            {t("purchaseOrders.new")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الأوامر", value: <span className="mz-num">{orders.length}</span> },
-          { label: "طلبات مرسلة", value: <span className="mz-num">{orders.filter((o) => o.status === "sent").length}</span> },
-          { label: "إجمالي القيمة", value: <MoneyValue value={orders.reduce((sum, o) => sum + num(o.subtotal), 0)} showUnit={false} /> },
-          { label: "مستلم بالكامل", value: <span className="mz-num">{orders.filter((o) => o.status === "fully_received").length}</span> },
+          { label: t("purchaseOrders.stat.total"), value: <span className="mz-num">{orders.length}</span> },
+          { label: t("purchaseOrders.stat.sent"), value: <span className="mz-num">{orders.filter((o) => o.status === "sent").length}</span> },
+          { label: t("purchaseOrders.stat.value"), value: <MoneyValue value={orders.reduce((sum, o) => sum + num(o.subtotal), 0)} showUnit={false} /> },
+          { label: t("purchaseOrders.stat.received"), value: <span className="mz-num">{orders.filter((o) => o.status === "fully_received").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as PurchaseOrderStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم الأمر أو اسم المورد…"
+        searchPlaceholder={t("purchaseOrders.searchPlaceholder")}
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
         onRowClick={(o) => setSelectedId(o.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{orders.length}</span> أمر</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أوامر شراء مطابقة</div>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("purchaseOrders.showingSuffix")}</>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseOrders.empty")}</div>}
       />
       {panel}
     </>

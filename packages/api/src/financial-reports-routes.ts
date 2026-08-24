@@ -4,6 +4,7 @@ import {
   createBalanceSheetReport,
   createCashFlowReport,
   createGeneralLedgerReport,
+  comparativeRange,
   createIncomeStatementReport,
   createTrialBalanceReport,
   createVatReturnReport,
@@ -133,8 +134,13 @@ export function createFinancialReportsRoutes(
     const today = todayIso(deps);
     const definition = createIncomeStatementReport({ periodFrom: firstOfMonth(today), periodTo: today });
     const params = mergeParams(c, definition.defaultParams);
+    // The report is comparative, so the ledger query must reach back to the
+    // START of the comparison window. Bounding it at periodFrom left the prior
+    // column reading zero on every run — the comparison silently did nothing.
+    const periodFrom = String(params.periodFrom);
+    const prior = comparativeRange({ from: periodFrom, to: String(params.periodTo) }, params.compareTo as never);
     const ctx = await loadGlContext({
-      fromDate: isoDateOrUndefined(params.periodFrom),
+      fromDate: isoDateOrUndefined(prior.from < periodFrom ? prior.from : periodFrom),
       toDate: isoDateOrUndefined(params.periodTo),
     });
     return respond(c, runReport(definition, params, ctx));

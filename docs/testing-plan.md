@@ -125,6 +125,11 @@ Run in **both themes** and **both locales** (ar/RTL and en/LTR).
 
 - `color-mix()` resolves to `color(srgb 0.96 …)` — values are 0–1, not 0–255.
   Scale them or every zebra row reads as a contrast failure.
+- **`color(srgb r g b / 0.22)` carries its alpha after a slash.** A helper that
+  returns alpha 1 for anything starting `color(` treats a 22%-translucent brass
+  badge as opaque brass and compares brass text against brass — reporting
+  ratio 1.00 on every screen that shows the sidebar. This produced 86 identical
+  false findings in one run. Parse the alpha, or skip the element.
 - An element over a gradient has no single background colour. Skip it rather
   than guessing; the brass avatar monograms are fine and will otherwise report
   at 1.04:1.

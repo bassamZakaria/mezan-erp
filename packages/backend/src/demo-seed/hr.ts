@@ -1,6 +1,736 @@
 import type { App } from "@mezan/api";
+import { ADMIN_HEADERS, BRANCH_ID, CORE, step } from "./shared.js";
 
-/** Seed profile module — see `./shared.ts`. Local and test environments only. */
-export async function seedHr(_app: App): Promise<void> {
-  // Filled in by the hr seeding workstream.
+/**
+ * Seed profile module — see `./shared.ts`. Local and test environments only.
+ *
+ * الموارد البشرية for مصنع الوادي الأخضر's main branch: a six-department org
+ * chart under one general manager, nine employees (the core profile's two
+ * salespeople plus seven more), a contract per employee, and the year of
+ * activity that hangs off them — holidays, an applied leave-policy preset with
+ * its accrual batches and balances, leave requests in every status, two weeks
+ * of attendance, five advances and three monthly payroll runs at different
+ * stages of the draft → محتسب → معتمد → مصروف flow.
+ *
+ * Payroll figures are contractual only: basic salary, contract allowances,
+ * contract deductions and advance recovery. The engine computes NO income tax,
+ * social insurance, Article 47 seniority bonus, overtime or end-of-service
+ * gratuity — no formula for any of them was ever captured — so nothing here
+ * seeds a number that would imply one was.
+ */
+
+/** The seeded admin (`packages/backend/src/seed.ts`), whose login إجازاتي reads. */
+const SELF_SERVICE_USER = "USER-ADMIN";
+
+const DEPARTMENTS = [
+  { id: "DEPT-DEMO-1", code: "DEP-100", name: "General Management", nameAr: "الإدارة العامة", parentDepartmentId: null, overtimeEligible: false, standardWorkHours: 8 },
+  { id: "DEPT-DEMO-2", code: "DEP-200", name: "Sales", nameAr: "المبيعات", parentDepartmentId: "DEPT-DEMO-1", overtimeEligible: false, standardWorkHours: 8 },
+  { id: "DEPT-DEMO-3", code: "DEP-300", name: "Human Resources", nameAr: "الموارد البشرية", parentDepartmentId: "DEPT-DEMO-1", overtimeEligible: false, standardWorkHours: 8 },
+  { id: "DEPT-DEMO-4", code: "DEP-400", name: "Finance", nameAr: "الحسابات", parentDepartmentId: "DEPT-DEMO-1", overtimeEligible: false, standardWorkHours: 8 },
+  { id: "DEPT-DEMO-5", code: "DEP-500", name: "Production", nameAr: "الإنتاج", parentDepartmentId: "DEPT-DEMO-1", overtimeEligible: true, standardWorkHours: 8 },
+  { id: "DEPT-DEMO-6", code: "DEP-600", name: "Warehouse", nameAr: "المخازن", parentDepartmentId: "DEPT-DEMO-1", overtimeEligible: true, standardWorkHours: 9 },
+];
+
+const DEPARTMENT_MANAGERS = [
+  { departmentId: "DEPT-DEMO-1", managerId: "EMP-DEMO-3" },
+  { departmentId: "DEPT-DEMO-2", managerId: "EMP-DEMO-1" },
+  { departmentId: "DEPT-DEMO-3", managerId: "EMP-DEMO-4" },
+  { departmentId: "DEPT-DEMO-4", managerId: "EMP-DEMO-5" },
+  { departmentId: "DEPT-DEMO-5", managerId: "EMP-DEMO-6" },
+  { departmentId: "DEPT-DEMO-6", managerId: "EMP-DEMO-7" },
+];
+
+const JOB_TITLES = [
+  { id: "JT-DEMO-1", departmentId: "DEPT-DEMO-1", name: "General Manager", nameAr: "مدير عام" },
+  { id: "JT-DEMO-2", departmentId: "DEPT-DEMO-2", name: "Sales Supervisor", nameAr: "مشرف مبيعات" },
+  { id: "JT-DEMO-3", departmentId: "DEPT-DEMO-2", name: "Sales Representative", nameAr: "مندوب مبيعات" },
+  { id: "JT-DEMO-4", departmentId: "DEPT-DEMO-3", name: "HR Specialist", nameAr: "أخصائي موارد بشرية" },
+  { id: "JT-DEMO-5", departmentId: "DEPT-DEMO-4", name: "Accountant", nameAr: "محاسب" },
+  { id: "JT-DEMO-6", departmentId: "DEPT-DEMO-5", name: "Production Supervisor", nameAr: "مشرف إنتاج" },
+  { id: "JT-DEMO-7", departmentId: "DEPT-DEMO-5", name: "Production Worker", nameAr: "عامل إنتاج" },
+  { id: "JT-DEMO-8", departmentId: "DEPT-DEMO-6", name: "Storekeeper", nameAr: "أمين مخزن" },
+];
+
+function address(street: string, city: string, governorate: string, postalCode: string) {
+  return { street, city, governorate, postalCode };
+}
+
+function emergencyContact(name: string, relationship: string, phone: string) {
+  return { name, relationship, phone, altPhone: null };
+}
+
+/** The core profile already created EMP-DEMO-1/2 as bare salespeople; these fill in their HR record. */
+const CORE_EMPLOYEE_PATCHES = [
+  {
+    id: CORE.employees[0],
+    patch: {
+      departmentId: "DEPT-DEMO-2",
+      jobTitleId: "JT-DEMO-2",
+      managerId: "EMP-DEMO-3",
+      email: "kareem.adel@wadi-akhdar.example",
+      phone: "01004556677",
+      birthDate: "1991-04-18",
+      nationalId: "29104181201573",
+      gender: "male",
+      maritalStatus: "married",
+      standardWorkHours: 8,
+      address: address("١٢ شارع الجلاء", "المنصورة", "الدقهلية", "35511"),
+      emergencyContact: emergencyContact("منى عادل", "زوجة", "01004556688"),
+    },
+  },
+  {
+    id: CORE.employees[1],
+    patch: {
+      departmentId: "DEPT-DEMO-2",
+      jobTitleId: "JT-DEMO-3",
+      managerId: "EMP-DEMO-1",
+      email: "salma.fouad@wadi-akhdar.example",
+      phone: "01115667788",
+      birthDate: "1997-11-02",
+      nationalId: "29711021202614",
+      gender: "female",
+      maritalStatus: "single",
+      standardWorkHours: 8,
+      address: address("٤ شارع بورسعيد", "طنطا", "الغربية", "31511"),
+      emergencyContact: emergencyContact("فؤاد إبراهيم", "والد", "01115667799"),
+    },
+  },
+];
+
+const EMPLOYEES = [
+  {
+    id: "EMP-DEMO-3",
+    firstName: "Mohamed",
+    lastName: "El-Shehaby",
+    firstNameAr: "محمد",
+    lastNameAr: "الشهابي",
+    email: "admin@cyag.example",
+    phone: "01223344556",
+    birthDate: "1979-02-09",
+    nationalId: "27902091200817",
+    gender: "male",
+    maritalStatus: "married",
+    departmentId: "DEPT-DEMO-1",
+    jobTitleId: "JT-DEMO-1",
+    managerId: null,
+    hireDate: "2023-01-02",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "not_eligible",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 11,
+    address: address("٢٧ شارع الحرية", "المنصورة", "الدقهلية", "35516"),
+    emergencyContact: emergencyContact("سهير الشهابي", "زوجة", "01223344557"),
+  },
+  {
+    id: "EMP-DEMO-4",
+    firstName: "Hoda",
+    lastName: "Mostafa",
+    firstNameAr: "هدى",
+    lastNameAr: "مصطفى",
+    email: "hoda.mostafa@wadi-akhdar.example",
+    phone: "01098112233",
+    birthDate: "1993-07-21",
+    nationalId: "29307211203426",
+    gender: "female",
+    maritalStatus: "married",
+    departmentId: "DEPT-DEMO-3",
+    jobTitleId: "JT-DEMO-4",
+    managerId: "EMP-DEMO-3",
+    hireDate: "2024-09-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 3,
+    address: address("٩ شارع الجمهورية", "المنصورة", "الدقهلية", "35512"),
+    emergencyContact: emergencyContact("طارق سعيد", "زوج", "01098112244"),
+  },
+  {
+    id: "EMP-DEMO-5",
+    firstName: "Ahmed",
+    lastName: "El-Shennawy",
+    firstNameAr: "أحمد",
+    lastNameAr: "الشناوي",
+    email: "ahmed.shennawy@wadi-akhdar.example",
+    phone: "01277889900",
+    birthDate: "1988-12-30",
+    nationalId: "28812301201935",
+    gender: "male",
+    maritalStatus: "married",
+    departmentId: "DEPT-DEMO-4",
+    jobTitleId: "JT-DEMO-5",
+    managerId: "EMP-DEMO-3",
+    hireDate: "2023-06-15",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "not_eligible",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 6,
+    address: address("٣١ شارع قناة السويس", "المنصورة", "الدقهلية", "35514"),
+    emergencyContact: emergencyContact("داليا الشناوي", "زوجة", "01277889911"),
+  },
+  {
+    id: "EMP-DEMO-6",
+    firstName: "Mostafa",
+    lastName: "Rezk",
+    firstNameAr: "مصطفى",
+    lastNameAr: "رزق",
+    email: "mostafa.rezk@wadi-akhdar.example",
+    phone: "01066223344",
+    birthDate: "1990-05-14",
+    nationalId: "29005141203718",
+    gender: "male",
+    maritalStatus: "married",
+    departmentId: "DEPT-DEMO-5",
+    jobTitleId: "JT-DEMO-6",
+    managerId: "EMP-DEMO-3",
+    hireDate: "2026-02-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "eligible",
+    standardWorkHours: 8,
+    probationEndDate: "2026-04-30",
+    priorServiceYears: 8,
+    address: address("١٧ شارع المشاية", "المنصورة", "الدقهلية", "35519"),
+    emergencyContact: emergencyContact("إيمان رزق", "زوجة", "01066223355"),
+  },
+  {
+    id: "EMP-DEMO-7",
+    firstName: "Yasmin",
+    lastName: "Hegazy",
+    firstNameAr: "ياسمين",
+    lastNameAr: "حجازي",
+    email: "yasmin.hegazy@wadi-akhdar.example",
+    phone: "01121334455",
+    birthDate: "1999-03-08",
+    nationalId: "29903081202259",
+    gender: "female",
+    maritalStatus: "single",
+    departmentId: "DEPT-DEMO-6",
+    jobTitleId: "JT-DEMO-8",
+    managerId: "EMP-DEMO-3",
+    hireDate: "2026-06-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: 9,
+    probationEndDate: "2026-08-31",
+    priorServiceYears: 0,
+    address: address("٦ شارع سعد زغلول", "المنصورة", "الدقهلية", "35513"),
+    emergencyContact: emergencyContact("سمير حجازي", "والد", "01121334466"),
+  },
+  {
+    id: "EMP-DEMO-8",
+    firstName: "Amr",
+    lastName: "El-Deeb",
+    firstNameAr: "عمرو",
+    lastNameAr: "الديب",
+    email: null,
+    phone: "01003446677",
+    birthDate: "1995-08-25",
+    nationalId: "29508251203114",
+    gender: "male",
+    maritalStatus: "married",
+    departmentId: "DEPT-DEMO-5",
+    jobTitleId: "JT-DEMO-7",
+    managerId: "EMP-DEMO-6",
+    hireDate: "2025-11-10",
+    workerCategory: "worker",
+    employmentType: "part_time",
+    overtimeEligibility: "eligible",
+    standardWorkHours: 6,
+    probationEndDate: null,
+    priorServiceYears: 2,
+    address: address("٤٤ شارع الترعة", "ميت غمر", "الدقهلية", "35611"),
+    emergencyContact: emergencyContact("سعاد الديب", "والدة", "01003446688"),
+  },
+  {
+    id: "EMP-DEMO-9",
+    firstName: "Nourhan",
+    lastName: "Selim",
+    firstNameAr: "نورهان",
+    lastNameAr: "سليم",
+    email: "nourhan.selim@wadi-akhdar.example",
+    phone: "01144556677",
+    birthDate: "1996-01-19",
+    nationalId: "29601191202832",
+    gender: "female",
+    maritalStatus: "single",
+    departmentId: "DEPT-DEMO-2",
+    jobTitleId: "JT-DEMO-3",
+    managerId: "EMP-DEMO-1",
+    hireDate: "2024-02-01",
+    workerCategory: "staff",
+    employmentType: "full_time",
+    overtimeEligibility: "inherit_department",
+    standardWorkHours: 8,
+    probationEndDate: null,
+    priorServiceYears: 1,
+    address: address("٢ شارع النيل", "المنصورة", "الدقهلية", "35515"),
+    emergencyContact: emergencyContact("هالة سليم", "والدة", "01144556688"),
+  },
+];
+
+/**
+ * CTR-DEMO-2 has already run out (a fixed term that ended 2026-01-14) and
+ * CTR-DEMO-3 is its renewal, so the contracts screen has a lapsed row next to
+ * a live one and payroll picks the successor by itself. Deduction lines are
+ * contractual only — no tax or insurance line is seeded, because the payroll
+ * engine computes neither.
+ */
+const CONTRACTS = [
+  {
+    id: "CTR-DEMO-1",
+    employeeId: "EMP-DEMO-1",
+    type: "indefinite",
+    startDate: "2024-03-01",
+    endDate: null,
+    monthlySalary: "9000",
+    allowances: [
+      { id: "CTR-DEMO-1-A1", name: "بدل انتقال", amount: "800" },
+      { id: "CTR-DEMO-1-A2", name: "بدل هاتف", amount: "200" },
+    ],
+    deductions: [{ id: "CTR-DEMO-1-D1", name: "اشتراك صندوق الزمالة", amount: "100" }],
+  },
+  {
+    id: "CTR-DEMO-2",
+    employeeId: "EMP-DEMO-2",
+    type: "fixed_term",
+    startDate: "2025-01-15",
+    endDate: "2026-01-14",
+    monthlySalary: "6500",
+    allowances: [{ id: "CTR-DEMO-2-A1", name: "بدل انتقال", amount: "500" }],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-3",
+    employeeId: "EMP-DEMO-2",
+    type: "indefinite",
+    startDate: "2026-01-15",
+    endDate: null,
+    monthlySalary: "7800",
+    allowances: [{ id: "CTR-DEMO-3-A1", name: "بدل انتقال", amount: "600" }],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-4",
+    employeeId: "EMP-DEMO-3",
+    type: "indefinite",
+    startDate: "2023-01-02",
+    endDate: null,
+    monthlySalary: "18000",
+    leaveEntitlement: { annualLeaveDays: 30 },
+    allowances: [
+      { id: "CTR-DEMO-4-A1", name: "بدل سكن", amount: "2500" },
+      { id: "CTR-DEMO-4-A2", name: "بدل انتقال", amount: "1500" },
+    ],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-5",
+    employeeId: "EMP-DEMO-4",
+    type: "indefinite",
+    startDate: "2024-09-01",
+    endDate: null,
+    monthlySalary: "7500",
+    allowances: [{ id: "CTR-DEMO-5-A1", name: "بدل انتقال", amount: "600" }],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-6",
+    employeeId: "EMP-DEMO-5",
+    type: "indefinite",
+    startDate: "2023-06-15",
+    endDate: null,
+    monthlySalary: "8200",
+    allowances: [
+      { id: "CTR-DEMO-6-A1", name: "بدل انتقال", amount: "600" },
+      { id: "CTR-DEMO-6-A2", name: "بدل طبيعة عمل", amount: "400" },
+    ],
+    deductions: [{ id: "CTR-DEMO-6-D1", name: "اشتراك صندوق الزمالة", amount: "100" }],
+  },
+  {
+    id: "CTR-DEMO-7",
+    employeeId: "EMP-DEMO-6",
+    type: "fixed_term",
+    startDate: "2026-02-01",
+    endDate: "2027-01-31",
+    monthlySalary: "6800",
+    allowances: [{ id: "CTR-DEMO-7-A1", name: "بدل وجبة", amount: "450" }],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-8",
+    employeeId: "EMP-DEMO-7",
+    type: "probationary",
+    startDate: "2026-06-01",
+    endDate: "2026-08-31",
+    monthlySalary: "5600",
+    allowances: [{ id: "CTR-DEMO-8-A1", name: "بدل انتقال", amount: "400" }],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-9",
+    employeeId: "EMP-DEMO-8",
+    type: "seasonal",
+    payBasis: "hourly",
+    payFrequency: "weekly",
+    startDate: "2025-11-10",
+    endDate: "2026-11-09",
+    monthlySalary: "4200",
+    allowances: [],
+    deductions: [],
+  },
+  {
+    id: "CTR-DEMO-10",
+    employeeId: "EMP-DEMO-9",
+    type: "indefinite",
+    startDate: "2024-02-01",
+    endDate: null,
+    monthlySalary: "6200",
+    allowances: [{ id: "CTR-DEMO-10-A1", name: "بدل انتقال", amount: "500" }],
+    deductions: [],
+  },
+];
+
+const HOLIDAYS = [
+  { id: "HOL-DEMO-1", date: "2026-01-07", nameEn: "Coptic Christmas", nameAr: "عيد الميلاد المجيد", recurringAnnual: true },
+  { id: "HOL-DEMO-2", date: "2026-01-25", nameEn: "Revolution Day & Police Day", nameAr: "عيد الشرطة وثورة ٢٥ يناير", recurringAnnual: true },
+  { id: "HOL-DEMO-3", date: "2026-03-20", nameEn: "Eid al-Fitr", nameAr: "عيد الفطر المبارك", recurringAnnual: false },
+  { id: "HOL-DEMO-4", date: "2026-03-21", nameEn: "Eid al-Fitr Holiday", nameAr: "ثاني أيام عيد الفطر", recurringAnnual: false },
+  { id: "HOL-DEMO-5", date: "2026-04-13", nameEn: "Sham El-Nessim", nameAr: "شم النسيم", recurringAnnual: false },
+  { id: "HOL-DEMO-6", date: "2026-04-25", nameEn: "Sinai Liberation Day", nameAr: "عيد تحرير سيناء", recurringAnnual: true },
+  { id: "HOL-DEMO-7", date: "2026-05-01", nameEn: "Labour Day", nameAr: "عيد العمال", recurringAnnual: true },
+  { id: "HOL-DEMO-8", date: "2026-05-27", nameEn: "Eid al-Adha", nameAr: "عيد الأضحى المبارك", recurringAnnual: false },
+  { id: "HOL-DEMO-9", date: "2026-06-16", nameEn: "Islamic New Year", nameAr: "رأس السنة الهجرية", recurringAnnual: false },
+  { id: "HOL-DEMO-10", date: "2026-07-23", nameEn: "July 23 Revolution Day", nameAr: "عيد ثورة ٢٣ يوليو", recurringAnnual: true },
+  { id: "HOL-DEMO-11", date: "2026-08-25", nameEn: "Prophet's Birthday", nameAr: "المولد النبوي الشريف", recurringAnnual: false },
+  { id: "HOL-DEMO-12", date: "2026-10-06", nameEn: "Armed Forces Day", nameAr: "عيد القوات المسلحة", recurringAnnual: true },
+];
+
+/** The legal matrix comes from the dated preset; these two are the tenant's own additions (تخصيص يدوي). */
+const EXTRA_LEAVE_POLICIES = [
+  {
+    id: "LP-DEMO-PERSONAL",
+    leaveType: "personal",
+    entitlementDays: "5",
+    accrualFrequency: "annual",
+    carryOver: false,
+    payoutOnTermination: false,
+    legallyMandated: false,
+  },
+  {
+    id: "LP-DEMO-EMERGENCY",
+    leaveType: "emergency",
+    entitlementDays: "3",
+    accrualFrequency: "annual",
+    carryOver: false,
+    payoutOnTermination: false,
+    legallyMandated: false,
+  },
+];
+
+const ACCRUAL_RUNS = [
+  { runDate: "2026-01-01", frequency: "annual", runType: "manual", notes: "استحقاق سنوي — بداية ٢٠٢٦" },
+  { runDate: "2026-06-30", frequency: "monthly", runType: "scheduled", notes: null },
+  { runDate: "2026-07-31", frequency: "monthly", runType: "scheduled", notes: null },
+  { runDate: "2026-08-31", frequency: "monthly", runType: "manual", notes: "تشغيل يدوي بعد إضافة موظفي الإنتاج" },
+];
+
+/** Last year's closing position, plus the days each employee carried into 2026 under the preset's carry-over rule. */
+const LEAVE_BALANCES = [
+  { employeeId: "EMP-DEMO-1", leaveType: "annual", year: 2025, entitled: "21", carriedOver: "0", used: "15" },
+  { employeeId: "EMP-DEMO-2", leaveType: "annual", year: 2025, entitled: "21", carriedOver: "0", used: "19" },
+  { employeeId: "EMP-DEMO-3", leaveType: "annual", year: 2025, entitled: "30", carriedOver: "4", used: "25" },
+  { employeeId: "EMP-DEMO-5", leaveType: "annual", year: 2025, entitled: "21", carriedOver: "0", used: "13" },
+  { employeeId: "EMP-DEMO-1", leaveType: "annual", year: 2026, carriedOver: "6" },
+  { employeeId: "EMP-DEMO-2", leaveType: "annual", year: 2026, carriedOver: "2" },
+  { employeeId: "EMP-DEMO-3", leaveType: "annual", year: 2026, carriedOver: "9" },
+  { employeeId: "EMP-DEMO-5", leaveType: "annual", year: 2026, carriedOver: "8" },
+];
+
+/**
+ * Grouped by employee, admin last: each request is filed through the
+ * self-service route, which reads the employee off the CALLING USER, so the
+ * seeder re-points the admin's user at each employee in turn and leaves it on
+ * محمد الشهابي — whose own three requests are what إجازاتي shows on login.
+ */
+const LEAVE_REQUESTS = [
+  { id: "LR-DEMO-1", employeeId: "EMP-DEMO-1", leaveType: "annual", startDate: "2026-07-06", endDate: "2026-07-09", reason: "سفر عائلي", decision: "approved", comment: "مقبول — تمت تغطية خط السير" },
+  { id: "LR-DEMO-2", employeeId: "EMP-DEMO-1", leaveType: "casual", startDate: "2026-08-19", endDate: "2026-08-19", reason: "ظرف عائلي طارئ", decision: null, comment: null },
+  { id: "LR-DEMO-3", employeeId: "EMP-DEMO-2", leaveType: "annual", startDate: "2026-08-10", endDate: "2026-08-12", reason: "زفاف شقيقتي", decision: "approved", comment: null },
+  { id: "LR-DEMO-4", employeeId: "EMP-DEMO-2", leaveType: "unpaid", startDate: "2026-09-01", endDate: "2026-09-05", reason: "سفر خارج البلاد", decision: "rejected", comment: "الفترة تتزامن مع الجرد السنوي" },
+  { id: "LR-DEMO-5", employeeId: "EMP-DEMO-4", leaveType: "sick", startDate: "2026-08-03", endDate: "2026-08-04", reason: "وعكة صحية بتقرير طبي", decision: "approved", comment: null },
+  { id: "LR-DEMO-6", employeeId: "EMP-DEMO-4", leaveType: "annual", startDate: "2026-08-20", endDate: "2026-08-27", reason: "إجازة سنوية", decision: "approved", comment: null },
+  { id: "LR-DEMO-7", employeeId: "EMP-DEMO-5", leaveType: "personal", halfDay: true, startDate: "2026-08-27", endDate: "2026-08-27", reason: "مصلحة حكومية", decision: null, comment: null },
+  { id: "LR-DEMO-8", employeeId: "EMP-DEMO-6", leaveType: "unpaid", startDate: "2026-07-13", endDate: "2026-07-14", reason: "مرافقة والدته للعلاج", decision: "approved", comment: "بدون أجر — يُخصم يومان من راتب يوليو" },
+  { id: "LR-DEMO-9", employeeId: "EMP-DEMO-3", leaveType: "emergency", startDate: "2026-06-24", endDate: "2026-06-25", reason: "ظرف عائلي", decision: "approved", comment: null },
+  { id: "LR-DEMO-10", employeeId: "EMP-DEMO-3", leaveType: "casual", startDate: "2026-07-15", endDate: "2026-07-15", reason: "أعمال شخصية", decision: null, comment: null, cancel: true },
+  { id: "LR-DEMO-11", employeeId: "EMP-DEMO-3", leaveType: "annual", startDate: "2026-09-10", endDate: "2026-09-17", reason: "إجازة سنوية", decision: null, comment: null },
+];
+
+const SHIFT_START = "09:00";
+const GRACE_MINUTES = 10;
+const DEFAULT_CHECK_IN = "08:52";
+const DEFAULT_CHECK_OUT = "17:06";
+
+const ATTENDANCE_WINDOWS = [
+  { from: "2026-07-20", to: "2026-07-23", employeeIds: ["EMP-DEMO-1", "EMP-DEMO-3", "EMP-DEMO-6"] },
+  { from: "2026-08-02", to: "2026-08-13", employeeIds: ["EMP-DEMO-1", "EMP-DEMO-2", "EMP-DEMO-3", "EMP-DEMO-4", "EMP-DEMO-5"] },
+];
+
+/**
+ * Days that break the ordinary shift. A null `checkIn` leaves the status to
+ * the route, which reads the holiday calendar and the employee's approved
+ * leave — so 23 يوليو scores holiday and سلمى's approved days score on_leave
+ * without this table asserting either.
+ */
+const ATTENDANCE_EXCEPTIONS: Record<string, { checkIn: string | null; checkOut?: string | null; halfDay?: boolean; notes?: string }> = {
+  "EMP-DEMO-1|2026-07-22": { checkIn: "09:28", checkOut: "17:15", notes: "تأخير — زحام مروري" },
+  "EMP-DEMO-1|2026-07-23": { checkIn: null },
+  "EMP-DEMO-3|2026-07-23": { checkIn: null },
+  "EMP-DEMO-6|2026-07-23": { checkIn: null },
+  "EMP-DEMO-6|2026-07-21": { checkIn: "08:40", checkOut: "19:20", notes: "وردية ممتدة — أمر تشغيل عاجل" },
+  "EMP-DEMO-1|2026-08-04": { checkIn: "09:35", checkOut: "17:20", notes: "تأخير — عطل بالسيارة" },
+  "EMP-DEMO-1|2026-08-05": { checkIn: null, notes: "غياب بدون إذن" },
+  "EMP-DEMO-2|2026-08-10": { checkIn: null },
+  "EMP-DEMO-2|2026-08-11": { checkIn: null },
+  "EMP-DEMO-2|2026-08-12": { checkIn: null },
+  "EMP-DEMO-4|2026-08-03": { checkIn: null },
+  "EMP-DEMO-4|2026-08-04": { checkIn: null },
+  "EMP-DEMO-4|2026-08-06": { checkIn: "09:00", checkOut: "13:00", halfDay: true, notes: "نصف يوم بإذن" },
+  "EMP-DEMO-5|2026-08-11": { checkIn: "09:41", checkOut: "17:12", notes: "تأخير" },
+  "EMP-DEMO-5|2026-08-13": { checkIn: null, notes: "غياب — أُبلغ بالهاتف" },
+  "EMP-DEMO-3|2026-08-06": { checkIn: "08:15", checkOut: "18:40", notes: "اجتماع مجلس الإدارة" },
+};
+
+const ADVANCES = [
+  { id: "ADV-DEMO-1", employeeId: "EMP-DEMO-1", amount: "6000", installmentCount: 6, firstDeductionDate: "2026-06-01", reason: "مصاريف علاج", flow: "disbursed", disburseDate: "2026-05-28" },
+  { id: "ADV-DEMO-2", employeeId: "EMP-DEMO-5", amount: "4000", installmentCount: 4, firstDeductionDate: "2026-08-01", reason: "مصاريف دراسية", flow: "disbursed", disburseDate: "2026-07-30" },
+  { id: "ADV-DEMO-3", employeeId: "EMP-DEMO-2", amount: "2400", installmentCount: 2, firstDeductionDate: "2026-09-01", reason: "أثاث منزلي", flow: "approved", disburseDate: null },
+  { id: "ADV-DEMO-4", employeeId: "EMP-DEMO-4", amount: "3000", installmentCount: 3, firstDeductionDate: "2026-09-01", reason: "مصاريف مدارس", flow: "pending", disburseDate: null },
+  { id: "ADV-DEMO-5", employeeId: "EMP-DEMO-6", amount: "10000", installmentCount: 10, firstDeductionDate: "2026-09-01", reason: "شراء دراجة بخارية", flow: "rejected", disburseDate: null },
+];
+
+/** June is settled, July is posted and awaiting its transfer, August is still محتسب. */
+const PAYROLL_RUNS = [
+  { id: "PR-DEMO-1", year: 2026, month: 6, stage: "disbursed", disburseDate: "2026-06-30" },
+  { id: "PR-DEMO-2", year: 2026, month: 7, stage: "approved", disburseDate: null },
+  { id: "PR-DEMO-3", year: 2026, month: 8, stage: "calculated", disburseDate: null },
+];
+
+interface AdminUser {
+  readonly fullName: string;
+  readonly email: string;
+  readonly phone: string | null;
+  readonly roleId: string | null;
+  readonly isCompanyAdmin: boolean;
+  readonly branchScope: string | string[];
+  readonly warehouseScope: string | string[];
+  readonly status: string;
+}
+
+interface TreasuryAccountRow {
+  readonly id: string;
+  readonly type: string;
+}
+
+/**
+ * Same transport as `step`, under a different signed-in user. The self-service
+ * leave routes derive the employee from the CALLER, never from the payload, so
+ * seeding one employee's own request means being that employee's user.
+ */
+async function stepAs(app: App, userId: string, method: string, path: string, body?: unknown): Promise<unknown> {
+  const res = await app.fetch(
+    new Request(`http://demo-seed${path}`, {
+      method,
+      headers: { ...ADMIN_HEADERS, "x-user-id": userId },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    }),
+  );
+  if (!res.ok) {
+    throw new Error(`[demo-seed] ${method} ${path} as ${userId} failed with ${res.status}: ${await res.text()}`);
+  }
+  return res.status === 204 ? undefined : await res.json();
+}
+
+async function linkSelfServiceUser(app: App, employeeId: string): Promise<void> {
+  const user = (await step(app, "GET", `/users/${SELF_SERVICE_USER}`)) as AdminUser;
+  await step(app, "PUT", `/users/${SELF_SERVICE_USER}`, {
+    fullName: user.fullName,
+    email: user.email,
+    phone: user.phone,
+    roleId: user.roleId,
+    isCompanyAdmin: user.isCompanyAdmin,
+    employeeId,
+    branchScope: user.branchScope,
+    warehouseScope: user.warehouseScope,
+    status: user.status,
+  });
+}
+
+/**
+ * Bank, not cash: the treasury voucher engine refuses to take a cash drawer
+ * below its posted balance, and no demo drawer holds a month of salaries.
+ */
+async function bankTreasuryAccountId(app: App): Promise<string> {
+  const accounts = (await step(app, "GET", "/treasury-accounts")) as TreasuryAccountRow[];
+  const bank = accounts.find((a) => a.type === "bank");
+  if (!bank) throw new Error("[demo-seed] hr: no bank treasury account to disburse payroll and advances from.");
+  return bank.id;
+}
+
+function eachDate(from: string, to: string): string[] {
+  const dates: string[] = [];
+  const cursor = new Date(`${from}T00:00:00Z`);
+  while (cursor.toISOString().slice(0, 10) <= to) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+/** Friday and Saturday — nobody clocks in, and the route scores the day إجازة أسبوعية. */
+function isWeekend(date: string): boolean {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay();
+  return day === 5 || day === 6;
+}
+
+export async function seedHr(app: App): Promise<void> {
+  for (const department of DEPARTMENTS) {
+    await step(app, "POST", "/hr/departments", department);
+  }
+  for (const jobTitle of JOB_TITLES) {
+    await step(app, "POST", "/hr/job-titles", jobTitle);
+  }
+
+  for (const employee of EMPLOYEES) {
+    await step(app, "POST", "/hr/employees", { ...employee, branchId: BRANCH_ID });
+  }
+  for (const { id, patch } of CORE_EMPLOYEE_PATCHES) {
+    await step(app, "PUT", `/hr/employees/${id}`, patch);
+  }
+
+  // Departments carry their manager, so the heads must exist as employees first.
+  for (const { departmentId, managerId } of DEPARTMENT_MANAGERS) {
+    await step(app, "PUT", `/hr/departments/${departmentId}`, { managerId });
+  }
+
+  for (const contract of CONTRACTS) {
+    await step(app, "POST", "/hr/contracts", { ...contract, currency: "EGP" });
+  }
+  await step(app, "POST", "/hr/contracts/CTR-DEMO-10/terminate", {});
+  await step(app, "POST", "/hr/employees/EMP-DEMO-9/terminate", {});
+  await step(app, "POST", "/hr/employees/EMP-DEMO-8/transition", { status: "suspended" });
+
+  for (const holiday of HOLIDAYS) {
+    await step(app, "POST", "/hr/holidays", holiday);
+  }
+
+  await step(app, "POST", "/hr/leave-policies/apply-preset", { presetCode: "EG_LABOUR_LAW_14_2025" });
+  for (const policy of EXTRA_LEAVE_POLICIES) {
+    await step(app, "POST", "/hr/leave-policies", policy);
+  }
+
+  // Accrual credits every non-terminated employee against the live policy
+  // matrix, so both must be in place before a batch runs.
+  for (const run of ACCRUAL_RUNS) {
+    await step(app, "POST", "/hr/leave-accrual-batches/run", run);
+  }
+  for (const balance of LEAVE_BALANCES) {
+    await step(app, "POST", "/hr/leave-balances", balance);
+  }
+
+  let linkedEmployeeId: string | null = null;
+  for (const request of LEAVE_REQUESTS) {
+    if (linkedEmployeeId !== request.employeeId) {
+      await linkSelfServiceUser(app, request.employeeId);
+      linkedEmployeeId = request.employeeId;
+    }
+    await stepAs(app, SELF_SERVICE_USER, "POST", "/hr/leave-requests", {
+      id: request.id,
+      leaveType: request.leaveType,
+      halfDay: request.halfDay ?? false,
+      startDate: request.startDate,
+      endDate: request.endDate,
+      reason: request.reason,
+    });
+    if (request.decision) {
+      const action = request.decision === "approved" ? "approve" : "reject";
+      await step(app, "POST", `/hr/leave-requests/${request.id}/${action}`, { comment: request.comment });
+    } else if (request.cancel) {
+      await stepAs(app, SELF_SERVICE_USER, "POST", `/hr/leave-requests/${request.id}/cancel`, {});
+    }
+  }
+  await step(app, "POST", "/hr/employees/EMP-DEMO-4/transition", { status: "on_leave" });
+
+  // Attendance reads the approved leave above to score إجازة, so it runs after it.
+  for (const window of ATTENDANCE_WINDOWS) {
+    for (const date of eachDate(window.from, window.to)) {
+      for (const employeeId of window.employeeIds) {
+        const exception = ATTENDANCE_EXCEPTIONS[`${employeeId}|${date}`];
+        const offDay = isWeekend(date);
+        await step(app, "POST", "/hr/attendance", {
+          id: `ATT-${employeeId.replace("EMP-DEMO-", "")}-${date}`,
+          employeeId,
+          date,
+          checkIn: exception ? exception.checkIn : offDay ? null : DEFAULT_CHECK_IN,
+          checkOut: exception ? (exception.checkOut ?? null) : offDay ? null : DEFAULT_CHECK_OUT,
+          halfDay: exception?.halfDay ?? false,
+          notes: exception?.notes ?? null,
+          expectedCheckIn: SHIFT_START,
+          graceMinutes: GRACE_MINUTES,
+        });
+      }
+    }
+  }
+
+  const treasuryAccountId = await bankTreasuryAccountId(app);
+
+  for (const advance of ADVANCES) {
+    await step(app, "POST", "/hr/advances", {
+      id: advance.id,
+      employeeId: advance.employeeId,
+      amount: advance.amount,
+      currency: "EGP",
+      installmentCount: advance.installmentCount,
+      firstDeductionDate: advance.firstDeductionDate,
+      reason: advance.reason,
+    });
+    if (advance.flow === "rejected") {
+      await step(app, "POST", `/hr/advances/${advance.id}/reject`, {});
+      continue;
+    }
+    if (advance.flow === "pending") continue;
+    await step(app, "POST", `/hr/advances/${advance.id}/approve`, {});
+    if (advance.flow === "disbursed") {
+      await step(app, "POST", `/hr/advances/${advance.id}/disburse`, {
+        treasuryAccountId,
+        branchId: BRANCH_ID,
+        date: advance.disburseDate,
+        paymentMethod: "bank",
+      });
+    }
+  }
+
+  // Payroll recovers the instalments of advances that have actually been paid
+  // out, so every advance above is settled before the first run is calculated.
+  for (const run of PAYROLL_RUNS) {
+    await step(app, "POST", "/hr/payroll/runs", { id: run.id, year: run.year, month: run.month, branchId: BRANCH_ID, currency: "EGP" });
+    await step(app, "POST", `/hr/payroll/runs/${run.id}/calculate`, {});
+    if (run.stage === "calculated") continue;
+    await step(app, "POST", `/hr/payroll/runs/${run.id}/approve`, {});
+    if (run.stage === "disbursed") {
+      await step(app, "POST", `/hr/payroll/runs/${run.id}/disburse`, {
+        treasuryAccountId,
+        branchId: BRANCH_ID,
+        date: run.disburseDate,
+        paymentMethod: "bank",
+      });
+    }
+  }
 }

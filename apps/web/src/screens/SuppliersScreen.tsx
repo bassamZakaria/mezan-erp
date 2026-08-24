@@ -25,6 +25,7 @@ import {
   useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
@@ -43,10 +44,10 @@ import { TextField, NumberField, ToggleField } from "../settings/form-controls";
  * kind, so the tab would be a navigational dead end rather than an empty list.
  */
 
-const PURCHASE_STATUS_LABEL: Record<PurchaseInvoiceStatusDTO, string> = {
-  draft: "مسودة",
-  confirmed: "مؤكد",
-  cancelled: "ملغي",
+const PURCHASE_STATUS_KEY: Record<PurchaseInvoiceStatusDTO, AppTranslationKey> = {
+  draft: "suppliers.status.draft",
+  confirmed: "suppliers.status.confirmed",
+  cancelled: "suppliers.status.cancelled",
 };
 
 const PURCHASE_STATUS_TONE: Record<PurchaseInvoiceStatusDTO, PillTone> = {
@@ -64,11 +65,12 @@ function isoToDisplay(date: string): string {
 }
 
 function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useAppTranslation();
   return (
     <Card className="p-[18px_20px]">
       <p className="text-[13px] font-semibold text-danger-ink">{message}</p>
       <Button size="sm" className="mt-[10px]" onClick={onRetry}>
-        إعادة المحاولة
+        {t("common.retry")}
       </Button>
     </Card>
   );
@@ -85,6 +87,7 @@ function MiniStat({ label, value }: { label: string; value: ReactNode }) {
 
 /** فواتير مشتريات المورد — `GET /purchases/invoices`, narrowed to this supplier. */
 function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
+  const { t } = useAppTranslation();
   const query = usePurchaseInvoices();
   const invoices = useMemo(
     () =>
@@ -94,14 +97,14 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
     [query.data, supplierId],
   );
 
-  if (query.isError) return <TabError message="تعذّر تحميل فواتير المشتريات." onRetry={() => query.refetch()} />;
-  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل الفواتير…</p>;
+  if (query.isError) return <TabError message={t("suppliers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
+  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.invoices.loading")}</p>;
   if (invoices.length === 0) {
     return (
       <div className="rounded-lg border border-border bg-surface p-[22px_24px]">
-        <p className="text-[13.5px] font-semibold text-ink">لا توجد فواتير مشتريات مسجّلة لهذا المورد</p>
+        <p className="text-[13.5px] font-semibold text-ink">{t("suppliers.invoices.emptyTitle")}</p>
         <p className="mt-[8px] max-w-[70ch] text-[12.5px] leading-[1.9] text-ink-muted">
-          أول فاتورة تُسجَّل لهذا المورد من شاشة «فواتير المشتريات» ستظهر هنا فور حفظها.
+          {t("suppliers.invoices.emptyBody")}
         </p>
       </div>
     );
@@ -113,11 +116,11 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label="عدد الفواتير" value={<span className="mz-num">{invoices.length}</span>} />
-        <MiniStat label="فواتير مؤكدة" value={<span className="mz-num">{confirmed.length}</span>} />
-        <MiniStat label="إجمالي المؤكد" value={<MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />} />
+        <MiniStat label={t("suppliers.invoices.count")} value={<span className="mz-num">{invoices.length}</span>} />
+        <MiniStat label={t("suppliers.invoices.confirmed")} value={<span className="mz-num">{confirmed.length}</span>} />
+        <MiniStat label={t("suppliers.invoices.confirmedTotal")} value={<MoneyValue value={moneyToNumber(confirmedTotal)} showUnit={false} />} />
         <MiniStat
-          label="آخر فاتورة"
+          label={t("suppliers.invoices.last")}
           value={<span className="mz-num">{invoices[0] ? isoToDisplay(invoices[0].date) : "—"}</span>}
         />
       </div>
@@ -125,14 +128,14 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
         <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">رقم الفاتورة</th>
-              <th className="p-[10px] text-start font-semibold">رقم فاتورة المورد</th>
-              <th className="p-[10px] text-start font-semibold">التاريخ</th>
-              <th className="p-[10px] text-start font-semibold">الاستحقاق</th>
-              <th className="p-[10px] text-start font-semibold">الحالة</th>
-              <th className="p-[10px] text-end font-semibold">قبل الضريبة</th>
-              <th className="p-[10px] text-end font-semibold">الضريبة</th>
-              <th className="p-[10px] text-end font-semibold">الإجمالي</th>
+              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.number")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.supplierNumber")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("suppliers.invoices.col.due")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("suppliers.invoices.col.beforeTax")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("suppliers.invoices.col.tax")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("common.total")}</th>
             </tr>
           </thead>
           <tbody>
@@ -143,7 +146,7 @@ function SupplierInvoicesTab({ supplierId }: { supplierId: string }) {
                 <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(inv.date)}</td>
                 <td className="mz-num p-[10px] text-ink-muted">{inv.dueDate ? isoToDisplay(inv.dueDate) : "—"}</td>
                 <td className="p-[10px]">
-                  <StatusPill label={PURCHASE_STATUS_LABEL[inv.status]} tone={PURCHASE_STATUS_TONE[inv.status]} />
+                  <StatusPill label={t(PURCHASE_STATUS_KEY[inv.status])} tone={PURCHASE_STATUS_TONE[inv.status]} />
                 </td>
                 <td className="p-[10px] text-end text-ink-muted">
                   <MoneyValue value={num(inv.subtotal)} showUnit={false} />
@@ -185,6 +188,7 @@ interface StatementRow {
  * sub-ledger and against the أعمار ديون الموردين report.
  */
 function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
+  const { t } = useAppTranslation();
   const invoicesQuery = usePurchaseInvoices();
   const vouchersQuery = useVouchers();
   const openInvoicesQuery = useOpenInvoices("purchase", supplier.id);
@@ -217,9 +221,9 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       {
         key: "opening",
         date: null,
-        label: "رصيد افتتاحي",
+        label: t("suppliers.statement.opening"),
         note: null,
-        reference: "سجل المورد",
+        reference: t("suppliers.statement.supplierRecord"),
         debit: opening < 0n ? -opening : 0n,
         credit: opening > 0n ? opening : 0n,
       },
@@ -229,7 +233,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       built.push({
         key: `inv-${inv.id}`,
         date: inv.date,
-        label: "فاتورة مشتريات",
+        label: t("suppliers.statement.purchaseInvoice"),
         note: null,
         reference: inv.number,
         debit: 0n,
@@ -241,7 +245,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
     for (const voucher of supplierVouchers) {
       if (voucher.direction === "transfer") continue;
       const isPayment = voucher.direction === "payment";
-      const label = isPayment ? "سند صرف للمورد" : "سند قبض من المورد";
+      const label = isPayment ? t("suppliers.statement.paymentOut") : t("suppliers.statement.paymentIn");
       const voucherRef = voucher.docNo ?? voucher.id;
       const mine = allocations.filter((alloc) => alloc.voucherId === voucher.id && alloc.status === "active");
       for (const alloc of mine) {
@@ -250,7 +254,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
           key: `alloc-${alloc.id}`,
           date: voucher.date,
           label,
-          note: `مخصص على الفاتورة ${invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId}`,
+          note: t("suppliers.statement.allocatedTo", { invoice: invoiceLabels.get(alloc.invoiceId) ?? alloc.invoiceId }),
           reference: voucherRef,
           debit: isPayment ? amount : 0n,
           credit: isPayment ? 0n : amount,
@@ -264,7 +268,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
           key: `vch-${voucher.id}`,
           date: voucher.date,
           label,
-          note: "غير مخصص على فاتورة — تحت حساب المورد",
+          note: t("suppliers.statement.unallocated"),
           reference: voucherRef,
           debit: towardsDebit ? amount : 0n,
           credit: towardsDebit ? 0n : amount,
@@ -287,7 +291,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
   if (isError) {
     return (
       <TabError
-        message="تعذّر تحميل حركة حساب المورد."
+        message={t("suppliers.statement.loadFailed")}
         onRetry={() => {
           invoicesQuery.refetch();
           vouchersQuery.refetch();
@@ -297,7 +301,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       />
     );
   }
-  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل كشف الحساب…</p>;
+  if (isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("suppliers.statement.loading")}</p>;
 
   const totalDebit = rows.reduce<bigint>((total, row) => total + row.debit, 0n);
   const totalCredit = rows.reduce<bigint>((total, row) => total + row.credit, 0n);
@@ -322,36 +326,36 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <MiniStat label="رصيد افتتاحي" value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
-        <MiniStat label="إجمالي المشتريات (دائن)" value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
-        <MiniStat label="إجمالي المسدَّد (مدين)" value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
-        <MiniStat label="الرصيد الختامي (مستحق للمورد)" value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
+        <MiniStat label={t("suppliers.statement.opening")} value={<MoneyValue value={num(supplier.openingBalance)} showUnit={false} />} />
+        <MiniStat label={t("suppliers.statement.totalCredit")} value={<MoneyValue value={moneyToNumber(totalCredit)} showUnit={false} />} />
+        <MiniStat label={t("suppliers.statement.totalDebit")} value={<MoneyValue value={moneyToNumber(totalDebit)} showUnit={false} />} />
+        <MiniStat label={t("suppliers.statement.closing")} value={<MoneyValue value={moneyToNumber(closing)} showUnit={false} />} />
       </div>
 
       <div className="flex flex-col gap-[10px] rounded-lg border border-border bg-surface p-[12px_15px]">
         <div className="flex flex-wrap items-center gap-[10px]">
           <StatusPill
-            label={matchesSubLedger ? "مطابق لدفتر الفواتير المفتوحة" : "يختلف عن دفتر الفواتير المفتوحة"}
+            label={matchesSubLedger ? t("suppliers.statement.matchesSubLedger") : t("suppliers.statement.differsFromSubLedger")}
             tone={matchesSubLedger ? "success" : "warning"}
           />
           <span className="text-[12px] text-ink-muted">
-            المتبقي على الفواتير المفتوحة <MoneyValue value={moneyToNumber(subLedgerOutstanding)} showUnit={false} className="text-ink" />
+            {t("suppliers.statement.outstandingLabel")} <MoneyValue value={moneyToNumber(subLedgerOutstanding)} showUnit={false} className="text-ink" />
             {matchesSubLedger
-              ? " — يساوي إجمالي الفواتير المؤكدة ناقص ما خُصِّص عليها من سندات. الرصيد الختامي يضيف إليه الرصيد الافتتاحي ويخصم منه الدفعات غير المخصصة."
-              : " — لا يساوي إجمالي الفواتير المؤكدة ناقص ما خُصِّص عليها: قد تكون هناك فاتورة مؤكدة خارج دفتر التخصيص أو فاتورة أُلغيت بعد تخصيص سداد عليها."}
+              ? t("suppliers.statement.subLedgerMatchNote")
+              : t("suppliers.statement.subLedgerDiffNote")}
           </span>
         </div>
         {agingKnown ? (
           <div className="flex flex-wrap items-center gap-[10px]">
             <StatusPill
-              label={matchesAging ? "مطابق لتقرير أعمار الديون" : "يختلف عن تقرير أعمار الديون"}
+              label={matchesAging ? t("suppliers.statement.matchesAging") : t("suppliers.statement.differsFromAging")}
               tone={matchesAging ? "success" : "warning"}
             />
             <span className="text-[12px] text-ink-muted">
-              رصيد التقرير <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
+              {t("suppliers.statement.reportBalance")} <MoneyValue value={moneyToNumber(agingTotal)} showUnit={false} className="text-ink" />
               {matchesAging
-                ? " — محسوب من إجمالي الفواتير المؤكدة."
-                : " — التقرير يحتسب إجمالي كل فاتورة مؤكدة دون خصم ما سُدِّد منها، ولا يشمل الرصيد الافتتاحي."}
+                ? t("suppliers.statement.agingMatchNote")
+                : t("suppliers.statement.agingDiffNote")}
             </span>
           </div>
         ) : null}
@@ -361,12 +365,12 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
         <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">التاريخ</th>
-              <th className="p-[10px] text-start font-semibold">الحركة</th>
-              <th className="p-[10px] text-start font-semibold">المرجع</th>
-              <th className="p-[10px] text-end font-semibold">مدين</th>
-              <th className="p-[10px] text-end font-semibold">دائن</th>
-              <th className="p-[10px] text-end font-semibold">الرصيد</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("suppliers.statement.col.movement")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("suppliers.statement.col.reference")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("common.debit")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("common.credit")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("suppliers.statement.col.balance")}</th>
             </tr>
           </thead>
           <tbody>
@@ -397,25 +401,25 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       </div>
 
       <div className="rounded-lg border border-border bg-surface p-[16px_18px]">
-        <h3 className="font-display text-[13.5px] font-bold text-ink">أعمار فواتير هذا المورد</h3>
+        <h3 className="font-display text-[13.5px] font-bold text-ink">{t("suppliers.aging.heading")}</h3>
         <p className="mt-[4px] max-w-[80ch] text-[11.5px] leading-[1.8] text-ink-faint">
-          من تقرير «أعمار ديون الموردين» — إجمالي كل فاتورة مؤكدة موزّعاً على شرائح التأخير، دون خصم أي سداد.
+          {t("suppliers.aging.description")}
         </p>
         {agingQuery.isError ? (
           <div className="mt-[12px]">
-            <TabError message="تعذّر تحميل تقرير أعمار ديون الموردين." onRetry={() => agingQuery.refetch()} />
+            <TabError message={t("suppliers.aging.loadFailed")} onRetry={() => agingQuery.refetch()} />
           </div>
         ) : (
           <div className="mt-[14px] overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-[12.5px]">
               <thead>
                 <tr className="border-b border-border text-ink-muted">
-                  <th className="p-[8px] text-end font-semibold">جاري</th>
-                  <th className="p-[8px] text-end font-semibold">31-60 يوم</th>
-                  <th className="p-[8px] text-end font-semibold">61-90 يوم</th>
-                  <th className="p-[8px] text-end font-semibold">91-120 يوم</th>
-                  <th className="p-[8px] text-end font-semibold">أكثر من 120 يوم</th>
-                  <th className="p-[8px] text-end font-semibold">الإجمالي</th>
+                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.current")}</th>
+                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d31to60")}</th>
+                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d61to90")}</th>
+                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.d91to120")}</th>
+                  <th className="p-[8px] text-end font-semibold">{t("suppliers.aging.over120")}</th>
+                  <th className="p-[8px] text-end font-semibold">{t("common.total")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -446,9 +450,7 @@ function SupplierStatementTab({ supplier }: { supplier: SupplierDTO }) {
       </div>
 
       <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
-        كل سداد يظهر بتاريخ سنده وبرقم الفاتورة المخصص عليها من دفتر تخصيص السندات. ما لم يُخصَّص من السند على فاتورة بعينه يظهر كدفعة
-        تحت حساب المورد بتاريخ السند نفسه. القيود اليومية المُرحَّلة مباشرة على حساب الذمم الدائنة (2100) لا ترتبط بمورد بعينه ولا تظهر في
-        هذا الكشف.
+        {t("suppliers.statement.footnote")}
       </p>
     </div>
   );
@@ -519,43 +521,44 @@ function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
 }
 
 function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; onBack: () => void; onEdit: () => void }) {
-  const address = [supplier.addressStreet, supplier.addressDistrict, supplier.addressCity].filter(Boolean).join("، ");
+  const { t } = useAppTranslation();
+  const address = [supplier.addressStreet, supplier.addressDistrict, supplier.addressCity].filter(Boolean).join(t("suppliers.addressSeparator"));
   return (
     <DocumentDetail
       title={`${supplier.nameAr} · ${supplier.code}`}
-      statusLabel={supplier.active ? "نشط" : "غير نشط"}
+      statusLabel={supplier.active ? t("common.active") : t("common.inactive")}
       statusTone={supplier.active ? "success" : "neutral"}
       subtitle={supplier.nameEn ?? undefined}
       actions={
         <>
           <Button variant="primary" onClick={onEdit}>
-            تعديل
+            {t("suppliers.edit")}
           </Button>
-          <Button onClick={onBack}>رجوع لقائمة الموردين</Button>
+          <Button onClick={onBack}>{t("suppliers.backToList")}</Button>
         </>
       }
       summary={[
-        { label: "التصنيف", value: supplier.category ?? "بدون تصنيف" },
-        { label: "شروط الدفع", value: <span className="mz-num">{supplier.paymentTermsDays} يوم</span> },
-        { label: "العملة", value: supplier.currency },
-        { label: "الهاتف", value: supplier.phone ?? "لا يوجد" },
+        { label: t("suppliers.detail.category"), value: supplier.category ?? t("common.uncategorized") },
+        { label: t("suppliers.detail.paymentTerms"), value: <span className="mz-num">{t("suppliers.detail.days", { days: supplier.paymentTermsDays })}</span> },
+        { label: t("suppliers.detail.currency"), value: supplier.currency },
+        { label: t("common.phone"), value: supplier.phone ?? t("common.none") },
         {
-          label: "المستحق للمورد (الرصيد الافتتاحي)",
+          label: t("suppliers.detail.payableOpening"),
           value: <MoneyValue value={num(supplier.openingBalance)} />,
         },
-        { label: "الرقم الضريبي", value: supplier.taxNumber ?? "لا يوجد" },
+        { label: t("common.taxNumber"), value: supplier.taxNumber ?? t("common.none") },
       ]}
       tabs={[
         {
           key: "overview",
-          label: "نظرة عامة",
+          label: t("common.overview"),
           content: (
             <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">
               {[
-                { label: "البريد الإلكتروني", value: supplier.email ?? "لا يوجد" },
-                { label: "جهة الاتصال", value: supplier.contactPerson ?? "لا يوجد" },
-                { label: "الرقم الضريبي", value: supplier.taxNumber ?? "لا يوجد" },
-                { label: "العنوان", value: address === "" ? "لا يوجد" : address },
+                { label: t("common.email"), value: supplier.email ?? t("common.none") },
+                { label: t("suppliers.detail.contactPerson"), value: supplier.contactPerson ?? t("common.none") },
+                { label: t("common.taxNumber"), value: supplier.taxNumber ?? t("common.none") },
+                { label: t("suppliers.detail.address"), value: address === "" ? t("common.none") : address },
               ].map((row) => (
                 <div key={row.label} className="rounded-lg border border-border bg-surface p-[13px_15px]">
                   <div className="text-[11px] font-semibold text-ink-faint">{row.label}</div>
@@ -564,21 +567,22 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
               ))}
               {supplier.notes ? (
                 <div className="col-span-full rounded-lg border border-border bg-surface p-[13px_15px]">
-                  <div className="text-[11px] font-semibold text-ink-faint">ملاحظات</div>
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                   <div className="mt-[5px] text-[13.5px] text-ink">{supplier.notes}</div>
                 </div>
               ) : null}
             </div>
           ),
         },
-        { key: "invoices", label: "فواتير المشتريات", content: <SupplierInvoicesTab supplierId={supplier.id} /> },
-        { key: "statement", label: "كشف حساب المورد", content: <SupplierStatementTab supplier={supplier} /> },
+        { key: "invoices", label: t("suppliers.tab.invoices"), content: <SupplierInvoicesTab supplierId={supplier.id} /> },
+        { key: "statement", label: t("suppliers.tab.statement"), content: <SupplierStatementTab supplier={supplier} /> },
       ]}
     />
   );
 }
 
 export function SuppliersScreen() {
+  const { t } = useAppTranslation();
   const query = useSuppliers();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
@@ -607,15 +611,15 @@ export function SuppliersScreen() {
   }, [suppliers, statusFilter, search]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: suppliers.length },
-    { key: "active", label: "نشط", count: suppliers.filter((s) => s.active).length },
-    { key: "inactive", label: "غير نشط", count: suppliers.filter((s) => !s.active).length },
+    { key: "all", label: t("common.all"), count: suppliers.length },
+    { key: "active", label: t("common.active"), count: suppliers.filter((s) => s.active).length },
+    { key: "inactive", label: t("common.inactive"), count: suppliers.filter((s) => !s.active).length },
   ];
 
   const columns: DocumentListColumn<SupplierDTO>[] = [
     {
       key: "name",
-      header: "المورد",
+      header: t("suppliers.col.supplier"),
       render: (s) => (
         <div>
           <div className="font-semibold text-ink">{s.nameAr}</div>
@@ -623,14 +627,14 @@ export function SuppliersScreen() {
         </div>
       ),
     },
-    { key: "phone", header: "الهاتف", render: (s) => s.phone ?? "—" },
-    { key: "terms", header: "شروط الدفع", render: (s) => <span className="mz-num">{s.paymentTermsDays} يوم</span> },
-    { key: "category", header: "التصنيف", render: (s) => s.category ?? "بدون تصنيف" },
-    { key: "openingBalance", header: "المستحق للمورد", align: "end", render: (s) => <MoneyValue value={num(s.openingBalance)} /> },
+    { key: "phone", header: t("common.phone"), render: (s) => s.phone ?? "—" },
+    { key: "terms", header: t("suppliers.detail.paymentTerms"), render: (s) => <span className="mz-num">{t("suppliers.detail.days", { days: s.paymentTermsDays })}</span> },
+    { key: "category", header: t("suppliers.detail.category"), render: (s) => s.category ?? t("common.uncategorized") },
+    { key: "openingBalance", header: t("suppliers.col.payable"), align: "end", render: (s) => <MoneyValue value={num(s.openingBalance)} /> },
     {
       key: "status",
-      header: "الحالة",
-      render: (s) => <StatusPill label={s.active ? "نشط" : "غير نشط"} tone={(s.active ? "success" : "neutral") as PillTone} />,
+      header: t("common.status"),
+      render: (s) => <StatusPill label={s.active ? t("common.active") : t("common.inactive")} tone={(s.active ? "success" : "neutral") as PillTone} />,
     },
   ];
 
@@ -651,7 +655,7 @@ export function SuppliersScreen() {
   async function submit() {
     setError(null);
     if (draft.nameAr.trim() === "") {
-      setError("الاسم بالعربية مطلوب");
+      setError(t("suppliers.error.nameRequired"));
       return;
     }
     const fields = {
@@ -680,7 +684,7 @@ export function SuppliersScreen() {
       }
       setPanelOpen(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ بيانات المورد");
+      setError(err instanceof Error ? err.message : t("suppliers.error.saveFailed"));
     }
   }
 
@@ -691,42 +695,42 @@ export function SuppliersScreen() {
           {error}
         </div>
       ) : null}
-      <TextField label="اسم المورد *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+      <TextField label={t("suppliers.field.name")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
       <TextField
-        label="الكود"
+        label={t("suppliers.field.code")}
         value={draft.code}
         onChange={(v) => setDraft((d) => ({ ...d, code: v }))}
-        placeholder="تلقائي إذا فارغ"
+        placeholder={t("suppliers.field.codePlaceholder")}
         disabled={editingId !== null}
       />
-      <TextField label="الهاتف" type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
+      <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
       <NumberField
-        label="شروط الدفع (أيام)"
+        label={t("suppliers.field.paymentTerms")}
         value={draft.paymentTermsDays}
         onChange={(v) => setDraft((d) => ({ ...d, paymentTermsDays: v }))}
         min={0}
       />
-      <TextField label="العملة" value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
-      <TextField label="التصنيف" value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder="بدون تصنيف" />
+      <TextField label={t("suppliers.field.currency")} value={draft.currency} onChange={(v) => setDraft((d) => ({ ...d, currency: v }))} placeholder="EGP" />
+      <TextField label={t("suppliers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
       <NumberField
-        label="الرصيد الافتتاحي"
+        label={t("suppliers.field.openingBalance")}
         value={draft.openingBalance}
         onChange={(v) => setDraft((d) => ({ ...d, openingBalance: v }))}
-        hint="المبلغ المستحق للمورد عند بدء التعامل معه في مزان"
+        hint={t("suppliers.field.openingBalanceHint")}
       />
-      <TextField label="الاسم بالإنجليزي" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
-      <TextField label="البريد الإلكتروني" type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-      <TextField label="الرقم الضريبي" value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
-      <TextField label="جهة الاتصال" value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
-      <TextField label="المدينة" value={draft.addressCity} onChange={(v) => setDraft((d) => ({ ...d, addressCity: v }))} />
-      <TextField label="الحي" value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />
-      <TextField label="الشارع" value={draft.addressStreet} onChange={(v) => setDraft((d) => ({ ...d, addressStreet: v }))} />
-      <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
-      {editingId ? <ToggleField label="نشط" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+      <TextField label={t("suppliers.field.nameEn")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+      <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+      <TextField label={t("suppliers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+      <TextField label={t("suppliers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
+      <TextField label={t("suppliers.field.city")} value={draft.addressCity} onChange={(v) => setDraft((d) => ({ ...d, addressCity: v }))} />
+      <TextField label={t("suppliers.field.district")} value={draft.addressDistrict} onChange={(v) => setDraft((d) => ({ ...d, addressDistrict: v }))} />
+      <TextField label={t("suppliers.field.street")} value={draft.addressStreet} onChange={(v) => setDraft((d) => ({ ...d, addressStreet: v }))} />
+      <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+      {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
       <div className="flex justify-end gap-[9px]">
-        <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+        <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={submit}>
-          {editingId ? "حفظ التعديلات" : "إضافة مورد"}
+          {editingId ? t("suppliers.saveEdits") : t("suppliers.addSupplier")}
         </Button>
       </div>
     </div>
@@ -736,7 +740,7 @@ export function SuppliersScreen() {
     return (
       <>
         <SupplierDetail supplier={selected} onBack={() => setSelectedId(null)} onEdit={() => openEditForm(selected)} />
-        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? "تعديل مورد" : "إضافة مورد"} description="بيانات المورد الأساسية">
+        <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? t("suppliers.editSupplier") : t("suppliers.addSupplier")} description={t("suppliers.panel.description")}>
           {formFields}
         </SidePanel>
       </>
@@ -747,26 +751,26 @@ export function SuppliersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الموردين.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("suppliers.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<SupplierDTO>
         eyebrow="Purchases · Suppliers"
-        title="الموردون"
-        description="السجل المركزي للموردين — بيانات الاتصال، شروط الدفع، والتصنيف والعنوان"
+        title={t("suppliers.title")}
+        description={t("suppliers.description")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة مورد
+            {t("suppliers.addSupplier")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الموردين", value: <span className="mz-num">{suppliers.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
+          { label: t("suppliers.stat.total"), value: <span className="mz-num">{suppliers.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
           {
-            label: "المستحق للموردين",
+            label: t("suppliers.stat.payable"),
             value: <MoneyValue value={suppliers.reduce((sum, s) => sum + num(s.openingBalance), 0)} showUnit={false} />,
           },
         ]}
@@ -775,7 +779,7 @@ export function SuppliersScreen() {
         onStatusChange={(key) => setStatusFilter(key as typeof statusFilter)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="ابحث باسم المورد أو الكود أو الهاتف…"
+        searchPlaceholder={t("suppliers.searchPlaceholder")}
         columns={columns}
         rows={filtered}
         rowKey={(s) => s.id}
@@ -784,13 +788,13 @@ export function SuppliersScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{suppliers.length}</span> مورد
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{suppliers.length}</span> {t("suppliers.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا يوجد موردون مطابقون</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("suppliers.empty")}</div>}
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? "تعديل مورد" : "إضافة مورد"} description="بيانات المورد الأساسية">
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? t("suppliers.editSupplier") : t("suppliers.addSupplier")} description={t("suppliers.panel.description")}>
         {formFields}
       </SidePanel>
     </>

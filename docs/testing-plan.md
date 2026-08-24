@@ -176,14 +176,38 @@ automated signal is a shortlist, not a verdict.
 
 ---
 
-## Phase 3 — Behaviour that matters (manual, per module)
+## Phase 3 — Behaviour that matters
 
 Automation proves a control reacts. It cannot prove it did the *right* thing.
 
-**The business scenarios live in `testing-scenarios.md`** — 29 end-to-end
-lifecycles taken from the captured catalog, each with its assertions. Run those
-for document behaviour. The generic checks below apply to every list screen and
-are what the scenarios assume already works.
+**Run the executable suite first:**
+
+```bash
+pnpm scenarios
+```
+
+It boots a seeded backend in-process and drives the same HTTP routes the UI
+calls, asserting what documents actually did to stock and to the ledger. Every
+scenario is bracketed by the books — trial balance balances, inventory and AP
+still reconcile — so a document that quietly posts nothing fails immediately.
+
+This exists because it works and browser automation kept stalling: the API path
+found and proved five real defects in one evening, including one that let the
+same goods be returned repeatedly. Start here, then spend the manual time on
+what it genuinely cannot see.
+
+**What it cannot see, and stays manual:** layout, focus rings, RTL mirroring,
+keyboard handling, contrast, whether a control is reachable at all. A route can
+be perfect while no button calls it.
+
+**The written scenarios** are `docs/scenarios/01..08` — 964 numbered scenarios
+covering every screen, button, filter, modal and error path, with 222
+`[NOT IMPLEMENTED]` markers where the build diverges from the captured catalog.
+`testing-scenarios.md` holds the 29 headline lifecycles. Work the manual pass
+from those.
+
+The generic checks below apply to every list screen and are what the scenarios
+assume already works.
 
 **Filters** — apply each filter and confirm the row count actually narrows and
 the remaining rows match the criterion. Clear it and confirm the count returns.

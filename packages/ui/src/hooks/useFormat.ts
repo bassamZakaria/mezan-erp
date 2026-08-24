@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from "react";
+import { useUiTranslation } from "../i18n";
 import {
   formatDate,
   formatMoney,
@@ -10,7 +11,7 @@ import {
 export interface UseFormatOptions {
   /** Numeral system for both money and dates. Defaults to "western". */
   numerals?: NumeralSystem;
-  /** Arabic currency label appended after the figure, e.g. "ج.م". */
+  /** Overrides the locale's own currency label (ج.م / EGP). */
   currencyLabel?: string;
 }
 
@@ -31,7 +32,8 @@ export interface UseFormatResult {
  */
 export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
   const numerals = options.numerals ?? "western";
-  const currencyLabel = options.currencyLabel ?? "ج.م";
+  const { t } = useUiTranslation();
+  const currencyLabel = options.currencyLabel ?? t("ui.currency");
 
   const money = useCallback((value: number) => formatMoney(value, { numerals }), [numerals]);
   const number = useCallback((value: number) => formatNumber(value, { numerals }), [numerals]);

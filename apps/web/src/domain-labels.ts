@@ -58,3 +58,12 @@ const ACTION_TYPE_CODES: ReadonlySet<string> = new Set(GATEABLE_ACTION_TYPES.map
 export function actionTypeLabel(code: string, t: Translate): string {
   return ACTION_TYPE_CODES.has(code) ? t(`actionType.${code}` as AppTranslationKey) : code;
 }
+
+/**
+ * Sales-invoice status. The Arabic map stays in `@mezan/domain` because the
+ * service itself builds an error message out of it; this is the UI's overlay
+ * on the same status codes.
+ */
+export function salesInvoiceStatusLabel(status: string, t: Translate): string {
+  return t(`salesInvoiceStatus.${status}` as AppTranslationKey);
+}

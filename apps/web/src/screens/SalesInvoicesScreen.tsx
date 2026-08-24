@@ -15,6 +15,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  useFormat,
 } from "@mezan/ui";
 import {
   Money,
@@ -43,6 +44,8 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, NumberField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
+import { salesInvoiceStatusLabel } from "../domain-labels";
+import { useAppTranslation } from "../i18n";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm SidePanel form with live
@@ -100,6 +103,8 @@ function CreateInvoicePanel({
   open: boolean;
   onClose: () => void;
 }) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees();
   const itemsQuery = useItems();
@@ -160,7 +165,7 @@ function CreateInvoicePanel({
     [employees],
   );
   const itemOptions = useMemo<EntityPickerOption[]>(
-    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${i.salePrice ?? "0"} ج.م` })),
+    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${i.salePrice ?? "0"} ${format.currencyLabel}` })),
     [items],
   );
 
@@ -219,7 +224,7 @@ function CreateInvoicePanel({
 
   async function handleSave(shouldConfirm: boolean) {
     if (!customer || !customerData) {
-      setError("العميل مطلوب.");
+      setError(t("salesInvoices.error.customerRequired"));
       return;
     }
     setBusy(true);
@@ -258,14 +263,14 @@ function CreateInvoicePanel({
       resetForm();
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ الفاتورة.");
+      setError(err instanceof Error ? err.message : t("salesInvoices.error.saveFailed"));
     } finally {
       setBusy(false);
     }
   }
 
   return (
-    <SidePanel open={open} onClose={onClose} title="فاتورة مبيعات جديدة" description="بيانات الفاتورة والبنود">
+    <SidePanel open={open} onClose={onClose} title={t("salesInvoices.panel.title")} description={t("salesInvoices.panel.description")}>
       <div className="flex flex-col gap-[16px]">
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -273,11 +278,11 @@ function CreateInvoicePanel({
           </div>
         ) : null}
 
-        <EntityPicker id="invoice-customer-picker" label="العميل *" value={customer} onChange={setCustomer} options={customerOptions} placeholder="اختر عميلاً..." />
+        <EntityPicker id="invoice-customer-picker" label={t("salesInvoices.field.customer")} value={customer} onChange={setCustomer} options={customerOptions} placeholder={t("salesInvoices.field.customerPlaceholder")} />
 
         <div className="grid grid-cols-2 gap-[10px]">
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">التاريخ *</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.date")}</span>
             <input
               type="text"
               value={date}
@@ -286,7 +291,7 @@ function CreateInvoicePanel({
             />
           </label>
           <label className="flex flex-col gap-[6px]">
-            <span className="text-[12.5px] font-semibold text-ink">تاريخ الاستحقاق *</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.dueDate")}</span>
             <input
               type="text"
               value={dueDate}
@@ -297,7 +302,7 @@ function CreateInvoicePanel({
         </div>
 
         <SelectField
-          label="المستودع"
+          label={t("salesInvoices.field.warehouse")}
           value={warehouseId}
           onChange={setWarehouseId}
           options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
@@ -305,30 +310,30 @@ function CreateInvoicePanel({
 
         <EntityPicker
           id="invoice-salesperson-picker"
-          label="مندوب المبيعات"
+          label={t("salesInvoices.field.salesperson")}
           value={salesperson}
           onChange={setSalesperson}
           options={salespersonOptions}
-          placeholder="اختر مندوباً..."
+          placeholder={t("salesInvoices.field.salespersonPlaceholder")}
         />
 
         <label className="flex flex-col gap-[6px]">
-          <span className="text-[12.5px] font-semibold text-ink">كود الكوبون</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.coupon")}</span>
           <input
             type="text"
             value={couponCode}
             onChange={(e) => setCouponCode(e.target.value)}
-            placeholder="اتركه فارغاً إن لم يقدّم العميل كوبوناً"
+            placeholder={t("salesInvoices.field.couponPlaceholder")}
             className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
           />
-          <span className="text-xs text-ink-muted">يُطبَّق العرض المناسب تلقائياً عند تأكيد الفاتورة.</span>
+          <span className="text-xs text-ink-muted">{t("salesInvoices.field.couponHint")}</span>
         </label>
 
         <div className="flex flex-col gap-[10px]">
           <div className="flex items-center justify-between">
-            <h3 className="font-display text-[13.5px] font-bold text-ink">بنود الفاتورة</h3>
+            <h3 className="font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.linesHeading")}</h3>
             <Button size="sm" onClick={addLine}>
-              إضافة بند
+              {t("salesInvoices.addLine")}
             </Button>
           </div>
           {lines.map((line, i) => {
@@ -341,18 +346,18 @@ function CreateInvoicePanel({
                   <div className="flex-1">
                     <EntityPicker
                       id={`invoice-line-item-${line.key}`}
-                      label={`الصنف — سطر ${i + 1}`}
+                      label={t("salesInvoices.field.lineItem", { number: i + 1 })}
                       value={selectedOption}
                       onChange={(opt) => {
                         const picked = opt ? items.find((it) => it.id === opt.id) : null;
                         updateLine(i, { itemId: opt?.id ?? "", unitPrice: picked ? Number(picked.salePrice ?? "0") : null });
                       }}
                       options={itemOptions}
-                      placeholder="اختر صنفاً..."
+                      placeholder={t("salesInvoices.field.itemPlaceholder")}
                     />
                   </div>
                   <IconButton
-                    aria-label={`حذف السطر ${i + 1}`}
+                    aria-label={t("salesInvoices.removeLine", { number: i + 1 })}
                     disabled={lines.length <= 1}
                     className="mt-[26px]"
                     onClick={() => removeLine(i)}
@@ -364,9 +369,9 @@ function CreateInvoicePanel({
                   <>
                     <div className="grid grid-cols-2 gap-[10px]">
                       <label className="flex flex-col gap-[6px]">
-                        <span className="text-xs font-semibold text-ink-muted">الكمية</span>
+                        <span className="text-xs font-semibold text-ink-muted">{t("salesInvoices.field.qty")}</span>
                         <QtyInput
-                          aria-label={`الكمية للسطر ${i + 1}`}
+                          aria-label={t("salesInvoices.field.lineQty", { number: i + 1 })}
                           value={line.qty}
                           onChange={(v) => updateLine(i, { qty: v })}
                           min={0}
@@ -375,12 +380,12 @@ function CreateInvoicePanel({
                         />
                       </label>
                       <label className="flex flex-col gap-[6px]">
-                        <span className="text-xs font-semibold text-ink-muted">السعر</span>
-                        <MoneyInput aria-label={`السعر للسطر ${i + 1}`} value={line.unitPrice} onChange={(v) => updateLine(i, { unitPrice: v })} />
+                        <span className="text-xs font-semibold text-ink-muted">{t("salesInvoices.field.price")}</span>
+                        <MoneyInput aria-label={t("salesInvoices.field.linePrice", { number: i + 1 })} value={line.unitPrice} onChange={(v) => updateLine(i, { unitPrice: v })} />
                       </label>
                     </div>
                     <NumberField
-                      label="خصم %"
+                      label={t("salesInvoices.field.discountPct")}
                       value={line.discountPercent}
                       onChange={(v) => updateLine(i, { discountPercent: v })}
                       min={0}
@@ -388,7 +393,7 @@ function CreateInvoicePanel({
                     />
                     {lineTotals ? (
                       <div className="text-[11.5px] text-ink-muted">
-                        الإجمالي: <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
+                        {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
                       </div>
                     ) : null}
                   </>
@@ -400,16 +405,16 @@ function CreateInvoicePanel({
 
         <div className="grid grid-cols-2 gap-[10px]">
           <SelectField
-            label="نوع الخصم"
+            label={t("salesInvoices.field.discountType")}
             value={discountType}
             onChange={(v) => setDiscountType(v as SalesInvoiceDiscountType)}
             options={[
-              { value: "amount", label: "مبلغ" },
-              { value: "percent", label: "نسبة %" },
+              { value: "amount", label: t("salesInvoices.discount.amount") },
+              { value: "percent", label: t("salesInvoices.discount.percent") },
             ]}
           />
           <NumberField
-            label={discountType === "percent" ? "نسبة الخصم %" : "قيمة الخصم"}
+            label={discountType === "percent" ? t("salesInvoices.field.discountPercent") : t("salesInvoices.field.discountValue")}
             value={discountValue}
             onChange={setDiscountValue}
             min={0}
@@ -418,28 +423,28 @@ function CreateInvoicePanel({
         </div>
 
         <div className="rounded-lg border border-border bg-surface-2 p-[14px_16px]">
-          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">الإجماليات</h3>
+          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.totalsHeading")}</h3>
           <dl className="flex flex-col gap-[7px] text-[13px]">
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">المجموع الفرعي</dt>
+              <dt className="text-ink-muted">{t("salesInvoices.subtotal")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.subtotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">الخصم</dt>
+              <dt className="text-ink-muted">{t("salesInvoices.discount")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.invoiceDiscountTotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">الضريبة</dt>
+              <dt className="text-ink-muted">{t("salesInvoices.tax")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.taxTotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between border-t border-border pt-[8px] font-bold">
-              <dt className="text-ink">الإجمالي الكلي</dt>
+              <dt className="text-ink">{t("salesInvoices.grandTotal")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.grandTotal.toString())} />
               </dd>
@@ -448,12 +453,12 @@ function CreateInvoicePanel({
         </div>
 
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={onClose}>إلغاء</Button>
+          <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button disabled={!canSubmit} onClick={() => handleSave(false)}>
-            حفظ كمسودة
+            {t("salesInvoices.saveDraft")}
           </Button>
           <Button variant="primary" disabled={!canSubmit} onClick={() => handleSave(true)}>
-            تأكيد الفاتورة
+            {t("salesInvoices.confirm")}
           </Button>
         </div>
       </div>
@@ -474,6 +479,8 @@ function InvoiceDetailView({
   today: string;
   onBack: () => void;
 }) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
   const journalEntryQuery = useJournalEntry(invoice.journalEntryId);
@@ -528,7 +535,7 @@ function InvoiceDetailView({
 
   async function handleRecordPayment() {
     if (!paymentAmount || paymentAmount <= 0) {
-      setPaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
+      setPaymentError(t("salesInvoices.error.paymentPositive"));
       return;
     }
     setPayBusy(true);
@@ -537,7 +544,7 @@ function InvoiceDetailView({
       await recordPayment.mutateAsync({ id: invoice.id, amount: String(paymentAmount) });
       setPaymentAmount(null);
     } catch (err) {
-      setPaymentError(err instanceof Error ? err.message : "تعذر تسجيل الدفعة.");
+      setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
     } finally {
       setPayBusy(false);
     }
@@ -545,54 +552,54 @@ function InvoiceDetailView({
 
   const effects = [
     invoice.status === "draft"
-      ? "فاتورة مسودة — لم تُرحّل بعد. التأكيد يُصدر رقم الفاتورة، يصرف المخزون، ويرحّل القيد المحاسبي."
-      : "تم صرف الأصناف المخزنية من المستودع وترحيل القيد المحاسبي (مدين العملاء + تكلفة البضاعة / دائن الإيرادات + الضريبة + المخزون).",
-    `الرصيد المتبقي على العميل: ${invoice.remainingBalance}`,
+      ? t("salesInvoices.effect.draft")
+      : t("salesInvoices.effect.confirmed"),
+    t("salesInvoices.effect.balance", { balance: `${format.money(toMajor(invoice.remainingBalance))} ${format.currencyLabel}` }),
   ];
 
   return (
     <DocumentDetail
-      title={invoice.docNo ?? "فاتورة مبيعات"}
-      statusLabel={SALES_INVOICE_STATUS_LABELS_AR[invoice.status]}
+      title={invoice.docNo ?? t("salesInvoices.detailTitle")}
+      statusLabel={salesInvoiceStatusLabel(invoice.status, t)}
       statusTone={STATUS_TONE[invoice.status]}
-      subtitle={overdue ? <span className="text-danger-ink">متأخرة السداد</span> : undefined}
-      actions={<Button onClick={onBack}>رجوع</Button>}
+      subtitle={overdue ? <span className="text-danger-ink">{t("salesInvoices.overdue")}</span> : undefined}
+      actions={<Button onClick={onBack}>{t("common.back")}</Button>}
       summary={[
-        { label: "التاريخ", value: <span className="mz-num">{invoice.date}</span> },
-        { label: "العميل", value: invoice.customerNameAr },
-        { label: "تاريخ الاستحقاق", value: <span className="mz-num">{invoice.dueDate}</span>, valueTone: overdue ? "danger" : "default" },
-        { label: "المستودع", value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
-        { label: "المندوب", value: invoice.salespersonNameAr ?? "غير محدد" },
+        { label: t("common.date"), value: <span className="mz-num">{invoice.date}</span> },
+        { label: t("common.customer"), value: invoice.customerNameAr },
+        { label: t("salesInvoices.col.dueDate"), value: <span className="mz-num">{invoice.dueDate}</span>, valueTone: overdue ? "danger" : "default" },
+        { label: t("common.warehouse"), value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
+        { label: t("salesInvoices.detail.salesperson"), value: invoice.salespersonNameAr ?? t("salesInvoices.detail.unassigned") },
         ...(invoice.appliedPromotion
           ? [
-              { label: "العرض المطبَّق", value: `${invoice.appliedPromotion.nameAr} (${invoice.appliedPromotion.code})` },
+              { label: t("salesInvoices.detail.appliedPromotion"), value: `${invoice.appliedPromotion.nameAr} (${invoice.appliedPromotion.code})` },
               {
-                label: "خصم العرض",
+                label: t("salesInvoices.detail.promotionDiscount"),
                 value: <MoneyDisplay value={toMajor(invoice.appliedPromotion.discountTotal)} />,
               },
             ]
           : []),
-        { label: "الإجمالي", value: <MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /> },
-        { label: "الرصيد المتبقي", value: <MoneyDisplay value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
+        { label: t("common.total"), value: <MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /> },
+        { label: t("salesInvoices.detail.remaining"), value: <MoneyDisplay value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
       ]}
-      effectsTitle="تأثيرات هذه الفاتورة"
+      effectsTitle={t("salesInvoices.effectsTitle")}
       effects={effects}
       tabs={[
         {
           key: "lines",
-          label: "بنود الفاتورة",
+          label: t("salesInvoices.tab.lines"),
           content: (
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] border-collapse text-[13px]">
                   <thead>
                     <tr>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الكمية</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">السعر</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الخصم %</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الضريبة</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الإجمالي</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.qty")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.price")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.discountPct")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.tax")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.total")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -612,7 +619,7 @@ function InvoiceDetailView({
                   </tbody>
                   <tfoot>
                     <tr className="bg-surface-2 font-bold">
-                      <td className="px-[15px] py-[11px]" colSpan={5}>الإجمالي الكلي</td>
+                      <td className="px-[15px] py-[11px]" colSpan={5}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
                   </tfoot>
@@ -623,22 +630,22 @@ function InvoiceDetailView({
         },
         {
           key: "gl",
-          label: "القيود المحاسبية",
+          label: t("salesInvoices.tab.journal"),
           content: (
             <Card className="p-[16px_18px]">
               {invoice.journalEntryId ? (
                 journalEntryQuery.data ? (
                   <>
                     <div className="mb-[12px] text-[13px] text-ink-muted">
-                      رقم القيد: <span className="mz-num font-semibold text-ink">{journalEntryQuery.data.entryNo ?? invoice.docNo}</span>
+                      {t("salesInvoices.journal.entryNo")} <span className="mz-num font-semibold text-ink">{journalEntryQuery.data.entryNo ?? invoice.docNo}</span>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full min-w-[480px] border-collapse text-[13px]">
                         <thead>
                           <tr>
-                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الحساب</th>
-                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">مدين</th>
-                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">دائن</th>
+                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.journal.account")}</th>
+                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
+                            <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -654,38 +661,38 @@ function InvoiceDetailView({
                     </div>
                   </>
                 ) : (
-                  <div className="p-[20px] text-center text-[12.5px] text-ink-muted">جارٍ تحميل القيد المحاسبي…</div>
+                  <div className="p-[20px] text-center text-[12.5px] text-ink-muted">{t("salesInvoices.journal.loading")}</div>
                 )
               ) : (
-                <div className="p-[20px] text-center text-[12.5px] text-ink-muted">لم يتم ترحيل قيد بعد — الفاتورة ما زالت مسودة.</div>
+                <div className="p-[20px] text-center text-[12.5px] text-ink-muted">{t("salesInvoices.journal.none")}</div>
               )}
             </Card>
           ),
         },
         {
           key: "payments",
-          label: "المدفوعات",
+          label: t("salesInvoices.tab.payments"),
           content: (
             <div className="flex flex-col gap-[14px]">
               <Card className="p-[16px_18px]">
                 <dl className="grid grid-cols-2 gap-[14px] text-[13px] sm:grid-cols-3">
                   <div>
-                    <dt className="text-[11px] font-semibold text-ink-faint">الإجمالي الكلي</dt>
+                    <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.grandTotal")}</dt>
                     <dd className="mt-[4px]"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></dd>
                   </div>
                   <div>
-                    <dt className="text-[11px] font-semibold text-ink-faint">المحصل</dt>
+                    <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.collected")}</dt>
                     <dd className="mt-[4px]"><MoneyDisplay value={toMajor(invoice.amountPaid)} /></dd>
                   </div>
                   <div>
-                    <dt className="text-[11px] font-semibold text-ink-faint">المتبقي</dt>
+                    <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.remaining")}</dt>
                     <dd className="mt-[4px]"><MoneyDisplay value={remaining} /></dd>
                   </div>
                 </dl>
               </Card>
               {canPay ? (
                 <Card className="p-[16px_18px]">
-                  <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">تحصيل دفعة</h3>
+                  <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.payments.heading")}</h3>
                   {paymentError ? (
                     <div role="alert" className="mb-[10px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
                       {paymentError}
@@ -693,16 +700,16 @@ function InvoiceDetailView({
                   ) : null}
                   <div className="flex items-end gap-[10px]">
                     <div className="flex-1">
-                      <span className="mb-[6px] block text-xs font-semibold text-ink-muted">قيمة الدفعة</span>
-                      <MoneyInput aria-label="قيمة الدفعة" value={paymentAmount} onChange={setPaymentAmount} />
+                      <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.amount")}</span>
+                      <MoneyInput aria-label={t("salesInvoices.payments.amount")} value={paymentAmount} onChange={setPaymentAmount} />
                     </div>
                     <Button variant="primary" disabled={payBusy} onClick={handleRecordPayment}>
-                      تحصيل دفعة
+                      {t("salesInvoices.payments.submit")}
                     </Button>
                   </div>
                 </Card>
               ) : (
-                <div className="p-[16px] text-center text-[12.5px] text-ink-muted">لا يمكن تسجيل دفعة في حالة الفاتورة الحالية.</div>
+                <div className="p-[16px] text-center text-[12.5px] text-ink-muted">{t("salesInvoices.payments.blocked")}</div>
               )}
             </div>
           ),
@@ -717,6 +724,7 @@ function InvoiceDetailView({
 /* ------------------------------------------------------------------ */
 
 export function SalesInvoicesScreen() {
+  const { t } = useAppTranslation();
   const query = useSalesInvoices();
   const invoices = query.data ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -761,18 +769,18 @@ export function SalesInvoicesScreen() {
   }, [invoices, statusFilter, search]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all ?? 0 },
-    ...LIST_STATUSES.map((s) => ({ key: s, label: SALES_INVOICE_STATUS_LABELS_AR[s], count: counts[s] ?? 0 })),
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    ...LIST_STATUSES.map((s) => ({ key: s, label: salesInvoiceStatusLabel(s, t), count: counts[s] ?? 0 })),
   ];
 
   const columns: DocumentListColumn<SalesInvoiceDTO>[] = [
     {
       key: "docNo",
-      header: "رقم الفاتورة",
+      header: t("salesInvoices.col.docNo"),
       sortable: true,
       render: (inv) => (
         <div>
-          <div className="mz-num font-semibold text-ink">{inv.docNo ?? "مسودة"}</div>
+          <div className="mz-num font-semibold text-ink">{inv.docNo ?? t("docStatus.draft")}</div>
           <div className="text-[11.5px] text-ink-faint">
             {inv.customerNameAr} · <span className="mz-num">{inv.date}</span>
           </div>
@@ -781,25 +789,25 @@ export function SalesInvoicesScreen() {
     },
     {
       key: "dueDate",
-      header: "تاريخ الاستحقاق",
+      header: t("salesInvoices.col.dueDate"),
       render: (inv) => (
         <div className="flex items-center gap-[8px]">
           <span className="mz-num text-ink-muted">{inv.dueDate}</span>
-          {isOverdue(inv, today) ? <StatusPill label="متأخر" tone="danger" /> : null}
+          {isOverdue(inv, today) ? <StatusPill label={t("salesInvoices.overdueShort")} tone="danger" /> : null}
         </div>
       ),
     },
     {
       key: "remaining",
-      header: "الرصيد المتبقي",
+      header: t("salesInvoices.col.remaining"),
       align: "end",
       render: (inv) => <MoneyDisplay value={toMajor(inv.remainingBalance)} />,
       total: (rows) => <MoneyDisplay value={rows.reduce((sum, inv) => sum + toMajor(inv.remainingBalance), 0)} />,
     },
     {
       key: "status",
-      header: "الحالة",
-      render: (inv) => <StatusPill label={SALES_INVOICE_STATUS_LABELS_AR[inv.status]} tone={STATUS_TONE[inv.status]} />,
+      header: t("common.status"),
+      render: (inv) => <StatusPill label={salesInvoiceStatusLabel(inv.status, t)} tone={STATUS_TONE[inv.status]} />,
     },
   ];
 
@@ -811,33 +819,33 @@ export function SalesInvoicesScreen() {
         <div className="w-full">
           {query.isError ? (
             <Card className="mb-[18px] p-[18px_20px]">
-              <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل فواتير المبيعات.</p>
+              <p className="text-[13px] font-semibold text-danger-ink">{t("salesInvoices.loadFailed")}</p>
               <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-                إعادة المحاولة
+                {t("common.retry")}
               </Button>
             </Card>
           ) : null}
           <DocumentList<SalesInvoiceDTO>
             eyebrow="Sales · Invoices"
-            title="فواتير المبيعات"
-            description="فواتير المبيعات — مسودة ← مؤكد ← مدفوع جزئياً/مدفوع، مرحّلة على SalesInvoiceService الحقيقية (ترقيم + قيد محاسبي + صرف مخزون)"
+            title={t("salesInvoices.title")}
+            description={t("salesInvoices.description")}
             actions={
               <Button variant="primary" onClick={() => setPanelOpen(true)}>
-                فاتورة جديدة
+                {t("salesInvoices.new")}
               </Button>
             }
             stats={[
-              { label: "إجمالي الفواتير", value: <span className="mz-num">{invoices.length}</span> },
-              { label: "إجمالي المبيعات", value: <MoneyDisplay value={kpi.sales} /> },
-              { label: "إجمالي المحصل", value: <MoneyDisplay value={kpi.collected} /> },
-              { label: "إجمالي المتبقي", value: <MoneyDisplay value={kpi.remaining} />, valueTone: kpi.remaining > 0 ? "danger" : "default" },
+              { label: t("salesInvoices.stat.total"), value: <span className="mz-num">{invoices.length}</span> },
+              { label: t("salesInvoices.stat.sales"), value: <MoneyDisplay value={kpi.sales} /> },
+              { label: t("salesInvoices.stat.collected"), value: <MoneyDisplay value={kpi.collected} /> },
+              { label: t("salesInvoices.stat.remaining"), value: <MoneyDisplay value={kpi.remaining} />, valueTone: kpi.remaining > 0 ? "danger" : "default" },
             ]}
             statusChips={statusChips}
             activeStatusKey={statusFilter}
             onStatusChange={(key) => setStatusFilter(key as "all" | SalesInvoiceStatusDTO)}
             searchValue={search}
             onSearchChange={setSearch}
-            searchPlaceholder="بحث برقم الفاتورة أو اسم العميل…"
+            searchPlaceholder={t("salesInvoices.searchPlaceholder")}
             columns={columns}
             rows={filtered}
             rowKey={(inv) => inv.id}
@@ -846,10 +854,10 @@ export function SalesInvoicesScreen() {
             pageCount={1}
             pageSummary={
               <>
-                عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{invoices.length}</span> فاتورة
+                {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{invoices.length}</span> {t("salesInvoices.showingSuffix")}
               </>
             }
-            emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد فواتير مطابقة</div>}
+            emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesInvoices.empty")}</div>}
           />
         </div>
       )}

@@ -3,6 +3,7 @@ import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCustomers, useSalesInvoices, useSalesQuotes } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * المبيعات hub — KPI tiles + quick actions + recent activity, all computed
@@ -13,12 +14,12 @@ import type { ScreenKey } from "../../App";
 
 const OUTSTANDING_INVOICE_STATUSES = new Set(["confirmed", "partially_paid"]);
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "فاتورة مبيعات جديدة", screen: "sales-invoices" },
-  { label: "عرض سعر جديد", screen: "quotes" },
-  { label: "قوائم الأسعار", screen: "price-lists" },
-  { label: "العروض والترويج", screen: "promotions" },
-  { label: "مرتجعات المبيعات", screen: "sales-returns" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "salesHub.action.newInvoice", screen: "sales-invoices" },
+  { label: "salesHub.action.newQuote", screen: "quotes" },
+  { label: "salesHub.action.priceLists", screen: "price-lists" },
+  { label: "salesHub.action.promotions", screen: "promotions" },
+  { label: "salesHub.action.returns", screen: "sales-returns" },
 ];
 
 function num(value: string | undefined | null): number {
@@ -26,6 +27,7 @@ function num(value: string | undefined | null): number {
 }
 
 export function SalesHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const invoicesQuery = useSalesInvoices();
   const quotesQuery = useSalesQuotes();
@@ -53,13 +55,13 @@ export function SalesHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Sales</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">المبيعات</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">فواتير وعروض أسعار وعملاء المبيعات — من البيانات الفعلية المسجّلة</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("salesHub.title")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("salesHub.description")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -70,20 +72,20 @@ export function SalesHubScreen() {
 
       {isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات المبيعات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("salesHub.loadFailed")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="فواتير المبيعات" value={isLoading ? "—" : invoices.length} sub="إجمالي الفواتير المسجّلة" />
-        <StatCard label="مبالغ مستحقة من العملاء" value={<Money value={outstandingReceivable} />} sub="فواتير مؤكدة أو مدفوعة جزئياً" />
-        <StatCard label="عروض أسعار قيد الإرسال" value={isLoading ? "—" : pendingQuotes} sub="بانتظار رد العميل" />
-        <StatCard label="عدد العملاء" value={isLoading ? "—" : customers.length} sub="عملاء مسجّلون" />
+        <StatCard label={t("salesHub.stat.invoices")} value={isLoading ? "—" : invoices.length} sub={t("salesHub.stat.invoicesSub")} />
+        <StatCard label={t("salesHub.stat.receivable")} value={<Money value={outstandingReceivable} />} sub={t("salesHub.stat.receivableSub")} />
+        <StatCard label={t("salesHub.stat.pendingQuotes")} value={isLoading ? "—" : pendingQuotes} sub={t("salesHub.stat.pendingQuotesSub")} />
+        <StatCard label={t("salesHub.stat.customers")} value={isLoading ? "—" : customers.length} sub={t("salesHub.stat.customersSub")} />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">أحدث فواتير المبيعات</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">آخر 5 فواتير مسجّلة</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("salesHub.recent")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("salesHub.recentSub")}</div>
         {recentInvoices.length > 0 ? (
           <ul className="flex flex-col gap-[10px]">
             {recentInvoices.map((inv) => (
@@ -100,7 +102,7 @@ export function SalesHubScreen() {
             ))}
           </ul>
         ) : (
-          <p className="text-[12.5px] text-ink-muted">لا توجد فواتير مبيعات بعد — ستظهر هنا فور إنشاء أول فاتورة.</p>
+          <p className="text-[12.5px] text-ink-muted">{t("salesHub.empty")}</p>
         )}
       </Card>
     </div>

@@ -22,33 +22,19 @@ import {
   useSalesReturns,
   useWarehouses,
 } from "../data/hooks";
+import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
-const REASON_LABEL: Record<SalesReturnReasonDTO, string> = {
-  DEFECTIVE: "معيب",
-  WRONG_ITEM: "صنف خاطئ",
-  EXCESS_QTY: "كمية زائدة",
-  CHANGED_MIND: "تغيير رأي العميل",
-  OTHER: "أخرى",
+const REASON_KEY: Record<SalesReturnReasonDTO, AppTranslationKey> = {
+  DEFECTIVE: "salesReturns.reason.DEFECTIVE",
+  WRONG_ITEM: "salesReturns.reason.WRONG_ITEM",
+  EXCESS_QTY: "salesReturns.reason.EXCESS_QTY",
+  CHANGED_MIND: "salesReturns.reason.CHANGED_MIND",
+  OTHER: "salesReturns.reason.OTHER",
 };
 
-const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  confirmed: "مؤكد",
-  posted: "مرحل",
-  cancelled: "ملغي",
-  reversed: "معكوس",
-};
-const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
-  draft: "neutral",
-  pending: "warning",
-  confirmed: "success",
-  posted: "success",
-  cancelled: "neutral",
-  reversed: "danger",
-};
 
 const num = (v: string) => Number(v);
 const lineTotal = (l: SalesReturnLineDTO) => num(l.unitPrice) * num(l.qty) + num(l.taxAmount);
@@ -65,6 +51,7 @@ function blankLine(defaultItemId: string): LineDraft {
 }
 
 export function SalesReturnsScreen() {
+  const { t } = useAppTranslation();
   const query = useSalesReturns();
   const invoicesQuery = useSalesInvoices();
   const warehousesQuery = useWarehouses();
@@ -156,7 +143,7 @@ export function SalesReturnsScreen() {
     setError(null);
     const invoice = invoices.find((i) => i.id === invoiceId);
     if (!invoice || !warehouseId) {
-      setError("اختر فاتورة المصدر والمستودع.");
+      setError(t("salesReturns.error.needInvoice"));
       return;
     }
     const returnLines: SalesReturnLineDTO[] = lines
@@ -182,7 +169,7 @@ export function SalesReturnsScreen() {
         };
       });
     if (returnLines.length === 0) {
-      setError("أضف بنداً واحداً على الأقل بكمية أكبر من صفر.");
+      setError(t("salesReturns.error.needLine"));
       return;
     }
     try {
@@ -214,32 +201,32 @@ export function SalesReturnsScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all },
-    { key: "draft", label: "مسودة", count: counts.draft },
-    { key: "confirmed", label: "مؤكد", count: counts.confirmed },
-    { key: "cancelled", label: "ملغي", count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all },
+    { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
   ];
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
     {
       key: "docNo",
-      header: "رقم المرتجع",
+      header: t("salesReturns.col.docNo"),
       render: (d) => (
         <div>
-          <div className="mz-num font-semibold text-ink">{d.docNo ?? "مسودة"}</div>
+          <div className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</div>
           <div className="text-[11px] text-ink-muted">{d.lines[0]?.sourceInvoiceNumber ?? "—"}</div>
         </div>
       ),
     },
-    { key: "customer", header: "العميل", render: (d) => (d.lines[0] ? customerName(d.lines[0].customerId) : "—") },
-    { key: "total", header: "قيمة المرتجع", align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    { key: "customer", header: t("common.customer"), render: (d) => (d.lines[0] ? customerName(d.lines[0].customerId) : "—") },
+    { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
     {
       key: "status",
-      header: "الحالة",
+      header: t("common.status"),
       render: (d) => (
         <div className="flex items-center gap-1.5">
-          <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} />
-          {d.awaitingRefund ? <StatusPill label="بانتظار دفع المبلغ" tone="warning" /> : null}
+          <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} />
+          {d.awaitingRefund ? <StatusPill label={t("salesReturns.awaitingRefund")} tone="warning" /> : null}
         </div>
       ),
     },
@@ -249,25 +236,25 @@ export function SalesReturnsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مرتجعات المبيعات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("salesReturns.loadFailed")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<(typeof documents)[number]>
         eyebrow="Sales · Returns"
-        title="مرتجعات المبيعات"
-        description="مرتجع ضد فاتورة مبيعات مؤكدة — يعيد البضاعة للمخزون ويخفض مديونية العميل؛ لا يسترد المبلغ تلقائياً."
+        title={t("salesReturns.title")}
+        description={t("salesReturns.description")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            مرتجع جديد
+            {t("salesReturns.new")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المرتجعات", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مؤكدة", value: <span className="mz-num">{counts.confirmed}</span> },
-          { label: "بانتظار دفع المبلغ", value: <span className="mz-num">{counts.awaitingRefund}</span> },
+          { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{counts.awaitingRefund}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -280,38 +267,38 @@ export function SalesReturnsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> مرتجع
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد مرتجعات — أنشئ مرتجعاً جديداً</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesReturns.empty")}</div>}
       />
 
-      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title="مرتجع مبيعات جديد" description="مرتجع لا يعني استرداد المبلغ تلقائياً">
+      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("salesReturns.panel.title")} description={t("salesReturns.panel.description")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
-            label="فاتورة المصدر *"
+            label={t("salesReturns.field.sourceInvoice")}
             value={invoiceId}
             onChange={changeInvoice}
             options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${customerName(i.customerId)}` }))}
           />
-          <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
+          <SelectField label={t("salesReturns.field.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouses.map((w) => ({ value: w.id, label: w.name }))} />
           <SelectField
-            label="سبب الإرجاع *"
+            label={t("salesReturns.field.reason")}
             value={reason}
             onChange={(v) => setReason(v as SalesReturnReasonDTO)}
-            options={Object.entries(REASON_LABEL).map(([value, label]) => ({ value, label }))}
+            options={Object.entries(REASON_KEY).map(([value, key]) => ({ value, label: t(key) }))}
           />
 
           <div className="flex flex-col gap-2">
-            <span className="text-[12px] font-bold text-ink-muted">بنود المرتجع</span>
+            <span className="text-[12px] font-bold text-ink-muted">{t("salesReturns.linesHeading")}</span>
             {returnableLines.length === 0 ? (
-              <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">لا توجد أصناف مخزنية قابلة للإرجاع في هذه الفاتورة</div>
+              <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">{t("salesReturns.noReturnable")}</div>
             ) : null}
             {lines.map((line) => (
               <div key={line.key} className="flex items-end gap-2 rounded-[10px] border border-border p-2.5">
                 <div className="flex-1">
                   <SelectField
-                    label="الصنف"
+                    label={t("common.item")}
                     value={line.itemId}
                     onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, itemId: v } : l)))}
                     options={returnableLines.map((sl) => ({ value: sl.itemId, label: sl.itemNameAr }))}
@@ -319,19 +306,19 @@ export function SalesReturnsScreen() {
                 </div>
                 <div className="w-[90px]">
                   <NumberField
-                    label="الكمية"
+                    label={t("common.qty")}
                     value={line.qty}
                     onChange={(v) => setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, qty: v } : l)))}
                     min={0}
                   />
                 </div>
                 <Button variant="ghost" onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))} disabled={lines.length === 1}>
-                  حذف
+                  {t("common.delete")}
                 </Button>
               </div>
             ))}
             <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.itemId ?? "")])}>
-              إضافة بند
+              {t("salesReturns.addLine")}
             </Button>
           </div>
 
@@ -339,23 +326,23 @@ export function SalesReturnsScreen() {
 
           <div className="flex gap-2 pt-2">
             <Button variant="default" onClick={() => submit(false)}>
-              حفظ كمسودة
+              {t("salesReturns.saveDraft")}
             </Button>
             <Button variant="primary" onClick={() => submit(true)}>
-              حفظ وتأكيد
+              {t("salesReturns.saveConfirm")}
             </Button>
           </div>
         </div>
       </SidePanel>
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? "مرتجع مبيعات"}>
+      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("salesReturns.detailTitle")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <div className="flex items-center gap-1.5">
-              <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
-              {selected.awaitingRefund ? <StatusPill label="بانتظار دفع المبلغ" tone="warning" /> : null}
+              <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+              {selected.awaitingRefund ? <StatusPill label={t("salesReturns.awaitingRefund")} tone="warning" /> : null}
             </div>
-            <div className="text-[12.5px] text-ink-muted">فاتورة المصدر: {selected.lines[0]?.sourceInvoiceNumber ?? "—"}</div>
+            <div className="text-[12.5px] text-ink-muted">{t("salesReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
@@ -370,16 +357,16 @@ export function SalesReturnsScreen() {
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
-                  تأكيد المرتجع
+                  {t("salesReturns.confirm")}
                 </Button>
                 <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                  إلغاء
+                  {t("common.cancel")}
                 </Button>
               </div>
             ) : null}
             {selected.status === "confirmed" ? (
               <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                إلغاء المرتجع
+                {t("salesReturns.void")}
               </Button>
             ) : null}
           </div>

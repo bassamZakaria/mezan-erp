@@ -3,6 +3,7 @@ import { Button, DocumentList, StatusPill, SidePanel, type DocumentListColumn } 
 import type { PriceListDTO } from "@mezan/contracts";
 import { Field, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePriceList, usePriceLists } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * قوائم الأسعار (Price Lists — docs/catalog/01). Real data only: the list, the
@@ -10,6 +11,7 @@ import { useCreatePriceList, usePriceLists } from "../data/hooks";
  * through TanStack Query — no sample arrays.
  */
 export function PriceListsScreen() {
+  const { t } = useAppTranslation();
   const query = usePriceLists();
   const priceLists = query.data ?? [];
   const create = useCreatePriceList();
@@ -37,7 +39,7 @@ export function PriceListsScreen() {
   const columns: DocumentListColumn<PriceListDTO>[] = [
     {
       key: "name",
-      header: "الاسم",
+      header: t("priceLists.col.name"),
       render: (pl) => (
         <div>
           <div className="font-semibold text-ink">{pl.nameAr}</div>
@@ -45,20 +47,20 @@ export function PriceListsScreen() {
         </div>
       ),
     },
-    { key: "description", header: "الوصف", render: (pl) => pl.description ?? "—" },
+    { key: "description", header: t("priceLists.col.description"), render: (pl) => pl.description ?? "—" },
     {
       key: "lines",
-      header: "عدد الأصناف",
+      header: t("priceLists.col.items"),
       align: "end",
       render: (pl) => <span className="mz-num">{pl.lines.length}</span>,
     },
     {
       key: "status",
-      header: "الحالة",
+      header: t("priceLists.col.status"),
       render: (pl) => (
         <div className="flex items-center gap-1.5">
-          <StatusPill label={pl.active ? "نشطة" : "غير نشطة"} tone={pl.active ? "success" : "neutral"} />
-          {pl.isBase ? <StatusPill label="قائمة أساسية" tone="info" /> : null}
+          <StatusPill label={pl.active ? t("priceLists.active") : t("priceLists.inactive")} tone={pl.active ? "success" : "neutral"} />
+          {pl.isBase ? <StatusPill label={t("priceLists.base")} tone="info" /> : null}
         </div>
       ),
     },
@@ -68,16 +70,16 @@ export function PriceListsScreen() {
     <div className="w-full">
       <DocumentList<PriceListDTO>
         eyebrow="Sales · Price Lists"
-        title="قوائم الأسعار"
-        description="قوائم أسعار بيع مخصصة يمكن ربطها بعميل أو تصنيف عملاء — تُطبّق على بنود الفواتير وعروض الأسعار."
+        title={t("priceLists.title")}
+        description={t("priceLists.description")}
         actions={
           <Button variant="primary" onClick={() => setPanelOpen(true)}>
-            قائمة أسعار جديدة
+            {t("priceLists.new")}
           </Button>
         }
         stats={[
-          { label: "إجمالي القوائم", value: <span className="mz-num">{priceLists.length}</span> },
-          { label: "النشطة", value: <span className="mz-num">{priceLists.filter((p) => p.active).length}</span> },
+          { label: t("priceLists.stat.total"), value: <span className="mz-num">{priceLists.length}</span> },
+          { label: t("priceLists.stat.active"), value: <span className="mz-num">{priceLists.filter((p) => p.active).length}</span> },
         ]}
         columns={columns}
         rows={priceLists}
@@ -86,21 +88,21 @@ export function PriceListsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{priceLists.length}</span> من <span className="mz-num">{priceLists.length}</span> قائمة
+            {t("priceLists.showingPrefix")} <span className="mz-num">{priceLists.length}</span> {t("priceLists.showingOf")} <span className="mz-num">{priceLists.length}</span> {t("priceLists.showingSuffix")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد قوائم أسعار — أنشئ قائمة جديدة"}
+            {query.isLoading ? t("priceLists.loading") : t("priceLists.empty")}
           </div>
         }
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="قائمة أسعار جديدة">
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("priceLists.new")}>
         <div className="flex flex-col gap-4 p-5">
-          <TextField label="الاسم *" value={nameAr} onChange={setNameAr} placeholder="قائمة الأسعار الأساسية" />
-          <TextField label="الكود *" value={code} onChange={setCode} placeholder="PL-001" />
-          <Field label="الوصف">
+          <TextField label={t("priceLists.field.name")} value={nameAr} onChange={setNameAr} placeholder={t("priceLists.field.namePlaceholder")} />
+          <TextField label={t("priceLists.field.code")} value={code} onChange={setCode} placeholder="PL-001" />
+          <Field label={t("priceLists.field.description")}>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -108,7 +110,7 @@ export function PriceListsScreen() {
               className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
             />
           </Field>
-          <ToggleField label="قائمة أساسية" checked={isBase} onChange={setIsBase} hint="القائمة الأساسية تُطبّق افتراضياً على العملاء بلا قائمة أسعار محددة." />
+          <ToggleField label={t("priceLists.field.isBase")} checked={isBase} onChange={setIsBase} hint={t("priceLists.field.isBaseHint")} />
 
           {create.isError ? (
             <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{create.error.message}</div>
@@ -116,10 +118,10 @@ export function PriceListsScreen() {
 
           <div className="flex gap-2 pt-2">
             <Button variant="default" onClick={() => setPanelOpen(false)}>
-              إلغاء
+              {t("priceLists.cancel")}
             </Button>
             <Button variant="primary" onClick={submit} disabled={create.isPending || !code.trim() || !nameAr.trim()}>
-              حفظ
+              {t("priceLists.save")}
             </Button>
           </div>
         </div>

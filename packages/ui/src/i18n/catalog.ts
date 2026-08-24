@@ -66,6 +66,8 @@ const uiAr = {
   "ui.report.grandTotal": "الإجمالي",
   "ui.report.groupTotal": "إجمالي {label}",
   "ui.report.difference": "(فرق {amount})",
+
+  "ui.currency": "ج.م",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -131,6 +133,8 @@ const uiEn: Record<UiTranslationKey, string> = {
   "ui.report.grandTotal": "Total",
   "ui.report.groupTotal": "{label} total",
   "ui.report.difference": "(difference {amount})",
+
+  "ui.currency": "EGP",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

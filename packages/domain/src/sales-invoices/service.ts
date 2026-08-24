@@ -444,6 +444,15 @@ export class SalesInvoiceService {
         reasons.push(`الصنف "${line.itemNameAr}": بند مخزون يتطلب حسابي التكلفة والمخزون.`);
       }
     }
+    // The invoice-level discount was unchecked while every line-level one was.
+    // A negative amount is applied as a literal subtraction, so it INFLATES the
+    // total rather than reducing it — 950 became 1,140 in the scenario suite.
+    if (invoice.discount.type === "amount" && invoice.discount.amount.scaled < 0n) {
+      reasons.push("خصم الفاتورة لا يقبل قيمة سالبة.");
+    }
+    if (invoice.discount.type === "percent" && (invoice.discount.percent < 0 || invoice.discount.percent > 100)) {
+      reasons.push("نسبة خصم الفاتورة يجب أن تكون بين 0 و 100.");
+    }
     if (reasons.length > 0) throw new InvalidSalesInvoiceError(reasons);
   }
 

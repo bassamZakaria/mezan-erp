@@ -455,7 +455,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 12. Negative path: a discount below zero (NEW finding — not D1–D6/D9) ---
 
-  await scenario("an invoice-level amount discount below zero is NOT rejected — it inflates the total instead", async () => {
+  await scenario("an invoice-level amount discount below zero is refused", async () => {
     const customer = await customerOf("CUST-DEMO-1");
     const item = await itemOf("ITEM-DEMO-2");
 
@@ -470,20 +470,33 @@ export async function run(ctx: Ctx): Promise<void> {
       currency: "EGP",
       arAccountId: AR_ACCOUNT,
       taxAccountId: TAX_ACCOUNT,
-      discount: { type: "amount", amount: "-50" }, // gross 950.00
+      discount: { type: "amount", amount: "-50" },
       lines: [stockLine("L1", item, "10", "95")],
     });
-    // Neither the zod contract (`amount: z.string()`, no sign restriction) nor
-    // SalesInvoiceService.validate() checks the SIGN of an amount-type
-    // discount — only `resolveInvoiceDiscount` caps it from ABOVE at the
-    // subtotal (see scenario 11). A negative "discount" sails straight through
-    // and is applied as a literal subtraction, which for a negative number is
-    // an addition. This is a genuine gap distinct from D1–D6/D9 — flagging it
-    // here rather than filing a duplicate.
-    check("a negative discount amount is accepted, not rejected — new finding, distinct from D1–D6/D9", created.status === 201, JSON.stringify(created.body));
-    checkEq("the negative discount is stored as-is (a -50.00 'discount')", n(created.body?.totals?.invoiceDiscountTotal), -50);
-    checkEq("it INCREASES the taxable base instead of reducing it (950 − (−50) = 1000)", n(created.body?.totals?.taxableTotal), 1000);
-    checkEq("grand total ends up HIGHER than the undiscounted 1083.00 would have been", n(created.body?.totals?.grandTotal), 1140);
+    // Found by this suite: the sign was unchecked while every line-level
+    // discount was, so a negative "discount" applied as a literal subtraction
+    // INFLATED the total — 950 became 1,140. Fixed in the domain's validate().
+    check("a negative discount amount is refused", created.status === 422, JSON.stringify(created.body));
+    check(
+      "and says so specifically rather than generically",
+      String(JSON.stringify(created.body)).includes("خصم الفاتورة لا يقبل قيمة سالبة"),
+      JSON.stringify(created.body),
+    );
+    const overHundred = await req("POST", "/sales-invoices", {
+      id: "SCN-INV-NEGPCT",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      discount: { type: "percent", percent: -5 },
+      lines: [stockLine("L1", item, "10", "95")],
+    });
+    check("a negative discount percent is refused too", overHundred.status >= 400, JSON.stringify(overHundred.body));
   });
 
   // --- 13. D1 + D9 on the real seeded example, read live rather than assumed ---

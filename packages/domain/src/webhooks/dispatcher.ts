@@ -109,8 +109,21 @@ export interface WebhookDispatcherDeps {
 export class WebhookDispatcher {
   private readonly retry: WebhookRetryPolicy;
 
+  private stopped = false;
+
   constructor(private readonly deps: WebhookDispatcherDeps) {
     this.retry = { ...DEFAULT_WEBHOOK_RETRY_POLICY, ...deps.retry };
+  }
+
+  /**
+   * Abandons retries that are still waiting. A backoff pause outlives the
+   * backend that started it, and the attempt after the store closed threw
+   * "The database connection is not open" while trying to record itself —
+   * losing the delivery record and printing a stack trace that reads like a
+   * failure. Call this before closing the stores.
+   */
+  stop(): void {
+    this.stopped = true;
   }
 
   /** Never rejects — see this file's doc comment, invariant 1. */
@@ -138,6 +151,7 @@ export class WebhookDispatcher {
     });
 
     for (let attempt = 1; attempt <= this.retry.maxAttempts; attempt += 1) {
+      if (this.stopped) return;
       const isFinal = attempt === this.retry.maxAttempts;
       let outcome: WebhookHttpResponse;
       try {
@@ -148,10 +162,15 @@ export class WebhookDispatcher {
 
       const success =
         outcome.statusCode !== null && outcome.statusCode >= 200 && outcome.statusCode < 300;
+      // A send already in flight when stop() was called lands here with the
+      // store gone; recording it would throw on a closed connection.
+      if (this.stopped) return;
       await this.record(webhook, event, attempt, isFinal, success, outcome);
 
       if (success || isFinal) return;
       await this.pause(this.retry.initialDelayMs * this.retry.backoffFactor ** (attempt - 1));
+      // Checked AFTER the pause: that is the window in which shutdown happens.
+      if (this.stopped) return;
     }
   }
 

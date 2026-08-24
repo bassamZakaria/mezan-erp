@@ -1165,6 +1165,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   return {
     app,
     close() {
+      // Before the connection goes: retries waiting on a backoff pause would
+      // otherwise wake up against a closed store and throw while recording.
+      webhookDispatcher.stop();
       // Every store above shares the ONE `sqlite` connection opened at the
       // top of this function, so each store's own close() is a no-op (it
       // doesn't own the connection) — this loop is harmless belt-and-braces,

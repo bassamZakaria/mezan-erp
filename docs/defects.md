@@ -37,7 +37,6 @@ through as "oh, that's the known one".
 | D3 | Manufacturing / GL | `completeWorkOrder` never touches GL 1200 | BOM-DEMO-1 at qty 10 leaves inventory off by exactly **80.00** | High |
 | D4 | Inventory reporting | `occurredAt` stamped `now()` instead of the document date | Drift reports `valueDiff 2400 = 120 × (160 − 140)` — a gap that is not real | Medium |
 | D5 | E-invoicing | The ETA queue has no producer | `EtaService.enqueue` exists; **no route and no event bridge calls it**, so no user action can enqueue a document | Medium |
-| D6 | Webhooks | Delivery retries outlive backend shutdown | `TypeError: The database connection is not open` from `WebhookDispatcher.record` after the store closes | Low |
 | D7 | Shell / scope | **Branch** scope still filters nothing | No list route reads `branchScope`; unprovable either way while the tenant has one branch | Medium |
 | D8 | Approvals | An admin rejecting someone else's pending request **approves** it instead | Decide-side bypass, distinct from the submit-side one | High |
 | D9 | Sales | An invoice's `remainingBalance` never subtracts confirmed returns | `INV-DEMO-1` shows its full 13,953.60 despite 1,197.00 returned | Medium |
@@ -94,13 +93,6 @@ exact. Only the replay-based drift report is affected.
 is exempted there with a pointer back here. Remove the exemption when a route or
 event bridge actually calls `enqueue`.
 
-### D6 — webhook retries outlive shutdown
-
-The dispatcher's bounded retry keeps running after the backend closes its store,
-then throws on recording the attempt. `pnpm smoke` still passes, but it prints
-stack traces that look like failures. In a real shutdown the delivery record for
-the final attempt is lost.
-
 ---
 
 ## Fixed
@@ -116,6 +108,7 @@ the final attempt is lost.
 | F7 | **The same goods could be returned repeatedly.** Both return routes validated the requested quantity against an `availableQty` supplied *in the request body*. Measured: 40 invoiced, two returns of 40 each, both confirmed — stock and AR credited twice for goods sold once | `46e527c`, `4acf10f` |
 | F8 | **The warehouse selector filtered nothing.** The shell sent `x-warehouse-scope`, the resolver parsed it, and no list route ever read it. Six surfaces now narrow (stock balance 8→3, on-hand 1,790→119) | `0be2432` |
 | F9 | **A document held for approval was permanently stuck** — the gate built its request in memory and discarded it, so the inbox never saw it and nobody could approve or reject. Proven fixed: 8→9 requests | `342b5b9` |
+| F11 | **Webhook retries outlived shutdown**, waking against a closed store and throwing while recording — losing the final delivery record and printing stack traces that read like smoke failures. `stop()` is now called before the connection closes, and guards both the pause and the write. Verified: shutdown errors went from a flood to **0** | this commit |
 | F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`

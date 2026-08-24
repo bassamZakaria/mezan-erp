@@ -5,6 +5,7 @@ import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * المخزون hub — item counts from `/items`, and stock value + at-risk items
@@ -15,16 +16,17 @@ import type { ScreenKey } from "../../App";
  * fabricated "recent items" ordering.
  */
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "صنف جديد", screen: "items" },
-  { label: "أرصدة المخزون", screen: "stock-balance" },
-  { label: "تحويل مخزون", screen: "stock-transfers" },
-  { label: "جرد فعلي", screen: "physical-counts" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "inventoryHub.action.newItem", screen: "items" },
+  { label: "inventoryHub.action.balances", screen: "stock-balance" },
+  { label: "inventoryHub.action.transfer", screen: "stock-transfers" },
+  { label: "inventoryHub.action.count", screen: "physical-counts" },
 ];
 
 const STOCK_LEVELS_PARAMS = { warehouseId: "", search: "" };
 
 export function InventoryHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const itemsQuery = useItems();
   const stockLevelsQuery = useReport<InventoryStockLevelsRow>(
@@ -48,13 +50,13 @@ export function InventoryHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Inventory</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">المخزون</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">الأصناف ومستويات المخزون — من محرك التقارير الفعلي</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("inventoryHub.title")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("inventoryHub.description")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -65,25 +67,25 @@ export function InventoryHubScreen() {
 
       {isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات المخزون.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("inventoryHub.loadFailed")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="عدد الأصناف" value={isLoading ? "—" : items.length} sub="إجمالي الأصناف المسجّلة" />
-        <StatCard label="أصناف نشطة" value={isLoading ? "—" : activeItems} sub="حالة الصنف: نشط" />
-        <StatCard label="قيمة المخزون" value={<Money value={inventoryValue} />} sub="أصناف مخزنية · كل المستودعات" />
+        <StatCard label={t("inventoryHub.stat.items")} value={isLoading ? "—" : items.length} sub={t("inventoryHub.stat.itemsSub")} />
+        <StatCard label={t("inventoryHub.stat.active")} value={isLoading ? "—" : activeItems} sub={t("inventoryHub.stat.activeSub")} />
+        <StatCard label={t("inventoryHub.stat.value")} value={<Money value={inventoryValue} />} sub={t("inventoryHub.stat.valueSub")} />
         <StatCard
-          label="أصناف تحتاج انتباه"
+          label={t("inventoryHub.stat.attention")}
           value={isLoading ? "—" : needsAttentionCount}
-          sub="نافدة أو تحت حد إعادة الطلب"
+          sub={t("inventoryHub.stat.attentionSub")}
           subTone={needsAttentionCount > 0 ? "down" : "neutral"}
         />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">أصناف تحتاج انتباه</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">من تقرير مستويات المخزون — نافدة أو تحت حد إعادة الطلب</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("inventoryHub.stat.attention")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("inventoryHub.attentionSub")}</div>
         {needsAttention.length > 0 ? (
           <ul className="flex flex-col gap-[10px]">
             {needsAttention.map((row) => (
@@ -91,15 +93,15 @@ export function InventoryHubScreen() {
                 <div>
                   <div className="text-[12.5px] text-ink">{row.itemNameAr}</div>
                   <div className="mt-[1px] text-[11px] text-ink-faint">
-                    <span className="mz-lat">{row.sku}</span> · متبقي <span className="mz-num">{row.onHand}</span>
+                    <span className="mz-lat">{row.sku}</span> · {t("inventoryHub.remaining")} <span className="mz-num">{row.onHand}</span>
                   </div>
                 </div>
-                <span className="text-[11.5px] font-semibold text-danger-ink">{row.status === "out" ? "نافد" : "منخفض"}</span>
+                <span className="text-[11.5px] font-semibold text-danger-ink">{row.status === "out" ? t("inventoryHub.out") : t("inventoryHub.low")}</span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-[12.5px] text-ink-muted">لا توجد أصناف تحتاج انتباهاً حالياً.</p>
+          <p className="text-[12.5px] text-ink-muted">{t("inventoryHub.empty")}</p>
         )}
       </Card>
     </div>

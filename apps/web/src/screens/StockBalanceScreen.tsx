@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { DocumentList, Money as MoneyDisplay, Card, Button, type DocumentListColumn } from "@mezan/ui";
 import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useItems, useStockBalance } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * أرصدة المخزون (Stock Balance) — docs/catalog/03. Read-only cross-warehouse
@@ -10,6 +11,7 @@ import { useItems, useStockBalance } from "../data/hooks";
  * `rollupStockBalance` domain function server-side.
  */
 export function StockBalanceScreen() {
+  const { t } = useAppTranslation();
   const balanceQuery = useStockBalance();
   const itemsQuery = useItems();
   const [search, setSearch] = useState("");
@@ -37,29 +39,29 @@ export function StockBalanceScreen() {
   }, [rows, search, items]);
 
   const columns: DocumentListColumn<StockBalanceRowDTO>[] = [
-    { key: "item", header: "الصنف", render: (r) => <span className="text-ink">{itemLabel(r.itemId)}</span> },
+    { key: "item", header: t("common.item"), render: (r) => <span className="text-ink">{itemLabel(r.itemId)}</span> },
     {
       key: "onHand",
-      header: "إجمالي المخزون",
+      header: t("stockBalance.col.totalOnHand"),
       align: "end",
       sortable: true,
       render: (r) => <span className="mz-num font-semibold text-ink">{r.onHand}</span>,
     },
     {
       key: "averageCost",
-      header: "متوسط التكلفة",
+      header: t("stockBalance.col.averageCost"),
       align: "end",
       render: (r) => <MoneyDisplay value={Number(r.averageCost)} />,
     },
     {
       key: "totalValue",
-      header: "القيمة الإجمالية",
+      header: t("stockBalance.col.totalValue"),
       align: "end",
       render: (r) => <MoneyDisplay value={Number(r.totalValue)} />,
     },
     {
       key: "warehouseCount",
-      header: "عدد المستودعات",
+      header: t("stockBalance.col.warehouses"),
       align: "end",
       render: (r) => <span className="mz-num text-ink-muted">{r.warehouseCount}</span>,
     },
@@ -68,9 +70,9 @@ export function StockBalanceScreen() {
   if (balanceQuery.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرصدة المخزون.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("stockBalance.loadFailed")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => balanceQuery.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -80,15 +82,15 @@ export function StockBalanceScreen() {
     <div className="w-full">
       <DocumentList<StockBalanceRowDTO>
         eyebrow="Inventory · Stock Balance"
-        title="أرصدة المخزون"
-        description="نظرة عامة على أرصدة الأصناف عبر جميع المستودعات — قراءة فقط، مُشتقة من دفتر المخزون"
+        title={t("stockBalance.title")}
+        description={t("stockBalance.description")}
         stats={[
-          { label: "إجمالي الأصناف", value: <span className="mz-num">{counts.total}</span> },
-          { label: "نفد المخزون", value: <span className="mz-num">{counts.outOfStock}</span> },
+          { label: t("stockBalance.stat.total"), value: <span className="mz-num">{counts.total}</span> },
+          { label: t("stockBalance.stat.outOfStock"), value: <span className="mz-num">{counts.outOfStock}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالاسم أو الكود..."
+        searchPlaceholder={t("stockBalance.searchPlaceholder")}
         columns={columns}
         rows={[...filtered]}
         rowKey={(r) => r.itemId}
@@ -96,10 +98,10 @@ export function StockBalanceScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.total}</span> صنف
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.total}</span> {t("stockBalance.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أصناف مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockBalance.empty")}</div>}
       />
     </div>
   );

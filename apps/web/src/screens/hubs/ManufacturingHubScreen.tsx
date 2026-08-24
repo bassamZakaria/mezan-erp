@@ -3,6 +3,7 @@ import { FulcrumRule, Button, Card, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard } from "../../data/hub-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * التصنيع hub — the manufacturing-domain landing page. Its KPI tiles reuse
@@ -11,20 +12,31 @@ import type { ScreenKey } from "../../App";
  * point that then links into that fuller داشبورد, work orders and BOMs.
  */
 
-const PRIORITY_LABEL: Record<string, string> = { low: "منخفضة", normal: "عادية", high: "عالية" };
+/** An unknown priority shows its own code rather than a humanized key. */
+function priorityLabel(priority: string, t: (key: AppTranslationKey) => string): string {
+  const key = PRIORITY_KEY[priority];
+  return key ? t(key) : priority;
+}
+
+const PRIORITY_KEY: Record<string, AppTranslationKey> = {
+  low: "manufacturingHub.priority.low",
+  normal: "manufacturingHub.priority.normal",
+  high: "manufacturingHub.priority.high",
+};
 
 function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "أمر تصنيع جديد", screen: "work-orders" },
-  { label: "لوحة الإنتاج", screen: "production-dashboard" },
-  { label: "قوائم المواد", screen: "boms" },
-  { label: "التصنيع المخصص", screen: "custom-manufacturing" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "manufacturingHub.action.newOrder", screen: "work-orders" },
+  { label: "manufacturingHub.action.dashboard", screen: "production-dashboard" },
+  { label: "manufacturingHub.action.boms", screen: "boms" },
+  { label: "manufacturingHub.action.custom", screen: "custom-manufacturing" },
 ];
 
 export function ManufacturingHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const dashboardQuery = useManufacturingDashboard();
   const dashboard = dashboardQuery.data;
@@ -36,13 +48,13 @@ export function ManufacturingHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Manufacturing</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">التصنيع</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">أوامر التصنيع وقوائم المواد — من لوحة الإنتاج الفعلية</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("manufacturingHub.title")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("manufacturingHub.description")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -53,43 +65,43 @@ export function ManufacturingHubScreen() {
 
       {dashboardQuery.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات التصنيع.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("manufacturingHub.loadFailed")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">أوامر تصنيع نشطة</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("manufacturingHub.stat.activeOrders")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink">{dashboardQuery.isLoading ? "—" : dashboard?.kpis.activeWorkOrders}</div>
-          <div className="mt-[6px] text-[11px] text-ink-faint">قيد التنفيذ الآن</div>
+          <div className="mt-[6px] text-[11px] text-ink-faint">{t("manufacturingHub.stat.activeOrdersSub")}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">قيمة الإنتاج تحت التشغيل</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("manufacturingHub.stat.wip")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
           <div className="mt-[6px] text-[11px] text-ink-faint">WIP</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">الوحدات المنتجة هذا الشهر</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("manufacturingHub.stat.produced")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink mz-num">{dashboardQuery.isLoading ? "—" : num(dashboard?.kpis.unitsProducedThisMonth)}</div>
-          <div className="mt-[6px] text-[11px] text-ink-faint">أوامر مكتملة هذا الشهر</div>
+          <div className="mt-[6px] text-[11px] text-ink-faint">{t("manufacturingHub.stat.producedSub")}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">متوسط تكلفة الوحدة</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("manufacturingHub.stat.unitCost")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink"><Money value={num(dashboard?.kpis.avgCostPerUnit)} /></div>
-          <div className="mt-[6px] text-[11px] text-ink-faint">هذا الشهر</div>
+          <div className="mt-[6px] text-[11px] text-ink-faint">{t("manufacturingHub.stat.unitCostSub")}</div>
         </div>
       </div>
 
       <Card className="p-[18px_20px]">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-display text-[14.5px] font-bold text-ink">أوامر التصنيع النشطة</h3>
+            <h3 className="font-display text-[14.5px] font-bold text-ink">{t("manufacturingHub.activeHeading")}</h3>
             <div className="mt-[2px] text-[11.5px] text-ink-faint">
-              {dashboard ? `${dashboard.overdueCount} أمر متأخر عن الموعد المجدول` : "—"}
+              {dashboard ? t("manufacturingHub.overdueCount", { count: dashboard.overdueCount }) : "—"}
             </div>
           </div>
           <Button size="sm" variant="ghost" onClick={() => navigate("production-dashboard")}>
-            عرض لوحة الإنتاج الكاملة
+            {t("manufacturingHub.openDashboard")}
           </Button>
         </div>
         <div className="mt-[14px]">
@@ -100,15 +112,15 @@ export function ManufacturingHubScreen() {
                   <div>
                     <div className="mz-lat text-[12.5px] font-semibold text-ink">{o.number}</div>
                     <div className="mt-[1px] text-[11px] text-ink-faint">
-                      أولوية {PRIORITY_LABEL[o.priority] ?? o.priority} · <span className="mz-num">{num(o.producedQty)}</span>/<span className="mz-num">{num(o.plannedQty)}</span>
+                      {t("manufacturingHub.priorityPrefix", { priority: priorityLabel(o.priority, t) })} · <span className="mz-num">{num(o.producedQty)}</span>/<span className="mz-num">{num(o.plannedQty)}</span>
                     </div>
                   </div>
-                  {o.overdue ? <StatusPill label="متأخر" tone="danger" /> : <StatusPill label={`${Math.round(o.progress * 100)}%`} tone="info" />}
+                  {o.overdue ? <StatusPill label={t("manufacturingHub.overdue")} tone="danger" /> : <StatusPill label={`${Math.round(o.progress * 100)}%`} tone="info" />}
                 </li>
               ))}
             </ul>
           ) : (
-            <p className="text-[12.5px] text-ink-muted">لا توجد أوامر تصنيع نشطة حالياً.</p>
+            <p className="text-[12.5px] text-ink-muted">{t("manufacturingHub.empty")}</p>
           )}
         </div>
       </Card>

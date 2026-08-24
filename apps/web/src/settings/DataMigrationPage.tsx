@@ -26,7 +26,8 @@ import {
  * archive rule, same "inventory untouched" guarantee.
  */
 
-import { STEPS, type HistoricalStepDef, type MasterStepDef, type StepDef } from "./data-migration-steps";
+import { STEPS, resolveStepSpec, type HistoricalStepDef, type MasterStepDef, type StepDef } from "./data-migration-steps";
+import { useAppTranslation } from "../i18n";
 
 function StepShell({
   title,
@@ -59,16 +60,17 @@ function StepShell({
   canCommit: boolean;
   onCommit: () => void;
 }) {
+  const { t } = useAppTranslation();
   const done = (registeredCount ?? 0) > 0;
   return (
     <Card className="p-[16px_18px]">
       <button type="button" onClick={onToggle} className="flex w-full items-center justify-between gap-[12px] text-start">
         <div className="flex items-center gap-[10px]">
-          {done ? <span aria-label="مكتمل" className="text-success-ink">✓</span> : null}
+          {done ? <span aria-label={t("dataMigration.done")} className="text-success-ink">✓</span> : null}
           <h3 className="font-display text-[14.5px] font-bold text-ink">{title}</h3>
         </div>
         <div className="flex items-center gap-[10px]">
-          <StatusPill label={`مسجّل: ${registeredCount ?? 0}`} tone={done ? "success" : "neutral"} />
+          <StatusPill label={t("dataMigration.registered", { count: registeredCount ?? 0 })} tone={done ? "success" : "neutral"} />
           <span aria-hidden className="text-ink-faint">{open ? "▲" : "▼"}</span>
         </div>
       </button>
@@ -77,7 +79,7 @@ function StepShell({
           <p className="max-w-[70ch] text-[12px] text-ink-muted">{help}</p>
           <div className="flex flex-wrap items-center gap-[9px]">
             <Button variant="default" onClick={onDownloadTemplate}>
-              تنزيل النموذج
+              {t("dataMigration.downloadTemplate")}
             </Button>
             <input
               ref={fileInputRef}
@@ -91,10 +93,10 @@ function StepShell({
               }}
             />
             <Button variant="default" disabled={isPreviewing} onClick={() => fileInputRef.current?.click()}>
-              {isPreviewing ? "جارِ التحقق…" : "استيراد"}
+              {isPreviewing ? t("dataMigration.previewing") : t("dataMigration.import")}
             </Button>
             <Button variant="primary" disabled={!canCommit || isCommitting} onClick={onCommit}>
-              {isCommitting ? "جارِ التأكيد…" : "تأكيد الاستيراد"}
+              {isCommitting ? t("dataMigration.committing") : t("dataMigration.commit")}
             </Button>
           </div>
           {previewSummary ? <p className="text-[12.5px] font-semibold text-ink">{previewSummary}</p> : null}
@@ -103,15 +105,15 @@ function StepShell({
               <table className="w-full text-[11.5px]">
                 <thead>
                   <tr className="border-b border-border bg-surface-2 text-start">
-                    <th className="p-[6px_8px] text-start font-semibold">الصف</th>
-                    <th className="p-[6px_8px] text-start font-semibold">السبب</th>
+                    <th className="p-[6px_8px] text-start font-semibold">{t("dataMigration.col.row")}</th>
+                    <th className="p-[6px_8px] text-start font-semibold">{t("dataMigration.col.reason")}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {errors.map((err, i) => (
                     <tr key={i} className="border-b border-border last:border-0">
                       <td className="mz-num p-[6px_8px]">{err.rowNumber}</td>
-                      <td className="p-[6px_8px]">{err.reasons.join("، ")}</td>
+                      <td className="p-[6px_8px]">{err.reasons.join(t("dataMigration.reasonSeparator"))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -125,6 +127,7 @@ function StepShell({
 }
 
 function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterStepDef; open: boolean; onToggle: () => void; registeredCount: number | undefined }) {
+  const { t } = useAppTranslation();
   const preview = useDataMigrationPreview(def.id);
   const commit = useDataMigrationCommit(def.id);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -148,12 +151,12 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
 
   return (
     <StepShell
-      title={def.title}
-      help={def.help}
+      title={t(def.title)}
+      help={t(def.help)}
       registeredCount={registeredCount}
       open={open}
       onToggle={onToggle}
-      onDownloadTemplate={async () => downloadReportExport(await buildDataMigrationTemplate(def.spec))}
+      onDownloadTemplate={async () => downloadReportExport(await buildDataMigrationTemplate(resolveStepSpec(def.spec, t)))}
       fileInputRef={fileInputRef}
       onFileChosen={handleFile}
       isPreviewing={preview.isPending}
@@ -161,8 +164,8 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
       previewSummary={
         result
           ? result.createdIds
-            ? `تم استيراد ${result.createdIds.length} سجل بنجاح.`
-            : `${result.validCount} صف صالح من إجمالي ${result.validCount + result.errors.length}.`
+            ? t("dataMigration.imported", { count: result.createdIds.length })
+            : t("dataMigration.validRows", { valid: result.validCount, total: result.validCount + result.errors.length })
           : null
       }
       errors={result?.errors ?? []}
@@ -173,6 +176,7 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
 }
 
 function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: HistoricalStepDef; open: boolean; onToggle: () => void; registeredCount: number | undefined }) {
+  const { t } = useAppTranslation();
   const preview = useHistoricalImportPreview(def.importKind);
   const commit = useHistoricalImportCommit(def.importKind);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -213,12 +217,12 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
 
   return (
     <StepShell
-      title={def.title}
-      help={def.help}
+      title={t(def.title)}
+      help={t(def.help)}
       registeredCount={registeredCount}
       open={open}
       onToggle={onToggle}
-      onDownloadTemplate={async () => downloadReportExport(await buildDataMigrationTemplate(def.spec))}
+      onDownloadTemplate={async () => downloadReportExport(await buildDataMigrationTemplate(resolveStepSpec(def.spec, t)))}
       fileInputRef={fileInputRef}
       onFileChosen={handleFile}
       isPreviewing={preview.isPending}
@@ -226,8 +230,8 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
       previewSummary={
         result
           ? result.archivedIds
-            ? `تم أرشفة ${result.archivedIds.length} مستند بنجاح.`
-            : `${result.groups.length} مستند صالح — ${result.errors.length} صف به أخطاء.`
+            ? t("dataMigration.archived", { count: result.archivedIds.length })
+            : t("dataMigration.validGroups", { valid: result.groups.length, errors: result.errors.length })
           : null
       }
       errors={result?.errors ?? []}
@@ -238,16 +242,16 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
 }
 
 export function DataMigrationPage() {
+  const { t } = useAppTranslation();
   const status = useDataMigrationStatus();
   const [openStep, setOpenStep] = useState<string | null>(STEPS[0]?.title ?? null);
 
   return (
     <div className="flex flex-col gap-[16px]">
       <div>
-        <h1 className="font-display text-[21px] font-bold text-ink">نقل البيانات</h1>
+        <h1 className="font-display text-[21px] font-bold text-ink">{t("dataMigration.title")}</h1>
         <p className="mt-[6px] max-w-[80ch] text-[13px] text-ink-muted">
-          دي الخطوات اللي بتنقل بيها بيانات شركتك على النظام. رتّبناها بالترتيب اللي لازم تمشي بيه، لأن كل خطوة بتعتمد
-          على اللي قبلها. تقدر تفتح أي خطوة في أي وقت — الترتيب إرشاد مش قفل.
+          {t("dataMigration.intro")}
         </p>
       </div>
 
@@ -274,7 +278,7 @@ export function DataMigrationPage() {
       </div>
 
       <p className="text-[11.5px] text-ink-faint">
-        استيراد الجرد وتحويل المخزون مش هنا — دول أدوات تشغيل يومي، بتلاقيهم جوه ورقة الجرد نفسها وشاشة التحويل.
+        {t("dataMigration.footnote")}
       </p>
     </div>
   );

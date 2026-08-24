@@ -1,7 +1,8 @@
 import ExcelJS from "exceljs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { STEPS } from "../../../apps/web/src/settings/data-migration-steps.js";
+import { STEPS, resolveStepSpec } from "../../../apps/web/src/settings/data-migration-steps.js";
+import { webCatalogs } from "../../../apps/web/src/i18n/catalog.js";
 
 /**
  * Generates the files under `test-fixtures/`.
@@ -80,13 +81,19 @@ async function main() {
 
   const written: string[] = [];
   const seen = new Set<string>();
+  // The spec carries catalogue KEYS; fixtures resolve them against Arabic, the
+  // source language. Header language is cosmetic either way — the parser matches
+  // columns by position — but Arabic keeps these workbooks byte-comparable with
+  // the ones already checked in.
+  const ar = (key: string) => webCatalogs.ar[key] ?? key;
   for (const step of STEPS) {
     if (seen.has(step.spec.id)) continue;
     seen.add(step.spec.id);
-    const buf = await buildWorkbook(step.spec);
-    const name = `${step.spec.id}.xlsx`;
+    const spec = resolveStepSpec(step.spec, ar as never);
+    const buf = await buildWorkbook(spec);
+    const name = `${spec.id}.xlsx`;
     await writeFile(join(OUT, "data-migration", name), buf);
-    written.push(`data-migration/${name} (${step.spec.columns.length} cols)`);
+    written.push(`data-migration/${name} (${spec.columns.length} cols)`);
   }
 
   // Bank statement CSV — the reconciliation screen parses the header row

@@ -1,4 +1,5 @@
 import type { DataMigrationStepSpec } from "@mezan/ui";
+import type { AppTranslationKey } from "../i18n";
 import type {
   DataMigrationMasterStep,
   DataMigrationStatusDTO,
@@ -19,8 +20,9 @@ export interface MasterStepDef {
   kind: "master";
   id: DataMigrationMasterStep;
   statusKey: keyof DataMigrationStatusDTO;
-  title: string;
-  help: string;
+  title: AppTranslationKey;
+  help: AppTranslationKey;
+  /** Catalogue KEYS, not copy — resolve with `resolveStepSpec` before use. */
   spec: DataMigrationStepSpec;
 }
 
@@ -29,23 +31,24 @@ export interface HistoricalStepDef {
   importKind: HistoricalImportKind;
   docType: HistoricalImportDocType;
   statusKey: keyof DataMigrationStatusDTO;
-  title: string;
-  help: string;
+  title: AppTranslationKey;
+  help: AppTranslationKey;
+  /** Catalogue KEYS, not copy — resolve with `resolveStepSpec` before use. */
   spec: DataMigrationStepSpec;
 }
 
 export type StepDef = MasterStepDef | HistoricalStepDef;
 
 export const HISTORICAL_COLUMNS: DataMigrationStepSpec["columns"] = [
-  { key: "documentNumber", header: "رقم المستند", example: "INV-1001" },
-  { key: "partyId", header: "معرف العميل/المورد", example: "cus-1" },
-  { key: "date", header: "التاريخ", example: "2026-01-15" },
-  { key: "dueDate", header: "تاريخ الاستحقاق" },
-  { key: "itemId", header: "معرف الصنف" },
-  { key: "description", header: "الوصف" },
-  { key: "qty", header: "الكمية", example: "10" },
-  { key: "unitCost", header: "سعر الوحدة", example: "85.00" },
-  { key: "amountPaid", header: "المبلغ المسدد من المستند بالكامل", example: "500.00" },
+  { key: "documentNumber", header: "dm.col.documentNumber", example: "INV-1001" },
+  { key: "partyId", header: "dm.col.partyId", example: "cus-1" },
+  { key: "date", header: "dm.col.date", example: "2026-01-15" },
+  { key: "dueDate", header: "dm.col.dueDate" },
+  { key: "itemId", header: "dm.col.itemId" },
+  { key: "description", header: "dm.col.description" },
+  { key: "qty", header: "dm.col.qty", example: "10" },
+  { key: "unitCost", header: "dm.col.unitCost", example: "85.00" },
+  { key: "amountPaid", header: "dm.col.amountPaid", example: "500.00" },
 ];
 
 export const STEPS: StepDef[] = [
@@ -53,15 +56,15 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "departments",
     statusKey: "departments",
-    title: "١. الأقسام",
-    help: "الموظف لازم يكون له قسم — والقسم محتاج كود، والنظام مش بيخترعه من الاسم.",
+    title: "dm.step.departments.title",
+    help: "dm.step.departments.help",
     spec: {
       id: "departments",
-      sheetName: "الأقسام",
+      sheetName: "dm.sheet.departments",
       columns: [
-        { key: "code", header: "الكود", example: "SALES" },
-        { key: "nameAr", header: "الاسم", example: "المبيعات" },
-        { key: "nameEn", header: "الاسم (إنجليزي)" },
+        { key: "code", header: "dm.col.code", example: "SALES" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.sales" },
+        { key: "nameEn", header: "dm.col.nameEn" },
       ],
     },
   },
@@ -69,19 +72,19 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "employees",
     statusKey: "employees",
-    title: "٢. الموظفين",
-    help: "المرتبات مش في الملف — بتتسجّل على عقد العمل بعدين.",
+    title: "dm.step.employees.title",
+    help: "dm.step.employees.help",
     spec: {
       id: "employees",
-      sheetName: "الموظفين",
+      sheetName: "dm.sheet.employees",
       columns: [
-        { key: "code", header: "الكود", example: "EMP-0001" },
-        { key: "nameAr", header: "الاسم" , example: "أحمد محمود" },
-        { key: "departmentCode", header: "كود القسم", example: "SALES" },
-        { key: "hireDate", header: "تاريخ التعيين", example: "2026-01-01" },
-        { key: "branchCode", header: "كود الفرع" },
-        { key: "phone", header: "الهاتف" },
-        { key: "email", header: "البريد الإلكتروني" },
+        { key: "code", header: "dm.col.code", example: "EMP-0001" },
+        { key: "nameAr", header: "dm.col.name" , example: "dm.eg.personName" },
+        { key: "departmentCode", header: "dm.col.departmentCode", example: "SALES" },
+        { key: "hireDate", header: "dm.col.hireDate", example: "2026-01-01" },
+        { key: "branchCode", header: "dm.col.branchCode" },
+        { key: "phone", header: "dm.col.phone" },
+        { key: "email", header: "dm.col.email" },
       ],
     },
   },
@@ -89,18 +92,18 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "treasury-accounts",
     statusKey: "treasuryAccounts",
-    title: "٣. حسابات الخزينة",
-    help: "الرصيد الافتتاحي هنا بيرحّل قيد محاسبي فعلي — راجع الإجمالي في شاشة المراجعة قبل ما تأكّد.",
+    title: "dm.step.treasury-accounts.title",
+    help: "dm.step.treasury-accounts.help",
     spec: {
       id: "treasury-accounts",
-      sheetName: "حسابات الخزينة",
+      sheetName: "dm.sheet.treasury-accounts",
       columns: [
-        { key: "code", header: "الكود", example: "CASH-001" },
-        { key: "name", header: "الاسم", example: "صندوق نقدي" },
-        { key: "type", header: "النوع (cash/bank)", example: "cash" },
-        { key: "branchCode", header: "كود الفرع" },
-        { key: "openingBalance", header: "الرصيد الافتتاحي", example: "0.00" },
-        { key: "glAccountId", header: "حساب دفتر الأستاذ" },
+        { key: "code", header: "dm.col.code", example: "CASH-001" },
+        { key: "name", header: "dm.col.name", example: "dm.eg.cashBox" },
+        { key: "type", header: "dm.col.typeCashBank", example: "cash" },
+        { key: "branchCode", header: "dm.col.branchCode" },
+        { key: "openingBalance", header: "dm.col.openingBalance", example: "0.00" },
+        { key: "glAccountId", header: "dm.col.glAccountId" },
       ],
     },
   },
@@ -108,18 +111,18 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "suppliers",
     statusKey: "suppliers",
-    title: "٤. الموردون",
-    help: "قبل الأصناف، لأن الصنف ممكن يرتبط بمورد مفضّل. الأرصدة المستحقة مش في الملف — بتتسجّل بعدين.",
+    title: "dm.step.suppliers.title",
+    help: "dm.step.suppliers.help",
     spec: {
       id: "suppliers",
-      sheetName: "الموردون",
+      sheetName: "dm.sheet.suppliers",
       columns: [
-        { key: "code", header: "الكود", example: "SUP-1" },
-        { key: "nameAr", header: "الاسم", example: "شركة التوريد" },
-        { key: "phone", header: "الهاتف" },
-        { key: "email", header: "البريد الإلكتروني" },
-        { key: "taxNumber", header: "الرقم الضريبي" },
-        { key: "paymentTermsDays", header: "مدة السداد (يوم)", example: "30" },
+        { key: "code", header: "dm.col.code", example: "SUP-1" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.supplierCo" },
+        { key: "phone", header: "dm.col.phone" },
+        { key: "email", header: "dm.col.email" },
+        { key: "taxNumber", header: "dm.col.taxNumber" },
+        { key: "paymentTermsDays", header: "dm.col.paymentTermsDays", example: "30" },
       ],
     },
   },
@@ -127,19 +130,19 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "customers",
     statusKey: "customers",
-    title: "٥. العملاء",
-    help: "مستقل عن باقي الخطوات — أرصدة العملاء مش بتتسجل هنا، بتُشتق لاحقًا من فواتير المبيعات السابقة المستوردة.",
+    title: "dm.step.customers.title",
+    help: "dm.step.customers.help",
     spec: {
       id: "customers",
-      sheetName: "العملاء",
+      sheetName: "dm.sheet.customers",
       columns: [
-        { key: "code", header: "الكود", example: "CUS-1" },
-        { key: "nameAr", header: "الاسم", example: "عميل تجاري" },
-        { key: "phone", header: "الهاتف" },
-        { key: "email", header: "البريد الإلكتروني" },
-        { key: "taxNumber", header: "الرقم الضريبي" },
-        { key: "creditLimit", header: "حد الائتمان" },
-        { key: "paymentTermsDays", header: "مدة السداد (يوم)", example: "30" },
+        { key: "code", header: "dm.col.code", example: "CUS-1" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.tradeCustomer" },
+        { key: "phone", header: "dm.col.phone" },
+        { key: "email", header: "dm.col.email" },
+        { key: "taxNumber", header: "dm.col.taxNumber" },
+        { key: "creditLimit", header: "dm.col.creditLimit" },
+        { key: "paymentTermsDays", header: "dm.col.paymentTermsDays", example: "30" },
       ],
     },
   },
@@ -147,19 +150,19 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "items",
     statusKey: "items",
-    title: "٦. الأصناف",
-    help: "بعد الموردين، لأن الصنف يرتبط بمورد مفضّل. التصنيفات والعلامات التجارية بتتعمل تلقائي لو مش موجودة.",
+    title: "dm.step.items.title",
+    help: "dm.step.items.help",
     spec: {
       id: "items",
-      sheetName: "الأصناف",
+      sheetName: "dm.sheet.items",
       columns: [
-        { key: "code", header: "الكود", example: "ITM-1" },
-        { key: "nameAr", header: "الاسم", example: "صنف تجريبي" },
-        { key: "type", header: "النوع (stock/service)", example: "stock" },
-        { key: "baseUnitCode", header: "وحدة القياس الأساسية", example: "PCS" },
-        { key: "salePrice", header: "سعر البيع" },
-        { key: "costPrice", header: "سعر التكلفة" },
-        { key: "taxRatePercent", header: "نسبة الضريبة" },
+        { key: "code", header: "dm.col.code", example: "ITM-1" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.sampleItem" },
+        { key: "type", header: "dm.col.typeStockService", example: "stock" },
+        { key: "baseUnitCode", header: "dm.col.baseUnit", example: "PCS" },
+        { key: "salePrice", header: "dm.col.salePrice" },
+        { key: "costPrice", header: "dm.col.costPrice" },
+        { key: "taxRatePercent", header: "dm.col.taxRate" },
       ],
     },
   },
@@ -167,16 +170,16 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "item-units",
     statusKey: "itemUnits",
-    title: "٧. وحدات الأصناف",
-    help: "بعد الأصناف، لأن كل صف بيرجع لصنف بالكود — يغطي الوحدات الثانوية (كرتونة، دستة) بمعامل تحويل لكل واحدة.",
+    title: "dm.step.item-units.title",
+    help: "dm.step.item-units.help",
     spec: {
       id: "item-units",
-      sheetName: "وحدات الأصناف",
+      sheetName: "dm.sheet.item-units",
       columns: [
-        { key: "itemCode", header: "كود الصنف", example: "ITM-1" },
-        { key: "unitCode", header: "كود الوحدة", example: "BOX" },
-        { key: "unitName", header: "اسم الوحدة", example: "كرتونة" },
-        { key: "factor", header: "معامل التحويل", example: "12" },
+        { key: "itemCode", header: "dm.col.itemCode", example: "ITM-1" },
+        { key: "unitCode", header: "dm.col.unitCode", example: "BOX" },
+        { key: "unitName", header: "dm.col.unitName", example: "dm.eg.carton" },
+        { key: "factor", header: "dm.col.factor", example: "12" },
       ],
     },
   },
@@ -184,16 +187,16 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "asset-categories",
     statusKey: "assetCategories",
-    title: "٨. تصنيفات الأصول",
-    help: "قبل الأصول الثابتة، لأن التصنيف بيحدد حسابات الأصل/الإهلاك الافتراضية.",
+    title: "dm.step.asset-categories.title",
+    help: "dm.step.asset-categories.help",
     spec: {
       id: "asset-categories",
-      sheetName: "تصنيفات الأصول",
+      sheetName: "dm.sheet.asset-categories",
       columns: [
-        { key: "code", header: "الكود", example: "CAT-1" },
-        { key: "nameAr", header: "الاسم", example: "أثاث ومعدات" },
-        { key: "defaultUsefulLifeMonths", header: "العمر الإنتاجي (شهر)", example: "60" },
-        { key: "defaultSalvagePercent", header: "نسبة القيمة التخريدية %", example: "10" },
+        { key: "code", header: "dm.col.code", example: "CAT-1" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.furniture" },
+        { key: "defaultUsefulLifeMonths", header: "dm.col.usefulLifeMonths", example: "60" },
+        { key: "defaultSalvagePercent", header: "dm.col.salvageRate", example: "10" },
       ],
     },
   },
@@ -201,17 +204,17 @@ export const STEPS: StepDef[] = [
     kind: "master",
     id: "assets",
     statusKey: "assets",
-    title: "٩. الأصول الثابتة",
-    help: "بعد تصنيفات الأصول — تُسجَّل كـ«رصيد افتتاحي» بدون قيد محاسبي جديد.",
+    title: "dm.step.assets.title",
+    help: "dm.step.assets.help",
     spec: {
       id: "assets",
-      sheetName: "الأصول الثابتة",
+      sheetName: "dm.sheet.assets",
       columns: [
-        { key: "code", header: "الكود", example: "AST-1" },
-        { key: "nameAr", header: "الاسم", example: "مكتب" },
-        { key: "categoryCode", header: "كود التصنيف", example: "CAT-1" },
-        { key: "acquisitionDate", header: "تاريخ الاقتناء", example: "2026-01-01" },
-        { key: "acquisitionCost", header: "تكلفة الاقتناء", example: "5000.00" },
+        { key: "code", header: "dm.col.code", example: "AST-1" },
+        { key: "nameAr", header: "dm.col.name", example: "dm.eg.desk" },
+        { key: "categoryCode", header: "dm.col.categoryCode", example: "CAT-1" },
+        { key: "acquisitionDate", header: "dm.col.acquisitionDate", example: "2026-01-01" },
+        { key: "acquisitionCost", header: "dm.col.acquisitionCost", example: "5000.00" },
       ],
     },
   },
@@ -220,35 +223,61 @@ export const STEPS: StepDef[] = [
     importKind: "sales",
     docType: "SALES_INVOICE",
     statusKey: "salesInvoices",
-    title: "١٠. فواتير المبيعات السابقة",
-    help: "آخر الخطوات ترتيبًا لأن كل فاتورة ترجع لعميل وأصناف لازم تكون موجودة مسبقًا. فاتورة مسدَّدة بالكامل تُؤرشف بدون قيد محاسبي، والمتبقي يُسجَّل كمديونية عميل فقط — المخزون لا يتأثر إطلاقًا.",
-    spec: { id: "historical-sales-invoices", sheetName: "فواتير مبيعات سابقة", columns: HISTORICAL_COLUMNS },
+    title: "dm.step.historical-sales-invoices.title",
+    help: "dm.step.historical-sales-invoices.help",
+    spec: { id: "historical-sales-invoices", sheetName: "dm.sheet.historical-sales-invoices", columns: HISTORICAL_COLUMNS },
   },
   {
     kind: "historical",
     importKind: "sales",
     docType: "SALES_RETURN",
     statusKey: "salesReturns",
-    title: "١١. مرتجعات المبيعات السابقة",
-    help: "استورد الفواتير أولاً — المرتجع لازم يتربط بفاتورة مستوردة. المخزون لا يتأثر.",
-    spec: { id: "historical-sales-returns", sheetName: "مرتجعات مبيعات سابقة", columns: HISTORICAL_COLUMNS },
+    title: "dm.step.historical-sales-returns.title",
+    help: "dm.step.historical-sales-returns.help",
+    spec: { id: "historical-sales-returns", sheetName: "dm.sheet.historical-sales-returns", columns: HISTORICAL_COLUMNS },
   },
   {
     kind: "historical",
     importKind: "purchases",
     docType: "PURCHASE_INVOICE",
     statusKey: "purchaseInvoices",
-    title: "١٢. فواتير المشتريات السابقة",
-    help: "يماثل فواتير المبيعات السابقة على جانب المشتريات — يرجع لموردين وأصناف. المخزون لا يتأثر.",
-    spec: { id: "historical-purchase-invoices", sheetName: "فواتير مشتريات سابقة", columns: HISTORICAL_COLUMNS },
+    title: "dm.step.historical-purchase-invoices.title",
+    help: "dm.step.historical-purchase-invoices.help",
+    spec: { id: "historical-purchase-invoices", sheetName: "dm.sheet.historical-purchase-invoices", columns: HISTORICAL_COLUMNS },
   },
   {
     kind: "historical",
     importKind: "purchases",
     docType: "PURCHASE_RETURN",
     statusKey: "purchaseReturns",
-    title: "١٣. مرتجعات المشتريات السابقة",
-    help: "يماثل مرتجعات المبيعات السابقة — استورد الفواتير أولاً. المخزون لا يتأثر.",
-    spec: { id: "historical-purchase-returns", sheetName: "مرتجعات مشتريات سابقة", columns: HISTORICAL_COLUMNS },
+    title: "dm.step.historical-purchase-returns.title",
+    help: "dm.step.historical-purchase-returns.help",
+    spec: { id: "historical-purchase-returns", sheetName: "dm.sheet.historical-purchase-returns", columns: HISTORICAL_COLUMNS },
   },
 ];
+
+/**
+ * Turns a step's catalogue keys into the copy a workbook actually carries.
+ *
+ * The spec is shared with `packages/ui/scripts/build-test-fixtures.ts`, which
+ * has no React context, so the keys live in the data and both callers resolve
+ * them at their own boundary. Safe to translate: `parseDataMigrationFile`
+ * matches columns BY POSITION and skips the header row entirely, so a workbook
+ * saved in either language still imports.
+ */
+export function resolveStepSpec(
+  spec: DataMigrationStepSpec,
+  t: (key: AppTranslationKey) => string,
+): DataMigrationStepSpec {
+  return {
+    id: spec.id,
+    sheetName: t(spec.sheetName as AppTranslationKey),
+    columns: spec.columns.map((column) => ({
+      key: column.key,
+      header: t(column.header as AppTranslationKey),
+      ...(column.example === undefined
+        ? {}
+        : { example: column.example.startsWith("dm.eg.") ? t(column.example as AppTranslationKey) : column.example }),
+    })),
+  };
+}

@@ -1,4 +1,4 @@
-import { DOMAIN_EVENT_CATALOG, MODULES } from "@mezan/domain";
+import { DOMAIN_EVENT_CATALOG, MODULES, WAREHOUSE_TYPE_DEFINITIONS } from "@mezan/domain";
 import type { AppTranslationKey } from "./i18n";
 
 /**
@@ -33,4 +33,10 @@ export function eventLabelByCode(code: string, t: Translate): string | undefined
  */
 export function eventLabelArByCode(code: string): string | undefined {
   return DOMAIN_EVENT_CATALOG.find((e) => e.code === code)?.labelAr;
+}
+
+const WAREHOUSE_TYPE_CODES: ReadonlySet<string> = new Set(WAREHOUSE_TYPE_DEFINITIONS.map((d) => d.code));
+
+export function warehouseTypeLabel(type: string, t: Translate): string {
+  return WAREHOUSE_TYPE_CODES.has(type) ? t(`warehouseType.${type}` as AppTranslationKey) : type;
 }

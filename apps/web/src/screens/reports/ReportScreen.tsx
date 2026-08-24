@@ -2,6 +2,8 @@ import { useState, type ReactNode } from "react";
 import { ReportRunner } from "@mezan/ui";
 import type { ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
+import { localizeReportDefinition } from "../../report-labels";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * The generic operational-report screen (docs/catalog/08-reports.md): every
@@ -32,7 +34,8 @@ export interface ReportScreenDefinition<TParams, Row> {
 export interface ReportScreenProps<TParams, Row> {
   readonly definition: ReportScreenDefinition<TParams, Row>;
   readonly apiPath: string;
-  readonly eyebrow: string;
+  /** Catalogue key — every report screen's eyebrow is translated copy. */
+  readonly eyebrow: AppTranslationKey;
   /** Optional summary block rendered above the table (e.g. the VAT net-payable line). */
   readonly renderSummary?: (rows: readonly Row[]) => ReactNode;
   /** Overrides the definition's own `onDemand` — lets a caller auto-run a report the definition marks on-demand (e.g. the trial balance on the financial-statements page). */
@@ -45,7 +48,9 @@ function toStringParams(defaults: object): Record<string, string> {
   );
 }
 
-export function ReportScreen<TParams extends object, Row>({ definition, apiPath, eyebrow, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
+export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, eyebrow, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
+  const { t } = useAppTranslation();
+  const definition = localizeReportDefinition(rawDefinition, t);
   const onDemand = onDemandOverride ?? definition.onDemand ?? false;
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
   // On-demand reports (heavy ledger dumps) don't fetch until the user clicks عرض التقرير.
@@ -58,7 +63,7 @@ export function ReportScreen<TParams extends object, Row>({ definition, apiPath,
 
   return (
     <ReportRunner
-      eyebrow={eyebrow}
+      eyebrow={t(eyebrow)}
       title={definition.titleAr}
       description={definition.descriptionAr}
       paramFields={definition.paramFields}

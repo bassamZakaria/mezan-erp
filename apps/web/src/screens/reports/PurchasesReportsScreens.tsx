@@ -7,13 +7,13 @@ const TODAY = "2026-08-22";
 const MONTH_START = "2026-08-01";
 
 export function PurchasesByPeriodReportScreen() {
-  return <ReportScreen eyebrow="المشتريات · التقارير" definition={createPurchasesByPeriodReport(MONTH_START, TODAY)} apiPath="/purchases/by-period" />;
+  return <ReportScreen eyebrow="eyebrow.reports.purchases" definition={createPurchasesByPeriodReport(MONTH_START, TODAY)} apiPath="/purchases/by-period" />;
 }
 
 export function PurchasesBySupplierReportScreen() {
-  return <ReportScreen eyebrow="المشتريات · التقارير" definition={createPurchasesBySupplierReport(MONTH_START, TODAY)} apiPath="/purchases/by-supplier" />;
+  return <ReportScreen eyebrow="eyebrow.reports.purchases" definition={createPurchasesBySupplierReport(MONTH_START, TODAY)} apiPath="/purchases/by-supplier" />;
 }
 
 export function PurchasesByItemReportScreen() {
-  return <ReportScreen eyebrow="المشتريات · التقارير" definition={createPurchasesByItemReport(MONTH_START, TODAY)} apiPath="/purchases/by-item" />;
+  return <ReportScreen eyebrow="eyebrow.reports.purchases" definition={createPurchasesByItemReport(MONTH_START, TODAY)} apiPath="/purchases/by-item" />;
 }

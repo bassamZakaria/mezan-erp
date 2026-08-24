@@ -25,7 +25,7 @@ import { useAccounts } from "../data/hooks";
  * the same posted journal entries the journal/dashboard screens show.
  */
 
-const EYEBROW = "المحاسبة · القوائم المالية";
+const EYEBROW = "eyebrow.reports.statements" as const;
 const TODAY = "2026-08-22";
 const YEAR_START = "2026-01-01";
 

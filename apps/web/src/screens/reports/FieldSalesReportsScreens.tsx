@@ -7,5 +7,5 @@ const TODAY = "2026-08-22";
 const MONTH_START = "2026-08-01";
 
 export function VanSalesReportScreen() {
-  return <ReportScreen eyebrow="المبيعات الميدانية · التقارير" definition={createVanSalesReport(MONTH_START, TODAY)} apiPath="/field/van-sales" />;
+  return <ReportScreen eyebrow="eyebrow.reports.field" definition={createVanSalesReport(MONTH_START, TODAY)} apiPath="/field/van-sales" />;
 }

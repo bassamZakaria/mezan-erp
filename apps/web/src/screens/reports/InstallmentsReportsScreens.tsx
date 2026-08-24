@@ -6,9 +6,9 @@ import { ReportScreen } from "./ReportScreen";
 const TODAY = "2026-08-22";
 
 export function InstallmentsOverviewReportScreen() {
-  return <ReportScreen eyebrow="الأقساط · التقارير" definition={createInstallmentsOverviewReport(TODAY)} apiPath="/installments/overview" />;
+  return <ReportScreen eyebrow="eyebrow.reports.installments" definition={createInstallmentsOverviewReport(TODAY)} apiPath="/installments/overview" />;
 }
 
 export function InstallmentsOverdueReportScreen() {
-  return <ReportScreen eyebrow="الأقساط · التقارير" definition={createInstallmentsOverdueReport(TODAY)} apiPath="/installments/overdue" />;
+  return <ReportScreen eyebrow="eyebrow.reports.installments" definition={createInstallmentsOverdueReport(TODAY)} apiPath="/installments/overdue" />;
 }

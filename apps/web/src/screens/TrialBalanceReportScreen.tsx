@@ -31,7 +31,7 @@ export function TrialBalanceReportScreen() {
 
   return (
     <ReportRunner
-      eyebrow="المحاسبة · التقارير المالية"
+      eyebrow="eyebrow.reports.financial"
       title={definition.titleAr}
       description={definition.descriptionAr}
       paramFields={definition.paramFields}

@@ -9,6 +9,8 @@ export {
   SALES_RETURN_REASONS,
   isAwaitingRefund,
   salesReturnGrandTotal,
+  salesReturnLineCredit,
+  salesReturnCreditByInvoice,
   createSalesReturnDocumentType,
   type SalesReturnReason,
   type SalesReturnLine,

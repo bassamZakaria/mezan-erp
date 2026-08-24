@@ -103,8 +103,28 @@ export function createVatReturnReport(
     rowKey: (row) => row.rowId,
     columns: [
       { key: "rate", header: "نسبة الضريبة", format: "percent", align: "end", value: (row) => row.rate },
-      { key: "base", header: "الوعاء الخاضع", format: "money", align: "end", total: true, value: (row) => row.base },
-      { key: "tax", header: "مبلغ الضريبة", format: "money", align: "end", total: true, value: (row) => row.tax },
+      {
+        key: "base",
+        header: "الوعاء الخاضع",
+        format: "money",
+        align: "end",
+        total: true,
+        value: (row) => row.base,
+        grandTotal: (rows) =>
+          rows.filter((r) => r.side === "output").reduce((s, r) => s + r.base, 0) -
+          rows.filter((r) => r.side === "input").reduce((s, r) => s + r.base, 0),
+      },
+      {
+        key: "tax",
+        header: "مبلغ الضريبة",
+        format: "money",
+        align: "end",
+        total: true,
+        value: (row) => row.tax,
+        // Output and input rows point in opposite directions, so the grand
+        // total of this column is the NET, never the sum.
+        grandTotal: (rows) => vatNetPayable(rows),
+      },
     ],
     group: {
       key: (row) => row.side,

@@ -22,6 +22,15 @@ export interface ReportColumn<Row> {
   readonly value: (row: Row) => string | number | null;
   /** Included in the per-group subtotal + grand-total rows (numeric columns only). */
   readonly total?: boolean;
+  /**
+   * Overrides the plain column sum for the GRAND total when adding the rows up
+   * is meaningless. The VAT return is the case in point: its groups carry
+   * opposite signs, so summing the tax column across output and input rows
+   * produces a figure with no accounting meaning — and the dashboard read it as
+   * "VAT due" and showed 24,983 payable where the return itself showed
+   * 12,072.20 refundable. Per-GROUP subtotals still use the plain sum.
+   */
+  readonly grandTotal?: (rows: readonly Row[]) => number;
 }
 
 /** Groups a report's rows into labeled sections (e.g. trial balance by account type). */

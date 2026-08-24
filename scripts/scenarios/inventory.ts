@@ -2,7 +2,7 @@ import type { Ctx } from "./harness.js";
 
 /** Executable checks for the inventory module — see docs/scenarios/03-inventory.md. */
 export async function run(ctx: Ctx): Promise<void> {
-  await warehouseScoping(ctx);
+  await ctx.scenario("inventory / warehouse scoping — every list route the screens call narrows to the granted warehouses", () => warehouseScoping(ctx));
   await openingBalanceReconciles(ctx);
   await transferMovesValueBetweenWarehouses(ctx);
   await fefoConsumesEarliestExpiry(ctx);
@@ -64,16 +64,33 @@ async function warehouseScoping(ctx: Ctx): Promise<void> {
     ctx.check(`x-warehouse-scope=WH-DEMO-2 narrows ${path}`, scoped > 0 && scoped < all, `all=${all} WH-DEMO-2=${scoped}`);
   }
 
-  const uiListRoutesNotScoped = ["/inventory/stock-adjustments", "/inventory/stock-transfers"];
-  for (const path of uiListRoutesNotScoped) {
+  // The document-layer list routes the Stock Adjustments and Stock Transfers
+  // SCREENS actually call (F15). The tenant seeds only two warehouses, and the
+  // one seeded transfer runs between them — visible from either end by design,
+  // so it can never prove narrowing. A third warehouse and a transfer that
+  // never touches WH-DEMO-2 makes the scoping provable.
+  const thirdWarehouse = await ctx.req("POST", "/warehouses", {
+    id: "WH-SCN-3", code: "WH-SCN-3", name: "مخزن سيناريو الثالث", branchId: "BR-MAIN", type: "main", active: true,
+  });
+  ctx.check("third warehouse created for the scoping proof", thirdWarehouse.status === 201, `${thirdWarehouse.status}: ${JSON.stringify(thirdWarehouse.body)}`);
+  const offScope = await draftAndConfirm(ctx, "stock-transfers", "SCN-TRF-SCOPE", {
+    date: "2026-08-24",
+    lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: "WH-MAIN", toWarehouseId: "WH-SCN-3", qty: "1" }],
+  });
+  ctx.check("a transfer that never touches WH-DEMO-2 confirms", offScope.confirm.status === 200, JSON.stringify(offScope.confirm.body).slice(0, 200));
+
+  for (const path of ["/inventory/stock-adjustments", "/inventory/stock-transfers"]) {
     const all = await rowCountAt(ctx, path, "*");
     const scoped = await rowCountAt(ctx, path, "WH-DEMO-2");
     ctx.check(
       `x-warehouse-scope=WH-DEMO-2 narrows ${path} (the screen's own list route)`,
-      scoped < all,
-      `NEW FINDING, not F8/D-numbered — all=${all} WH-DEMO-2=${scoped}: this document-layer route never calls withinScope, unlike its raw-engine counterpart (/inventory/adjustments, /inventory/transfers) which does`,
+      scoped > 0 && scoped < all,
+      `all=${all} WH-DEMO-2=${scoped}`,
     );
   }
+
+  const scopedToThird = ctx.rows((await ctx.req("GET", "/inventory/stock-transfers", undefined, { "x-warehouse-scope": "WH-SCN-3" })).body);
+  ctx.check("scoping to WH-SCN-3 shows its own transfer and nothing else", scopedToThird.length === 1 && scopedToThird[0].id === "SCN-TRF-SCOPE", JSON.stringify(scopedToThird.map((t: any) => t.id)));
 
   const fromMain = ctx.rows((await ctx.req("GET", "/inventory/transfers", undefined, { "x-warehouse-scope": "WH-MAIN" })).body);
   const fromGiza = ctx.rows((await ctx.req("GET", "/inventory/transfers", undefined, { "x-warehouse-scope": "WH-DEMO-2" })).body);

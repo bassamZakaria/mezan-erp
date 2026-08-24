@@ -632,20 +632,14 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const afterConfirm = await ctx.invariants();
     checkEq("inventory still reconciles to GL 1200 after the landed cost (Dr Inventory/Cr AP is balanced)", afterConfirm.inventory, beforeConfirm.inventory);
-    // DEFECT (packages/backend/src/create-backend.ts, resolveReconciliationControls): a LandedCostLine
-    // denormalizes the FULL costItems array onto every target line (see landed-cost-document.ts's
-    // `lines: allocated.map(a => ({ ...a, costItems, distributionMethod }))`), and the AP sub-ledger
-    // loop sums `totalLandedCost(line.costItems)` PER LINE instead of once per document. With 2 target
-    // lines here, the sub-ledger adds the 2,500 total TWICE (5,000) while GL 2100 is correctly credited
-    // exactly once (2,500) — a genuine, previously unrecorded reconciliation bug for any landed cost
-    // with more than one target line. This is what the automatic "AP still reconciles" check above
-    // (from ctx.scenario()) is reporting when it fails. LC-DEMO-1 in the seed itself has 2 target lines
-    // too, so this same bug already inflates the tenant's baseline AP-vs-GL gap before this file runs
-    // anything at all.
+    // A LandedCostLine denormalizes the FULL costItems array onto every target
+    // line, so the AP sub-ledger must count the document's total ONCE, not once
+    // per line — summing per line credited 5,000 against a GL 2100 movement of
+    // 2,500 for this two-line document (fixed in 4acf10f / F14).
     checkEq(
-      "DEFECT: multi-line landed cost double-counts its total in the AP sub-ledger (2 target lines -> 5,000 counted vs 2,500 actually credited to GL 2100) — matches the failing 'AP still reconciles' check above",
+      "a multi-line landed cost leaves AP reconciled — its total counted once per document, not once per line",
       afterConfirm.ap - beforeConfirm.ap,
-      2500,
+      0,
     );
   });
 

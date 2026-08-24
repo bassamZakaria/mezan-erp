@@ -212,3 +212,54 @@ export function useScopeSelector(): UseScopeSelectorResult {
 
   return { branchOptions, warehouseOptions, selection: scopeSelection, setBranch, setWarehouse };
 }
+
+export interface WorkingLocation {
+  /** Branch a new document is created in: the selected one, else the tenant's main/first allowed branch. */
+  readonly branchId: string | null;
+  /** Warehouse a new document draws stock from: the selected one, else that branch's default/first allowed warehouse. */
+  readonly warehouseId: string | null;
+}
+
+/**
+ * Where a newly-created document belongs.
+ *
+ * The purchase screens used to post the literal ids `"MAIN"` / `"MAIN-WH"`,
+ * which exist in no tenant this app ever seeds (`BR-MAIN` / `WH-MAIN`), so
+ * every RFQ, purchase order and purchase invoice was stamped with a branch and
+ * warehouse that could not be resolved. This resolves them from the caller's
+ * OWN scope instead of a constant.
+ */
+export function useWorkingLocation(): WorkingLocation {
+  const { session, scopeSelection } = useApi();
+  const branchesQuery = useBranches();
+  const warehousesQuery = useWarehouses();
+
+  const allowedBranchIds = session?.branchScope === "*" ? null : new Set(session?.branchScope ?? []);
+  const allowedWarehouseIds = session?.warehouseScope === "*" ? null : new Set(session?.warehouseScope ?? []);
+
+  return useMemo<WorkingLocation>(() => {
+    const branches = (branchesQuery.data ?? []).filter(
+      (b) => b.active && (allowedBranchIds === null || allowedBranchIds.has(b.id)),
+    );
+    const branchId =
+      scopeSelection.branchId ?? branches.find((b) => b.isMain)?.id ?? branches[0]?.id ?? null;
+
+    const warehouses = (warehousesQuery.data ?? []).filter(
+      (w) =>
+        w.active &&
+        (allowedWarehouseIds === null || allowedWarehouseIds.has(w.id)) &&
+        (!branchId || w.branchId === branchId),
+    );
+    const warehouseId =
+      scopeSelection.warehouseId ?? warehouses.find((w) => w.isDefault)?.id ?? warehouses[0]?.id ?? null;
+
+    return { branchId, warehouseId };
+  }, [
+    branchesQuery.data,
+    warehousesQuery.data,
+    scopeSelection.branchId,
+    scopeSelection.warehouseId,
+    session?.branchScope,
+    session?.warehouseScope,
+  ]);
+}

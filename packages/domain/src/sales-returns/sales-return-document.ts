@@ -84,6 +84,30 @@ export function salesReturnGrandTotal(doc: SalesReturnDocument): Money {
   return totals(doc.lines).grandTotal;
 }
 
+/**
+ * What ONE return line takes off its own source invoice. A return document may
+ * carry lines from several invoices, so the per-invoice credit is a line-level
+ * figure, not the document's grand total.
+ */
+export function salesReturnLineCredit(line: SalesReturnLine): Money {
+  return extend(line.qty, line.unitPrice).add(line.taxAmount);
+}
+
+/** Confirmed-return credit per source invoice — what each invoice's remaining balance must net off. */
+export function salesReturnCreditByInvoice(
+  docs: readonly SalesReturnDocument[],
+): ReadonlyMap<string, Money> {
+  const byInvoice = new Map<string, Money>();
+  for (const doc of docs) {
+    if (doc.status !== "confirmed") continue;
+    for (const line of doc.lines) {
+      const current = byInvoice.get(line.sourceInvoiceId) ?? Money.zero();
+      byInvoice.set(line.sourceInvoiceId, current.add(salesReturnLineCredit(line)));
+    }
+  }
+  return byInvoice;
+}
+
 /** A confirmed return is always بانتظار دفع المبلغ (awaiting a manual cash refund) — no auto-refund in this PR. */
 export function isAwaitingRefund(doc: SalesReturnDocument): boolean {
   return doc.status === "confirmed";

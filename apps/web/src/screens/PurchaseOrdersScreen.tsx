@@ -15,6 +15,7 @@ import {
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
 import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
+import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
@@ -205,19 +206,24 @@ export function PurchaseOrdersScreen() {
     }
   }
 
+  const workingLocation = useWorkingLocation();
   const draftSubtotal = lines.reduce((sum, l) => sum + l.qty * l.unitPrice, 0);
   const canSave = supplier !== null && lines.some((l) => l.itemId !== "" && l.qty > 0);
 
   async function save() {
     if (!supplier) return;
     setFormError(null);
+    if (!workingLocation.branchId || !workingLocation.warehouseId) {
+      setFormError("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.");
+      return;
+    }
     try {
       await createOrder.mutateAsync({
         id: crypto.randomUUID(),
         supplierId: supplier.id,
         date,
-        branchId: "MAIN",
-        warehouseId: "MAIN-WH",
+        branchId: workingLocation.branchId ?? "",
+        warehouseId: workingLocation.warehouseId ?? "",
         notes: notes.trim() === "" ? null : notes.trim(),
         lines: lines
           .filter((l) => l.itemId !== "" && l.qty > 0)

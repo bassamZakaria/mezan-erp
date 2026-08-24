@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
+import { readReportFieldErrors } from "./report-errors";
 
 /**
  * التقارير التشغيلية data hook (docs/catalog/08-reports.md). Every operational-
@@ -42,7 +43,7 @@ export function useReport<Row>(
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/reports${apiPath}${toQueryString(params)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل التقرير.");
+      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل التقرير.", await readReportFieldErrors(res));
       return res.json<ReportResult<Row>>();
     },
   });

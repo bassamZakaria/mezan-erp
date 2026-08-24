@@ -799,7 +799,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         : undefined);
     app.route(
       "/sales-invoices",
-      createSalesInvoicesRoutes({ ...salesInvoices, creditControl, promotions }, options.resolveAuthContext),
+      createSalesInvoicesRoutes(
+        { ...salesInvoices, creditControl, promotions, returns: salesInvoices.returns ?? options.salesReturns?.service },
+        options.resolveAuthContext,
+      ),
     );
   }
   if (options.salesHistoricalImport) {

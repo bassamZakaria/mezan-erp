@@ -23,6 +23,7 @@ import {
   usePurchaseInvoices,
   useSuppliers,
 } from "../data/hooks";
+import { useWorkingLocation } from "../data/hub-hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 
@@ -150,6 +151,7 @@ function InvoiceDetail({
 }
 
 export function PurchaseInvoicesScreen() {
+  const workingLocation = useWorkingLocation();
   const query = usePurchaseInvoices();
   const receiptsQuery = useGoodsReceipts();
   const suppliersQuery = useSuppliers();
@@ -256,6 +258,10 @@ export function PurchaseInvoicesScreen() {
 
   async function save() {
     setFormError(null);
+    if (!workingLocation.branchId || !workingLocation.warehouseId) {
+      setFormError("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.");
+      return;
+    }
     try {
       if (method === "from-receipt") {
         const receipt = confirmedReceipts.find((r) => r.id === pickedReceipt?.id);
@@ -264,8 +270,8 @@ export function PurchaseInvoicesScreen() {
           id: crypto.randomUUID(),
           supplierId: receipt.supplierId,
           date,
-          branchId: "MAIN",
-          warehouseId: "MAIN-WH",
+          branchId: workingLocation.branchId ?? "",
+          warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
           receiptId: receipt.id,
         });
@@ -277,8 +283,8 @@ export function PurchaseInvoicesScreen() {
           id: crypto.randomUUID(),
           supplierId: supplier.id,
           date,
-          branchId: "MAIN",
-          warehouseId: "MAIN-WH",
+          branchId: workingLocation.branchId ?? "",
+          warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
           lines: usable.map((l) => ({
             itemId: l.kind === "expense" ? null : l.itemId,

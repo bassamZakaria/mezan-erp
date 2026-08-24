@@ -4,6 +4,8 @@ import {
   type AllocatableInvoiceRepository,
   ApprovalRequestRejectedError,
   Money,
+  salesReturnCreditByInvoice,
+  type SalesReturnDocument,
   Qty,
   SalesInvoiceService,
   computeInvoiceTotals,
@@ -71,6 +73,12 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
+  /**
+   * Confirmed sales returns, so an invoice's remaining balance nets off what
+   * has been returned against it — the GL credits AR on every confirmed return
+   * while the invoice went on reporting its full total as outstanding.
+   */
+  readonly returns?: { list(): Promise<readonly SalesReturnDocument[]> };
   readonly events?: DocumentEventPublisher;
   readonly now?: () => string;
   /** Generates an invoice id when the request omits one. Defaults to a UUID. */
@@ -130,8 +138,12 @@ function serializeTotals(totals: SalesInvoiceTotals) {
   };
 }
 
-function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals) {
-  const remaining = totals.grandTotal.add(invoice.amountPaid.negate());
+function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCredit: Money = Money.zero()) {
+  // A confirmed return credits the customer's receivable in the GL, so it has
+  // to come off what the invoice still says is owed — otherwise the invoice
+  // screen and the AR sub-ledger disagree with the ledger by the returned
+  // amount, and a fully-returned invoice still reads as unpaid in full.
+  const remaining = totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
   return {
     id: invoice.id,
     docType: invoice.docType,
@@ -155,6 +167,7 @@ function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals) {
     arAccountId: invoice.arAccountId,
     taxAccountId: invoice.taxAccountId,
     amountPaid: invoice.amountPaid.toString(),
+    returnedCredit: returnedCredit.toString(),
     remainingBalance: remaining.toString(),
     journalEntryId: invoice.journalEntryId,
     workflowRequestId: invoice.workflowRequestId,
@@ -251,6 +264,16 @@ export function createSalesInvoicesRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
 
+  /** Confirmed-return credit per invoice; empty when the app mounts no returns module. */
+  async function returnCredits(): Promise<ReadonlyMap<string, Money>> {
+    if (!deps.returns) return new Map();
+    return salesReturnCreditByInvoice(await deps.returns.list());
+  }
+
+  async function creditFor(invoiceId: string): Promise<Money> {
+    return (await returnCredits()).get(invoiceId) ?? Money.zero();
+  }
+
   function service(c: Context): SalesInvoiceService {
     const svcDeps: SalesInvoiceServiceDeps = {
       repo: deps.repo,
@@ -332,14 +355,15 @@ export function createSalesInvoicesRoutes(
     }
     const svc = service(c);
     const invoices = await svc.list(parsed.data);
-    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv))));
+    const credits = await returnCredits();
+    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id))));
   });
 
   app.get("/:id", gate("sales.invoice.view"), async (c) => {
     const svc = service(c);
     const invoice = await svc.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(invoice, totalsFor(svc, invoice)));
+    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
@@ -362,7 +386,7 @@ export function createSalesInvoicesRoutes(
         actorRoles: gateActorRoles(c),
       });
       return c.json({
-        ...serialize(result.invoice, totalsFor(svc, result.invoice)),
+        ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
         held: result.held,
         creditWarning: serializeCreditWarning(result.creditWarning),
       });
@@ -389,7 +413,7 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     try {
       const invoice = await svc.recordPayment(c.req.param("id"), Money.fromMajor(parsed.data.amount));
-      return c.json(serialize(invoice, totalsFor(svc, invoice)));
+      return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
     } catch (err) {
       return handleDomainError(c, err);
     }

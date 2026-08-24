@@ -1612,6 +1612,8 @@ export interface SalesInvoiceDTO {
   readonly arAccountId: string;
   readonly taxAccountId: string;
   readonly amountPaid: string;
+  /** Confirmed returns credited against this invoice — already netted out of `remainingBalance`. */
+  readonly returnedCredit: string;
   readonly remainingBalance: string;
   readonly journalEntryId: string | null;
   readonly workflowRequestId: string | null;

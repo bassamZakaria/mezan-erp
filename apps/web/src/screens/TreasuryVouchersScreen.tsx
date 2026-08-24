@@ -46,6 +46,7 @@ import {
   type VoucherDetailDTO,
   type VoucherRowDTO,
 } from "../data/hooks";
+import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 
@@ -653,6 +654,7 @@ function CreateVoucherView({
 
   const def = type ? getVoucherTypeDefinition(type) : null;
 
+  const workingLocation = useWorkingLocation();
   const treasuryOptions = treasuryAccounts.map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }));
   const partyOptions: EntityPickerOption[] = def?.requiresCustomer
     ? customers.map((c) => ({ id: c.id, label: c.nameAr }))
@@ -685,7 +687,7 @@ function CreateVoucherView({
       direction: def.direction,
       amount,
       currency: "EGP",
-      branchId: branchesQuery.data?.[0]?.id ?? "MAIN",
+      branchId: workingLocation.branchId ?? branchesQuery.data?.[0]?.id ?? "",
       paymentMethod: draft.paymentMethod,
       treasuryAccountId: draft.treasuryAccountId,
       treasuryGlAccountId: treasuryGlOf(draft.treasuryAccountId),

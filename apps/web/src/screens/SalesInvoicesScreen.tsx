@@ -39,6 +39,7 @@ import {
   useWarehouses,
   type SalesInvoiceDTO,
 } from "../data/hooks";
+import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, NumberField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
@@ -53,7 +54,6 @@ const TAX_ACCOUNT_ID = "2200";
 const REVENUE_ACCOUNT_ID = "4100";
 const COGS_ACCOUNT_ID = "5100";
 const INVENTORY_ACCOUNT_ID = "1200";
-const DEFAULT_BRANCH_ID = "MAIN";
 
 const STATUS_TONE: Record<SalesInvoiceStatusDTO, PillTone> = {
   draft: "neutral",
@@ -107,6 +107,7 @@ function CreateInvoicePanel({
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
   const unitLabel = useUnitLabel();
+  const workingLocation = useWorkingLocation();
 
   const customers = customersQuery.data ?? [];
   const employees = employeesQuery.data ?? [];
@@ -231,7 +232,7 @@ function CreateInvoicePanel({
         customerNameAr: customerData.nameAr,
         customerTaxExempt: customerData.taxExempt,
         warehouseId,
-        branchId: DEFAULT_BRANCH_ID,
+        branchId: workingLocation.branchId ?? "",
         salespersonId: salesperson?.id ?? null,
         salespersonNameAr: salesperson?.label ?? null,
         couponCode: couponCode.trim() === "" ? null : couponCode.trim(),

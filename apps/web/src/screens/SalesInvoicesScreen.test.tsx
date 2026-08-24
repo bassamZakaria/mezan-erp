@@ -85,6 +85,7 @@ function invoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO {
     arAccountId: "1105",
     taxAccountId: "2200",
     amountPaid: "0.000000",
+    returnedCredit: "0.000000",
     remainingBalance: "210.900000",
     journalEntryId: "je-1",
     workflowRequestId: null,

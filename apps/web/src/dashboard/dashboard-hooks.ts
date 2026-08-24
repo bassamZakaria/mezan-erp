@@ -187,8 +187,7 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       overdueAmount: overdue.reduce((sum, inv) => sum + outstanding(inv), 0),
       dueSoonCount: dueSoon.length,
       dueSoonAmount: dueSoon.reduce((sum, inv) => sum + outstanding(inv), 0),
-      // grandTotals.tax is the engine's naive sum across BOTH VAT sides, which
-      // for output+input is not a net anything. vatNetPayable is output − input,
+      // vatNetPayable is output − input,
       // the same figure the VAT return screen shows — without it the dashboard
       // reported tax DUE when the return said REFUNDABLE.
       taxDue: vat.data ? vatNetPayable(vat.data.rows) : 0,

@@ -52,6 +52,9 @@ export function computeReportGroups<Row>(
 ): { groups: ReportGroupResult<Row>[]; grandTotals: Record<string, number> } {
   const totalColumns = definition.columns.filter((c) => c.total);
   const grandTotals = computeTotals(rows, totalColumns);
+  for (const column of totalColumns) {
+    if (column.grandTotal) grandTotals[column.key] = column.grandTotal(rows);
+  }
 
   if (!definition.group) {
     return { groups: [{ key: "_all", label: "", rows, totals: grandTotals }], grandTotals };

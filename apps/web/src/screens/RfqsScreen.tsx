@@ -27,6 +27,7 @@ import {
   useSuppliers,
   type RfqComparisonRecord,
 } from "../data/hooks";
+import { useWorkingLocation } from "../data/hub-hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 
 /**
@@ -371,6 +372,7 @@ function RfqDetail({
 }
 
 export function RfqsScreen() {
+  const workingLocation = useWorkingLocation();
   const rfqsQuery = useRfqs();
   const rfqs = rfqsQuery.data ?? [];
   const suppliersQuery = useSuppliers();
@@ -452,13 +454,17 @@ export function RfqsScreen() {
     const usable = lines.filter((l) => l.itemId !== "" && l.qty > 0);
     if (usable.length === 0) return;
     setCreateError(null);
+    if (!workingLocation.branchId || !workingLocation.warehouseId) {
+      setCreateError("لا يوجد فرع أو مستودع متاح ضمن صلاحياتك لإنشاء المستند.");
+      return;
+    }
     try {
       await createRfq.mutateAsync({
         id: crypto.randomUUID(),
         date,
         requiredByDate: requiredByDate.trim() === "" ? null : requiredByDate.trim(),
-        branchId: "MAIN",
-        warehouseId: "MAIN-WH",
+        branchId: workingLocation.branchId ?? "",
+        warehouseId: workingLocation.warehouseId ?? "",
         notes: notes.trim() === "" ? null : notes.trim(),
         lines: usable.map((l) => ({
           itemId: l.itemId,

@@ -45,7 +45,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
-} from "./permission-gate.js";
+  branchScopeOf,
+  withinScope,} from "./permission-gate.js";
 
 /**
  * Everything the voucher routes bind the {@link VoucherService} to. Numbering
@@ -214,6 +215,7 @@ export function createVouchersRoutes(
     if (parsed.data.type) {
       docs = docs.filter((d) => voucherLine(d).voucherType === parsed.data.type);
     }
+    docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
     // Row-level allocation summary so the list's "needs allocation" chip/filter
     // doesn't need an N+1 detail fetch per row (mirrors GET /:id below).
     const rows = await Promise.all(

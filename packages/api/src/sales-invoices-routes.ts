@@ -53,7 +53,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
-} from "./permission-gate.js";
+  branchScopeOf,
+  withinScope,} from "./permission-gate.js";
 
 /**
  * External dependencies the sales-invoice routes bind the domain service to.
@@ -354,7 +355,7 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
-    const invoices = await svc.list(parsed.data);
+    const invoices = withinScope(await svc.list(parsed.data), branchScopeOf(c), (inv) => inv.branchId);
     const credits = await returnCredits();
     return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id))));
   });

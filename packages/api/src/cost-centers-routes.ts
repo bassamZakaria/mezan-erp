@@ -11,7 +11,7 @@ import {
   type CostCenterRepository,
 } from "@mezan/domain";
 import { createCostCenterSchema, updateCostCenterSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 function serialize(costCenter: CostCenter) {
   return {
@@ -61,7 +61,7 @@ export function createCostCentersRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("accounting.coa.view"), async (c) => {
-    const costCenters = await repo.list();
+    const costCenters = withinScope(await repo.list(), branchScopeOf(c), (cc) => cc.branchId);
     return c.json(costCenters.map(serialize));
   });
 

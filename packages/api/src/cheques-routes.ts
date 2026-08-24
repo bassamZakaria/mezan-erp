@@ -27,7 +27,7 @@ import {
   replaceChequeSchema,
   chequeListQuerySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 export type ChequeRoutesDeps = ChequeServiceDeps & {
   /** Generates ids (cheque id, journal-entry id) when the request omits them. Defaults to a UUID. */
@@ -123,7 +123,7 @@ export function createChequesRoutes(deps: ChequeRoutesDeps, resolveAuthContext: 
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const asOfDate = asOf();
-    const cheques = await service.list({ ...parsed.data, asOfDate });
+    const cheques = withinScope(await service.list({ ...parsed.data, asOfDate }), branchScopeOf(c), (ch) => ch.branchId);
     return c.json(cheques.map((cheque) => serialize(cheque, asOfDate)));
   });
 

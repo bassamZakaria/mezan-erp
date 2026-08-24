@@ -34,7 +34,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
-} from "./permission-gate.js";
+  branchScopeOf,
+  withinScope,} from "./permission-gate.js";
 
 /**
  * Permission-gated routes for طلبات عروض الأسعار (RFQs, docs/catalog/02),
@@ -123,7 +124,7 @@ export function createRfqRoutes(
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
 
   app.get("/", gate("purchases.rfq.view"), async (c) => {
-    return c.json((await deps.rfqs.list()).map(serializeRfq));
+    return c.json(withinScope(await deps.rfqs.list(), branchScopeOf(c), (r) => r.branchId).map(serializeRfq));
   });
 
   app.get("/counts", gate("purchases.rfq.view"), async (c) => {

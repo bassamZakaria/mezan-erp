@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { createWarehouse, updateWarehouse, InvalidWarehouseError, type WarehouseRepository } from "@mezan/domain";
 import { createWarehouseSchema, updateWarehouseSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 /** Warehouse CRUD routes (docs/catalog/09 §"إدارة المستودعات"), gated by admin.warehouses.*. */
 export function createWarehousesRoutes(
@@ -13,7 +13,8 @@ export function createWarehousesRoutes(
 
   app.get("/", gate("admin.warehouses.view"), async (c) => {
     const branchId = c.req.query("branchId");
-    return c.json(branchId ? await store.findByBranch(branchId) : await store.findAll());
+    const warehouses = branchId ? await store.findByBranch(branchId) : await store.findAll();
+    return c.json(withinScope(warehouses, branchScopeOf(c), (w) => w.branchId));
   });
 
   app.get("/:id", gate("admin.warehouses.view"), async (c) => {

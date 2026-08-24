@@ -61,7 +61,7 @@ import {
   updateHolidaySchema,
   createLeaveRequestSchema,
 } from "@mezan/contracts";
-import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 import { createHrTimeLeaveRoutes, type HrTimeLeaveRoutesDeps } from "./hr-time-leave-routes.js";
 import { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
 
@@ -385,7 +385,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // --- Employees -----------------------------------------------------------
 
   app.get("/employees", gate("hr.employee.view"), async (c) => {
-    return c.json((await deps.employees.list()).map(serializeEmployee));
+    return c.json(withinScope(await deps.employees.list(), branchScopeOf(c), (e) => e.branchId).map(serializeEmployee));
   });
 
   app.get("/employees/:id", gate("hr.employee.view"), async (c) => {

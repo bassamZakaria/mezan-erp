@@ -25,7 +25,7 @@ import {
   type JournalPostingDeps,
 } from "@mezan/domain";
 import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 /**
  * Fixed Assets routes (docs/catalog/07-mfg-projects-assets.md "الأصول
@@ -152,7 +152,7 @@ export function createFixedAssetsRoutes(
   });
 
   app.get("/", gate("assets.view"), async (c) => {
-    const assets = await deps.assets.list();
+    const assets = withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId);
     return c.json(assets.map(serializeAsset));
   });
 

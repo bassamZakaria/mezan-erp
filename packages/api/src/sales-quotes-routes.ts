@@ -34,7 +34,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
-} from "./permission-gate.js";
+  branchScopeOf,
+  withinScope,} from "./permission-gate.js";
 
 /**
  * External dependencies the sales-quote routes bind the domain service to.
@@ -227,7 +228,7 @@ export function createSalesQuotesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
-    const quotes = await svc.list(parsed.data);
+    const quotes = withinScope(await svc.list(parsed.data), branchScopeOf(c), (q) => q.branchId);
     return c.json(quotes.map((q) => serialize(q, totalsFor(svc, q))));
   });
 

@@ -503,4 +503,44 @@ export async function run(ctx: Ctx): Promise<void> {
     const revaluation: Res = await req("POST", "/revaluation/preview", {});
     check('"revaluation" -> POST /revaluation/preview is mounted (not 404)', revaluation.status !== 404, `status ${revaluation.status}`);
   });
+
+  // --- D7: the BRANCH selector narrows, the way the warehouse one does ----
+  //
+  // Unprovable on the seeded tenant alone: it ships one branch, so "narrowed"
+  // and "everything" are the same set. A second branch that owns nothing makes
+  // the difference visible.
+
+  await scenario("SCN-SCOPE-branch — x-branch-scope narrows every branch-owned list (D7)", async () => {
+    const created = await req("POST", "/branches", {
+      id: "BR-SCN-2", code: "BR-SCN-2", name: "فرع اختبار النطاق", parentBranchId: null, isMain: false, active: true,
+    });
+    check("a second branch is created for the scoping proof", created.status === 201, `${created.status}: ${JSON.stringify(created.body)}`);
+
+    const branchOwned = [
+      "/sales-invoices", "/sales-quotes", "/treasury-accounts", "/warehouses",
+      "/vouchers", "/hr/employees", "/purchases/orders", "/purchases/invoices",
+      "/cheques", "/rfqs",
+    ];
+    for (const path of branchOwned) {
+      const all = rows((await req("GET", path, undefined, { "x-branch-scope": "*" })).body);
+      const scoped = rows((await req("GET", path, undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+      check(
+        `x-branch-scope=BR-SCN-2 narrows ${path} to the empty branch`,
+        all.length > 0 && scoped.length === 0,
+        `all=${all.length} BR-SCN-2=${scoped.length}`,
+      );
+      const mainScoped = rows((await req("GET", path, undefined, { "x-branch-scope": "BR-MAIN" })).body);
+      check(`scoping ${path} to BR-MAIN still shows its own rows`, mainScoped.length > 0, `BR-MAIN=${mainScoped.length}`);
+    }
+
+    // A row with no branch at all is not attributable, so it must stay visible
+    // rather than silently vanish under a narrowed scope.
+    const centersAll = rows((await req("GET", "/cost-centers", undefined, { "x-branch-scope": "*" })).body);
+    const centersScoped = rows((await req("GET", "/cost-centers", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    check(
+      "a branchless cost centre stays visible under a narrowed branch scope",
+      centersScoped.length > 0 && centersScoped.length < centersAll.length && centersScoped.every((cc: any) => cc.branchId == null),
+      `all=${centersAll.length} scoped=${centersScoped.length}`,
+    );
+  });
 }

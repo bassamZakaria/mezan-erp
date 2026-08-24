@@ -60,7 +60,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
-} from "./permission-gate.js";
+  branchScopeOf,
+  withinScope,} from "./permission-gate.js";
 
 /**
  * Permission-gated routes for the purchase chain (docs/catalog/02), mounted
@@ -251,7 +252,7 @@ export function createPurchasesRoutes(
   // --- Purchase Orders -----------------------------------------------------
 
   app.get("/orders", gate("purchases.order.view"), async (c) => {
-    return c.json((await deps.orders.list()).map(serializeOrder));
+    return c.json(withinScope(await deps.orders.list(), branchScopeOf(c), (o) => o.branchId).map(serializeOrder));
   });
 
   app.get("/orders/:id", gate("purchases.order.view"), async (c) => {
@@ -401,7 +402,7 @@ export function createPurchasesRoutes(
   // --- Purchase Invoices ---------------------------------------------------
 
   app.get("/invoices", gate("purchases.invoice.view"), async (c) => {
-    return c.json((await deps.invoices.list()).map(serializeInvoice));
+    return c.json(withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId).map(serializeInvoice));
   });
 
   app.get("/invoices/:id", gate("purchases.invoice.view"), async (c) => {

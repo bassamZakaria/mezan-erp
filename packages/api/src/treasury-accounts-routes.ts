@@ -9,7 +9,7 @@ import {
   type TreasuryAccountRepository,
 } from "@mezan/domain";
 import { createTreasuryAccountSchema, updateTreasuryAccountSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 function serialize(account: TreasuryAccount) {
   return {
@@ -53,7 +53,7 @@ export function createTreasuryAccountsRoutes(
   const gate = createPermissionGate(resolveAuthContext);
 
   app.get("/", gate("treasury.account.view"), async (c) => {
-    const accounts = await repo.list();
+    const accounts = withinScope(await repo.list(), branchScopeOf(c), (a) => a.branchId);
     return c.json(accounts.map(serialize));
   });
 

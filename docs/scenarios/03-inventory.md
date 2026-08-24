@@ -1,736 +1,1278 @@
-# Inventory & Manufacturing — UI Test Scenarios
+# Scenarios — Inventory & Manufacturing
 
-Sources: `docs/catalog/03-inventory.md` (reference product) and
-`docs/catalog/07-mfg-projects-assets.md` (manufacturing half) against the
-actual build (`apps/web/src/screens/*`, `apps/web/src/nav-config.ts`). Where
-the catalog describes something the build does not have, the scenario is
-written against the catalog's expectation and marked **`[NOT IMPLEMENTED]`**
-— its Assert is "the feature is absent," not a click path.
+Exhaustive UI test scenarios for the Inventory and Manufacturing screens, built against
+**this build** (`apps/web/src/screens/*`, `apps/web/src/nav-config.ts`) and checked line
+by line against the captured reference product (`docs/catalog/03-inventory.md` and the
+manufacturing half of `docs/catalog/07-mfg-projects-assets.md`). Every screen listed in
+the task brief is covered: Items, Item Specifications, Product Templates, Configurable
+Products, Stock Balance, Stock Transfers, Stock Adjustments, Physical Counts, Label
+Printing, Inventory Write-downs, Work Orders, Bills of Materials, Custom Manufacturing
+(Config Instances), Production Dashboard.
 
-Seed data used throughout (`packages/backend/src/demo-seed.ts`,
-`demo-seed/inventory-ops.ts`):
+Where the catalog describes something this build does not have, the scenario is written
+anyway and marked **`[NOT IMPLEMENTED]`** — with the exact code fact that proves it's
+missing, not a guess.
 
-- **Items**: IT-0001 أرز أبيض ٥ كجم, IT-0002 زيت عباد الشمس ١ لتر, IT-0003 سكر
-  أبيض ١ كجم, IT-0004 شاي أسود ٥٠٠ جم (4 plain) · IT-0005 خليط شاي بالسكر
-  (BOM-DEMO-1), IT-0006 خليط شاي بالنعناع (BOM-DEMO-2) (2 manufacturable) ·
-  IT-0007 لبن كامل الدسم ١ لتر, IT-0008 زبادي طبيعي ١٠٠ جم (2 batch/expiry —
-  batches `MLK-2607`/exp 2026-10-20 and `MLK-2708`/exp 2026-09-05 for IT-0007;
-  `YOG-2607`/exp 2026-09-30 and `YOG-2708`/exp 2026-08-27 for IT-0008 — in both
-  pairs the **second-received batch expires first**).
-- **Warehouses**: WH-MAIN (مستودع الفرع الرئيسي, default), WH-GIZA (مستودع فرع
-  الجيزة), WH-TRANSIT (مخزون بالطريق), plus one van-type warehouse.
-- **BOMs**: BOM-DEMO-1 → IT-0005 (materials: IT-0004 ×4, IT-0003 ×6),
-  BOM-DEMO-2 → IT-0006 (materials: IT-0004 ×5, IT-0003 ×5).
-- Work orders WO-DEMO-1/2/3, adjustments across the 8 reason cards (opening
-  balance, physical-count correction, damage, other, expiry among them),
-  confirmed transfers, physical counts, product templates, item
-  specifications, and one write-down run, per the task brief.
+## Conventions
 
-Known, already-filed defects that these scenarios will hit — **note them, do
-not re-file them** (see `docs/defects.md`):
+- **ID** — `INV-001`… sequential across the whole file.
+- **Pre** — state required before the first step (seed data, existing records, filters).
+- **Steps** — the Arabic click path exactly as the UI renders it (button/label text is
+  quoted verbatim from source, not paraphrased).
+- **Assert** — what must be true afterward. A step with no assertion is a click, not a
+  test. Money and Qty are scaled integers; assert on the persisted value, not just the
+  toast.
+- **"reload"** means a hard browser reload (F5 / re-navigate from a fresh app boot), not
+  just leaving and re-entering the SPA screen — it is the only way to prove a save
+  reached the API instead of living in local component state.
+- Every screen in this build is a flat, unpaginated client-side list (`page=1,
+  pageCount=1` hardcoded) **except Items**, which page real API-shaped data at
+  `PAGE_SIZE = 5`. Where a screen has no server pagination, "pagination" scenarios are
+  replaced with "all rows render at once" assertions instead.
+- None of these 14 screens has a row-level kebab/"more" menu unless explicitly said so
+  below — the reference catalog documents kebab menus (عرض/تعديل/تعطيل/حذف/تكرار…) on
+  almost every list; this build's row click opens that row's own detail directly, and
+  secondary actions live as buttons on the detail page. Actions the catalog describes
+  that have **no button anywhere** in this build are marked `[NOT IMPLEMENTED]`.
 
-- **D2** — a `PHYSICAL_COUNT` adjustment posts no GL journal entry (only
-  `INITIAL_STOCK` has a GL account mapping in `adjustmentGlAccountsForReason`)
-  — measured drift 122.00.
-- **D3** — `completeWorkOrder` never posts to GL 1200 — measured drift 80.00 at
-  BOM-DEMO-1 qty 10. **Do not run WO-D3 on a database you need reconciled
-  afterward.**
-- **D4** — the drift report replays movements in `occurredAt` order with
-  confirms stamped at `now()`, reporting gaps that are not real. Out of scope
-  for this file (it lives in the Reports domain) — noted here only so a
-  reconciliation scenario doesn't mistake the report's noise for a new
-  inventory defect.
+## Seed data used throughout (from `packages/backend/src/demo-seed.ts` and
+`packages/backend/src/demo-seed/inventory-ops.ts`)
+
+| | |
+|---|---|
+| Items | ITEM-DEMO-1…4 (`IT-0001`…`IT-0004`, plain: rice/oil/sugar/tea), ITEM-DEMO-5/6 (`IT-0005`/`IT-0006`, manufacturable — BOM-DEMO-1/2 build them), ITEM-DEMO-7/8 (`IT-0007`/`IT-0008`, batch+expiry tracked: milk/yoghurt) |
+| Warehouses | `WH-MAIN` (main), `WH-GIZA` (مستودع فرع الجيزة), `WH-TRANSIT` (مخزون بالطريق), `WH-VAN` (عربة توزيع رقم ١) |
+| Adjustments | `ADJ-DEMO-1` INITIAL_STOCK (posts GL: Dr 1200 / Cr 3100), `ADJ-DEMO-2` DAMAGE, `ADJ-DEMO-3` OTHER, `ADJ-DEMO-4` EXPIRY, `ADJ-DEMO-5`/`ADJ-DEMO-6` PHYSICAL_COUNT (generated from counts) — 6 documents, 5 distinct reasons |
+| Transfers | `TRF-DEMO-1` (confirmed, → الجيزة), `TRF-DEMO-2` (confirmed, → بالطريق), `TRF-DEMO-3` (**draft**, seeded through a backend-only endpoint the UI never exposes — see INV-078) |
+| Physical counts | `PC-DEMO-1` (main, completed, generated `ADJ-DEMO-5`), `PC-DEMO-2` (الجيزة, completed, generated `ADJ-DEMO-6`, cancels PC-DEMO-1's variance to zero), `PC-DEMO-3` (main, **blind**, still `IN_PROGRESS`, one line uncounted) |
+| Work orders | `WO-DEMO-1` (BOM-DEMO-1, planned, not started), `WO-DEMO-2` (BOM-DEMO-2, started — materials not yet issued), `WO-DEMO-3` (BOM-DEMO-1, cancelled) |
+| BOMs | `BOM-DEMO-1` → ITEM-DEMO-5 (4×ITEM-DEMO-4 + 6×ITEM-DEMO-3, labor 50, overhead 30), `BOM-DEMO-2` → ITEM-DEMO-6 (5×ITEM-DEMO-4 + 5×ITEM-DEMO-3, labor 40, overhead 20) |
+| Product templates | `TPL-TEA` (SIZE×PACK, 3 variants generated), `TPL-RICE` (SIZE×ORIGIN, 2 variants generated) |
+| Item specifications | `SIZE`, `PACK`, `ORIGIN` (select), `NET-WEIGHT` (number, unit جم), `STORAGE` (text) |
+| Write-down runs | one, period `2026-08`, already posted, against ITEM-DEMO-6 (aged past 180 days from its 2026-02-15 opening) |
+
+## Defects this run **will** hit — reference `docs/defects.md`, do not re-file
+
+- **D2** — a `PHYSICAL_COUNT` adjustment posts **no journal entry**
+  (`adjustmentGlAccountsForReason` in `packages/backend/src/create-backend.ts` maps GL
+  accounts for `INITIAL_STOCK` only). Verified directly in code: **every reason except
+  `INITIAL_STOCK`** — `DAMAGE`, `THEFT`, `EXPIRY`, `SHORTAGE`, `SUPPLIER_RETURN`,
+  `PHYSICAL_COUNT`, `OTHER` — posts no GL entry, so `ADJ-DEMO-2` through `ADJ-DEMO-6`'s
+  "المحاسبة" tab all hit the same "لا يوجد قيد محاسبي" branch as D2's `PHYSICAL_COUNT`
+  case. The seed's two physical counts (`PC-DEMO-1`/`PC-DEMO-2`) are engineered to net to
+  zero across warehouses — that is *evidence the gap is avoided*, not evidence it is
+  safe.
+- **D3** — `completeWorkOrder` never posts to GL 1200. This build's own work-order detail
+  page *claims otherwise* — its effects copy reads "وعند الإكمال تُرحَّل قيود رسملة
+  الإنتاج تحت التشغيل تلقائياً" (on completion, WIP-capitalisation entries post
+  automatically) — which is false per D3. **Completing a work order will unbalance the
+  books.** No work order in the seed is completed. Run INV-206 only on a throwaway
+  database, and never before a scenario that asserts reconciliation.
+- **D4** — the drift report is out of this file's scope (it lives under Reports, not in
+  the 14 screens assigned here); noted only so a tester doesn't mistake a
+  timestamp-ordering artifact for a real gap if they cross-reference it.
+
+## Scope boundary
+
+This file's 14 screens do not include a Chart-of-Accounts/GL-balance screen or the
+Inventory Valuation/Drift reports (`/reports/inventory/*`), so a scenario cannot show
+"GL 1200's live balance" on-screen — only the per-document journal entry inside a Stock
+Adjustment's "المحاسبة" tab. Reconciliation scenarios below check what these 14 screens
+can show: the Stock Balance rollup total, and adjustment-by-adjustment GL presence, per
+D2's exact mechanism.
 
 ---
 
-## 1. مركز المخزون (Inventory Hub) — `/inventory/hub`
-
-INV-001 · **Pre**: logged in, any tenant with items. **Steps**: افتح القائمة الجانبية → المخزون → مركز المخزون (topmost `inventory-hub` entry, un-expanded submenu). **Assert**: page title "المخزون"; four stat cards render — عدد الأصناف، أصناف نشطة، قيمة المخزون (from the real stock-levels report, not a client re-derivation), أصناف تحتاج انتباه.
-
-INV-002 · **Pre**: on hub. **Steps**: read "أصناف تحتاج انتباه" card. **Assert**: lists up to 5 rows sourced from `/inventory/stock-levels`, each showing item name, SKU, remaining qty, and a "نافد"/"منخفض" tag; if none are out/low, shows "لا توجد أصناف تحتاج انتباهاً حالياً."
-
-INV-003 · **Pre**: on hub. **Steps**: click each quick-action button — "صنف جديد", "أرصدة المخزون", "تحويل مخزون", "جرد فعلي". **Assert**: each navigates to Items / Stock Balance / Stock Transfers / Physical Counts respectively; "صنف جديد" lands on the Items list (it does not itself open the add-item panel).
-
-INV-004 · **Pre**: backend `/items` or `/inventory/stock-levels` returns an error (simulate via network block). **Steps**: load hub. **Assert**: card shows "تعذّر تحميل بيانات المخزون." with no crash; stat values fall back to "—" while loading.
-
-INV-005 `[NOT IMPLEMENTED]` · Catalog describes a "مناطق العمل" tile grid (stock balance / items / transfers / adjustments / physical counts / two report links) and an "آخر الحركات" recent-transfers/adjustments panel. **Assert**: neither exists — the build's hub is a 4-stat-card + needs-attention layout only, no workspace tile grid, no recent-movements panel.
-
----
-
-## 2. الأصناف (Items) — `/inventory/items`
+## 1. الأصناف (Items)
 
 ### List
 
-INV-010 · **Pre**: on Items list. **Steps**: read header stats. **Assert**: إجمالي الأصناف = 8 (seed), نشط = 8, أصناف مخزون and أصناف خدمية sum to 8.
+#### INV-001 — Header stats on load
+- **Pre:** none.
+- **Steps:** افتح المخزون ← الأصناف.
+- **Assert:** "إجمالي الأصناف" = 8، "نشط" = 8، "أصناف مخزون" = 8، "أصناف خدمية" = 0 (كل الأصناف المزروعة `type: "stock"`، لا يوجد صنف خدمي).
 
-INV-011 · **Pre**: list loaded. **Steps**: click status chips الكل / نشط / غير نشط / منتج مخزون / خدمة in turn. **Assert**: rows filter accordingly; page resets to 1 on each chip change.
+#### INV-002 — Status chip "نشط"
+- **Pre:** في شاشة الأصناف.
+- **Steps:** اضغط شريحة "نشط".
+- **Assert:** كل الصفوف الظاهرة تحمل شارة "نشط"؛ العدد = 8.
 
-INV-012 `[NOT IMPLEMENTED]` · Catalog describes چips مخزون منخفض and نفد المخزون plus an out-of-stock attention banner on this screen. **Assert**: neither chip nor banner exists on Items — stock-level filtering only exists on Stock Balance.
+#### INV-003 — Status chip "غير نشط" (empty state via filter)
+- **Steps:** اضغط شريحة "غير نشط".
+- **Assert:** لا صفوف؛ نص الحالة الفارغة "لا توجد أصناف مطابقة".
 
-INV-013 · **Pre**: list loaded. **Steps**: open "تصفية حسب التصنيف" select, pick a category; separately, open "تصفية حسب الوحدة" select, pick PCS. **Assert**: rows filter by category/unit respectively; combining both narrows further.
+#### INV-004 — Type chip "منتج مخزون"
+- **Steps:** اضغط شريحة "منتج مخزون".
+- **Assert:** 8 صفوف (كل الأصناف).
 
-INV-014 `[NOT IMPLEMENTED]` · Catalog's filters panel also has سعر البيع من/إلى, سعر التكلفة من/إلى range inputs and an "إخفاء المتغيرات" checkbox. **Assert**: none of these three controls exist — only the category and unit selects.
+#### INV-005 — Type chip "خدمة"
+- **Steps:** اضغط شريحة "خدمة".
+- **Assert:** لا صفوف؛ حالة فارغة.
 
-INV-015 · **Pre**: list loaded. **Steps**: type "أرز" into "بحث بالاسم أو الكود...". **Assert**: only IT-0001 (أرز أبيض ٥ كجم) row remains; clearing the box restores all rows.
+#### INV-006 — Category filter dropdown
+- **Steps:** افتح القائمة المنسدلة "تصفية حسب التصنيف" (aria-label).
+- **Assert:** لا توجد تصنيفات مزروعة لهذا التينانت — القائمة تعرض فقط "كل التصنيفات"؛ اختيارها لا يغيّر النتائج.
 
-INV-016 · **Pre**: list loaded. **Steps**: type "IT-0003" into search. **Assert**: matches by code too — سكر أبيض row shown (search checks nameAr, code, and nameEn).
+#### INV-007 — Unit filter dropdown
+- **Steps:** افتح القائمة المنسدلة "تصفية حسب الوحدة"، اختر "قطعة (PCS)".
+- **Assert:** تبقى كل الأصناف الثمانية ظاهرة (كلها بوحدة PCS).
 
-INV-017 · **Pre**: list has >5 rows (8 seeded, PAGE_SIZE=5). **Steps**: click column header "اسم الصنف", then "سعر البيع", then "سعر التكلفة". **Assert**: each toggles ascending/descending sort on that column; a second click on the same header reverses direction.
+#### INV-008 — Search by Arabic name substring
+- **Steps:** اكتب "أرز" في "بحث بالاسم أو الكود...".
+- **Assert:** صف واحد فقط: "أرز أبيض ٥ كجم" (ITEM-DEMO-1).
 
-INV-018 · **Pre**: 8 items, page size fixed at 5. **Steps**: read pager footer, click next page. **Assert**: footer reads "عرض 1–5 من 8 صنف" on page 1, "عرض 6–8 من 8 صنف" on page 2; no page-size selector is offered (catalog describes one, default 25 — `[NOT IMPLEMENTED]`).
+#### INV-009 — Search by code
+- **Steps:** اكتب "IT-0005".
+- **Assert:** صف واحد: "خليط شاي بالسكر ١ كجم".
 
-INV-019 · **Pre**: search matches zero rows. **Steps**: type "xyz-nonexistent". **Assert**: empty state "لا توجد أصناف مطابقة" renders in place of the table.
+#### INV-010 — Search no match
+- **Steps:** اكتب "xyz-none".
+- **Assert:** حالة فارغة "لا توجد أصناف مطابقة".
 
-INV-020 · **Pre**: list loaded. **Steps**: click the row for IT-0005 (خليط شاي بالسكر) anywhere except the edit icon. **Assert**: opens the item detail view (not the edit form).
+#### INV-011 — Sort by "اسم الصنف"
+- **Steps:** اضغط رأس العمود "اسم الصنف" مرتين.
+- **Assert:** الاتجاه الأول تصاعدي أبجدياً (عربي)، الثاني تنازلي.
 
-INV-021 · **Pre**: list loaded. **Steps**: click the pencil icon button on a row. **Assert**: opens the edit SidePanel pre-filled with that item's data directly, without navigating to detail first.
+#### INV-012 — Sort by "سعر البيع"
+- **Steps:** اضغط رأس العمود "سعر البيع".
+- **Assert:** الترتيب تصاعدي حسب القيمة الرقمية للسعر، ليس نصياً (12 قبل 260).
 
-INV-022 `[NOT IMPLEMENTED]` · Catalog describes a row kebab menu (تعديل/تعطيل/حذف) and, for zero-stock rows, an inline "تحديد الرصيد الافتتاحي" quick action. **Assert**: the row's only action is the single edit pencil icon — no menu, no deactivate/delete from the list, no opening-balance shortcut button.
+#### INV-013 — Sort by "سعر التكلفة"
+- **Steps:** اضغط رأس العمود "سعر التكلفة".
+- **Assert:** نفس السلوك الرقمي.
 
-INV-023 `[NOT IMPLEMENTED]` · Catalog's header has a second action "تصنيفات الأصناف" opening a category-management dialog (list + add/edit/delete categories). **Assert**: only "إضافة صنف" exists in the header; no categories dialog is reachable from Items (categories can only be *chosen*, not managed, via the التصنيف picker in the form).
+#### INV-014 — Pagination (real, `PAGE_SIZE = 5`)
+- **Pre:** لا فلاتر مفعّلة (8 صفوف).
+- **Steps:** لاحظ تذييل الصفحة "عرض 1–5 من 8 صنف"؛ اضغط "التالي".
+- **Assert:** الصفحة الثانية تعرض "عرض 6–8 من 8 صنف" والصفوف الثلاثة المتبقية.
 
-### Add / edit form
+#### INV-015 — Row edit icon vs. row click
+- **Steps:** اضغط زر التعديل (أيقونة القلم، aria-label "تعديل <اسم الصنف>") على أي صف.
+- **Assert:** تفتح لوحة "تعديل صنف" جانبياً معبأة ببيانات الصنف — النقر على الأيقونة لا يفتح صفحة التفاصيل (event.stopPropagation).
 
-INV-030 · **Pre**: on Items list. **Steps**: انقر "إضافة صنف". **Assert**: SidePanel titled "إضافة صنف" opens; كود الصنف is pre-filled and disabled (`ITM-000009`-style auto code), نوع الصنف defaults to "منتج مخزون", طريقة التكلفة defaults to "متوسط التكلفة (WAC)", نسبة الضريبة % defaults to 14, تتبع المخزون is on.
+#### INV-016 — Header action "إضافة صنف"
+- **Steps:** اضغط "إضافة صنف".
+- **Assert:** تفتح لوحة "إضافة صنف"؛ حقل "كود الصنف" معطّل ومعبأ تلقائياً بكود مولّد (`ITM-000009` مع 8 أصناف موجودة) — لاحظ أنه بصيغة مختلفة عن أكواد البيانات المزروعة (`IT-000x`)، وهذا سلوك متوقع لا خطأ.
 
-INV-031 · **Pre**: add-item panel open. **Steps**: leave اسم الصنف blank, انقر "إضافة". **Assert**: inline alert "اسم الصنف مطلوب." — panel stays open, no request sent.
+#### INV-017 — List load error + retry
+- **Pre:** حاكِ فشل `GET /items`.
+- **Steps:** افتح شاشة الأصناف.
+- **Assert:** بطاقة خطأ "تعذّر تحميل الأصناف." مع زر "إعادة المحاولة"؛ الضغط عليه يعيد الطلب.
 
-INV-032 · **Pre**: add-item panel open. **Steps**: set نوع الصنف to "خدمة" while تتبع المخزون remains on (toggle it back on after the type switch auto-clears it), then submit. **Assert**: alert "لا يمكن لصنف من نوع (خدمة) أن يتتبع المخزون." — note the type-switch itself already flips trackInventory off, so this path requires re-enabling the toggle to trigger the message.
+### Create / Edit form
 
-INV-033 · **Pre**: add-item panel open, name filled. **Steps**: click "+ إضافة وحدة" under وحدات القياس البديلة, set كود الوحدة to the same value as الوحدة الأساسية (e.g. PCS), submit. **Assert**: alert `الوحدة البديلة "PCS" لا يمكن أن تطابق الوحدة الأساسية.`
+#### INV-018 — Required name rejected
+- **Steps:** افتح "إضافة صنف"، اترك "اسم الصنف" فارغاً، اضغط "إضافة".
+- **Assert:** تنبيه "اسم الصنف مطلوب."؛ اللوحة تبقى مفتوحة؛ لا طلب `POST` يُرسل.
 
-INV-034 · **Pre**: same, two alternate-unit rows added with identical كود الوحدة (e.g. both "CTN"). **Steps**: submit. **Assert**: alert `كود الوحدة البديلة "CTN" مكرر.`
+#### INV-019 — Item type toggle to "خدمة" hides inventory policy
+- **Steps:** في "إضافة صنف"، غيّر "نوع الصنف" إلى "خدمة".
+- **Assert:** بطاقة "تتبع المخزون / طريقة التكلفة / تتبع الدفعات / نقطة إعادة الطلب" تختفي بالكامل؛ الوحدة الأساسية تتحول تلقائياً إلى "SVC" إن كانت لا تزال "PCS".
 
-INV-035 · **Pre**: one alternate-unit row, عامل التحويل set to 0 or left negative via manual entry. **Steps**: submit. **Assert**: alert `عامل تحويل الوحدة "..." يجب أن يكون رقماً موجباً.` — non-positive conversion factors are rejected.
+#### INV-020 — Toggle back to "منتج مخزون" restores policy card
+- **Steps:** من نفس اللوحة، أعد "نوع الصنف" إلى "منتج مخزون".
+- **Assert:** بطاقة سياسة المخزون تظهر من جديد، "تتبع المخزون" مفعّل افتراضياً.
 
-INV-036 · **Pre**: alternate-unit row with كود الوحدة or اسم الوحدة left blank. **Steps**: submit. **Assert**: alert "كود واسم الوحدة البديلة مطلوبان."
+#### INV-021 — Alternate unit: blank code/name rejected
+- **Steps:** أضف وحدة بديلة عبر "+ إضافة وحدة"، اترك الحقلين فارغين، اضغط "إضافة".
+- **Assert:** خطأ "كود واسم الوحدة البديلة مطلوبان."
 
-INV-037 · **Pre**: add-item panel, click "+ إضافة باركود آخر" twice, leave one barcode input blank. **Steps**: submit. **Assert**: alert "لا يمكن ترك الباركود فارغاً."
+#### INV-022 — Alternate unit matching base unit rejected
+- **Steps:** أضف وحدة بديلة بكود "PCS" (نفس الوحدة الأساسية)، اضغط "إضافة".
+- **Assert:** خطأ "الوحدة البديلة \"PCS\" لا يمكن أن تطابق الوحدة الأساسية."
 
-INV-038 · **Pre**: two barcode rows with the same value. **Steps**: submit. **Assert**: alert `الباركود "..." مكرر.`
+#### INV-023 — Duplicate alternate unit code rejected
+- **Steps:** أضف وحدتين بديلتين بنفس الكود "CTN".
+- **Assert:** خطأ "كود الوحدة البديلة \"CTN\" مكرر."
 
-INV-039 · **Pre**: نقطة إعادة الطلب field — type a negative number. **Steps**: submit. **Assert**: alert "نقطة إعادة الطلب لا يمكن أن تكون سالبة." Repeat for كمية إعادة الطلب → "كمية إعادة الطلب لا يمكن أن تكون سالبة." and for نسبة الضريبة % → "نسبة الضريبة لا يمكن أن تكون سالبة."
+#### INV-024 — Non-positive conversion factor rejected
+- **Steps:** أضف وحدة بديلة "CTN" بعامل تحويل = 0.
+- **Assert:** خطأ "عامل تحويل الوحدة \"CTN\" يجب أن يكون رقماً موجباً."
 
-INV-040 · **Pre**: valid item, code left at its auto-generated value. **Steps**: submit twice in two separate "إضافة صنف" flows without reloading between (simulating a race) so the second create reuses the first draft's code before the item list refetches. **Assert**: alert `الكود "..." مستخدم بالفعل — أعد المحاولة.` — code-uniqueness is only checked on *create*, never on edit (كود الصنف is disabled/unchangeable on edit).
+#### INV-025 — Alternate unit save + reload
+- **Steps:** أضف وحدة صحيحة "CTN" / "كرتونة" / عامل 12، احفظ، أعد تحميل الصفحة (F5)، افتح الصنف ← تبويب "الوحدات والباركود".
+- **Assert:** الجدول يظهر "1 CTN = 12 PCS".
 
-INV-041 · **Pre**: add-item panel, all required fields valid (name, base unit, costing method). **Steps**: fill سعر البيع=100, سعر التكلفة=60, add one alternate unit كرتونة/CTN factor 12, add barcode "6221234567890", submit "إضافة", **reload the page**. **Assert**: new item appears in the list with the entered name/prices; opening it shows the alternate unit and barcode preserved on the "الوحدات والباركود" tab.
+#### INV-026 — Blank barcode rejected
+- **Steps:** أضف باركوداً عبر "+ إضافة باركود آخر"، اتركه فارغاً، اضغط "إضافة".
+- **Assert:** خطأ "لا يمكن ترك الباركود فارغاً."
 
-INV-042 · **Pre**: add-item panel open with unsaved changes. **Steps**: انقر "إلغاء". **Assert**: panel closes, no item created, list unchanged.
+#### INV-027 — Duplicate barcode rejected
+- **Steps:** أضف نفس قيمة الباركود مرتين.
+- **Assert:** خطأ "الباركود \"...\" مكرر."
 
-INV-043 · **Pre**: editing IT-0001 (existing item). **Steps**: open edit panel. **Assert**: كود الصنف field shows IT-0001 disabled; حالة select is visible (only shown when editingId is set) with نشط/غير نشط options — not present when creating.
+#### INV-028 — Barcode save + reload (feeds label printing — see INV-140)
+- **Steps:** أضف باركوداً صحيحاً طويلاً (مثال: `1234567890123456789012345`, 25 خانة)، احفظ، أعد التحميل، افتح تبويب "الوحدات والباركود".
+- **Assert:** الباركود ظاهر كشريحة؛ هذا هو نفس الباركود الذي ستستخدمه شاشة طباعة الملصقات لاحقاً.
 
-INV-044 · **Pre**: editing IT-0001. **Steps**: change الحالة to "غير نشط", save, **reload**. **Assert**: item now shows status pill غير نشط in the list and on its detail header; reappears under the "غير نشط" filter chip.
+#### INV-029 — Negative sale price — **not rejected** (gap)
+- **Steps:** اكتب "-50" في "سعر البيع"، احفظ.
+- **Assert (expected):** يجب أن تُرفض القيمة السالبة. **الفعلي:** `MoneyInput` يقبل علامة السالب صراحةً (`sanitizeDraft` تحافظ على `-`) و`validateDraft` في `ItemsScreen.tsx` لا يتحقق من `salePrice`/`costPrice` إطلاقاً — لا حارس عميل ولا خادم ظاهر من الشاشة. القيمة تُحفظ سالبة وتبقى بعد إعادة التحميل. سجّل كخلل مكتشف عند التنفيذ.
 
-INV-045 · **Pre**: editing an item with existing stock movements (e.g. IT-0001, which has purchase/sale history). **Steps**: change سعر التكلفة in the form and save. **Assert**: catalog claims cost price becomes read-only/derived once an item has stock movements — the build's form does **not** enforce this (`[NOT IMPLEMENTED]`): سعر التكلفة remains a freely-editable MoneyInput regardless of movement history.
+#### INV-030 — Negative cost price — same gap
+- **Steps:** كرر INV-029 على "سعر التكلفة".
+- **Assert:** نفس النتيجة — لا رفض.
 
-INV-046 · **Pre**: add/edit panel. **Steps**: set حساب الإيراد / حساب التكلفة / حساب المخزون EntityPickers, leave one unset. **Assert**: unset ones display "الافتراضي حسب نوع الصنف" both in the picker and later on the detail "الحسابات" tab.
+#### INV-031 — Negative reorder point rejected
+- **Pre:** نوع الصنف = "منتج مخزون".
+- **Steps:** اكتب "-5" في "نقطة إعادة الطلب"، احفظ.
+- **Assert:** خطأ "نقطة إعادة الطلب لا يمكن أن تكون سالبة."؛ لا حفظ.
 
-INV-047 · **Pre**: add/edit panel. **Steps**: set نوع الكود (ETA) to EGS, type كود الصنف لدى المصلحة and كود GPC, save, reload, reopen detail. **Assert**: "الحسابات" tab shows نوع كود ETA=EGS and both codes persisted verbatim.
+#### INV-032 — Negative reorder qty rejected
+- **Steps:** كرر على "كمية إعادة الطلب".
+- **Assert:** خطأ "كمية إعادة الطلب لا يمكن أن تكون سالبة."
 
-INV-048 `[NOT IMPLEMENTED]` · Catalog's identity section includes: وصف الصنف (description textarea), المورد الأساسي (primary supplier), الموسم (season, gated on supplier), صورة الصنف (image upload), "إضافة تصنيف"/"إضافة ماركة" inline-create affordances on the التصنيف/الماركة pickers, POS-visibility switch "متاح في نقطة البيع", and kitchen-waste switch "يعتبر هدراً عند التقديم". **Assert**: none of these fields/toggles exist in the build's add/edit form — only نوع الصنف, كود, اسم عربي/إنجليزي, الوحدة الأساسية, التصنيف (pick-only), الماركة (plain text, not an autocomplete-with-add), وحدات بديلة, باركود, الأسعار, نسبة الضريبة, تتبع المخزون/الدفعات, نقاط إعادة الطلب, حسابات GL, وحقول ETA.
+#### INV-033 — Negative tax rate rejected
+- **Steps:** اكتب "-1" في "نسبة الضريبة %".
+- **Assert:** خطأ "نسبة الضريبة لا يمكن أن تكون سالبة."
 
-INV-049 `[NOT IMPLEMENTED]` · Catalog describes 6 item-type button-group options (منتج/خدمة/مادة خام/منتج نهائي/مستهلك/الوصفة). **Assert**: the build's نوع الصنف is a 2-option dropdown — منتج مخزون / خدمة only. Raw-material, finished-product, consumable and recipe types do not exist as item types (BOMs model "raw material" and "finished product" purely through which item is referenced where, not a type field).
+#### INV-034 — trackBatches disabled when trackInventory off
+- **Steps:** أطفئ مفتاح "تتبع المخزون".
+- **Assert:** مفتاح "تتبع الدفعات وتواريخ الصلاحية" يصبح معطّلاً ويُطفأ تلقائياً.
 
-INV-050 `[NOT IMPLEMENTED]` · Catalog's item form separates "تتبع الدفعات وتواريخ الصلاحية" (batches) conceptually from expiry, and describes cost-layer records. **Assert**: the build has a single combined toggle "تتبع الدفعات وتواريخ الصلاحية" that sets both `trackBatches` and `trackExpiry` together — no independent batch-only mode, and no batch/lot entry UI anywhere on this screen (no batch number field, no per-batch listing).
+#### INV-035 — Costing method save + reload
+- **Steps:** غيّر "طريقة التكلفة" إلى "FIFO"، احفظ، أعد التحميل، افتح تبويب "عام".
+- **Assert:** "طريقة التكلفة" = "الأقدم أولاً (FIFO)".
 
-### Detail page
+#### INV-036 — GL account override save + reload
+- **Steps:** في بطاقة الحسابات، اختر حساباً مخصصاً لـ"حساب المخزون" بدل "الافتراضي حسب نوع الصنف"، احفظ، أعد التحميل، افتح تبويب "الحسابات".
+- **Assert:** يظهر الحساب المختار بصيغة "الكود — الاسم"، وليس "الافتراضي حسب نوع الصنف".
 
-INV-060 · **Pre**: open IT-0005 detail (خليط شاي بالسكر, WAC costed, is a BOM's finished product). **Steps**: read header/summary. **Assert**: title "IT-0005 — خليط شاي بالسكر", status pill نشط, summary row shows نوع الصنف/التصنيف/الوحدة/طريقة التكلفة/سعر البيع/سعر التكلفة.
+#### INV-037 — ETA fields save + reload
+- **Steps:** اختر "نوع الكود (ETA)" = EGS، اكتب كوداً بصيغة `EG-XXXXXXXXX-SKU`، احفظ، أعد التحميل.
+- **Assert:** تبويب "الحسابات" يعرض القيم المحفوظة بدل "—".
 
-INV-061 · **Pre**: on IT-0005 detail. **Steps**: click tab "عام". **Assert**: two-column card lists نوع الصنف, التصنيف, الماركة, طريقة التكلفة, تتبع المخزون (نعم), تتبع الدفعات وتواريخ الصلاحية (لا for this item), نقطة/كمية إعادة الطلب.
+#### INV-038 — Full happy-path create + reload
+- **Steps:** أنشئ صنفاً جديداً كاملاً (اسم، وحدة، سعر بيع/تكلفة، ضريبة)، احفظ، أعد تحميل الصفحة، ابحث عنه بالاسم.
+- **Assert:** يظهر في القائمة بنفس الاسم/الكود/النوع/الوحدة/الأسعار المُدخلة.
 
-INV-062 · **Pre**: on detail. **Steps**: click "الوحدات والباركود". **Assert**: shows base unit; alternate-units table if any exist, else "لا توجد وحدات قياس بديلة"; barcode chips if any, else "لا يوجد باركود مسجل".
+#### INV-039 — Cancel discards draft
+- **Steps:** افتح "إضافة صنف"، اكتب اسماً، اضغط "إلغاء".
+- **Assert:** اللوحة تُغلق؛ لا طلب `POST`؛ الاسم لا يظهر في القائمة حتى بعد إعادة التحميل.
 
-INV-063 · **Pre**: on detail. **Steps**: click "التسعير". **Assert**: shows سعر البيع and سعر التكلفة with a note "يصبح مشتقاً تلقائياً من حركات المخزون فور ربط دفتر التكاليف (المرحلة الثانية)" — i.e. the tab openly states cost derivation from movement history is not yet wired.
+#### INV-040 — Edit status dropdown (edit-only field)
+- **Pre:** فتح صنف موجود للتعديل.
+- **Steps:** لاحظ حقل "الحالة" يظهر فقط في وضع التعديل (غير موجود في نموذج الإضافة)؛ غيّره إلى "غير نشط"، احفظ، أعد التحميل.
+- **Assert:** الصف يحمل شارة "غير نشط"؛ إحصائية "نشط" تنقص بواحد.
 
-INV-064 · **Pre**: on detail. **Steps**: click "الحسابات". **Assert**: shows حساب الإيراد/التكلفة/المخزون (resolved to "code — name" or the default label) and the ETA code-type/item-code/GPC-code trio.
+#### INV-041 — Save-time server error keeps draft open
+- **Pre:** حاكِ رفض الخادم لطلب `PATCH`/`POST`.
+- **Steps:** احفظ صنفاً صالحاً ظاهرياً.
+- **Assert:** تنبيه بنص خطأ الخادم (أو الرسالة الافتراضية "تعذّرت العملية.")؛ اللوحة تبقى مفتوحة ببيانات المستخدم كما هي (لا فقدان للمُدخلات).
 
-INV-065 · **Pre**: on detail. **Steps**: click "المخزون". **Assert**: placeholder text "ستُعرض أرصدة المخزون حسب المستودع هنا فور ربط حركات المخزون بدفتر المخزون (المرحلة الثانية)." — **this tab is explicitly unimplemented, not a bug**: the item detail page does not show per-warehouse stock at all (use Stock Balance instead, INV-070+).
+### Detail
 
-INV-066 `[NOT IMPLEMENTED]` · Catalog describes an "التكلفة" tab with a cost-layers table (warehouse, remaining qty, unit cost, source doc, date) and a landed-cost allocation log, plus separate "المرفقات" and "السجل" (audit) tabs. **Assert**: none of these exist in the build — only عام / الوحدات والباركود / التسعير / الحسابات / المخزون (placeholder) tabs are present; no attachments tab, no audit-log tab, no cost-layers anywhere in this screen.
+#### INV-042 — Tab "عام"
+- **Steps:** افتح أي صنف، تبويب "عام" (الافتراضي).
+- **Assert:** يعرض نوع الصنف، التصنيف، الماركة، طريقة التكلفة، تتبع المخزون (نعم/لا)، تتبع الدفعات (نعم/لا)، نقطة/كمية إعادة الطلب.
 
-INV-067 `[NOT IMPLEMENTED]` · Catalog describes detail-page quick actions تعديل المخزون / نقل إلى مستودع آخر / طلب شراء / عرض سجل الحركات, and a "المزيد" more-menu with طباعة الملصقات / تحديد الرصيد الافتتاحي / تعطيل / حذف. **Assert**: the detail header only offers "رجوع للقائمة" and "تعديل" — no quick actions, no more-menu, no deep links from the item into Labels/Adjustments/Transfers/Purchases.
+#### INV-043 — Tab "الوحدات والباركود" empty states
+- **Pre:** صنف بلا وحدات بديلة وبلا باركود (أي صنف مزروع لم يُعدَّل).
+- **Steps:** افتح التبويب.
+- **Assert:** "لا توجد وحدات قياس بديلة" و"لا يوجد باركود مسجل".
 
-INV-068 · **Pre**: detail open for a service-type item (create one first per INV-032's type toggle, without the trackInventory conflict). **Steps**: check تسعير and المخزون tabs. **Assert**: تتبع المخزون in "عام" reads لا; no stock-related fields render differently — service items simply carry trackInventory=false end to end.
+#### INV-044 — Tab "التسعير"
+- **Steps:** افتح التبويب.
+- **Assert:** يعرض سعر البيع وسعر التكلفة الحاليين + ملاحظة "يصبح مشتقاً تلقائياً من حركات المخزون فور ربط دفتر التكاليف (المرحلة الثانية)". **`[NOT IMPLEMENTED]`** مقارنةً بالكتالوج: لا جدول "طبقات التكلفة"، لا مطابقة متوسط التكلفة مقابل الطبقات، لا سجل تكاليف إضافية موزعة (landed costs) — كل هذا نص مرحلة ثانية معلّق.
+
+#### INV-045 — Tab "الحسابات"
+- **Steps:** افتح التبويب.
+- **Assert:** يعرض حساب الإيراد/التكلفة/المخزون + حقول ETA (نوع الكود، كود الصنف لدى المصلحة، كود GPC).
+
+#### INV-046 — Tab "المخزون" — `[NOT IMPLEMENTED]`
+- **Steps:** افتح التبويب.
+- **Assert:** نص ثابت فقط: "ستُعرض أرصدة المخزون حسب المستودع هنا فور ربط حركات المخزون بدفتر المخزون (المرحلة الثانية)." لا جدول مستودع/متاح/محجوز/إجمالي كما يصف الكتالوج — لا توجد طريقة من هذه الشاشة لرؤية توزيع مخزون صنف عبر المستودعات الأربعة.
+
+#### INV-047 — Header actions "رجوع للقائمة" / "تعديل"
+- **Steps:** من صفحة التفاصيل، اضغط "تعديل".
+- **Assert:** تفتح لوحة التعديل معبأة؛ "رجوع للقائمة" يعيد لقائمة الأصناف بدون فتح أي لوحة.
+
+#### INV-048 — `[NOT IMPLEMENTED]` catalog features absent from Items entirely
+- **Assert (no UI path exists for any of):** قائمة "المزيد" (طباعة ملصقات / تحديد رصيد افتتاحي / تعطيل / حذف من صفحة الصنف)، حوار "تصنيفات الأصناف" من رأس القائمة، فلتر "إخفاء المتغيرات"، نطاقات سعر البيع/سعر التكلفة في لوحة الفلاتر، حقل صورة الصنف، حقل الموسم المرتبط بالمورد، مفتاحا "متاح في نقطة البيع" و"يعتبر هدراً عند التقديم"، تبويبا "المرفقات" و"السجل"، وأنواع الأصناف الست الكاملة (هذا البناء يقتصر على `stock`/`service` فقط، بلا "مادة خام" أو "منتج نهائي" أو "مستهلك" أو "الوصفة" كخيارات مستقلة).
 
 ---
 
-## 3. المواصفات (Item Specifications) — `/inventory/item-specifications`
+## 2. المواصفات (Item Specifications)
 
-Not described in `docs/catalog/03-inventory.md` at all — a **build-only addition** feeding Product Templates' attribute picker. Documented fully, no `[NOT IMPLEMENTED]` markers apply to its own existence.
+`[NOT IN CATALOG]` — build-only feature, absent from `docs/catalog/03-inventory.md`
+entirely; documented here from code alone. Feeds the "من سجل المواصفات" attribute
+shortcut on Product Templates (see INV-060).
 
-INV-070 · **Pre**: empty tenant, no specifications defined. **Steps**: open screen. **Assert**: empty state "لا توجد مواصفات — أضف مواصفة جديدة" (or "جارِ التحميل…" while loading); a correctly-empty registry is a valid state, not a bug.
+#### INV-049 — Header stats and chips on load
+- **Pre:** 5 مواصفات مزروعة (SIZE, PACK, ORIGIN — اختيار؛ NET-WEIGHT — رقم؛ STORAGE — نص).
+- **Steps:** افتح المخزون ← المواصفات.
+- **Assert:** "إجمالي المواصفات" = 5؛ "قابلة للتصفية" = 3 (SIZE/PACK/ORIGIN، الوحيدة بـ`filterable: true`).
 
-INV-071 · **Pre**: ≥5 specifications exist (per task's seed count). **Steps**: read stats. **Assert**: إجمالي المواصفات and قابلة للتصفية counts match the data; type chips الكل/قائمة اختيار/رقم/نص show correct per-type counts.
+#### INV-050 — Chip "قائمة اختيار"
+- **Steps:** اضغط شريحة "قائمة اختيار".
+- **Assert:** 3 صفوف (SIZE, PACK, ORIGIN).
 
-INV-072 · **Pre**: list loaded. **Steps**: click type chips in turn. **Assert**: rows filter by exact `type` match.
+#### INV-051 — Chip "رقم"
+- **Steps:** اضغط شريحة "رقم".
+- **Assert:** صف واحد (NET-WEIGHT) بعمود "القيم / الوحدة" = "جم".
 
-INV-073 · **Pre**: list loaded. **Steps**: search by code and separately by (partial) Arabic name. **Assert**: both match — code search is case-insensitive substring, name search is substring on nameAr.
+#### INV-052 — Chip "نص"
+- **Steps:** اضغط شريحة "نص".
+- **Assert:** صف واحد (STORAGE) بعمود "القيم / الوحدة" = "—".
 
-INV-074 · **Pre**: on screen. **Steps**: انقر "مواصفة جديدة". **Assert**: SidePanel opens, defaults: النوع="قائمة اختيار", نشطة=on, قابلة للتصفية=off.
+#### INV-053 — Search by code/name
+- **Steps:** اكتب "SIZE" في "بحث بالكود أو الاسم…".
+- **Assert:** صف واحد فقط.
 
-INV-075 · **Pre**: create panel open, code field. **Steps**: type lowercase letters or symbols outside `[A-Z0-9_-]` (e.g. "size!"). **Assert**: input auto-uppercases as typed (`onChange` forces `.toUpperCase()`), but submitting a value with an illegal character (e.g. "SIZE!") still fails validation: `الكود مطلوب — حروف إنجليزية كبيرة أو أرقام أو - أو _ (20 حرفاً كحد أقصى).`
+#### INV-054 — Values cell for select type
+- **Steps:** لاحظ عمود "القيم / الوحدة" لصف SIZE.
+- **Assert:** شرائح "صغير"، "وسط"، "كبير".
 
-INV-076 · **Pre**: create panel, code left blank. **Steps**: submit. **Assert**: same code-format alert (blank fails the same regex).
+#### INV-055 — Usage count column
+- **Steps:** لاحظ عمود "الاستخدام" لصفوف SIZE/PACK/ORIGIN (مستخدمة في قوالب TPL-TEA/TPL-RICE).
+- **Assert:** رقم > 0 لكل من SIZE/PACK/ORIGIN؛ 0 لـ NET-WEIGHT وSTORAGE.
 
-INV-077 · **Pre**: create panel, code valid, الاسم بالعربية left blank. **Steps**: submit. **Assert**: alert "الاسم بالعربية مطلوب."
+#### INV-056 — Delete guarded when in use
+- **Pre:** SIZE مستخدمة (usageCount > 0).
+- **Steps:** اضغط زر الحذف (سلة المهملات) على صف SIZE.
+- **Assert:** الزر معطّل (`disabled={... || s.usageCount > 0}`) — لا يمكن النقر عليه إطلاقاً.
 
-INV-078 · **Pre**: create panel, النوع left at "قائمة اختيار", القيم المسموح بها left blank. **Steps**: submit. **Assert**: alert "قائمة الاختيار تحتاج قيمة واحدة على الأقل."
+#### INV-057 — Delete unused specification
+- **Steps:** أنشئ مواصفة جديدة غير مستخدمة (كود `TEST-1`)، ثم اضغط حذفها.
+- **Assert:** تختفي من القائمة؛ لا خطأ.
 
-INV-079 · **Pre**: create panel, type="قائمة اختيار". **Steps**: type "أحمر، أخضر, أزرق\nأصفر" (mixing Arabic comma، Latin comma, and newline) into القيم. **Assert**: on save the values parse into 4 distinct entries (splits on `،`, `,`, and `\n`, trims, drops empties).
+#### INV-058 — Create: code pattern validation
+- **Steps:** اضغط "مواصفة جديدة"، اكتب كوداً بحروف صغيرة أو رموز غير مسموحة (مثال "size!"), احفظ.
+- **Assert:** خطأ "الكود مطلوب — حروف إنجليزية كبيرة أو أرقام أو - أو _ (20 حرفاً كحد أقصى)." (الحقل نفسه يحوّل الإدخال لحروف كبيرة تلقائياً `.toUpperCase()`، فالرمز "!" هو ما يُسقط الفحص).
 
-INV-080 · **Pre**: create panel, type="رقم". **Steps**: fill الوحدة="كجم", save, reload. **Assert**: list's "القيم / الوحدة" column shows "كجم" for that row; switching back to detail confirms unit persisted (numeric specs show unit, not a values chip list).
+#### INV-059 — Create: name required
+- **Steps:** اترك "الاسم بالعربية" فارغاً، احفظ.
+- **Assert:** خطأ "الاسم بالعربية مطلوب."
 
-INV-081 · **Pre**: create panel, type="نص". **Steps**: save without touching القيم/الوحدة (neither field renders for type=نص). **Assert**: saves fine; list column shows "—" for that row.
+#### INV-060 — Create: select type requires ≥1 value
+- **Steps:** اختر النوع "قائمة اختيار"، اترك "القيم المسموح بها" فارغة، احفظ.
+- **Assert:** خطأ "قائمة الاختيار تحتاج قيمة واحدة على الأقل."
 
-INV-082 · **Pre**: valid new specification filled in, all fields correct. **Steps**: انقر "حفظ", **reload**. **Assert**: appears in the list with correct type badge/values/unit; usage count column ("الاستخدام") starts at 0.
+#### INV-061 — Create: number type shows unit field
+- **Steps:** اختر النوع "رقم".
+- **Assert:** يظهر حقل "الوحدة" بدل "القيم المسموح بها".
 
-INV-083 · **Pre**: editing an existing specification. **Steps**: open edit via row "تعديل" button. **Assert**: الكود and النوع fields are disabled (`editingCode !== null`); only name (ar/en), values/unit, قابلة للتصفية, نشطة remain editable.
+#### INV-062 — Create: text type shows neither
+- **Steps:** اختر النوع "نص".
+- **Assert:** لا حقل قيم ولا حقل وحدة.
 
-INV-084 · **Pre**: editing an active specification. **Steps**: toggle نشطة off, save, reload. **Assert**: row now shows a "غير نشطة" pill next to the name in the list.
+#### INV-063 — Create full round-trip + reload
+- **Steps:** أنشئ مواصفة اختيار جديدة (كود، اسم، قيم "أحمر, أزرق"), فعّل "قابلة للتصفية في الكتالوج", احفظ, أعد تحميل الصفحة.
+- **Assert:** تظهر في القائمة بنفس القيم والعلم "نعم" في عمود "قابلة للتصفية".
 
-INV-085 · **Pre**: a specification with usageCount = 0 (unused by any Product Template attribute). **Steps**: click its row delete (trash) icon. **Assert**: deletes successfully with no confirmation dialog; row disappears from the list.
+#### INV-064 — Edit: code and type locked
+- **Steps:** افتح مواصفة موجودة للتعديل (زر "تعديل").
+- **Assert:** حقلا "الكود" و"النوع" معطّلان (توضيح اللوحة: "النوع والكود لا يتغيران بعد الحفظ — قوالب المنتجات ترتبط بهما").
 
-INV-086 · **Pre**: a specification with usageCount > 0 (attached to a Product Template attribute — see INV-160). **Steps**: inspect its trash icon. **Assert**: icon is disabled (usage-guard `disabled={... || s.usageCount > 0}`) — deletion is blocked client-side while in use.
-
-INV-087 · **Pre**: attempting delete triggers a server-side rejection despite the client guard (e.g. a race). **Steps**: (server returns an error). **Assert**: a page-level alert banner shows "تعذّر حذف المواصفة." or the server's message, and `deletingCode` resets so other rows remain actionable.
-
-INV-088 · **Pre**: create/edit panel open with unsaved edits. **Steps**: انقر "إلغاء". **Assert**: panel closes without saving; list unchanged.
-
----
-
-## 4. أرصدة المخزون (Stock Balance) — `/inventory/stock-balance`
-
-Read-only rollup; the same `rollupStockBalance` domain function the server runs.
-
-INV-090 · **Pre**: on screen. **Steps**: read stats. **Assert**: إجمالي الأصناف = distinct items with a stock row; نفد المخزون = items whose on-hand across all warehouses is exactly 0.
-
-INV-091 · **Pre**: on screen. **Steps**: search "شاي" (partial name match against multiple items, e.g. IT-0004/0005/0006). **Assert**: all matching item-name rows appear; search is name-only (no code match on this screen, unlike Items).
-
-INV-092 `[NOT IMPLEMENTED]` · Catalog describes filter chips الكل/مخزون منخفض/نفد المخزون, a filters panel (warehouse, category, unit, total-qty range, reorder-point range), and an attention banner "يحتاج انتباه". **Assert**: none of these exist — Stock Balance in the build is search + a flat table only, no status chips, no filters panel, no banner.
-
-INV-093 · **Pre**: table loaded. **Steps**: click "إجمالي المخزون" column header. **Assert**: toggles sort by on-hand quantity ascending/descending (the only sortable column on this screen).
-
-INV-094 · **Pre**: table loaded. **Steps**: read columns for IT-0007 (milk, batch-tracked). **Assert**: shows الصنف, إجمالي المخزون (on-hand summed across all batches/warehouses), متوسط التكلفة (a single blended WAC figure — no per-batch breakdown), القيمة الإجمالية, عدد المستودعات; no batch/expiry columns appear anywhere on this screen.
-
-INV-095 `[NOT IMPLEMENTED]` · Catalog says "نقطة إعادة الطلب" is a column here. **Assert**: the build has no reorder-point column on Stock Balance (reorder point is only visible on the Items form/detail).
-
-INV-096 · **Pre**: search matches nothing. **Steps**: search "zzz". **Assert**: empty state "لا توجد أصناف مطابقة".
-
----
-
-## 5. تحويلات المخزون (Stock Transfers) — `/inventory/transfers`
-
-Value-neutral: moves quantity between warehouses without touching total inventory value.
-
-INV-100 · **Pre**: list loaded. **Steps**: read stats and status chips. **Assert**: إجمالي التحويلات / مسودة / مؤكد chips show consistent counts; in this build, drafts should be 0 or near-0 — creation always auto-confirms (see INV-102).
-
-INV-101 `[NOT IMPLEMENTED]` · Catalog describes an attention banner "N تحويلات مسودة". **Assert**: no such banner exists in the build.
-
-INV-102 · **Pre**: on list. **Steps**: انقر "تحويل جديد", fill المستودع المصدر=WH-MAIN, المستودع الوجهة=WH-GIZA, add one line الصنف=IT-0001, كمية التحويل=5, انقر "حفظ". **Assert**: the single "حفظ" action both creates **and confirms** the transfer in one call (`createTransfer` then `confirmTransfer` chained) — there is **no separate draft-then-confirm step in this UI**, unlike the catalog's two-stage مسودة → مؤكد flow with an explicit "تأكيد" button on draft rows.
-
-INV-103 · **Pre**: new-transfer form. **Steps**: pick the same warehouse for both source and destination. **Assert**: inline alert "يجب أن يختلف المستودع المصدر عن مستودع الوجهة." and the حفظ button is disabled (`canPost` false) until they differ.
-
-INV-104 · **Pre**: new-transfer form, one line with item selected but كمية التحويل left at 0. **Steps**: attempt save. **Assert**: حفظ stays disabled — `allLinesValid` requires `qty > 0` for every line.
-
-INV-105 · **Pre**: new-transfer form, line's الصنف left unselected ("اختر صنف..."). **Steps**: attempt save. **Assert**: حفظ disabled — blank itemId fails `allLinesValid`.
-
-INV-106 · **Pre**: new-transfer form. **Steps**: type a negative number directly into كمية التحويل (bypassing the spinner, e.g. via keyboard). **Assert**: the input has `min={0}`; a negative value fails `l.qty > 0` and حفظ remains disabled — negative transfer quantities cannot be submitted.
-
-INV-107 · **Pre**: new-transfer form, one line. **Steps**: انقر "إضافة بند" three times, then remove two via the ✕ icon. **Assert**: lines add/remove freely down to a minimum of 1 row (the ✕ button is disabled when only one line remains).
-
-INV-108 · **Pre**: new-transfer form. **Steps**: transfer a quantity of IT-0001 that exceeds WH-MAIN's actual on-hand. **Assert**: the client performs **no available-stock check at all** (no "المخزون المتاح" column, no cap) — save is attempted and the server's `NegativeStockError` rejects it; the error banner shows the raw server message (English: `Issuing ... would drive on-hand (...) below zero; negative stock is disallowed.`), **not** a translated Arabic message — worth flagging as a UX gap even though it is correctly blocked.
-
-INV-109 `[NOT IMPLEMENTED]` · Catalog's transfer lines table has a read-only "المخزون المتاح" (available stock) column and a header "استيراد من إكسل" (import from Excel) action. **Assert**: neither exists — the line table is صنف / كمية التحويل / remove-row only, no available-stock hint, no Excel import.
-
-INV-110 · **Pre**: leave ملاحظات blank on a valid transfer. **Steps**: save. **Assert**: memo auto-fills to `تحويل من {source} إلى {destination}` when left blank.
-
-INV-111 · **Pre**: an existing confirmed transfer. **Steps**: open its detail row. **Assert**: status stepper shows مسودة→مؤكد with مؤكد active; summary shows المستودع المصدر/الوجهة/التاريخ/عدد البنود; "تأثيرات هذا التحويل" (effects) card lists the real per-line quantity deductions/additions plus "لا يتغير إجمالي قيمة المخزون".
-
-INV-112 · **Pre**: confirmed transfer detail open. **Steps**: read the banner below the detail card. **Assert**: exact text "لا يمكن إلغاء تحويل مؤكد — بعد تأكيد التحويل لا يمكن إلغاؤه. لعكس الحركة، أنشئ تحويلاً جديداً بالاتجاه المعاكس." — no cancel/edit control is offered anywhere on a confirmed transfer.
-
-INV-113 · **Pre**: confirmed transfer detail. **Steps**: click tab "البنود". **Assert**: table lists each line's item name and quantity; no "المرفقات" or "سجل التدقيق" tabs exist (`[NOT IMPLEMENTED]` vs. catalog, which describes both).
-
-INV-114 · **GL/value assertion — Pre**: total inventory value (Stock Balance sum, or the Valuation report) recorded before a confirmed transfer of qty 10 of IT-0003 from WH-MAIN to WH-GIZA. **Steps**: perform the transfer per INV-102 with those values, then re-check total value across all warehouses combined. **Assert**: company-wide total inventory value is unchanged to the cent — the transfer only redistributes quantity/value *between* warehouses (WH-MAIN's value drops by qty×WAC, WH-GIZA's rises by the identical amount); no GL journal entry is created for a transfer (there is no "المحاسبة"/GL tab on this screen, and none should exist per the domain's valuation-neutral design).
-
-INV-115 · **Pre**: list with ≥1 confirmed transfer. **Steps**: search by transfer number ("TRF-"), and separately by memo text. **Assert**: both match (search checks `docNo` and `memo`).
-
-INV-116 · **Pre**: list loaded. **Steps**: click column header "رقم التحويل" and "التاريخ". **Assert**: both are sortable and toggle direction on repeated clicks.
+#### INV-065 — Edit: toggle "نشطة" off + reload
+- **Steps:** عدّل مواصفة غير مستخدمة، أطفئ "نشطة"، احفظ، أعد التحميل.
+- **Assert:** الصف يحمل شارة "غير نشطة" بجانب الاسم.
 
 ---
 
-## 6. تسويات المخزون (Stock Adjustments) — `/inventory/adjustments`
+## 3. قوالب المنتجات (Product Templates)
 
-The only inventory document type in the reference product (and the one place
-in the build) that both moves quantity **and** may post a balancing GL entry —
-except for `PHYSICAL_COUNT` (D2). The 8 reasons are real code
-(`packages/domain/src/inventory/reasons.ts`), transcribed verbatim from the
-catalog: رصيد افتتاحي (IN), تصحيح جرد (EITHER), تلف (OUT), سرقة (OUT), انتهاء
-صلاحية (OUT), نقص / فقدان (OUT), مرتجع للمورد (OUT), أخرى (EITHER).
+#### INV-066 — Header stat and list columns
+- **Pre:** قالبان مزروعان (TPL-TEA بثلاثة متغيرات مولّدة، TPL-RICE باثنين).
+- **Steps:** افتح المخزون ← قوالب المنتجات.
+- **Assert:** "إجمالي القوالب" = 2؛ الأعمدة: اسم المنتج، الكود، الخصائص (عدد)، الحالة. **`[NOT IMPLEMENTED]`**: لا عمود "المتغيرات" كما يصف الكتالوج، ولا مربع بحث على هذه الشاشة إطلاقاً (لا `searchValue` في الكود)، ولا فلاتر حالة (نشط/غير نشط).
 
-INV-120 · **Pre**: list loaded. **Steps**: read stats. **Assert**: إجمالي التسويات / مسودة / مؤكد counts are internally consistent; all seeded adjustments are مؤكد (creation auto-confirms, same one-shot pattern as Transfers — INV-102).
+#### INV-067 — Create: required fields
+- **Steps:** اضغط "قالب جديد"، اترك "الكود" فارغاً، احفظ.
+- **Assert:** خطأ "الكود والاسم ووحدة القياس مطلوبة." (فحص واحد مشترك للحقول الثلاثة).
 
-INV-121 · **Pre**: on list. **Steps**: انقر "تسوية جديدة". **Assert**: navigates to the 8-card reason picker "اختر سبب التسوية", each card showing exact labelAr + descriptionAr from `ADJUSTMENT_REASON_DEFINITIONS` (e.g. "رصيد افتتاحي" / "تسجيل رصيد المخزون الأولي").
+#### INV-068 — Create: no numeric guard on default price/cost — gap
+- **Steps:** اكتب "-100" في "السعر الافتراضي".
+- **Assert (expected):** رفض القيمة السالبة. **الفعلي:** الحقل `TextField` نصي بحت، بلا `NumberField` وبلا فحص علامة في `handleCreateSubmit` — القيمة تُحفظ كما كُتبت.
 
-INV-122 · **Pre**: reason picker open. **Steps**: انقر "إلغاء" in the header. **Assert**: returns to the adjustments list without creating anything.
+#### INV-069 — Create full round-trip
+- **Steps:** أنشئ قالباً (اسم، كود، وحدة "PCS")، احفظ.
+- **Assert:** ينتقل تلقائياً لفتح لوحة تفاصيل القالب الجديد (`setSelectedId(created.id)`).
 
-INV-123 · **Pre**: reason picker open. **Steps**: انقر card "رصيد افتتاحي". **Assert**: navigates to the create form titled "الرصيد الافتتاحي" (special-cased header text, not "تسوية — رصيد افتتاحي" like every other reason); line direction is forced IN (no direction column rendered, since `direction !== "EITHER"`); سعر التكلفة is required and enabled per line (IN lines always need a unit cost).
+#### INV-070 — Add attribute from free text
+- **Pre:** قالب جديد بلا خصائص.
+- **Steps:** اترك "من سجل المواصفات" على "خاصية خاصة بهذا القالب"، اكتب "اسم الخاصية" = "اللون"، "القيم مفصولة بفواصل" = "أحمر, أزرق, أخضر"، اضغط "إضافة خاصية".
+- **Assert:** بطاقة خاصية جديدة "اللون (3)" بثلاث شرائح قيم.
 
-INV-124 · **Pre**: create form for رصيد افتتاحي, one line: item=IT-0001, كمية=0. **Steps**: attempt "اعتماد التسوية". **Assert**: button stays disabled — `qty > 0` required for every line regardless of reason.
+#### INV-071 — Add attribute: blank name/values rejected
+- **Steps:** اترك اسم الخاصية والقيم فارغين، اضغط "إضافة خاصية".
+- **Assert:** خطأ "اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة."
 
-INV-125 · **Pre**: create form, IN-direction line, سعر التكلفة left at 0. **Steps**: attempt submit. **Assert**: disabled — `allLinesValid` requires `unitCost > 0` when `direction === "IN"`.
+#### INV-072 — Add attribute from specification registry
+- **Steps:** افتح "من سجل المواصفات"، اختر "الحجم (SIZE)"، اضغط "إضافة خاصية".
+- **Assert:** خاصية جديدة تحمل قيم SIZE الثلاث (صغير/وسط/كبير) بلا كتابة يدوية.
 
-INV-126 · **Pre**: reason picker → "تلف" (OUT-only). **Steps**: open create form. **Assert**: title "تسوية — تلف"; no اتجاه column (direction fixed OUT); سعر التكلفة input is **disabled** on every line (`disabled={line.direction === "OUT"}` — unit cost for an OUT movement is computed server-side from the costing engine, not entered).
+#### INV-073 — Add value inline
+- **Pre:** خاصية موجودة.
+- **Steps:** اكتب قيمة في حقل "+ قيمة" داخل بطاقة الخاصية، اضغط Enter.
+- **Assert:** شريحة القيمة الجديدة تظهر فوراً؛ عداد "(N)" يزيد بواحد.
 
-INV-127 · **Pre**: same as INV-126. **Steps**: fill item + qty>0, submit. **Assert**: since OUT lines don't require a unitCost>0, the line is valid with cost left at 0 — submit succeeds (server derives the actual cost).
+#### INV-074 — Delete attribute value — **no client guard** (gap vs. catalog)
+- **Pre:** TPL-TEA، خاصية SIZE مستخدمة في 3 متغيرات موجودة.
+- **Steps:** افتح TPL-TEA، اضغط × على قيمة "صغير" ضمن خاصية "الحجم".
+- **Assert (expected per catalog):** يجب أن يكون الزر معطّلاً بتلميح "هذه الخاصية مستخدمة في N متغير — احذف المتغيرات أولاً". **الفعلي:** الزر دائماً قابل للنقر (`handleDeleteValue` يستدعي مباشرة بلا أي شرط)؛ الرفض إن وُجد يأتي فقط من استجابة الخادم كرسالة خطأ عامة "تعذّر حذف القيمة." — لا حارس على مستوى الواجهة.
 
-INV-128 · **Pre**: reason picker → "تصحيح جرد" or "أخرى" (both EITHER). **Steps**: open create form. **Assert**: an "الاتجاه" column appears per line with a زيادة/نقصان select; changing a line to نقصان disables that line's سعر التكلفة input, changing to زيادة re-enables it and requires >0.
+#### INV-075 — Delete attribute — same gap
+- **Steps:** اضغط "حذف الخاصية" على خاصية مستخدمة في متغيرات موجودة.
+- **Assert:** نفس الملاحظة — لا تعطيل عميل؛ الاعتماد كليًا على رفض الخادم (رسالة "تعذّر حذف الخاصية." إن رُفض).
 
-INV-129 · **Pre**: create form, any reason, warehouse left unselected. **Steps**: attempt submit. **Assert**: disabled — `warehouseId !== ""` required (though the select always defaults to the first warehouse if any exist, so this only triggers with zero warehouses configured).
+#### INV-076 — Variant generator: combination count and locking
+- **Pre:** TPL-TEA (SIZE×PACK = 3×3 = 9 تركيبة ممكنة نظرياً لكن القيم المزروعة مختلفة الحجم لكل — تحقق العدد الفعلي من `combos.length`).
+- **Steps:** افتح TPL-TEA.
+- **Assert:** العنوان "توليد المتغيرات — N تركيبة ممكنة، 3 موجودة بالفعل"؛ الصفوف الثلاثة المولّدة مسبقاً معطّلة الصندوق ومحدّدة تلقائياً بشارة "موجود"؛ الباقي بشارة "جديد".
 
-INV-130 · **Pre**: create form, valid line. **Steps**: leave ملاحظات blank, submit. **Assert**: memo auto-fills to `{reason.labelAr} — {warehouse name}`.
+#### INV-077 — Generate new variant combinations
+- **Pre:** TPL-RICE (تركيبتان موجودتان من أصل 4 ممكنة إن كان SIZE له قيمتان × ORIGIN له 3 قيم — تحقق العدد الفعلي).
+- **Steps:** حدد صندوق تركيبة "جديد" غير موجودة، اضغط "توليد (1)".
+- **Assert:** يظهر متغير جديد في قسم "المتغيرات" بكود صنف (`itemCode`) حقيقي؛ الصنف الجديد يظهر أيضاً في شاشة الأصناف بعد تحديثها.
 
-INV-131 · **Pre**: create form for "تلف". **Steps**: انقر "إضافة بند" to add a second line for a different item, fill both, submit, **reload**. **Assert**: both lines persist; adjustment appears in the list with عدد البنود = 2 and القيمة الإجمالية reflecting the summed line values.
+#### INV-078 — All combinations already generated
+- **Pre:** كل التركيبات الممكنة لقالب موجودة.
+- **Steps:** افتح ذلك القالب.
+- **Assert:** رسالة "تم توليد كل التركيبات الممكنة."؛ زر "توليد (0)" معطّل.
 
-INV-132 · **Pre**: create form open with data entered. **Steps**: انقر "رجوع". **Assert**: returns to the reason picker (not the list) — allows switching reason without re-entering warehouse/date from scratch is **not** preserved (form state resets on reason re-pick, since `CreateAdjustmentView` is a fresh mount).
+#### INV-079 — Variants list
+- **Steps:** افتح TPL-TEA، مرر لقسم "المتغيرات (3)".
+- **Assert:** ثلاث بطاقات، كل واحدة بتسمية التركيبة (مثال "صغير / كيس") وكود الصنف المولّد.
 
-INV-133 · **Pre**: an existing confirmed "رصيد افتتاحي" adjustment (opening balance). **Steps**: open detail. **Assert**: summary shows السبب="رصيد افتتاحي"; "تأثيرات هذه التسوية" effects card shows "ارتفعت قيمة المخزون..." (since direction IN) plus "لا تأثير على المورد أو العميل" and "ينشئ قيداً محاسبياً موازناً عند وجود فرق قيمة".
-
-INV-134 · **Pre**: same opening-balance adjustment detail. **Steps**: click tab "المحاسبة". **Assert**: **a real journal entry renders** — a Dr/Cr table with account names and amounts (opening balance is the one reason with a GL mapping in `adjustmentGlAccountsForReason`); confirms the sub-ledger/GL link is real for this reason.
-
-INV-135 · **GL gap — D2 — Pre**: a confirmed "تصحيح جرد" (PHYSICAL_COUNT reason) adjustment exists (created directly, or via Physical Counts §7's "توليد تسوية" flow). **Steps**: open its detail, click tab "المحاسبة". **Assert**: shows "لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة)." — **this message is misleading**: there usually *is* a value difference (a nonzero variance), but no GL account mapping exists for `PHYSICAL_COUNT` in `adjustmentGlAccountsForReason`, so the 404 the tab receives is mis-read as "no value difference" rather than "no mapping configured." This is defect **D2** — the sub-ledger moved (check the item's Stock Balance before/after — quantity and average cost did change) while GL 1200 did not. Do not re-file; just confirm the exact symptom and move on.
-
-INV-136 · **GL gap — Pre**: same as INV-135, but for any of DAMAGE / THEFT / EXPIRY / SHORTAGE / SUPPLIER_RETURN / OTHER. **Steps**: open detail → "المحاسبة" tab for a confirmed adjustment of one of these reasons. **Assert**: same "لا يوجد قيد محاسبي..." message — **every reason except `INITIAL_STOCK` posts no GL entry** in this build. This is the general form of D2 (the demo seed's two PHYSICAL_COUNT adjustments happen to net to zero across warehouses, which is *not* evidence this path is sound — see `docs/defects.md`).
-
-INV-137 · **Pre**: confirmed adjustment detail. **Steps**: click tab "بنود التسوية". **Assert**: columns الصنف / الاتجاه (زيادة green / نقصان red pill) / الكمية / سعر التكلفة / القيمة; for lines whose value can't be resolved from the DTO it shows "يُحسب بمتوسط التكلفة الحالي" instead of a blank.
-
-INV-138 · **Pre**: confirmed adjustment detail. **Steps**: read the banner below the summary. **Assert**: same one-way wording pattern as transfers — "لا يمكن إلغاء تسوية مؤكدة — ... لعكس الأثر، أنشئ تسوية جديدة بالاتجاه المعاكس." (implied by the shared `describeEffects`/status pattern — confirm the exact string rendered matches transfers' analogous notice).
-
-INV-139 `[NOT IMPLEMENTED]` · Catalog describes the Items list's "تحديد الرصيد الافتتاحي" quick-action deep-linking into `/inventory/adjustments/new?itemId=...&reason=INITIAL_STOCK`. **Assert**: no such deep link exists anywhere in the build (see INV-022) — reaching the opening-balance form always goes through the full reason-picker flow.
-
-INV-140 · **Pre**: list loaded. **Steps**: search by adjustment number, and separately filter by status chip. **Assert**: both work identically to Transfers (same `DocumentList` component, same filtering pattern).
-
----
-
-## 7. الجرد الفعلي (Physical Counts) — `/inventory/physical-counts`
-
-Backed by a real 4-state machine: قيد التنفيذ → مكتمل → تم إنشاء التسوية, plus ملغي.
-
-INV-150 · **Pre**: list loaded. **Steps**: read stats/chips. **Assert**: إجمالي عمليات الجرد / قيد التنفيذ / مكتمل / تم إنشاء التسوية all present; a fifth chip ملغي also exists though its stat isn't in the header KPI row.
-
-INV-151 · **Pre**: on list. **Steps**: انقر "جرد جديد". **Assert**: opens "جرد جديد" form; المستودع defaults to the first warehouse, التاريخ defaults to today, جرد أعمى toggle defaults **off**.
-
-INV-152 · **Pre**: new-count form, warehouse selected. **Steps**: read the helper line. **Assert**: shows "سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية (N صنف)." where N = count of items with nonzero on-hand in that warehouse (`itemIds` is pre-computed from Stock Balance, filtered to `onHand !== 0`).
-
-INV-153 · **Pre**: new-count form, a warehouse with **zero** nonzero-stock items selected (e.g. an empty/new warehouse). **Steps**: attempt "إضافة". **Assert**: button disabled (`itemIds.length === 0`) — a count cannot be started with no items to count.
-
-INV-154 · **Pre**: new-count form. **Steps**: toggle "جرد أعمى" on, read its hint. **Assert**: hint reads "يُخفي كميات النظام عن القائم بالجرد حتى إنهاء الجلسة — الرصيد يُلتقط عند الفتح في الحالتين." — i.e. the system quantity snapshot is captured at open time regardless, only its *display* is withheld.
-
-INV-155 · **Blind counting — the feature under test — Pre**: start a new count on WH-MAIN with جرد أعمى ON. **Steps**: land on the count-entry grid. **Assert**: a banner reads "جرد أعمى — كميات النظام والفروقات مخفية حتى إنهاء الجرد."; the table renders **without** the "النظام" (system qty) column and **without** the "الفرق" (variance) column at all — they are not present-but-masked, the `<th>`/`<td>` elements are conditionally omitted from the DOM entirely (`blindOpen ? null : <th>...`). This is real hiding, not CSS-only obscuring — the feature works as intended.
-
-INV-156 · **Pre**: same blind count in progress. **Steps**: inspect the initial value of the "المعدود" input for each line. **Assert**: pre-fills to "0" for a blind count (not the real system quantity) — `count.blind ? "0" : (l.systemQty ?? "0")` — confirming the counter genuinely cannot infer system qty from a pre-filled input either.
-
-INV-157 · **Pre**: start a new count with جرد أعمى OFF (plain/"visible" count). **Steps**: land on the entry grid. **Assert**: النظام and الفرق columns both render; المعدود pre-fills to the real system quantity for each line, and الفرق live-updates as the counted value is edited (computed client-side from the two scaled values).
-
-INV-158 · **Pre**: count-entry grid, any mode. **Steps**: type a non-numeric value into a المعدود input (e.g. "abc"). **Assert**: `toScaled()` returns null for unparseable strings, so `allCounted` becomes false and "إنهاء الجرد" stays disabled until every line holds a valid decimal.
-
-INV-159 · **Pre**: count-entry grid, in progress. **Steps**: انقر "حفظ ومتابعة لاحقاً" without finishing all lines. **Assert**: returns to the list, count status remains قيد التنفيذ — no data is submitted yet (this button only closes the local view, it does not call `recordCounts`).
-
-INV-160 · **Pre**: a count left قيد التنفيذ (from INV-159). **Steps**: reopen it from the list (row click → detail). **Assert**: detail shows "متابعة الجرد" action (not "توليد تسوية") since status is still IN_PROGRESS; clicking it resumes the same entry grid with previously-typed local values lost (component remounts fresh from server state) — counted values not yet submitted via "إنهاء الجرد" do **not** persist across a resume.
-
-INV-161 · **Pre**: count-entry grid, all lines given valid counted quantities (some matching system qty, some over, some under). **Steps**: انقر "إنهاء الجرد". **Assert**: calls `recordCounts` then `completePhysicalCount` in sequence; on success returns to the list; the count's status is now مكتمل.
-
-INV-162 · **Pre**: a مكتمل count. **Steps**: open its detail. **Assert**: summary shows المستودع/التاريخ/عدد الأصناف/نوع الجرد (جرد أعمى or جرد ظاهر) plus أصناف بها فروقات, قيمة الزيادة (green), قيمة العجز (red), صافي قيمة الفرق (VarianceBeam-colored), التسوية الناتجة="—" (not yet generated).
-
-INV-163 · **Pre**: same مكتمل count detail. **Steps**: click tab "بنود الجرد". **Assert**: full table — الصنف / النظام / المعدود / الفرق / تكلفة الوحدة / قيمة الفرق — is now visible for **every** line regardless of whether the count was blind (blindness only hides during entry, not on the finished record).
-
-INV-164 · **Pre**: مكتمل count detail. **Steps**: انقر "توليد تسوية". **Assert**: calls `generateAdjustmentFromCount`; on success the count's status becomes تم إنشاء التسوية, التسوية الناتجة flips to "تم إنشاؤها", and a new Stock Adjustment record (reason `تصحيح جرد` / PHYSICAL_COUNT) is created and confirmed automatically — visible under Stock Adjustments.
-
-INV-165 · **D2, concretely — Pre**: complete INV-164 for a count with a nonzero net variance (e.g. the seed's main-warehouse count with a genuine shortfall). **Steps**: open the generated adjustment's "المحاسبة" tab (per INV-135). **Assert**: "لا يوجد قيد محاسبي لهذه التسوية..." — the physical count correctly computed and applied the variance to stock quantity/value, but posted **no journal entry**, so GL 1200 and the inventory sub-ledger now disagree by exactly the variance value. This is the exact D2 symptom (measured elsewhere as 122.00) — confirm it reproduces, do not re-file.
-
-INV-166 · **Pre**: generate-adjustment call fails server-side (simulate). **Steps**: انقر "توليد تسوية". **Assert**: error banner "تعذر توليد التسوية." (or server message) renders inside the detail card, above the lines table; status remains مكتمل, retry is possible.
-
-INV-167 · **Pre**: list has counts across all 4 statuses (seed at least قيد التنفيذ/مكتمل/تم إنشاء التسوية; ملغي may be absent). **Steps**: click each status chip. **Assert**: filters correctly; searching by count number ("PC-"/"CNT-") also narrows the list.
-
-INV-168 · **Pre**: list empty (fresh tenant). **Steps**: load screen. **Assert**: empty state "لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام."
+#### INV-080 — `[NOT IMPLEMENTED]` alternate units UI
+- **Assert:** لا يوجد أي عنصر واجهة لتعريف "وحدات بديلة" على مستوى القالب كما يصف الكتالوج ("لفة = 12 متر" تُورث لكل متغير) — لا حقل، لا زر "إضافة وحدة" على هذه الشاشة إطلاقاً.
 
 ---
 
-## 8. المنتجات القابلة للتهيئة (Configurable Products) — `/manufacturing/configurable-products`
+## 4. المنتجات القابلة للتهيئة (Configurable Products)
 
-Nav-grouped under Inventory, routed and modeled under Manufacturing — matches the catalog's documented information-architecture oddity.
+Nav item lives under "المخزون" في الشريط الجانبي لكنها منطقياً وحدة تصنيع؛ الشاشة نفسها
+تُصنَّف "Manufacturing · Configurable products" في الكود.
 
-INV-170 · **Pre**: list loaded. **Steps**: read stats/chips الإجمالي/نشط/غير نشط. **Assert**: counts match seeded data.
+#### INV-081 — Header stats and chips
+- **Pre:** لا منتجات قابلة للتهيئة مزروعة في هذا التينانت (القائمة `WORK_ORDERS`/`BOMS` لا تُنشئ منتجاً قابلاً للتهيئة).
+- **Steps:** افتح المخزون ← المنتجات القابلة للتهيئة.
+- **Assert:** "الإجمالي" = 0؛ حالة فارغة "لا توجد منتجات قابلة للتهيئة مطابقة — أضف منتجاً جديداً".
 
-INV-171 · **Pre**: on list. **Steps**: انقر "إضافة منتج قابل للتهيئة". **Assert**: SidePanel "منتج قابل للتهيئة جديد" opens; حفظ disabled until code, name, output item, ≥1 valid input row, and ≥1 valid material row are all present (`canSave`).
+#### INV-082 — Create: required fields
+- **Steps:** اضغط "إضافة منتج قابل للتهيئة"، اترك "الكود" و"الاسم بالعربية" و"المنتج الناتج" فارغة، لاحظ زر "حفظ".
+- **Assert:** الزر معطّل (`canSave` يتطلب الثلاثة + مدخل واحد صالح على الأقل + خامة واحدة صالحة على الأقل).
 
-INV-172 · **Pre**: create panel. **Steps**: pick المنتج الناتج (output item), e.g. an item with base unit "كجم". **Assert**: وحدة المنتج النهائي field auto-fills to that item's base unit code.
+#### INV-083 — Output item auto-fills unit
+- **Steps:** اختر "المنتج الناتج" من قائمة الأصناف.
+- **Assert:** حقل "وحدة المنتج النهائي" يتحدث تلقائياً لوحدة الصنف الأساسية.
 
-INV-173 · **Pre**: create panel, one مدخلات التهيئة row. **Steps**: fill المعرف="width", التسمية="العرض", leave الحد الأدنى/الحد الأقصى blank. **Assert**: row is valid (min/max are optional — only id+label are required per `validInputs` filter); a click on "إضافة مدخل" adds another blank row; "حذف المدخل" appears once ≥2 rows exist.
+#### INV-084 — Config input rows: add/remove
+- **Steps:** اضغط "إضافة مدخل"، ثم "حذف المدخل" على الصف الأول (يظهر الزر فقط عند وجود أكثر من صف واحد).
+- **Assert:** الصف الأول (الوحيد الآن) لا يحمل زر حذف — لا يمكن ترك القائمة بلا صف واحد على الأقل.
 
-INV-174 · **Pre**: create panel, materials section. **Steps**: انقر "إضافة خامة", pick a item via EntityPicker, type معادلة الكمية = "width*height/10000", نسبة الهالك % = 5. **Assert**: row is valid (`validMaterials` requires itemId + non-blank formula); "حذف الخامة" appears once ≥2 rows exist.
+#### INV-085 — Material rows: add/remove
+- **Steps:** كرر نفس السلوك على قسم "خامات التصنيع".
+- **Assert:** نفس القاعدة — صف أخير غير قابل للحذف.
 
-INV-175 · **Pre**: create panel, طريقة التسعير left at default "بدون — سعر يدوي". **Steps**: check for a معادلة السعر field. **Assert**: not rendered — the price-formula field only appears when طريقة التسعير = "معادلة".
+#### INV-086 — Pricing method "معادلة" requires price formula
+- **Steps:** اختر "طريقة التسعير" = "معادلة"، اترك "معادلة السعر (للوحدة)" فارغة، لاحظ "حفظ".
+- **Assert:** الزر معطّل حتى تُملأ معادلة السعر.
 
-INV-176 · **Pre**: create panel, طريقة التسعير switched to "معادلة", معادلة السعر left blank. **Steps**: attempt save. **Assert**: disabled — `canSave` requires a non-blank price formula whenever pricingMethod is "formula".
+#### INV-087 — Full happy-path create + reload
+- **Steps:** أنشئ منتجاً قابلاً للتهيئة كاملاً: كود، اسم عربي، منتج ناتج (اختر ITEM-DEMO-4)، مدخل واحد (`width`/"العرض"), خامة واحدة (اختر ITEM-DEMO-3 بمعادلة `width*2`), التسعير "معادلة" بصيغة `width*3.5`, احفظ, أعد تحميل الصفحة.
+- **Assert:** يظهر في القائمة بنفس الكود والاسم؛ عمود "مدخلات التهيئة" = "العرض"؛ عمود "خامات التصنيع" = 1.
 
-INV-177 · **Pre**: create panel, all required fields + one input + one material filled validly. **Steps**: fill معادلة تكلفة العمالة="width/10", معادلة التكاليف الإضافية="5", سياسة الأصناف left at default "صنف لكل أمر", save, **reload**. **Assert**: new product appears in the list; opening it shows all formulas preserved verbatim on the "التسعير والتكلفة" tab.
+#### INV-088 — Detail tabs
+- **Steps:** افتح المنتج الذي أُنشئ في INV-087.
+- **Assert:** تبويب "مدخلات التهيئة (1)" يعرض المعرف/التسمية/الحد الأدنى/الأقصى؛ تبويب "خامات التصنيع (1)" يعرض الصنف/معادلة الكمية/نسبة الهالك؛ تبويب "التسعير والتكلفة" يعرض معادلة السعر `width*3.5` ومعادلتي العمالة/المصاريف كـ"—" إن لم تُدخلا.
 
-INV-178 · **Pre**: a saved configurable product open in detail. **Steps**: read the "effects" explainer. **Assert**: shows "المعادلات تُقيَّم عبر مُقيِّم آمن (Sandbox) — لا يستخدم eval إطلاقاً." and "كل أمر تصنيع مخصص يُقيّم هذه المعادلات..." — confirms formulas are sandboxed, not raw `eval`.
+#### INV-089 — Effects copy — sandboxed formulas
+- **Steps:** لاحظ نص "تأثيرات" أسفل ملخص التفاصيل.
+- **Assert:** "المعادلات تُقيَّم عبر مُقيِّم آمن (Sandbox) — لا يستخدم eval إطلاقاً." و"كل أمر تصنيع مخصص يُقيّم هذه المعادلات مقابل مواصفات العميل لحساب الخامات والسعر."
 
-INV-179 · **Pre**: detail open. **Steps**: click tab "مدخلات التهيئة (N)". **Assert**: table shows المعرف/التسمية/الحد الأدنى/الحد الأقصى per input row.
+#### INV-090 — Deactivate
+- **Steps:** من صفحة التفاصيل لمنتج نشط، اضغط "تعطيل".
+- **Assert:** الحالة تتحول "غير نشط"؛ زر "تعطيل" يختفي (الشرط `status === "active"`); لا حوار تأكيد.
 
-INV-180 · **Pre**: detail open. **Steps**: click tab "خامات التصنيع (N)". **Assert**: table shows الصنف/معادلة الكمية/نسبة الهالك per material row.
+#### INV-091 — `[NOT IMPLEMENTED]` no edit action
+- **Pre:** منتج قابل للتهيئة موجود.
+- **Steps:** ابحث عن أي طريقة لتعديل الصيغ/المدخلات/الخامات بعد الإنشاء.
+- **Assert:** لا يوجد — الشاشة توفر فقط "إنشاء" و"تعطيل"؛ لا `useUpdateConfigurableProduct` ولا زر تعديل في `ProductDetail`.
 
-INV-181 · **Pre**: detail open. **Steps**: click tab "التسعير والتكلفة". **Assert**: shows معادلة السعر (or "— (سعر يدوي)" if manual pricing), معادلة العمالة, معادلة المصاريف, each falling back to "—" when null.
+#### INV-092 — `[NOT IMPLEMENTED]` no row menu / no quick "new custom order"
+- **Assert:** لا قائمة كيباب على صفوف القائمة، ولا زر سريع "أمر تصنيع مخصص جديد" على كل صف كما يصف الكتالوج — للوصول لإنشاء أمر تصنيع مخصص يجب الانتقال يدوياً لشاشة "التصنيع المخصص" (قسم 13).
 
-INV-182 · **Pre**: an active configurable product open in detail. **Steps**: انقر "تعطيل". **Assert**: status flips to غير نشط; the تعطيل button disappears (only shown `status === "active"`); product remains visible under the "غير نشط" chip on the list.
-
-INV-183 `[NOT IMPLEMENTED]` · Catalog describes a list row quick-action "أمر تصنيع مخصص جديد" that jumps straight into a pre-scoped custom-order creation, and a form section for التسمية بالعربية (Arabic label distinct from name) and نوع المنتج (product-type combobox). **Assert**: none of these three exist in the build — no per-row quick-create button on this list, no separate Arabic-label field, no product-type selector (the form has only code/nameAr/nameEn/output item/unit/description).
-
-INV-184 · **Pre**: search box. **Steps**: search by code, then by (partial) name. **Assert**: both match (`code.includes` case-insensitive, `nameAr.includes` case-sensitive substring).
-
----
-
-## 9. قوالب المنتجات (Product Templates) — `/inventory/product-templates`
-
-Attribute-driven variant/SKU generator — distinct mechanism from Configurable Products (fixed enumerated SKUs vs. formula-computed made-to-order).
-
-INV-190 · **Pre**: list loaded. **Steps**: read stats. **Assert**: single stat "إجمالي القوالب" only — no نشط/غير نشط breakdown stat exists here (unlike most other list screens), though a status pill still renders per row.
-
-INV-191 · **Pre**: on list. **Steps**: انقر "قالب جديد". **Assert**: SidePanel opens with اسم المنتج*, الكود*, وحدة القياس الأساسية* (defaults "PCS"), السعر الافتراضي, التكلفة الافتراضية (both optional plain text, placeholder "0.00").
-
-INV-192 · **Pre**: create panel, leave الكود blank. **Steps**: submit. **Assert**: alert "الكود والاسم ووحدة القياس مطلوبة." (single combined message covering all three required fields, not per-field).
-
-INV-193 · **Pre**: create panel, all three required fields filled, prices left blank. **Steps**: submit, **reload**. **Assert**: template created with defaultSalePrice/defaultCost stored as null; newly-created template auto-opens (its SidePanel detail) immediately after creation (`setSelectedId(created.id)`).
-
-INV-194 · **Pre**: a new template just created, its attribute panel open (attributes list empty). **Steps**: read empty state. **Assert**: "لا توجد خصائص بعد."
-
-INV-195 · **Pre**: attribute panel, specification registry has ≥1 active "select"-type specification (from §3, e.g. SIZE). **Steps**: open "من سجل المواصفات" select. **Assert**: shows "خاصية خاصة بهذا القالب" plus each eligible specification as `nameAr (code)`; picking one switches the form to spec-linked mode (hides الاسم/القيم free-text inputs).
-
-INV-196 · **Pre**: attribute panel, "من سجل المواصفات" left at "خاصية خاصة بهذا القالب" (i.e. blank spec code). **Steps**: leave اسم الخاصية blank, انقر "إضافة خاصية". **Assert**: alert "اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة."
-
-INV-197 · **Pre**: same, fill اسم الخاصية="اللون", القيم مفصولة بفواصل="أحمر, أزرق, أخضر". **Steps**: انقر "إضافة خاصية". **Assert**: new attribute card appears with 3 value chips; usageCount on any linked specification (if this had used one) would increment — this custom-typed attribute has no specification link, so no specification's usage count changes.
-
-INV-198 · **Pre**: attribute panel, using "من سجل المواصفات" and picking SIZE. **Steps**: انقر "إضافة خاصية". **Assert**: succeeds without the free-text name/values inputs ever being shown; SIZE's usageCount on the Item Specifications screen (§3, INV-086) increments by 1, which is what later blocks its deletion there.
-
-INV-199 · **Pre**: an attribute with 3 values exists. **Steps**: click the inline "+ قيمة" field next to the chips, type "أصفر", press Enter. **Assert**: adds a 4th value chip; the input clears and stays focused for rapid successive adds.
-
-INV-200 · **Pre**: an attribute value chip. **Steps**: click its "×" remove button. **Assert**: value removed from that attribute; any variant already generated for a combination using that value is unaffected (deleting a value does not retroactively delete generated Items).
-
-INV-201 · **Pre**: an attribute. **Steps**: click "حذف الخاصية". **Assert**: deletes the whole attribute — **no client-side guard against deleting an attribute already used by generated variants** was found in this screen (`[NOT IMPLEMENTED]` vs. catalog, which describes a disabled delete with tooltip "هذه الخاصية مستخدمة في N متغير — احذف المتغيرات أولاً"); if the server rejects it, `attrError` surfaces "تعذّر حذف الخاصية." instead.
-
-INV-202 · **Pre**: a template with 2 attributes, sizes {S,M} × colors {أحمر,أزرق} = 4 combinations, 0 generated yet. **Steps**: read "توليد المتغيرات" heading. **Assert**: "4 تركيبة ممكنة، 0 موجودة بالفعل".
-
-INV-203 · **Pre**: same, combination table rendered. **Steps**: check a combination's checkbox (e.g. S/أحمر), leave others unchecked. **Assert**: "توليد (1)" button label updates live to reflect selection count; combos already existing show a locked, checked, disabled checkbox with status pill "موجود" — cannot be unchecked or re-selected.
-
-INV-204 · **Pre**: 1 combination selected. **Steps**: انقر "توليد (1)". **Assert**: calls generate-variants; on success, selection clears, the combination's row flips to "موجود"/disabled, and a new card appears under "المتغيرات (N)" showing the combo label and its generated SKU (itemCode) — a real Item was created (verify it now appears on the Items screen, §2, with a variant-style code).
-
-INV-205 · **Pre**: all possible combinations already generated. **Steps**: check the "توليد المتغيرات" section. **Assert**: shows "تم توليد كل التركيبات الممكنة." beneath the table; every checkbox is locked "موجود".
-
-INV-206 `[NOT IMPLEMENTED]` · Catalog describes a "تحديد الكل" (select-all) checkbox in the combination-table header, per-combination SKU/سعر البيع/التكلفة/الباركود preview columns, and — separately — an alternate-units section ("الوحدات البديلة") on the template form. **Assert**: none of these exist — the combination table only has a checkbox + التركيبة + الحالة columns (no per-row price/cost/barcode preview), there's no select-all, and Product Templates has no alternate-unit editor at all (unlike Items' own alternate-unit rows).
-
-INV-207 · **Pre**: template with 0 attributes. **Steps**: check for the "توليد المتغيرات" section. **Assert**: not rendered at all (`selected.attributes.length > 0` guards the whole block) — matches catalog's expectation that variant generation needs at least one attribute defined first.
+#### INV-093 — Status chips and search
+- **Steps:** بعد إنشاء منتجين (أحدهما مُعطَّل)، اضغط شريحة "نشط" ثم "غير نشط"، ثم ابحث بالكود.
+- **Assert:** كل فلتر يعزل الصف الصحيح؛ لا صفحات (كل النتائج تُعرض دفعة واحدة).
 
 ---
 
-## 10. طباعة الملصقات (Label Printing) — `/inventory/labels`
+## 5. أرصدة المخزون (Stock Balance)
 
-Stateless print builder; barcode is rendered as a **real Code 128 SVG** via `bwip-js` (`bwipjs.toSVG({ bcid: "code128", ... })`), not placeholder text or an image.
+Read-only rollup — no create/edit, no filter chips, no filters panel
+(**`[NOT IMPLEMENTED]`** مقارنة بالكتالوج: لا فلاتر مستودع/تصنيف/وحدة/نطاق كمية، لا
+شرائح "الكل/مخزون منخفض/نفد المخزون").
 
-INV-210 · **Pre**: on screen. **Steps**: read the disclaimer card. **Assert**: exact text "السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر."
+#### INV-094 — Header stats and columns
+- **Steps:** افتح المخزون ← أرصدة المخزون.
+- **Assert:** "إجمالي الأصناف" و"نفد المخزون" يطابقان عدد الأصناف ذات رصيد صفري عبر كل المستودعات؛ الأعمدة: الصنف، إجمالي المخزون، متوسط التكلفة، القيمة الإجمالية، عدد المستودعات.
 
-INV-211 `[NOT IMPLEMENTED]` · Catalog describes a صنف/مستند mode toggle (label items individually, or pull all lines from a document like a goods receipt). **Assert**: no mode toggle exists in the build — this screen only supports adding items individually via the "إضافة صنف" EntityPicker; there is no "by document" mode.
+#### INV-095 — Search
+- **Steps:** ابحث بجزء من اسم صنف (مثال "شاي").
+- **Assert:** تظهر فقط الأصناف المطابقة (ITEM-DEMO-4/5/6).
 
-INV-212 · **Pre**: on screen. **Steps**: انقر "إضافة صنف", search "أرز", pick IT-0001. **Assert**: a row appears in the "الأصناف المختارة" table showing name, barcode (first registered barcode, or falling back to the item's code if it has none), printed price (from salePrice), عدد النسخ defaulting to 1; the item disappears from the picker's own options list (already-added items are excluded from re-selection).
+#### INV-096 — Sort by "إجمالي المخزون"
+- **Steps:** اضغط رأس العمود.
+- **Assert:** ترتيب رقمي تصاعدي/تنازلي عند التبديل.
 
-INV-213 · **Pre**: one line added for an item **with no registered barcode**. **Steps**: check the الباركود column. **Assert**: falls back to displaying the item's code as the "barcode" value (`item.barcodes[0] ?? item.code`); the label tile preview will still attempt to render *something* as a Code 128 barcode for that code string.
+#### INV-097 — Reconciliation check — INITIAL_STOCK-only GL evidence
+- **Pre:** لا وصول من هذه الشاشة نفسها لرصيد حساب 1200 (خارج نطاق هذا الملف — راجع "Scope boundary").
+- **Steps:** لاحظ "متوسط التكلفة" و"القيمة الإجمالية" لصف ITEM-DEMO-1.
+- **Assert:** القيمة الإجمالية = المخزون الحالي × متوسط التكلفة المعروض على نفس الصف (فحص حسابي بسيط داخل هذه الشاشة وحدها)؛ أي مطابقة أعمق مع حساب 1200 تتطلب شاشة خارج نطاق هذا الملف.
 
-INV-214 · **Pre**: one line added, item has a barcode whose encoded width exceeds the selected template's printable area. **Steps**: check for the fit warning. **Assert**: `line.messageAr` renders in red under the barcode cell — condition triggers from `buildLabelBatch`'s barcode-fit check (`checkBarcodeFit` in `@mezan/domain`) comparing barcode length against template dimensions; switching to a larger template (e.g. from THERMAL_40x30 to the largest option) should clear the warning if width was the limiting factor.
+#### INV-098 — Empty search
+- **Steps:** ابحث بنص لا يطابق أي صنف.
+- **Assert:** حالة فارغة "لا توجد أصناف مطابقة".
 
-INV-215 · **Pre**: one line added. **Steps**: open قالب الملصق dropdown. **Assert**: exactly 3 options render, matching the catalog's documented templates (thermal 40×30mm default, shelf 50×25mm, product 100×50mm) — confirm exact labelAr text and default selection.
+#### INV-099 — Load error + retry
+- **Pre:** حاكِ فشل `GET /inventory/stock-balance`.
+- **Steps:** افتح الشاشة.
+- **Assert:** "تعذّر تحميل أرصدة المخزون." + "إعادة المحاولة".
 
-INV-216 · **Pre**: 2 lines added, copies set to 3 and 2 respectively. **Steps**: read "الإجمالي: N ملصق". **Assert**: N = 5 (sum of all copies across lines), matching `batch.totalLabelCount`.
-
-INV-217 · **Pre**: a line's عدد النسخ QtyInput. **Steps**: attempt to set it below 1 or above 999. **Assert**: input is bounded `min={1} max={999} step={1}` — cannot go below 1 or above 999 via the control.
-
-INV-218 · **Pre**: ≥1 item added, no blocking barcode-fit issues. **Steps**: check "معاينة وطباعة" button state. **Assert**: enabled (`!batch.hasBlockingIssues && batch.lines.length > 0`); clicking calls `window.print()` — this test does not need to complete an actual print, just confirm the button is reachable and not disabled.
-
-INV-219 · **Pre**: 0 items added. **Steps**: check "معاينة وطباعة". **Assert**: disabled; table shows placeholder row "لم تتم إضافة أي صنف بعد."
-
-INV-220 · **Pre**: ≥1 item queued with a blocking barcode-fit issue on the selected template. **Steps**: check "معاينة وطباعة". **Assert**: disabled even though items exist (`batch.hasBlockingIssues` short-circuits it) — printing is blocked until either the item is removed or a template that fits is chosen.
-
-INV-221 · **Real Code 128 rendering — Pre**: an item with a known barcode value, e.g. "6221234567890" (assign via §2's item form if the seed item lacks one). **Steps**: add it to the label builder; inspect the rendered "معاينة الملصق" tile. **Assert**: an inline `<svg>` renders inside `.mz-label-barcode` (from `bwipjs.toSVG`) — this is a genuine Code 128 barcode encoding the exact barcode string, scannable by a real barcode reader, not a decorative image or plain text; if the barcode string is empty/whitespace-only, `renderBarcodeSvg` returns null and the tile shows "لا يوجد باركود" instead.
-
-INV-222 · **Pre**: ≥7 items queued. **Steps**: check the "معاينة الملصق" preview panel. **Assert**: shows only the first 6 tiles (`lines.slice(0, 6)`) — this cap is a preview-only limit; the print sheet itself (`.mz-print-sheet`, rendered only under `@media print`) still includes every queued copy of every line, uncapped.
-
-INV-223 · **Pre**: a line in the table. **Steps**: انقر "إزالة". **Assert**: line removed from both the table and (if within the first 6) the preview panel; the removed item reappears as selectable in the "إضافة صنف" picker.
-
----
-
-## 11. هبوط قيمة المخزون (Inventory Writedowns) — `/inventory/writedown-runs`
-
-**Not in either catalog file** — a build-only monthly aging-based write-down batch: Dr 5060 (write-down expense) / Cr 1190 (contra-asset provision), never touching the item's recorded WAC/cost layers. Documented in full; no `[NOT IMPLEMENTED]` markers apply to its existence.
-
-INV-230 · **Pre**: on screen. **Steps**: read the description line under the title. **Assert**: exact text describing it as an optional monthly aging-based batch that provisions Dr expense / Cr provision "دون المساس بتكلفة المخزون المسجلة" — confirms it is deliberately non-invasive to WAC.
-
-INV-231 · **Pre**: on screen. **Steps**: انقر "تشغيل عملية جديدة". **Assert**: SidePanel "تشغيل عملية هبوط قيمة جديدة" opens; السنة and الشهر default to the current calendar year/month; المستودع defaults to "كل المستودعات".
-
-INV-232 · **Pre**: create form. **Steps**: type السنة = 1999. **Steps (cont.)**: submit. **Assert**: alert "السنة غير صحيحة." (valid range enforced 2000–2100).
-
-INV-233 · **Pre**: create form. **Steps**: type الشهر = 13 or 0. **Steps (cont.)**: submit. **Assert**: alert "الشهر يجب أن يكون بين 1 و12."
-
-INV-234 · **Pre**: create form, year/month valid, warehouse left "كل المستودعات". **Steps**: انقر "تشغيل", **reload**. **Assert**: new run appears in the list with period formatted `YYYY-MM`, status مسودة, warehouse showing "كل المستودعات".
-
-INV-235 · **Pre**: same, but with a specific warehouse chosen instead. **Steps**: run and reload. **Assert**: warehouse column shows that warehouse's name instead of "كل المستودعات".
-
-INV-236 · **Pre**: a draft (مسودة) run in the list. **Steps**: انقر the row's "ترحيل" button. **Assert**: button shows "جارٍ الترحيل..." while pending, disabled during that time; on success status flips to مرحل and a journal-entry id appears in the row's action cell (replacing the ترحيل button, since it now only renders for drafts).
-
-INV-237 · **Pre**: posting fails server-side (simulate, e.g. a period already posted for that warehouse — idempotency guard). **Steps**: انقر "ترحيل". **Assert**: a page-level card shows the error message (`postError`), status remains مسودة, the row stays actionable for retry.
-
-INV-238 · **Pre**: a posted run. **Steps**: click its row (opens SidePanel, not a full detail page). **Assert**: shows status pill مرحل, الفترة/المستودع/تاريخ الإنشاء/تاريخ الترحيل, قيمة المخصص الإجمالية (large money figure) with قيد اليومية id beneath it, and a per-item breakdown table (الصنف/أيام التقادم/نسبة المخصص/المبلغ).
-
-INV-239 · **Pre**: the per-item breakdown table (INV-238). **Steps**: read the "الصنف" column values. **Assert**: renders the raw internal item **id** string, not the resolved item name — this screen has no item-name lookup for write-down lines (unlike every other inventory screen, which resolves `itemId` through `useItems()`); worth flagging as a display gap even though the underlying data is correct.
-
-INV-240 · **Pre**: empty tenant, no runs yet. **Steps**: load screen. **Assert**: empty state "لا توجد عمليات هبوط قيمة — لم يتم تشغيل أي عملية بعد."
-
-INV-241 · **Pre**: create form open, unsaved. **Steps**: انقر "إلغاء". **Assert**: closes without creating a run.
+#### INV-100 — No row navigation to per-warehouse breakdown — `[NOT IMPLEMENTED]`
+- **Steps:** اضغط على صف صنف.
+- **Assert:** لا شيء يحدث (لا `onRowClick` معرَّف في هذه الشاشة) — لا انتقال لتفاصيل الصنف أو لوحة جانبية، خلافاً لما يفترضه الكتالوج ("النقر على الصف يفتح صفحة الصنف").
 
 ---
 
-## 12. مركز التصنيع (Manufacturing Hub) — `/manufacturing/hub`
+## 6. تحويلات المخزون (Stock Transfers)
 
-INV-250 · **Pre**: navigate to Manufacturing → مركز التصنيع. **Steps**: read the 4 KPI tiles. **Assert**: أوامر تصنيع نشطة / قيمة الإنتاج تحت التشغيل / الوحدات المنتجة هذا الشهر / متوسط تكلفة الوحدة — all sourced from the same `/manufacturing/dashboard` payload the Production Dashboard (§13) uses (no client-side recomputation).
+**أهم فجوة في هذا القسم:** زر "حفظ" في نموذج الإنشاء ينفّذ `createStockTransfer` ثم
+`confirmStockTransfer` في نفس الاستدعاء — لا توجد مرحلة "مسودة" قابلة للمراجعة، ولا زر
+"تأكيد" مستقل، ولا زر إلغاء لمسودة قائمة. التحويل المسودة الوحيد في البيانات المزروعة
+(`TRF-DEMO-3`) أُنشئ عبر مسار خلفي مخصّص للبذر (`/inventory/stock-transfers/draft`) لا
+تستخدمه الواجهة إطلاقاً — وبمجرد وجوده، **لا يوجد أي زر في الواجهة لتأكيده**.
 
-INV-251 · **Pre**: on hub. **Steps**: click each quick action — "أمر تصنيع جديد", "لوحة الإنتاج", "قوائم المواد", "التصنيع المخصص". **Assert**: navigates to Work Orders / Production Dashboard / BOMs / Config Instances respectively.
+#### INV-101 — Header stats and attention banner
+- **Pre:** TRF-DEMO-1/2 مؤكدان، TRF-DEMO-3 مسودة.
+- **Steps:** افتح المخزون ← تحويلات المخزون.
+- **Assert:** "إجمالي التحويلات" = 3، "مسودة" = 1، "مؤكد" = 2.
 
-INV-252 · **Pre**: on hub. **Steps**: read "أوامر التصنيع النشطة" card. **Assert**: shows up to 5 active orders with number, priority label, produced/planned fraction, and either a "متأخر" (danger) or `{progress}%` (info) pill; a subtitle line reads "N أمر متأخر عن الموعد المجدول"; "عرض لوحة الإنتاج الكاملة" navigates to §13.
+#### INV-102 — Status chip "مسودة"
+- **Steps:** اضغط شريحة "مسودة".
+- **Assert:** صف واحد فقط (TRF-DEMO-3).
 
-INV-253 · **Pre**: dashboard API errors. **Steps**: load hub. **Assert**: card "تعذّر تحميل بيانات التصنيع." renders; KPI values fall back to "—".
+#### INV-103 — Draft row has no confirm action — `[NOT IMPLEMENTED]`
+- **Pre:** من INV-102.
+- **Steps:** افتح صف TRF-DEMO-3.
+- **Assert:** تفتح صفحة التفاصيل، لكن لا يوجد أي زر "تأكيد" في الرأس ولا في أي مكان آخر بالصفحة (فحص الكود: الإجراء الوحيد الشرطي هو نص تنبيه يظهر فقط عندما `status === "confirmed"`؛ لا إجراء مقابل لحالة `draft`). هذا التحويل **عالق دون تأكيد بشكل دائم** عبر الواجهة.
 
----
+#### INV-104 — Status chip "مؤكد"
+- **Steps:** اضغط شريحة "مؤكد".
+- **Assert:** صفان (TRF-DEMO-1/2).
 
-## 13. لوحة الإنتاج (Production Dashboard) — `/manufacturing/dashboard`
+#### INV-105 — Route column
+- **Steps:** لاحظ عمود "المسار" لـTRF-DEMO-1.
+- **Assert:** "مستودع الفرع الرئيسي ← مستودع فرع الجيزة" (أو الاسم المكافئ لـWH-MAIN وWH-GIZA).
 
-Exception/action dashboard, no filters — matches the catalog's description closely.
+#### INV-106 — Search by transfer number / memo
+- **Steps:** ابحث بجزء من رقم التحويل.
+- **Assert:** يعزل الصف الصحيح.
 
-INV-260 · **Pre**: on screen. **Steps**: read the 4 KPI cards. **Assert**: أوامر نشطة / قيمة الإنتاج تحت التشغيل / الوحدات المنتجة هذا الشهر / أوامر متأخرة (the last rendered in danger-red text when >0, plain ink otherwise).
+#### INV-107 — Create: warehouse required + same-warehouse rejected
+- **Steps:** اضغط "تحويل جديد"، اختر نفس المستودع في "المستودع المصدر" و"المستودع الوجهة".
+- **Assert:** تنبيه "يجب أن يختلف المستودع المصدر عن مستودع الوجهة."؛ زر "حفظ" معطّل.
 
-INV-261 · **Pre**: seed has WO-DEMO-1/2/3 at various stages. **Steps**: read the three bucket cards "بانتظار صرف المواد", "بانتظار استلام المنتج", "جاهزة للإنهاء". **Assert**: each order chip shows its number, a "متأخر" pill if overdue, and a produced/planned + priority line; a bucket with no orders shows "لا توجد أوامر في هذه المرحلة."
+#### INV-108 — Create: line qty must be > 0
+- **Steps:** اختر صنفاً في السطر الأول، اترك "كمية التحويل" = 0.
+- **Assert:** "حفظ" معطّل (`allLinesValid` يتطلب `qty > 0`).
 
-INV-262 · **Pre**: on screen. **Steps**: read "جميع الأوامر النشطة" table. **Assert**: columns الأمر / التقدّم (% + fraction) / الأولوية / الموعد المجدول / الإجراء التالي; the last column renders a labeled button (بدء التنفيذ / صرف المواد / استلام المنتج / إنهاء الأمر per `NEXT_ACTION_LABEL`) that navigates to Work Orders when clicked — it does **not** perform the action inline from this screen, only deep-links.
+#### INV-109 — Create: service items excluded from item picker
+- **Steps:** افتح قائمة اختيار الصنف في أي سطر.
+- **Assert:** لا يظهر أي صنف من نوع "خدمة" (فلتر `i.type !== "service"` في `itemOptions`) — لا صنف خدمي مزروع أصلاً في هذا التينانت، لكن الفلتر موجود في الكود بغض النظر.
 
-INV-263 · **Pre**: header. **Steps**: click "أوامر التصنيع" and "قوائم المواد" buttons. **Assert**: navigate to §14 and §15 respectively.
+#### INV-110 — Add / remove line
+- **Steps:** اضغط "إضافة بند" مرتين، ثم احذف أحد السطور الجديدة (✕)، اترك سطراً واحداً، تحقق أن زر الحذف معطّل عليه.
+- **Assert:** لا يمكن حذف آخر سطر متبقٍ.
 
-INV-264 · **Pre**: zero active work orders. **Steps**: check the table area. **Assert**: "لا توجد أوامر تصنيع نشطة حالياً."
+#### INV-111 — Non-numeric quantity — native browser rejection
+- **Steps:** حاول كتابة حروف في حقل "كمية التحويل" (type=number).
+- **Assert:** المتصفح يرفض إدخال الحروف أصلاً؛ القيمة تبقى دون تغيير.
 
----
+#### INV-112 — Effects panel text
+- **Steps:** لاحظ بطاقة "تأثيرات هذا التحويل" أثناء الإنشاء.
+- **Assert:** "خصم الكميات من المستودع المصدر وإضافتها للمستودع الوجهة" و"لا يتغير إجمالي قيمة المخزون".
 
-## 14. أوامر التصنيع (Work Orders) — `/manufacturing/work-orders`
+#### INV-113 — Full create → auto-confirm → reload (value-neutral transfer)
+- **Pre:** لاحظ "متوسط التكلفة" و"القيمة الإجمالية" لـITEM-DEMO-1 في أرصدة المخزون قبل التحويل.
+- **Steps:** أنشئ تحويلاً من WH-MAIN إلى WH-GIZA لـ10 وحدات من ITEM-DEMO-1، اضغط "حفظ"، أعد تحميل شاشة أرصدة المخزون.
+- **Assert:** رقم التحويل الجديد يظهر مباشرة بحالة "مؤكد" (لا حالة مسودة وسيطة مرئية للمستخدم رغم أن الطلبين منفصلان في الشبكة)؛ "متوسط التكلفة" لـITEM-DEMO-1 لا يتغير؛ "القيمة الإجمالية" الكلية (مجموع كل الصفوف في أرصدة المخزون) لا تتغير — القيمة انتقلت بين مستودعين فقط، لم تخرج من الشركة.
 
-**`completeWorkOrder` never posts to GL 1200 (defect D3).** Any scenario that
-runs a work order through to completion will unbalance the books — run on a
-throwaway database, and never immediately before a reconciliation scenario.
+#### INV-114 — Cancel discards draft
+- **Steps:** افتح "تحويل جديد"، عبّئ بعض الحقول، اضغط "إلغاء".
+- **Assert:** لا طلب شبكة يُرسل؛ العودة لقائمة التحويلات بلا تغيير.
 
-### List
+#### INV-115 — Confirmed transfer detail: cannot-cancel notice
+- **Steps:** افتح TRF-DEMO-1.
+- **Assert:** نص "لا يمكن إلغاء تحويل مؤكد — بعد تأكيد التحويل لا يمكن إلغاؤه. لعكس الحركة، أنشئ تحويلاً جديداً بالاتجاه المعاكس."
 
-INV-270 · **Pre**: list loaded (WO-DEMO-1/2/3 seeded). **Steps**: read stats. **Assert**: الإجمالي / مخطط / جار التنفيذ / متأخر (the last valueTone="danger" when >0).
+#### INV-116 — Detail: lines tab only — `[NOT IMPLEMENTED]`
+- **Steps:** افتح تفاصيل أي تحويل.
+- **Assert:** تبويب واحد فقط "البنود"؛ لا تبويبي "المرفقات" أو "سجل التدقيق" كما يصف الكتالوج.
 
-INV-271 · **Pre**: list loaded. **Steps**: click each status chip الكل/مخطط/قيد التنفيذ/مكتمل/ملغي. **Assert**: filters by exact status match — note there is **no** separate "متأخر" filter chip on this screen (unlike the catalog's documented "متأخر" derived chip) — overdue is only shown as the KPI card + a badge on rows, not filterable via chip; the header stat "متأخر" links nowhere.
+#### INV-117 — Detail: status stepper
+- **Steps:** لاحظ شريط الحالة أعلى التفاصيل.
+- **Assert:** خطوتان: "مسودة" ← "مؤكد"؛ للتحويلات المؤكدة تظهر الخطوة الثانية مكتملة.
 
-INV-272 · **Pre**: list loaded. **Steps**: search by WO number ("WO-"), and separately by (partial) product name. **Assert**: both match.
+#### INV-118 — `[NOT IMPLEMENTED]` no Excel import
+- **Steps:** ابحث عن زر "استيراد من إكسل" في نموذج الإنشاء كما يصف الكتالوج.
+- **Assert:** غير موجود.
 
-INV-273 · **Pre**: list loaded. **Steps**: click a row (anywhere). **Assert**: opens that work order's own detail page directly — **unlike the catalog's documented UX quirk** (row click opens the *product's* item quick-view, requiring the kebab menu to reach the WO itself), the build's row click goes straight to the work order detail; there is no separate product quick-view and no kebab menu at all on this list.
-
-INV-274 `[NOT IMPLEMENTED]` · Catalog describes a row kebab menu with عرض / تكرار أمر التصنيع (duplicate) / إلغاء أمر التصنيع (cancel). **Assert**: none exist — rows have no menu, no duplicate action, and **no cancel action anywhere in the build** (`ملغي` is a defined status/chip with presumably 0 rows, but no UI path sets it).
-
-### Create
-
-INV-280 · **Pre**: on list. **Steps**: انقر "أمر عمل جديد". **Assert**: SidePanel "أمر عمل جديد" opens; قائمة المواد* EntityPicker only lists **active** BOMs (`boms.filter(b => b.status === "active")`); الأولوية defaults "عادية"; تاريخ البدء defaults to today; الكمية المخططة defaults 1.
-
-INV-281 · **Pre**: create form, BOM unselected. **Steps**: attempt "حفظ أمر العمل". **Assert**: disabled — `canSave` requires `bom !== null`.
-
-INV-282 · **Pre**: create form, BOM selected, الكمية المخططة set to 0. **Steps**: attempt save. **Assert**: disabled — `plannedQty > 0` required.
-
-INV-283 · **Pre**: create form. **Steps**: attempt to type a negative number into الكمية المخططة. **Assert**: input has `min={0}`; a negative value fails `> 0` and حفظ stays disabled.
-
-INV-284 · **Pre**: create form, BOM selected, مستودع الخامات or مستودع المنتجات left unpicked. **Steps**: attempt save. **Assert**: disabled — both warehouse EntityPickers are required.
-
-INV-285 · **Pre**: create form, all required fields valid: BOM=BOM-DEMO-1 (IT-0005), الكمية المخططة=10, مستودع الخامات=WH-MAIN, مستودع المنتجات=WH-MAIN. **Steps**: leave تاريخ الانتهاء المتوقع blank, save, **reload**. **Assert**: new order appears in list with status مخطط, stage "not_started"; scheduledEndDate stored as null (does not default to start date).
-
-### Stage machine
-
-INV-290 · **Pre**: a newly-created order at stage not_started (status مخطط). **Steps**: open its detail; read المرحلة الحالية stepper and the primary action button. **Assert**: stepper shows بدء العمل as the current step; action button reads "بدء العمل" (from `STAGE_ACTION.not_started`).
-
-INV-291 · **Pre**: same order. **Steps**: انقر the action button. **Assert**: calls `startWorkOrder`; on success status becomes قيد التنفيذ, stage becomes "started", stepper advances, and the action button now reads "صرف المواد".
-
-INV-292 · **Pre**: order at stage started. **Steps**: انقر "صرف المواد". **Assert**: calls `issueWorkOrderMaterials` directly (**no confirmation/quantity dialog** — issuing is all-or-nothing against the BOM's required quantities, unlike the catalog's described partial-issue behavior); on success stage becomes "materials_issued", action label becomes "استلام المنتج"; check the "المواد" tab — الصادرة (issued) column now reflects the full required quantity per line.
-
-INV-293 · **Pre**: order at stage materials_issued. **Steps**: انقر "استلام المنتج". **Assert**: unlike the two prior stages, this opens a SidePanel "استلام المنتج" (asks for الكمية المنتجة, prefilled to the order's plannedQty) rather than acting immediately — the only stage transition with an intermediate form.
-
-INV-294 · **Pre**: receive-product panel open, الكمية المنتجة set to 0. **Steps**: attempt "تأكيد الاستلام". **Assert**: disabled (`receiveQty <= 0`).
-
-INV-295 · **Pre**: receive-product panel, الكمية المنتجة changed to a value **less than** plannedQty (e.g. 8 of 10 planned, a partial/short receipt). **Steps**: تأكيد الاستلام. **Assert**: succeeds — receiving under the planned quantity is allowed (no minimum-equal-to-planned guard found); order's produced qty updates to 8, progress fraction reflects 8/10, stage becomes "product_received".
-
-INV-296 · **Pre**: order at stage product_received. **Steps**: انقر "إكمال أمر العمل". **Assert**: calls `completeWorkOrder`; on success status becomes مكتمل, stage "completed", the action button disappears (`STAGE_ACTION.completed === null`).
-
-INV-297 · **D3, concretely — Pre**: capture GL 1200's balance and the item's Stock Balance value for the finished product (IT-0005) immediately before INV-296. **Steps**: complete the order per INV-296 with a known material cost (e.g. BOM-DEMO-1 at qty 10 — the demo's own measured case is 80.00). **Steps (cont.)**: re-check GL 1200's balance and the finished-product's on-hand value after completion. **Assert**: the finished product's Stock Balance value **increased** by the WIP-capitalized amount (materials + labor + overhead consumed), but GL 1200 did **not** move by the same amount — the sub-ledger and GL now disagree by exactly the material cost consumed. This is defect D3; confirm the exact discrepancy amount and stop — **do not run any reconciliation-assertion scenario against this same database afterward** without first resetting it.
-
-INV-298 · **Pre**: same completed order detail. **Steps**: read the "effects" explainer text at the top of the detail page. **Assert**: it states "...وعند الإكمال تُرحَّل قيود رسملة الإنتاج تحت التشغيل تلقائياً" (on completion, WIP-capitalization journal entries are posted automatically) — **this claim is false per D3**: no such journal entry is posted to GL 1200. The UI's own copy overstates what the backend does; worth noting precisely, not filing as a second defect.
-
-INV-299 · **Pre**: any order detail, any stage. **Steps**: click tab "المواد". **Assert**: columns الصنف/المطلوبة/الصادرة/المرجعة/الصافي — no "النقص" (shortage) column was found in the code (`[NOT IMPLEMENTED]` vs. the catalog, which lists a shortage column too).
-
-INV-300 · **Pre**: same order detail. **Steps**: click tab "التكاليف". **Assert**: shows تكلفة المواد / العمالة / المصاريف / إجمالي الإنتاج تحت التشغيل as a 2×2 definition list — figures accumulate as the order progresses through material issue.
-
-INV-301 `[NOT IMPLEMENTED]` · Catalog describes an "إجراءات إضافية" card with تسجيل تكلفة (log cost, enabled early) / صرف إضافي / إرجاع مواد / تسجيل فاقد (extra issue / return materials / log waste, gated by stage), a "صفحة التنفيذ" (execution page) button, and tabs استخدام المواد / حركة المواد / الاستلامات / القيود المحاسبية / السجل. **Assert**: none exist in the build — the only actions are the single stage-advance button plus the create/receive panels; only المواد and التكاليف tabs are present. Critically, **there is no "القيود المحاسبية" (journal entries) tab anywhere on Work Orders** — confirms D3 is invisible from the UI itself, not just under-tested.
-
-INV-302 · **Pre**: header stats. **Steps**: check "متأخر" count computation. **Assert**: derived client-side as `status in {in_progress, planned} && scheduledEndDate !== null && scheduledEndDate < today()` — an order with no scheduledEndDate set (per INV-285) can never count as overdue regardless of age.
-
----
-
-## 15. قوائم المواد (BOMs) — `/manufacturing/boms`
-
-The recipe template a Work Order is built from — no stock/GL impact of its own.
-
-INV-310 · **Pre**: list loaded (BOM-DEMO-1/2 seeded). **Steps**: read stats/chips. **Assert**: الإجمالي/نشط/غير نشط.
-
-INV-311 · **Pre**: on list. **Steps**: انقر "قائمة مواد جديدة". **Assert**: SidePanel opens; picking المنتج النهائي auto-fills الوحدة to that item's base unit.
-
-INV-312 · **Pre**: create form, المنتج النهائي unselected. **Steps**: attempt "حفظ قائمة المواد". **Assert**: disabled — `canSave` requires a product plus ≥1 line with a non-blank item and qty>0.
-
-INV-313 · **Pre**: create form, product picked, all material lines left with blank items or qty=0. **Steps**: attempt save. **Assert**: disabled — `lines.some(l => l.itemId !== "" && l.qty > 0)` fails.
-
-INV-314 · **Pre**: create form. **Steps**: type a negative تكلفة العمالة or تكلفة المصاريف الإضافية. **Assert**: both NumberFields have `min={0}` — negative labor/overhead cost cannot be submitted via the spinner controls.
-
-INV-315 · **Pre**: create form, one material line, نسبة الهالك % set to 20, الكمية set to 10. **Steps**: save, open detail, check the لines tab's "الكمية بعد الهالك" column. **Assert**: shows 12.00 (`effectiveQty = qty × (1 + wastePercent/100)` = 10 × 1.20).
-
-INV-316 · **Pre**: create form, valid product + ≥1 line, "إضافة صنف" clicked to add a second material line for a different item. **Steps**: save, **reload**. **Assert**: BOM appears in list with عدد البنود=2, and both lines persist with their individual qty/waste values.
-
-INV-317 · **Pre**: BOM detail open. **Steps**: read summary. **Assert**: shows المنتج النهائي, الإصدار (starts at 1 for a first-time product), الكمية القياسية, عدد البنود, تكلفة المواد, إجمالي التكلفة, تكلفة الوحدة — all computed server-side (`bom.estimate`).
-
-INV-318 · **Pre**: BOM detail open. **Steps**: read the "effects" explainer. **Assert**: exact 3 lines — "قائمة المواد وصفة تصنيع فقط — لا تؤثر على المخزون أو الحسابات حتى يُنشأ أمر تصنيع منها.", "الكمية المطلوبة تُضخَّم تلقائياً بنسبة الهالك...", "إنشاء إصدار جديد يُلغي تنشيط الإصدار السابق (لا يُعدّله)."
-
-INV-319 · **Versioning — Pre**: an active BOM for product IT-0006 (e.g. BOM-DEMO-2, v1, نشط). **Steps**: create a **new** BOM for the same product IT-0006 (different material lines/qty) and save. **Assert**: per the effects text in INV-318, the new BOM should post as v2 نشط and the prior v1 should flip to غير نشط automatically. **Verify this actually happens** (open both BOM detail pages and check status pills / version numbers) — the effects copy is a claim about backend behavior the UI itself does not enforce or display a warning about, so confirm it rather than trusting the label.
-
-INV-320 · **Pre**: an active BOM. **Steps**: open detail, انقر "تعطيل". **Assert**: status flips غير نشط; the button disappears; a work order can no longer select this BOM (per INV-280's active-only filter).
-
-INV-321 `[NOT IMPLEMENTED]` · Catalog describes a "سجل الإصدارات" (version history) tab and "اختياري" (optional-material) checkbox per line, plus a "ملاحظات" per-line notes field. **Assert**: none exist in the build — only "بنود المواد الخام" tab is present (no version-history tab), and lines have no optional flag or per-line notes field (only item/qty/waste%).
-
-INV-322 · **Pre**: BOM detail. **Steps**: check for a "أمر عمل جديد" shortcut button on the BOM detail page (catalog describes one). **Assert**: `[NOT IMPLEMENTED]` — the build's BOM detail has no such button; creating a work order from a BOM requires going to Work Orders' own "أمر عمل جديد" form and picking the BOM there (§14, INV-280) rather than a BOM-scoped shortcut.
+#### INV-119 — Empty search / no results
+- **Steps:** ابحث برقم غير موجود.
+- **Assert:** حالة فارغة "لا توجد تحويلات مطابقة".
 
 ---
 
-## 16. التصنيع المخصص (Custom Manufacturing / Config Instances) — `/manufacturing/config-instances`
+## 7. تسويات المخزون (Stock Adjustments)
 
-Make-to-order execution layer pairing with Configurable Products (§8); each instance can auto-spawn a linked Work Order.
+Same one-click create+confirm pattern as Transfers: زر "اعتماد التسوية" ينفّذ الإنشاء
+والتأكيد معاً؛ لا مرحلة مسودة مرئية، ولا زر تأكيد منفصل.
 
-INV-330 · **Pre**: list loaded. **Steps**: read stats/chips. **Assert**: الإجمالي, مهيأة, في التنفيذ (combines `in_progress` **and** `produced` statuses in its count, matching the catalog's documented "تم الإنتاج is a sub-state of في التنفيذ"), مغلقة; a 5th chip ملغاة also filters but isn't in the KPI row.
+#### INV-120 — Header stats
+- **Pre:** 6 تسويات مزروعة، كلها مؤكدة.
+- **Steps:** افتح المخزون ← تسويات المخزون.
+- **Assert:** "إجمالي التسويات" = 6، "مسودة" = 0، "مؤكد" = 6.
 
-INV-331 · **Pre**: on list. **Steps**: انقر "أمر تصنيع مخصص جديد". **Assert**: SidePanel opens; المنتج* EntityPicker only lists **active** configurable products.
+#### INV-121 — Reason picker: all 8 cards
+- **Steps:** اضغط "تسوية جديدة".
+- **Assert:** 8 بطاقات بالترتيب: رصيد افتتاحي، تصحيح جرد، تلف، سرقة، انتهاء صلاحية، نقص / فقدان، مرتجع للمورد، أخرى — كل بطاقة بوصف سطر واحد مطابق تماماً لـ`ADJUSTMENT_REASON_DEFINITIONS` (`packages/domain/src/inventory/reasons.ts`).
 
-INV-332 · **Pre**: create form, product unselected. **Steps**: check "معاينة الاحتياجات والتكلفة" panel. **Assert**: shows "أنشئ أمرًا جديدًا باختيار منتج قابل للتهيئة وإدخال المواصفات."
+#### INV-122 — Reason "رصيد افتتاحي" → IN-only form
+- **Steps:** اختر "رصيد افتتاحي".
+- **Assert:** عنوان الصفحة يتحول "الرصيد الافتتاحي"؛ لا عمود "الاتجاه" في جدول البنود (الاتجاه IN ثابت)؛ حقل "سعر التكلفة" مفعّل (مطلوب لأي سطر IN).
 
-INV-333 · **Pre**: create form. **Steps**: pick a configurable product with 2 config inputs (e.g. width/height). **Assert**: a "المواصفات" sub-card appears with one text field per input, each labeled `{labelAr} ({min} – {max})` when min/max are set, else just `{labelAr}`.
+#### INV-123 — Reason "تلف" → OUT-only form
+- **Steps:** اختر "تلف".
+- **Assert:** لا عمود "الاتجاه"؛ حقل "سعر التكلفة" معطّل تلقائياً (الاتجاه OUT ثابت، والتكلفة تُحسب من متوسط التكلفة الحالي لا تُدخل يدوياً).
 
-INV-334 · **Pre**: create form, product picked, one spec input left blank. **Steps**: check حفظ button state. **Assert**: disabled — `canSave` requires every product input to have a non-blank spec value.
+#### INV-124 — Reason "تصحيح جرد" → EITHER, direction picker per line
+- **Steps:** اختر "تصحيح جرد".
+- **Assert:** يظهر عمود "الاتجاه" لكل سطر (زيادة/نقصان)؛ اختيار "نقصان" يعطّل حقل سعر التكلفة لذلك السطر، واختيار "زيادة" يفعّله ويطلبه.
 
-INV-335 · **Pre**: create form, product picked, all spec inputs filled with valid values. **Steps**: observe the preview panel. **Assert**: a `useEffect` auto-fires `preview.mutate` as soon as every input is non-blank (no manual "preview" button) — panel shows "جارِ الحساب…" then a live materials breakdown (item × effective qty × unit cost = line cost) plus تكلفة الوحدة and, if the product uses formula pricing, السعر المقترح.
+#### INV-125 — Line validation: qty must be > 0
+- **Steps:** اترك "الكمية" = 0 لسطر، لاحظ "اعتماد التسوية".
+- **Assert:** الزر معطّل.
 
-INV-336 · **Pre**: preview panel showing a computed breakdown. **Steps**: change one spec input value. **Assert**: preview recomputes automatically (effect re-fires on `spec` change) — no stale data lingers from the prior input.
+#### INV-126 — Line validation: IN direction requires unit cost > 0
+- **Steps:** في تسوية "أخرى"، اختر اتجاه "زيادة"، اترك "سعر التكلفة" = 0.
+- **Assert:** "اعتماد التسوية" معطّل حتى يُدخل سعر موجب.
 
-INV-337 · **Pre**: preview computation fails server-side (e.g. formula references an out-of-bounds input value). **Steps**: observe panel. **Assert**: shows the server's error message directly (`preview.error.message`) in red, in place of the breakdown.
+#### INV-127 — Add / remove line, minimum one line
+- **Steps:** أضف سطرين، احذف واحداً، حاول حذف السطر الأخير المتبقي.
+- **Assert:** لا يمكن حذف آخر سطر.
 
-INV-338 · **Pre**: create form, product+specs valid. **Steps**: leave سعر البيع (للوحدة) blank, leave العميل at "بدون عميل", fill مستودع الخامات and مستودع المنتجات, save. **Assert**: sellUnitPrice submits as null (product's own pricing formula/manual price governs instead); order created with status مهيأة (configured).
+#### INV-128 — Effects panel text — direction-dependent
+- **Steps:** أنشئ تسوية بسطر واحد اتجاهه "زيادة"، لاحظ بطاقة "تأثيرات هذه التسوية".
+- **Assert:** "ارتفعت قيمة المخزون حسب بنود التسوية"؛ لو كان الاتجاه "نقصان" يظهر "انخفضت قيمة المخزون..." بدلاً منها. في الحالتين: "لا تأثير على المورد أو العميل" و"ينشئ قيداً محاسبياً موازناً عند وجود فرق قيمة" (**هذا السطر الثالث مضلل لغير INITIAL_STOCK — راجع INV-133**).
 
-INV-339 · **Pre**: create form, sourceWarehouse or destinationWarehouse left unpicked. **Steps**: attempt save. **Assert**: disabled — both are required per `canSave`.
+#### INV-129 — Opening balance full round-trip + GL check (D2's positive case)
+- **Steps:** أنشئ تسوية "رصيد افتتاحي" لصنف جديد أو موجود، مستودع WH-MAIN، كمية 50، سعر تكلفة 20، اضغط "اعتماد التسوية"، افتح التفاصيل ← تبويب "المحاسبة".
+- **Assert:** التسوية تظهر مؤكدة فوراً؛ تبويب "المحاسبة" يعرض قيداً بمدين "المخزون — 1200" 1000.00 ودائن "رأس مال الملاك — 3100" 1000.00 (50 × 20).
 
-INV-340 · **Pre**: create form, الكمية set to 0. **Steps**: attempt save. **Assert**: disabled — `qty > 0` required.
+#### INV-130 — Existing DAMAGE adjustment: GL tab shows D2-pattern gap
+- **Pre:** ADJ-DEMO-2 (DAMAGE, OUT 6× ITEM-DEMO-2).
+- **Steps:** افتح ADJ-DEMO-2 ← تبويب "المحاسبة".
+- **Assert:** "لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة)." — رغم أن التسوية غيّرت الكمية والقيمة فعلياً. هذا نفس آلية D2 (`adjustmentGlAccountsForReason` تُرجع `null` لأي سبب غير `INITIAL_STOCK`)، وليس حالة استثنائية.
 
-INV-341 · **Pre**: valid order created. **Steps**: open its detail. **Assert**: summary shows المنتج, العميل ("بدون عميل" if none), الكمية, المواصفات (rendered as `key=value | key=value`), إجمالي البيع, هامش الربح (colored danger if negative, success if positive — computed client-side as sellTotal − actualCost, falling back to estimatedUnitCost×qty when actualCost is still null).
+#### INV-131 — Existing OTHER adjustment: same gap
+- **Pre:** ADJ-DEMO-3 (OTHER, IN 18× ITEM-DEMO-3 @ 31).
+- **Steps:** افتح تبويب "المحاسبة".
+- **Assert:** نفس رسالة "لا يوجد قيد محاسبي..." رغم أن هذه تسوية IN بقيمة موجبة واضحة (18 × 31 = 558.00) ظاهرة في تبويب "بنود التسوية".
 
-INV-342 · **Pre**: same detail. **Steps**: read the "effects" explainer. **Assert**: "يُنشأ أمر تصنيع (Work Order) مرتبط تلقائياً عند إنشاء أمر التصنيع المخصص..." and "عند إغلاق الأمر تُحفظ التكلفة الفعلية من أمر التشغيل المرتبط." — confirm a real linked Work Order id shows on the "التكلفة الفعلية" tab (أمر التشغيل row) and that it is genuinely a separate, navigable Work Order record (cross-check on §14's list).
+#### INV-132 — Existing EXPIRY adjustment: same gap
+- **Pre:** ADJ-DEMO-4 (EXPIRY, OUT 20× ITEM-DEMO-8).
+- **Steps:** افتح تبويب "المحاسبة".
+- **Assert:** نفس الرسالة.
 
-INV-343 · **Pre**: order detail, status not yet closed/cancelled. **Steps**: انقر "إغلاق الأمر". **Assert**: calls `closeConfigInstance`; on success status becomes مغلقة, actual cost pulled from the linked work order populates "التكلفة الفعلية" (no longer "—"), and both الإغلاق/الإلغاء buttons disappear (only shown while `canAct`).
+#### INV-133 — PHYSICAL_COUNT-generated adjustments: D2 itself
+- **Pre:** ADJ-DEMO-5 وADJ-DEMO-6 (مولّدتان من PC-DEMO-1/PC-DEMO-2 على نفس الصنف بنفس الكمية باتجاهين متعاكسين).
+- **Steps:** افتح كل تسوية على حدة ← تبويب "المحاسبة".
+- **Assert:** كلتاهما "لا يوجد قيد محاسبي..." — هذا هو D2 حرفياً. لاحظ أن صافي قيمتهما معاً = صفر بسبب تصميم البيانات المزروعة (نفس الصنف، نفس الكمية، اتجاه معاكس) — **هذا لا يثبت أن المسار آمن**، فقط أن البيانات المزروعة تتجنبه. أنشئ تسوية PHYSICAL_COUNT بقيمة صافية غير صفرية (وليس عبر شاشة الجرد الفعلي، بل مباشرة من "تسوية جديدة" ← "تصحيح جرد") لإثبات أن الفجوة تدفع مخزون فرعي غير متطابق مع حساب 1200 لأي مبلغ غير صفري.
 
-INV-344 · **Pre**: order detail, open. **Steps**: انقر "إلغاء" instead. **Assert**: status becomes ملغاة; same button-disappearance behavior.
+#### INV-134 — Bench: lines tab shows before/change/after — `[partial vs. catalog]`
+- **Steps:** افتح أي تسوية ← تبويب "بنود التسوية".
+- **Assert:** الأعمدة الفعلية: الصنف، الاتجاه، الكمية، سعر التكلفة، القيمة. **`[NOT IMPLEMENTED]`**: لا عمودي "قبل" و"بعد" الكمية كما يصف الكتالوج — فقط الكمية المتحركة نفسها، لا الرصيد قبل/بعد.
 
-INV-345 · **Pre**: closing/cancelling fails server-side. **Steps**: attempt either action. **Assert**: an alert banner renders above the detail ("تعذّر إغلاق الأمر."/"تعذّر إلغاء الأمر.") without navigating away; instance stays actionable for retry.
+#### INV-135 — Confirmed-adjustment cannot-cancel notice
+- **Steps:** افتح أي تسوية مؤكدة.
+- **Assert:** نص "لا يمكن إلغاء تسوية مؤكدة — ... لعكس الأثر، أنشئ تسوية جديدة بالاتجاه المعاكس."
 
-INV-346 · **Pre**: order detail. **Steps**: click tab "الخامات المطلوبة (N)". **Assert**: table الصنف/الكمية (للوحدة)/نسبة الهالك/الإجمالي.
+#### INV-136 — Detail: only 2 tabs — `[NOT IMPLEMENTED]`
+- **Assert:** لا تبويبي "المرفقات" أو "سجل التدقيق" كما يصف الكتالوج — فقط "بنود التسوية" و"المحاسبة".
 
-INV-347 · **Pre**: order detail. **Steps**: click tab "التكلفة الفعلية". **Assert**: shows تكلفة المواد/العمالة/المصاريف (all per-unit), التكلفة التقديرية (للوحدة), التكلفة الفعلية ("—" until closed), أمر التشغيل (linked WO id).
+#### INV-137 — `[NOT IMPLEMENTED]` no opening-balance shortcut from Items
+- **Steps:** ابحث في شاشة الأصناف عن زر "تحديد الرصيد الافتتاحي" على صف صنف برصيد صفري كما يصف الكتالوج.
+- **Assert:** غير موجود (راجع INV-048) — المسار الوحيد لرصيد افتتاحي هو بطاقة "رصيد افتتاحي" في منتقي الأسباب مباشرة.
 
-INV-348 `[NOT IMPLEMENTED]` · Catalog describes list row quick-action "أمر التشغيل" jumping directly to the linked work order, and a kebab menu with عرض. **Assert**: neither exists on this build's list — rows have no menu and no per-row jump-to-WO shortcut; reaching the linked work order requires opening the instance detail first and separately navigating to Work Orders (§14) with the id read from the "التكلفة الفعلية" tab (INV-347) — there is no clickable link on that id either, it's plain text.
+#### INV-138 — Warehouse / reason filters
+- **Steps:** لاحظ عمود "المستودع / السبب" لكل صف، ابحث برقم التسوية.
+- **Assert:** كل صف يعرض "اسم المستودع — تسمية السبب"، مثال "مستودع الفرع الرئيسي — تلف".
 
-INV-349 · **Pre**: list search. **Steps**: search by order number, product name, and customer name in turn. **Assert**: all three match per the `filtered` predicate.
+#### INV-139 — Cancel discards draft
+- **Steps:** ادخل منتقي الأسباب، اختر سبباً، عبّئ سطراً، اضغط "رجوع" ثم "إلغاء".
+- **Assert:** لا طلب شبكة؛ العودة لقائمة التسويات.
 
 ---
 
-## 17. سيناريوهات عابرة للشاشات (Cross-cutting)
+## 8. الجرد الفعلي (Physical Counts)
 
-INV-360 · **Reconciliation baseline — Pre**: a fresh demo-seeded database, no additional actions taken (i.e. before running any D2/D3-triggering scenario above). **Steps**: total the inventory sub-ledger (sum of Stock Balance's "القيمة الإجمالية" across all items) and compare to GL account 1200's balance. **Assert**: the two figures match exactly — this is the documented baseline the task brief asserts ("The inventory sub-ledger reconciles to GL 1200 exactly on seeded data"). Run this **first**, before any other scenario in this file that posts adjustments/completes work orders, so a later mismatch can be attributed to a specific scenario rather than pre-existing drift.
+Fully implemented — the catalog's read-only pass never reached a filled session; this
+build's is real end-to-end.
 
-INV-361 · **Transfer neutrality, company-wide — Pre**: baseline value from INV-360. **Steps**: perform any confirmed transfer (§5). **Assert**: reconciliation from INV-360 still holds exactly — transfers must never move the sub-ledger/GL relationship, only redistribute value between warehouses.
+#### INV-140 — Header stats
+- **Pre:** PC-DEMO-1/2 مكتملتان بتسوية مولّدة، PC-DEMO-3 قيد التنفيذ.
+- **Steps:** افتح المخزون ← الجرد الفعلي.
+- **Assert:** "إجمالي عمليات الجرد" = 3، "قيد التنفيذ" = 1، "مكتمل" = 0 (كلتا PC-DEMO-1/2 انتقلتا لحالة "تم إنشاء التسوية" وليس "مكتمل" بعد توليد التسوية)، "تم إنشاء التسوية" = 2.
 
-INV-362 · **Adjustment reconciliation break — Pre**: baseline value from INV-360 (re-run after INV-361 if that scenario ran). **Steps**: confirm any Stock Adjustment whose reason is **not** `رصيد افتتاحي` (§6). **Assert**: the sub-ledger total changes by the adjustment's value, GL 1200 does not — reconciliation now shows a gap equal to that adjustment's value. This is D2's general form (INV-136); confirm and record the gap amount, then treat the database as dirty for further reconciliation scenarios.
+#### INV-141 — Status chip "تم إنشاء التسوية"
+- **Steps:** اضغط الشريحة.
+- **Assert:** صفان (PC-DEMO-1/2).
 
-INV-363 · **Work order reconciliation break — Pre**: a clean/reset database (do not chain onto INV-362's already-dirty state, to keep the measured gap attributable). **Steps**: complete any work order through all 4 stages (§14, INV-290–296). **Assert**: reconciliation breaks by exactly the material cost consumed (D3, INV-297) — record the gap, then discard/reset this database rather than continuing further scenarios against it.
+#### INV-142 — Variance column shows "جرد أعمى" for blind, in-progress session
+- **Pre:** PC-DEMO-3 (أعمى، قيد التنفيذ).
+- **Steps:** لاحظ عمود "صافي قيمة الفرق" لصف PC-DEMO-3.
+- **Assert:** نص "جرد أعمى" بدل أي رقم — لا فرق محسوب أو ظاهر قبل الإنهاء.
 
-INV-364 · **FEFO — earliest-expiry-first, even when received last — Pre**: IT-0007 (لبن كامل الدسم) has two batches from the seed: `MLK-2607` (received 2026-07-28, expires 2026-10-20, qty 150, cost 27) and `MLK-2708` (received **later**, 2026-08-06, but expires **earlier**, 2026-09-05, qty 100, cost 29). **Steps**: create and confirm a Stock Adjustment (§6) with reason "نقص / فقدان" (or "أخرى"/OUT direction), item IT-0007, warehouse matching where these batches sit, quantity ≤100 (so it fits inside the smaller/earlier-expiring batch alone). **Assert**: open the confirmed adjustment's "بنود التسوية" tab and read سعر التكلفة for that line — it should read **29.00** (MLK-2708's cost), not 27.00 (MLK-2607's cost) — proving the engine consumed the earliest-expiring batch first even though it was received second. This is the only UI-observable way to verify FEFO in this build: **there is no batch/lot visibility screen anywhere** (no cost-layers tab on Items — INV-066 — no batch column on Stock Balance — INV-094 — no batch picker on Transfers/Adjustments lines), so batch selection is entirely implicit in the server-computed unit cost shown after confirmation.
+#### INV-143 — New count dialog: warehouse required, item count preview
+- **Steps:** اضغط "جرد جديد"، اختر مستودعاً.
+- **Assert:** نص "سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية (N صنف)." يتحدث حسب عدد الأصناف ذات رصيد ≠ صفر في ذلك المستودع؛ زر "إضافة" معطّل إن كان N = 0.
 
-INV-365 · **FEFO — spillover across batches — Pre**: same item, but issue a quantity **greater than** the smaller/earlier-expiring batch (e.g. 130 of the 100-qty MLK-2708). **Steps**: confirm an OUT adjustment for qty 130. **Assert**: the resulting line's سعر التكلفة reflects a blended cost across both batches (100 units at 29.00 from MLK-2708, then 30 units at 27.00 from MLK-2607) rather than a single flat rate — confirms FEFO correctly spills over to the next-earliest-expiring batch once the first is exhausted, not just "always cheapest" or "always first-created."
+#### INV-144 — Blind toggle hint text
+- **Steps:** فعّل مفتاح "جرد أعمى".
+- **Assert:** نص التلميح: "يُخفي كميات النظام عن القائم بالجرد حتى إنهاء الجلسة — الرصيد يُلتقط عند الفتح في الحالتين."
 
-INV-366 · **Pure FIFO for non-expiry items — Pre**: choose a plain, non-batch-tracked item with two purchase receipts at different unit costs and dates (e.g. IT-0001 أرز أبيض, purchased at 140 on 2026-07-06 — check for a second, later receipt at a different cost if the seed has one; if not, create one via an IN-direction adjustment at a distinct cost before running this scenario). **Steps**: issue a quantity that only partially drains the first (earliest-received) cost layer via an OUT adjustment. **Assert**: the consumed unit cost matches the **earliest-received** layer's cost (pure FIFO by receipt order, since there is no expiry date to override it) — contrast directly with INV-364/365, where expiry date overrides receipt order.
+#### INV-145 — Blind counting genuinely hides system quantity — positive proof
+- **Pre:** PC-DEMO-3 (أعمى، قيد التنفيذ، سطر ITEM-DEMO-3 لم يُعدّ بعد).
+- **Steps:** افتح PC-DEMO-3 (زر "متابعة الجرد" من تفاصيلها، أو مباشرة إن كانت الجلسة النشطة).
+- **Assert:** بانر "جرد أعمى — كميات النظام والفروقات مخفية حتى إنهاء الجرد."؛ عمودا "النظام" و"الفرق" **غير موجودين إطلاقاً** في الجدول (لا يُعرضان مموّهين — العمود نفسه غير مُصيَّر عند `blindOpen`)؛ العمود الوحيد الظاهر بجانب الصنف هو "المعدود". هذا يثبت أن الميزة تعمل كما ينبغي — لو ظهر أي رقم نظام هنا، فتلك هي الميزة وهي تفشل.
 
-INV-367 · **Blind counting integrity — Pre**: none. **Steps**: re-run INV-155 and additionally attempt to derive the system quantity indirectly during a blind count — e.g. open a second browser tab to Stock Balance (§4) while the blind count is قيد التنفيذ. **Assert**: Stock Balance (a separate, always-visible screen) **does** still show the live system quantity — blindness is scoped to the count-entry grid's own columns only, not a tenant-wide freeze of stock visibility. This is expected (the catalog/brief's "blind counting must hide the system quantity **while counting**" refers to the count session's own UI, not every other screen) — write this down as confirmed-expected, not a leak, but flag it explicitly so nobody mistakes Stock Balance's normal visibility for a blind-count bypass bug.
+#### INV-146 — Blind count: counted input starts blank/zero, not pre-biased
+- **Steps:** لاحظ القيمة الابتدائية لحقل "المعدود" لسطر لم يُعدّ بعد ضمن PC-DEMO-3.
+- **Assert:** القيمة الابتدائية "0" (`count.blind ? "0" : systemQty`) — لا تحيّز نحو رقم النظام، خلافاً لجلسة غير عمياء (راجع INV-147).
 
-INV-368 · **Label barcode scan-check — Pre**: an item with barcode "6221234567890" queued in Label Printing (§10, INV-221). **Steps**: export/screenshot the rendered SVG tile and decode it with a real Code 128 reader (or a barcode-decoding library) against the source string. **Assert**: the decoded value exactly matches "6221234567890" — the SVG is not merely barcode-*shaped* decoration, it is a correctly-encoded, scannable Code 128 symbol for the real item barcode, per `bwipjs.toSVG`'s Code 128 encoder.
+#### INV-147 — Non-blind count: counted input pre-filled with system qty — worth flagging
+- **Pre:** أنشئ جرداً غير أعمى جديداً.
+- **Steps:** ابدأ الجرد، لاحظ القيمة الابتدائية لحقل "المعدود" لأي سطر.
+- **Assert:** الحقل معبأ مسبقاً بكمية النظام نفسها (`l.systemQty`) — القائم بالجرد يرى الرقم المتوقع منذ اللحظة الأولى حتى في جرد "ظاهر" عادي؛ هذا سلوك مقصود لغير الأعمى لكنه يستحق الإشارة له كفرق تصميم واضح عن الجرد الأعمى.
 
-INV-369 · **Reason-picker completeness — Pre**: none. **Steps**: open the Stock Adjustments reason picker (§6, INV-121) and count the cards. **Assert**: exactly 8 cards render, in the exact order and wording transcribed in `packages/domain/src/inventory/reasons.ts` (رصيد افتتاحي, تصحيح جرد, تلف, سرقة, انتهاء صلاحية, نقص / فقدان, مرتجع للمورد, أخرى) — matches the catalog's documented reason list verbatim; this is one of the very few areas where the build's data model is a *complete* match to the reference product rather than a reduced subset.
+#### INV-148 — "إنهاء الجرد" disabled until every line has a valid quantity
+- **Pre:** PC-DEMO-3، سطر ITEM-DEMO-3 فارغ.
+- **Steps:** لاحظ زر "إنهاء الجرد".
+- **Assert:** معطّل (`!allCounted`) حتى تُدخل قيمة رقمية صالحة لكل سطر، بما فيها ITEM-DEMO-3.
+
+#### INV-149 — "حفظ ومتابعة لاحقاً" pauses without completing
+- **Steps:** أدخل بعض القيم في جلسة جرد نشطة، اضغط "حفظ ومتابعة لاحقاً".
+- **Assert:** يعود لقائمة الجرد؛ حالة الجرد تبقى "قيد التنفيذ"؛ القيم المُدخلة **لا تُحفظ للخادم** (لا استدعاء `recordPhysicalCounts` عند هذا الزر — فقط `onDone()` محلي) — عند العودة لاحقاً عبر "متابعة الجرد" تُعاد تعبئة الحقول من قيم النظام/الفارغة الأصلية، وليس مما كُتب سابقاً. سجّل هذا كخلل محتمل عند التنفيذ (فقدان تقدّم الجرد الجزئي).
+
+#### INV-150 — Complete a fresh (non-blind) count end to end
+- **Pre:** جرد جديد على WH-MAIN لأصناف معروفة الكمية.
+- **Steps:** أدخل كميات معدودة تختلف عن كمية النظام لسطر واحد على الأقل (زيادة 3 وحدات)، اضغط "إنهاء الجرد".
+- **Assert:** الحالة تتحول "مكتمل"؛ التفاصيل تعرض "أصناف بها فروقات" ≥ 1، "قيمة الزيادة" > 0، "صافي قيمة الفرق" موجب.
+
+#### INV-151 — Generate adjustment from a completed count
+- **Pre:** من INV-150 (الحالة "مكتمل").
+- **Steps:** من تفاصيل الجرد، اضغط "توليد تسوية".
+- **Assert:** الحالة تتحول "تم إنشاء التسوية"؛ حقل "التسوية الناتجة" يتحول من "—" إلى "تم إنشاؤها"؛ التسوية الجديدة تظهر في شاشة تسويات المخزون بسبب "تصحيح جرد"، وتبويب "المحاسبة" لها يعرض نفس فجوة D2 (لا قيد) إن كانت قيمتها الصافية غير صفرية — راجع INV-133.
+
+#### INV-152 — PC-DEMO-1 / PC-DEMO-2 concrete cross-warehouse variance
+- **Pre:** PC-DEMO-1 (الرئيسي) أنقص ITEM-DEMO-2 بمقدار 4 عن النظام؛ PC-DEMO-2 (الجيزة) أزاد نفس الصنف بنفس المقدار.
+- **Steps:** افتح تفاصيل PC-DEMO-1 ثم PC-DEMO-2.
+- **Assert:** PC-DEMO-1: "قيمة العجز" > 0، "صافي قيمة الفرق" سالب. PC-DEMO-2: "قيمة الزيادة" > 0، "صافي قيمة الفرق" موجب، بنفس القيمة المطلقة تقريباً (نفس الصنف، نفس الكمية، ومتوسط تكلفة الجيزة يساوي متوسط تكلفة الرئيسي وقت الجرد لأن كل مخزون الجيزة من هذا الصنف جاء من TRF-DEMO-1 بلا إعادة توسيط منذ ذلك الحين).
+
+#### INV-153 — Resume an in-progress count from detail
+- **Pre:** PC-DEMO-3 (قيد التنفيذ).
+- **Steps:** افتح تفاصيل PC-DEMO-3، اضغط "متابعة الجرد".
+- **Assert:** يعود لشاشة إدخال الجرد بنفس القيم المسجلة (ITEM-DEMO-7/8 المعدودتان مسبقاً، ITEM-DEMO-3 فارغة).
+
+#### INV-154 — Cancel/empty search
+- **Steps:** ابحث برقم جرد غير موجود.
+- **Assert:** حالة فارغة (النص الفعلي هو رسالة الخطأ إن فشل الطلب، أو "لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام" إن كانت القائمة فارغة أصلاً؛ هنا فقط لا نتائج بحث فتُستخدم قائمة `filtered` الفارغة بنفس مكوّن الحالة الفارغة).
+
+#### INV-155 — Warehouse filter / date range — `[NOT IMPLEMENTED]`
+- **Assert:** لا فلتر مستودع ولا نطاق تاريخ في هذه الشاشة رغم أن الكتالوج يذكرهما ("Filters: المستودع، من/إلى تاريخ") — فقط شرائح الحالة والبحث بالرقم.
 
 ---
 
-## Summary of `[NOT IMPLEMENTED]` gaps (catalog → build)
+## 9. طباعة الملصقات (Label Printing)
 
-Grouped by screen, for quick reference — each also appears inline above as its
-own scenario:
+Stateless single-page builder; barcode rendering verified real (Code128 SVG via
+`bwip-js`), not placeholder text.
 
-- **Items**: no image upload, primary-supplier/season fields, POS-visibility
-  toggle, kitchen-waste toggle, description field, inline category/brand
-  creation; item type is a 2-option dropdown (منتج/خدمة) not the catalog's
-  6-type button group; no cost-layers table, no landed-cost log, no
-  attachments tab, no audit-log tab; no row kebab menu (edit icon only), no
-  opening-balance shortcut, no "تصنيفات الأصناف" management dialog, no
-  detail-page quick actions or more-menu; no low-stock/out-of-stock filter
-  chips or attention banner; no price-range filters or hide-variants
-  checkbox; no page-size selector (fixed at 5/page).
-- **Stock Balance**: no filter chips/panel/attention banner, no reorder-point
-  column.
-- **Stock Transfers**: no draft-then-confirm two-step flow (auto-confirms on
-  save); no attention banner; no available-stock column; no Excel import; no
-  attachments/audit-log tabs.
-- **Stock Adjustments**: no opening-balance deep link from Items; GL posting
-  exists for only 1 of 8 reasons (D2, confirmed not re-filed).
-- **Physical Counts**: matches the catalog closely; D2 applies to its
-  generated adjustments.
-- **Configurable Products**: no list-row quick-create-order action, no
-  Arabic-label field, no product-type selector.
-- **Product Templates**: no attribute-in-use delete guard, no select-all on
-  variant generation, no per-combination price/cost/barcode preview columns,
-  no alternate-units editor, no per-template نشط/غير نشط stat breakdown.
-- **Label Printing**: no by-document mode (item mode only).
-- **Work Orders**: no row kebab menu (no duplicate, no cancel anywhere in the
-  build), no partial-issue dialog, no "صفحة التنفيذ", no
-  extra-issue/return-materials/log-waste actions, no
-  استخدام المواد/حركة المواد/الاستلامات/القيود المحاسبية/السجل tabs — **no GL
-  tab at all**, which is why D3 is invisible from the UI; no shortage ("النقص")
-  column on the materials tab; no overdue filter chip.
-- **BOMs**: no version-history tab, no per-line optional/notes fields, no
-  BOM-scoped "new work order" shortcut.
-- **Custom Manufacturing**: no row kebab menu, no list-row jump-to-linked-WO
-  shortcut.
-- **Inventory Hub**: no workspace tile grid, no recent-movements panel.
+#### INV-156 — Disclaimer banner
+- **Steps:** افتح المخزون ← طباعة الملصقات.
+- **Assert:** "السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر."
 
-No `[NOT IMPLEMENTED]` markers apply to **Item Specifications** or **Inventory
-Writedowns** — both are build-only additions absent from the catalog
-entirely, documented here on their own terms.
+#### INV-157 — `[NOT IMPLEMENTED]` no item/document mode toggle
+- **Steps:** ابحث عن مبدّل "صنف / مستند" كما يصف الكتالوج.
+- **Assert:** غير موجود — الشاشة في وضع "صنف" فقط دائماً.
+
+#### INV-158 — Add item populates table row from live item data
+- **Steps:** ابحث عن "أرز أبيض" في "إضافة صنف"، اخترها.
+- **Assert:** سطر جديد بالاسم/الكود/الباركود (`item.barcodes[0] ?? item.code`، هنا الكود "IT-0001" لأن الصنف بلا باركود مسجل)/السعر المطبوع (سعر البيع الحالي 180.00)/عدد النسخ = 1 افتراضياً.
+
+#### INV-159 — Already-added items excluded from picker
+- **Pre:** من INV-158.
+- **Steps:** افتح "إضافة صنف" مجدداً.
+- **Assert:** "أرز أبيض ٥ كجم" لم تعد ضمن الخيارات.
+
+#### INV-160 — Copies QtyInput bounds
+- **Steps:** غيّر "عدد النسخ" لسطر إلى 0 ثم 1000.
+- **Assert:** الحقل يفرض `min=1, max=999` — لا يقبل قيمة أقل من 1 ولا أكبر من 999.
+
+#### INV-161 — Remove line
+- **Steps:** اضغط "إزالة" على سطر.
+- **Assert:** يختفي من الجدول؛ الإجمالي "N ملصق" يتحدث.
+
+#### INV-162 — Template dropdown default + switch
+- **Steps:** لاحظ "قالب الملصق" الافتراضي، ثم غيّره.
+- **Assert:** الخيارات الثلاثة بنصها الحرفي: "ملصق حراري — 40×30mm" (افتراضي)، "ملصق رف — 50×25mm"، "ملصق منتج — 100×50mm"؛ تغيير القالب يعيد رسم "معاينة الملصق" بأبعاد جديدة فوراً.
+
+#### INV-163 — Barcode-too-long warning appears and clears
+- **Pre:** أضف باركوداً طويلاً (25+ خانة) لصنف عبر شاشة الأصناف أولاً (راجع INV-028)، مثال `1234567890123456789012345`.
+- **Steps:** في طباعة الملصقات، أضف ذلك الصنف مع القالب الافتراضي "ملصق حراري — 40×30mm" (العرض 40mm؛ الحد الأقصى لعدد خانات باركود يناسبه ≈ 22 خانة عند 1.5mm/خانة + هامش 6mm).
+- **Assert:** تحذير أحمر تحت قيمة الباركود بنص "الباركود لا يناسب هذا القالب"؛ زر "معاينة وطباعة" معطّل (`hasBlockingIssues`).
+
+#### INV-164 — Switching to a bigger template clears the warning
+- **Pre:** من INV-163.
+- **Steps:** غيّر القالب إلى "ملصق منتج — 100×50mm" (العرض 100mm يستوعب حتى ≈62 خانة).
+- **Assert:** التحذير يختفي؛ "معاينة وطباعة" يصبح مفعّلاً (إن لم يوجد سطر آخر معطِّل).
+
+#### INV-165 — Print button disabled with zero items
+- **Steps:** أزل كل الأصناف من الجدول.
+- **Assert:** "معاينة وطباعة" معطّل؛ صف الجدول يعرض "لم تتم إضافة أي صنف بعد."
+
+#### INV-166 — Running total sums copies across lines
+- **Steps:** أضف صنفين بعدد نسخ 3 و5.
+- **Assert:** "الإجمالي: 8 ملصق".
+
+#### INV-167 — Live preview renders real Code128 SVG barcode
+- **Pre:** صنف بباركود صالح مضاف للجدول.
+- **Steps:** لاحظ لوحة "معاينة الملصق" أسفل الصفحة.
+- **Assert:** بلاطة المعاينة تحتوي عنصر SVG حقيقي مُدرج عبر `bwip-js` (`bcid: "code128"`) — وليس نصاً بديلاً أو صورة ثابتة؛ يمكن مسحه ضوئياً بقارئ Code 128 حقيقي. يظهر اسم الصنف فوقه (مقصوص RTL) والكود والسعر أسفله.
+
+#### INV-168 — Preview shows at most 6 tiles
+- **Steps:** أضف 8 أصناف.
+- **Assert:** لوحة المعاينة تعرض أول 6 فقط (`lines.slice(0, 6)`)؛ ورقة الطباعة الفعلية (`.mz-print-sheet`, مخفية إلا عند الطباعة) تحتوي كل النسخ من كل الأصناف الثمانية.
+
+#### INV-169 — Print triggers real `window.print()`
+- **Steps:** مع سطر واحد صالح، اضغط "معاينة وطباعة".
+- **Assert:** يُستدعى `window.print()` مباشرة — لا خطوة "معاينة" منفصلة رغم اسم الزر؛ `@page` تُضبط ديناميكياً بأبعاد القالب المختار (مم).
+
+---
+
+## 10. هبوط قيمة المخزون (Writedown Runs)
+
+`[NOT IN CATALOG]` — build-only feature. Monthly batch: Dr 5060 (مصروف هبوط القيمة) /
+Cr 1190 (مخصص هبوط — عكس أصل)، منفصل تماماً عن حساب المخزون 1200 ولا يمسّ متوسط
+التكلفة المسجل.
+
+#### INV-170 — Header stats + existing posted run
+- **Pre:** عملية واحدة مزروعة، فترة `2026-08`، مرحّلة.
+- **Steps:** افتح المخزون ← هبوط قيمة المخزون.
+- **Assert:** "إجمالي العمليات" = 1، "مسودة" = 0، "مرحل" = 1.
+
+#### INV-171 — Status chip "مرحل"
+- **Steps:** اضغط الشريحة.
+- **Assert:** الصف الوحيد يظهر.
+
+#### INV-172 — Detail: period, warehouse, total, journal link
+- **Steps:** افتح الصف المرحّل.
+- **Assert:** "الفترة" = 2026-08، "المستودع" = "كل المستودعات" (لم يُحدَّد مستودع عند الإنشاء)، "تاريخ الترحيل" ≠ "—"، "قيد اليومية" يظهر معرّفاً حقيقياً.
+
+#### INV-173 — Detail line table shows raw item id — `[NOT IMPLEMENTED gap]`
+- **Steps:** لاحظ عمود "الصنف" في جدول "تفاصيل البنود".
+- **Assert:** يعرض `itemId` الخام (مثال "ITEM-DEMO-6") **وليس** اسم الصنف بالعربية — لا استدعاء لخريطة تسمية هنا، خلافاً لكل شاشة أخرى في هذا الملف.
+
+#### INV-174 — Detail line: aging days and rate for ITEM-DEMO-6
+- **Pre:** ITEM-DEMO-6 استُلم 2026-02-15، تجاوز عتبة 180 يوماً بحلول أغسطس 2026 ولم يتحرك منذ ذلك الحين.
+- **Steps:** لاحظ سطر ITEM-DEMO-6.
+- **Assert:** "أيام التقادم" > 180؛ "نسبة المخصص" > 0%؛ "المبلغ" > 0.
+
+#### INV-175 — Create: year/month bounds validation
+- **Steps:** اضغط "تشغيل عملية جديدة"، اكتب سنة خارج 2000–2100 (مثال 1999)، اضغط "تشغيل".
+- **Assert:** خطأ "السنة غير صحيحة."
+
+#### INV-176 — Create: month bounds validation
+- **Steps:** اكتب شهراً = 13.
+- **Assert:** خطأ "الشهر يجب أن يكون بين 1 و12."
+
+#### INV-177 — Create: defaults to current period
+- **Steps:** افتح "تشغيل عملية جديدة" دون تعديل.
+- **Assert:** السنة/الشهر معبآن تلقائياً بالسنة/الشهر الحاليين.
+
+#### INV-178 — Create: warehouse optional, defaults "كل المستودعات"
+- **Steps:** لاحظ حقل "المستودع".
+- **Assert:** الخيار الافتراضي "كل المستودعات"؛ يمكن تحديد مستودع واحد صراحة.
+
+#### INV-179 — Create a new draft run for a different period + reload
+- **Steps:** أنشئ عملية لفترة `2026-07` (شهر لم يُشغَّل بعد)، احفظ ("تشغيل")، أعد تحميل الصفحة.
+- **Assert:** صف جديد بحالة "مسودة"؛ "إجمالي العمليات" = 2، "مسودة" = 1.
+
+#### INV-180 — Post a draft run — per-row pending state
+- **Pre:** من INV-179 (مسودة موجودة).
+- **Steps:** اضغط "ترحيل" على صف المسودة الجديدة فقط.
+- **Assert:** أثناء التنفيذ يظهر النص "جارٍ الترحيل..." **على هذا الصف فقط** — لا تعطيل لبقية الصفوف (نمط pending صحيح لكل عنصر على حدة)؛ بعد النجاح تتحول الحالة "مرحل" ويظهر معرّف قيد اليومية بدل زر "ترحيل".
+
+#### INV-181 — Post error surfaces without disabling other rows
+- **Pre:** حاكِ فشل `POST .../post`.
+- **Steps:** اضغط "ترحيل" على صف مسودة.
+- **Assert:** بطاقة خطأ منفصلة أعلى القائمة (`postError`)؛ الصف يعود لحالة قابلة لإعادة المحاولة (`postingId` يُصفَّر في `finally`)؛ صفوف أخرى غير متأثرة.
+
+#### INV-182 — Empty state
+- **Pre:** حاكِ تينانت بلا أي عملية.
+- **Steps:** افتح الشاشة.
+- **Assert:** "لا توجد عمليات هبوط قيمة — لم يتم تشغيل أي عملية بعد".
+
+#### INV-183 — Reconciliation note: write-down never touches 1200/WAC
+- **Steps:** لاحظ وصف الشاشة أسفل العنوان.
+- **Assert:** "...تُنشئ مخصصاً محاسبياً (مدين مصروف / دائن مخصص هبوط) للأصناف بطيئة الحركة — دون المساس بتكلفة المخزون المسجلة." — أي أن هذه العملية لا يجب أن تُحدث أي فرق في مطابقة حساب المخزون 1200 (تذهب لحسابي 5060/1190 بدلاً منه)؛ تحقق من أرصدة المخزون لـITEM-DEMO-6 قبل وبعد ترحيل العملية المزروعة — "متوسط التكلفة" و"القيمة الإجمالية" في شاشة أرصدة المخزون يجب ألا يتغيرا بسبب هذه العملية.
+
+---
+
+## 11. أوامر التصنيع (Work Orders)
+
+Row click opens the WO's own detail directly (fixes the catalog's documented "clicking
+opens the item, not the WO" outlier). No kebab menu anywhere — so catalog actions
+(تكرار/إلغاء أمر التصنيع) have **no button to click** in this build.
+
+#### INV-184 — KPI strip and status chips
+- **Pre:** WO-DEMO-1 (مخطط)، WO-DEMO-2 (قيد التنفيذ، بدأ)، WO-DEMO-3 (ملغي).
+- **Steps:** افتح التصنيع ← أوامر التصنيع.
+- **Assert:** "الإجمالي" = 3، "مخطط" = 1، "جار التنفيذ" = 1، "مكتمل هذا الشهر" = 0. شرائح الحالة: الكل/مخطط/قيد التنفيذ/مكتمل/ملغي — **`[NOT IMPLEMENTED]`** لا شريحة "متأخر" منفصلة (فقط بانر عددي).
+
+#### INV-185 — Overdue banner
+- **Pre:** أي أمر بتاريخ انتهاء مجدول ماضٍ وحالة غير مكتملة/ملغاة.
+- **Steps:** لاحظ بانر "تحتاج متابعة" أعلى القائمة.
+- **Assert:** يعرض عدد الأوامر المتأخرة الفعلي.
+
+#### INV-186 — Search by number or product name
+- **Steps:** ابحث "WO-DEMO-2".
+- **Assert:** صف واحد.
+
+#### INV-187 — `[NOT IMPLEMENTED]` filters panel
+- **Steps:** ابحث عن "تصفية النتائج" (مستودع/أولوية/منتج نهائي/نطاق كمية/نطاق تاريخ) كما يصف الكتالوج.
+- **Assert:** غير موجود — فقط شرائح الحالة والبحث النصي.
+
+#### INV-188 — Row click opens WO detail (not item)
+- **Steps:** اضغط على أي صف.
+- **Assert:** تفتح صفحة تفاصيل أمر التصنيع نفسه مباشرة (`أمر تصنيع WO-000x`) — لا لوحة صنف جانبية.
+
+#### INV-189 — Create: BOM picker only shows active BOMs
+- **Steps:** اضغط "أمر عمل جديد"، افتح "قائمة المواد *".
+- **Assert:** فقط قوائم المواد النشطة تظهر.
+
+#### INV-190 — Create: required fields gate save
+- **Steps:** اترك "مستودع الخامات" أو "مستودع المنتجات" فارغاً، لاحظ "حفظ أمر العمل".
+- **Assert:** معطّل حتى تُملأ قائمة المواد + كلا المستودعين + كمية > 0.
+
+#### INV-191 — Create: same warehouse both sides — no rejection (gap)
+- **Steps:** اختر نفس المستودع لـ"مستودع الخامات" و"مستودع المنتجات".
+- **Assert (expected):** رفض مشابه لتحويلات المخزون. **الفعلي:** لا فحص من هذا النوع في `canSave` — يُقبل بلا تنبيه.
+
+#### INV-192 — Create: planned qty min 0, no required asterisk despite being required
+- **Steps:** لاحظ تسمية "الكمية المخططة" (بلا `*` رغم أن `canSave` يتطلبها > 0).
+- **Assert:** غياب النجمة تناقض بصري صغير مع القاعدة الفعلية — سجّله كملاحظة اتساق.
+
+#### INV-193 — Create: date fields are free text, no format validation
+- **Steps:** اكتب نصاً عشوائياً (مثال "غداً") في "تاريخ البدء المجدول".
+- **Assert (expected):** رفض أو تنسيق تلقائي. **الفعلي:** حقل نصي حر بلا أي تحقق من الصيغة — يُقبل أي نص ويُرسل كما هو.
+
+#### INV-194 — Full create + reload
+- **Steps:** أنشئ أمر تصنيع جديداً على BOM-DEMO-1، كمية 5، مستودعا خامات/منتجات مختلفين، احفظ، أعد تحميل الصفحة.
+- **Assert:** يظهر في القائمة بحالة "مخطط"، الكمية المخططة 5، المنتج النهائي = اسم ITEM-DEMO-5.
+
+#### INV-195 — Cancel discards draft
+- **Steps:** افتح النموذج، عبّئ حقولاً، اضغط "إلغاء".
+- **Assert:** لا طلب شبكة.
+
+#### INV-196 — Detail: effects copy contradicts D3
+- **Steps:** افتح أي أمر تصنيع ← لاحظ قسم "تأثيرات أمر التصنيع".
+- **Assert:** السطر الأخير يقرأ: "المنتج النهائي لا يدخل المخزون إلا عند الاستلام؛ وعند الإكمال تُرحَّل قيود رسملة الإنتاج تحت التشغيل تلقائياً." — هذا **خطأ** وفق D3 (`completeWorkOrder` لا يلمس حساب 1200 إطلاقاً). النص نفسه يوثّق سلوكاً غير موجود.
+
+#### INV-197 — Detail: summary omits scheduled end date / BOM version — gap
+- **Steps:** لاحظ حقول الملخص أعلى صفحة التفاصيل.
+- **Assert:** لا حقل "تاريخ الانتهاء المجدول" ولا "قائمة المواد (الإصدار)" في الملخص، رغم أنهما مُدخلان وقت الإنشاء وموصوفان في الكتالوج.
+
+#### INV-198 — Detail: only 2 tabs — `[NOT IMPLEMENTED]`
+- **Steps:** لاحظ التبويبات.
+- **Assert:** فقط "المواد" و"التكاليف". لا "استخدام المواد"، "حركة المواد"، "الاستلامات"، "القيود المحاسبية"، "السجل" كما يصف الكتالوج — **لا توجد أي طريقة من هذه الشاشة لرؤية القيود المحاسبية التي أنشأها أمر التصنيع فعلياً**.
+
+#### INV-199 — Materials tab columns
+- **Steps:** افتح تبويب "المواد" لأمر بدأ صرف مواده.
+- **Assert:** الأعمدة: الصنف، المطلوبة، الصادرة، المرجعة، الصافي — **`[NOT IMPLEMENTED]`**: لا عمودي "الكمية المتاحة" أو "النقص" كما يصف الكتالوج.
+
+#### INV-200 — Stage 1: بدء العمل (single click, no dialog)
+- **Pre:** WO-DEMO-1 (مخطط، لم يبدأ).
+- **Steps:** افتح WO-DEMO-1، اضغط الزر الأساسي "بدء العمل" في رأس الصفحة.
+- **Assert:** المرحلة تتحول "بدء العمل"؛ نص زر الإجراء يتغير فوراً إلى "صرف المواد"؛ لا حوار تأكيد ولا حقل إدخال.
+
+#### INV-201 — Stage 2: صرف المواد (single click, opaque full-qty issue)
+- **Pre:** من INV-200.
+- **Steps:** اضغط "صرف المواد".
+- **Assert:** يصرف كامل الكمية المطلوبة دفعة واحدة (لا حقل كمية جزئية)؛ نص الزر يتحول "استلام المنتج"؛ عمود "الصادرة" في تبويب المواد يتحدث.
+
+#### INV-202 — Stage 3: استلام المنتج opens a side panel
+- **Pre:** من INV-201.
+- **Steps:** اضغط "استلام المنتج".
+- **Assert:** تفتح لوحة "استلام المنتج" بحقل "الكمية المنتجة" معبأ مسبقاً بالكمية المخططة كاملة؛ اضغط "تأكيد الاستلام".
+- **Assert (after):** المرحلة تتحول "استلام المنتج"؛ زر رأس الصفحة يتحول "إكمال أمر العمل".
+
+#### INV-203 — Receive panel: qty must be > 0
+- **Pre:** لوحة "استلام المنتج" مفتوحة.
+- **Steps:** اضبط "الكمية المنتجة" = 0.
+- **Assert:** "تأكيد الاستلام" معطّل.
+
+#### INV-204 — Receive panel: cancel
+- **Steps:** افتح اللوحة، اضغط "إلغاء".
+- **Assert:** اللوحة تُغلق؛ المرحلة تبقى دون تغيير.
+
+#### INV-205 — Cancelled work order shows no action button
+- **Pre:** WO-DEMO-3 (ملغي).
+- **Steps:** افتح تفاصيله.
+- **Assert:** شريط الحالة يظهر بلون تحذيري ("danger")؛ لا يظهر أي زر إجراء أساسي في الرأس (`order.status !== "cancelled"` شرط لعرضه).
+
+#### INV-206 — Stage 4: إكمال أمر العمل — **D3, throwaway DB only**
+- **Pre:** ⚠️ **نفّذ هذا السيناريو فقط على قاعدة بيانات مؤقتة قابلة للحذف، وليس قبل أي سيناريو مطابقة GL 1200.** أمر وصل مرحلة "استلام المنتج" (مثال: أكمل WO-DEMO-1 عبر INV-200→INV-202، أو استخدم WO-DEMO-2 بعد صرف مواده).
+- **Steps:** اضغط "إكمال أمر العمل" في رأس صفحة التفاصيل.
+- **Assert:** نقرة واحدة، بلا حوار تأكيد وبلا أي حقل إدخال؛ المرحلة تتحول "مكتمل". **هذا يُفعِّل D3** — `completeWorkOrder` لا يرحّل أي قيد على حساب 1200 رغم أن كمية الكلفة تحت التشغيل (`قيمة الإنتاج تحت التشغيل` في الملخص) تُصفَّر ظاهرياً؛ أي مطابقة لاحقة بين المخزون الفرعي وحساب 1200 ستنحرف بمقدار قيمة هذا الأمر (قِس بمقارنة "القيمة الإجمالية" الكلية في أرصدة المخزون قبل/بعد — مرجع القياس السابق في defects.md: BOM-DEMO-1 بكمية 10 ينحرف بمقدار 80.00).
+
+#### INV-207 — Silent error on advance actions outside the receive panel — gap
+- **Pre:** حاكِ فشل `POST .../start` أو `.../issue-materials` أو `.../complete`.
+- **Steps:** اضغط زر الإجراء الأساسي أثناء الفشل المحاكى.
+- **Assert (expected):** رسالة خطأ ظاهرة للمستخدم. **الفعلي:** `advance()` يلتقط الخطأ في حالة داخلية (`actionError`) لكن `WorkOrderDetail` لا يعرض هذه الحالة إطلاقاً خارج لوحة الاستلام — الفشل صامت تماماً من منظور المستخدم على الأزرار الثلاثة الأخرى (بدء/صرف/إكمال).
+
+---
+
+## 12. قوائم المواد (BOMs)
+
+#### INV-208 — KPI strip and chips
+- **Pre:** BOM-DEMO-1/2 نشطتان.
+- **Steps:** افتح التصنيع ← قوائم المواد.
+- **Assert:** "الإجمالي" = 2، "نشط" = 2، "غير نشط" = 0.
+
+#### INV-209 — Search by number or product name
+- **Steps:** ابحث "BOM-DEMO-2".
+- **Assert:** صف واحد.
+
+#### INV-210 — List cost estimate column
+- **Steps:** لاحظ عمود "التكلفة التقديرية" لـBOM-DEMO-1.
+- **Assert:** رقم غير صفري (مواد + عمالة 50 + مصاريف 30).
+
+#### INV-211 — Create: product picker auto-fills unit
+- **Steps:** اضغط "قائمة مواد جديدة"، اختر "المنتج النهائي".
+- **Assert:** حقل "الوحدة" يتحدث تلقائياً لوحدة الصنف الأساسية.
+
+#### INV-212 — Create: cannot save with zero valid material lines
+- **Steps:** اترك سطر المواد الوحيد بصنف فارغ، لاحظ "حفظ قائمة المواد".
+- **Assert:** معطّل (`canSave` يتطلب سطراً واحداً صالحاً على الأقل).
+
+#### INV-213 — Create: negative labor/overhead cost — native min guard only
+- **Steps:** اكتب "-10" في "تكلفة العمالة" (حقل رقمي بـ`min=0`).
+- **Assert:** الحقل من نوع `number` بخاصية `min=0` (حماية متصفح بصرية فقط ما لم يُستخدم تحقق فعلي عبر `<form>`)؛ لا فحص JS إضافي في `save()` يمنع قيمة سالبة صراحة إن أُدخلت.
+
+#### INV-214 — Create: waste % has no upper bound — gap
+- **Steps:** اكتب "500" في "نسبة الهالك %" لسطر مادة.
+- **Assert (expected):** رفض قيمة غير منطقية (> 100%). **الفعلي:** لا سقف أعلى (`min={0}` فقط) — القيمة تُقبل وتُغذّي `effectiveQty = qty × (1 + 500/100)` بلا اعتراض.
+
+#### INV-215 — Material line: cannot remove last remaining line
+- **Steps:** أضف سطر مادة ثانياً، احذفه، حاول حذف السطر الأخير المتبقي.
+- **Assert:** زر "حذف البند" لا يظهر إلا عند وجود أكثر من سطر واحد.
+
+#### INV-216 — Full create + reload
+- **Steps:** أنشئ قائمة مواد جديدة لمنتج ITEM-DEMO-4 (خامتان: ITEM-DEMO-1 كمية 2، ITEM-DEMO-3 كمية 1)، احفظ، أعد تحميل الصفحة.
+- **Assert:** تظهر بحالة "نشط"، إصدار v1، عدد بنود = 2.
+
+#### INV-217 — Detail: waste-adjusted quantity column
+- **Steps:** افتح BOM-DEMO-1 ← تبويب "بنود المواد الخام".
+- **Assert:** عمود "الكمية بعد الهالك" = الكمية × (1 + نسبة الهالك/100) لكل سطر (نسبة الهالك = 0% لسطور BOM-DEMO-1 المزروعة، فتساوي الكمية الأصلية تماماً).
+
+#### INV-218 — Detail: cost breakdown summary
+- **Steps:** افتح BOM-DEMO-1 ← الملخص.
+- **Assert:** "تكلفة المواد"، "إجمالي التكلفة"، "تكلفة الوحدة" مبنية من `bom.estimate` — تكلفة المواد = مجموع (كمية السطر × تكلفة وحدة الصنف)، إجمالي التكلفة = تكلفة المواد + 50 (عمالة) + 30 (مصاريف).
+
+#### INV-219 — Effects copy — versioning semantics
+- **Steps:** لاحظ قسم "تأثيرات" في التفاصيل.
+- **Assert:** "قائمة المواد وصفة تصنيع فقط — لا تؤثر على المخزون أو الحسابات حتى يُنشأ أمر تصنيع منها."، "الكمية المطلوبة تُضخَّم تلقائياً بنسبة الهالك..."، "إنشاء إصدار جديد يُلغي تنشيط الإصدار السابق (لا يُعدّله)."
+
+#### INV-220 — Deactivate — no confirmation dialog
+- **Pre:** قائمة مواد نشطة غير مستخدمة في أمر تصنيع حالي.
+- **Steps:** من التفاصيل، اضغط "تعطيل".
+- **Assert:** الحالة تتحول "غير نشط" فوراً، **بلا أي حوار تأكيد** رغم أن قوائم المواد نشطة تُستخدم في إنشاء أوامر تصنيع.
+
+#### INV-221 — `[NOT IMPLEMENTED]` no "أمر عمل جديد" shortcut from BOM detail
+- **Steps:** ابحث عن زر "أمر عمل جديد" على صفحة تفاصيل قائمة المواد كما يصف الكتالوج.
+- **Assert:** غير موجود — يجب الذهاب لشاشة أوامر التصنيع والبحث عن قائمة المواد يدوياً من هناك.
+
+#### INV-222 — `[NOT IMPLEMENTED]` no "إصدار جديد" versioning action
+- **Steps:** ابحث عن أي طريقة لإنشاء إصدار جديد من قائمة مواد موجودة (النص التوضيحي يذكر الإصدارات لكن لا زر لإنشاء واحد).
+- **Assert:** غير موجود — `createBom` تُنشئ دائماً قائمة جديدة كاملة، لا مسار "إصدار جديد" من داخل شاشة قائمة مواد قائمة.
+
+#### INV-223 — Detail: single tab only — `[NOT IMPLEMENTED]`
+- **Assert:** لا تبويبي "سجل الإصدارات" أو "سجل التدقيق" كما يصف الكتالوج — تبويب واحد فقط "بنود المواد الخام (N)"، وبلا صف تذييل "إجمالي تكلفة المواد" داخل الجدول نفسه.
+
+---
+
+## 13. التصنيع المخصص (Custom Manufacturing / Config Instances)
+
+#### INV-224 — Empty state (no seeded config instances)
+- **Steps:** افتح التصنيع ← التصنيع المخصص.
+- **Assert:** "لا توجد أوامر تصنيع مخصص — أنشئ أمراً جديداً" — لا أوامر مزروعة (لا يوجد منتج قابل للتهيئة أصلاً في البيانات المزروعة، راجع INV-081).
+
+#### INV-225 — Create: product picker active-only
+- **Pre:** أنشئ منتجاً قابلاً للتهيئة أولاً (راجع INV-087).
+- **Steps:** اضغط "أمر تصنيع مخصص جديد"، افتح "المنتج *".
+- **Assert:** فقط المنتجات القابلة للتهيئة النشطة تظهر.
+
+#### INV-226 — Dynamic spec fields render per product input
+- **Pre:** من INV-225، منتج بمدخل واحد "width"/"العرض".
+- **Steps:** اختر المنتج.
+- **Assert:** يظهر حقل نصي بتسمية "العرض" (أو "العرض (min – max)" إن كانت الحدود معرّفة).
+
+#### INV-227 — Spec fields accept non-numeric text — no validation gap
+- **Steps:** اكتب "abc" في حقل مواصفة رقمية.
+- **Assert (expected):** رفض قيمة غير رقمية. **الفعلي:** الحقل `TextField` نصي بحت رغم أن نوع المدخل معرّف "رقم" — يُقبل أي نص ويُرسل كما هو لمُقيّم المعادلات لاحقاً (قد يفشل هناك بدلاً من الواجهة).
+
+#### INV-228 — Live preview fires only when every spec field is non-blank
+- **Steps:** أدخل قيمة في مدخل واحد من أصل اثنين مطلوبين.
+- **Assert:** لوحة "معاينة الاحتياجات والتكلفة" تبقى على "أكمل المواصفات لعرض المعاينة." حتى تُملأ كل الحقول.
+
+#### INV-229 — Preview loading and success states
+- **Steps:** أكمل كل حقول المواصفات بقيم صالحة.
+- **Assert:** "جارِ الحساب…" أولاً، ثم قائمة الخامات (صنف × معادلة الكمية × تكلفة الوحدة = تكلفة السطر)، وسطر "تكلفة الوحدة" الإجمالي، وسطر "السعر المقترح (للوحدة)" إن كانت طريقة التسعير معادلة.
+
+#### INV-230 — Preview error shows raw formula error message
+- **Pre:** منتج بمعادلة كمية تقسم على متغير قد يساوي صفراً (أو أي معادلة تفشل عند قيم معينة).
+- **Steps:** أدخل قيمة مواصفات تُسقط تقييم المعادلة.
+- **Assert:** لوحة المعاينة تعرض نص الخطأ الخام من `preview.error.message` مباشرة — لا رسالة عربية موحّدة، بل أياً كان ما يرجعه المُقيّم.
+
+#### INV-231 — Save is allowed even while preview is erroring — gap
+- **Pre:** من INV-230 (معاينة في حالة خطأ).
+- **Steps:** أكمل بقية الحقول المطلوبة (الكمية، المستودعان)، لاحظ زر "حفظ".
+- **Assert (expected):** تعطيل الحفظ حتى تنجح المعاينة. **الفعلي:** `canSave` لا يتحقق من نجاح `preview` إطلاقاً — يمكن حفظ أمر تصنيع مخصص رغم أن معاينة تكلفته/خاماته تفشل.
+
+#### INV-232 — Create: warehouses required, no distinct-warehouse check
+- **Steps:** اختر نفس المستودع لـ"مستودع الخامات" و"مستودع المنتجات"، احفظ.
+- **Assert:** يُقبل بلا تنبيه (نفس فجوة INV-191).
+
+#### INV-233 — Customer optional, defaults "بدون عميل"
+- **Steps:** لاحظ حقل "العميل" الافتراضي.
+- **Assert:** "بدون عميل"؛ الحفظ ممكن بدونه.
+
+#### INV-234 — Full create + reload
+- **Steps:** أكمل نموذجاً صالحاً كاملاً، احفظ، أعد تحميل الصفحة.
+- **Assert:** أمر جديد يظهر بحالة "مهيأة" (`configured`)، رقم بصيغة `CM-...`.
+
+#### INV-235 — Detail: profit margin tone
+- **Steps:** افتح أمراً حُفظ بتكلفة فعلية أو تقديرية أعلى من إجمالي البيع.
+- **Assert:** "هامش الربح" يُعرض بلون تحذيري (`danger`) عند القيمة السالبة، وبلون نجاح عند الموجبة.
+
+#### INV-236 — Detail effects copy — auto work order + cost capture
+- **Steps:** لاحظ قسم "تأثيرات".
+- **Assert:** "يُنشأ أمر تصنيع (Work Order) مرتبط تلقائياً عند إنشاء أمر التصنيع المخصص لتنفيذ الإنتاج الفعلي." و"عند إغلاق الأمر تُحفظ التكلفة الفعلية من أمر التصنيع المرتبط."
+
+#### INV-237 — Detail: linked work order id is inert text, not a link — gap
+- **Steps:** افتح تبويب "التكلفة الفعلية"، لاحظ سطر "أمر التشغيل".
+- **Assert (expected):** زر قابل للنقر ينقل لتفاصيل أمر التصنيع كما يصف الكتالوج ("WO-0007" كزر). **الفعلي:** نص ثابت يعرض معرّف أمر التصنيع الخام (`instance.workOrderId`) بلا أي إجراء نقر.
+
+#### INV-238 — Close order — no confirmation dialog
+- **Pre:** أمر بحالة قابلة للإجراء (`configured`/`in_progress`/`produced`).
+- **Steps:** من التفاصيل، اضغط "إغلاق الأمر".
+- **Assert:** الحالة تتحول "مغلقة" فوراً بلا حوار تأكيد؛ أزرار "إغلاق الأمر"/"إلغاء" تختفي تماماً بعدها (وليس فقط تُعطَّل).
+
+#### INV-239 — Cancel order — no confirmation dialog
+- **Pre:** أمر آخر بحالة قابلة للإجراء.
+- **Steps:** اضغط "إلغاء".
+- **Assert:** الحالة تتحول "ملغاة" فوراً بلا حوار تأكيد.
+
+#### INV-240 — Status chips and search on list
+- **Pre:** بعد إنشاء عدة أوامر بحالات مختلفة.
+- **Steps:** اضغط كل شريحة حالة (مهيأة/في التنفيذ/تم الإنتاج ضمن "في التنفيذ"/مغلقة/ملغاة)، ثم ابحث برقم الأمر أو المنتج أو العميل.
+- **Assert:** كل فلتر يعزل الصفوف الصحيحة.
+
+---
+
+## 14. لوحة الإنتاج (Production Dashboard)
+
+Pure read-only dashboard — no create/edit surface of its own.
+
+#### INV-241 — KPI strip
+- **Pre:** WO-DEMO-1 (مخطط)، WO-DEMO-2 (قيد التنفيذ)، WO-DEMO-3 (ملغي).
+- **Steps:** افتح التصنيع ← لوحة الإنتاج.
+- **Assert:** "أوامر نشطة" يعكس عدد الأوامر غير المكتملة/الملغاة؛ "قيمة الإنتاج تحت التشغيل" > 0 (WO-DEMO-2 بدأ)؛ "الوحدات المنتجة هذا الشهر" = 0 (لا أمر أُكمل)؛ "أوامر متأخرة" يعتمد على تواريخ الانتهاء المجدولة مقابل تاريخ اليوم. **`[NOT IMPLEMENTED]`**: لا بطاقة رابعة "متوسط التكلفة للوحدة" كما يصف الكتالوج — بديلها هنا "أوامر متأخرة".
+
+#### INV-242 — Bucket lists are non-interactive — gap
+- **Steps:** اضغط على أي بطاقة ضمن "بانتظار صرف المواد" أو "بانتظار استلام المنتج" أو "جاهزة للإنهاء".
+- **Assert (expected):** ينقل لتفاصيل ذلك الأمر. **الفعلي:** لا `onClick` على هذه البطاقات إطلاقاً — عرض فقط.
+
+#### INV-243 — Bucket: "بانتظار صرف المواد"
+- **Pre:** WO-DEMO-2 بدأ لكن لم يُصرف له مواد بعد.
+- **Steps:** لاحظ هذه القائمة.
+- **Assert:** WO-DEMO-2 يظهر فيها بشريحة الأولوية وكسر التقدّم "0/15".
+
+#### INV-244 — Empty bucket state
+- **Steps:** لاحظ قائمة "جاهزة للإنهاء" إن لم يوجد أمر بهذه المرحلة.
+- **Assert:** "لا توجد أوامر في هذه المرحلة."
+
+#### INV-245 — Active orders table: next-action button only navigates, doesn't act — gap
+- **Steps:** في جدول "جميع الأوامر النشطة"، اضغط زر "الإجراء التالي" (مثال "صرف المواد") لصف WO-DEMO-2.
+- **Assert (expected):** ينفّذ خطوة الصرف مباشرة من لوحة الإنتاج. **الفعلي:** الزر يستدعي فقط `navigate("work-orders")` — ينقل لقائمة أوامر التصنيع العامة بلا تنفيذ أي إجراء ولا حتى فتح ذلك الأمر تحديداً؛ يجب على المستخدم البحث عن الأمر من جديد هناك.
+
+#### INV-246 — Label mismatch across screens — gap
+- **Pre:** أمر بمرحلة "استلام المنتج" (جاهز للإكمال).
+- **Steps:** قارن نص زر "الإجراء التالي" هنا مع نص الزر المكافئ في تفاصيل أمر التصنيع (قسم 11).
+- **Assert:** هنا "إنهاء الأمر"؛ هناك "إكمال أمر العمل" — نفس الإجراء بتسمية مختلفة بين الشاشتين.
+
+#### INV-247 — Overdue badge on bucket cards and table rows
+- **Pre:** أمر بتاريخ انتهاء ماضٍ وحالة غير مكتملة.
+- **Steps:** لاحظه في كل من قوائم "المراحل" وجدول "الأوامر النشطة".
+- **Assert:** شارة حمراء "متأخر" في كلا الموضعين لنفس الأمر.
+
+#### INV-248 — Quick-nav header buttons
+- **Steps:** اضغط "أوامر التصنيع" ثم عد، اضغط "قوائم المواد".
+- **Assert:** كل زر ينقل للشاشة المقابلة مباشرة.
+
+#### INV-249 — Load error + retry
+- **Pre:** حاكِ فشل `GET /manufacturing/dashboard`.
+- **Steps:** افتح الشاشة.
+- **Assert:** "تعذّر تحميل لوحة الإنتاج." + "إعادة المحاولة".
+
+#### INV-250 — No filters/date range — `[expected, matches catalog]`
+- **Steps:** ابحث عن أي فلتر أو نطاق تاريخ على هذه الشاشة.
+- **Assert:** لا يوجد — هذا متوقع ومطابق للكتالوج (لوحة استثناءات تشغيلية فقط، وليست تقريراً قابلاً للتصفية).
+
+---
+
+## Appendix — consolidated `[NOT IMPLEMENTED]` gaps vs. the reference catalog
+
+Grouped by screen, for a tester who wants the punch list without re-reading every
+scenario:
+
+- **Items**: item type limited to `stock`/`service` only (catalog: 6 types); no item-categories dialog; no "hide variants" / price-range filters; no season/image/POS-visibility/kitchen-waste fields; no cost-layers or stock-by-warehouse tab (both are literal "Phase 2" placeholders); no attachments/log tabs; no "more" menu (print labels / opening balance / deactivate / delete shortcuts); no client-side negative-number guard on sale/cost price.
+- **Item Specifications**: not in the catalog at all — build-only.
+- **Product Templates**: no search box; no variant-count list column; no client-side guard on deleting an in-use attribute/value (server-error-only); no alternate-units UI; base unit is free text, not a dropdown; no numeric guard on default price/cost.
+- **Configurable Products**: no row kebab menu, no per-row "new custom order" shortcut, no edit action on an existing product (create + deactivate only).
+- **Stock Balance**: no filter chips, no filters panel, no row-click navigation.
+- **Stock Transfers**: create always auto-confirms (no draft stage reachable through the UI); a pre-existing draft (like the seeded `TRF-DEMO-3`) has no confirm button anywhere; no Excel import; only a "lines" detail tab (no attachments/audit).
+- **Stock Adjustments**: same auto-confirm pattern as Transfers; only 2 detail tabs (no attachments/audit); no before/after quantity columns; no opening-balance shortcut from Items.
+- **Physical Counts**: pausing a session ("حفظ ومتابعة لاحقاً") does not persist entered counts to the server; no warehouse/date-range filters.
+- **Label Printing**: no item/document mode toggle (item mode only).
+- **Inventory Write-downs**: not in the catalog at all — build-only; line table shows raw item ids, not names.
+- **Work Orders**: no filters panel; no kebab menu (so no duplicate/cancel action); only 2 detail tabs (materials, costs) — no way to see the GL entries a work order posted; the detail page's own effects copy claims GL 1200 posts on completion, which is false (D3); silent error on start/issue/complete outside the receive panel; no distinct-warehouse check.
+- **BOMs**: no "new work order" or "new version" shortcut from a BOM's own detail page; only 1 detail tab; deactivate has no confirmation; waste % has no upper bound.
+- **Custom Manufacturing**: spec inputs are unvalidated free text; save is allowed even when the cost/material preview is erroring; linked work order id is inert text, not a link; close/cancel have no confirmation dialogs; no distinct-warehouse check.
+- **Production Dashboard**: bucket cards are not clickable; the "next action" button on the active-orders table only navigates to the Work Orders list, it never executes the step; inconsistent action labels between this screen ("إنهاء الأمر") and the Work Order detail page ("إكمال أمر العمل"); no average-cost-per-unit KPI tile.
+
+FEFO note: this build has **no UI surface anywhere** in these 14 screens for viewing or
+selecting a batch/cost-layer (no cost-layers tab on Items, no batch column on Label
+Printing, no batch selector on Adjustments/Transfers/Physical Counts). Every batch-
+tracked item in the seed (`ITEM-DEMO-7`/`ITEM-DEMO-8`) is costed WAC, so even a correct
+FEFO consumption order produces an identical unit cost to FIFO — nothing in the UI would
+visibly differ either way. The seed does plant a real FEFO test fixture at the data
+layer (milk batch `MLK-2708`, received second on 2026-08-21, expires 2026-09-05 —
+*before* `MLK-2607`, received first, which expires 2026-10-20), but proving which batch
+a movement actually drew from requires reading the domain/API layer directly, not this
+build's UI. Scenario **`[NOT IMPLEMENTED]`**.

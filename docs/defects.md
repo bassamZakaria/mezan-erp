@@ -4,7 +4,7 @@
 and updates it before finishing. Nothing else tracks defects — if it is not
 here, it is not tracked.
 
-Updated 2026-08-24.
+Updated 2026-08-24 (after the 964-scenario authoring pass and the fixes it triggered).
 
 ## How to use this file
 
@@ -38,6 +38,16 @@ through as "oh, that's the known one".
 | D4 | Inventory reporting | `occurredAt` stamped `now()` instead of the document date | Drift reports `valueDiff 2400 = 120 × (160 − 140)` — a gap that is not real | Medium |
 | D5 | E-invoicing | The ETA queue has no producer | `EtaService.enqueue` exists; **no route and no event bridge calls it**, so no user action can enqueue a document | Medium |
 | D6 | Webhooks | Delivery retries outlive backend shutdown | `TypeError: The database connection is not open` from `WebhookDispatcher.record` after the store closes | Low |
+| D7 | Shell / scope | **Branch** scope still filters nothing | No list route reads `branchScope`; unprovable either way while the tenant has one branch | Medium |
+| D8 | Approvals | An admin rejecting someone else's pending request **approves** it instead | Decide-side bypass, distinct from the submit-side one | High |
+| D9 | Sales | An invoice's `remainingBalance` never subtracts confirmed returns | `INV-DEMO-1` shows its full 13,953.60 despite 1,197.00 returned | Medium |
+| D10 | Purchases | Document creation hardcodes `branchId: "MAIN"`, `warehouseId: "MAIN-WH"` — ids that do not exist in this tenant (`BR-MAIN`/`WH-MAIN`) | RFQ, PO and invoice create paths | Medium |
+| D11 | HR | A leave request exceeding the balance is **accepted**, not refused — the balance simply goes negative | `consumeLeaveBalance` | Medium |
+| D12 | Projects | No status-transition guard, client or server — any status reaches any other | | Medium |
+| D13 | Fixed assets | No disposal action exists — the status value and permission exist, the route and button do not | | Medium |
+| D14 | Reports | F3's fix covers only the 7 financial statements; `useReport` still swallows validation errors for all 22 operational reports | Same symptom, 22 of 30 unfixed | Medium |
+| D15 | UX | Domain state-machine refusals surface in **English** inside the Arabic UI, and the hourly-payroll exclusion embeds the raw string `"hourly"` | | Low |
+| D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
 
 ### D1 — collection voucher does not move `amountPaid`
 
@@ -102,7 +112,11 @@ the final attempt is lost.
 | F3 | Server parameter-validation errors were swallowed — an invalid date left the report sitting on its placeholder with no message | `274f53e` |
 | F4 | 11 form fields had no accessible name; three EntityPickers hand-rolled a caption div instead of using the component's own `<label for>` | `fff206f` |
 | F5 | Label printing had no page `h1`; cost-centre P&L rendered a second, empty one | `9f17f28` |
-| F6 | The approvals note field had no accessible name — found the first time the inbox had a row to test | this commit |
+| F6 | The approvals note field had no accessible name — found the first time the inbox had a row to test | `c0dd755` |
+| F7 | **The same goods could be returned repeatedly.** Both return routes validated the requested quantity against an `availableQty` supplied *in the request body*. Measured: 40 invoiced, two returns of 40 each, both confirmed — stock and AR credited twice for goods sold once | `46e527c`, `4acf10f` |
+| F8 | **The warehouse selector filtered nothing.** The shell sent `x-warehouse-scope`, the resolver parsed it, and no list route ever read it. Six surfaces now narrow (stock balance 8→3, on-hand 1,790→119) | `0be2432` |
+| F9 | **A document held for approval was permanently stuck** — the gate built its request in memory and discarded it, so the inbox never saw it and nobody could approve or reject. Proven fixed: 8→9 requests | `342b5b9` |
+| F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.

@@ -77,6 +77,50 @@ What that means for this run, from the currently-open list:
 
 ---
 
+## What the defects found so far actually teach
+
+Every entry in `defects.md` was found by one of a small number of moves. These
+are the moves — apply them first, because they have the highest yield per minute
+spent.
+
+**1. Never trust a number the client supplied.** The worst defect found — the
+same goods returnable over and over — existed because the server validated a
+quantity against a cap that arrived *in the same request body*. It sat behind a
+correct-looking domain check. For any limit, ask: *who computed this number?*
+If the answer is "the caller", it is not a limit.
+
+**2. A feature can be fully built and simply not wired.** The warehouse selector
+sent its header, the resolver parsed it, and no route read it. The approval gate
+built its request and dropped it on the floor. The ETA queue has an `enqueue`
+nothing calls. In each case every piece existed and one connection did not — so
+reading the code convinces you it works. **Only driving it end to end finds
+these.**
+
+**3. Two numbers that should agree are worth more than either alone.** The
+sub-ledger against its control account caught four defects. A single figure looks
+plausible; a pair that must match cannot hide a discrepancy. Prefer an assertion
+that cross-checks two independently-computed values.
+
+**4. Empty screens hide everything.** The approvals note field had no accessible
+name for as long as the inbox had no rows. Sweeps had passed that screen and
+called it clean. This is why Phase 0 is a hard gate.
+
+**5. When a defect is found, look for its twin.** Sales returns and purchase
+returns had the identical hole; fixing one would have left the other facing
+suppliers. After every fix, grep for the same shape elsewhere.
+
+**6. A stale comment is a defect report.** `GET /items/:id` served a hardcoded
+zero behind "real figures wire in once Phase 2 lands the movements ledger" —
+which had landed. Comments promising future work are worth checking against the
+present.
+
+**7. Distrust your own instrument first.** A run reported 86 contrast failures;
+all 86 were one alpha-parsing bug. Before filing anything that appears
+everywhere, verify one instance by hand. An identical finding on every screen is
+almost always the measurement, not the product.
+
+---
+
 ## Phase 1 — Reachability and integrity (automated, ~10 min)
 
 One pass over every screen in the nav, measuring:

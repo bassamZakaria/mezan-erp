@@ -117,7 +117,7 @@ export function LeaveRequestsScreen() {
       ) : null}
 
       <DocumentList<LeaveRequestDTO>
-        eyebrow="HR · Leave Requests"
+        eyebrow={t("eyebrow.hr.leaveRequests")}
         title={t("leaveRequests.leaveRequests")}
         description={t("leaveRequests.reviewEmployeesLeaveRequestsAnd")}
         stats={[

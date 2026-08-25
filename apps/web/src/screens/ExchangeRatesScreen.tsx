@@ -110,7 +110,7 @@ export function ExchangeRatesScreen() {
       ) : null}
 
       <DocumentList<ExchangeRateDTO>
-        eyebrow="Accounting · Exchange Rates"
+        eyebrow={t("eyebrow.accounting.exchangeRates")}
         title=""
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">

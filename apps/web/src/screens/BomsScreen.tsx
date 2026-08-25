@@ -323,7 +323,7 @@ export function BomsScreen() {
         </Card>
       ) : null}
       <DocumentList<BomRecord>
-        eyebrow="Manufacturing · BOMs"
+        eyebrow={t("eyebrow.manufacturing.boms")}
         title={t("boms.billsOfMaterials")}
         description={t("boms.theManufacturingRecipeRawMaterials")}
         actions={

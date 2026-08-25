@@ -240,7 +240,7 @@ export function FiscalPeriodsScreen() {
       </div>
 
       <DocumentList<FiscalPeriodDTO>
-        eyebrow="Accounting · Fiscal Periods"
+        eyebrow={t("eyebrow.accounting.fiscalPeriods")}
         title=""
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">

@@ -204,7 +204,7 @@ export function EmployeeAdvancesScreen() {
       ) : null}
 
       <DocumentList<EmployeeAdvanceDTO>
-        eyebrow="HR · Advances"
+        eyebrow={t("eyebrow.hr.advances")}
         title={t("advances.employeeAdvances")}
         description={t("advances.anAdvanceIsADebt")}
         actions={

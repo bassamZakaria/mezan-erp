@@ -163,7 +163,7 @@ export function DepreciationRunsScreen() {
         </Card>
       ) : null}
       <DocumentList<DepreciationRunDTO>
-        eyebrow="Fixed Assets · Depreciation"
+        eyebrow={t("eyebrow.fixedAssets.depreciation")}
         title={t("depreciation.depreciation")}
         description={t("depreciation.periodicRunsThatComputeAnd")}
         actions={

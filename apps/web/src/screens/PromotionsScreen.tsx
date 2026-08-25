@@ -186,7 +186,7 @@ export function PromotionsScreen() {
   return (
     <div className="w-full">
       <DocumentList<PromotionDTO>
-        eyebrow="Sales · Promotions"
+        eyebrow={t("eyebrow.sales.promotions")}
         title={t("promotions.title")}
         description={t("promotions.description")}
         actions={

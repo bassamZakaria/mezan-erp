@@ -264,7 +264,7 @@ export function ChequesScreen() {
   return (
     <div className="w-full">
       <DocumentList<ChequeDTO>
-        eyebrow="Financial Papers · Cheques"
+        eyebrow={t("eyebrow.financialPapers.cheques")}
         title={t("cheques.chequeRegister")}
         description={t("cheques.trackingChequesInFromCustomers")}
         actions={

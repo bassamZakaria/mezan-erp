@@ -73,7 +73,7 @@ export function ReconciliationScreen() {
 
       {tab === "summary" ? (
         <DocumentList<ReconciliationRowDTO>
-          eyebrow="Accounting · Reconciliation"
+          eyebrow={t("eyebrow.accounting.reconciliation")}
           title=""
           columns={summaryColumns}
           rows={report?.rows ?? []}
@@ -89,7 +89,7 @@ export function ReconciliationScreen() {
             <Card className="p-8 text-center text-sm text-ink-muted">{t("reconciliation.everyControlAccountLineIs")}</Card>
           ) : (
             <DocumentList<UnlinkedEntryLineDTO>
-              eyebrow="Accounting · Reconciliation"
+              eyebrow={t("eyebrow.accounting.reconciliation")}
               title=""
               columns={unlinkedColumns}
               rows={report?.unlinked ?? []}

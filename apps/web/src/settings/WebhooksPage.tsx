@@ -316,7 +316,7 @@ export function WebhooksPage() {
       ) : null}
 
       <DocumentList<WebhookDTO>
-        eyebrow="Settings · Webhooks"
+        eyebrow={t("eyebrow.settings.webhooks")}
         title={t("webhooks.webhooks")}
         description={t("webhooks.sendEventsToAnOutside")}
         actions={

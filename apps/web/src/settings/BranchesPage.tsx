@@ -665,7 +665,7 @@ export function BranchesPage() {
   return (
     <>
       <DocumentList<BranchDTO>
-        eyebrow="Settings · Branches"
+        eyebrow={t("eyebrow.settings.branches")}
         title={t("branches.branches")}
         description={t("branches.manageTheCompanySBranches")}
         actions={

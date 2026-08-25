@@ -204,7 +204,7 @@ export function PayrollRunsScreen() {
       ) : null}
 
       <DocumentList<PayrollRunDTO>
-        eyebrow="HR · Payroll"
+        eyebrow={t("eyebrow.hr.payroll")}
         title={t("payroll.payroll")}
         description={t("payroll.aMonthlyPayrollRunComputed")}
         actions={

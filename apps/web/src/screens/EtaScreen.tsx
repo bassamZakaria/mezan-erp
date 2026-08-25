@@ -131,7 +131,7 @@ export function EtaScreen() {
       ) : null}
 
       <DocumentList<EtaSubmissionDTO>
-        eyebrow="Accounting · ETA e-Invoicing"
+        eyebrow={t("eyebrow.accounting.etaEInvoicing")}
         title=""
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">

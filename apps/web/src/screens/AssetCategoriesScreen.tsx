@@ -131,7 +131,7 @@ export function AssetCategoriesScreen() {
         </Card>
       ) : null}
       <DocumentList<AssetCategoryDTO>
-        eyebrow="Fixed Assets · Categories"
+        eyebrow={t("eyebrow.fixedAssets.categories")}
         title={t("assetCategories.assetCategories")}
         description={t("assetCategories.theDepreciationDefaultsAndAccount")}
         actions={

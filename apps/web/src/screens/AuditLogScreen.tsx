@@ -159,7 +159,7 @@ export function AuditLogScreen() {
       ) : null}
 
       <DocumentList<AuditEventDTO>
-        eyebrow="Platform · Audit Log"
+        eyebrow={t("eyebrow.platform.auditLog")}
         title={t("audit.auditLog")}
         description={t("audit.aRecordOfSecurityEvents")}
         stats={[

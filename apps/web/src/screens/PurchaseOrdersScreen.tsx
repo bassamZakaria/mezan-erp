@@ -315,7 +315,7 @@ export function PurchaseOrdersScreen() {
         </Card>
       ) : null}
       <DocumentList<PurchaseOrderDTO>
-        eyebrow="Purchases · Orders"
+        eyebrow={t("eyebrow.purchases.orders")}
         title={t("purchaseOrders.title")}
         description={t("purchaseOrders.description")}
         actions={

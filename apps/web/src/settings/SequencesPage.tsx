@@ -102,7 +102,7 @@ export function SequencesPage() {
         </Card>
       ) : null}
       <DocumentList<SequenceListItemDTO>
-        eyebrow="Settings · Numbering Sequences"
+        eyebrow={t("eyebrow.settings.numberingSequences")}
         title={t("sequences.title")}
         description={t("sequences.description")}
         stats={[

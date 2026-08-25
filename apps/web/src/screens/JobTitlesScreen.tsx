@@ -148,7 +148,7 @@ export function JobTitlesScreen() {
         </Card>
       ) : null}
       <DocumentList<JobTitleDTO>
-        eyebrow="HR · Job Titles"
+        eyebrow={t("eyebrow.hr.jobTitles")}
         title={t("jobTitles.jobTitles")}
         description={t("jobTitles.jobTitlesEachTiedTo")}
         actions={

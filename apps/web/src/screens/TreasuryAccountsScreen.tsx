@@ -181,7 +181,7 @@ export function TreasuryAccountsScreen() {
         </Card>
       ) : null}
       <DocumentList<TreasuryAccountDTO>
-        eyebrow="Treasury · Accounts"
+        eyebrow={t("eyebrow.treasury.accounts")}
         title={t("treasuryAcc.treasuryAccounts")}
         description={t("treasuryAcc.cashBoxesAndBankAccounts")}
         actions={

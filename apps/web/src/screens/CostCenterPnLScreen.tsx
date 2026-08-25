@@ -67,7 +67,7 @@ export function CostCenterPnLScreen() {
       </div>
 
       <DocumentList<CostCenterPnLRowDTO>
-        eyebrow="Accounting · Cost Center P&L"
+        eyebrow={t("eyebrow.accounting.costCenterPL")}
         title=""
         columns={columns}
         rows={report?.rows ?? []}

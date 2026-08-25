@@ -255,7 +255,7 @@ export function LeavePoliciesScreen() {
       </Card>
 
       <DocumentList<LeavePolicyDTO>
-        eyebrow="HR · Leave Policies"
+        eyebrow={t("eyebrow.hr.leavePolicies")}
         title={t("leavePolicies.leavePolicies")}
         description={t("leavePolicies.theLeaveTypeMatrixBase")}
         actions={

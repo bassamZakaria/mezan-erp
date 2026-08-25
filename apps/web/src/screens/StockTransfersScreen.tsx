@@ -219,7 +219,7 @@ export function StockTransfersScreen() {
   return (
     <div className="w-full">
       <DocumentList<StockTransferDocumentDTO>
-        eyebrow="Inventory · Stock Transfers"
+        eyebrow={t("eyebrow.inventory.stockTransfers")}
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
         actions={

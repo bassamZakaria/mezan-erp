@@ -270,7 +270,7 @@ export function StockAdjustmentsScreen() {
   return (
     <div className="w-full">
       <DocumentList<StockAdjustmentDocumentDTO>
-        eyebrow="Inventory · Stock Adjustments"
+        eyebrow={t("eyebrow.inventory.stockAdjustments")}
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
         actions={

@@ -181,7 +181,7 @@ export function PhysicalCountsScreen() {
   return (
     <div className="w-full">
       <DocumentList<PhysicalCountDTO>
-        eyebrow="Inventory · Physical Counts"
+        eyebrow={t("eyebrow.inventory.physicalCounts")}
         title={t("counts.physicalCounts")}
         description={t("counts.inProgressCompletedAdjustmentCreated")}
         actions={

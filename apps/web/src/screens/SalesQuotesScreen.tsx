@@ -182,7 +182,7 @@ export function SalesQuotesScreen() {
   return (
     <div className="w-full">
       <DocumentList<SalesQuoteRecord>
-        eyebrow="Sales · Quotations"
+        eyebrow={t("eyebrow.sales.quotations")}
         title={t("quotes.title")}
         description={t("quotes.description")}
         actions={

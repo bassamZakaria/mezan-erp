@@ -171,7 +171,7 @@ export function HolidaysScreen() {
       </div>
 
       <DocumentList<HolidayDTO>
-        eyebrow="HR · Holidays"
+        eyebrow={t("eyebrow.hr.holidays")}
         title={t("holidays.publicHolidays")}
         description={t("holidays.theCompanySOfficialCalendar")}
         actions={

@@ -139,7 +139,7 @@ export function InstallmentFollowUpsScreen() {
         </Card>
       ) : null}
       <DocumentList<CollectionFollowUpDTO>
-        eyebrow="Installments · Collection Follow-ups"
+        eyebrow={t("eyebrow.installments.collectionFollowUps")}
         title={t("followUps.collectionFollowUps")}
         description={t("followUps.aRecordOfCollectionContact")}
         actions={

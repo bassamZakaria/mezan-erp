@@ -120,7 +120,7 @@ export function FxRevaluationScreen() {
             <StatCard label={t("fx.reversalDate")} value={<span className="mz-num">{p.autoReverse ? p.reversalDate : "—"}</span>} />
           </div>
           <DocumentList<FxRevaluationDetailDTO>
-            eyebrow="Accounting · FX Revaluation"
+            eyebrow={t("eyebrow.accounting.fxRevaluation")}
             title=""
             columns={columns}
             rows={p.details}

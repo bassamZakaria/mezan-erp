@@ -445,7 +445,7 @@ export function ConfigurableProductsScreen() {
         </Card>
       ) : null}
       <DocumentList<ConfigurableProductRecord>
-        eyebrow="Manufacturing · Configurable products"
+        eyebrow={t("eyebrow.manufacturing.configurableProducts")}
         title={t("configProducts.configurableProducts")}
         description={t("configProducts.productsWhoseMaterialsAndPrice")}
         actions={

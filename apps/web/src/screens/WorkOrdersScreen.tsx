@@ -422,7 +422,7 @@ export function WorkOrdersScreen() {
         </Card>
       ) : null}
       <DocumentList<WorkOrderRecord>
-        eyebrow="Manufacturing · Work Orders"
+        eyebrow={t("eyebrow.manufacturing.workOrders")}
         title={t("workOrders.workOrders")}
         description={t("workOrders.runningAProductionCycleAgainst")}
         actions={

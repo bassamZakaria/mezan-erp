@@ -81,7 +81,7 @@ export function StockBalanceScreen() {
   return (
     <div className="w-full">
       <DocumentList<StockBalanceRowDTO>
-        eyebrow="Inventory · Stock Balance"
+        eyebrow={t("eyebrow.inventory.stockBalance")}
         title={t("stockBalance.title")}
         description={t("stockBalance.description")}
         stats={[

@@ -275,7 +275,7 @@ export function ItemSpecificationsScreen() {
       ) : null}
 
       <DocumentList<ItemSpecificationDTO>
-        eyebrow="Inventory · Specifications"
+        eyebrow={t("eyebrow.inventory.specifications")}
         title={t("specs.specifications")}
         description={t("specs.theRegisterOfReusableSpecifications")}
         actions={

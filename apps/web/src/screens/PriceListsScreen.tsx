@@ -69,7 +69,7 @@ export function PriceListsScreen() {
   return (
     <div className="w-full">
       <DocumentList<PriceListDTO>
-        eyebrow="Sales · Price Lists"
+        eyebrow={t("eyebrow.sales.priceLists")}
         title={t("priceLists.title")}
         description={t("priceLists.description")}
         actions={

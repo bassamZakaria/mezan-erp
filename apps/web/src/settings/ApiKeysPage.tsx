@@ -194,7 +194,7 @@ export function ApiKeysPage() {
       ) : null}
 
       <DocumentList<ApiKeyDTO>
-        eyebrow="Settings · API keys"
+        eyebrow={t("eyebrow.settings.apiKeys")}
         title={t("apiKeys.title")}
         description={t("apiKeys.description")}
         actions={

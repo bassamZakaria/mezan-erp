@@ -228,7 +228,7 @@ export function ProjectsScreen() {
         </Card>
       ) : null}
       <DocumentList<ProjectDTO>
-        eyebrow="Projects · Contracting"
+        eyebrow={t("eyebrow.projects.contracting")}
         title={t("projects.projectsAndContracting")}
         description={t("projects.trackingEachProjectSCost")}
         actions={

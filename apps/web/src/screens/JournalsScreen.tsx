@@ -236,7 +236,7 @@ export function JournalsScreen() {
         </Card>
       ) : null}
       <DocumentList<JournalDoc>
-        eyebrow="Accounting · Journal Entries"
+        eyebrow={t("eyebrow.accounting.journalEntries")}
         title={t("journals.journalEntries")}
         description={t("journals.theJournalRegisterDraftAwaiting")}
         actions={

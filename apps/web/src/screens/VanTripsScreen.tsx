@@ -318,7 +318,7 @@ export function VanTripsScreen() {
         </Card>
       ) : null}
       <DocumentList<VanTripDTO>
-        eyebrow="Field Sales · Van Trips"
+        eyebrow={t("eyebrow.fieldSales.vanTrips")}
         title={t("vanTrips.vanTrips")}
         description={t("vanTrips.openAVanTripWith")}
         actions={

@@ -269,7 +269,7 @@ export function LeadsScreen() {
         </Card>
       ) : null}
       <DocumentList<LeadDTO>
-        eyebrow="CRM · Leads"
+        eyebrow={t("eyebrow.crm.leads")}
         title={t("leads.leads")}
         description={t("leads.captureAndQualifyLeadsBefore")}
         actions={

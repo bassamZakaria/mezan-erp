@@ -758,7 +758,7 @@ export function SuppliersScreen() {
         </Card>
       ) : null}
       <DocumentList<SupplierDTO>
-        eyebrow="Purchases · Suppliers"
+        eyebrow={t("eyebrow.purchases.suppliers")}
         title={t("suppliers.title")}
         description={t("suppliers.description")}
         actions={

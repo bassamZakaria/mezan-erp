@@ -210,7 +210,7 @@ export function OpportunitiesScreen() {
         </Card>
       ) : null}
       <DocumentList<OpportunityDTO>
-        eyebrow="CRM · Opportunities"
+        eyebrow={t("eyebrow.crm.opportunities")}
         title={t("opportunities.opportunities")}
         description={t("opportunities.trackingLiveDealsAgainstA")}
         actions={

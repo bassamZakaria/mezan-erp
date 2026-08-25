@@ -165,7 +165,7 @@ export function WorkflowConfigPage() {
   return (
     <>
       <DocumentList<WorkflowConfigDTO>
-        eyebrow="Settings · Workflow"
+        eyebrow={t("eyebrow.settings.workflow")}
         title={t("workflowConfig.title")}
         description={t("workflowConfig.description")}
         actions={

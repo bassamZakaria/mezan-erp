@@ -294,7 +294,7 @@ export function TreasuryVouchersScreen() {
         </Card>
       ) : null}
       <DocumentList<VoucherRowDTO>
-        eyebrow="Treasury · Vouchers"
+        eyebrow={t("eyebrow.treasury.vouchers")}
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={

@@ -94,7 +94,7 @@ export function RolesPage({ roles, usersByRoleId, onCreate, onEdit, onDelete }: 
 
   return (
     <DocumentList<Role>
-      eyebrow="Settings · Roles"
+      eyebrow={t("eyebrow.settings.roles")}
       title={t("roles.rolesAndPermissions")}
       description={t("roles.manageTheCustomRolesAnd")}
       actions={<Button variant="primary" onClick={onCreate}>{t("roles.newRole")}</Button>}

@@ -118,7 +118,7 @@ export function LeavePoliciesScreen() {
     setRowError(null);
     try {
       await applyPreset.mutateAsync(presetCode);
-      setBanner(`تم تطبيق الإعداد "${presets.find((p) => p.code === presetCode)?.labelAr ?? presetCode}".`);
+      setBanner(t("leavePolicies.presetApplied", { preset: presets.find((p) => p.code === presetCode)?.labelAr ?? presetCode }));
     } catch (err) {
       setRowError(err instanceof ApiError ? err.message : t("leavePolicies.thePresetCouldNotBe"));
     }
@@ -186,7 +186,7 @@ export function LeavePoliciesScreen() {
       header: t("leavePolicies.carryOver"),
       render: (p) => (
         <span className="text-ink">
-          {p.carryOver ? (p.maxCarryOverDays === null ? t("leavePolicies.yes") : `حتى ${formatDays(p.maxCarryOverDays)} يوم`) : t("leavePolicies.no")}
+          {p.carryOver ? (p.maxCarryOverDays === null ? t("leavePolicies.yes") : t("leavePolicies.carryOverUpTo", { days: formatDays(p.maxCarryOverDays) })) : t("leavePolicies.no")}
         </span>
       ),
     },
@@ -202,10 +202,10 @@ export function LeavePoliciesScreen() {
       align: "end",
       render: (p) => (
         <div className="flex items-center justify-end gap-[6px]">
-          <IconButton aria-label={`تعديل ${t(LEAVE_TYPE_KEY[p.leaveType])}`} onClick={() => openEdit(p)}>
+          <IconButton aria-label={t("leavePolicies.editLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })} onClick={() => openEdit(p)}>
             <EditIcon />
           </IconButton>
-          <IconButton aria-label={`حذف ${t(LEAVE_TYPE_KEY[p.leaveType])}`} disabled={deletingId !== null} onClick={() => handleDelete(p)}>
+          <IconButton aria-label={t("leavePolicies.deleteLabel", { name: t(LEAVE_TYPE_KEY[p.leaveType]) })} disabled={deletingId !== null} onClick={() => handleDelete(p)}>
             <TrashIcon />
           </IconButton>
         </div>

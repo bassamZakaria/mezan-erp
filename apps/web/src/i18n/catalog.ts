@@ -5348,6 +5348,21 @@ const webAr = {
   "notifications.minutesAgo": "قبل {n} دقيقة",
   "notifications.hoursAgo": "قبل {n} ساعة",
   "notifications.daysAgo": "قبل {n} يوم",
+
+  // last
+  "app.unknownInitial": "؟",
+  "app.userSaveFailed": "تعذر حفظ المستخدم",
+  "app.roleSaveFailed": "تعذر حفظ الدور",
+  "app.roleDeleteFailed": "تعذر حذف الدور",
+  "app.userStatusFailed": "تعذر تحديث حالة المستخدم",
+  "leavePolicies.presetApplied": "تم تطبيق الإعداد \"{preset}\".",
+  "leavePolicies.carryOverUpTo": "حتى {days} يوم",
+  "leavePolicies.editLabel": "تعديل {name}",
+  "leavePolicies.deleteLabel": "حذف {name}",
+  "journals.memoLabel": "البيان للسطر {n}",
+  "journals.debitLabel": "مدين للسطر {n}",
+  "journals.creditLabel": "دائن للسطر {n}",
+  "journals.removeLineLabel": "حذف السطر {n}",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10701,6 +10716,21 @@ const webEn: Record<WebTranslationKey, string> = {
   "notifications.minutesAgo": "{n} min ago",
   "notifications.hoursAgo": "{n} h ago",
   "notifications.daysAgo": "{n} d ago",
+
+  // last
+  "app.unknownInitial": "?",
+  "app.userSaveFailed": "Could not save the user",
+  "app.roleSaveFailed": "Could not save the role",
+  "app.roleDeleteFailed": "Could not delete the role",
+  "app.userStatusFailed": "Could not update the user’s status",
+  "leavePolicies.presetApplied": "The preset \"{preset}\" was applied.",
+  "leavePolicies.carryOverUpTo": "up to {days} days",
+  "leavePolicies.editLabel": "Edit {name}",
+  "leavePolicies.deleteLabel": "Delete {name}",
+  "journals.memoLabel": "Description for line {n}",
+  "journals.debitLabel": "Debit for line {n}",
+  "journals.creditLabel": "Credit for line {n}",
+  "journals.removeLineLabel": "Remove line {n}",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

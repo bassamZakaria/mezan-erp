@@ -304,9 +304,9 @@ function scopeLabelFor(
   return t("shell.scope.branchCount", { count: branchScope.length });
 }
 
-function initialsFor(fullName: string): string {
+function initialsFor(fullName: string, unknown: string): string {
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "؟";
+  if (parts.length === 0) return unknown;
   return parts
     .slice(0, 2)
     .map((p) => p[0])
@@ -474,7 +474,7 @@ export function App() {
         : await createUser.mutateAsync({ ...fields, password: fields.password ?? "" });
       return { ok: true, value };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ المستخدم" };
+      return { ok: false, error: err instanceof Error ? err.message : t("app.userSaveFailed") };
     }
   }
 
@@ -484,7 +484,7 @@ export function App() {
       setActiveScreen("roles");
       return { ok: true, value };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "تعذر حفظ الدور" };
+      return { ok: false, error: err instanceof Error ? err.message : t("app.roleSaveFailed") };
     }
   }
 
@@ -493,7 +493,7 @@ export function App() {
       await deleteRoleMutation.mutateAsync(roleId);
       return { ok: true };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "تعذر حذف الدور" };
+      return { ok: false, error: err instanceof Error ? err.message : t("app.roleDeleteFailed") };
     }
   }
 
@@ -502,7 +502,7 @@ export function App() {
       const value = await setUserStatus.mutateAsync({ id: userId, status });
       return { ok: true, value };
     } catch (err) {
-      return { ok: false, error: err instanceof Error ? err.message : "تعذر تحديث حالة المستخدم" };
+      return { ok: false, error: err instanceof Error ? err.message : t("app.userStatusFailed") };
     }
   }
 
@@ -529,7 +529,7 @@ export function App() {
   const shellUser: ShellUser = {
     name: session.fullName,
     role: session.isCompanyAdmin ? t("shell.user.role.companyAdmin") : t("shell.user.role.member"),
-    initials: initialsFor(session.fullName),
+    initials: initialsFor(session.fullName, t("app.unknownInitial")),
   };
   const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 

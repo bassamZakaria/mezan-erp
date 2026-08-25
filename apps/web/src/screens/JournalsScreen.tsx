@@ -403,7 +403,7 @@ function CreateJournalView({
                       </td>
                       <td className="px-[12px] py-[8px]">
                         <input
-                          aria-label={`البيان للسطر ${i + 1}`}
+                          aria-label={t("journals.memoLabel", { n: String(i + 1) })}
                           value={line.memo}
                           onChange={(e) => updateLine(i, { memo: e.target.value })}
                           placeholder={t("journals.describeTheLine")}
@@ -413,7 +413,7 @@ function CreateJournalView({
                       <td className="px-[12px] py-[8px]">
                         <input
                           type="number"
-                          aria-label={`مدين للسطر ${i + 1}`}
+                          aria-label={t("journals.debitLabel", { n: String(i + 1) })}
                           value={line.debit || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { debit: e.target.valueAsNumber || 0, credit: 0 })}
@@ -423,7 +423,7 @@ function CreateJournalView({
                       <td className="px-[12px] py-[8px]">
                         <input
                           type="number"
-                          aria-label={`دائن للسطر ${i + 1}`}
+                          aria-label={t("journals.creditLabel", { n: String(i + 1) })}
                           value={line.credit || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { credit: e.target.valueAsNumber || 0, debit: 0 })}
@@ -431,7 +431,7 @@ function CreateJournalView({
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">
-                        <IconButton aria-label={`حذف السطر ${i + 1}`} disabled={lines.length <= 2} onClick={() => removeLine(i)}>
+                        <IconButton aria-label={t("journals.removeLineLabel", { n: String(i + 1) })} disabled={lines.length <= 2} onClick={() => removeLine(i)}>
                           ✕
                         </IconButton>
                       </td>

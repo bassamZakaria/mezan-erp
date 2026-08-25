@@ -21,16 +21,19 @@ import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemS
 import { useAccounts, useCreateItem, useItemCategories, useItemUnits, useItems, useUpdateItem } from "../data/hooks";
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-const TYPE_LABEL: Record<ItemTypeDTO, string> = { stock: "منتج مخزون", service: "خدمة" };
+const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = { stock: "items.stockProduct", service: "items.service" };
 const TYPE_TONE: Record<ItemTypeDTO, PillTone> = { stock: "info", service: "neutral" };
-const STATUS_LABEL: Record<ItemStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
 const STATUS_TONE: Record<ItemStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
-const COSTING_LABEL: Record<CostingMethodDTO, string> = { WAC: "متوسط التكلفة (WAC)", FIFO: "الأقدم أولاً (FIFO)" };
+const COSTING_KEY: Record<CostingMethodDTO, AppTranslationKey> = { WAC: "items.weightedAverageWac", FIFO: "items.oldestFirstFifo" };
 const ETA_CODE_TYPE_LABEL: Record<EtaCodeTypeDTO, string> = { EGS: "EGS", GPC: "GPC" };
 
-const NO_CATEGORY_OPTION: EntityPickerOption = { id: "__none__", label: "بدون تصنيف" };
-const DEFAULT_GL_OPTION: EntityPickerOption = { id: "__default__", label: "الافتراضي حسب نوع الصنف" };
+const NO_CATEGORY_ID = "__none__";
+const NO_CATEGORY_KEY = "common.uncategorized" as const;
+const DEFAULT_GL_ID = "__default__";
+const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
 const PAGE_SIZE = 5;
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
@@ -126,31 +129,36 @@ function draftFromItem(item: ItemDTO): ItemDraft {
  * shows the same messages inline without importing the whole domain package
  * into the web bundle.
  */
-function validateDraft(draft: ItemDraft, existing: ItemDTO[], editingId: string | null): string | null {
+function validateDraft(
+  draft: ItemDraft,
+  existing: ItemDTO[],
+  editingId: string | null,
+  t: (key: AppTranslationKey, params?: Record<string, string | number>) => string,
+): string | null {
   if (!editingId && existing.some((i) => i.code === draft.code)) {
-    return `الكود "${draft.code}" مستخدم بالفعل — أعد المحاولة.`;
+    return t("items.codeInUse", { code: draft.code });
   }
-  if (draft.nameAr.trim() === "") return "اسم الصنف مطلوب.";
+  if (draft.nameAr.trim() === "") return t("items.theItemNeedsAName");
   if (draft.type === "service" && draft.trackInventory) {
-    return "لا يمكن لصنف من نوع (خدمة) أن يتتبع المخزون.";
+    return t("items.aServiceItemCannotTrack");
   }
   const seenUnitCodes = new Set<string>();
   for (const unit of draft.alternateUnits) {
-    if (unit.code.trim() === "" || unit.name.trim() === "") return "كود واسم الوحدة البديلة مطلوبان.";
-    if (unit.code === draft.baseUnitCode) return `الوحدة البديلة "${unit.code}" لا يمكن أن تطابق الوحدة الأساسية.`;
-    if (seenUnitCodes.has(unit.code)) return `كود الوحدة البديلة "${unit.code}" مكرر.`;
+    if (unit.code.trim() === "" || unit.name.trim() === "") return t("items.anAlternateUnitNeedsBoth");
+    if (unit.code === draft.baseUnitCode) return t("items.unitMatchesBase", { code: unit.code });
+    if (seenUnitCodes.has(unit.code)) return t("items.duplicateUnitCode", { code: unit.code });
     seenUnitCodes.add(unit.code);
-    if (!Number.isFinite(unit.factor) || unit.factor <= 0) return `عامل تحويل الوحدة "${unit.code}" يجب أن يكون رقماً موجباً.`;
+    if (!Number.isFinite(unit.factor) || unit.factor <= 0) return t("items.unitFactorPositive", { code: unit.code });
   }
   const seenBarcodes = new Set<string>();
   for (const barcode of draft.barcodes) {
-    if (barcode.trim() === "") return "لا يمكن ترك الباركود فارغاً.";
-    if (seenBarcodes.has(barcode)) return `الباركود "${barcode}" مكرر.`;
+    if (barcode.trim() === "") return t("items.aBarcodeCannotBeLeft");
+    if (seenBarcodes.has(barcode)) return t("items.duplicateBarcode", { code: barcode });
     seenBarcodes.add(barcode);
   }
-  if (draft.reorderPoint !== null && draft.reorderPoint < 0) return "نقطة إعادة الطلب لا يمكن أن تكون سالبة.";
-  if (draft.reorderQty !== null && draft.reorderQty < 0) return "كمية إعادة الطلب لا يمكن أن تكون سالبة.";
-  if (draft.taxRatePercent < 0) return "نسبة الضريبة لا يمكن أن تكون سالبة.";
+  if (draft.reorderPoint !== null && draft.reorderPoint < 0) return t("items.theReorderPointCannotBe");
+  if (draft.reorderQty !== null && draft.reorderQty < 0) return t("items.theReorderQuantityCannotBe");
+  if (draft.taxRatePercent < 0) return t("items.theTaxRateCannotBe");
   return null;
 }
 
@@ -191,6 +199,7 @@ function nextItemCode(items: ItemDTO[]): string {
 
 /** الأصناف (Items) — docs/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
 export function ItemsScreen() {
+  const { t } = useAppTranslation();
   const query = useItems();
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
@@ -203,7 +212,7 @@ export function ItemsScreen() {
   const itemCategories = categoriesQuery.data ?? [];
 
   function glAccountLabel(id: string | null): string {
-    if (!id) return "الافتراضي حسب نوع الصنف";
+    if (!id) return t("items.defaultForTheItemType");
     const account = glAccounts.find((a) => a.id === id);
     return account ? `${account.code} — ${account.nameAr}` : id;
   }
@@ -255,12 +264,12 @@ export function ItemsScreen() {
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
-    () => [NO_CATEGORY_OPTION, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
-    [itemCategories],
+    () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
+    [itemCategories, t],
   );
   const glOptions: EntityPickerOption[] = useMemo(
-    () => [DEFAULT_GL_OPTION, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
-    [glAccounts],
+    () => [{ id: DEFAULT_GL_ID, label: t(DEFAULT_GL_KEY) }, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
+    [glAccounts, t],
   );
 
   const selectedItem = selectedId ? (items.find((i) => i.id === selectedId) ?? null) : null;
@@ -287,7 +296,7 @@ export function ItemsScreen() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const error = validateDraft(draft, items, editingId);
+    const error = validateDraft(draft, items, editingId, t);
     if (error) {
       setFormError(error);
       return;
@@ -302,7 +311,7 @@ export function ItemsScreen() {
       }
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -320,22 +329,22 @@ export function ItemsScreen() {
   const columns: DocumentListColumn<ItemDTO>[] = [
     {
       key: "nameAr",
-      header: "اسم الصنف",
+      header: t("items.itemName"),
       sortable: true,
       render: (row) => (
         <div className="flex flex-col gap-[3px]">
           <span className="font-semibold text-ink">{row.nameAr}</span>
           <span className="flex items-center gap-[6px] text-[11px] text-ink-faint">
             <span className="mz-num">{row.code}</span>
-            <StatusPill label={TYPE_LABEL[row.type]} tone={TYPE_TONE[row.type]} />
+            <StatusPill label={t(TYPE_KEY[row.type])} tone={TYPE_TONE[row.type]} />
           </span>
         </div>
       ),
     },
-    { key: "unit", header: "وحدة", render: (row) => unitLabel(row.baseUnitCode, itemUnits) },
-    { key: "salePrice", header: "سعر البيع", align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
-    { key: "costPrice", header: "سعر التكلفة", align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
-    { key: "status", header: "الحالة", render: (row) => <StatusPill label={STATUS_LABEL[row.status]} tone={STATUS_TONE[row.status]} /> },
+    { key: "unit", header: t("items.unit"), render: (row) => unitLabel(row.baseUnitCode, itemUnits) },
+    { key: "salePrice", header: t("items.salePrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
+    { key: "costPrice", header: t("items.costPrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
+    { key: "status", header: t("common.status"), render: (row) => <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} /> },
     {
       key: "actions",
       header: "",
@@ -357,19 +366,19 @@ export function ItemsScreen() {
   ];
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: totalCount },
-    { key: "active", label: "نشط", count: activeCount },
-    { key: "inactive", label: "غير نشط", count: totalCount - activeCount },
-    { key: "stock", label: "منتج مخزون", count: stockCount },
-    { key: "service", label: "خدمة", count: serviceCount },
+    { key: "all", label: t("common.all"), count: totalCount },
+    { key: "active", label: t("common.active"), count: activeCount },
+    { key: "inactive", label: t("common.inactive"), count: totalCount - activeCount },
+    { key: "stock", label: t("items.stockProduct"), count: stockCount },
+    { key: "service", label: t("items.service"), count: serviceCount },
   ];
 
   const formPanel = (
     <SidePanel
       open={formOpen}
       onClose={() => setFormOpen(false)}
-      title={editingId ? "تعديل صنف" : "إضافة صنف"}
-      description="الهوية والتصنيف، التسعير، وحدات القياس، تعيين الحسابات، والفاتورة الإلكترونية"
+      title={editingId ? t("items.editItem") : t("items.addItem")}
+      description={t("items.identityAndCategoryPricingUnits")}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-[16px]">
         {formError ? (
@@ -379,7 +388,7 @@ export function ItemsScreen() {
         ) : null}
 
         <SelectField
-          label="نوع الصنف"
+          label={t("items.itemType")}
           required
           value={draft.type}
           onChange={(v) => {
@@ -393,17 +402,17 @@ export function ItemsScreen() {
             }));
           }}
           options={[
-            { value: "stock", label: TYPE_LABEL.stock },
-            { value: "service", label: TYPE_LABEL.service },
+            { value: "stock", label: t(TYPE_KEY.stock) },
+            { value: "service", label: t(TYPE_KEY.service) },
           ]}
         />
 
-        <TextField label="كود الصنف" value={draft.code} onChange={() => {}} disabled dir="ltr" hint="يُنشأ تلقائياً" />
-        <TextField label="اسم الصنف" required value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-        <TextField label="الاسم بالإنجليزي" dir="ltr" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+        <TextField label={t("items.itemCode")} value={draft.code} onChange={() => {}} disabled dir="ltr" hint={t("items.generatedAutomatically")} />
+        <TextField label={t("items.itemName")} required value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+        <TextField label={t("items.nameInEnglish")} dir="ltr" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
 
         <SelectField
-          label="الوحدة الأساسية"
+          label={t("items.baseUnit")}
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
@@ -411,19 +420,19 @@ export function ItemsScreen() {
         />
 
         <EntityPicker
-          label="التصنيف"
+          label={t("common.category")}
           options={categoryOptions}
-          value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : NO_CATEGORY_OPTION}
-          onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_OPTION.id ? null : option.id }))}
+          value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : (categoryOptions[0] ?? null)}
+          onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_ID ? null : option.id }))}
         />
-        <TextField label="الماركة" value={draft.brand} onChange={(v) => setDraft((d) => ({ ...d, brand: v }))} />
+        <TextField label={t("items.brand")} value={draft.brand} onChange={(v) => setDraft((d) => ({ ...d, brand: v }))} />
 
-        <FieldGroup label="وحدات القياس البديلة" hint="مثال: كرتونة = 12 قطعة">
+        <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")}>
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
               <div key={index} className="flex items-end gap-[6px]">
                 <input
-                  aria-label="كود الوحدة"
+                  aria-label={t("items.unitCode")}
                   dir="ltr"
                   value={unit.code}
                   onChange={(e) => updateAlternateUnit(index, { code: e.target.value })}
@@ -431,14 +440,14 @@ export function ItemsScreen() {
                   className="w-[70px] rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <input
-                  aria-label="اسم الوحدة"
+                  aria-label={t("items.unitName")}
                   value={unit.name}
                   onChange={(e) => updateAlternateUnit(index, { name: e.target.value })}
-                  placeholder="كرتونة"
+                  placeholder={t("items.carton")}
                   className="flex-1 rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <input
-                  aria-label="عامل التحويل"
+                  aria-label={t("items.conversionFactor")}
                   type="number"
                   dir="ltr"
                   min={0}
@@ -447,7 +456,7 @@ export function ItemsScreen() {
                   className="mz-num w-[64px] rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <IconButton
-                  aria-label="حذف الوحدة"
+                  aria-label={t("items.removeUnit")}
                   type="button"
                   onClick={() => setDraft((d) => ({ ...d, alternateUnits: d.alternateUnits.filter((_, i) => i !== index) }))}
                 >
@@ -462,24 +471,24 @@ export function ItemsScreen() {
               size="sm"
               onClick={() => setDraft((d) => ({ ...d, alternateUnits: [...d.alternateUnits, { code: "", name: "", factor: 1 }] }))}
             >
-              + إضافة وحدة
+              {t("items.addUnit")}
             </Button>
           </div>
         </FieldGroup>
 
-        <FieldGroup label="الباركود">
+        <FieldGroup label={t("items.barcode")}>
           <div className="flex flex-col gap-[8px]">
             {draft.barcodes.map((barcode, index) => (
               <div key={index} className="flex items-center gap-[6px]">
                 <input
-                  aria-label="الباركود"
+                  aria-label={t("items.barcode")}
                   dir="ltr"
                   value={barcode}
                   onChange={(e) => updateBarcode(index, e.target.value)}
                   className="mz-num flex-1 rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <IconButton
-                  aria-label="حذف الباركود"
+                  aria-label={t("items.removeBarcode")}
                   type="button"
                   onClick={() => setDraft((d) => ({ ...d, barcodes: d.barcodes.filter((_, i) => i !== index) }))}
                 >
@@ -490,103 +499,103 @@ export function ItemsScreen() {
               </div>
             ))}
             <Button type="button" size="sm" onClick={() => setDraft((d) => ({ ...d, barcodes: [...d.barcodes, ""] }))}>
-              + إضافة باركود آخر
+              {t("items.addAnotherBarcode")}
             </Button>
           </div>
         </FieldGroup>
 
-        <Field label="سعر البيع">
-          <MoneyInput aria-label="سعر البيع" value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
+        <Field label={t("items.salePrice")}>
+          <MoneyInput aria-label={t("items.salePrice")} value={draft.salePrice} onChange={(v) => setDraft((d) => ({ ...d, salePrice: v }))} />
         </Field>
-        <Field label="سعر التكلفة">
-          <MoneyInput aria-label="سعر التكلفة" value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
+        <Field label={t("items.costPrice")}>
+          <MoneyInput aria-label={t("items.costPrice")} value={draft.costPrice} onChange={(v) => setDraft((d) => ({ ...d, costPrice: v }))} />
         </Field>
-        <NumberField label="نسبة الضريبة %" value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
+        <NumberField label={t("items.taxRate")} value={draft.taxRatePercent} onChange={(v) => setDraft((d) => ({ ...d, taxRatePercent: v ?? 0 }))} min={0} />
 
         {draft.type === "stock" ? (
           <Card className="flex flex-col gap-[12px] p-[14px_16px]">
             <ToggleField
-              label="تتبع المخزون"
+              label={t("items.trackStock")}
               checked={draft.trackInventory}
               onChange={(v) => setDraft((d) => ({ ...d, trackInventory: v, trackBatches: v ? d.trackBatches : false }))}
-              hint="خصم عند البيع، تحديث عند الشراء"
+              hint={t("items.deductedOnSaleToppedUp")}
             />
             <SelectField
-              label="طريقة التكلفة"
+              label={t("items.costingMethod")}
               required
               value={draft.costingMethod}
               onChange={(v) => setDraft((d) => ({ ...d, costingMethod: v as CostingMethodDTO }))}
               options={[
-                { value: "WAC", label: COSTING_LABEL.WAC },
-                { value: "FIFO", label: COSTING_LABEL.FIFO },
+                { value: "WAC", label: t(COSTING_KEY.WAC) },
+                { value: "FIFO", label: t(COSTING_KEY.FIFO) },
               ]}
             />
             <ToggleField
-              label="تتبع الدفعات وتواريخ الصلاحية"
+              label={t("items.trackBatchesAndExpiryDates")}
               checked={draft.trackBatches}
               disabled={!draft.trackInventory}
               onChange={(v) => setDraft((d) => ({ ...d, trackBatches: v }))}
-              hint="FEFO — الأقدم صلاحية أولاً، للأصناف الغذائية/الدوائية"
+              hint={t("items.fefoEarliestExpiryFirstFor")}
             />
-            <NumberField label="نقطة إعادة الطلب" value={draft.reorderPoint} onChange={(v) => setDraft((d) => ({ ...d, reorderPoint: v }))} min={0} />
-            <NumberField label="كمية إعادة الطلب" value={draft.reorderQty} onChange={(v) => setDraft((d) => ({ ...d, reorderQty: v }))} min={0} />
+            <NumberField label={t("items.reorderPoint")} value={draft.reorderPoint} onChange={(v) => setDraft((d) => ({ ...d, reorderPoint: v }))} min={0} />
+            <NumberField label={t("items.reorderQuantity")} value={draft.reorderQty} onChange={(v) => setDraft((d) => ({ ...d, reorderQty: v }))} min={0} />
           </Card>
         ) : null}
 
         <Card className="flex flex-col gap-[12px] p-[14px_16px]">
           <EntityPicker
-            label="حساب الإيراد"
+            label={t("items.revenueAccount")}
             options={glOptions}
-            value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : DEFAULT_GL_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_OPTION.id ? null : option.id }))}
+            value={draft.revenueAccountId ? (glOptions.find((o) => o.id === draft.revenueAccountId) ?? null) : (glOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, revenueAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
           />
           <EntityPicker
-            label="حساب التكلفة"
+            label={t("items.costAccount")}
             options={glOptions}
-            value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : DEFAULT_GL_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_OPTION.id ? null : option.id }))}
+            value={draft.cogsAccountId ? (glOptions.find((o) => o.id === draft.cogsAccountId) ?? null) : (glOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, cogsAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
           />
           <EntityPicker
-            label="حساب المخزون"
+            label={t("items.inventoryAccount")}
             options={glOptions}
-            value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : DEFAULT_GL_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_OPTION.id ? null : option.id }))}
+            value={draft.inventoryAccountId ? (glOptions.find((o) => o.id === draft.inventoryAccountId) ?? null) : (glOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, inventoryAccountId: !option || option.id === DEFAULT_GL_ID ? null : option.id }))}
           />
         </Card>
 
         <Card className="flex flex-col gap-[12px] p-[14px_16px]">
           <SelectField
-            label="نوع الكود (ETA)"
+            label={t("items.codeTypeEta")}
             value={draft.etaCodeType ?? ""}
             onChange={(v) => setDraft((d) => ({ ...d, etaCodeType: v === "" ? null : (v as EtaCodeTypeDTO) }))}
             options={[
-              { value: "", label: "بدون" },
+              { value: "", label: t("items.none") },
               { value: "EGS", label: "EGS" },
               { value: "GPC", label: "GPC" },
             ]}
           />
-          <TextField label="كود الصنف لدى المصلحة" dir="ltr" value={draft.etaItemCode} onChange={(v) => setDraft((d) => ({ ...d, etaItemCode: v }))} placeholder="EG-XXXXXXXXX-SKU" />
-          <TextField label="كود GPC" dir="ltr" value={draft.gpcCode} onChange={(v) => setDraft((d) => ({ ...d, gpcCode: v }))} />
+          <TextField label={t("items.itemCodeWithTheAuthority")} dir="ltr" value={draft.etaItemCode} onChange={(v) => setDraft((d) => ({ ...d, etaItemCode: v }))} placeholder="EG-XXXXXXXXX-SKU" />
+          <TextField label={t("items.gpcCode")} dir="ltr" value={draft.gpcCode} onChange={(v) => setDraft((d) => ({ ...d, gpcCode: v }))} />
         </Card>
 
         {editingId ? (
           <SelectField
-            label="الحالة"
+            label={t("common.status")}
             value={draft.status}
             onChange={(v) => setDraft((d) => ({ ...d, status: v as ItemStatusDTO }))}
             options={[
-              { value: "active", label: "نشط" },
-              { value: "inactive", label: "غير نشط" },
+              { value: "active", label: t("common.active") },
+              { value: "inactive", label: t("common.inactive") },
             ]}
           />
         ) : null}
 
         <div className="mt-[6px] flex justify-end gap-[9px]">
           <Button type="button" onClick={() => setFormOpen(false)}>
-            إلغاء
+            {t("common.cancel")}
           </Button>
           <Button type="submit" variant="primary">
-            {editingId ? "حفظ" : "إضافة"}
+            {editingId ? t("common.save") : t("common.add")}
           </Button>
         </div>
       </form>
@@ -598,18 +607,18 @@ export function ItemsScreen() {
     const tabs: DocumentDetailTab[] = [
       {
         key: "general",
-        label: "عام",
+        label: t("items.general"),
         content: (
           <Card className="grid grid-cols-1 gap-0 overflow-hidden sm:grid-cols-2">
             {[
-              ["نوع الصنف", TYPE_LABEL[item.type]],
-              ["التصنيف", categoryLabel(item.categoryId, itemCategories)],
-              ["الماركة", item.brand ?? "—"],
-              ["طريقة التكلفة", COSTING_LABEL[item.costingMethod]],
-              ["تتبع المخزون", item.trackInventory ? "نعم" : "لا"],
-              ["تتبع الدفعات وتواريخ الصلاحية", item.trackBatches || item.trackExpiry ? "نعم" : "لا"],
-              ["نقطة إعادة الطلب", item.reorderPoint ?? "—"],
-              ["كمية إعادة الطلب", item.reorderQty ?? "—"],
+              [t("items.itemType"), t(TYPE_KEY[item.type])],
+              [t("common.category"), categoryLabel(item.categoryId, itemCategories)],
+              [t("items.brand"), item.brand ?? "—"],
+              [t("items.costingMethod"), t(COSTING_KEY[item.costingMethod])],
+              [t("items.trackStock"), item.trackInventory ? t("items.yes") : t("items.no")],
+              [t("items.trackBatchesAndExpiryDates"), item.trackBatches || item.trackExpiry ? t("items.yes") : t("items.no")],
+              [t("items.reorderPoint"), item.reorderPoint ?? "—"],
+              [t("items.reorderQuantity"), item.reorderQty ?? "—"],
             ].map(([label, value]) => (
               <div key={label} className="border-b border-e border-border p-[13px_15px] [&:nth-last-child(-n+2)]:border-b-0 sm:[&:nth-child(odd)]:border-e">
                 <div className="text-[11px] font-semibold text-ink-faint">{label}</div>
@@ -621,27 +630,27 @@ export function ItemsScreen() {
       },
       {
         key: "units",
-        label: "الوحدات والباركود",
+        label: t("items.unitsAndBarcodes"),
         content: (
           <div className="flex flex-col gap-[16px]">
             <Card className="p-[14px_16px]">
-              <div className="text-[11px] font-semibold text-ink-faint">الوحدة الأساسية</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("items.baseUnit")}</div>
               <div className="mt-[5px] text-[13.5px] font-bold text-ink">
                 {unitLabel(item.baseUnitCode, itemUnits)} ({item.baseUnitCode})
               </div>
             </Card>
             <div>
-              <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">الوحدات البديلة</h3>
+              <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("items.alternateUnits")}</h3>
               {item.alternateUnits.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border p-[16px] text-center text-[12.5px] text-ink-muted">لا توجد وحدات قياس بديلة</div>
+                <div className="rounded-md border border-dashed border-border p-[16px] text-center text-[12.5px] text-ink-muted">{t("items.noAlternateUnitsOfMeasure")}</div>
               ) : (
                 <Card className="overflow-hidden">
                   <table className="w-full border-collapse text-[12.5px]">
                     <thead>
                       <tr className="bg-surface-2">
-                        <th className="border-b border-border px-[12px] py-[9px] text-start font-bold text-ink-muted">الوحدة</th>
-                        <th className="border-b border-border px-[12px] py-[9px] text-start font-bold text-ink-muted">الكود</th>
-                        <th className="border-b border-border px-[12px] py-[9px] text-end font-bold text-ink-muted">التحويل</th>
+                        <th className="border-b border-border px-[12px] py-[9px] text-start font-bold text-ink-muted">{t("common.unit")}</th>
+                        <th className="border-b border-border px-[12px] py-[9px] text-start font-bold text-ink-muted">{t("common.code")}</th>
+                        <th className="border-b border-border px-[12px] py-[9px] text-end font-bold text-ink-muted">{t("items.conversion")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -660,9 +669,9 @@ export function ItemsScreen() {
               )}
             </div>
             <div>
-              <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">الباركود</h3>
+              <h3 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("items.barcode")}</h3>
               {item.barcodes.length === 0 ? (
-                <div className="rounded-md border border-dashed border-border p-[16px] text-center text-[12.5px] text-ink-muted">لا يوجد باركود مسجل</div>
+                <div className="rounded-md border border-dashed border-border p-[16px] text-center text-[12.5px] text-ink-muted">{t("items.noBarcodesRecorded")}</div>
               ) : (
                 <div className="flex flex-wrap gap-[8px]">
                   {item.barcodes.map((barcode) => (
@@ -678,55 +687,55 @@ export function ItemsScreen() {
       },
       {
         key: "pricing",
-        label: "التسعير",
+        label: t("items.pricing"),
         content: (
           <Card className="grid grid-cols-2 overflow-hidden">
             <div className="border-e border-border p-[15px_17px]">
-              <div className="text-[11px] font-semibold text-ink-faint">سعر البيع</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("items.salePrice")}</div>
               <div className="mt-[6px]">
                 <Money value={Number(item.salePrice ?? 0)} />
               </div>
             </div>
             <div className="p-[15px_17px]">
-              <div className="text-[11px] font-semibold text-ink-faint">سعر التكلفة</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("items.costPrice")}</div>
               <div className="mt-[6px]">
                 <Money value={Number(item.costPrice ?? 0)} />
               </div>
-              <div className="mt-[6px] text-[11px] text-ink-faint">يصبح مشتقاً تلقائياً من حركات المخزون فور ربط دفتر التكاليف (المرحلة الثانية)</div>
+              <div className="mt-[6px] text-[11px] text-ink-faint">{t("items.thisBecomesDerivedFromStock")}</div>
             </div>
           </Card>
         ),
       },
       {
         key: "accounting",
-        label: "الحسابات",
+        label: t("items.accounts"),
         content: (
           <div className="flex flex-col gap-[16px]">
             <Card className="grid grid-cols-1 overflow-hidden sm:grid-cols-3">
               <div className="border-b border-e border-border p-[13px_15px] sm:border-b-0">
-                <div className="text-[11px] font-semibold text-ink-faint">حساب الإيراد</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.revenueAccount")}</div>
                 <div className="mt-[5px] text-[13px] font-bold text-ink">{glAccountLabel(item.revenueAccountId)}</div>
               </div>
               <div className="border-b border-e border-border p-[13px_15px] sm:border-b-0">
-                <div className="text-[11px] font-semibold text-ink-faint">حساب التكلفة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.costAccount")}</div>
                 <div className="mt-[5px] text-[13px] font-bold text-ink">{glAccountLabel(item.cogsAccountId)}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">حساب المخزون</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.inventoryAccount")}</div>
                 <div className="mt-[5px] text-[13px] font-bold text-ink">{glAccountLabel(item.inventoryAccountId)}</div>
               </div>
             </Card>
             <Card className="grid grid-cols-1 overflow-hidden sm:grid-cols-3">
               <div className="border-b border-e border-border p-[13px_15px] sm:border-b-0">
-                <div className="text-[11px] font-semibold text-ink-faint">نوع كود ETA</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.etaCodeType")}</div>
                 <div className="mt-[5px] text-[13px] font-bold text-ink">{item.etaCodeType ? ETA_CODE_TYPE_LABEL[item.etaCodeType] : "—"}</div>
               </div>
               <div className="border-b border-e border-border p-[13px_15px] sm:border-b-0">
-                <div className="text-[11px] font-semibold text-ink-faint">كود الصنف لدى المصلحة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.itemCodeWithTheAuthority")}</div>
                 <div className="mz-num mt-[5px] text-[13px] font-bold text-ink">{item.etaItemCode ?? "—"}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">كود GPC</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("items.gpcCode")}</div>
                 <div className="mz-num mt-[5px] text-[13px] font-bold text-ink">{item.gpcCode ?? "—"}</div>
               </div>
             </Card>
@@ -735,10 +744,10 @@ export function ItemsScreen() {
       },
       {
         key: "stock",
-        label: "المخزون",
+        label: t("items.stock"),
         content: (
           <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-            ستُعرض أرصدة المخزون حسب المستودع هنا فور ربط حركات المخزون بدفتر المخزون (المرحلة الثانية).
+            {t("items.stockBalancesByWarehouseWill")}
           </div>
         ),
       },
@@ -748,9 +757,9 @@ export function ItemsScreen() {
       <div className="w-full">
         <DocumentDetail
           title={`${item.code} — ${item.nameAr}`}
-          statusLabel={STATUS_LABEL[item.status]}
+          statusLabel={t(STATUS_KEY[item.status])}
           statusTone={STATUS_TONE[item.status]}
-          subtitle={`${TYPE_LABEL[item.type]} · ${categoryLabel(item.categoryId, itemCategories)}`}
+          subtitle={`${t(TYPE_KEY[item.type])} · ${categoryLabel(item.categoryId, itemCategories)}`}
           actions={
             <>
               <Button
@@ -759,20 +768,20 @@ export function ItemsScreen() {
                   setSelectedId(null);
                 }}
               >
-                رجوع للقائمة
+                {t("items.backToTheList")}
               </Button>
               <Button variant="primary" onClick={() => openEditForm(item)}>
-                تعديل
+                {t("common.edit")}
               </Button>
             </>
           }
           summary={[
-            { label: "نوع الصنف", value: TYPE_LABEL[item.type] },
-            { label: "التصنيف", value: categoryLabel(item.categoryId, itemCategories) },
-            { label: "الوحدة", value: unitLabel(item.baseUnitCode, itemUnits) },
-            { label: "طريقة التكلفة", value: COSTING_LABEL[item.costingMethod] },
-            { label: "سعر البيع", value: <Money value={Number(item.salePrice ?? 0)} /> },
-            { label: "سعر التكلفة", value: <Money value={Number(item.costPrice ?? 0)} /> },
+            { label: t("items.itemType"), value: t(TYPE_KEY[item.type]) },
+            { label: t("common.category"), value: categoryLabel(item.categoryId, itemCategories) },
+            { label: t("common.unit"), value: unitLabel(item.baseUnitCode, itemUnits) },
+            { label: t("items.costingMethod"), value: t(COSTING_KEY[item.costingMethod]) },
+            { label: t("items.salePrice"), value: <Money value={Number(item.salePrice ?? 0)} /> },
+            { label: t("items.costPrice"), value: <Money value={Number(item.costPrice ?? 0)} /> },
           ]}
           tabs={tabs}
           activeTabKey={detailTab}
@@ -787,26 +796,26 @@ export function ItemsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الأصناف.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("items.itemsCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<ItemDTO>
         eyebrow="Inventory · Items"
-        title="الأصناف"
-        description="الكتالوج الرئيسي للمنتجات والخدمات — الوحدات، الباركود، التسعير، تعيين الحسابات، وسياسة المخزون"
+        title={t("items.items")}
+        description={t("items.theMasterCatalogueOfProducts")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة صنف
+            {t("items.addItem")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الأصناف", value: <span className="mz-num">{totalCount}</span> },
-          { label: "نشط", value: <span className="mz-num">{activeCount}</span> },
-          { label: "أصناف مخزون", value: <span className="mz-num">{stockCount}</span> },
-          { label: "أصناف خدمية", value: <span className="mz-num">{serviceCount}</span> },
+          { label: t("items.totalItems"), value: <span className="mz-num">{totalCount}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
+          { label: t("items.stockItems"), value: <span className="mz-num">{stockCount}</span> },
+          { label: t("items.serviceItems"), value: <span className="mz-num">{serviceCount}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusChipKey}
@@ -819,11 +828,11 @@ export function ItemsScreen() {
           setSearch(value);
           setPage(1);
         }}
-        searchPlaceholder="بحث بالاسم أو الكود..."
+        searchPlaceholder={t("items.searchByNameOrCode")}
         filterBarExtra={
           <>
             <select
-              aria-label="تصفية حسب التصنيف"
+              aria-label={t("items.filterByCategory")}
               value={categoryFilter}
               onChange={(e) => {
                 setCategoryFilter(e.target.value);
@@ -831,7 +840,7 @@ export function ItemsScreen() {
               }}
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
-              <option value="all">كل التصنيفات</option>
+              <option value="all">{t("items.allCategories")}</option>
               {itemCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.nameAr}
@@ -839,7 +848,7 @@ export function ItemsScreen() {
               ))}
             </select>
             <select
-              aria-label="تصفية حسب الوحدة"
+              aria-label={t("items.filterByUnit")}
               value={unitFilter}
               onChange={(e) => {
                 setUnitFilter(e.target.value);
@@ -847,7 +856,7 @@ export function ItemsScreen() {
               }}
               className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
             >
-              <option value="all">كل الوحدات</option>
+              <option value="all">{t("items.allUnits")}</option>
               {itemUnits.map((u) => (
                 <option key={u.code} value={u.code}>
                   {u.nameAr}
@@ -867,11 +876,11 @@ export function ItemsScreen() {
         onPageChange={setPage}
         pageSummary={
           <>
-            عرض <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}</span> من{" "}
-            <span className="mz-num">{filtered.length}</span> صنف
+            {t("common.show")} <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}</span> {t("common.of")}{" "}
+            <span className="mz-num">{filtered.length}</span> {t("items.items2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أصناف مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("items.noMatchingItems")}</div>}
       />
       {formPanel}
     </div>

@@ -152,6 +152,49 @@ those two gates before it starts, and says so in its output.
 
 ---
 
+## Go-live, compliance and platform seams (executable)
+
+### X31 — Importing history must not re-post it
+Crosses: data migration ▸ purchases ▸ inventory ▸ GL.
+
+- **Steps**: dry-run then commit a purchase-history batch — one fully-paid document, one half-paid.
+- **Assert**: the dry run classifies settled vs outstanding and computes remaining = total − paid. The commit archives both, moves **no** stock, adds **no** inventory value, posts at most one journal entry for the whole batch, and leaves the archives readable. AP rises by the outstanding balance only.
+- **Finds**: **D23** — AP rises by nothing at all.
+
+### X32 — The same rule on the sales side
+- **Assert**: no stock leaves for goods delivered before go-live; AR rises by what customers still owe and by nothing else.
+- **Finds**: **D23** again — every migrated customer starts owing zero.
+
+### X33 — VAT is not one rate
+Crosses: items ▸ sales ▸ tax ▸ GL.
+
+- **Steps**: one invoice with a 14% line and a 5% line; then an invoice for a **tax-exempt** customer.
+- **Assert**: tax is 14% of one base plus 5% of the other — never a blended rate over the total — and GL 2200 takes exactly that. The exempt flag overrides the line's own rate: tax total is zero, no output VAT posts, and the goods are still billed in full.
+- **Why it matters**: Egypt's standard rate is 14% with a 5% reduced band, and exempt bodies are common. A per-document tax rate would quietly overcharge one of them.
+
+### X34 — A document-level discount, to the piastre
+- **Steps**: three lines of 33.33 / 33.33 / 33.34 with a 10% invoice discount.
+- **Assert**: VAT is charged on the **discounted** base (14% of 90), the grand total is 102.60, the posted entry balances, AR is debited with the discounted total, and COGS is unchanged — a discount never alters what the goods cost.
+
+### X35 — The same confirm, twice
+- **Assert**: retrying a confirm with the same `requestId` never posts twice — stock falls once, AR rises once, and the invoice carries one document number and one journal entry.
+
+### X36 — Branch scope, with a real second branch
+- **Steps**: create a second branch, warehouse and stock; sell from it; read the invoice list under each `x-branch-scope`.
+- **Assert**: **D7 measured rather than inferred** — every scope returns the identical rows, and a caller scoped to the first branch can read the second branch's invoice. Warehouse scope, by contrast, genuinely narrows — proving the two are independent mechanisms and only one is wired.
+
+### X37 — A backdated document changes the past, not the present
+- **Assert**: a July-dated entry posted while July is open restates July's income statement, leaves August's untouched, reaches the cumulative ledger, and does not break the aging report's date handling.
+
+### X38 — Module licensing is designed but not enforced
+- **Assert**: manufacturing, fixed assets, installments, field sales and HR all answer 200 for a caller with no entitlement. `createModuleGate` (403 `MODULE_NOT_LICENSED`) exists and `hasModule` exists; there is no call site in `create-backend.ts`, so the licensing model in `plan.md` §2.5 is unenforced at runtime. Nothing in the API can express "this tenant did not buy Manufacturing".
+
+### X39 — Batch, expiry and what FEFO actually decides
+- **Steps**: receive two batches of one item — cheap stock expiring next year, dearer stock expiring in two months — invoice them, then sell exactly one batch's worth.
+- **Assert**: the earliest-expiring batch is consumed first (the expiring report shows it gone and the later one untouched), **and** COGS charges the blended weighted-average cost, not that batch's own. FEFO decides which goods leave; it does not price them. A pharmacy asking "what did the October batch cost me" cannot get that answer today — `plan.md` §6.3.6 leaves FIFO/batch costing open.
+
+---
+
 ## Not yet executable — run these by hand
 
 These cross seams `cross-module.ts` does not reach yet, written the same way so
@@ -190,10 +233,7 @@ Crosses: projects ▸ cost centres ▸ GL ▸ reports.
 - **Watch**: if a voucher-paid expense genuinely cannot be tagged, say so with the measured evidence (the create-voucher contract has no `costCenterId`), because it means the cost-centre report can never see the majority of real spending.
 
 ### X27 — Branch scope, end to end
-Crosses: users/roles ▸ every document module ▸ treasury ▸ reports. **Currently unprovable** — **D7** (no list route reads `branchScope`) and the demo tenant has one branch. Seed a second branch first, or this scenario proves nothing either way.
-
-- **Steps**: create a second branch with its own warehouse and treasury account → post a sale, a purchase and a voucher in each branch → call the document lists, the treasury account list, the dashboard and the trial balance with `x-branch-scope` set to one branch, then the other, then `*`.
-- **Assert**: each scoped call returns strictly its own branch's documents; the two scoped results are disjoint and together equal the `*` result, row for row and figure for figure. The dashboard's cash tile under one branch equals that branch's treasury accounts alone. No route silently ignores the header — a route that returns the same rows for both branches is the finding.
+**Superseded by X36**, which now creates a real second branch and measures it. What remains manual is the UI half: a user whose session grant is one branch must not be able to *widen* scope with the switcher, and the switcher must not offer branches the grant excludes.
 
 ### X28 — Promotion → revenue → VAT
 Crosses: promotions ▸ sales ▸ tax ▸ reports.
@@ -214,3 +254,127 @@ Crosses: every document module ▸ notification rules ▸ webhooks ▸ audit.
 - **Pre**: a notification rule and a webhook subscription on an event a document actually emits (`GET /webhooks/events` lists the emitted codes; only those may be subscribed).
 - **Steps**: confirm a document that emits that event → read `GET /notifications` and `GET /webhooks/:id/deliveries` → then point a subscription at an endpoint that fails, and confirm another document.
 - **Assert**: the notification exists once per rule match, addressed to the right recipients, and marking it read does not affect anyone else's copy. The webhook delivery is attempted, its retries are bounded, and — the cross-module point — **a failing or retrying webhook never rolls back, blocks or duplicates the document that triggered it**: re-read that document and its journal entry and confirm both posted exactly once. The audit trail records the confirming actor and branch for the document, separately from the delivery attempts.
+
+---
+
+## Egypt compliance — what the market actually requires
+
+Written against the rules an Egyptian business is audited on, not against what
+the product currently implements. Several of these will fail; that is the point
+of writing them down before a customer does.
+
+### X40 — ETA B2B: an invoice is not final until the ETA clears it
+Crosses: sales ▸ e-invoicing ▸ printing.
+
+- **Pre**: ETA configured, a confirmed sales invoice.
+- **Steps**: confirm → submit → simulate each of the three outcomes: accepted, rejected, and still-pending.
+- **Assert**: the invoice carries a visible submission state at all times, and the ETA UUID once accepted. A **rejected** submission must be loud — the invoice must not sit there looking compliant while the ETA has refused it. A pending one must be distinguishable from an accepted one on the document, in the list, and on anything printed. Nothing about clearance may silently alter the posted journal entry.
+- **Today**: **D5** — no user action enqueues anything, so this whole flow is unreachable.
+
+### X41 — ETA B2C: e-receipt within the window, and the QR on the paper
+- **Assert**: a retail sale produces an e-receipt submitted within 72 hours (post-clearance, unlike B2B), and the printed receipt carries a QR code that resolves to the validated receipt. Reprinting must reproduce the same QR, never mint a new one.
+- **Today**: POS does not exist (deferred), so this is specification, not test.
+
+### X42 — The offline queue has a legal clock on it
+Crosses: e-invoicing ▸ desktop edition ▸ shell.
+
+- **Steps**: with no connectivity, confirm several invoices, then let time pass.
+- **Assert**: the unsent queue shows a count **and the age of the oldest unsent document**; the warning escalates as that age approaches the statutory deadline; reconnecting drains the queue in document order and never submits the same document twice. `plan.md` §5.5 records this as an open product decision — the scenario exists so the decision cannot be forgotten.
+
+### X43 — Registration threshold and late-submission penalties
+- **Assert**: the tenant can record its ETA registration status and threshold basis, and the product warns when the tenant's own annual revenue crosses the registration threshold (EGP 250,000 since Resolution 281/2025). Late submissions must be countable — the ETA's penalties escalate on how many late submissions fall inside a rolling 12-month window, so a tenant needs that number visible, not buried.
+
+### X44 — A credit note is an ETA document too
+- **Assert**: a confirmed sales return produces its own submission, linked to the original invoice's UUID, and the VAT return nets it. A return that never reaches the ETA leaves the customer's input tax and the tenant's output tax permanently disagreeing.
+
+### X45 — Withholding tax on local payments
+Crosses: purchases ▸ treasury ▸ tax ▸ reports.
+
+- **Steps**: pay a supplier invoice where WHT applies — the payment is net, the withheld amount is owed to the tax authority.
+- **Assert**: the payment voucher reduces AP by the **gross**, the treasury by the **net**, and credits a WHT-payable liability with the difference; the supplier's statement shows the invoice settled in full; a later payment to the authority clears the WHT liability; a WHT report lists what was withheld, from whom, for the filing.
+- **Today**: no withholding concept exists anywhere in the domain — measure it and say so rather than assuming a customer will handle it manually.
+
+### X46 — VAT rules that are not "14% of everything"
+- **Assert**: the tax engine can express a rule that taxes a **portion** of the invoice value (the legacy construction-contract treatment taxes 14% on 36% of value with no input deduction), a 5% reduced-rate item, a zero-rated export, and an exempt supply — and the VAT return groups each correctly rather than collapsing them into one rate.
+- **Today**: X33 proves per-line rates work. The rest are unmodelled.
+
+### X47 — A filed VAT period should not move under the filing
+- **Assert**: once a VAT return has been filed for a period, a backdated document into that period is either blocked or raised as an amendment — never silently absorbed. X37 proves backdating restates the past; this is the control that makes that safe. Fiscal-period close (X15) is the mechanism that exists today; the scenario is whether the VAT filing state is tied to it.
+
+---
+
+## Payroll — the statutory half that is deliberately absent
+
+`docs/STATUS.md` records that payroll computes no Egyptian income tax, no social
+insurance, no Article 47 seniority bonus, no end-of-service gratuity. These
+scenarios test the **honesty** of that gap first, and the computation later.
+
+### X48 — A payslip must say what it did not compute
+- **Assert**: every payslip and payroll run states plainly, in Arabic, that statutory deductions are not included and that the net shown is therefore not the amount an employee should receive. STATUS calls this the highest-priority open item in HR: a number that is silently wrong is worse than a number that is missing.
+
+### X49 — Social insurance is two liabilities, not one deduction
+- **Assert (when built)**: the employee share reduces net pay and the employer share is a company cost; both credit separate liability accounts; the payroll journal entry balances with both present; paying the authority clears exactly those liabilities and the treasury by their sum.
+
+### X50 — End of service reaches the ledger before it is paid
+- **Assert (when built)**: gratuity accrues as a liability over service, terminating an employee settles it from that liability rather than as a fresh expense, and the P&L is not distorted in the month someone leaves.
+
+### X51 — Legal constants are versioned data, not code
+- **Assert**: leave presets and any statutory rate carry the law and article they came from and the date they took effect; adopting a new preset changes future calculations only and never restates a balance already earned under the old one. `plan.md` §6.2 lists Egyptian regulatory change as permanent recurring work — this scenario is what keeps it cheap.
+
+---
+
+## Integrity at scale — the risks `plan.md` §6.2 names
+
+### X52 — Rounding, swept rather than sampled
+- **Steps**: generate hundreds of documents with awkward figures — three-way splits, 33.33s, 0.005 boundaries — across invoice discounts, per-line tax, landed-cost distribution, WAC recalculation, instalment schedules and FX conversion.
+- **Assert**: for every one, the parts sum to the whole exactly. This is a property, not an example: X34 and X9 each prove one case; the sweep proves the rule.
+
+### X53 — The same books on both engines
+- **Assert**: a golden set of documents posted through SQLite and through Postgres produces identical ledgers to the minor unit — same balances, same rounding, same ordering. `plan.md` calls dual-dialect drift the worst class of bug this product can have; nothing else in this file would catch it.
+
+### X54 — Five years of data, on a laptop
+- **Assert**: with a five-year seeded tenant, each report returns inside its budget and none times out; the heavy ledger reports stay usable on-demand. Measure and record the numbers — a report that takes 40 seconds is a defect even when its figures are right.
+
+### X55 — Restore is part of the product
+- **Assert**: back up, destroy, restore — then compare the ledger, the sub-ledgers and every document count against the pre-backup state. `plan.md` §6.2 lists an untested restore path as total-data-loss risk for a desktop customer.
+
+### X56 — Two people, one second
+- **Assert**: concurrent confirms of different documents produce distinct, gap-free numbers with no collision; a confirm that fails must not burn a number (or, if it does, that behaviour is recorded deliberately rather than discovered by a customer whose audit shows a missing invoice number).
+
+### X57 — Branch-prefixed numbering
+- **Assert**: with two branches, each branch's documents number independently and predictably. Open decision (`plan.md` §6.3.8): the reference product's sequences are tenant-global, and multi-branch customers usually expect a branch prefix. X36 now provides the second branch this needs.
+
+---
+
+## Platform seams
+
+### X58 — Permissions are a graph, and some are sensitive
+- **Assert**: granting `.confirm` implies `.view_own` (the dependency graph is enforced server-side, not just in the role editor); a `view_own` holder sees their own documents and not a colleague's; a user without the cost-visibility permission sees a document with its costs **hidden**, not an error page; salary figures obey the same rule.
+
+### X59 — Arabic search must forgive Arabic
+- **Assert**: searching `احمد` finds `أحمد`, `آحمد` and `إحمد`; `فاطمه` finds `فاطمة`; `ليلي` finds `ليلى`; a mixed Arabic/English record is findable by either. Today the list routes take no query parameter at all — filtering happens in the browser — so this is a client-side test, and a normalization helper shared with the server is the fix if it fails.
+
+### X60 — The desktop edition, genuinely offline
+- **Assert**: with no network, the full document lifecycle works end to end — sell, buy, pay, report, print — and nothing fails silently or hangs. The only thing that may not complete is ETA transmission (X42), and it must say so.
+
+### X61 — Every movement of money leaves a trace
+- **Assert**: each money-moving action in this file — confirm, collect, pay, refund, reverse, disburse, settle — writes an audit row naming the actor, the branch, the document and the time. On the desktop edition the audit log is the only forensic record there is.
+
+### X62 — Delivery notes, if they arrive
+- **Assert (design guard)**: stock currently leaves on invoice confirm. If delivery notes are introduced, the same goods must never be able to leave twice, and an invoice raised from a delivery note must not move stock again. `plan.md` §6.3.7 leaves this open — the scenario exists so the answer is chosen, not stumbled into.
+
+### X63 — Price list, promotion and credit limit in one document
+- **Assert**: the customer's assigned price list beats the item's default price; an applicable promotion discounts the price-list price, not the list price; and the credit check sees the final payable figure, not any intermediate one. Three mechanisms, one number — each is tested alone elsewhere; only together do they prove the order of operations.
+
+### X64 — Year-end
+- **Assert**: closing a year rolls the P&L into retained earnings, opens the new year with a balance sheet that continues exactly where the old one ended, leaves revenue and expense accounts at zero on day one, and makes the prior year's comparatives on every report still resolve afterwards.
+
+---
+
+## Sources for the compliance scenarios
+
+- [Egypt E-Invoicing 2026: ETA Compliance Guide](https://datavalue.solutions/egypt-e-invoicing-eta-2026-sme-guide/) — registration threshold cut to EGP 250,000 (Resolution 281/2025), enforcement stage from 1 Jan 2026, graduated late-submission penalties.
+- [Egypt E-Receipt Requirements: ETA Guide for 2026](https://invoicedataextraction.com/blog/egypt-e-receipt-requirements) — B2B pre-clearance vs B2C post-clearance within 72 hours, QR code on printed receipts.
+- [PwC — Egypt, Corporate: Other taxes](https://taxsummaries.pwc.com/egypt/corporate/other-taxes) and [Withholding Tax in Egypt](https://www.flick.network/en-eg/withholding-tax-in-egypt) — withholding regime on local and cross-border payments.
+- [VATupdate — Egypt VAT decrees effective October 2025](https://www.vatupdate.com/2025/11/19/vat-law-amendments-new-rules-for-construction-contracts-and-tax-obligations-in-egypt/) — 14% on 36% of value for pre-18-July-2025 construction contracts, no input deduction.
+- [ERP Systems in Egypt: a 2026 guide](https://buildn.tech/en/blog/erp-system-egypt) and the competitive review already recorded in `docs/plan.md` §"Market & competitive notes" — what an Egyptian SMB buyer compares Mezan against.

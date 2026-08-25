@@ -52,7 +52,24 @@ through as "oh, that's the known one".
 | D20 | Purchases / fiscal periods | Confirming a purchase invoice into a **closed** period answers `500 Internal Server Error` | Sales confirm, voucher confirm and journal post all return 422 `PERIOD_NOT_OPEN_FOR_POSTING`; `purchases-routes.ts`'s confirm handler does not map `PeriodNotOpenForPostingError` thrown by the GL port | Medium |
 | D21 | Purchases / atomicity | That same crash is not atomic: the stock IN is applied before the GL refuses, and never rolled back | One blocked line at qty 1 × 50 leaves the inventory sub-ledger exactly **50.00** ahead of GL 1200, with no document that explains it | High |
 | D22 | Field sales / Treasury | A trip's roadside cash never reaches the van treasury, but settling transfers the full counted cash out of it | Float 500 in, 700 of recorded sales, 1,150 counted: the van's GL 1300-2 ends **650** below where it started. `POST /field/van-trips/:id/cash-movements` only mutates the trip document | High |
+| D23 | Go-live import / GL | A historical import records **no opening AR or AP at all** — a migrated business owes and is owed nothing in its ledger | Importing an outstanding supplier invoice (250 remaining) and customer invoice (300 remaining) moves GL 2100 and 1105 by **0.00**. The domain posts the opening entry only `if (!archive.settled && deps.gl && deps.accounts)`; `create-backend.ts` wires `historicalImport` / `salesHistoricalImport` with `archives` only | High |
 | D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
+
+### D23 — go-live import archives history and posts none of it
+
+The documented go-live rule is right and the domain implements it: archive
+settled documents with no journal entry, post **only** the outstanding balance
+against the opening-balance account. The wiring drops the second half.
+`packages/backend/src/create-backend.ts` passes `historicalImport: { archives }`
+and `salesHistoricalImport: { archives }` — no `gl`, no `accounts` — so
+`if (!archive.settled && deps.gl && deps.accounts)` is never true and the opening
+entry is never posted.
+
+The visible effect at a customer's go-live: every migrated invoice appears in the
+archive, the AR and AP aging reports have rows, and the trial balance says the
+business is owed nothing and owes nothing. Third instance of the same failure
+shape as D19 — an options object assembled without the dependencies the service
+needs to do its real job.
 
 ### D18 — the AP sub-ledger never hears about a payment
 

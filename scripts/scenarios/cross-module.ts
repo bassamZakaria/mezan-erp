@@ -1245,6 +1245,382 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
+  // X31 — go-live: importing history must not re-post it
+  // ---------------------------------------------------------------------------
+  await scenario("x31 · a go-live purchase-history import archives settled documents without a journal entry, moves no stock, and raises AP only by what is still owed", async () => {
+    const itemId = "SCN-X-ITEM-2";
+    const stockBefore = await stock(itemId);
+    const apBefore = await creditBalance(AP);
+    const invBefore = await gl(INVENTORY);
+    const journalsBefore = ctx.rows((await req("GET", "/gl/journal-entries")).body).length;
+
+    const rows = [
+      // Settled: paid in full before go-live. Must leave no trace in the books.
+      { rowNumber: 1, docType: "PURCHASE_INVOICE", documentNumber: "HIST-PI-001", supplierId: SUPPLIER, date: "2026-03-01", dueDate: "2026-03-31", itemId, qty: "10", unitCost: "50", amountPaid: "500" },
+      // Outstanding: half paid. Only the remaining 250 is a real liability today.
+      { rowNumber: 2, docType: "PURCHASE_INVOICE", documentNumber: "HIST-PI-002", supplierId: SUPPLIER, date: "2026-04-01", dueDate: "2026-04-30", itemId, qty: "10", unitCost: "50", amountPaid: "250" },
+    ];
+
+    const preview = await req("POST", "/purchases/historical-import/preview", { rows });
+    check("the dry run parses both documents with no errors", preview.status === 200 && (preview.body?.errors ?? []).length === 0, `status ${preview.status} ${JSON.stringify(preview.body).slice(0, 250)}`);
+    const settled = (preview.body?.groups ?? []).find((g: any) => g.documentNumber === "HIST-PI-001");
+    const partial = (preview.body?.groups ?? []).find((g: any) => g.documentNumber === "HIST-PI-002");
+    check("the dry run classifies the fully-paid document as settled", settled?.settled === true, JSON.stringify(settled));
+    checkEq("and computes the other's remaining balance as total minus paid", n(partial?.remainingBalance), 250);
+
+    const commit = await req("POST", "/purchases/historical-import/commit", { rows });
+    check("the commit succeeds and returns what it archived", commit.status === 201 && (commit.body?.archivedIds ?? []).length === 2, `status ${commit.status} ${JSON.stringify(commit.body).slice(0, 250)}`);
+
+    checkEq("importing history moves NO stock — the goods were consumed before go-live", (await stock(itemId)).onHand - stockBefore.onHand, 0);
+    checkEq("and adds no inventory value", (await gl(INVENTORY)) - invBefore, 0);
+    checkEq(
+      "NEW DEFECT — AP should rise by the outstanding 250 (and by nothing for the settled document), and instead rises by nothing at all: a business that migrates in owes its suppliers " +
+        "on paper and owes them zero in the ledger. The domain does post the opening entry (`if (!archive.settled && deps.gl && deps.accounts)` in packages/domain/src/purchasing/historical-import.ts), " +
+        "but packages/backend/src/create-backend.ts wires `historicalImport: { archives }` only — no `gl`, no `accounts` — so the branch never runs. Same under-wired-options failure as D19.",
+      (await creditBalance(AP)) - apBefore,
+      250,
+    );
+    check(
+      "the archived documents are readable afterwards, so a user can still look up what they bought",
+      ctx.rows((await req("GET", "/purchases/historical-import/archives")).body).length >= 2,
+      "archives",
+    );
+    const journalsAfter = ctx.rows((await req("GET", "/gl/journal-entries")).body).length;
+    check(
+      "at most one journal entry was posted for the whole import (the opening AP), never one per historical document",
+      journalsAfter - journalsBefore <= 1,
+      `entries before=${journalsBefore} after=${journalsAfter}`,
+    );
+  });
+
+  await scenario("x32 · the same rule on the sales side: history raises AR for what customers still owe, and nothing else", async () => {
+    const itemId = "SCN-X-ITEM-1";
+    const stockBefore = await stock(itemId);
+    const arBefore = await gl(AR);
+
+    const rows = [
+      { rowNumber: 1, docType: "SALES_INVOICE", documentNumber: "HIST-SI-001", customerId: CUSTOMER, date: "2026-03-05", dueDate: "2026-04-05", itemId, qty: "5", unitCost: "100", amountPaid: "500" },
+      { rowNumber: 2, docType: "SALES_INVOICE", documentNumber: "HIST-SI-002", customerId: CUSTOMER, date: "2026-04-05", dueDate: "2026-05-05", itemId, qty: "5", unitCost: "100", amountPaid: "200" },
+    ];
+    const preview = await req("POST", "/sales/historical-import/preview", { rows });
+    check("the sales dry run parses without errors", preview.status === 200 && (preview.body?.errors ?? []).length === 0, `status ${preview.status} ${JSON.stringify(preview.body).slice(0, 250)}`);
+
+    const commit = await req("POST", "/sales/historical-import/commit", { rows });
+    check("the sales history commits", commit.status === 201, `status ${commit.status} ${JSON.stringify(commit.body).slice(0, 250)}`);
+
+    checkEq("no stock left the warehouse for goods delivered before go-live", stockBefore.onHand - (await stock(itemId)).onHand, 0);
+    checkEq(
+      "the same defect on the sales side (see x31): AR should rise by the outstanding 300 and rises by nothing — `salesHistoricalImport: { archives }` is wired without `gl`/`accounts` either, " +
+        "so every migrated customer starts owing zero",
+      (await gl(AR)) - arBefore,
+      300,
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // X33 — VAT is not one rate: mixed rates and an exempt customer
+  // ---------------------------------------------------------------------------
+  await scenario("x33 · one invoice, two VAT rates; and a tax-exempt customer pays none — the ledger and the VAT return agree with both", async () => {
+    const standardItem = "SCN-X-ITEM-1";
+    const reducedItem = "SCN-X-VAT-5";
+    await makeItem(reducedItem, "SCN-X-VAT5", "صنف بنسبة ٥٪");
+    await openStock(reducedItem, "100", "20", "SCN-X-ADJ-VAT5");
+
+    const taxBefore = await creditBalance(OUTPUT_TAX);
+    const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
+    const mixed = await req("POST", "/sales-invoices", {
+      id: "SCN-X-INV-MIXVAT",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: CUSTOMER,
+      customerNameAr: customer?.nameAr ?? "عميل",
+      warehouseId: WH,
+      branchId: BRANCH,
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      lines: [
+        { lineId: "L1", itemId: standardItem, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY },
+        { lineId: "L2", itemId: reducedItem, itemNameAr: "صنف بنسبة ٥٪", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: 5, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY },
+      ],
+    });
+    check("a two-rate invoice is accepted — VAT is per line, not per document", mixed.status === 201, `status ${mixed.status} ${JSON.stringify(mixed.body).slice(0, 250)}`);
+    const mixedConfirm = await req("POST", "/sales-invoices/SCN-X-INV-MIXVAT/confirm", {});
+    check("it confirms", mixedConfirm.status === 200, JSON.stringify(mixedConfirm.body).slice(0, 200));
+    checkEq("tax is 14% of 200 plus 5% of 200 = 38, not one blended rate over 400", n(mixedConfirm.body?.totals?.taxTotal), 38);
+    checkEq("and GL 2200 takes exactly that", (await creditBalance(OUTPUT_TAX)) - taxBefore, 38);
+
+    const exemptId = "SCN-X-CUST-EXEMPT";
+    const exempt = await req("POST", "/customers", { id: exemptId, code: "SCN-X-EX", nameAr: "جهة معفاة من الضريبة", taxExempt: true });
+    check("a tax-exempt customer is created", exempt.status === 201, `status ${exempt.status} ${JSON.stringify(exempt.body).slice(0, 200)}`);
+
+    const taxBeforeExempt = await creditBalance(OUTPUT_TAX);
+    const exemptInvoice = await req("POST", "/sales-invoices", {
+      id: "SCN-X-INV-EXEMPT",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: exemptId,
+      customerNameAr: "جهة معفاة من الضريبة",
+      customerTaxExempt: true,
+      warehouseId: WH,
+      branchId: BRANCH,
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", itemId: standardItem, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
+    });
+    const exemptConfirm = await req("POST", "/sales-invoices/SCN-X-INV-EXEMPT/confirm", {});
+    check("the exempt customer's invoice confirms", exemptInvoice.status === 201 && exemptConfirm.status === 200, `${exemptInvoice.status}/${exemptConfirm.status} ${JSON.stringify(exemptConfirm.body).slice(0, 200)}`);
+    checkEq("the exempt flag overrides the line's own 14% — tax total is zero", n(exemptConfirm.body?.totals?.taxTotal), 0);
+    checkEq("and no output VAT is posted for them at all", (await creditBalance(OUTPUT_TAX)) - taxBeforeExempt, 0);
+    checkEq("the invoice still bills the goods in full", n(exemptConfirm.body?.totals?.grandTotal), 200);
+  });
+
+  // ---------------------------------------------------------------------------
+  // X34 — a document-level discount, allocated to the piastre
+  // ---------------------------------------------------------------------------
+  await scenario("x34 · an invoice-level discount is deducted before VAT and allocated across the lines with no rounding leak", async () => {
+    const itemId = "SCN-X-ITEM-1";
+    const cogsBefore = await gl(COGS);
+    const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
+
+    // 3 lines of 33.33-ish shares: the classic place a naive split loses a piastre.
+    const created = await req("POST", "/sales-invoices", {
+      id: "SCN-X-INV-DISC",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: CUSTOMER,
+      customerNameAr: customer?.nameAr ?? "عميل",
+      warehouseId: WH,
+      branchId: BRANCH,
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      discount: { type: "percent", percent: 10 },
+      lines: [
+        { lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "1", unitPrice: "33.33", taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY },
+        { lineId: "L2", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "1", unitPrice: "33.33", taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY },
+        { lineId: "L3", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "1", unitPrice: "33.34", taxRatePercent: 14, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY },
+      ],
+    });
+    check("the discounted invoice drafts", created.status === 201, `status ${created.status} ${JSON.stringify(created.body).slice(0, 250)}`);
+    if (created.status !== 201) return;
+
+    const totals = created.body?.totals ?? {};
+    checkEq("the subtotal is the lines' own sum", n(totals.subtotal), 100);
+    checkEq("the invoice-level discount is 10% of it", n(totals.invoiceDiscountTotal), 10);
+    checkEq("VAT is charged on the DISCOUNTED base (14% of 90), never on the list price", n(totals.taxTotal), 12.6);
+    checkEq("and the grand total is 90 + 12.60", n(totals.grandTotal), 102.6);
+
+    const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-DISC/confirm", {});
+    check("it confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
+    const je = await journalBalances(confirmed.body?.journalEntryId ?? "");
+    checkEq("the posted entry balances to the piastre", je.debit, je.credit);
+    const arLine = je.lines.find((l: any) => l.accountId === AR);
+    checkEq("AR is debited with the discounted grand total, not the list one", n(arLine?.debit), 102.6);
+    checkEq("the taxable base is the discounted 90 — the figure the VAT return will report", n(totals.taxableTotal), 90);
+    const unitCost = (await stock(itemId)).averageCost;
+    checkEq("a discount never touches COGS — 3 units left the shelf at cost, whatever they sold for", (await gl(COGS)) - cogsBefore, 3 * unitCost);
+  });
+
+  // ---------------------------------------------------------------------------
+  // X35 — the same confirm, twice
+  // ---------------------------------------------------------------------------
+  await scenario("x35 · a retried confirm must post once: same requestId, one journal entry, one stock movement", async () => {
+    const itemId = "SCN-X-ITEM-1";
+    const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
+    await req("POST", "/sales-invoices", {
+      id: "SCN-X-INV-RETRY",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: CUSTOMER,
+      customerNameAr: customer?.nameAr ?? "عميل",
+      warehouseId: WH,
+      branchId: BRANCH,
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: VAT, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
+    });
+
+    const stockBefore = await stock(itemId);
+    const arBefore = await gl(AR);
+    const first = await req("POST", "/sales-invoices/SCN-X-INV-RETRY/confirm", { requestId: "SCN-X-RETRY-1" });
+    check("the first confirm posts", first.status === 200 && first.body?.status === "confirmed", JSON.stringify(first.body).slice(0, 200));
+
+    const second = await req("POST", "/sales-invoices/SCN-X-INV-RETRY/confirm", { requestId: "SCN-X-RETRY-1" });
+    check(
+      "the retry is either refused or returns the same result — what it must never do is post twice",
+      second.status !== 201,
+      `status ${second.status} body ${JSON.stringify(second.body).slice(0, 200)}`,
+    );
+    checkEq("stock fell exactly once", stockBefore.onHand - (await stock(itemId)).onHand, 2);
+    checkEq("AR rose exactly once", (await gl(AR)) - arBefore, 228);
+    const invoice = (await req("GET", "/sales-invoices/SCN-X-INV-RETRY")).body;
+    check("the invoice carries one document number and one journal entry", typeof invoice?.docNo === "string" && typeof invoice?.journalEntryId === "string", JSON.stringify({ docNo: invoice?.docNo, je: invoice?.journalEntryId }));
+  });
+
+  // ---------------------------------------------------------------------------
+  // X36 — a second branch makes branch scope measurable
+  // ---------------------------------------------------------------------------
+  await scenario("x36 · with a real second branch, does branch scope actually narrow anything? (D7 made measurable)", async () => {
+    const branch = await req("POST", "/branches", { id: "BR-SCN-2", code: "SCN2", name: "فرع الاختبار الثاني" });
+    check("a second branch is created", branch.status === 201, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
+    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-2" });
+    check("with its own warehouse", warehouse.status === 201, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
+
+    const itemId = "SCN-X-ITEM-1";
+    await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-2");
+
+    const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
+    await req("POST", "/sales-invoices", {
+      id: "SCN-X-INV-BR2",
+      date: TODAY,
+      dueDate: "2026-09-23",
+      customerId: CUSTOMER,
+      customerNameAr: customer?.nameAr ?? "عميل",
+      warehouseId: "WH-SCN-2",
+      branchId: "BR-SCN-2",
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: VAT, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
+    });
+    const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-BR2/confirm", {});
+    check("a sale posts in the second branch", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
+
+    const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
+    const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
+    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    check(
+      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: x-branch-scope narrows nothing — every scope returns the identical row count",
+      mainOnly.length === all && secondOnly.length === all,
+      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-2=${secondOnly.length}`,
+    );
+    check(
+      "concretely: a caller scoped to the first branch can read the second branch's invoice (docs/defects.md D7 — do not re-file)",
+      mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
+      "SCN-X-INV-BR2 not visible under BR-MAIN — D7 may have been fixed; re-check the register",
+    );
+
+    // Warehouse scope, by contrast, IS wired (F8) — proving the two are independent mechanisms.
+    const stockAll = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "*" })).body).length;
+    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-2" })).body).length;
+    check("warehouse scope, unlike branch scope, genuinely narrows the stock balances", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-2=${stockScoped}`);
+  });
+
+  // ---------------------------------------------------------------------------
+  // X37 — a backdated document changes the past, not the present
+  // ---------------------------------------------------------------------------
+  await scenario("x37 · a document posted into an earlier open period restates that period's reports and leaves the current one alone", async () => {
+    const julyBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
+    const augustBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
+    const expenseBefore = await gl(EXPENSE);
+
+    const backdated = await req("POST", "/gl/journal-entries", {
+      id: "SCN-X-JE-BACKDATED",
+      date: "2026-07-15",
+      memo: "مصروف يخص شهر يوليو أُدخل متأخراً",
+      lines: [
+        { accountId: EXPENSE, debit: "1200.00", credit: "0.00" },
+        { accountId: CASH, debit: "0.00", credit: "1200.00" },
+      ],
+    });
+    check("a July-dated entry posts while July is still open", backdated.status === 201 && backdated.body?.status === "posted", `status ${backdated.status} ${JSON.stringify(backdated.body).slice(0, 200)}`);
+    if (backdated.status === 201) treasuryLedger.push({ label: "backdated July expense (cash)", delta: -1200 });
+
+    const julyAfter = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
+    const augustAfter = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);
+    check("July's income statement moved — the past was genuinely restated", julyAfter !== julyBefore, `before=${julyBefore} after=${julyAfter}`);
+    checkEq("August's is untouched — a backdated entry must not leak into the current period", augustAfter, augustBefore);
+    checkEq("the cumulative ledger as of today carries it — a backdated entry is not a report-only adjustment", (await gl(EXPENSE)) - expenseBefore, 1200);
+
+    const aged = await req("GET", `/reports/aging/customers?asOfDate=${TODAY}`);
+    check("aging still answers after a backdated posting (a report that reads the ledger by date must not choke on out-of-order entries)", aged.status === 200, `status ${aged.status}`);
+  });
+
+  // ---------------------------------------------------------------------------
+  // X38 — module licensing
+  // ---------------------------------------------------------------------------
+  await scenario("x38 · module licensing is designed but not enforced — every module answers regardless of what the tenant is entitled to", async () => {
+    // The gate exists (packages/api/src/module-gate.ts, 403 MODULE_NOT_LICENSED) and
+    // the domain owns hasModule(); what is missing is the wiring in create-backend.
+    const licensable: Array<[string, string]> = [
+      ["manufacturing", "/manufacturing/work-orders"],
+      ["fixed-assets", "/assets"],
+      ["installments", "/installments/plans"],
+      ["field-sales", "/field/van-trips"],
+      ["hr", "/hr/employees"],
+    ];
+    for (const [moduleId, path] of licensable) {
+      const res = await req("GET", path);
+      check(
+        `${moduleId} (${path}) answers 200 for a caller with no entitlement to it — createModuleGate is never applied in packages/backend/src/create-backend.ts, so the licensing model documented in plan.md §2.5 is unenforced at runtime`,
+        res.status === 200,
+        `status ${res.status}`,
+      );
+    }
+    check(
+      "documented consequence, not a separate bug: nothing in the API can express 'this tenant did not buy Manufacturing' — the entitlement check has no call site",
+      true,
+      "see plan.md §2.5 / §5.2",
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // X39 — batch and expiry: FEFO reaches COGS
+  // ---------------------------------------------------------------------------
+  await scenario("x39 · a purchase receipt's batches carry expiry into the sale: the earliest-expiring batch is consumed first and its cost is what COGS charges", async () => {
+    const itemId = "SCN-X-ITEM-FEFO";
+    await makeItem(itemId, "SCN-X-FEFO", "صنف بتواريخ صلاحية");
+
+    await req("POST", "/purchases/orders", {
+      id: "SCN-X-PO-FEFO", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH,
+      lines: [{ itemId, qty: "20", unitPrice: "10" }],
+    });
+    await req("POST", "/purchases/orders/SCN-X-PO-FEFO/confirm", {});
+    const receipt = await req("POST", "/purchases/receipts", {
+      id: "SCN-X-GRN-FEFO",
+      purchaseOrderId: "SCN-X-PO-FEFO",
+      date: TODAY,
+      lines: [
+        { itemId, qty: "10", unitCost: "10", batchNo: "B-LATE", expiryDate: "2027-12-31" },
+        { itemId, qty: "10", unitCost: "18", batchNo: "B-SOON", expiryDate: "2026-10-31" },
+      ],
+    });
+    check("a receipt with two batches and two expiry dates is accepted", receipt.status === 201, `status ${receipt.status} ${JSON.stringify(receipt.body).slice(0, 250)}`);
+    if (receipt.status !== 201) return;
+    const confirmed = await req("POST", "/purchases/receipts/SCN-X-GRN-FEFO/confirm", {});
+    check("it confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
+    await req("POST", "/purchases/invoices", {
+      id: "SCN-X-PI-FEFO", supplierId: SUPPLIER, date: TODAY, dueDate: "2026-09-23", branchId: BRANCH, warehouseId: WH,
+      receiptId: "SCN-X-GRN-FEFO",
+      lines: [
+        { itemId, kind: "inventory", qty: "10", unitCost: "10", taxRatePercent: VAT },
+        { itemId, kind: "inventory", qty: "10", unitCost: "18", taxRatePercent: VAT },
+      ],
+    });
+    await req("POST", "/purchases/invoices/SCN-X-PI-FEFO/confirm", {});
+
+    const cogsBefore = await gl(COGS);
+    const sale = await sellFor("SCN-X-INV-FEFO", itemId, "صنف بتواريخ صلاحية", "10", "40");
+    check("10 units sell", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
+    checkEq(
+      "costing is weighted-average, so COGS charges 10 × 14 — the blended cost of both batches. FEFO decides WHICH physical batch leaves, it does not price it: " +
+        "a pharmacy asking 'what did the October batch cost me' cannot get that answer from COGS, by design (docs/plan.md §6.3.6 — FIFO/batch costing is an open decision)",
+      (await gl(COGS)) - cogsBefore,
+      140,
+    );
+
+    const expiring = await req("GET", `/reports/inventory/expiring?asOfDate=${TODAY}`);
+    check("the expiring report answers", expiring.status === 200, `status ${expiring.status}`);
+    const expiringRows = ctx.rows(expiring.body);
+    const soon = expiringRows.findIndex((r: any) => r.batchNo === "B-SOON");
+    const late = expiringRows.findIndex((r: any) => r.batchNo === "B-LATE");
+    check(
+      "FEFO is real, and the expiring report proves it: after selling 10 units the October batch is gone from the shelf entirely",
+      soon === -1,
+      `B-SOON still listed at row ${soon} of ${expiringRows.length}`,
+    );
+    check("while the batch expiring next year is still there, untouched", late >= 0, `B-LATE not found among ${expiringRows.length} rows`);
+  });
+
+  // ---------------------------------------------------------------------------
   // X18 — nothing appeared from nowhere
   // ---------------------------------------------------------------------------
   await scenario("x18 · company-wide money conservation: cash + bank moved by exactly the net of the vouchers this file posted", async () => {

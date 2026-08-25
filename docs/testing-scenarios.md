@@ -235,3 +235,9 @@ money out of the خزنة, selling puts it in the bank, and every sub-ledger sta
 step with the GL along the way. Executable as
 `pnpm scenarios cross-module`. Written after the module suites, because a trail
 that crosses four modules cannot be proved inside any one of them.
+
+The same file's second half — currency, tax, Egypt compliance, rounding at scale,
+concurrent numbering, permission tiers, Arabic search, the audit trail, pricing
+order of operations and year-end — is executable as `pnpm scenarios seams`
+(`scripts/scenarios/seams.ts`). It runs last of all: it closes periods, opens a
+fiscal year and sweeps forty documents through the ledger.

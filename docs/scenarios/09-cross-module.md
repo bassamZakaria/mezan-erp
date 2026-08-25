@@ -8,8 +8,13 @@ company whose sales module says one thing and whose treasury says another.
 
 **Executable half**: `scripts/scenarios/cross-module.ts`, run with
 `pnpm scenarios cross-module` (or `pnpm scenarios` for every suite). It runs
-**last** — it spends stock and cash — and every id it creates is prefixed
-`SCN-X-`.
+late — it spends stock and cash — and every id it creates is prefixed `SCN-X-`.
+
+**Second executable half**: `scripts/scenarios/seams.ts` (`pnpm scenarios seams`)
+covers the seams the money trails cannot reach — currency, tax, compliance,
+concurrency, permissions and year-end. It runs **last** of all, prefixes its ids
+`SCN-S-`, and is written up under "Currency, tax, compliance and platform seams"
+below.
 
 **Sources**: the module scenarios `01`–`08` for each leg, `docs/catalog/04`
 (الخزينة) for the treasury rules, and the wiring in
@@ -195,6 +200,113 @@ Crosses: items ▸ sales ▸ tax ▸ GL.
 
 ---
 
+## Currency, tax, compliance and platform seams (executable)
+
+`scripts/scenarios/seams.ts`, run with `pnpm scenarios seams`. It runs **after**
+`cross-module.ts` — it closes periods, opens a fiscal year and sweeps forty
+documents through the ledger — and prefixes every id it creates `SCN-S-`.
+
+These are the seams the money trails could not reach: what happens when the
+currency is not EGP, when the tax is not 14%, when two people confirm at the same
+second, when the permission is not `*`, and when the year ends. Several assert a
+gap on purpose: the assertion states the business requirement, and where the
+product cannot meet it the check is inverted and labelled with the measured
+evidence, so a fix flips it back rather than deleting it.
+
+### X23 — A foreign-currency balance, revalued at the closing rate
+Crosses: exchange rates ▸ GL ▸ financial reports ▸ purchases.
+
+- **Pre**: an approved USD rate on the transaction date (48.00) and a higher approved rate at month end (52.00).
+- **Steps**: book a USD 1,000 liability with `currency`/`fxRate` on the GL line → `POST /revaluation/preview` → `POST /revaluation/post` with `autoReverse` → preview again.
+- **Assert**: the foreign amount is recomputed from the booked base (48,000 ÷ 48 = 1,000 USD); the restatement is exactly 1,000 × (52 − 48); a liability that grew is a **loss**, never a gain; the entry debits the FX loss account and credits the liability by the same 4,000; **GL 1200 does not move**; the auto-reversal mirrors it on the first of the next month, so the live balance returns to what was actually booked; re-running the same revaluation reports the same figure, not a doubled one.
+- **Measured**: the revaluation engine is correct end to end. What is not: a *document* cannot carry a foreign balance at all — a `currency: "USD"` purchase invoice posts EGP 1,000 for USD 1,000 with both GL lines untagged (**D24**). The engine has nothing to revalue because nothing upstream speaks currency.
+
+### X24 — An unapproved rate must not be spendable
+Crosses: exchange rates ▸ approvals ▸ GL.
+
+- **Steps**: record a pending EUR rate → revalue against it → approve it → revalue again → lock it → re-POST the same id with a different rate.
+- **Assert**: revaluing against a **pending** rate is refused by name (`FX_RATE_MISSING`), not generically; once approved the same revaluation converts at exactly the approved rate; a locked rate cannot be changed.
+- **Measured**: the first two hold — `findRate` filters to `approved`/`locked`, so an unapproved rate is genuinely unspendable. The third does not: re-POSTing a locked rate's id rewrites the rate **and resets its status to pending** (**D25**), because the create route upserts by id.
+
+### X26 — Project ▸ cost centre ▸ P&L
+Crosses: cost centres ▸ GL ▸ reports.
+
+- **Steps**: post a journal entry whose expense line sets `costCenterId` → read `/cost-center-pl` and the income statement → then pay an expense through a **treasury voucher** carrying the same `costCenterId`.
+- **Assert**: the tagged expense appears once under its centre and once in the income statement; every posted expense sits in exactly one bucket, tagged or untagged, so the report reconciles.
+- **Measured**: tagging works for journal entries. The voucher's `costCenterId` is dropped at the wire — `createVoucherSchema` has no such field — and the 400 lands in غير مخصص (**D26**). Since almost nothing a business spends is entered as a manual journal entry, the cost-centre report is blind to most real spending.
+
+### X28 — Promotion ▸ revenue ▸ VAT ▸ history
+Crosses: promotions ▸ sales ▸ tax ▸ reports.
+
+- **Steps**: create an item-scoped 10% promotion → confirm a qualifying invoice → read the invoice, the promotions report and GL 2200 → deactivate the promotion → re-read all three.
+- **Assert**: the discount comes off the gross before VAT (VAT is 14% of 900, not of 1,000); revenue is recognised net; the invoice records **which** promotion applied; the report counts it exactly once at the discount actually granted; after deactivation the invoice, its posted VAT and the report row are unchanged.
+- **Measured**: all of it holds. Deactivating a promotion does not restate what it already granted — the applied promotion is snapshotted on the invoice at confirm.
+
+### X29 — Confirming a document should reach the ETA queue
+Crosses: sales ▸ e-invoicing.
+
+- **Steps**: configure ETA fully with `autoSubmitOnConfirm: true` → confirm a real invoice → re-read `/eta/submissions`.
+- **Measured**: the setting is stored and read by nothing; the queue is byte-identical before and after (**D5**, do not re-file). A tenant can complete e-invoicing setup, confirm invoices all day, and submit none of them.
+
+### X30 — One confirm, many listeners
+Crosses: sales ▸ notifications ▸ webhooks ▸ GL.
+
+- **Steps**: create a notification rule on `SALES_INVOICE_CONFIRMED` and a webhook pointed at an endpoint that cannot answer → confirm an invoice → read the inbox, the deliveries and the journal entry → confirm again.
+- **Assert**: one notification per matching rule (no storm, no rule firing twice); a user no rule addresses gets nothing; the failed delivery is recorded as failed rather than swallowed or optimistically marked successful; the document stays confirmed, its entry posts once in full, and a second confirm is refused rather than posting again.
+- **Measured**: holds. A dead webhook cannot roll back, duplicate or halve the document that triggered it.
+
+### X45 — Withholding tax on local payments
+- **Steps**: look for a WHT-payable account, pay a supplier net with `withholdingAmount`/`grossAmount` supplied, ask for a withholding report, then model it by hand.
+- **Measured**: no account, no field, no report (**D27**). The voucher stores the **net**, so the supplier's ledger shows them still owed the withheld amount the tenant is legally holding for the authority. The only workaround is a hand-written journal entry per payment.
+
+### X46 — VAT rules that are not "14% of everything"
+- **Steps**: confirm one invoice with 14%, 5% and zero-rated lines → run the VAT return → try to express a partial taxable base on a tax rate.
+- **Measured**: the ledger charges 140 + 50 + 0 correctly per line, and the **return** collapses them into one derived ~6.3% bucket (**D28**), because it recomputes rate = tax ÷ base per journal entry. A partial taxable base (the construction-contract 14%-on-36% treatment) cannot be expressed at all.
+
+### X47 — A filed VAT period should not move under the filing
+- **Steps**: run July's return → look for any way to record it as filed → post a backdated July entry → re-run the return → close the period and try again → reopen.
+- **Measured**: no filing state exists anywhere (**D29**); the already-"filed" figure moves by exactly 140.00 with no amendment or warning. Period close *does* refuse the same posting — the mechanism works, nothing ties it to the tax filing, and reopening needs no reason and leaves no tax-side trace.
+
+### X52 — Rounding, swept rather than sampled
+- **Steps**: generate forty service invoices across awkward prices (33.33, 0.005, 10.005, 1.115, 99.995, 123.456), quantities (1/3/7/11), rates (14/5/0) and percent discounts (10 / 33.33 / 90 / 7.5), then four three-way instalment splits.
+- **Assert**: every one confirms; each line extends to the piastre and those rounded lines sum to the gross; subtotal − invoice discount = the taxable base; grand total = taxable + tax; every posted entry balances; a three-way instalment split of an indivisible total sums back to the total.
+- **Measured**: holds for all forty, and for the splits. X34 and X9 each prove one case; this proves the rule.
+
+### X56 — Two people, one second
+- **Steps**: draft eight invoices, confirm all eight concurrently, then close the period and attempt a ninth confirm.
+- **Assert**: eight distinct numbers, the counter advanced by exactly eight, and the refused confirm burned no number.
+- **Measured**: holds. Numbering is allocated inside the confirm transaction, so a refused confirm leaves no gap for an auditor to ask about.
+
+### X57 — Branch-prefixed numbering
+- **Steps**: create a second branch and warehouse, confirm a sale in each.
+- **Measured**: the two branches share one tenant-global counter and no prefix says where a document came from (**D33**); the sequence definition has no branch dimension to configure. Open product decision (`plan.md` §6.3.8), now measured rather than assumed.
+
+### X58 — Permissions are a graph, and some are sensitive
+- **Steps**: call the API as a `sales.invoice.confirm` holder, a plain `sales.invoice.view` holder, and an `hr.contract.view` holder.
+- **Assert**: the dependency graph is enforced server-side; `view_own` narrows to the caller's own documents; a caller without `view_cost` sees the document with its costs **hidden**, not an error; salary obeys the same rule.
+- **Measured**: only the first holds. The `.confirm` holder is **403** on the list route (every read route gates `.view`), `view_own` narrows nothing, and both ⚠ sensitive permissions — `sales.invoice.view_cost` and `hr.employee.view_salary` — are checked by no route (**D31**).
+
+### X59 — Arabic search must forgive Arabic
+- **Steps**: create أحمد / فاطمة / ليلى, query the list route with `?q=احمد`, then run the screens' own filter expression over the same names.
+- **Measured**: `?q=` is a parameter of no list route, so the full table comes back unchanged; the client-side `toLowerCase().includes(q)` every screen uses returns **zero** matches for احمد, فاطمه or ليلي (**D32**). The fix is one shared normalisation helper (أإآ→ا, ة→ه, ى→ي, strip tashkeel) used by both ends; it exists nowhere in the repo today.
+
+### X61 — Every movement of money leaves a trace
+- **Steps**: confirm a payment, reverse it, confirm a sale, then query `/audit`.
+- **Assert**: each action writes a row naming the actor, the branch and the document.
+- **Measured**: the actions ARE recorded — both halves of the payment, with a real actor. What is missing is *where*: the voucher names `BR-MAIN` and every row it wrote carries `branchId: null` (**D30**), because the audit sink reads the caller's scope rather than the document's branch. On a desktop install this trail is the only forensic record there is.
+
+### X63 — Price list, promotion and credit limit in one document
+- **Steps**: assign a customer a price list quoting 80 (item default 100), add a 20% promotion, set the credit limit **between** the un-promoted and promoted payable, then confirm — and separately send a line priced off-list.
+- **Assert**: the promotion discounts the price-list price; the credit check sees the final payable, not an intermediate one.
+- **Measured**: the ordering holds where the server can see it — 800 − 20% = 640, +14% = 729.60, and the credit check passed on 729.60 against an 800 limit rather than refusing on the pre-promotion 912. But the price list itself is never consulted: a line at 5.00 for an item listed at 80.00 is accepted without a warning (**D35**). The ordering is real only for as long as the UI remembers to apply it.
+
+### X64 — Year-end
+- **Steps**: generate FY2027 → look for a year-end close → compare the 2027 income statement, the revenue account, retained earnings and the balance sheet.
+- **Assert**: the new year opens where the old one ended, revenue and expense accounts start at zero, and the prior year's comparatives still resolve.
+- **Measured**: the twelve periods generate and open, and the reports window by date so 2027 correctly reads empty. But there is no year-end close anywhere in the product (**D34**): GL 4100 still carries 2026's revenue, GL 3900 never receives the profit, and the balance sheet balances only because the *report* derives retained earnings from the P&L accounts itself. The ledger alone can never tell you last year's result.
+
+---
+
 ## Not yet executable — run these by hand
 
 These cross seams `cross-module.ts` does not reach yet, written the same way so
@@ -202,20 +314,7 @@ they can be executed later without being redesigned. Ids follow the same
 `SCN-X-` convention. Where a known defect makes a scenario unprovable, that is
 said up front — the scenario still documents the seam.
 
-### X23 — Foreign-currency purchase, then revaluation
-Crosses: exchange rates ▸ purchases ▸ GL ▸ financial reports.
 
-- **Pre**: an approved USD rate on the invoice date (`POST /exchange-rates` then `POST /exchange-rates/:id/approve`), a supplier, a stock item.
-- **Steps**: create a purchase invoice with `currency: "USD"` at that rate → confirm → record a **later, higher** USD rate and approve it → `POST /revaluation/preview` for the period end → `POST /revaluation/post`.
-- **Assert**: the invoice's own foreign-currency total never changes — a revaluation restates the base currency, not the debt. The preview's `delta` per account equals `foreignAmount × (closingRate − bookedRate)` recomputed by hand, and `totalGain − totalLoss` equals the posted entry's net. The posted entry debits/credits the AP control account against the FX gain/loss account only: **GL 1200 must not move** — revaluation is not a cost of inventory. Trial balance still balances. With `autoReverse` on, a mirror entry exists dated `reversalDate`, and running the same revaluation again after that reversal produces the same figure rather than a doubled one.
-- **Watch**: AP's sub-ledger figure is built in base currency from invoice totals, so **D18**'s blind spot applies here too — record the reconciliation diff before and after rather than assuming it should hold.
-
-### X24 — An unapproved exchange rate must not be spendable
-Crosses: exchange rates ▸ approvals ▸ sales/purchases ▸ GL.
-
-- **Pre**: the seed's unapproved ("pending") USD and EUR rates.
-- **Steps**: try to confirm a foreign-currency document against a **pending** rate → approve the rate → confirm a second, identical document → then lock the rate (`POST /exchange-rates/:id/lock`) and try to change it.
-- **Assert**: the first confirm is refused, and refused for that reason by name, not a generic failure. The second converts at exactly the approved rate. A locked rate cannot be edited or re-approved. Crucially, approving or later changing a rate does **not** restate a document that already posted — re-read the first document's totals and its journal entry and confirm both are byte-for-byte what they were.
 
 ### X25 — POS session → treasury
 Crosses: POS ▸ inventory ▸ treasury ▸ GL. **Deferred by decision**: only `GET /pos/sales` exists — there is no route to open a session, sell through it, or close it. Write the scenario; expect it to be unrunnable until POS ships.
@@ -224,36 +323,12 @@ Crosses: POS ▸ inventory ▸ treasury ▸ GL. **Deferred by decision**: only `
 - **Assert (intended)**: stock falls by what was sold; the session's declared cash equals the float plus its cash sales; closing moves exactly that into the branch خزنة, and the card takings into the bank/clearing account instead — never both into the same one; every POS sale reaches the same AR/revenue/VAT accounts a normal invoice does, so the VAT return and the income statement include them without a separate reconciliation.
 - **Watch**: this is the same shape as **D22** (a document recording cash that the treasury never received). Check it explicitly rather than assuming POS is wired differently.
 
-### X26 — Project → cost centre → P&L
-Crosses: projects ▸ cost centres ▸ GL ▸ reports.
-
-- **Pre**: a project linked to a cost centre (`CC-DEMO-1`), which in the seed carries no transactions at all.
-- **Steps**: post a manual journal entry whose expense line sets `costCenterId` (the treasury voucher form has **no** cost-centre field, so an expense paid by voucher cannot be tagged — that is itself the finding to record) → run `GET /cost-center-pl` for the period → run the income statement for the same period.
-- **Assert**: the cost-centre P&L shows the expense once, under that centre, at the exact amount posted; the income statement's total expense includes it once; the sum of every cost centre's P&L plus untagged postings equals the income statement total — no expense is counted twice and none disappears because it was untagged.
-- **Watch**: if a voucher-paid expense genuinely cannot be tagged, say so with the measured evidence (the create-voucher contract has no `costCenterId`), because it means the cost-centre report can never see the majority of real spending.
 
 ### X27 — Branch scope, end to end
 **Superseded by X36**, which now creates a real second branch and measures it. What remains manual is the UI half: a user whose session grant is one branch must not be able to *widen* scope with the switcher, and the switcher must not offer branches the grant excludes.
 
-### X28 — Promotion → revenue → VAT
-Crosses: promotions ▸ sales ▸ tax ▸ reports.
 
-- **Pre**: an active promotion whose rule matches a seeded item or category.
-- **Steps**: confirm an invoice whose lines qualify → read the invoice, the promotions report (`GET /promotions/report`) and the VAT return → deactivate the promotion (`POST /promotions/:id/deactivate`) → re-read all three.
-- **Assert**: the discount is applied **before** VAT, so output tax is 14% of the discounted net, not the list net; the invoice records which promotion applied and at what amount; the promotions report counts that invoice once; the VAT return's output side equals GL 2200's own movement for the same period. After deactivation the historical invoice, its journal entry, the report row and the VAT figure are all unchanged — deactivating a promotion must never restate what it already granted.
 
-### X29 — Confirming a document should reach the ETA queue
-Crosses: sales ▸ e-invoicing ▸ audit. **Known gap — D5**: `EtaService.enqueue` exists but no route or event bridge calls it, so the queue is empty however many documents are confirmed.
-
-- **Steps**: read `GET /eta/submissions` → confirm a sales invoice → read it again.
-- **Assert (what should happen)**: the confirmed invoice appears as a queued submission carrying its own document number and total; submitting it moves it to submitted and records the response; accepting it stamps the invoice; excluding one removes it from the queue without touching the invoice. **Assert (what happens today)**: the queue is identical before and after — record the count both times as the evidence, do not re-file D5.
-
-### X30 — Events, notifications and webhooks across modules
-Crosses: every document module ▸ notification rules ▸ webhooks ▸ audit.
-
-- **Pre**: a notification rule and a webhook subscription on an event a document actually emits (`GET /webhooks/events` lists the emitted codes; only those may be subscribed).
-- **Steps**: confirm a document that emits that event → read `GET /notifications` and `GET /webhooks/:id/deliveries` → then point a subscription at an endpoint that fails, and confirm another document.
-- **Assert**: the notification exists once per rule match, addressed to the right recipients, and marking it read does not affect anyone else's copy. The webhook delivery is attempted, its retries are bounded, and — the cross-module point — **a failing or retrying webhook never rolls back, blocks or duplicates the document that triggered it**: re-read that document and its journal entry and confirm both posted exactly once. The audit trail records the confirming actor and branch for the document, separately from the delivery attempts.
 
 ---
 
@@ -288,18 +363,13 @@ Crosses: e-invoicing ▸ desktop edition ▸ shell.
 - **Assert**: a confirmed sales return produces its own submission, linked to the original invoice's UUID, and the VAT return nets it. A return that never reaches the ETA leaves the customer's input tax and the tenant's output tax permanently disagreeing.
 
 ### X45 — Withholding tax on local payments
-Crosses: purchases ▸ treasury ▸ tax ▸ reports.
-
-- **Steps**: pay a supplier invoice where WHT applies — the payment is net, the withheld amount is owed to the tax authority.
-- **Assert**: the payment voucher reduces AP by the **gross**, the treasury by the **net**, and credits a WHT-payable liability with the difference; the supplier's statement shows the invoice settled in full; a later payment to the authority clears the WHT liability; a WHT report lists what was withheld, from whom, for the filing.
-- **Today**: no withholding concept exists anywhere in the domain — measure it and say so rather than assuming a customer will handle it manually.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X46 — VAT rules that are not "14% of everything"
-- **Assert**: the tax engine can express a rule that taxes a **portion** of the invoice value (the legacy construction-contract treatment taxes 14% on 36% of value with no input deduction), a 5% reduced-rate item, a zero-rated export, and an exempt supply — and the VAT return groups each correctly rather than collapsing them into one rate.
-- **Today**: X33 proves per-line rates work. The rest are unmodelled.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X47 — A filed VAT period should not move under the filing
-- **Assert**: once a VAT return has been filed for a period, a backdated document into that period is either blocked or raised as an amendment — never silently absorbed. X37 proves backdating restates the past; this is the control that makes that safe. Fiscal-period close (X15) is the mechanism that exists today; the scenario is whether the VAT filing state is tied to it.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ---
 
@@ -326,8 +396,7 @@ scenarios test the **honesty** of that gap first, and the computation later.
 ## Integrity at scale — the risks `plan.md` §6.2 names
 
 ### X52 — Rounding, swept rather than sampled
-- **Steps**: generate hundreds of documents with awkward figures — three-way splits, 33.33s, 0.005 boundaries — across invoice discounts, per-line tax, landed-cost distribution, WAC recalculation, instalment schedules and FX conversion.
-- **Assert**: for every one, the parts sum to the whole exactly. This is a property, not an example: X34 and X9 each prove one case; the sweep proves the rule.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X53 — The same books on both engines
 - **Assert**: a golden set of documents posted through SQLite and through Postgres produces identical ledgers to the minor unit — same balances, same rounding, same ordering. `plan.md` calls dual-dialect drift the worst class of bug this product can have; nothing else in this file would catch it.
@@ -339,35 +408,35 @@ scenarios test the **honesty** of that gap first, and the computation later.
 - **Assert**: back up, destroy, restore — then compare the ledger, the sub-ledgers and every document count against the pre-backup state. `plan.md` §6.2 lists an untested restore path as total-data-loss risk for a desktop customer.
 
 ### X56 — Two people, one second
-- **Assert**: concurrent confirms of different documents produce distinct, gap-free numbers with no collision; a confirm that fails must not burn a number (or, if it does, that behaviour is recorded deliberately rather than discovered by a customer whose audit shows a missing invoice number).
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X57 — Branch-prefixed numbering
-- **Assert**: with two branches, each branch's documents number independently and predictably. Open decision (`plan.md` §6.3.8): the reference product's sequences are tenant-global, and multi-branch customers usually expect a branch prefix. X36 now provides the second branch this needs.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ---
 
 ## Platform seams
 
 ### X58 — Permissions are a graph, and some are sensitive
-- **Assert**: granting `.confirm` implies `.view_own` (the dependency graph is enforced server-side, not just in the role editor); a `view_own` holder sees their own documents and not a colleague's; a user without the cost-visibility permission sees a document with its costs **hidden**, not an error page; salary figures obey the same rule.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X59 — Arabic search must forgive Arabic
-- **Assert**: searching `احمد` finds `أحمد`, `آحمد` and `إحمد`; `فاطمه` finds `فاطمة`; `ليلي` finds `ليلى`; a mixed Arabic/English record is findable by either. Today the list routes take no query parameter at all — filtering happens in the browser — so this is a client-side test, and a normalization helper shared with the server is the fix if it fails.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X60 — The desktop edition, genuinely offline
 - **Assert**: with no network, the full document lifecycle works end to end — sell, buy, pay, report, print — and nothing fails silently or hangs. The only thing that may not complete is ETA transmission (X42), and it must say so.
 
 ### X61 — Every movement of money leaves a trace
-- **Assert**: each money-moving action in this file — confirm, collect, pay, refund, reverse, disburse, settle — writes an audit row naming the actor, the branch, the document and the time. On the desktop edition the audit log is the only forensic record there is.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X62 — Delivery notes, if they arrive
 - **Assert (design guard)**: stock currently leaves on invoice confirm. If delivery notes are introduced, the same goods must never be able to leave twice, and an invoice raised from a delivery note must not move stock again. `plan.md` §6.3.7 leaves this open — the scenario exists so the answer is chosen, not stumbled into.
 
 ### X63 — Price list, promotion and credit limit in one document
-- **Assert**: the customer's assigned price list beats the item's default price; an applicable promotion discounts the price-list price, not the list price; and the credit check sees the final payable figure, not any intermediate one. Three mechanisms, one number — each is tested alone elsewhere; only together do they prove the order of operations.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ### X64 — Year-end
-- **Assert**: closing a year rolls the P&L into retained earnings, opens the new year with a balance sheet that continues exactly where the old one ended, leaves revenue and expense accounts at zero on day one, and makes the prior year's comparatives on every report still resolve afterwards.
+**Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
 ---
 

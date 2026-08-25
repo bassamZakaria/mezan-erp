@@ -4,7 +4,9 @@
 and updates it before finishing. Nothing else tracks defects — if it is not
 here, it is not tracked.
 
-Updated 2026-08-25 (after the cross-module money-trail pass, docs/scenarios/09-cross-module.md).
+Updated 2026-08-25 (after the cross-module money-trail pass and the currency / tax /
+compliance / platform seam pass, docs/scenarios/09-cross-module.md and
+`scripts/scenarios/seams.ts`).
 
 ## How to use this file
 
@@ -54,6 +56,54 @@ through as "oh, that's the known one".
 | D22 | Field sales / Treasury | A trip's roadside cash never reaches the van treasury, but settling transfers the full counted cash out of it | Float 500 in, 700 of recorded sales, 1,150 counted: the van's GL 1300-2 ends **650** below where it started. `POST /field/van-trips/:id/cash-movements` only mutates the trip document | High |
 | D23 | Go-live import / GL | A historical import records **no opening AR or AP at all** — a migrated business owes and is owed nothing in its ledger | Importing an outstanding supplier invoice (250 remaining) and customer invoice (300 remaining) moves GL 2100 and 1105 by **0.00**. The domain posts the opening entry only `if (!archive.settled && deps.gl && deps.accounts)`; `create-backend.ts` wires `historicalImport` / `salesHistoricalImport` with `archives` only | High |
 | D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
+| D24 | Multi-currency | A document's currency is a label, not a currency — no rate is ever applied and no GL line is tagged | `SCN-S-PI-USD` at `currency: "USD"`, 1,000 USD: GL 2100 credited **1,000.00 EGP**, both lines `currency: null, fxRate: null`. `buildInvoicePosting` (`purchase-invoice.ts`) never consults `ExchangeRateRepository`, so the payable is understated by the rate and the debt is invisible to revaluation | High |
+| D25 | Exchange rates | A **locked** rate can be silently rewritten, and its status reset, by re-POSTing its id | `SCN-S-FX-EUR-31` locked at 60.00; `POST /exchange-rates` with the same id → 201, stored rate **99.00**, status back to `pending`. The route calls `repo.create`, and the SQLite repository upserts `ON CONFLICT(id) DO UPDATE` | High |
+| D26 | Cost centres | A treasury voucher cannot be attributed to a cost centre, so the report is blind to almost all real spending | 400.00 paid by voucher with `costCenterId` supplied lands in غير مخصص; `createVoucherSchema` has no such field. Only hand-written journal entries can be tagged | Medium |
+| D27 | Tax / withholding | No withholding-tax concept exists anywhere: no account, no document field, no report | CoA has no WHT-payable account (2190 is payroll withholdings); `withholdingAmount`/`grossAmount` are dropped at the wire; `GET /reports/tax/withholding` → 404. Egypt withholds on most local B2B payments | High |
+| D28 | Tax reporting | The VAT return re-derives **one blended rate per journal entry** instead of reporting the rates charged | A 14% / 5% / zero-rated invoice (tax 190.00 on base 3,000) is reported as a single ~6.3% bucket. `createVatReturnReport` computes rate = tax ÷ base per entry; no rate metadata reaches the GL | High |
+| D29 | Tax compliance | Nothing records that a VAT period was filed, so a backdated document silently restates a submitted return | July output tax moves by exactly **140.00** after a backdated entry, with no amendment, warning or trace. Fiscal-period close is the only lock, and reopening needs no reason and leaves no tax-side record | High |
+| D30 | Audit | Rows written by an all-branches caller carry `branchId: null`, so the branch filter can never find them again | The voucher names `BR-MAIN`; every audit row it produced has `branchId: null`. `branchScopedAuditSink` takes the branch from the caller's `x-branch-scope`, never from the document | Medium |
+| D31 | Permissions | The visibility tiers the catalog defines are enforced by no route | `sales.invoice.confirm` (which implies `view_own`) → **403** on `GET /sales-invoices`, because every read route gates `.view`; a plain `.view` holder reads every colleague's invoice **and** `unitCost` without the ⚠ `view_cost` permission; `hr.contract.view` alone returns `monthlySalary` | High |
+| D32 | Search | There is no server-side search, and the client filter cannot forgive Arabic | `?q=` is not a parameter of any list route (full table returned unchanged); the screens' own `toLowerCase().includes(q)` gives **0 matches** for احمد against أحمد, فاطمه against فاطمة, ليلي against ليلى | Medium |
+| D33 | Numbering | Numbering is tenant-global with no branch dimension | Two branches selling the same day take consecutive numbers off one counter (`INV-…`), and `sequenceDefinitionSchema` has code/prefix/padLength/annualReset only | Low |
+| D34 | Year-end | There is no year-end close: no route, no closing entry, and retained earnings is never posted to | After generating FY2027, GL 4100 still carries 2026's revenue in full and GL 3900 movement is **0.00**. The balance sheet balances only because the report derives retained earnings from the P&L accounts itself | Medium |
+| D35 | Pricing | A customer's price list is never consulted server-side | The customer is assigned a list quoting 80.00; an invoice line at **5.00** for the same item is accepted without warning. The ordering price list → promotion → credit limit holds only in the UI | Medium |
+
+### D24 / D28 / D29 — the three that will fail an audit
+
+These are grouped because they share a shape: the product records something the
+law cares about, in a form the law cannot use.
+
+**D24** — a purchase invoice takes `currency: "USD"` and posts its numbers
+straight into the ledger. No rate is fetched, no line is tagged, so USD 1,000
+becomes EGP 1,000 and the FX revaluation engine (which is correct, and proven in
+`x23`) has nothing to find. Multi-currency is presented and unimplemented.
+
+**D28** — the VAT return derives a rate per journal entry by dividing tax by
+base. An invoice mixing 14%, 5% and zero-rated lines therefore files under a rate
+that exists nowhere in law. The rates ARE charged correctly per line (`x33`,
+`x46`); it is only the return that loses them. The fix is rate metadata on the
+posted line, not a change to the tax engine.
+
+**D29** — nothing in the product knows a period has been filed. A backdated entry
+moved an already-"filed" July return by 140.00 in `x47`, silently. Fiscal-period
+close does block it — the mechanism exists and works — but nothing ties the tax
+filing to that lock, and reopening a period needs no reason and leaves no trace.
+
+### D31 — the permission catalog promises three tiers and the routes implement one
+
+`resolvePermissions` expands the dependency graph correctly server-side: granting
+`sales.invoice.confirm` really does grant `sales.invoice.view_own`. But no read
+route gates on `view_own`, and none filters by owner, so:
+
+- a user who may confirm invoices gets **403** trying to list them;
+- a plain `.view` holder sees every colleague's document;
+- `sales.invoice.view_cost` and `hr.employee.view_salary` — both flagged ⚠
+  sensitive — are checked nowhere, and cost and salary come back to anyone with
+  the plain view permission.
+
+The requirement is that costs are *hidden*, not that the page errors. Today they
+are neither.
 
 ### D23 — go-live import archives history and posts none of it
 

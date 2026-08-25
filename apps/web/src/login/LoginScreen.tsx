@@ -1,5 +1,9 @@
 import { useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
-import { BrandMark, Button } from "@mezan/ui";
+import {
+  BrandMark,
+  Button,
+  TextInput,
+} from "@mezan/ui";
 import { useLogin } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
@@ -75,12 +79,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
 
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("login.username")}</span>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none transition-colors focus:border-brand"
-            />
+            <TextInput value={username} onChange={(e) => setUsername(e.target.value)} />
           </label>
 
           <div className="mt-[16px] flex flex-col gap-[6px]">
@@ -89,7 +88,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
             </span>
             <div className="flex gap-[8px]" dir="ltr">
               {pinDigits.map((digit, index) => (
-                <input
+                <TextInput
                   key={index}
                   ref={(el) => {
                     inputRefs.current[index] = el;
@@ -101,7 +100,7 @@ export function LoginScreen({ onStartWizard }: LoginScreenProps) {
                   aria-label={t("login.pin.digit", { index: index + 1 })}
                   onChange={(e) => handlePinChange(index, e)}
                   onKeyDown={(e) => handlePinKeyDown(index, e)}
-                  className="h-[46px] w-[46px] rounded-md border border-border bg-surface text-center text-[18px] font-bold text-ink outline-none transition-colors focus:border-brand"
+                  className="h-[46px] w-[46px] px-0 text-center text-[18px] font-bold"
                 />
               ))}
             </div>

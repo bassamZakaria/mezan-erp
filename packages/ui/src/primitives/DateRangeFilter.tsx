@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import { useUiTranslation, type UiTranslationKey } from "../i18n";
+import { TextInput } from "./form";
 
 export type DateRangePreset = "today" | "week" | "month" | "quarter" | "year" | "custom";
 
@@ -49,20 +50,20 @@ export function DateRangeFilter({ preset, onPresetChange, range, onRangeChange, 
       </div>
       {preset === "custom" ? (
         <div className="flex items-center gap-[8px]">
-          <input
+          <TextInput
             type="date"
+            size="sm"
             aria-label={t("ui.dateRange.from")}
             value={range.from ?? ""}
             onChange={(event) => onRangeChange({ ...range, from: event.target.value || null })}
-            className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink"
           />
           <span className="text-xs text-ink-faint">{t("ui.dateRange.separator")}</span>
-          <input
+          <TextInput
             type="date"
+            size="sm"
             aria-label={t("ui.dateRange.to")}
             value={range.to ?? ""}
             onChange={(event) => onRangeChange({ ...range, to: event.target.value || null })}
-            className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink"
           />
         </div>
       ) : null}

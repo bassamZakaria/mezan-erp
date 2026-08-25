@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import {
-  FulcrumRule,
-  DocumentList,
-  DocumentDetail,
-  DocumentStatusStepper,
-  Money as MoneyDisplay,
-  StatusPill,
-  Card,
   Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  DocumentStatusStepper,
+  FulcrumRule,
   IconButton,
+  Money as MoneyDisplay,
+  Select,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -529,51 +531,53 @@ function CreateAdjustmentView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <select
+                        <Select
+                          size="sm"
+                          className="min-w-[160px]"
                           aria-label={t("stockAdj.lineItem", { number: i + 1 })}
                           value={line.itemId}
-                          onChange={(e) => updateLine(i, { itemId: e.target.value })}
-                          className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                        >
-                          {itemOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(value) => updateLine(i, { itemId: value })}
+                          options={itemOptions}
+                        />
                       </td>
                       {reason.direction === "EITHER" ? (
                         <td className="px-[12px] py-[8px]">
-                          <select
+                          <Select
+                            size="sm"
+                            className="min-w-[100px]"
                             aria-label={t("stockAdj.lineDirection", { number: i + 1 })}
                             value={line.direction}
-                            onChange={(e) => updateLine(i, { direction: e.target.value as StockMovementDirection })}
-                            className="w-full min-w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                          >
-                            <option value="IN">{t("stockAdj.increase")}</option>
-                            <option value="OUT">{t("stockAdj.decrease")}</option>
-                          </select>
+                            onChange={(value) => updateLine(i, { direction: value as StockMovementDirection })}
+                            options={[
+                              { value: "IN", label: t("stockAdj.increase") },
+                              { value: "OUT", label: t("stockAdj.decrease") },
+                            ]}
+                          />
                         </td>
                       ) : null}
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[100px] text-end"
                           aria-label={t("stockAdj.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("stockAdj.lineCost", { number: i + 1 })}
                           value={line.unitCost || ""}
                           min={0}
                           disabled={line.direction === "OUT"}
                           onChange={(e) => updateLine(i, { unitCost: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand disabled:bg-surface-3"
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">

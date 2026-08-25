@@ -1,15 +1,17 @@
 import { useMemo, useState } from "react";
 import {
-  FulcrumRule,
-  DocumentList,
-  DocumentDetail,
-  DocumentStatusStepper,
-  Money as MoneyDisplay,
-  StatusPill,
-  Chip,
-  Card,
   Button,
+  Card,
+  Chip,
+  DocumentDetail,
+  DocumentList,
+  DocumentStatusStepper,
+  FulcrumRule,
   IconButton,
+  Money as MoneyDisplay,
+  Select,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -386,46 +388,47 @@ function CreateJournalView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <select
+                        <Select
+                          size="sm"
+                          className="min-w-[160px]"
                           aria-label={t("journals.lineAccount", { number: i + 1 })}
                           value={line.accountId}
-                          onChange={(e) => updateLine(i, { accountId: e.target.value })}
-                          className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                        >
-                          {options.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(value) => updateLine(i, { accountId: value })}
+                          options={options}
+                        />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
+                          size="sm"
+                          className="min-w-[120px]"
                           aria-label={t("journals.memoLabel", { n: String(i + 1) })}
                           value={line.memo}
                           onChange={(e) => updateLine(i, { memo: e.target.value })}
                           placeholder={t("journals.describeTheLine")}
-                          className="w-full min-w-[120px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("journals.debitLabel", { n: String(i + 1) })}
                           value={line.debit || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { debit: e.target.valueAsNumber || 0, credit: 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("journals.creditLabel", { n: String(i + 1) })}
                           value={line.credit || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { credit: e.target.valueAsNumber || 0, debit: 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">

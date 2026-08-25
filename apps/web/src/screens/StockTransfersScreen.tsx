@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
 import {
-  FulcrumRule,
-  DocumentList,
-  DocumentDetail,
-  DocumentStatusStepper,
-  StatusPill,
-  Card,
   Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  DocumentStatusStepper,
+  FulcrumRule,
   IconButton,
+  Select,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -378,27 +380,25 @@ function CreateTransferView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <select
+                        <Select
+                          size="sm"
+                          className="min-w-[160px]"
                           aria-label={t("stockXfer.lineItem", { number: i + 1 })}
                           value={line.itemId}
-                          onChange={(e) => updateLine(i, { itemId: e.target.value })}
-                          className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                        >
-                          {itemOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(value) => updateLine(i, { itemId: value })}
+                          options={itemOptions}
+                        />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("stockXfer.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">

@@ -1,5 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { FulcrumRule, AccountTree, Button, Card, EntityPicker, IconButton, StatCard, StatusPill, SidePanel, type AccountTreeRow, type EntityPickerOption, type PillTone } from "@mezan/ui";
+import {
+  AccountTree,
+  Button,
+  Card,
+  EntityPicker,
+  FulcrumRule,
+  IconButton,
+  SearchInput,
+  Select,
+  SidePanel,
+  StatCard,
+  StatusPill,
+  type AccountTreeRow,
+  type EntityPickerOption,
+  type PillTone,
+} from "@mezan/ui";
 import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
 import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mezan/contracts";
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
@@ -222,29 +237,24 @@ export function CostCentersScreen() {
       </div>
 
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
-        <div className="flex min-w-[240px] flex-1 items-center gap-[9px] rounded-md border border-border bg-surface px-[13px] py-[9px] focus-within:border-brand">
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("costCentres.searchByCodeOrName")}
-            aria-label={t("costCentres.searchByCodeOrName2")}
-            className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
-          />
-        </div>
-        <select
+        <SearchInput
+          className="min-w-[240px] flex-1"
+          value={search}
+          onValueChange={setSearch}
+          placeholder={t("costCentres.searchByCodeOrName")}
+          aria-label={t("costCentres.searchByCodeOrName2")}
+        />
+        <Select
+          size="sm"
+          className="w-[190px]"
           aria-label={t("costCentres.filterByType")}
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as CostCenterTypeDTO | "all")}
-          className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-        >
-          <option value="all">{t("costCentres.allTypes")}</option>
-          {COST_CENTER_TYPE_DEFINITIONS.map((d) => (
-            <option key={d.code} value={d.code}>
-              {d.labelAr}
-            </option>
-          ))}
-        </select>
+          onChange={(value) => setTypeFilter(value as CostCenterTypeDTO | "all")}
+          options={[
+            { value: "all", label: t("costCentres.allTypes") },
+            ...COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr })),
+          ]}
+        />
       </div>
 
       <AccountTree

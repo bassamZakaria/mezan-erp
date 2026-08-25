@@ -3,7 +3,7 @@ import { Button, Card, DocumentList, IconButton, SidePanel, StatusPill, type Doc
 import type { PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePipelineStage, useMovePipelineStage, usePipelineStages } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * مراحل خط المبيعات (Pipeline Stages) — docs/catalog/06 §"مراحل خط المبيعات".
@@ -11,10 +11,10 @@ import { useAppTranslation } from "../i18n";
  * endpoint), so this screen intentionally does not build an edit/deactivate UI.
  */
 
-function stageTypeLabel(stage: PipelineStageDTO): string {
-  if (stage.isWinStage) return "مرحلة فوز";
-  if (stage.isLossStage) return "مرحلة خسارة";
-  return "مفتوحة";
+function stageKindKey(stage: PipelineStageDTO): AppTranslationKey {
+  if (stage.isWinStage) return "pipelineStages.winStage";
+  if (stage.isLossStage) return "pipelineStages.lossStage";
+  return "pipelineStages.openStage";
 }
 
 function stageTypeTone(stage: PipelineStageDTO): PillTone {
@@ -35,8 +35,9 @@ function blankDraft(): StageDraft {
   return { name: "", defaultProbability: 50, color: "#3b82f6", isWinStage: false, isLossStage: false };
 }
 
-function validateDraft(draft: StageDraft): string | null {
-  if (draft.name.trim() === "") return "اسم المرحلة مطلوب.";
+/** Returns a catalogue KEY, so the caller decides the locale. */
+function validateDraft(draft: StageDraft): AppTranslationKey | null {
+  if (draft.name.trim() === "") return "pipelineStages.nameRequired";
   return null;
 }
 
@@ -67,7 +68,7 @@ export function PipelineStagesScreen() {
     event.preventDefault();
     const error = validateDraft(draft);
     if (error) {
-      setFormError(error);
+      setFormError(t(error));
       return;
     }
     setFormError(null);
@@ -103,7 +104,7 @@ export function PipelineStagesScreen() {
     { key: "order", header: t("pipelineStages.order"), render: (s) => <span className="mz-num font-semibold text-ink">{s.order}</span> },
     { key: "name", header: t("common.name"), render: (s) => <span className="font-semibold text-ink">{s.name}</span> },
     { key: "defaultProbability", header: t("pipelineStages.defaultProbability"), render: (s) => <span className="mz-num">{s.defaultProbability}%</span> },
-    { key: "type", header: t("common.type"), render: (s) => <StatusPill label={stageTypeLabel(s)} tone={stageTypeTone(s)} /> },
+    { key: "type", header: t("common.type"), render: (s) => <StatusPill label={t(stageKindKey(s))} tone={stageTypeTone(s)} /> },
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={s.active ? t("pipelineStages.active") : t("pipelineStages.inactive")} tone={s.active ? "success" : "neutral"} /> },
     {
       key: "actions",
@@ -114,7 +115,7 @@ export function PipelineStagesScreen() {
         return (
           <div className="flex items-center justify-end gap-[6px]">
             <IconButton
-              aria-label={`نقل ${s.name} للأعلى`}
+              aria-label={t("pipelineStages.moveUp", { name: s.name })}
               disabled={index <= 0 || movingId !== null}
               onClick={() => move(s, "up")}
             >
@@ -123,7 +124,7 @@ export function PipelineStagesScreen() {
               </svg>
             </IconButton>
             <IconButton
-              aria-label={`نقل ${s.name} للأسفل`}
+              aria-label={t("pipelineStages.moveDown", { name: s.name })}
               disabled={index >= stages.length - 1 || movingId !== null}
               onClick={() => move(s, "down")}
             >

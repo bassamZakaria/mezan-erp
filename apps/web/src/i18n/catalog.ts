@@ -4321,6 +4321,28 @@ const webAr = {
   "activities.noActivities": "لا توجد أنشطة",
   "activities.activityDetails": "بيانات النشاط",
   "activities.subject2": "الموضوع *",
+
+  // CRM — remaining module scope
+  "opportunities.status.open": "مفتوحة",
+  "opportunities.status.won": "مكسوبة",
+  "opportunities.status.lost": "خسارة",
+  "opportunities.titleRequired": "العنوان مطلوب.",
+  "opportunities.customerRequired": "العميل مطلوب.",
+  "opportunities.stageRequired": "المرحلة مطلوبة.",
+  "activities.type.call": "مكالمة",
+  "activities.type.meeting": "اجتماع",
+  "activities.type.todo": "مهمة",
+  "activities.typeEmail": "بريد إلكتروني",
+  "activities.status.pending": "معلق",
+  "activities.status.completed": "مكتمل",
+  "activities.status.cancelled": "ملغى",
+  "activities.subjectRequired": "الموضوع مطلوب.",
+  "pipelineStages.winStage": "مرحلة فوز",
+  "pipelineStages.lossStage": "مرحلة خسارة",
+  "pipelineStages.openStage": "مفتوحة",
+  "pipelineStages.nameRequired": "اسم المرحلة مطلوب.",
+  "pipelineStages.moveUp": "نقل {name} للأعلى",
+  "pipelineStages.moveDown": "نقل {name} للأسفل",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -8647,6 +8669,28 @@ const webEn: Record<WebTranslationKey, string> = {
   "activities.noActivities": "No activities",
   "activities.activityDetails": "Activity details",
   "activities.subject2": "Subject *",
+
+  // CRM — remaining module scope
+  "opportunities.status.open": "Open",
+  "opportunities.status.won": "Won",
+  "opportunities.status.lost": "Lost",
+  "opportunities.titleRequired": "A title is required.",
+  "opportunities.customerRequired": "A customer is required.",
+  "opportunities.stageRequired": "A stage is required.",
+  "activities.type.call": "Call",
+  "activities.type.meeting": "Meeting",
+  "activities.type.todo": "Task",
+  "activities.typeEmail": "Email",
+  "activities.status.pending": "Pending",
+  "activities.status.completed": "Completed",
+  "activities.status.cancelled": "Cancelled",
+  "activities.subjectRequired": "A subject is required.",
+  "pipelineStages.winStage": "Won stage",
+  "pipelineStages.lossStage": "Lost stage",
+  "pipelineStages.openStage": "Open",
+  "pipelineStages.nameRequired": "A stage name is required.",
+  "pipelineStages.moveUp": "Move {name} up",
+  "pipelineStages.moveDown": "Move {name} down",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -16,11 +16,11 @@ import {
 import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** الفرص (Opportunities) — docs/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
-const STATUS_LABEL: Record<OpportunityStatusDTO, string> = { open: "مفتوحة", won: "مكسوبة", lost: "خسارة" };
+const STATUS_KEY: Record<OpportunityStatusDTO, AppTranslationKey> = { open: "opportunities.status.open", won: "opportunities.status.won", lost: "opportunities.status.lost" };
 const STATUS_TONE: Record<OpportunityStatusDTO, PillTone> = { open: "info", won: "success", lost: "danger" };
 
 interface OpportunityDraft {
@@ -37,10 +37,11 @@ export function blankOpportunityDraft(defaultStageId: string): OpportunityDraft 
   return { title: "", customerId: "", stageId: defaultStageId, expectedValue: null, probability: 50, expectedCloseDate: "", notes: "" };
 }
 
-export function validateOpportunityDraft(draft: OpportunityDraft): string | null {
-  if (draft.title.trim() === "") return "العنوان مطلوب.";
-  if (draft.customerId === "") return "العميل مطلوب.";
-  if (draft.stageId === "") return "المرحلة مطلوبة.";
+export /** Returns a catalogue KEY, so the caller decides the locale. */
+function validateOpportunityDraft(draft: OpportunityDraft): AppTranslationKey | null {
+  if (draft.title.trim() === "") return "opportunities.titleRequired";
+  if (draft.customerId === "") return "opportunities.customerRequired";
+  if (draft.stageId === "") return "opportunities.stageRequired";
   return null;
 }
 
@@ -195,7 +196,7 @@ export function OpportunitiesScreen() {
     { key: "probability", header: t("opportunities.probability2"), render: (o) => <span className="mz-num">{o.probability}%</span> },
     { key: "expectedValue", header: t("opportunities.expectedValue"), align: "end", render: (o) => <MoneyDisplay value={Number(o.expectedValue)} /> },
     { key: "expectedCloseDate", header: t("opportunities.expectedCloseDate"), render: (o) => <span className="mz-num">{o.expectedCloseDate ?? "—"}</span> },
-    { key: "status", header: t("common.status"), render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
+    { key: "status", header: t("common.status"), render: (o) => <StatusPill label={t(STATUS_KEY[o.status])} tone={STATUS_TONE[o.status]} /> },
   ];
 
   return (

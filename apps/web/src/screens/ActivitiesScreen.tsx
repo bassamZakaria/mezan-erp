@@ -3,12 +3,12 @@ import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListCol
 import type { ActivityDTO, ActivityStatusDTO, ActivityTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** الأنشطة (CRM Activities / My Tasks) — docs/catalog/06 §"مهامي / الأنشطة". List + create + complete/cancel row actions. */
 
-const TYPE_LABEL: Record<ActivityTypeDTO, string> = { call: "مكالمة", meeting: "اجتماع", todo: "مهمة", email: "بريد إلكتروني" };
-const STATUS_LABEL: Record<ActivityStatusDTO, string> = { pending: "معلق", completed: "مكتمل", cancelled: "ملغى" };
+const TYPE_KEY: Record<ActivityTypeDTO, AppTranslationKey> = { call: "activities.type.call", meeting: "activities.type.meeting", todo: "activities.type.todo", email: "activities.typeEmail" };
+const STATUS_KEY: Record<ActivityStatusDTO, AppTranslationKey> = { pending: "activities.status.pending", completed: "activities.status.completed", cancelled: "activities.status.cancelled" };
 const STATUS_TONE: Record<ActivityStatusDTO, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
 const ACTIVITY_STATUSES: ActivityStatusDTO[] = ["pending", "completed", "cancelled"];
 
@@ -23,8 +23,9 @@ function blankDraft(): ActivityDraft {
   return { subject: "", type: "call", dueDate: "", notes: "" };
 }
 
-function validateDraft(draft: ActivityDraft): string | null {
-  if (draft.subject.trim() === "") return "الموضوع مطلوب.";
+/** Returns a catalogue KEY, so the caller decides the locale. */
+function validateDraft(draft: ActivityDraft): AppTranslationKey | null {
+  if (draft.subject.trim() === "") return "activities.subjectRequired";
   return null;
 }
 
@@ -64,7 +65,7 @@ export function ActivitiesScreen() {
     event.preventDefault();
     const error = validateDraft(draft);
     if (error) {
-      setFormError(error);
+      setFormError(t(error));
       return;
     }
     setFormError(null);
@@ -98,13 +99,13 @@ export function ActivitiesScreen() {
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: activities.length },
-    ...ACTIVITY_STATUSES.map((s) => ({ key: s, label: STATUS_LABEL[s], count: activities.filter((a) => a.status === s).length })),
+    ...ACTIVITY_STATUSES.map((s) => ({ key: s, label: t(STATUS_KEY[s]), count: activities.filter((a) => a.status === s).length })),
   ];
 
   const columns: DocumentListColumn<ActivityDTO>[] = [
     { key: "subject", header: t("activities.subject"), render: (a) => <span className="font-semibold text-ink">{a.subject}</span> },
-    { key: "type", header: t("common.type"), render: (a) => TYPE_LABEL[a.type] },
-    { key: "status", header: t("common.status"), render: (a) => <StatusPill label={STATUS_LABEL[a.status]} tone={STATUS_TONE[a.status]} /> },
+    { key: "type", header: t("common.type"), render: (a) => t(TYPE_KEY[a.type]) },
+    { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
     { key: "dueDate", header: t("activities.dueDate"), render: (a) => <span className="mz-num">{a.dueDate ?? "—"}</span> },
     {
       key: "actions",
@@ -188,7 +189,7 @@ export function ActivitiesScreen() {
             label={t("common.type")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as ActivityTypeDTO }))}
-            options={(Object.keys(TYPE_LABEL) as ActivityTypeDTO[]).map((code) => ({ value: code, label: TYPE_LABEL[code] }))}
+            options={(Object.keys(TYPE_KEY) as ActivityTypeDTO[]).map((code) => ({ value: code, label: t(TYPE_KEY[code]) }))}
           />
           <TextField label={t("activities.dueDate")} value={draft.dueDate} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />

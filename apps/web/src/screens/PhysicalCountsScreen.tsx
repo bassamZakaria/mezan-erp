@@ -12,6 +12,7 @@ import {
 } from "../data/inventory-ops-hooks";
 import { useItems, useWarehouses, ApiError } from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/catalog/03: start → record counts →
@@ -19,11 +20,11 @@ import { TextField, SelectField, ToggleField } from "../settings/form-controls";
  * `/inventory/physical-counts`.
  */
 
-const STATUS_LABEL: Record<PhysicalCountStatusDTO, string> = {
-  IN_PROGRESS: "قيد التنفيذ",
-  COMPLETED: "مكتمل",
-  ADJUSTMENT_GENERATED: "تم إنشاء التسوية",
-  CANCELLED: "ملغي",
+const STATUS_KEY: Record<PhysicalCountStatusDTO, AppTranslationKey> = {
+  IN_PROGRESS: "counts.status.IN_PROGRESS",
+  COMPLETED: "counts.status.COMPLETED",
+  ADJUSTMENT_GENERATED: "counts.status.ADJUSTMENT_GENERATED",
+  CANCELLED: "counts.status.CANCELLED",
 };
 const STATUS_TONE: Record<PhysicalCountStatusDTO, PillTone> = {
   IN_PROGRESS: "warning",
@@ -66,6 +67,7 @@ function fromScaled(value: bigint): string {
 }
 
 export function PhysicalCountsScreen() {
+  const { t } = useAppTranslation();
   const query = usePhysicalCounts();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
@@ -109,13 +111,13 @@ export function PhysicalCountsScreen() {
   const active = activeCountId ? (counts.find((c) => c.id === activeCountId) ?? null) : null;
 
   const columns: DocumentListColumn<PhysicalCountDTO>[] = [
-    { key: "countNo", header: "الجرد", sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },
-    { key: "warehouse", header: "المستودع", render: (c) => <span className="text-ink">{warehouseLabel(c.warehouseId)}</span> },
-    { key: "date", header: "التاريخ", render: (c) => <span className="mz-num text-ink-muted">{c.date}</span> },
-    { key: "lines", header: "عدد الأصناف", align: "end", render: (c) => <span className="mz-num">{c.lines.length}</span> },
+    { key: "countNo", header: t("counts.count"), sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },
+    { key: "warehouse", header: t("common.warehouse"), render: (c) => <span className="text-ink">{warehouseLabel(c.warehouseId)}</span> },
+    { key: "date", header: t("common.date"), render: (c) => <span className="mz-num text-ink-muted">{c.date}</span> },
+    { key: "lines", header: t("counts.items"), align: "end", render: (c) => <span className="mz-num">{c.lines.length}</span> },
     {
       key: "variance",
-      header: "صافي قيمة الفرق",
+      header: t("counts.netVarianceValue"),
       align: "end",
       render: (c) =>
         c.variance ? (
@@ -123,10 +125,10 @@ export function PhysicalCountsScreen() {
             <span className="mz-num">{signedDisplay(c.variance.netValue)}</span>
           </VarianceBeam>
         ) : (
-          <span className="text-[11.5px] text-ink-faint">{c.blind ? "جرد أعمى" : "—"}</span>
+          <span className="text-[11.5px] text-ink-faint">{c.blind ? t("counts.blindCount") : "—"}</span>
         ),
     },
-    { key: "status", header: "الحالة", render: (c) => <StatusPill label={STATUS_LABEL[c.status]} tone={STATUS_TONE[c.status]} /> },
+    { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
 
   function openDetail(id: string) {
@@ -180,31 +182,31 @@ export function PhysicalCountsScreen() {
     <div className="w-full">
       <DocumentList<PhysicalCountDTO>
         eyebrow="Inventory · Physical Counts"
-        title="الجرد الفعلي"
-        description="قيد التنفيذ ← مكتمل ← تم إنشاء التسوية — جلسة جرد تُطابق المخزون الفعلي مع النظام"
+        title={t("counts.physicalCounts")}
+        description={t("counts.inProgressCompletedAdjustmentCreated")}
         actions={
           <Button variant="primary" onClick={() => setMode("new")}>
-            جرد جديد
+            {t("counts.newCount")}
           </Button>
         }
         stats={[
-          { label: "إجمالي عمليات الجرد", value: <span className="mz-num">{stats.all}</span> },
-          { label: "قيد التنفيذ", value: <span className="mz-num">{stats.IN_PROGRESS}</span> },
-          { label: "مكتمل", value: <span className="mz-num">{stats.COMPLETED}</span> },
-          { label: "تم إنشاء التسوية", value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED}</span> },
+          { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.all}</span> },
+          { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS}</span> },
+          { label: t("counts.completed"), value: <span className="mz-num">{stats.COMPLETED}</span> },
+          { label: t("counts.adjustmentCreated"), value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED}</span> },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: stats.all },
-          { key: "IN_PROGRESS", label: "قيد التنفيذ", count: stats.IN_PROGRESS },
-          { key: "COMPLETED", label: "مكتمل", count: stats.COMPLETED },
-          { key: "ADJUSTMENT_GENERATED", label: "تم إنشاء التسوية", count: stats.ADJUSTMENT_GENERATED },
-          { key: "CANCELLED", label: "ملغي", count: stats.CANCELLED },
+          { key: "all", label: t("common.all"), count: stats.all },
+          { key: "IN_PROGRESS", label: t("counts.inProgress"), count: stats.IN_PROGRESS },
+          { key: "COMPLETED", label: t("counts.completed"), count: stats.COMPLETED },
+          { key: "ADJUSTMENT_GENERATED", label: t("counts.adjustmentCreated"), count: stats.ADJUSTMENT_GENERATED },
+          { key: "CANCELLED", label: t("docStatus.cancelled"), count: stats.CANCELLED },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم الجرد..."
+        searchPlaceholder={t("counts.searchByCountNumber")}
         columns={columns}
         rows={filtered}
         rowKey={(c) => c.id}
@@ -213,16 +215,16 @@ export function PhysicalCountsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{stats.all}</span> جرد
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{stats.all}</span> {t("counts.counts")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
             {query.isLoading
-              ? "جارِ التحميل…"
+              ? t("common.loading")
               : query.isError
-                ? (query.error?.message ?? "تعذّر تحميل عمليات الجرد.")
-                : "لا توجد عمليات جرد — أنشئ عملية جرد فعلي لمطابقة المخزون الفعلي مع النظام"}
+                ? (query.error?.message ?? t("counts.physicalCountsCouldNotBe"))
+                : t("counts.noCountsYetStartOne")}
           </div>
         }
       />
@@ -243,6 +245,7 @@ function NewCountView({
   onStarted: (id: string) => void;
   onCancel: () => void;
 }) {
+  const { t } = useAppTranslation();
   const start = useStartPhysicalCount();
   const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
   const [date, setDate] = useState("2026-08-22");
@@ -271,7 +274,7 @@ function NewCountView({
       });
       onStarted(count.id);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "تعذر بدء الجرد.");
+      setError(err instanceof ApiError ? err.message : t("counts.theCountCouldNotBe"));
     }
   }
 
@@ -279,29 +282,29 @@ function NewCountView({
     <div className="w-full max-w-[560px]">
       <div className="mb-[16px]">
         <div className="mz-eyebrow">Inventory · New Physical Count</div>
-        <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">جرد جديد</h1>
+        <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("counts.newCount")}</h1>
       </div>
       <FulcrumRule />
       <Card className="flex flex-col gap-[14px] p-[18px]">
-        <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
-        <TextField label="التاريخ *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-        <TextField label="ملاحظات" value={memo} onChange={setMemo} placeholder="ملاحظات الجرد..." />
+        <SelectField label={t("counts.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
+        <TextField label={t("counts.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+        <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("counts.notesAboutThisCount")} />
         <ToggleField
-          label="جرد أعمى"
+          label={t("counts.blindCount")}
           checked={blind}
           onChange={setBlind}
-          hint="يُخفي كميات النظام عن القائم بالجرد حتى إنهاء الجلسة — الرصيد يُلتقط عند الفتح في الحالتين."
+          hint={t("counts.hidesSystemQuantitiesFromThe")}
         />
-        <p className="text-[11.5px] text-ink-faint">سيتم تحميل جميع الأصناف المتوفرة في المستودع المحدد مع أرصدتها الحالية ({itemIds.length} صنف).</p>
+        <p className="text-[11.5px] text-ink-faint">{t("counts.everyItemInTheChosen")}{itemIds.length} {t("counts.items2")}</p>
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {error}
           </div>
         ) : null}
         <div className="flex items-center justify-end gap-[9px]">
-          <Button onClick={onCancel}>إلغاء</Button>
+          <Button onClick={onCancel}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={start.isPending || itemIds.length === 0} onClick={handleStart}>
-            إضافة
+            {t("common.add")}
           </Button>
         </div>
       </Card>
@@ -324,6 +327,7 @@ function CountEntryView({
   warehouseLabel: (id: string) => string;
   onDone: () => void;
 }) {
+  const { t } = useAppTranslation();
   const recordCounts = useRecordPhysicalCounts();
   const complete = useCompletePhysicalCount();
   const blindOpen = count.blind && count.status === "IN_PROGRESS";
@@ -350,7 +354,7 @@ function CountEntryView({
       await complete.mutateAsync(count.id);
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "تعذر حفظ الكميات المعدودة.");
+      setError(err instanceof ApiError ? err.message : t("counts.theCountedQuantitiesCouldNot"));
     }
   }
 
@@ -362,10 +366,10 @@ function CountEntryView({
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{count.countNo} — {warehouseLabel(count.warehouseId)}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onDone}>حفظ ومتابعة لاحقاً</Button>
+          <Button onClick={onDone}>{t("counts.saveAndContinueLater")}</Button>
           {isInProgress ? (
             <Button variant="primary" disabled={busy || !allCounted} onClick={handleComplete}>
-              إنهاء الجرد
+              {t("counts.finishCount")}
             </Button>
           ) : null}
         </div>
@@ -380,7 +384,7 @@ function CountEntryView({
 
       {blindOpen ? (
         <div className="mb-[16px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink-muted">
-          جرد أعمى — كميات النظام والفروقات مخفية حتى إنهاء الجرد.
+          {t("counts.blindCountSystemQuantitiesAnd")}
         </div>
       ) : null}
 
@@ -389,13 +393,13 @@ function CountEntryView({
           <table className="w-full min-w-[560px] border-collapse text-[13px]">
             <thead>
               <tr>
-                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
+                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
                 {blindOpen ? null : (
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">النظام</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.system")}</th>
                 )}
-                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">المعدود</th>
+                <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.counted")}</th>
                 {blindOpen ? null : (
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الفرق</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.variance")}</th>
                 )}
               </tr>
             </thead>
@@ -415,7 +419,7 @@ function CountEntryView({
                     <td className="px-[15px] py-[8px] text-end">
                       <input
                         type="number"
-                        aria-label={`الكمية المعدودة لصنف ${itemLabel(l.itemId)}`}
+                        aria-label={t("counts.countedQtyFor", { item: itemLabel(l.itemId) })}
                         value={value}
                         min={0}
                         step="any"
@@ -459,6 +463,7 @@ function CountDetailView({
   onBack: () => void;
   onResume: () => void;
 }) {
+  const { t } = useAppTranslation();
   const generate = useGenerateAdjustmentFromCount();
   const [error, setError] = useState<string | null>(null);
 
@@ -467,34 +472,34 @@ function CountDetailView({
     try {
       await generate.mutateAsync({ id: count.id, body: { adjustmentId: crypto.randomUUID() } });
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "تعذر توليد التسوية.");
+      setError(err instanceof ApiError ? err.message : t("counts.theAdjustmentCouldNotBe"));
     }
   }
 
   return (
     <div className="w-full">
       <DocumentDetail
-        title={count.countNo ?? "جرد فعلي"}
-        statusLabel={STATUS_LABEL[count.status]}
+        title={count.countNo ?? t("counts.physicalCount")}
+        statusLabel={t(STATUS_KEY[count.status])}
         statusTone={STATUS_TONE[count.status]}
         actions={
           <>
-            <Button onClick={onBack}>رجوع</Button>
-            {count.status === "IN_PROGRESS" ? <Button variant="primary" onClick={onResume}>متابعة الجرد</Button> : null}
+            <Button onClick={onBack}>{t("common.back")}</Button>
+            {count.status === "IN_PROGRESS" ? <Button variant="primary" onClick={onResume}>{t("counts.continueCount")}</Button> : null}
             {count.status === "COMPLETED" ? (
               <Button variant="primary" disabled={generate.isPending} onClick={handleGenerate}>
-                توليد تسوية
+                {t("counts.generateAdjustment")}
               </Button>
             ) : null}
           </>
         }
         summary={[
-          { label: "المستودع", value: warehouseLabel(count.warehouseId) },
-          { label: "التاريخ", value: <span className="mz-num">{count.date}</span> },
-          { label: "عدد الأصناف", value: <span className="mz-num">{count.lines.length}</span> },
-          { label: "نوع الجرد", value: count.blind ? "جرد أعمى" : "جرد ظاهر" },
+          { label: t("common.warehouse"), value: warehouseLabel(count.warehouseId) },
+          { label: t("common.date"), value: <span className="mz-num">{count.date}</span> },
+          { label: t("counts.items"), value: <span className="mz-num">{count.lines.length}</span> },
+          { label: t("counts.countType"), value: count.blind ? t("counts.blindCount") : t("counts.openCount") },
           {
-            label: "أصناف بها فروقات",
+            label: t("counts.itemsWithVariances"),
             value: (
               <span className="mz-num">
                 {count.variance ? count.variance.overLines + count.variance.shortLines : "—"}
@@ -502,27 +507,27 @@ function CountDetailView({
             ),
           },
           {
-            label: "قيمة الزيادة",
+            label: t("counts.valueOfOverages"),
             value: <span className="mz-num text-success-ink">{count.variance ? trimMoneyString(count.variance.overValue) : "—"}</span>,
           },
           {
-            label: "قيمة العجز",
+            label: t("counts.valueOfShortages"),
             value: <span className="mz-num text-danger-ink">{count.variance ? trimMoneyString(count.variance.shortValue) : "—"}</span>,
           },
           {
-            label: "صافي قيمة الفرق",
+            label: t("counts.netVarianceValue"),
             value: (
               <VarianceBeam value={Number(count.variance?.netValue ?? 0)} className="font-semibold">
                 <span className="mz-num">{signedDisplay(count.variance?.netValue ?? null)}</span>
               </VarianceBeam>
             ),
           },
-          { label: "التسوية الناتجة", value: count.generatedAdjustmentId ? "تم إنشاؤها" : "—" },
+          { label: t("counts.resultingAdjustment"), value: count.generatedAdjustmentId ? t("counts.created") : "—" },
         ]}
         tabs={[
           {
             key: "lines",
-            label: "بنود الجرد",
+            label: t("counts.countLines"),
             content: (
               <Card className="overflow-hidden">
                 {error ? (
@@ -534,12 +539,12 @@ function CountDetailView({
                   <table className="w-full min-w-[760px] border-collapse text-[13px]">
                     <thead>
                       <tr>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">النظام</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">المعدود</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الفرق</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">تكلفة الوحدة</th>
-                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">قيمة الفرق</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.system")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.counted")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.variance")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.unitCost")}</th>
+                        <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("counts.varianceValue")}</th>
                       </tr>
                     </thead>
                     <tbody>

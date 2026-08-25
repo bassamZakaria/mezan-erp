@@ -561,7 +561,6 @@ export function RfqsScreen() {
   return (
     <>
       <DocumentList<PurchaseRfqDTO>
-        eyebrow={t("eyebrow.purchases.rfqs")}
         title={t("rfqs.title")}
         description={t("rfqs.description")}
         actions={

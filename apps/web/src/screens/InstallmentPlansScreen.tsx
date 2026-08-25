@@ -210,7 +210,6 @@ export function InstallmentPlansScreen() {
         </Card>
       ) : null}
       <DocumentList<InstallmentPlanDocumentDTO>
-        eyebrow={t("eyebrow.installments.plans")}
         title={t("instalments.instalmentPlans")}
         description={t("instalments.splittingASalesInvoiceInto")}
         actions={

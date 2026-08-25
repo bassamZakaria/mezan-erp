@@ -108,7 +108,6 @@ export function LeaveAccrualBatchesScreen() {
       </div>
 
       <DocumentList<LeaveAccrualBatchDTO>
-        eyebrow={t("eyebrow.hr.leaveAccrual")}
         title={t("leaveAccrual.leaveAccruals")}
         description={t("leaveAccrual.theScheduledAndManualAccrual")}
         actions={

@@ -158,7 +158,6 @@ export function BankReconciliationScreen() {
   return (
     <div className="w-full">
       <DocumentList<BankStatementDTO>
-        eyebrow={t("eyebrow.treasury.bankReconciliation")}
         title={t("bankRec.bankReconciliation")}
         description={t("bankRec.importBankStatementsAndMatch")}
         actions={

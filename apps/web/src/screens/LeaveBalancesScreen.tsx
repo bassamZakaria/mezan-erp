@@ -122,7 +122,6 @@ export function LeaveBalancesScreen() {
       </div>
 
       <DocumentList<LeaveBalanceDTO>
-        eyebrow={t("eyebrow.hr.leaveBalances")}
         title={t("leaveBalances.leaveBalances")}
         description={t("leaveBalances.eachEmployeeSBalanceBy")}
         actions={

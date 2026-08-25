@@ -363,7 +363,6 @@ export function PurchaseReturnsScreen() {
         </Card>
       ) : null}
       <DocumentList<(typeof documents)[number]>
-        eyebrow={t("eyebrow.purchases.returns")}
         title={t("purchaseReturns.title")}
         description={t("purchaseReturns.description")}
         actions={

@@ -115,7 +115,6 @@ export function ApprovalsInboxScreen() {
 
   return (
     <DocumentList<ApprovalRequestDTO>
-      eyebrow={t("approvals.approvals")}
       title={t("approvals.approvals")}
       description={t("approvals.theRequestsWaitingOnYou")}
       stats={[{ label: t("approvals.awaitingApproval"), value: <span className="mz-num">{requests.length}</span> }]}

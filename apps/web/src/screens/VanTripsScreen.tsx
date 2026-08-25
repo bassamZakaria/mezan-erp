@@ -318,7 +318,6 @@ export function VanTripsScreen() {
         </Card>
       ) : null}
       <DocumentList<VanTripDTO>
-        eyebrow={t("eyebrow.fieldSales.vanTrips")}
         title={t("vanTrips.vanTrips")}
         description={t("vanTrips.openAVanTripWith")}
         actions={

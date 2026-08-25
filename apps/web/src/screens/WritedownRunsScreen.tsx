@@ -172,7 +172,6 @@ export function WritedownRunsScreen() {
         </Card>
       ) : null}
       <DocumentList<WritedownRunDTO>
-        eyebrow={t("eyebrow.inventory.agingWriteDown")}
         title={t("writedown.inventoryWriteDown")}
         description={t("writedown.anOptionalMonthlyRunComputed")}
         actions={

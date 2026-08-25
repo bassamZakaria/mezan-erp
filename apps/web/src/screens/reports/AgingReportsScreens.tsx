@@ -6,9 +6,9 @@ import { ReportScreen } from "./ReportScreen";
 const TODAY = "2026-08-22";
 
 export function AgingCustomersReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.aging" definition={createAgingCustomersReport(TODAY)} apiPath="/aging/customers" />;
+  return <ReportScreen definition={createAgingCustomersReport(TODAY)} apiPath="/aging/customers" />;
 }
 
 export function AgingSuppliersReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.aging" definition={createAgingSuppliersReport(TODAY)} apiPath="/aging/suppliers" />;
+  return <ReportScreen definition={createAgingSuppliersReport(TODAY)} apiPath="/aging/suppliers" />;
 }

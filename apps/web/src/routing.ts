@@ -36,6 +36,25 @@ for (const key of ["users", "roles", "role-editor", "dashboard"]) {
   }
 }
 
+/** The nav group a screen belongs to — `quotes` → `sales`. */
+export function groupKeyForScreen(screen: string): string | null {
+  const path = PATH_BY_SCREEN.get(screen);
+  if (!path || !path.includes("/")) return null;
+  return path.split("/")[0] ?? null;
+}
+
+/**
+ * Where a group's own breadcrumb crumb goes: its hub screen (`sales` →
+ * `sales-hub`), and where a group has none (HR, projects, installments…), its
+ * first screen — so the crumb is a way back rather than dead text.
+ */
+export function hubScreenForGroup(groupKey: string): string | null {
+  const hub = `${groupKey}-hub`;
+  if (PATH_BY_SCREEN.has(hub)) return hub;
+  const group = navGroupSpecs.find((g) => g.key === groupKey);
+  return group?.itemKeys[0] ?? null;
+}
+
 export interface Route {
   readonly screen: ScreenKey;
   /** Everything after the screen's own path — `["new"]`, `["QT-000004"]`, `[]`. */

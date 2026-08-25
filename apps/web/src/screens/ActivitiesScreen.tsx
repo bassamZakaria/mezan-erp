@@ -143,7 +143,6 @@ export function ActivitiesScreen() {
         </div>
       ) : null}
       <DocumentList<ActivityDTO>
-        eyebrow={t("eyebrow.crm.activities")}
         title={t("activities.activities")}
         description={t("activities.aRecordOfFollowUp")}
         actions={

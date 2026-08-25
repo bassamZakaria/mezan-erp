@@ -60,7 +60,6 @@ export interface ReportRunnerResult<Row> {
 }
 
 export interface ReportRunnerProps<Row> {
-  eyebrow?: string;
   title: string;
   description?: string;
   paramFields: readonly ReportRunnerParamField[];
@@ -175,7 +174,6 @@ function ParamField({
 }
 
 export function ReportRunner<Row>({
-  eyebrow,
   title,
   description,
   paramFields,
@@ -219,7 +217,6 @@ export function ReportRunner<Row>({
     <div className={cn("w-full", className)}>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {eyebrow ? <div className="mz-eyebrow">{eyebrow}</div> : null}
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>

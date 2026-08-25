@@ -3,14 +3,15 @@ import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePane
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
 import { ApiError, useAssetCategories, useAssets, useBranches, useCreateAsset } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** سجل الأصول (Asset Register) — docs/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
-const STATUS_LABEL: Record<AssetStatusDTO, string> = {
-  active: "نشط",
-  under_maintenance: "تحت الصيانة",
-  fully_depreciated: "مهلك بالكامل",
-  disposed: "تم التخلص",
+const STATUS_KEY: Record<AssetStatusDTO, AppTranslationKey> = {
+  active: "common.active",
+  under_maintenance: "asset.underMaintenance",
+  fully_depreciated: "asset.fullyDepreciated",
+  disposed: "asset.disposed",
 };
 
 const STATUS_TONE: Record<AssetStatusDTO, PillTone> = {
@@ -20,8 +21,8 @@ const STATUS_TONE: Record<AssetStatusDTO, PillTone> = {
   disposed: "danger",
 };
 
-const SCOPE_LABEL: Record<AssetScopeDTO, string> = { general: "عام", branch: "فرع", warehouse: "مستودع" };
-const SCOPE_OPTIONS = (Object.keys(SCOPE_LABEL) as AssetScopeDTO[]).map((value) => ({ value, label: SCOPE_LABEL[value] }));
+const SCOPE_KEY: Record<AssetScopeDTO, AppTranslationKey> = { general: "asset.scopeGeneral", branch: "asset.scopeBranch", warehouse: "asset.scopeWarehouse" };
+const SCOPE_VALUES = Object.keys(SCOPE_KEY) as AssetScopeDTO[];
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -63,20 +64,21 @@ function blankDraft(): AssetDraft {
   };
 }
 
-function validateDraft(draft: AssetDraft, existing: AssetDTO[]): string | null {
+function validateDraft(draft: AssetDraft, existing: AssetDTO[]): { key: AppTranslationKey; params?: Record<string, string> } | null {
   const code = draft.code.trim();
-  if (code === "") return "كود الأصل مطلوب.";
-  if (existing.some((a) => a.code === code)) return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
-  if (draft.nameAr.trim() === "") return "الاسم بالعربية مطلوب.";
-  if (draft.categoryId.trim() === "") return "التصنيف مطلوب.";
-  if (draft.scope === "branch" && draft.branchId.trim() === "") return "الفرع مطلوب عند اختيار نطاق «فرع».";
-  if (draft.acquisitionDate.trim() === "") return "تاريخ الاقتناء مطلوب.";
-  if (draft.acquisitionCost === null || draft.acquisitionCost < 0) return "تكلفة الاقتناء مطلوبة ويجب ألا تكون سالبة.";
-  if (!Number.isFinite(draft.usefulLifeMonths) || draft.usefulLifeMonths <= 0) return "العمر الإنتاجي (شهور) يجب أن يكون رقماً أكبر من صفر.";
+  if (code === "") return { key: "asset.codeRequired" };
+  if (existing.some((a) => a.code === code)) return { key: "assetCategories.codeInUse", params: { code } };
+  if (draft.nameAr.trim() === "") return { key: "asset.nameArRequired" };
+  if (draft.categoryId.trim() === "") return { key: "asset.categoryRequired" };
+  if (draft.scope === "branch" && draft.branchId.trim() === "") return { key: "asset.branchRequired" };
+  if (draft.acquisitionDate.trim() === "") return { key: "asset.acquisitionDateRequired" };
+  if (draft.acquisitionCost === null || draft.acquisitionCost < 0) return { key: "asset.acquisitionCostRequired" };
+  if (!Number.isFinite(draft.usefulLifeMonths) || draft.usefulLifeMonths <= 0) return { key: "asset.usefulLifeRequired" };
   return null;
 }
 
 export function AssetRegisterScreen() {
+  const { t } = useAppTranslation();
   const query = useAssets();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
@@ -128,7 +130,7 @@ export function AssetRegisterScreen() {
     event.preventDefault();
     const error = validateDraft(draft, assets);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -151,62 +153,62 @@ export function AssetRegisterScreen() {
       await createAsset.mutateAsync(body);
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر تسجيل الأصل.");
+      setFormError(err instanceof ApiError ? err.message : t("asset.couldNotRegisterTheAsset"));
     }
   }
 
   const columns: DocumentListColumn<AssetDTO>[] = [
-    { key: "nameAr", header: "الأصل", render: (a) => <span className="font-semibold text-ink">{a.nameAr}</span> },
-    { key: "category", header: "التصنيف", render: (a) => categoryName(a.categoryId) },
-    { key: "acquisitionDate", header: "تاريخ الاقتناء", render: (a) => <span className="mz-num">{a.acquisitionDate}</span> },
-    { key: "acquisitionCost", header: "تكلفة الاقتناء", align: "end", render: (a) => <MoneyDisplay value={toMajor(a.acquisitionCost)} /> },
-    { key: "bookValue", header: "القيمة الدفترية", align: "end", render: (a) => <MoneyDisplay value={bookValue(a)} /> },
-    { key: "status", header: "الحالة", render: (a) => <StatusPill label={STATUS_LABEL[a.status]} tone={STATUS_TONE[a.status]} /> },
+    { key: "nameAr", header: t("asset.asset"), render: (a) => <span className="font-semibold text-ink">{a.nameAr}</span> },
+    { key: "category", header: t("common.category"), render: (a) => categoryName(a.categoryId) },
+    { key: "acquisitionDate", header: t("asset.acquiredOn"), render: (a) => <span className="mz-num">{a.acquisitionDate}</span> },
+    { key: "acquisitionCost", header: t("asset.acquisitionCost"), align: "end", render: (a) => <MoneyDisplay value={toMajor(a.acquisitionCost)} /> },
+    { key: "bookValue", header: t("asset.bookValue"), align: "end", render: (a) => <MoneyDisplay value={bookValue(a)} /> },
+    { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل سجل الأصول.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("asset.couldNotLoadTheAsset")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<AssetDTO>
         eyebrow="Fixed Assets · Register"
-        title="سجل الأصول"
-        description="السجل المركزي للأصول الثابتة — الاقتناء والتصنيف وإعداد طريقة الإهلاك لكل أصل"
+        title={t("asset.assetRegister")}
+        description={t("asset.theCentralRecordOfFixed")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            تسجيل أصل
+            {t("asset.registerAnAsset")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الأصول", value: <span className="mz-num">{totalCount}</span> },
-          { label: "نشط", value: <span className="mz-num">{activeCount}</span> },
-          { label: "مهلك بالكامل", value: <span className="mz-num">{fullyDepreciatedCount}</span> },
+          { label: t("asset.totalAssets"), value: <span className="mz-num">{totalCount}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
+          { label: t("asset.fullyDepreciated"), value: <span className="mz-num">{fullyDepreciatedCount}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث في الأصول..."
+        searchPlaceholder={t("asset.searchAssets")}
         filterBarExtra={
           <div className="flex flex-wrap gap-[10px]">
             <div className="min-w-[200px]">
               <SelectField
-                label="التصنيف"
+                label={t("common.category")}
                 value={categoryFilter}
                 onChange={setCategoryFilter}
-                options={[{ value: "all", label: "كل التصنيفات" }, ...categories.map((c) => ({ value: c.id, label: `${c.code} — ${c.nameAr}` }))]}
+                options={[{ value: "all", label: t("asset.allCategories") }, ...categories.map((c) => ({ value: c.id, label: `${c.code} — ${c.nameAr}` }))]}
               />
             </div>
             <div className="min-w-[200px]">
               <SelectField
-                label="الفرع"
+                label={t("common.branch")}
                 value={branchFilter}
                 onChange={setBranchFilter}
-                options={[{ value: "all", label: "كل الفروع" }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+                options={[{ value: "all", label: t("asset.allBranches") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
               />
             </div>
           </div>
@@ -219,71 +221,71 @@ export function AssetRegisterScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{totalCount}</span> أصل
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("asset.asset2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أصول — لم يتم تسجيل أي أصول بعد</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("asset.noAssetsNothingHasBeen")}</div>}
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `أصل — ${selected.nameAr}` : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">كود الأصل</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.assetCode")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.code}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">اسم الأصل</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.assetName")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.nameEn ?? "—"}</div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">التصنيف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.category")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{categoryName(selected.categoryId)}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">نطاق الأصل</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{SCOPE_LABEL[selected.scope]}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.assetScope")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(SCOPE_KEY[selected.scope])}</div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ الاقتناء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.acquiredOn")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.acquisitionDate}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ بدء الإهلاك</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.depreciationStarts")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.depreciationStartDate}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">العمر الإنتاجي (شهور)</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.usefulLifeMonths")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.usefulLifeMonths}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">طريقة الإهلاك</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">القسط الثابت</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.depreciationMethod")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t("asset.straightLine")}</div>
               </div>
             </Card>
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تكلفة الاقتناء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.acquisitionCost")}</div>
                 <MoneyDisplay value={toMajor(selected.acquisitionCost)} className="mt-[5px] text-[14px] font-bold" />
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">القيمة المتبقية</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.residualValue")}</div>
                 <MoneyDisplay value={toMajor(selected.salvageValue)} className="mt-[5px] text-[14px] font-bold" />
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">مجمع الإهلاك</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.accumulatedDepreciation")}</div>
                 <MoneyDisplay value={toMajor(selected.accumulatedDepreciation)} className="mt-[5px] text-[14px] font-bold" />
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">القيمة الدفترية</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("asset.bookValue")}</div>
                 <MoneyDisplay value={bookValue(selected)} className="mt-[5px] text-[14px] font-bold text-brand" />
               </div>
             </Card>
             {selected.notes ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">ملاحظات</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                 <div className="mt-[6px] text-[13px] text-ink">{selected.notes}</div>
               </Card>
             ) : null}
@@ -291,7 +293,7 @@ export function AssetRegisterScreen() {
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="تسجيل أصل" description="بيانات الأصل الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("asset.registerAnAsset")} description={t("asset.coreAssetDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -300,93 +302,93 @@ export function AssetRegisterScreen() {
           ) : null}
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">الهوية والتصنيف</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("asset.identityAndClassification")}</h3>
             <div className="flex flex-col gap-[12px]">
               <TextField
-                label="الاسم بالعربية *"
+                label={t("asset.arabicName")}
                 value={draft.nameAr}
                 onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
-                placeholder="مثال: سيارة النقل الرئيسية"
+                placeholder={t("asset.eGMainDeliveryVan")}
               />
-              <TextField label="اسم الأصل" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
-              <TextField label="كود الأصل *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
+              <TextField label={t("asset.assetName")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+              <TextField label={t("asset.assetCode2")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
               <SelectField
-                label="التصنيف *"
+                label={t("asset.category")}
                 value={draft.categoryId}
                 onChange={(v) => setDraft((d) => ({ ...d, categoryId: v }))}
-                options={[{ value: "", label: "اختر التصنيف" }, ...categories.map((c) => ({ value: c.id, label: `${c.code} — ${c.nameAr}` }))]}
+                options={[{ value: "", label: t("asset.chooseACategory") }, ...categories.map((c) => ({ value: c.id, label: `${c.code} — ${c.nameAr}` }))]}
               />
               <SelectField
-                label="نطاق الأصل *"
+                label={t("asset.assetScope2")}
                 value={draft.scope}
                 onChange={(v) => setDraft((d) => ({ ...d, scope: v as AssetScopeDTO }))}
-                options={SCOPE_OPTIONS}
+                options={SCOPE_VALUES.map((value) => ({ value, label: t(SCOPE_KEY[value]) }))}
               />
               {draft.scope === "branch" ? (
                 <SelectField
-                  label="الفرع *"
+                  label={t("asset.branch2")}
                   value={draft.branchId}
                   onChange={(v) => setDraft((d) => ({ ...d, branchId: v }))}
-                  options={[{ value: "", label: "اختر الفرع" }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
-                  hint="أصل مرتبط بفرع محدد (مكتب، نقطة بيع، تجهيزات فرع)"
+                  options={[{ value: "", label: t("asset.chooseABranch") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+                  hint={t("asset.anAssetTiedToOne")}
                 />
               ) : null}
               {draft.scope === "warehouse" ? (
-                <TextField label="المستودع" value={draft.warehouseId} onChange={(v) => setDraft((d) => ({ ...d, warehouseId: v }))} />
+                <TextField label={t("common.warehouse")} value={draft.warehouseId} onChange={(v) => setDraft((d) => ({ ...d, warehouseId: v }))} />
               ) : null}
             </div>
           </div>
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">الاقتناء</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("asset.acquisition")}</h3>
             <div className="flex flex-col gap-[12px]">
               <TextField
-                label="تاريخ الاقتناء *"
+                label={t("asset.acquiredOn2")}
                 value={draft.acquisitionDate}
                 onChange={(v) => setDraft((d) => ({ ...d, acquisitionDate: v }))}
                 placeholder="YYYY-MM-DD"
               />
               <div>
-                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">تكلفة الاقتناء *</div>
-                <MoneyInput aria-label="تكلفة الاقتناء *" value={draft.acquisitionCost} onChange={(v) => setDraft((d) => ({ ...d, acquisitionCost: v }))} />
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.acquisitionCost2")}</div>
+                <MoneyInput aria-label={t("asset.acquisitionCost2")} value={draft.acquisitionCost} onChange={(v) => setDraft((d) => ({ ...d, acquisitionCost: v }))} />
               </div>
               <TextField
-                label="تاريخ بدء الإهلاك"
+                label={t("asset.depreciationStarts")}
                 value={draft.depreciationStartDate}
                 onChange={(v) => setDraft((d) => ({ ...d, depreciationStartDate: v }))}
                 placeholder="YYYY-MM-DD"
-                hint="يفترض تاريخ الاقتناء تلقائياً إذا تُرك فارغاً"
+                hint={t("asset.defaultsToTheAcquisitionDate")}
               />
             </div>
           </div>
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">الإهلاك والقيمة</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("asset.depreciationAndValue")}</h3>
             <div className="flex flex-col gap-[12px]">
               <div>
-                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">طريقة الإهلاك</div>
-                <div className="rounded-md border border-border bg-surface-2 px-[13px] py-[9px] text-[13px] text-ink-muted">القسط الثابت</div>
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.depreciationMethod")}</div>
+                <div className="rounded-md border border-border bg-surface-2 px-[13px] py-[9px] text-[13px] text-ink-muted">{t("asset.straightLine")}</div>
               </div>
               <NumberField
-                label="العمر الإنتاجي (شهور) *"
+                label={t("asset.usefulLifeMonths2")}
                 value={draft.usefulLifeMonths}
                 onChange={(v) => setDraft((d) => ({ ...d, usefulLifeMonths: v }))}
                 min={1}
                 step={1}
               />
               <div>
-                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتبقية</div>
-                <MoneyInput aria-label="القيمة المتبقية" value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
+                <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("asset.residualValue")}</div>
+                <MoneyInput aria-label={t("asset.residualValue")} value={draft.salvageValue} onChange={(v) => setDraft((d) => ({ ...d, salvageValue: v }))} />
               </div>
             </div>
           </div>
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

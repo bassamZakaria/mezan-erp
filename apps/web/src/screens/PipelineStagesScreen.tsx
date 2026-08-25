@@ -3,6 +3,7 @@ import { Button, Card, DocumentList, IconButton, SidePanel, StatusPill, type Doc
 import type { PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePipelineStage, useMovePipelineStage, usePipelineStages } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * مراحل خط المبيعات (Pipeline Stages) — docs/catalog/06 §"مراحل خط المبيعات".
@@ -40,6 +41,7 @@ function validateDraft(draft: StageDraft): string | null {
 }
 
 export function PipelineStagesScreen() {
+  const { t } = useAppTranslation();
   const query = usePipelineStages();
   const createStage = useCreatePipelineStage();
   const moveStage = useMovePipelineStage();
@@ -80,7 +82,7 @@ export function PipelineStagesScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -91,18 +93,18 @@ export function PipelineStagesScreen() {
     try {
       await moveStage.mutateAsync({ id: stage.id, direction });
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : "تعذّر إعادة ترتيب المرحلة.");
+      setMoveError(err instanceof Error ? err.message : t("pipelineStages.theStageCouldNotBe"));
     } finally {
       setMovingId(null);
     }
   }
 
   const columns: DocumentListColumn<PipelineStageDTO>[] = [
-    { key: "order", header: "الترتيب", render: (s) => <span className="mz-num font-semibold text-ink">{s.order}</span> },
-    { key: "name", header: "الاسم", render: (s) => <span className="font-semibold text-ink">{s.name}</span> },
-    { key: "defaultProbability", header: "الاحتمالية الافتراضية", render: (s) => <span className="mz-num">{s.defaultProbability}%</span> },
-    { key: "type", header: "النوع", render: (s) => <StatusPill label={stageTypeLabel(s)} tone={stageTypeTone(s)} /> },
-    { key: "status", header: "الحالة", render: (s) => <StatusPill label={s.active ? "نشطة" : "غير نشطة"} tone={s.active ? "success" : "neutral"} /> },
+    { key: "order", header: t("pipelineStages.order"), render: (s) => <span className="mz-num font-semibold text-ink">{s.order}</span> },
+    { key: "name", header: t("common.name"), render: (s) => <span className="font-semibold text-ink">{s.name}</span> },
+    { key: "defaultProbability", header: t("pipelineStages.defaultProbability"), render: (s) => <span className="mz-num">{s.defaultProbability}%</span> },
+    { key: "type", header: t("common.type"), render: (s) => <StatusPill label={stageTypeLabel(s)} tone={stageTypeTone(s)} /> },
+    { key: "status", header: t("common.status"), render: (s) => <StatusPill label={s.active ? t("pipelineStages.active") : t("pipelineStages.inactive")} tone={s.active ? "success" : "neutral"} /> },
     {
       key: "actions",
       header: "",
@@ -139,9 +141,9 @@ export function PipelineStagesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مراحل خط المبيعات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("pipelineStages.pipelineStagesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -152,18 +154,18 @@ export function PipelineStagesScreen() {
       ) : null}
       <DocumentList<PipelineStageDTO>
         eyebrow="CRM · Pipeline Stages"
-        title="مراحل خط المبيعات"
-        description="حدد مراحل رحلة المبيعات وترتيبها واحتمالية الإغلاق في كل مرحلة"
+        title={t("pipelineStages.pipelineStages")}
+        description={t("pipelineStages.defineTheStagesOfThe")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة مرحلة
+            {t("pipelineStages.addStage")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المراحل", value: <span className="mz-num">{stages.length}</span> },
-          { label: "مراحل نشطة", value: <span className="mz-num">{activeCount}</span> },
-          { label: "مرحلة الفوز", value: winStage?.name ?? "—" },
-          { label: "مرحلة الخسارة", value: lossStage?.name ?? "—" },
+          { label: t("pipelineStages.totalStages"), value: <span className="mz-num">{stages.length}</span> },
+          { label: t("pipelineStages.activeStages"), value: <span className="mz-num">{activeCount}</span> },
+          { label: t("pipelineStages.wonStage2"), value: winStage?.name ?? "—" },
+          { label: t("pipelineStages.lostStage2"), value: lossStage?.name ?? "—" },
         ]}
         columns={columns}
         rows={stages}
@@ -172,17 +174,17 @@ export function PipelineStagesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{stages.length}</span> من <span className="mz-num">{stages.length}</span> مرحلة
+            {t("common.show")} <span className="mz-num">{stages.length}</span> {t("common.of")} <span className="mz-num">{stages.length}</span> {t("pipelineStages.stages")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد مراحل</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("pipelineStages.noStages")}</div>}
       />
 
       <SidePanel
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        title="إضافة مرحلة"
-        description="اترك الخيارين فارغين للمراحل المفتوحة. مرحلة الفوز واحدة فقط لكل عميل."
+        title={t("pipelineStages.addStage")}
+        description={t("pipelineStages.leaveBothUntickedForOpen")}
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
@@ -191,32 +193,32 @@ export function PipelineStagesScreen() {
             </div>
           ) : null}
 
-          <TextField label="الاسم *" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("pipelineStages.name")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
           <NumberField
-            label="الاحتمالية الافتراضية %"
+            label={t("pipelineStages.defaultProbability2")}
             value={draft.defaultProbability}
             min={0}
             max={100}
             onChange={(v) => setDraft((d) => ({ ...d, defaultProbability: v }))}
           />
-          <TextField label="اللون" value={draft.color} onChange={(v) => setDraft((d) => ({ ...d, color: v }))} placeholder="#3b82f6" />
+          <TextField label={t("pipelineStages.colour")} value={draft.color} onChange={(v) => setDraft((d) => ({ ...d, color: v }))} placeholder="#3b82f6" />
           <ToggleField
-            label="مرحلة فوز"
+            label={t("pipelineStages.wonStage")}
             checked={draft.isWinStage}
             onChange={(v) => setDraft((d) => ({ ...d, isWinStage: v, isLossStage: v ? false : d.isLossStage }))}
           />
           <ToggleField
-            label="مرحلة خسارة"
+            label={t("pipelineStages.lostStage")}
             checked={draft.isLossStage}
             onChange={(v) => setDraft((d) => ({ ...d, isLossStage: v, isWinStage: v ? false : d.isWinStage }))}
           />
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {t("common.add")}
             </Button>
           </div>
         </form>

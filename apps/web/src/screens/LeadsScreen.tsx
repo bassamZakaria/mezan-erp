@@ -14,17 +14,17 @@ import {
 import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** العملاء المحتملون (Leads) — docs/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
-const STATUS_LABEL: Record<LeadStatusDTO, string> = {
-  new: "جديد",
-  contacted: "تم التواصل",
-  qualified: "مؤهل",
-  converted: "محول",
-  lost: "خسارة",
-  unqualified: "غير مؤهل",
+const STATUS_KEY: Record<LeadStatusDTO, AppTranslationKey> = {
+  new: "leads.status.new",
+  contacted: "leads.status.contacted",
+  qualified: "leads.status.qualified",
+  converted: "leads.status.converted",
+  lost: "leads.status.lost",
+  unqualified: "leads.status.unqualified",
 };
 
 const STATUS_TONE: Record<LeadStatusDTO, PillTone> = {
@@ -36,12 +36,12 @@ const STATUS_TONE: Record<LeadStatusDTO, PillTone> = {
   unqualified: "neutral",
 };
 
-const SOURCE_LABEL: Record<LeadSourceDTO, string> = {
-  website: "الموقع الإلكتروني",
-  referral: "إحالة",
-  phone: "هاتف",
-  social: "وسائل التواصل",
-  other: "أخرى",
+const SOURCE_KEY: Record<LeadSourceDTO, AppTranslationKey> = {
+  website: "leads.source.website",
+  referral: "leads.source.referral",
+  phone: "leads.source.phone",
+  social: "leads.source.social",
+  other: "leads.source.other",
 };
 
 const LEAD_STATUSES: LeadStatusDTO[] = ["new", "contacted", "qualified", "converted", "lost", "unqualified"];
@@ -79,8 +79,9 @@ function blankDraft(): LeadDraft {
   return { name: "", company: "", email: "", phone: "", source: "other", expectedValue: null, interest: "", notes: "" };
 }
 
-function validateDraft(draft: LeadDraft): string | null {
-  if (draft.name.trim() === "") return "الاسم مطلوب.";
+/** Returns a catalogue KEY, so the caller decides the locale. */
+function validateDraft(draft: LeadDraft): AppTranslationKey | null {
+  if (draft.name.trim() === "") return "leads.nameRequired";
   return null;
 }
 
@@ -95,12 +96,12 @@ interface ConvertDraft {
   opportunityExpectedCloseDate: string;
 }
 
-function blankConvertDraft(lead: LeadDTO, firstStageId: string): ConvertDraft {
+function blankConvertDraft(lead: LeadDTO, firstStageId: string, t: (key: AppTranslationKey, params?: Record<string, string | number>) => string): ConvertDraft {
   return {
     createCustomer: true,
     customerCode: lead.name.trim().slice(0, 20),
     createOpportunity: true,
-    opportunityTitle: `${lead.name} — فرصة`,
+    opportunityTitle: t("leads.opportunityTitle", { name: lead.name }),
     opportunityStageId: firstStageId,
     opportunityExpectedValue: toMajor(lead.expectedValue),
     opportunityProbability: 50,
@@ -192,7 +193,7 @@ export function LeadsScreen() {
   }
 
   function openConvertForm(lead: LeadDTO) {
-    setConvertDraft(blankConvertDraft(lead, stages[0]?.id ?? ""));
+    setConvertDraft(blankConvertDraft(lead, stages[0]?.id ?? "", t));
     setConvertError(null);
     setConvertOpen(true);
   }
@@ -240,14 +241,14 @@ export function LeadsScreen() {
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: leads.length },
-    ...LEAD_STATUSES.map((s) => ({ key: s, label: STATUS_LABEL[s], count: leads.filter((l) => l.status === s).length })),
+    ...LEAD_STATUSES.map((s) => ({ key: s, label: t(STATUS_KEY[s]), count: leads.filter((l) => l.status === s).length })),
   ];
 
   const columns: DocumentListColumn<LeadDTO>[] = [
     { key: "name", header: t("common.name"), render: (l) => <span className="font-semibold text-ink">{l.name}</span> },
     { key: "company", header: t("leads.company"), render: (l) => <span className="text-ink-muted">{l.company ?? "—"}</span> },
-    { key: "source", header: t("leads.source"), render: (l) => SOURCE_LABEL[l.source] },
-    { key: "status", header: t("common.status"), render: (l) => <StatusPill label={STATUS_LABEL[l.status]} tone={STATUS_TONE[l.status]} /> },
+    { key: "source", header: t("leads.source"), render: (l) => t(SOURCE_KEY[l.source]) },
+    { key: "status", header: t("common.status"), render: (l) => <StatusPill label={t(STATUS_KEY[l.status])} tone={STATUS_TONE[l.status]} /> },
     {
       key: "expectedValue",
       header: t("leads.expectedValue"),
@@ -303,7 +304,7 @@ export function LeadsScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.name : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("leads.company")}</div>
@@ -311,7 +312,7 @@ export function LeadsScreen() {
               </div>
               <div className="border-b border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("leads.source")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{SOURCE_LABEL[selected.source]}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(SOURCE_KEY[selected.source])}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.email")}</div>
@@ -354,7 +355,7 @@ export function LeadsScreen() {
             <div className="flex flex-col gap-[8px]">
               {validTransitions(selected.status).map((status) => (
                 <Button key={status} variant="primary" disabled={pendingStatus !== null} onClick={() => runTransition(selected, status)}>
-                  {STATUS_LABEL[status]}
+                  {t(STATUS_KEY[status])}
                 </Button>
               ))}
               {selected.status === "qualified" ? (
@@ -387,7 +388,7 @@ export function LeadsScreen() {
             label={t("leads.source")}
             value={draft.source}
             onChange={(v) => setDraft((d) => ({ ...d, source: v as LeadSourceDTO }))}
-            options={(Object.keys(SOURCE_LABEL) as LeadSourceDTO[]).map((s) => ({ value: s, label: SOURCE_LABEL[s] }))}
+            options={(Object.keys(SOURCE_KEY) as LeadSourceDTO[]).map((s) => ({ value: s, label: t(SOURCE_KEY[s]) }))}
           />
           <div>
             <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("leads.expectedValue")}</div>

@@ -16,6 +16,7 @@ import {
 import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** الفرص (Opportunities) — docs/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
@@ -51,6 +52,7 @@ interface CreateOpportunityFormProps {
 
 /** Shared create-opportunity form — reused as-is by PipelineScreen's "إضافة فرصة" action. */
 export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: CreateOpportunityFormProps) {
+  const { t } = useAppTranslation();
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
   const createOpportunity = useCreateOpportunity();
@@ -89,7 +91,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setError(err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -101,41 +103,41 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
         </div>
       ) : null}
 
-      <TextField label="العنوان *" value={draft.title} onChange={(v) => setDraft((d) => ({ ...d, title: v }))} />
+      <TextField label={t("opportunities.title")} value={draft.title} onChange={(v) => setDraft((d) => ({ ...d, title: v }))} />
       <div>
         <EntityPicker
-          label="العميل *"
+          label={t("opportunities.customer")}
           value={customerOptions.find((o) => o.id === draft.customerId) ?? null}
           onChange={(o) => setDraft((d) => ({ ...d, customerId: o?.id ?? "" }))}
           options={customerOptions}
-          placeholder="اختر العميل..."
+          placeholder={t("opportunities.chooseTheCustomer")}
         />
       </div>
       <SelectField
-        label="المرحلة *"
+        label={t("opportunities.stage")}
         value={draft.stageId}
         onChange={(v) => setDraft((d) => ({ ...d, stageId: v }))}
         options={stages.map((s) => ({ value: s.id, label: s.name }))}
       />
       <div>
-        <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
-        <MoneyInput aria-label="القيمة المتوقعة" value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
+        <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("opportunities.expectedValue")}</div>
+        <MoneyInput aria-label={t("opportunities.expectedValue")} value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
       </div>
-      <NumberField label="الاحتمالية %" value={draft.probability} min={0} max={100} onChange={(v) => setDraft((d) => ({ ...d, probability: v }))} />
+      <NumberField label={t("opportunities.probability")} value={draft.probability} min={0} max={100} onChange={(v) => setDraft((d) => ({ ...d, probability: v }))} />
       <TextField
-        label="تاريخ الإغلاق المتوقع"
+        label={t("opportunities.expectedCloseDate")}
         value={draft.expectedCloseDate}
         onChange={(v) => setDraft((d) => ({ ...d, expectedCloseDate: v }))}
         placeholder="YYYY-MM-DD"
       />
-      <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+      <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
       <div className="mt-[6px] flex justify-end gap-[9px]">
         <Button type="button" onClick={onCancel}>
-          إلغاء
+          {t("common.cancel")}
         </Button>
         <Button type="submit" variant="primary">
-          إضافة
+          {t("common.add")}
         </Button>
       </div>
     </form>
@@ -143,6 +145,7 @@ export function CreateOpportunityForm({ onDone, onCancel, defaultStageId }: Crea
 }
 
 export function OpportunitiesScreen() {
+  const { t } = useAppTranslation();
   const query = useOpportunities();
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
@@ -179,53 +182,53 @@ export function OpportunitiesScreen() {
   const totalExpectedValue = opportunities.reduce((sum, o) => sum + Number(o.expectedValue), 0);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: opportunities.length },
-    { key: "open", label: "مفتوحة", count: openCount },
-    { key: "won", label: "مكسوبة", count: wonCount },
-    { key: "lost", label: "خسارة", count: opportunities.filter((o) => o.status === "lost").length },
+    { key: "all", label: t("common.all"), count: opportunities.length },
+    { key: "open", label: t("opportunities.open"), count: openCount },
+    { key: "won", label: t("opportunities.won"), count: wonCount },
+    { key: "lost", label: t("opportunities.lost"), count: opportunities.filter((o) => o.status === "lost").length },
   ];
 
   const columns: DocumentListColumn<OpportunityDTO>[] = [
-    { key: "title", header: "العنوان", render: (o) => <span className="font-semibold text-ink">{o.title}</span> },
-    { key: "customer", header: "العميل", render: (o) => <span className="text-ink-muted">{customerName(o.customerId)}</span> },
-    { key: "stage", header: "المرحلة", render: (o) => stageName(o.stageId) },
-    { key: "probability", header: "الاحتمالية", render: (o) => <span className="mz-num">{o.probability}%</span> },
-    { key: "expectedValue", header: "القيمة المتوقعة", align: "end", render: (o) => <MoneyDisplay value={Number(o.expectedValue)} /> },
-    { key: "expectedCloseDate", header: "تاريخ الإغلاق المتوقع", render: (o) => <span className="mz-num">{o.expectedCloseDate ?? "—"}</span> },
-    { key: "status", header: "الحالة", render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
+    { key: "title", header: t("opportunities.title2"), render: (o) => <span className="font-semibold text-ink">{o.title}</span> },
+    { key: "customer", header: t("common.customer"), render: (o) => <span className="text-ink-muted">{customerName(o.customerId)}</span> },
+    { key: "stage", header: t("opportunities.stage2"), render: (o) => stageName(o.stageId) },
+    { key: "probability", header: t("opportunities.probability2"), render: (o) => <span className="mz-num">{o.probability}%</span> },
+    { key: "expectedValue", header: t("opportunities.expectedValue"), align: "end", render: (o) => <MoneyDisplay value={Number(o.expectedValue)} /> },
+    { key: "expectedCloseDate", header: t("opportunities.expectedCloseDate"), render: (o) => <span className="mz-num">{o.expectedCloseDate ?? "—"}</span> },
+    { key: "status", header: t("common.status"), render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفرص.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("opportunities.opportunitiesCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<OpportunityDTO>
         eyebrow="CRM · Opportunities"
-        title="الفرص"
-        description="متابعة الصفقات البيعية الجارية مقابل عميل، بقيمة وتاريخ إغلاق متوقعين ومرحلة في خط المبيعات"
+        title={t("opportunities.opportunities")}
+        description={t("opportunities.trackingLiveDealsAgainstA")}
         actions={
           <Button variant="primary" onClick={() => setFormOpen(true)}>
-            فرصة جديدة
+            {t("opportunities.newOpportunity")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{opportunities.length}</span> },
-          { label: "مفتوحة", value: <span className="mz-num">{openCount}</span> },
-          { label: "مكسوبة", value: <span className="mz-num">{wonCount}</span> },
-          { label: "القيمة المتوقعة", value: <MoneyDisplay value={totalExpectedValue} /> },
+          { label: t("common.total"), value: <span className="mz-num">{opportunities.length}</span> },
+          { label: t("opportunities.open"), value: <span className="mz-num">{openCount}</span> },
+          { label: t("opportunities.won"), value: <span className="mz-num">{wonCount}</span> },
+          { label: t("opportunities.expectedValue"), value: <MoneyDisplay value={totalExpectedValue} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | OpportunityStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالعنوان..."
+        searchPlaceholder={t("opportunities.searchByTitle")}
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
@@ -233,13 +236,13 @@ export function OpportunitiesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{opportunities.length}</span> فرصة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{opportunities.length}</span> {t("opportunities.opportunities2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد بيانات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("opportunities.nothingToShow")}</div>}
       />
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="فرصة جديدة" description="بيانات الفرصة البيعية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("opportunities.newOpportunity")} description={t("opportunities.opportunityDetails")}>
         <CreateOpportunityForm onDone={() => setFormOpen(false)} onCancel={() => setFormOpen(false)} />
       </SidePanel>
     </div>

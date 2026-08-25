@@ -154,14 +154,63 @@ those two gates before it starts, and says so in its output.
 
 ## Not yet executable — run these by hand
 
-These cross seams the executable file does not reach yet. Each is written the
-same way: pre, steps, assert.
+These cross seams `cross-module.ts` does not reach yet, written the same way so
+they can be executed later without being redesigned. Ids follow the same
+`SCN-X-` convention. Where a known defect makes a scenario unprovable, that is
+said up front — the scenario still documents the seam.
 
-- **X23 — FX**: a foreign-currency supplier invoice at one rate, an FX revaluation run at another. **Assert**: AP in the foreign currency is unchanged, the EGP control account moves by the rate difference alone, and the unrealised gain/loss lands in the P&L, not in inventory.
-- **X24 — Exchange-rate approval**: an unapproved rate must not be usable by a document; approving it changes what the next document converts at and **not** what an already-posted one says.
-- **X25 — POS session → treasury**: opening a session, selling, closing it, and proving the session's declared cash equals what reached the خزنة. (POS is deferred by decision — write the scenarios, do not expect them to pass.)
-- **X26 — Project → cost centre → P&L**: expenses tagged to a project's cost centre must appear in the cost-centre P&L and in the income statement at the same figure, once.
-- **X27 — Branch scope end to end**: a user scoped to one branch must see that branch's documents, treasury accounts and reports and no others — the same scope applied consistently by sales, purchases, treasury and reporting. (Currently unprovable: **D7**, and the tenant has one branch.)
-- **X28 — Promotions → revenue → VAT**: a promotion applied at confirm must discount before VAT, and deactivating it afterwards must not change what a historical invoice says it granted or what the VAT return reports.
-- **X29 — ETA submission**: confirming an invoice should enqueue it for submission. (**D5**: nothing produces into that queue, so this scenario documents the gap rather than testing it.)
-- **X30 — Notifications and webhooks across modules**: a confirmed document should raise the events its rules subscribe to, and a webhook failure must never roll back the document that triggered it.
+### X23 — Foreign-currency purchase, then revaluation
+Crosses: exchange rates ▸ purchases ▸ GL ▸ financial reports.
+
+- **Pre**: an approved USD rate on the invoice date (`POST /exchange-rates` then `POST /exchange-rates/:id/approve`), a supplier, a stock item.
+- **Steps**: create a purchase invoice with `currency: "USD"` at that rate → confirm → record a **later, higher** USD rate and approve it → `POST /revaluation/preview` for the period end → `POST /revaluation/post`.
+- **Assert**: the invoice's own foreign-currency total never changes — a revaluation restates the base currency, not the debt. The preview's `delta` per account equals `foreignAmount × (closingRate − bookedRate)` recomputed by hand, and `totalGain − totalLoss` equals the posted entry's net. The posted entry debits/credits the AP control account against the FX gain/loss account only: **GL 1200 must not move** — revaluation is not a cost of inventory. Trial balance still balances. With `autoReverse` on, a mirror entry exists dated `reversalDate`, and running the same revaluation again after that reversal produces the same figure rather than a doubled one.
+- **Watch**: AP's sub-ledger figure is built in base currency from invoice totals, so **D18**'s blind spot applies here too — record the reconciliation diff before and after rather than assuming it should hold.
+
+### X24 — An unapproved exchange rate must not be spendable
+Crosses: exchange rates ▸ approvals ▸ sales/purchases ▸ GL.
+
+- **Pre**: the seed's unapproved ("pending") USD and EUR rates.
+- **Steps**: try to confirm a foreign-currency document against a **pending** rate → approve the rate → confirm a second, identical document → then lock the rate (`POST /exchange-rates/:id/lock`) and try to change it.
+- **Assert**: the first confirm is refused, and refused for that reason by name, not a generic failure. The second converts at exactly the approved rate. A locked rate cannot be edited or re-approved. Crucially, approving or later changing a rate does **not** restate a document that already posted — re-read the first document's totals and its journal entry and confirm both are byte-for-byte what they were.
+
+### X25 — POS session → treasury
+Crosses: POS ▸ inventory ▸ treasury ▸ GL. **Deferred by decision**: only `GET /pos/sales` exists — there is no route to open a session, sell through it, or close it. Write the scenario; expect it to be unrunnable until POS ships.
+
+- **Steps (intended)**: open a session with an opening float from a treasury account → make a cash sale and a card sale → close the session declaring the counted cash.
+- **Assert (intended)**: stock falls by what was sold; the session's declared cash equals the float plus its cash sales; closing moves exactly that into the branch خزنة, and the card takings into the bank/clearing account instead — never both into the same one; every POS sale reaches the same AR/revenue/VAT accounts a normal invoice does, so the VAT return and the income statement include them without a separate reconciliation.
+- **Watch**: this is the same shape as **D22** (a document recording cash that the treasury never received). Check it explicitly rather than assuming POS is wired differently.
+
+### X26 — Project → cost centre → P&L
+Crosses: projects ▸ cost centres ▸ GL ▸ reports.
+
+- **Pre**: a project linked to a cost centre (`CC-DEMO-1`), which in the seed carries no transactions at all.
+- **Steps**: post a manual journal entry whose expense line sets `costCenterId` (the treasury voucher form has **no** cost-centre field, so an expense paid by voucher cannot be tagged — that is itself the finding to record) → run `GET /cost-center-pl` for the period → run the income statement for the same period.
+- **Assert**: the cost-centre P&L shows the expense once, under that centre, at the exact amount posted; the income statement's total expense includes it once; the sum of every cost centre's P&L plus untagged postings equals the income statement total — no expense is counted twice and none disappears because it was untagged.
+- **Watch**: if a voucher-paid expense genuinely cannot be tagged, say so with the measured evidence (the create-voucher contract has no `costCenterId`), because it means the cost-centre report can never see the majority of real spending.
+
+### X27 — Branch scope, end to end
+Crosses: users/roles ▸ every document module ▸ treasury ▸ reports. **Currently unprovable** — **D7** (no list route reads `branchScope`) and the demo tenant has one branch. Seed a second branch first, or this scenario proves nothing either way.
+
+- **Steps**: create a second branch with its own warehouse and treasury account → post a sale, a purchase and a voucher in each branch → call the document lists, the treasury account list, the dashboard and the trial balance with `x-branch-scope` set to one branch, then the other, then `*`.
+- **Assert**: each scoped call returns strictly its own branch's documents; the two scoped results are disjoint and together equal the `*` result, row for row and figure for figure. The dashboard's cash tile under one branch equals that branch's treasury accounts alone. No route silently ignores the header — a route that returns the same rows for both branches is the finding.
+
+### X28 — Promotion → revenue → VAT
+Crosses: promotions ▸ sales ▸ tax ▸ reports.
+
+- **Pre**: an active promotion whose rule matches a seeded item or category.
+- **Steps**: confirm an invoice whose lines qualify → read the invoice, the promotions report (`GET /promotions/report`) and the VAT return → deactivate the promotion (`POST /promotions/:id/deactivate`) → re-read all three.
+- **Assert**: the discount is applied **before** VAT, so output tax is 14% of the discounted net, not the list net; the invoice records which promotion applied and at what amount; the promotions report counts that invoice once; the VAT return's output side equals GL 2200's own movement for the same period. After deactivation the historical invoice, its journal entry, the report row and the VAT figure are all unchanged — deactivating a promotion must never restate what it already granted.
+
+### X29 — Confirming a document should reach the ETA queue
+Crosses: sales ▸ e-invoicing ▸ audit. **Known gap — D5**: `EtaService.enqueue` exists but no route or event bridge calls it, so the queue is empty however many documents are confirmed.
+
+- **Steps**: read `GET /eta/submissions` → confirm a sales invoice → read it again.
+- **Assert (what should happen)**: the confirmed invoice appears as a queued submission carrying its own document number and total; submitting it moves it to submitted and records the response; accepting it stamps the invoice; excluding one removes it from the queue without touching the invoice. **Assert (what happens today)**: the queue is identical before and after — record the count both times as the evidence, do not re-file D5.
+
+### X30 — Events, notifications and webhooks across modules
+Crosses: every document module ▸ notification rules ▸ webhooks ▸ audit.
+
+- **Pre**: a notification rule and a webhook subscription on an event a document actually emits (`GET /webhooks/events` lists the emitted codes; only those may be subscribed).
+- **Steps**: confirm a document that emits that event → read `GET /notifications` and `GET /webhooks/:id/deliveries` → then point a subscription at an endpoint that fails, and confirm another document.
+- **Assert**: the notification exists once per rule match, addressed to the right recipients, and marking it read does not affect anyone else's copy. The webhook delivery is attempted, its retries are bounded, and — the cross-module point — **a failing or retrying webhook never rolls back, blocks or duplicates the document that triggered it**: re-read that document and its journal entry and confirm both posted exactly once. The audit trail records the confirming actor and branch for the document, separately from the delivery attempts.

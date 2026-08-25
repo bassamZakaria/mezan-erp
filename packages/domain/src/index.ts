@@ -236,3 +236,6 @@ export type {
 
 /** Arabic-forgiving search, shared by the server filters and the screens. */
 export { normalizeForSearch, matchesSearch } from "./search/arabic.js";
+
+/** Filed VAT returns — the lock that stops a backdated document restating a submitted return. */
+export * from "./tax/vat-filing.js";

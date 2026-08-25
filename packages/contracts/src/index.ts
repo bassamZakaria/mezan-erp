@@ -288,6 +288,8 @@ export {
   glJournalLineSchema,
   createGlJournalEntrySchema,
   closeFiscalYearSchema,
+  recordVatFilingSchema,
+  amendVatFilingSchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
   type JournalEntrySourceDTO,

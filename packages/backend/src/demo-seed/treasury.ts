@@ -397,6 +397,21 @@ async function seedFieldSales(app: App): Promise<void> {
   });
 }
 
+/**
+ * One VAT return already submitted, for a window nothing else in the seed or
+ * the scenarios posts into (D29). It makes the filings surface real without
+ * locking a period the rest of the demo data still writes to.
+ */
+async function seedVatFiling(app: App): Promise<void> {
+  await step(app, "POST", "/gl/vat-filings", {
+    id: "VATF-DEMO-2026-05",
+    periodFrom: "2026-05-01",
+    periodTo: "2026-05-31",
+    netAmount: "4180.00",
+    referenceNo: "ETA-VAT-2026-05-004180",
+  });
+}
+
 export async function seedTreasury(app: App): Promise<void> {
   await seedGlAccounts(app);
   await seedTreasuryAccountAndWarehouse(app);
@@ -405,4 +420,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedExchangeRates(app);
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
+  await seedVatFiling(app);
 }

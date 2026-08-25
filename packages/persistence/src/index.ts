@@ -284,3 +284,4 @@ export {
   type SqliteLeaveBalanceRepositoryHandle,
   type SqliteLeaveAccrualBatchRepositoryHandle,
 } from "./hr-time-leave-store.js";
+export { createSqliteVatFilingStore } from "./vat-filing-store.js";

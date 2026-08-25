@@ -504,52 +504,74 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X47 — a filed VAT period must not move under the filing
   // ---------------------------------------------------------------------------
-  await scenario("x47 · nothing records that a VAT period was filed, so a backdated invoice silently restates a return that has already gone to the authority", async () => {
+  await scenario("x47 · once a VAT period is filed, a backdated document cannot restate it without someone amending the filing", async () => {
     const filed = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
     const filedOutput = ((filed.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
-    check("July's VAT return runs — this is the figure a tenant would have filed", filed.status === 200, `status ${filed.status}`);
+    check("July's VAT return runs — this is the figure a tenant would file", filed.status === 200, `status ${filed.status}`);
 
-    const noFilingRoute = await req("POST", "/reports/accounting/vat-return/file", { period: "2026-07" });
-    check(
-      "FINDING — there is no way to record that a period was filed: no route, no status, no stored figure. " +
-        "Fiscal-period close (X15) is the only lock in the product, and it is an accounting control, not a tax one — nothing ties the two together.",
-      noFilingRoute.status === 404,
-      `status ${noFilingRoute.status}`,
-    );
-
-    const backdated = await postJournal("SCN-S-JE-JULY-VAT", "2026-07-20", "مبيعات يوليو أُدخلت بعد الإقرار", [
+    const backdatedBefore = await postJournal("SCN-S-JE-JULY-VAT", "2026-07-20", "مبيعات يوليو أُدخلت قبل الإقرار", [
       { accountId: AR, debit: "1140.00", credit: "0.00" },
       { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
       { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
     ]);
-    check("a backdated July sale posts into the open period", backdated.status === 201, `status ${backdated.status} ${JSON.stringify(backdated.body).slice(0, 200)}`);
+    check("before filing, a backdated July sale posts freely into the open period", backdatedBefore.status === 201, `status ${backdatedBefore.status} ${JSON.stringify(backdatedBefore.body).slice(0, 200)}`);
 
-    const refiled = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
-    const refiledOutput = ((refiled.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
-    checkEq(
-      "and the already-filed return silently changes by the new tax — no amendment, no warning, no trace that the filed figure is now wrong",
-      refiledOutput - filedOutput,
-      140,
+    const beforeFiling = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const submitted = ((beforeFiling.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
+    checkEq("and it moves the return, as it should while the period is still open", submitted - filedOutput, 140);
+
+    const filing = await req("POST", "/gl/vat-filings", {
+      id: "SCN-S-VATF-JULY", periodFrom: "2026-07-01", periodTo: "2026-07-31",
+      netAmount: submitted.toFixed(2), referenceNo: "ETA-SCN-JULY",
+    });
+    check("the tenant records that July's return went to the authority (docs/defects.md D29)", filing.status === 201 && filing.body?.status === "filed", `status ${filing.status} ${JSON.stringify(filing.body).slice(0, 250)}`);
+
+    const twice = await req("POST", "/gl/vat-filings", {
+      id: "SCN-S-VATF-JULY-2", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "1.00",
+    });
+    check("a second filing for the same window is refused", twice.status === 409, `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
+
+    const afterFiling = await postJournal("SCN-S-JE-JULY-AFTER", "2026-07-22", "مبيعات يوليو أُدخلت بعد الإقرار", [
+      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
+      { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
+    ]);
+    check(
+      "and now a backdated posting into that window is REFUSED, in Arabic, naming the filing that blocks it",
+      afterFiling.status === 422 && /قُدّم بالفعل/.test(String(afterFiling.body?.message)),
+      `status ${afterFiling.status} ${JSON.stringify(afterFiling.body).slice(0, 250)}`,
     );
 
-    // The one control that does exist, proven to work: close the period and the same posting is refused.
+    const unchanged = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const stillFiled = ((unchanged.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
+    checkEq("so the submitted figure is exactly what was submitted — the return cannot move under the filing", stillFiled, submitted);
+
+    const noReason = await req("POST", "/gl/vat-filings/SCN-S-VATF-JULY/amend", {});
+    check("amending without a reason is refused — a reasonless amendment IS the silent restatement", noReason.status === 400, `status ${noReason.status} ${JSON.stringify(noReason.body).slice(0, 200)}`);
+
+    const amended = await req("POST", "/gl/vat-filings/SCN-S-VATF-JULY/amend", { reason: "فاتورة وردت متأخرة من العميل" });
+    check("amending WITH a reason reopens the window and records why", amended.status === 200 && amended.body?.status === "amended" && amended.body?.amendmentReason, JSON.stringify(amended.body).slice(0, 250));
+
+    const afterAmend = await postJournal("SCN-S-JE-JULY-AMENDED", "2026-07-23", "مبيعات يوليو بعد تعديل الإقرار", [
+      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
+      { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
+    ]);
+    check("and the restatement posts, now that someone decided to make it", afterAmend.status === 201, `status ${afterAmend.status} ${JSON.stringify(afterAmend.body).slice(0, 200)}`);
+
+    // Fiscal-period close remains its own, separate lock — an accounting control, not a tax one.
     const july = rows((await req("GET", "/fiscal-periods?year=2026")).body).find((p: any) => p.periodNumber === 7);
     if (july?.id) {
       const closed = await req("POST", `/fiscal-periods/${july.id}/close`, {});
       check("July closes", closed.status === 200, `status ${closed.status}`);
-      const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة ثانية بعد الإقفال", [
+      const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة بعد الإقفال", [
         { accountId: AR, debit: "1140.00", credit: "0.00" },
         { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
         { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
       ]);
-      check("with the period closed the same backdated posting is refused — the mechanism exists, it is simply not tied to the filing", blocked.status === 422, `status ${blocked.status} ${JSON.stringify(blocked.body).slice(0, 200)}`);
+      check("and the period gate refuses independently of the filing — two locks, two questions", blocked.status === 422, `status ${blocked.status} ${JSON.stringify(blocked.body).slice(0, 200)}`);
       const reopened = await req("POST", `/fiscal-periods/${july.id}/reopen`, {});
       check("July reopens for the rest of the suite", reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
-      check(
-        "FINDING — and reopening needs no reason, no approval and leaves no VAT-side trace: a filed period can be reopened, restated and closed again invisibly",
-        reopened.status === 200,
-        `status ${reopened.status}`,
-      );
     }
   });
 
@@ -842,7 +864,10 @@ export async function run(ctx: Ctx): Promise<void> {
   // X61 — every movement of money leaves a trace
   // ---------------------------------------------------------------------------
   await scenario("x61 · each money-moving action writes an audit row naming who did it, where, and to what", async () => {
-    const before = (await auditRows("limit=200")).length;
+    // Count the rows THIS scenario creates, not the capped total: with a
+    // limit the trail can be full before the scenario starts, and "200 before,
+    // 200 after" measures the cap rather than the trail.
+    const treasuryBefore = (await auditRows("module=treasury&limit=200")).length;
 
     const voucherRes = await req("POST", "/vouchers", {
       id: "SCN-S-VCH-AUDIT", date: TODAY, memo: "سند لتتبع سجل التدقيق", voucherType: "other_expense",
@@ -858,7 +883,12 @@ export async function run(ctx: Ctx): Promise<void> {
     check("and a sale is confirmed", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
 
     const after = await auditRows("limit=200");
-    check("the audit trail grew — a money movement that leaves no trace is unauditable on a desktop install", after.length > before, `before=${before} after=${after.length}`);
+    const treasuryAfter = (await auditRows("module=treasury&limit=200")).length;
+    check(
+      "the audit trail grew — a money movement that leaves no trace is unauditable on a desktop install",
+      treasuryAfter > treasuryBefore,
+      `treasury rows before=${treasuryBefore} after=${treasuryAfter}`,
+    );
     const actors = new Set(after.map((row: any) => row.actor));
     check("every new row names an actor, never 'system' alone", !(actors.size === 1 && actors.has("system")), `actors=${[...actors].slice(0, 5).join(",")}`);
 

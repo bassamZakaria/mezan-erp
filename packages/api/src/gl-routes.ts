@@ -31,12 +31,21 @@ import {
   closeFiscalYear,
   YearAlreadyClosedError,
   NothingToCloseError,
+  recordVatFiling,
+  amendVatFiling,
+  VatPeriodAlreadyFiledError,
+  DuplicateVatFilingError,
+  VatFilingNotFoundError,
+  type VatFiling,
+  type VatFilingRepository,
 } from "@mezan/domain";
 import {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
   closeFiscalYearSchema,
+  recordVatFilingSchema,
+  amendVatFilingSchema,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -49,6 +58,8 @@ import {
 export interface GlRoutesDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById" | "list">;
+  /** Filed VAT returns; when omitted no filing is recorded and nothing is locked. */
+  readonly vatFilings?: VatFilingRepository;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
   readonly numbering: NextNumberService;
   readonly audit?: AuditSink;
@@ -102,6 +113,21 @@ function serializeLedgerLine(line: AccountLedgerLine) {
   };
 }
 
+function serializeFiling(f: VatFiling) {
+  return {
+    id: f.id,
+    periodFrom: f.periodFrom,
+    periodTo: f.periodTo,
+    netAmount: f.netAmount.toString(),
+    referenceNo: f.referenceNo,
+    status: f.status,
+    filedAt: f.filedAt,
+    filedBy: f.filedBy,
+    amendedAt: f.amendedAt,
+    amendmentReason: f.amendmentReason,
+  };
+}
+
 function handleDomainError(c: Context, err: unknown): Response {
   if (err instanceof UnbalancedEntryError) {
     return c.json(
@@ -116,6 +142,15 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof VatPeriodAlreadyFiledError) {
+    return c.json({ error: err.code, message: err.message }, 422);
+  }
+  if (err instanceof DuplicateVatFilingError) {
+    return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof VatFilingNotFoundError) {
+    return c.json({ error: err.code, message: err.message }, 404);
   }
   if (err instanceof YearAlreadyClosedError) {
     return c.json({ error: err.code, message: err.message }, 409);
@@ -174,6 +209,7 @@ export function createGlRoutes(
       ledger: deps.ledger,
       accounts: deps.accounts,
       periods: deps.periods,
+      vatFilings: deps.vatFilings,
       numbering: deps.numbering,
       audit: deps.audit,
       events: deps.events,
@@ -207,6 +243,54 @@ export function createGlRoutes(
         postingDeps(c),
       );
       return c.json(serialize(entry), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * الإقرارات الضريبية المقدَّمة — the record that a period's VAT return went to
+   * the authority, and the lock that stops a backdated document restating it
+   * without anyone deciding to (D29).
+   */
+  app.get("/vat-filings", gate("accounting.reports.view"), async (c) => {
+    if (!deps.vatFilings) return c.json([]);
+    return c.json((await deps.vatFilings.list()).map(serializeFiling));
+  });
+
+  app.post("/vat-filings", gate("accounting.period.close"), async (c) => {
+    if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
+    const parsed = recordVatFilingSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const filing = await recordVatFiling(
+        {
+          id: parsed.data.id,
+          periodFrom: parsed.data.periodFrom,
+          periodTo: parsed.data.periodTo,
+          netAmount: Money.fromMajor(parsed.data.netAmount),
+          referenceNo: parsed.data.referenceNo ?? null,
+          filedBy: getAuthContext(c)?.userId ?? "system",
+        },
+        { filings: deps.vatFilings },
+      );
+      return c.json(serializeFiling(filing), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/vat-filings/:id/amend", gate("accounting.period.close"), async (c) => {
+    if (!deps.vatFilings) return c.json({ error: "NOT_FOUND" }, 404);
+    const parsed = amendVatFilingSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const filing = await amendVatFiling(c.req.param("id"), parsed.data.reason, { filings: deps.vatFilings });
+      return c.json(serializeFiling(filing));
     } catch (err) {
       return handleDomainError(c, err);
     }

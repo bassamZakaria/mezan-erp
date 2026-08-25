@@ -51,6 +51,7 @@ import {
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
+  createSqliteVatFilingStore,
   createSqliteBranchStore,
   createSqliteWarehouseStore,
   createSqliteCustomerRepository,
@@ -448,6 +449,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
+  const vatFilings = createSqliteVatFilingStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
   const warehouses = createSqliteWarehouseStore(sqlite);
   const accounts = createSqliteAccountRepository(sqlite);
@@ -603,7 +605,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
   const approvalRequests = createSqliteApprovalRequestStore(sqlite);
 
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
+  // vatFilings rides along so a DOCUMENT confirm is gated by a filed return
+  // exactly as a hand-written journal entry is (D29).
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -1000,6 +1004,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       audit: auditSink,
+      vatFilings,
     },
     vouchers: {
       audit: auditSink,

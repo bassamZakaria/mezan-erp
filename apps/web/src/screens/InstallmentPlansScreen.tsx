@@ -21,6 +21,7 @@ import {
   useProcessOverdueInstallments,
   useSalesInvoices,
 } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -53,6 +54,7 @@ function today(): string {
 }
 
 export function InstallmentPlansScreen() {
+  const { t } = useAppTranslation();
   const query = useInstallmentPlans();
   const invoicesQuery = useSalesInvoices();
   const createPlan = useCreateInstallmentPlan();
@@ -168,18 +170,18 @@ export function InstallmentPlansScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all },
-    { key: "confirmed", label: "نشط", count: counts.active },
+    { key: "all", label: t("common.all"), count: counts.all },
+    { key: "confirmed", label: t("common.active"), count: counts.active },
   ];
 
   const columns: DocumentListColumn<InstallmentPlanDocumentDTO>[] = [
-    { key: "docNo", header: "رقم الخطة", render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "مسودة"}</span> },
-    { key: "customer", header: "العميل", render: (d) => d.lines[0]?.customerId ?? "—" },
-    { key: "invoice", header: "الفاتورة", render: (d) => d.lines[0]?.sourceInvoiceNumber ?? "—" },
-    { key: "frequency", header: "التكرار", render: (d) => FREQUENCY_LABEL[d.lines[0]?.frequency ?? "MONTHLY"] },
+    { key: "docNo", header: t("instalments.planNumber"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
+    { key: "customer", header: t("common.customer"), render: (d) => d.lines[0]?.customerId ?? "—" },
+    { key: "invoice", header: t("instalments.invoice"), render: (d) => d.lines[0]?.sourceInvoiceNumber ?? "—" },
+    { key: "frequency", header: t("instalments.frequency"), render: (d) => FREQUENCY_LABEL[d.lines[0]?.frequency ?? "MONTHLY"] },
     {
       key: "remaining",
-      header: "المتبقي",
+      header: t("instalments.remaining"),
       align: "end",
       render: (d) => (
         <MoneyDisplay value={d.lines.filter((l) => l.status !== "paid").reduce((s, l) => s + Number(l.amount), 0)} />
@@ -187,11 +189,11 @@ export function InstallmentPlansScreen() {
     },
     {
       key: "status",
-      header: "الحالة",
+      header: t("common.status"),
       render: (d) => (
         <div className="flex items-center gap-1.5">
           <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} />
-          {d.lines.some((l) => l.status === "overdue") ? <StatusPill label="متأخر" tone="danger" /> : null}
+          {d.lines.some((l) => l.status === "overdue") ? <StatusPill label={t("instalments.overdue")} tone="danger" /> : null}
         </div>
       ),
     },
@@ -201,16 +203,16 @@ export function InstallmentPlansScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل خطط الأقساط.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("instalments.instalmentPlansCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<InstallmentPlanDocumentDTO>
         eyebrow="Installments · Plans"
-        title="خطط الأقساط"
-        description="تقسيم مبلغ فاتورة مبيعات على دفعات دورية — لا يسجل تحصيلاً تلقائياً."
+        title={t("instalments.instalmentPlans")}
+        description={t("instalments.splittingASalesInvoiceInto")}
         actions={
           <div className="flex gap-2">
             <Button
@@ -221,17 +223,17 @@ export function InstallmentPlansScreen() {
                 setPanel("overdue");
               }}
             >
-              معالجة المتأخرات
+              {t("instalments.processOverdue")}
             </Button>
             <Button variant="primary" onClick={openCreate}>
-              خطة جديدة
+              {t("instalments.newPlan")}
             </Button>
           </div>
         }
         stats={[
-          { label: "إجمالي الخطط", value: <span className="mz-num">{counts.all}</span> },
-          { label: "خطط نشطة", value: <span className="mz-num">{counts.active}</span> },
-          { label: "متأخرة", value: <span className="mz-num">{counts.overdue}</span> },
+          { label: t("instalments.totalPlans"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("instalments.activePlans"), value: <span className="mz-num">{counts.active}</span> },
+          { label: t("instalments.overdue2"), value: <span className="mz-num">{counts.overdue}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -244,33 +246,33 @@ export function InstallmentPlansScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> خطة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("instalments.plans")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">أنشئ خطة أقساط لتقسيم مبلغ الفاتورة على دفعات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("instalments.createAnInstalmentPlanTo")}</div>}
       />
 
-      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title="خطة أقساط جديدة">
+      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("instalments.newInstalmentPlan")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
-            label="الفاتورة *"
+            label={t("instalments.invoice2")}
             value={invoiceId}
             onChange={setInvoiceId}
             options={invoices.map((i) => ({ value: i.id, label: `${i.docNo ?? i.id} — ${i.customerNameAr} / ${i.remainingBalance}` }))}
           />
-          <NumberField label="عدد الأقساط *" value={installmentCount} onChange={setInstallmentCount} min={1} />
+          <NumberField label={t("instalments.numberOfInstalments")} value={installmentCount} onChange={setInstallmentCount} min={1} />
           <SelectField
-            label="التكرار *"
+            label={t("instalments.frequency2")}
             value={frequency}
             onChange={(v) => setFrequency(v as InstallmentFrequencyDTO)}
             options={Object.entries(FREQUENCY_LABEL).map(([value, label]) => ({ value, label }))}
           />
-          <TextFieldDate label="تاريخ البدء *" value={startDate} onChange={setStartDate} />
-          <NumberField label="دفعة مقدمة" value={downPayment} onChange={setDownPayment} min={0} />
+          <TextFieldDate label={t("instalments.startDate")} value={startDate} onChange={setStartDate} />
+          <NumberField label={t("instalments.downPayment")} value={downPayment} onChange={setDownPayment} min={0} />
 
           {preview ? (
             <div className="flex flex-col gap-1.5 rounded-[10px] border border-border p-3">
-              <div className="text-[12px] font-bold text-ink-muted">معاينة الجدول</div>
+              <div className="text-[12px] font-bold text-ink-muted">{t("instalments.previewSchedule")}</div>
               {preview.installments.map((i) => (
                 <div key={i.no} className="flex items-center justify-between text-[12.5px]">
                   <span className="mz-num text-ink-muted">
@@ -285,7 +287,7 @@ export function InstallmentPlansScreen() {
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
           <Button variant="primary" onClick={submit} disabled={!preview}>
-            حفظ
+            {t("common.save")}
           </Button>
         </div>
       </SidePanel>
@@ -293,27 +295,27 @@ export function InstallmentPlansScreen() {
       <SidePanel
         open={panel === "overdue"}
         onClose={() => setPanel("none")}
-        title="معالجة المتأخرات"
-        description="سيتم تحديث حالة الأقساط المتأخرة وتطبيق غرامات التأخير حسب إعدادات المنشأة"
+        title={t("instalments.processOverdue")}
+        description={t("instalments.overdueInstalmentsWillBeRestatused")}
       >
         <div className="flex flex-col gap-4 p-5">
           <div className="rounded-[10px] border border-border p-3 text-[12.5px] text-ink-muted">
-            تحديث حالة الأقساط المستحقة إلى متأخر (تلقائي) — تطبيق غرامات التأخير (تلقائي؛ لا توجد إعدادات غرامة معرّفة بعد، القيمة صفر حتى تُضاف).
+            {t("instalments.dueInstalmentsAreMovedTo")}
           </div>
           {overdueResult ? (
             <div className="rounded-[8px] bg-surface-2 px-3 py-2 text-[12.5px] text-ink">
-              تم تحديث <span className="mz-num">{overdueResult.newlyOverdueCount}</span> قسط إلى متأخر — غرامات مطبّقة:{" "}
+              {t("instalments.updated")} <span className="mz-num">{overdueResult.newlyOverdueCount}</span> {t("instalments.instalmentsToOverduePenaltiesApplied")}{" "}
               <MoneyDisplay value={Number(overdueResult.totalLateFeesApplied)} />
             </div>
           ) : null}
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
           <Button variant="primary" onClick={runOverdueBatch}>
-            معالجة المتأخرات
+            {t("instalments.processOverdue")}
           </Button>
         </div>
       </SidePanel>
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? "خطة أقساط"}>
+      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("instalments.instalmentPlan")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
@@ -325,7 +327,7 @@ export function InstallmentPlansScreen() {
                   </span>
                   <MoneyDisplay value={Number(l.amount)} />
                   <StatusPill
-                    label={l.status === "pending" ? "مستحق" : l.status === "paid" ? "مدفوع" : l.status === "overdue" ? "متأخر" : "ملغي"}
+                    label={l.status === "pending" ? t("instalments.due") : l.status === "paid" ? t("instalments.paid") : l.status === "overdue" ? t("instalments.overdue") : t("docStatus.cancelled")}
                     tone={l.status === "paid" ? "success" : l.status === "overdue" ? "danger" : "neutral"}
                   />
                 </div>
@@ -334,7 +336,7 @@ export function InstallmentPlansScreen() {
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {selected.status === "confirmed" ? (
               <Button variant="default" onClick={() => cancelExisting(selected.id)}>
-                إلغاء الخطة
+                {t("instalments.cancelPlan")}
               </Button>
             ) : null}
           </div>

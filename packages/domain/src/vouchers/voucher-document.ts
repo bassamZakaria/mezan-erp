@@ -58,6 +58,15 @@ export interface VoucherLine {
   readonly referenceNo: string | null;
   /** Cost centre the spending/income belongs to; tagged onto the counterparty GL line. */
   readonly costCenterId?: string | null;
+  /**
+   * Tax withheld from this payment. `amount` remains what SETTLES the payee —
+   * the supplier is discharged in full — while only `amount − withholdingAmount`
+   * leaves the treasury and the rest becomes a liability to the authority.
+   * Egypt withholds on most local B2B payments (D27).
+   */
+  readonly withholdingAmount?: Money | null;
+  readonly withholdingRatePercent?: number | null;
+  readonly withholdingGlAccountId?: string | null;
 }
 
 export type VoucherDocument = FrameworkDocument<VoucherLine>;
@@ -147,10 +156,26 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
     ];
   }
   // payment
+  const withheld = line.withholdingAmount ?? zero;
+  if (withheld.scaled > 0n) {
+    const whtAccount = line.withholdingGlAccountId;
+    if (!whtAccount) throw new Error("a withholding voucher needs a withholding-tax GL account");
+    return [
+      { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc },
+      { accountId: treasuryGlAccountId, debit: zero, credit: Money.fromScaled(amount.scaled - withheld.scaled), memo: null },
+      { accountId: whtAccount, debit: zero, credit: withheld, memo: null },
+    ];
+  }
   return [
     { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc },
     { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null },
   ];
+}
+
+/** What actually leaves the treasury: the settling amount less any tax withheld. */
+export function voucherNetPaid(line: VoucherLine): Money {
+  const withheld = line.withholdingAmount?.scaled ?? 0n;
+  return Money.fromScaled(line.amount.scaled - withheld);
 }
 
 /** The treasury-voucher document type definition. Plugs into {@link DocumentService}. */
@@ -182,6 +207,18 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
       }
     } else if (!line.counterpartyGlAccountId || line.counterpartyGlAccountId.trim() === "") {
       throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "الحساب المقابل مطلوب.");
+    }
+    const withheld = line.withholdingAmount?.scaled ?? 0n;
+    if (withheld !== 0n) {
+      if (def.direction !== "payment") {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "ضريبة الخصم لا تُطبَّق إلا على سندات الصرف.");
+      }
+      if (withheld < 0n || withheld >= line.amount.scaled) {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "قيمة ضريبة الخصم يجب أن تكون أكبر من صفر وأقل من قيمة السند.");
+      }
+      if (!line.withholdingGlAccountId) {
+        throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "حساب ضريبة الخصم مطلوب.");
+      }
     }
     if (def.requiresCustomer && !line.customerId) {
       throw new InvalidDocumentError(VOUCHER_DOC_TYPE, doc.id, "هذا النوع من السندات يتطلب اختيار عميل.");

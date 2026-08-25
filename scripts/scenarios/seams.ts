@@ -24,6 +24,7 @@ const BRANCH = "BR-MAIN";
 const WH = "WH-MAIN";
 const CASH = "1300-1";
 const AR = "1105";
+const PAYABLE = "2100";
 const OUTPUT_TAX = "2200";
 const INPUT_TAX = "1400";
 const REVENUE = "4100";
@@ -407,44 +408,55 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X45 — withholding tax on local payments
   // ---------------------------------------------------------------------------
-  await scenario("x45 · withholding tax has nowhere to live: a payment cannot settle a supplier in full while paying the authority the difference", async () => {
+  await scenario("x45 · a payment withholds tax: the supplier is settled in full, the authority is owed the difference, and the filing can see it", async () => {
     const accounts = rows((await req("GET", "/accounts")).body);
-    const whtAccount = accounts.find((a: any) =>
-      String(a.nameAr ?? "").includes("خصم وإضافة") ||
-      String(a.nameEn ?? "").toLowerCase().includes("withholding tax") ||
-      String(a.code) === "2210",
-    );
+    const whtAccount = accounts.find((a: any) => String(a.code) === "2210");
     check(
-      "FINDING — the chart of accounts has no withholding-tax payable account at all (2190 is payroll withholdings, a different liability). " +
-        "Egypt withholds on most local B2B payments; a tenant has nowhere to book what they owe the authority on someone else's behalf.",
-      !whtAccount,
+      "the chart of accounts has a withholding-tax payable account distinct from payroll withholdings (2190)",
+      Boolean(whtAccount) && String(whtAccount?.nameEn ?? "").toLowerCase().includes("withholding"),
       `matched=${JSON.stringify(whtAccount ?? null).slice(0, 200)}`,
     );
 
+    const apBefore = await gl(PAYABLE);
+    const cashBefore = await gl(CASH);
+    const whtBefore = await gl("2210");
+
     const voucher = await req("POST", "/vouchers", {
-      id: "SCN-S-VCH-WHT", date: TODAY, memo: "دفعة لمورد بعد خصم ضريبة الخصم", voucherType: "other_expense",
-      amount: "9700.00", branchId: BRANCH, paymentMethod: "cash",
-      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: EXPENSE,
+      id: "SCN-S-VCH-WHT", date: TODAY, memo: "دفعة لمورد بعد خصم ضريبة الخصم", voucherType: "supplier_payment",
+      amount: "10000.00", branchId: BRANCH, paymentMethod: "cash",
+      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: PAYABLE,
       supplierId: SUPPLIER,
-      withholdingRatePercent: 3, withholdingAmount: "300.00", grossAmount: "10000.00",
+      withholdingRatePercent: 3, withholdingAmount: "300.00", withholdingGlAccountId: "2210",
     });
-    check("a payment voucher is accepted", voucher.status === 201, `status ${voucher.status} ${JSON.stringify(voucher.body).slice(0, 250)}`);
-    check(
-      "FINDING — and the withholding fields are dropped silently at the wire: `createVoucherSchema` (packages/contracts/src/voucher.ts) has amount and nothing else. " +
-        "The voucher records the NET paid, so the supplier's ledger shows them still owed the withheld 300 that the tenant is legally holding for the authority.",
-      voucher.status === 201 && voucher.body?.withholdingAmount === undefined && n(voucher.body?.amount) === 9700,
-      `stored=${JSON.stringify(voucher.body).slice(0, 250)}`,
-    );
+    check("a withholding payment voucher is accepted", voucher.status === 201, `status ${voucher.status} ${JSON.stringify(voucher.body).slice(0, 250)}`);
+    checkEq("the voucher records the GROSS that settles the supplier", n(voucher.body?.amount), 10000);
+    checkEq("and the tax withheld from it", n(voucher.body?.withholdingAmount), 300);
+    checkEq("so the net actually leaving the خزنة is derived, not re-entered", n(voucher.body?.netPaidAmount), 9700);
 
-    const report = await req("GET", "/reports/tax/withholding");
-    check("and no withholding report exists for the filing", report.status === 404, `status ${report.status}`);
+    const confirmed = await req("POST", "/vouchers/SCN-S-VCH-WHT/confirm", {});
+    check("it confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
 
-    // What the tenant must do by hand today, spelled out so the gap is priced.
-    const manual = await postJournal("SCN-S-JE-WHT", TODAY, "إثبات ضريبة الخصم يدوياً — لا يوجد آلية", [
-      { accountId: EXPENSE, debit: "300.00", credit: "0.00" },
-      { accountId: USD_LIABILITY, debit: "0.00", credit: "300.00" },
-    ]);
-    check("the workaround — a hand-written journal entry per payment — does at least post", manual.status === 201, `status ${manual.status} ${JSON.stringify(manual.body).slice(0, 200)}`);
+    checkEq("the supplier is discharged by the FULL 10,000 — not by what they were handed", (await gl(PAYABLE)) - apBefore, 10000);
+    checkEq("only 9,700 leaves the خزنة", (await gl(CASH)) - cashBefore, -9700);
+    checkEq("and the authority is owed the 300 the tenant is holding on their behalf", (await gl("2210")) - whtBefore, -300);
+
+    const refused = await req("POST", "/vouchers", {
+      id: "SCN-S-VCH-WHT-BAD", date: TODAY, memo: "خصم بلا حساب", voucherType: "supplier_payment",
+      amount: "500.00", branchId: BRANCH, paymentMethod: "cash",
+      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: PAYABLE,
+      supplierId: SUPPLIER, withholdingAmount: "50.00",
+    });
+    check("withholding without an account to book it against is refused, in Arabic", refused.status === 422 && /ضريبة الخصم/.test(String(refused.body?.message)), `status ${refused.status} ${JSON.stringify(refused.body).slice(0, 200)}`);
+
+    const report = await req(`GET`, `/reports/tax/withholding?fromDate=${MONTH_START}&toDate=${MONTH_END}`);
+    check("the withholding filing exists", report.status === 200, `status ${report.status}`);
+    const filed = rows(report.body).find((r: any) => r.voucherId === "SCN-S-VCH-WHT");
+    check("and lists this payment with its gross, rate and tax", Boolean(filed), JSON.stringify(rows(report.body)).slice(0, 250));
+    if (filed) {
+      checkEq("gross on the filing", n(filed.grossAmount), 10000);
+      checkEq("tax withheld on the filing", n(filed.withheldAmount), 300);
+      checkEq("net paid on the filing", n(filed.netPaidAmount), 9700);
+    }
   });
 
   // ---------------------------------------------------------------------------

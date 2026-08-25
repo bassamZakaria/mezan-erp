@@ -2719,6 +2719,7 @@ const webAr = {
   "finReports.balanceSheet": "الميزانية العمومية",
   "finReports.cashFlow": "التدفقات النقدية",
   "finReports.vatReturn": "إقرار ضريبة القيمة المضافة",
+  "finReports.withholdingTax": "ضريبة الخصم والتحصيل",
   "finReports.generalLedger": "دفتر الأستاذ العام",
   "finReports.accountLedger": "دفتر حساب",
 
@@ -3874,6 +3875,8 @@ const webAr = {
   "vouchers.date": "التاريخ *",
   "vouchers.referenceNumber": "رقم المرجع",
   "vouchers.costCenter": "مركز التكلفة",
+  "vouchers.withholdingRate": "نسبة ضريبة الخصم %",
+  "vouchers.withholdingHint": "يُسدَّد المورد بالكامل ويُحتجز الفرق لمصلحة الضرائب",
   "vouchers.costCenterUnassigned": "غير مخصص",
   "vouchers.enterAnAmountToSee": "أدخل مبلغاً لعرض التأثيرات.",
 
@@ -8211,6 +8214,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "finReports.balanceSheet": "Balance sheet",
   "finReports.cashFlow": "Cash flow",
   "finReports.vatReturn": "VAT return",
+  "finReports.withholdingTax": "Withholding tax",
   "finReports.generalLedger": "General ledger",
   "finReports.accountLedger": "Account ledger",
 
@@ -9366,6 +9370,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "vouchers.date": "Date *",
   "vouchers.referenceNumber": "Reference number",
   "vouchers.costCenter": "Cost centre",
+  "vouchers.withholdingRate": "Withholding rate %",
+  "vouchers.withholdingHint": "The supplier is settled in full; the difference is held for the tax authority",
   "vouchers.costCenterUnassigned": "Unassigned",
   "vouchers.enterAnAmountToSee": "Enter an amount to see what it does.",
 

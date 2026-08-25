@@ -30,6 +30,7 @@ import {
   createBalanceSheetReport,
   createCashFlowReport,
   createVatReturnReport,
+  createWithholdingTaxReport,
   createGeneralLedgerReport,
   createAccountLedgerReport,
   OUTPUT_VAT_ACCOUNT_ID,
@@ -480,6 +481,32 @@ export function createReportsRoutes(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { ...ctx, outputVatAccountId, inputVatAccountId }),
     );
+  });
+
+  app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createWithholdingTaxReport(firstOfYear(today), today);
+    const [vouchers, suppliers] = await Promise.all([
+      deps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
+      deps.suppliers.findAll(),
+    ]);
+    const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+    const rows = vouchers.flatMap((doc) => {
+      const line = doc.lines[0];
+      const withheld = line?.withholdingAmount;
+      if (!line || !withheld || withheld.scaled <= 0n) return [];
+      return [{
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        partyId: line.supplierId,
+        partyNameAr: (line.supplierId && supplierName.get(line.supplierId)) || "—",
+        grossAmount: line.amount,
+        ratePercent: line.withholdingRatePercent ?? null,
+        withheldAmount: withheld,
+      }];
+    });
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { rows }));
   });
 
   app.get("/accounting/general-ledger", gate("accounting.reports.view"), async (c) => {

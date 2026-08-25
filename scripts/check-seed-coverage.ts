@@ -29,6 +29,10 @@ const NEEDS_PARAMS = new Set(["/inventory/drift"]);
 const ALLOWED_EMPTY: Record<string, string> = {
   "/hr/leave-requests/me": "the seed admin is not an employee, so their own queue is correctly empty",
   "/notifications": "per-user inbox; the seed admin has received none",
+  "/reports/inventory/drift":
+    "an EXCEPTIONS report: it lists only positions whose cache disagrees with a replay of the ledger. " +
+    "It was populated while landed costs bypassed the ledger (D36); now that they do not, an empty " +
+    "drift report is the correct reading of a healthy tenant, and a populated one is the finding",
 };
 
 function countOf(body: unknown): number | null {

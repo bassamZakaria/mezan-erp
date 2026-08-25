@@ -56,13 +56,16 @@ export async function assertCashBalanceAllows(
   const guarded = account.type === "cash" ? deps.preventNegativeCashBalance : !deps.allowNegativeTreasury;
   if (!guarded) return;
 
+  // What LEAVES the treasury, which is the settling amount less any tax
+  // withheld — the withheld slice never becomes cash.
+  const leaving = Money.fromScaled(line.amount.scaled - (line.withholdingAmount?.scaled ?? 0n));
   const balance = await deps.ledger.accountBalance(glAccountId, asOfDate);
-  const projected = Money.fromScaled(balance.balance.scaled - line.amount.scaled);
+  const projected = Money.fromScaled(balance.balance.scaled - leaving.scaled);
   if (projected.scaled < 0n) {
     throw new CashBalanceWouldGoNegativeError(
       treasuryAccountId,
       balance.balance.toString(),
-      line.amount.toString(),
+      leaving.toString(),
       account.type,
     );
   }

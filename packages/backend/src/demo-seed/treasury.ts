@@ -166,6 +166,26 @@ async function seedVouchers(app: App): Promise<void> {
     supplierId: "SUPP-DEMO-2",
   });
 
+  // A payment that withholds: Egypt withholds on most local B2B payments, so
+  // the withholding report and GL 2210 need a real row to show (D27).
+  await step(app, "POST", "/vouchers", {
+    id: "VCH-DEMO-WHT",
+    date: "2026-08-19",
+    memo: "سداد لمورد خدمات بعد خصم ضريبة الخصم والتحصيل 3%",
+    voucherType: "supplier_payment",
+    amount: "2000.00",
+    branchId: BRANCH_ID,
+    paymentMethod: "bank",
+    treasuryAccountId: BANK_TREASURY_ID,
+    treasuryGlAccountId: ACCOUNTS.bank,
+    counterpartyGlAccountId: ACCOUNTS.payable,
+    supplierId: "SUPP-DEMO-2",
+    withholdingRatePercent: 3,
+    withholdingAmount: "60.00",
+    withholdingGlAccountId: "2210",
+  });
+  await step(app, "POST", "/vouchers/VCH-DEMO-WHT/confirm", {});
+
   await step(app, "POST", "/vouchers", {
     id: "VCH-DEMO-5",
     date: "2026-08-13",

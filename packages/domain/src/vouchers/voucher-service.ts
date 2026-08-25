@@ -139,6 +139,9 @@ export interface CreateVoucherCommand {
   readonly supplierId?: string | null;
   readonly referenceNo?: string | null;
   readonly costCenterId?: string | null;
+  readonly withholdingAmount?: import("../money/money.js").Money | null;
+  readonly withholdingRatePercent?: number | null;
+  readonly withholdingGlAccountId?: string | null;
 }
 
 export interface ConfirmVoucherOptions {
@@ -201,6 +204,9 @@ export class VoucherService {
       supplierId: cmd.supplierId ?? null,
       referenceNo: cmd.referenceNo ?? null,
       costCenterId: cmd.costCenterId ?? null,
+      withholdingAmount: cmd.withholdingAmount ?? null,
+      withholdingRatePercent: cmd.withholdingRatePercent ?? null,
+      withholdingGlAccountId: cmd.withholdingGlAccountId ?? null,
     };
     return this.service.createDraft({
       id: cmd.id,

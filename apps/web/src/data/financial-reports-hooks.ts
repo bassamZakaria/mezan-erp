@@ -3,6 +3,7 @@ import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domai
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
+import { useAppTranslation } from "../i18n";
 
 /**
  * القوائم المالية data hook (docs/catalog/08-reports.md) — the seven
@@ -36,13 +37,14 @@ export function useFinancialReport<Row>(
   params: Record<string, string>,
   options: { readonly enabled?: boolean } = {},
 ): UseQueryResult<FinancialReportResult<Row>, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<FinancialReportResult<Row>, ApiError>({
     queryKey: ["financial-reports", reportId, params],
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/financial-reports${apiPath}${toQueryString(params)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القائمة المالية.", await readReportFieldErrors(res));
+      if (!res.ok) throw new ApiError(res.status, t("finReportsApi.theFinancialStatementCouldNot"), await readReportFieldErrors(res));
       return res.json<FinancialReportResult<Row>>();
     },
   });

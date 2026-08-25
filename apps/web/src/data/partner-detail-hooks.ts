@@ -4,6 +4,7 @@ import type { StockBalanceRowDTO, VoucherAllocationDTO } from "@mezan/contracts"
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Data hooks for the customer / supplier / branch **detail** tabs — the
@@ -114,6 +115,7 @@ export function agingBucketsFor(row: AgingCustomersRow | AgingSuppliersRow | und
  * date and the GL posting.
  */
 export function useVoucherAllocations(voucherIds: readonly string[]): UseQueryResult<VoucherAllocationDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   const ids = [...voucherIds].sort();
   return useQuery<VoucherAllocationDTO[], ApiError>({
@@ -123,7 +125,7 @@ export function useVoucherAllocations(voucherIds: readonly string[]): UseQueryRe
       const perVoucher = await Promise.all(
         ids.map(async (voucherId) => {
           const res = await request(`/vouchers/${encodeURIComponent(voucherId)}/allocations`);
-          if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تخصيصات السندات.");
+          if (!res.ok) throw new ApiError(res.status, t("partnerApi.theVoucherAllocationsCouldNot"));
           const body = await res.json<{ allocations: VoucherAllocationDTO[] }>();
           return body.allocations;
         }),
@@ -149,6 +151,7 @@ export function sumActiveAllocations(allocations: readonly VoucherAllocationDTO[
  * scaled integers, average cost re-derived from the merged totals).
  */
 export function useBranchStockBalance(warehouseIds: readonly string[]): UseQueryResult<StockBalanceRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   const ids = [...warehouseIds].sort();
   return useQuery<StockBalanceRowDTO[], ApiError>({
@@ -158,7 +161,7 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
       const perWarehouse = await Promise.all(
         ids.map(async (warehouseId) => {
           const res = await request(`/inventory/stock-balance?warehouseId=${encodeURIComponent(warehouseId)}`);
-          if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل رصيد المخزون.");
+          if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
           const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
           return body.rows;
         }),

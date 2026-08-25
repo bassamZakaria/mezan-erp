@@ -15,6 +15,7 @@ import type {
 import { ApiError } from "./hooks";
 import { useApi } from "./ApiContext";
 import type { TransportResponse } from "./transport";
+import { useAppTranslation } from "../i18n";
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
@@ -26,25 +27,27 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 /* -------------------------------------------------------------------- */
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/exchange-rates");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أسعار الصرف.");
+      if (!res.ok) throw new ApiError(res.status, t("fxRates.exchangeRatesCouldNotBe"));
       return res.json<ExchangeRateDTO[]>();
     },
   });
 }
 
 export function useCreateExchangeRate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إضافة سعر الصرف."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("fxRates.theExchangeRateCouldNot2")));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -66,11 +69,13 @@ function useExchangeRateTransition(action: "approve" | "lock", fallbackMessage: 
 
 /** بانتظار الاعتماد → معتمد. */
 export function useApproveExchangeRate() {
-  return useExchangeRateTransition("approve", "تعذّر اعتماد سعر الصرف.");
+  const { t } = useAppTranslation();
+  return useExchangeRateTransition("approve", t("fxRates.theExchangeRateCouldNot"));
 }
 /** معتمد → مقفل. */
 export function useLockExchangeRate() {
-  return useExchangeRateTransition("lock", "تعذّر قفل سعر الصرف.");
+  const { t } = useAppTranslation();
+  return useExchangeRateTransition("lock", t("accountingApi.theExchangeRateCouldNot"));
 }
 
 /* -------------------------------------------------------------------- */
@@ -93,6 +98,7 @@ async function fxRevaluationRequest(
   request: (path: string, init?: RequestInit) => Promise<TransportResponse>,
   path: string,
   body: FxRevaluationRequestDTO,
+  fallback: string,
 ) {
   const res = await request(path, { method: "POST", body: JSON.stringify(body) });
   if (!res.ok) {
@@ -100,17 +106,18 @@ async function fxRevaluationRequest(
       message?: string;
       currency?: string;
     };
-    throw new FxRevaluationError(res.status, err.message ?? "تعذر تنفيذ العملية.", err.currency ?? null);
+    throw new FxRevaluationError(res.status, err.message ?? fallback, err.currency ?? null);
   }
   return res;
 }
 
 /** معاينة — computes the revaluation without posting. */
 export function useFxRevaluationPreview() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<FxRevaluationPreviewDTO, FxRevaluationError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
-      const res = await fxRevaluationRequest(request, "/revaluation/preview", body);
+      const res = await fxRevaluationRequest(request, "/revaluation/preview", body, t("accountingApi.theOperationCouldNotBe"));
       return res.json<FxRevaluationPreviewDTO>();
     },
   });
@@ -118,11 +125,12 @@ export function useFxRevaluationPreview() {
 
 /** ترحيل التقييم — posts the FX gain/loss entry (+ next-day auto-reversal by default). */
 export function useFxRevaluationPost() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FxRevaluationPostResultDTO, FxRevaluationError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
-      const res = await fxRevaluationRequest(request, "/revaluation/post", body);
+      const res = await fxRevaluationRequest(request, "/revaluation/post", body, t("accountingApi.theOperationCouldNotBe"));
       return res.json<FxRevaluationPostResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -134,13 +142,14 @@ export function useFxRevaluationPost() {
 /* -------------------------------------------------------------------- */
 
 export function useReconciliationReport(): UseQueryResult<ReconciliationReportDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ReconciliationReportDTO, ApiError>({
     queryKey: ["reconciliation"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/reconciliation");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تقرير المطابقة.");
+      if (!res.ok) throw new ApiError(res.status, t("accountingApi.theReconciliationReportCouldNot"));
       return res.json<ReconciliationReportDTO>();
     },
   });
@@ -151,6 +160,7 @@ export function useReconciliationReport(): UseQueryResult<ReconciliationReportDT
 /* -------------------------------------------------------------------- */
 
 export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResult<CostCenterPnLReportDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CostCenterPnLReportDTO, ApiError>({
     queryKey: ["cost-center-pl", fromDate, toDate],
@@ -161,7 +171,7 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
       if (toDate) params.set("toDate", toDate);
       const qs = params.toString();
       const res = await request(`/cost-center-pl${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرباح مراكز التكلفة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.costCentreProfitabilityCouldNot"));
       return res.json<CostCenterPnLReportDTO>();
     },
   });
@@ -177,19 +187,21 @@ export interface EtaConfigWithReadinessDTO {
 }
 
 export function useEtaConfig(): UseQueryResult<EtaConfigWithReadinessDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EtaConfigWithReadinessDTO, ApiError>({
     queryKey: ["eta", "config"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/config");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات الفاتورة الإلكترونية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaConfigWithReadinessDTO>();
     },
   });
 }
 
 export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResult<EtaSubmissionDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EtaSubmissionDTO[], ApiError>({
     queryKey: ["eta", "submissions", status ?? null],
@@ -197,7 +209,7 @@ export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResu
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/eta/submissions${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قائمة الإرسال.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theSubmissionQueueCouldNot"));
       return res.json<EtaSubmissionDTO[]>();
     },
   });
@@ -220,16 +232,17 @@ export interface EtaSubmitResultDTO {
 }
 
 export function useSubmitEtaSubmission() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EtaSubmitResultDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/eta/submissions/${id}/submit`, { method: "POST" });
       if (res.status === 202) {
-        const message = await readMessage(res, "الإرسال الفعلي متاح فقط عند الاتصال بالمصلحة.");
+        const message = await readMessage(res, t("accountingApi.reallySubmittingIsPossibleOnly"));
         return { submission: null, offline: true, message };
       }
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إرسال المستند."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theDocumentCouldNotBe")));
       return { submission: await res.json<EtaSubmissionDTO>(), offline: false, message: null };
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),
@@ -242,12 +255,13 @@ export interface EtaSubmitAllResultDTO {
 }
 
 export function useSubmitAllEtaReady() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EtaSubmitAllResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/submissions/submit-all", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إرسال المستندات الجاهزة."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theReadyDocumentsCouldNot")));
       return res.json<EtaSubmitAllResultDTO>();
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),
@@ -255,12 +269,13 @@ export function useSubmitAllEtaReady() {
 }
 
 export function useExcludeEtaSubmission() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EtaSubmissionDTO, ApiError, { id: string; reason: string }>({
     mutationFn: async ({ id, reason }) => {
       const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify({ reason }) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر استبعاد المستند."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theDocumentCouldNotBe2")));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => invalidateEtaSubmissions(queryClient),

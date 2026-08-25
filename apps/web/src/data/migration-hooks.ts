@@ -9,6 +9,7 @@ import type {
   HistoricalImportResultDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Data-migration import wizard hooks (docs/catalog/09 "نقل البيانات") — kept
@@ -49,36 +50,44 @@ function useImportMutation<TBody>(
 }
 
 export function useCustomerImportPreview() {
-  return useImportMutation<CustomerImportBatchDTO>("/data-migration/customers/preview", "تعذّر معاينة استيراد العملاء.");
+  const { t } = useAppTranslation();
+  return useImportMutation<CustomerImportBatchDTO>("/data-migration/customers/preview", t("migration.theCustomerImportCouldNot"));
 }
 export function useCustomerImportCommit() {
-  return useImportMutation<CustomerImportBatchDTO>("/data-migration/customers/commit", "تعذّر استيراد العملاء.");
+  const { t } = useAppTranslation();
+  return useImportMutation<CustomerImportBatchDTO>("/data-migration/customers/commit", t("migration.theCustomersCouldNotBe"));
 }
 
 export function useSupplierImportPreview() {
-  return useImportMutation<SupplierImportBatchDTO>("/data-migration/suppliers/preview", "تعذّر معاينة استيراد الموردين.");
+  const { t } = useAppTranslation();
+  return useImportMutation<SupplierImportBatchDTO>("/data-migration/suppliers/preview", t("migration.theSupplierImportCouldNot"));
 }
 export function useSupplierImportCommit() {
-  return useImportMutation<SupplierImportBatchDTO>("/data-migration/suppliers/commit", "تعذّر استيراد الموردين.");
+  const { t } = useAppTranslation();
+  return useImportMutation<SupplierImportBatchDTO>("/data-migration/suppliers/commit", t("migration.theSuppliersCouldNotBe"));
 }
 
 export function useItemImportPreview() {
-  return useImportMutation<ItemImportBatchDTO>("/data-migration/items/preview", "تعذّر معاينة استيراد الأصناف.");
+  const { t } = useAppTranslation();
+  return useImportMutation<ItemImportBatchDTO>("/data-migration/items/preview", t("migration.theItemImportCouldNot"));
 }
 export function useItemImportCommit() {
-  return useImportMutation<ItemImportBatchDTO>("/data-migration/items/commit", "تعذّر استيراد الأصناف.");
+  const { t } = useAppTranslation();
+  return useImportMutation<ItemImportBatchDTO>("/data-migration/items/commit", t("migration.theItemsCouldNotBe"));
 }
 
 export function useOpeningBalanceImportPreview() {
+  const { t } = useAppTranslation();
   return useImportMutation<OpeningBalanceImportBatchDTO>(
     "/data-migration/opening-balances/preview",
-    "تعذّر معاينة استيراد الأرصدة الافتتاحية.",
+    t("migration.theOpeningBalanceImportCould"),
   );
 }
 export function useOpeningBalanceImportCommit() {
+  const { t } = useAppTranslation();
   return useImportMutation<OpeningBalanceImportBatchDTO>(
     "/data-migration/opening-balances/commit",
-    "تعذّر استيراد الأرصدة الافتتاحية.",
+    t("migration.theOpeningBalancesCouldNot"),
   );
 }
 
@@ -94,8 +103,10 @@ function useHistoricalImportMutation(path: string, failureMessage: string) {
 }
 
 export function useHistoricalImportPreview() {
-  return useHistoricalImportMutation("/purchases/historical-import/preview", "تعذّر معاينة استيراد المستندات السابقة.");
+  const { t } = useAppTranslation();
+  return useHistoricalImportMutation("/purchases/historical-import/preview", t("migration.theHistoricalDocumentImportCould"));
 }
 export function useHistoricalImportCommit() {
-  return useHistoricalImportMutation("/purchases/historical-import/commit", "تعذّر استيراد المستندات السابقة.");
+  const { t } = useAppTranslation();
+  return useHistoricalImportMutation("/purchases/historical-import/commit", t("migration.theHistoricalDocumentsCouldNot"));
 }

@@ -4,6 +4,7 @@ import { useApi } from "./ApiContext";
 import { ApiError, useBranches, useWarehouses } from "./hooks";
 import type { ScopeSelection } from "./session";
 import webPackageJson from "../../package.json";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Data hooks for the domain hub landing pages, the manufacturing production
@@ -64,13 +65,14 @@ export interface ProductionDashboardDTO {
 
 /** لوحة الإنتاج (docs/catalog/07 §"لوحة الإنتاج") — the real, already-mounted `GET /manufacturing/dashboard`. */
 export function useManufacturingDashboard(): UseQueryResult<ProductionDashboardDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ProductionDashboardDTO, ApiError>({
     queryKey: ["manufacturing", "dashboard"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/dashboard");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل لوحة الإنتاج.");
+      if (!res.ok) throw new ApiError(res.status, t("production.couldNotLoadTheProduction"));
       return res.json<ProductionDashboardDTO>();
     },
     refetchInterval: 30_000,
@@ -121,6 +123,7 @@ export interface SystemStatusDTO {
  * not asserted here.
  */
 export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SystemStatusDTO, ApiError>({
     queryKey: ["system-status"],
@@ -134,14 +137,14 @@ export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
       const services: ServiceCheckDTO[] = [
         {
           key: "api",
-          label: "الخادم (API)",
+          label: t("hubApi.theServerApi"),
           state: health.ok ? "operational" : "down",
           detail: health.ok ? `يستجيب خلال ${health.ms} مللي ثانية` : `لا يستجيب (HTTP ${health.status || "—"})`,
           latencyMs: health.ok ? health.ms : null,
         },
         {
           key: "database",
-          label: "قاعدة البيانات (SQLite)",
+          label: t("hubApi.theDatabaseSqlite"),
           state: db.ok ? "operational" : "down",
           detail: db.ok ? `قراءة فعلية ناجحة خلال ${db.ms} مللي ثانية` : `تعذّرت القراءة من قاعدة البيانات (HTTP ${db.status || "—"})`,
           latencyMs: db.ok ? db.ms : null,

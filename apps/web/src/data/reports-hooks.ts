@@ -3,6 +3,7 @@ import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domai
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
+import { useAppTranslation } from "../i18n";
 
 /**
  * التقارير التشغيلية data hook (docs/catalog/08-reports.md). Every operational-
@@ -37,13 +38,14 @@ export function useReport<Row>(
   params: Record<string, string>,
   options: { readonly enabled?: boolean } = {},
 ): UseQueryResult<ReportResult<Row>, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ReportResult<Row>, ApiError>({
     queryKey: ["reports", reportId, params],
     enabled: session !== null && (options.enabled ?? true),
     queryFn: async () => {
       const res = await request(`/reports${apiPath}${toQueryString(params)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل التقرير.", await readReportFieldErrors(res));
+      if (!res.ok) throw new ApiError(res.status, t("reportsApi.theReportCouldNotBe"), await readReportFieldErrors(res));
       return res.json<ReportResult<Row>>();
     },
   });

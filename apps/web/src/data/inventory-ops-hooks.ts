@@ -14,6 +14,7 @@ import type {
 } from "@mezan/contracts";
 import { ApiError, type JournalEntryDTO } from "./hooks";
 import { useApi } from "./ApiContext";
+import { useAppTranslation } from "../i18n";
 
 async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
   const body = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
@@ -25,6 +26,7 @@ async function readMessage(res: { json<T>(): Promise<T> }, fallback: string): Pr
 /* -------------------------------------------------------------------- */
 
 export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalanceRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockBalanceRowDTO[], ApiError>({
     queryKey: ["inventory", "stock-balance", warehouseId ?? null],
@@ -32,7 +34,7 @@ export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalan
     queryFn: async () => {
       const qs = warehouseId ? `?warehouseId=${encodeURIComponent(warehouseId)}` : "";
       const res = await request(`/inventory/stock-balance${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرصدة المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("stockBalance.loadFailed"));
       const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
       return body.rows;
     },
@@ -44,6 +46,7 @@ export function useStockBalance(warehouseId?: string): UseQueryResult<StockBalan
 /* -------------------------------------------------------------------- */
 
 export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockAdjustmentDocumentDTO[], ApiError>({
     queryKey: ["inventory", "stock-adjustments", status ?? null],
@@ -51,7 +54,7 @@ export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/inventory/stock-adjustments${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تسويات المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("stockAdj.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO[]>();
     },
   });
@@ -59,15 +62,16 @@ export function useStockAdjustments(status?: DocumentStatusDTO): UseQueryResult<
 
 /** Creates the draft, then immediately confirms it (the screens only ever post a fully-formed adjustment). */
 export function useCreateStockAdjustment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const draftRes = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, "تعذّر حفظ التسوية."));
+      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, t("stockOps.theAdjustmentCouldNotBe")));
       const draft = await draftRes.json<StockAdjustmentDocumentDTO>();
       const confirmRes = await request(`/inventory/stock-adjustments/${draft.id}/confirm`, { method: "POST" });
-      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, "تعذّر اعتماد التسوية."));
+      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, t("stockOps.theAdjustmentCouldNotBe2")));
       const { document } = await confirmRes.json<{ document: StockAdjustmentDocumentDTO; held: boolean }>();
       return document;
     },
@@ -80,6 +84,7 @@ export function useCreateStockAdjustment() {
 
 /** The GL entry backing a confirmed adjustment shares its own document id (packages/domain/src/inventory/document-hooks.ts). A 404 means no value delta — no entry was posted, not an error. */
 export function useAdjustmentJournalEntry(docId: string | null): UseQueryResult<JournalEntryDTO | null, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO | null, ApiError>({
     queryKey: ["inventory", "stock-adjustments", "journal-entry", docId],
@@ -87,7 +92,7 @@ export function useAdjustmentJournalEntry(docId: string | null): UseQueryResult<
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${docId}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيد المحاسبي.");
+      if (!res.ok) throw new ApiError(res.status, t("stockAdj.theJournalEntryCouldNot"));
       return res.json<JournalEntryDTO>();
     },
   });
@@ -98,6 +103,7 @@ export function useAdjustmentJournalEntry(docId: string | null): UseQueryResult<
 /* -------------------------------------------------------------------- */
 
 export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockTransferDocumentDTO[], ApiError>({
     queryKey: ["inventory", "stock-transfers", status ?? null],
@@ -105,7 +111,7 @@ export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<St
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/inventory/stock-transfers${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تحويلات المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("stockXfer.stockTransfersCouldNotBe"));
       return res.json<StockTransferDocumentDTO[]>();
     },
   });
@@ -113,15 +119,16 @@ export function useStockTransfers(status?: DocumentStatusDTO): UseQueryResult<St
 
 /** Creates the draft, then immediately confirms it (transfers are one-way — there is no separate "confirm later" flow in the UI). */
 export function useCreateStockTransfer() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const draftRes = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, "تعذّر حفظ التحويل."));
+      if (!draftRes.ok) throw new ApiError(draftRes.status, await readMessage(draftRes, t("stockOps.theTransferCouldNotBe")));
       const draft = await draftRes.json<StockTransferDocumentDTO>();
       const confirmRes = await request(`/inventory/stock-transfers/${draft.id}/confirm`, { method: "POST" });
-      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, "تعذّر تأكيد التحويل."));
+      if (!confirmRes.ok) throw new ApiError(confirmRes.status, await readMessage(confirmRes, t("stockOps.theTransferCouldNotBe2")));
       const { document } = await confirmRes.json<{ document: StockTransferDocumentDTO; held: boolean }>();
       return document;
     },
@@ -150,25 +157,27 @@ function countQueryString(filters: PhysicalCountListFilters): string {
 }
 
 export function usePhysicalCounts(filters: PhysicalCountListFilters = {}): UseQueryResult<PhysicalCountDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PhysicalCountDTO[], ApiError>({
     queryKey: ["inventory", "physical-counts", filters],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/physical-counts${countQueryString(filters)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات الجرد.");
+      if (!res.ok) throw new ApiError(res.status, t("counts.physicalCountsCouldNotBe"));
       return res.json<PhysicalCountDTO[]>();
     },
   });
 }
 
 export function useStartPhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر بدء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
@@ -176,12 +185,13 @@ export function useStartPhysicalCount() {
 }
 
 export function useRecordPhysicalCounts() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, { id: string; body: RecordPhysicalCountEntriesDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر حفظ الكميات المعدودة."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("stockOps.theCountedQuantitiesCouldNot")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
@@ -189,12 +199,13 @@ export function useRecordPhysicalCounts() {
 }
 
 export function useCompletePhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إنهاء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe2")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
@@ -202,12 +213,13 @@ export function useCompletePhysicalCount() {
 }
 
 export function useCancelPhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر إلغاء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("api.theCountCouldNotBe3")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["inventory", "physical-counts"] }),
@@ -215,6 +227,7 @@ export function useCancelPhysicalCount() {
 }
 
 export function useGenerateAdjustmentFromCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<
@@ -224,7 +237,7 @@ export function useGenerateAdjustmentFromCount() {
   >({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readMessage(res, "تعذّر توليد التسوية."));
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("stockOps.theAdjustmentCouldNotBe3")));
       return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
     },
     onSuccess: () => {

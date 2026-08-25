@@ -8,6 +8,7 @@ import type {
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Platform admin data hooks — numbering sequences (`/settings/sequences`) and
@@ -18,13 +19,14 @@ import { ApiError } from "./hooks";
 
 /** GET /sequences — the effective definition + live counter state for every sequence type. */
 export function useSequences(): UseQueryResult<SequenceListItemDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SequenceListItemDTO[], ApiError>({
     queryKey: ["sequences"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/sequences");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تسلسلات الترقيم.");
+      if (!res.ok) throw new ApiError(res.status, t("sequences.loadFailed"));
       return res.json<SequenceListItemDTO[]>();
     },
   });
@@ -32,6 +34,7 @@ export function useSequences(): UseQueryResult<SequenceListItemDTO[], ApiError> 
 
 /** PATCH /sequences/:code — edit prefix / pad length / annual-reset flag. */
 export function useUpdateSequence() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SequenceListItemDTO, ApiError, { code: string; patch: SequenceOverrideDTO }>({
@@ -40,7 +43,7 @@ export function useUpdateSequence() {
         method: "PATCH",
         body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new ApiError(res.status, "تعذّر حفظ إعدادات التسلسل.");
+      if (!res.ok) throw new ApiError(res.status, t("platformApi.theSequenceSettingsCouldNot"));
       return res.json<SequenceListItemDTO>();
     },
     onSuccess: () => {
@@ -55,6 +58,7 @@ export function useUpdateSequence() {
  * counter; this hook does not attempt to hide or soften that guard.
  */
 export function useResetSequenceCounter() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SequenceListItemDTO, ApiError, { code: string; body: ResetSequenceCounterDTO }>({
@@ -65,7 +69,7 @@ export function useResetSequenceCounter() {
       });
       if (!res.ok) {
         const payload = await res.json<{ message?: string }>().catch(() => ({}) as { message?: string });
-        throw new ApiError(res.status, payload.message ?? "تعذّر تعديل العداد.");
+        throw new ApiError(res.status, payload.message ?? t("platformApi.theCounterCouldNotBe"));
       }
       return res.json<SequenceListItemDTO>();
     },
@@ -77,6 +81,7 @@ export function useResetSequenceCounter() {
 
 /** GET /audit — filtered, paginated read of the append-only audit trail. Read-only by construction. */
 export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQueryResponseDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AuditQueryResponseDTO, ApiError>({
     queryKey: ["audit", filter],
@@ -96,7 +101,7 @@ export function useAuditLog(filter: AuditQueryDTO = {}): UseQueryResult<AuditQue
       if (filter.offset) params.set("offset", String(filter.offset));
       const qs = params.toString();
       const res = await request(`/audit${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سجل المراجعة.");
+      if (!res.ok) throw new ApiError(res.status, t("audit.couldNotLoadTheAudit"));
       return res.json<AuditQueryResponseDTO>();
     },
   });

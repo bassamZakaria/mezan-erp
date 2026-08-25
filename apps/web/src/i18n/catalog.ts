@@ -5214,6 +5214,82 @@ const webAr = {
   "devices.noDevicesAreConnectedRight": "لا توجد أجهزة متصلة حالياً",
   "devices.disconnecting": "جارٍ الفصل…",
   "devices.disconnect": "فصل",
+
+  // stockOps
+  "stockOps.theAdjustmentCouldNotBe": "تعذّر حفظ التسوية.",
+  "stockOps.theAdjustmentCouldNotBe2": "تعذّر اعتماد التسوية.",
+  "stockOps.theTransferCouldNotBe": "تعذّر حفظ التحويل.",
+  "stockOps.theTransferCouldNotBe2": "تعذّر تأكيد التحويل.",
+  "stockOps.theCountedQuantitiesCouldNot": "تعذّر حفظ الكميات المعدودة.",
+  "stockOps.theAdjustmentCouldNotBe3": "تعذّر توليد التسوية.",
+
+  // accountingApi
+  "accountingApi.theExchangeRateCouldNot": "تعذّر قفل سعر الصرف.",
+  "accountingApi.theReconciliationReportCouldNot": "تعذّر تحميل تقرير المطابقة.",
+  "accountingApi.reallySubmittingIsPossibleOnly": "الإرسال الفعلي متاح فقط عند الاتصال بالمصلحة.",
+
+  // hrApi
+  "hrApi.advanceBalancesCouldNotBe": "تعذّر تحميل أرصدة السلف.",
+  "hrApi.theAdvanceCouldNotBe": "تعذّر اعتماد السلفة.",
+  "hrApi.thePayrollRunCouldNot": "تعذّر تحميل دورة الرواتب.",
+  "hrApi.payrollCouldNotBeCalculated": "تعذّر احتساب الرواتب.",
+  "hrApi.thePayrollRunCouldNot2": "تعذّر اعتماد دورة الرواتب.",
+  "hrApi.thePayrollRunCouldNot3": "تعذّر إلغاء دورة الرواتب.",
+
+  // accountApi
+  "accountApi.theProfileCouldNotBe": "تعذّر تحميل الملف الشخصي.",
+  "accountApi.theProfileCouldNotBe2": "تعذر حفظ الملف الشخصي.",
+  "accountApi.theActivityLogCouldNot": "تعذّر تحميل سجل النشاط.",
+  "accountApi.theApiKeyCouldNot": "تعذر إنشاء مفتاح API.",
+  "accountApi.theApiKeyCouldNot2": "تعذر إلغاء مفتاح API.",
+  "accountApi.theWebhookCouldNotBe": "تعذر إنشاء الويب هوك.",
+  "accountApi.theWebhookCouldNotBe2": "تعذر حفظ الويب هوك.",
+  "accountApi.theDeliveryAttemptsCouldNot": "تعذّر تحميل محاولات التسليم.",
+
+  // migration
+  "migration.theCustomerImportCouldNot": "تعذّر معاينة استيراد العملاء.",
+  "migration.theCustomersCouldNotBe": "تعذّر استيراد العملاء.",
+  "migration.theSupplierImportCouldNot": "تعذّر معاينة استيراد الموردين.",
+  "migration.theSuppliersCouldNotBe": "تعذّر استيراد الموردين.",
+  "migration.theItemImportCouldNot": "تعذّر معاينة استيراد الأصناف.",
+  "migration.theItemsCouldNotBe": "تعذّر استيراد الأصناف.",
+  "migration.theOpeningBalanceImportCould": "تعذّر معاينة استيراد الأرصدة الافتتاحية.",
+  "migration.theOpeningBalancesCouldNot": "تعذّر استيراد الأرصدة الافتتاحية.",
+  "migration.theHistoricalDocumentImportCould": "تعذّر معاينة استيراد المستندات السابقة.",
+  "migration.theHistoricalDocumentsCouldNot": "تعذّر استيراد المستندات السابقة.",
+
+  // catalogApi
+  "catalogApi.theSpecificationCouldNotBe": "تعذّر إضافة المواصفة.",
+  "catalogApi.theSpecificationCouldNotBe2": "تعذّر تعديل المواصفة.",
+
+  // hubApi
+  "hubApi.theServerApi": "الخادم (API)",
+  "hubApi.theDatabaseSqlite": "قاعدة البيانات (SQLite)",
+
+  // platformApi
+  "platformApi.theSequenceSettingsCouldNot": "تعذّر حفظ إعدادات التسلسل.",
+  "platformApi.theCounterCouldNotBe": "تعذّر تعديل العداد.",
+
+  // barcodeApi
+  "barcodeApi.theBarcodeSettingsCouldNot": "تعذّر حفظ إعدادات الباركود.",
+  "barcodeApi.theBarcodeCouldNotBe": "تعذّر اختبار الباركود.",
+
+  // labelApi
+  "labelApi.theLabelLayoutsCouldNot": "تعذّر تحميل تخطيطات الملصقات.",
+  "labelApi.theLabelLayoutCouldNot": "تعذّر إضافة تخطيط الملصقات.",
+  "labelApi.theLabelLayoutCouldNot2": "تعذّر تعديل تخطيط الملصقات.",
+
+  // partnerApi
+  "partnerApi.theVoucherAllocationsCouldNot": "تعذّر تحميل تخصيصات السندات.",
+
+  // reportsApi
+  "reportsApi.theReportCouldNotBe": "تعذّر تحميل التقرير.",
+
+  // finReportsApi
+  "finReportsApi.theFinancialStatementCouldNot": "تعذّر تحميل القائمة المالية.",
+
+  // accountingApi
+  "accountingApi.theOperationCouldNotBe": "تعذر تنفيذ العملية.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10433,6 +10509,82 @@ const webEn: Record<WebTranslationKey, string> = {
   "devices.noDevicesAreConnectedRight": "No devices are connected right now",
   "devices.disconnecting": "Disconnecting…",
   "devices.disconnect": "Disconnect",
+
+  // stockOps
+  "stockOps.theAdjustmentCouldNotBe": "The adjustment could not be saved.",
+  "stockOps.theAdjustmentCouldNotBe2": "The adjustment could not be approved.",
+  "stockOps.theTransferCouldNotBe": "The transfer could not be saved.",
+  "stockOps.theTransferCouldNotBe2": "The transfer could not be confirmed.",
+  "stockOps.theCountedQuantitiesCouldNot": "The counted quantities could not be saved.",
+  "stockOps.theAdjustmentCouldNotBe3": "The adjustment could not be generated.",
+
+  // accountingApi
+  "accountingApi.theExchangeRateCouldNot": "The exchange rate could not be locked.",
+  "accountingApi.theReconciliationReportCouldNot": "The reconciliation report could not be loaded.",
+  "accountingApi.reallySubmittingIsPossibleOnly": "Really submitting is possible only when connected to the tax authority.",
+
+  // hrApi
+  "hrApi.advanceBalancesCouldNotBe": "Advance balances could not be loaded.",
+  "hrApi.theAdvanceCouldNotBe": "The advance could not be approved.",
+  "hrApi.thePayrollRunCouldNot": "The payroll run could not be loaded.",
+  "hrApi.payrollCouldNotBeCalculated": "Payroll could not be calculated.",
+  "hrApi.thePayrollRunCouldNot2": "The payroll run could not be approved.",
+  "hrApi.thePayrollRunCouldNot3": "The payroll run could not be cancelled.",
+
+  // accountApi
+  "accountApi.theProfileCouldNotBe": "The profile could not be loaded.",
+  "accountApi.theProfileCouldNotBe2": "The profile could not be saved.",
+  "accountApi.theActivityLogCouldNot": "The activity log could not be loaded.",
+  "accountApi.theApiKeyCouldNot": "The API key could not be created.",
+  "accountApi.theApiKeyCouldNot2": "The API key could not be revoked.",
+  "accountApi.theWebhookCouldNotBe": "The webhook could not be created.",
+  "accountApi.theWebhookCouldNotBe2": "The webhook could not be saved.",
+  "accountApi.theDeliveryAttemptsCouldNot": "The delivery attempts could not be loaded.",
+
+  // migration
+  "migration.theCustomerImportCouldNot": "The customer import could not be previewed.",
+  "migration.theCustomersCouldNotBe": "The customers could not be imported.",
+  "migration.theSupplierImportCouldNot": "The supplier import could not be previewed.",
+  "migration.theSuppliersCouldNotBe": "The suppliers could not be imported.",
+  "migration.theItemImportCouldNot": "The item import could not be previewed.",
+  "migration.theItemsCouldNotBe": "The items could not be imported.",
+  "migration.theOpeningBalanceImportCould": "The opening-balance import could not be previewed.",
+  "migration.theOpeningBalancesCouldNot": "The opening balances could not be imported.",
+  "migration.theHistoricalDocumentImportCould": "The historical-document import could not be previewed.",
+  "migration.theHistoricalDocumentsCouldNot": "The historical documents could not be imported.",
+
+  // catalogApi
+  "catalogApi.theSpecificationCouldNotBe": "The specification could not be added.",
+  "catalogApi.theSpecificationCouldNotBe2": "The specification could not be changed.",
+
+  // hubApi
+  "hubApi.theServerApi": "The server (API)",
+  "hubApi.theDatabaseSqlite": "The database (SQLite)",
+
+  // platformApi
+  "platformApi.theSequenceSettingsCouldNot": "The sequence settings could not be saved.",
+  "platformApi.theCounterCouldNotBe": "The counter could not be changed.",
+
+  // barcodeApi
+  "barcodeApi.theBarcodeSettingsCouldNot": "The barcode settings could not be saved.",
+  "barcodeApi.theBarcodeCouldNotBe": "The barcode could not be tested.",
+
+  // labelApi
+  "labelApi.theLabelLayoutsCouldNot": "The label layouts could not be loaded.",
+  "labelApi.theLabelLayoutCouldNot": "The label layout could not be added.",
+  "labelApi.theLabelLayoutCouldNot2": "The label layout could not be changed.",
+
+  // partnerApi
+  "partnerApi.theVoucherAllocationsCouldNot": "The voucher allocations could not be loaded.",
+
+  // reportsApi
+  "reportsApi.theReportCouldNotBe": "The report could not be loaded.",
+
+  // finReportsApi
+  "finReportsApi.theFinancialStatementCouldNot": "The financial statement could not be loaded.",
+
+  // accountingApi
+  "accountingApi.theOperationCouldNotBe": "The operation could not be carried out.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

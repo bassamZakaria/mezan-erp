@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { ItemCategoryDTO, ItemUnitDTO } from "@mezan/contracts";
 import { useItemCategories, useItemUnits } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Display labels for the item master-data catalogs (docs/catalog/03). Both
@@ -13,8 +14,8 @@ export function unitLabel(code: string, units: readonly ItemUnitDTO[]): string {
   return units.find((u) => u.code === code)?.nameAr ?? code;
 }
 
-export function categoryLabel(id: string | null, categories: readonly ItemCategoryDTO[]): string {
-  if (!id) return "بدون تصنيف";
+export function categoryLabel(id: string | null, categories: readonly ItemCategoryDTO[], uncategorized: string): string {
+  if (!id) return uncategorized;
   return categories.find((c) => c.id === id)?.nameAr ?? id;
 }
 
@@ -24,6 +25,8 @@ export function useUnitLabel(): (code: string) => string {
 }
 
 export function useCategoryLabel(): (id: string | null) => string {
+  const { t } = useAppTranslation();
   const categories = useItemCategories().data ?? [];
-  return useMemo(() => (id: string | null) => categoryLabel(id, categories), [categories]);
+  const uncategorized = t("common.uncategorized");
+  return useMemo(() => (id: string | null) => categoryLabel(id, categories, uncategorized), [categories, uncategorized]);
 }

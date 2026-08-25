@@ -612,7 +612,7 @@ export function ItemsScreen() {
           <Card className="grid grid-cols-1 gap-0 overflow-hidden sm:grid-cols-2">
             {[
               [t("items.itemType"), t(TYPE_KEY[item.type])],
-              [t("common.category"), categoryLabel(item.categoryId, itemCategories)],
+              [t("common.category"), categoryLabel(item.categoryId, itemCategories, t("common.uncategorized"))],
               [t("items.brand"), item.brand ?? "—"],
               [t("items.costingMethod"), t(COSTING_KEY[item.costingMethod])],
               [t("items.trackStock"), item.trackInventory ? t("items.yes") : t("items.no")],
@@ -759,7 +759,7 @@ export function ItemsScreen() {
           title={`${item.code} — ${item.nameAr}`}
           statusLabel={t(STATUS_KEY[item.status])}
           statusTone={STATUS_TONE[item.status]}
-          subtitle={`${t(TYPE_KEY[item.type])} · ${categoryLabel(item.categoryId, itemCategories)}`}
+          subtitle={`${t(TYPE_KEY[item.type])} · ${categoryLabel(item.categoryId, itemCategories, t("common.uncategorized"))}`}
           actions={
             <>
               <Button
@@ -777,7 +777,7 @@ export function ItemsScreen() {
           }
           summary={[
             { label: t("items.itemType"), value: t(TYPE_KEY[item.type]) },
-            { label: t("common.category"), value: categoryLabel(item.categoryId, itemCategories) },
+            { label: t("common.category"), value: categoryLabel(item.categoryId, itemCategories, t("common.uncategorized")) },
             { label: t("common.unit"), value: unitLabel(item.baseUnitCode, itemUnits) },
             { label: t("items.costingMethod"), value: t(COSTING_KEY[item.costingMethod]) },
             { label: t("items.salePrice"), value: <Money value={Number(item.salePrice ?? 0)} /> },

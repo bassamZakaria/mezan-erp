@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type { BarcodeConfigDTO, UpdateBarcodeConfigDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Barcode configuration hooks (docs' "barcode-config screen") — kept out of
@@ -18,35 +19,37 @@ export class ApiError extends Error {
   }
 }
 
-async function readError(res: { json<T>(): Promise<T> }, fallback: string): Promise<string> {
+async function readError(res: { json<T>(): Promise<T> }, fallback: string, separator: string): Promise<string> {
   const body = (await res.json<{ message?: string; reasons?: string[] }>().catch(() => ({}))) as {
     message?: string;
     reasons?: string[];
   };
-  if (body.reasons && body.reasons.length > 0) return body.reasons.join("، ");
+  if (body.reasons && body.reasons.length > 0) return body.reasons.join(separator);
   return body.message ?? fallback;
 }
 
 export function useBarcodeConfig(): UseQueryResult<BarcodeConfigDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<BarcodeConfigDTO, ApiError>({
     queryKey: ["barcode-config"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/barcode-config");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات الباركود.");
+      if (!res.ok) throw new ApiError(res.status, t("barcode.couldNotLoadTheBarcode"));
       return res.json<BarcodeConfigDTO>();
     },
   });
 }
 
 export function useUpdateBarcodeConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BarcodeConfigDTO, ApiError, UpdateBarcodeConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/barcode-config", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ إعدادات الباركود."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("barcodeApi.theBarcodeSettingsCouldNot"), t("notifRules.channelSeparator")));
       return res.json<BarcodeConfigDTO>();
     },
     onSuccess: (config) => queryClient.setQueryData(["barcode-config"], config),
@@ -58,11 +61,12 @@ export type ParseBarcodeResult =
   | { readonly matched: false };
 
 export function useParseBarcode() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<ParseBarcodeResult, ApiError, string>({
     mutationFn: async (code) => {
       const res = await request("/barcode-config/parse", { method: "POST", body: JSON.stringify({ code }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اختبار الباركود."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("barcodeApi.theBarcodeCouldNotBe"), t("notifRules.channelSeparator")));
       return res.json<ParseBarcodeResult>();
     },
   });

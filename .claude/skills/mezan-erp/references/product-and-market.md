@@ -119,8 +119,9 @@ Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
 - **ETA e-invoicing** — B2B is pre-clearance, B2C an e-receipt within 72 hours with a
   QR on the printed copy. Registration threshold cut to **EGP 250,000** (Resolution
   281/2025), enforcement from 1 Jan 2026, and late-submission penalties escalate on a
-  rolling 12-month count. Today no user action enqueues anything (D5) and
-  `autoSubmitOnConfirm` is stored and read by nothing — the whole flow is unreachable.
+  rolling 12-month count. Confirming a sales invoice with `autoSubmitOnConfirm` on now
+  queues a submission (F33); the submit/clearance lifecycle beyond the queue is still
+  manual.
 - **VAT is not 14% of everything** — a 5% reduced rate, zero-rated exports, exempt
   supplies, and the legacy construction treatment of 14% on **36% of value** with no
   input deduction. Per-line rates post correctly; the VAT return cannot report them

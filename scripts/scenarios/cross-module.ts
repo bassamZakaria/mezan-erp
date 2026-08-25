@@ -1459,14 +1459,14 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X36 — a second branch makes branch scope measurable
   // ---------------------------------------------------------------------------
-  await scenario("x36 · with a real second branch, does branch scope actually narrow anything? (D7 made measurable)", async () => {
-    const branch = await req("POST", "/branches", { id: "BR-SCN-2", code: "SCN2", name: "فرع الاختبار الثاني" });
+  await scenario("x36 · with a real second branch, branch scope narrows every branch-owned list (D7 made measurable)", async () => {
+    const branch = await req("POST", "/branches", { id: "BR-SCN-X-2", code: "SCNX2", name: "فرع الاختبار الثاني" });
     check("a second branch is created", branch.status === 201, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
-    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-2" });
+    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-X-2", code: "WH-SCNX2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-X-2" });
     check("with its own warehouse", warehouse.status === 201, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
 
     const itemId = "SCN-X-ITEM-1";
-    await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-2");
+    await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-X-2");
 
     const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
     await req("POST", "/sales-invoices", {
@@ -1475,8 +1475,8 @@ export async function run(ctx: Ctx): Promise<void> {
       dueDate: "2026-09-23",
       customerId: CUSTOMER,
       customerNameAr: customer?.nameAr ?? "عميل",
-      warehouseId: "WH-SCN-2",
-      branchId: "BR-SCN-2",
+      warehouseId: "WH-SCN-X-2",
+      branchId: "BR-SCN-X-2",
       arAccountId: AR,
       taxAccountId: OUTPUT_TAX,
       lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: VAT, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
@@ -1486,22 +1486,22 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
     const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
-    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-X-2" })).body);
     check(
-      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: x-branch-scope narrows nothing — every scope returns the identical row count",
-      mainOnly.length === all && secondOnly.length === all,
-      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-2=${secondOnly.length}`,
+      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: each scope returns strictly fewer rows than the unscoped call (docs/defects.md F32 — the regression guard)",
+      mainOnly.length < all && secondOnly.length < all && secondOnly.length > 0,
+      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-X-2=${secondOnly.length}`,
     );
     check(
-      "concretely: a caller scoped to the first branch can read the second branch's invoice (docs/defects.md D7 — do not re-file)",
-      mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
-      "SCN-X-INV-BR2 not visible under BR-MAIN — D7 may have been fixed; re-check the register",
+      "concretely: a caller scoped to the first branch cannot read the second branch's invoice",
+      !mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2") && secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
+      `BR-MAIN sees it: ${mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2")}, BR-SCN-X-2 sees it: ${secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2")}`,
     );
 
-    // Warehouse scope, by contrast, IS wired (F8) — proving the two are independent mechanisms.
+    // Warehouse scope is the same mechanism on a different axis (F8) — proven here so the two stay independent.
     const stockAll = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "*" })).body).length;
-    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-2" })).body).length;
-    check("warehouse scope, unlike branch scope, genuinely narrows the stock balances", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-2=${stockScoped}`);
+    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-X-2" })).body).length;
+    check("warehouse scope narrows the stock balances the same way", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-X-2=${stockScoped}`);
   });
 
   // ---------------------------------------------------------------------------

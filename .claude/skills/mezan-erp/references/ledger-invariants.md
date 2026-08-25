@@ -73,7 +73,7 @@ period directly is rejected so the reversible close step is never skipped.
   the entered total. They mutate the WAC snapshot and rewrite cost layers while
   appending nothing to the movement ledger, so `replay()` cannot reproduce a position
   a landed cost has touched and the drift report's `cacheDrift` reads nonzero on a
-  healthy tenant (D18). Fixing it needs a value-carrying movement kind.
+  healthy tenant (D36). Fixing it needs a value-carrying movement kind.
 - Reconcile per **document**, not per line: `costItems` is denormalized onto every
   line, and summing per line overcounted a multi-line landed cost N times.
 - Stock transfers are valuation-neutral (and stay visible from both ends by design).
@@ -151,7 +151,8 @@ A user action must pass all four, and they are distinct:
    granted, and deciding only the request record leaves the document unposted.
 3. **Scope** — branch and warehouse come from `x-branch-scope` / `x-warehouse-scope`
    and must actually narrow list queries. A header that no route reads is a gate
-   that does not exist (fixed F8 for warehouse; branch is still unproven, D7).
+   that does not exist (fixed F8 for warehouse, F32 for branch — twelve branch-owned
+   list routes now narrow, proven against a real second branch).
    Scope narrows; it never widens beyond the session grant.
 4. **Entitlement** — `{ plan, activeModules[], features{}, seats, expiresAt }`,
    identical in shape for cloud (subscription) and desktop (Ed25519-signed offline

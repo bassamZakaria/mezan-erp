@@ -11,7 +11,7 @@ open.
 Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 "reconciliation looks wrong" is a feeling.
 
-## Open (as of 2026-08-25 — re-read `docs/defects.md`, it moves; it now runs to D35)
+## Open (as of 2026-08-25 — re-read `docs/defects.md`, it is the authority; it now runs to D37)
 
 | # | Area | Defect | Evidence |
 |---|---|---|---|
@@ -19,10 +19,16 @@ Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 | D2 | Inventory / GL | A `PHYSICAL_COUNT` adjustment moves stock with **no journal entry** — `adjustmentGlAccountsForReason` maps only `INITIAL_STOCK` | inventory off by exactly 122.00 |
 | D3 | Manufacturing / GL | `completeWorkOrder` posts to 1220 / 1210 / 5110 / 5210, never GL 1200; `accountBalance` has no subtree rollup | off by exactly 80.00 |
 | D13 | Fixed assets | No disposal action — the status value and the permission exist, the route and button do not | |
-| D18 | Inventory reporting | A landed cost writes **no stock movement**, so `replay()` can never reproduce the snapshot it mutated | ITEM-DEMO-1 cached 146.827936 vs recomputed 140.000000, on a healthy tenant, while the field's own docstring says nonzero means "the cache is CORRUPTED" |
-| D19 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by 5,486.12 | the tile sums every 11xx asset account (incl. the credit-natural provision 1190, sign-flipped); aging covers trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic |
+| D18 | Treasury / AP | The AP sub-ledger ignores every payment: paying a supplier moves GL 2100 and leaves the sub-ledger where it was | a 2,280 payment takes the diff 35,554 → 37,834; `resolveReconciliationControls()` never subtracts allocations |
+| D19 | Settings / Treasury | `preventNegativeCashBalance` and `allowNegativeTreasury` are dead switches | with the setting persisted `false`, the same voucher is still refused `CASH_BALANCE_NEGATIVE` — `create-backend.ts`'s `vouchers:` options never pass `settings` |
+| D20 | Purchases / periods | Confirming a purchase invoice into a **closed** period answers 500, where sales/voucher/journal all answer 422 | `purchases-routes.ts` does not map `PeriodNotOpenForPostingError` |
+| D21 | Purchases / atomicity | That crash is not atomic: the stock IN is applied before the GL refuses, and never rolled back | one blocked line leaves inventory exactly 50.00 ahead of GL 1200, with no document to explain it |
+| D22 | Field sales / Treasury | A trip's roadside cash never reaches the van treasury, but settling transfers the full counted cash out of it | float 500, sales 700, counted 1,150: the van's GL 1300-2 ends 650 below where it started |
+| D23 | Go-live import / GL | A historical import records no opening AR or AP at all | 250 and 300 outstanding both move their control accounts by 0.00; `historicalImport` is wired with `archives` only, no `gl`/`accounts` |
+| D36 | Inventory reporting | A landed cost writes **no stock movement**, so `replay()` can never reproduce the snapshot it mutated | ITEM-DEMO-1 cached 146.827936 vs recomputed 140.000000, on a healthy tenant, while the field's own docstring says nonzero means "the cache is CORRUPTED" |
+| D37 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by 5,486.12 | the tile sums every 11xx asset account (incl. the credit-natural provision 1190, sign-flipped); aging covers trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic |
 
-The seam pass (2026-08-25, `scripts/scenarios/seams.ts`) added **D24–D35**. Their
+The seam pass (2026-08-25, `scripts/scenarios/seams.ts`) added **D24–D35**; D36 and D37 are the two rows above, renumbered by that pass. Their
 shapes, because they will recur:
 
 - **The engine is right; nothing can speak to it.** FX revaluation is correct end to

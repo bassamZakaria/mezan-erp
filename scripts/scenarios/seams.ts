@@ -337,9 +337,9 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
-  // X29 — confirming a document should reach the ETA queue
+  // X29 — confirming a document reaches the ETA queue
   // ---------------------------------------------------------------------------
-  await scenario("x29 · the ETA queue has no producer: switching auto-submit on and confirming a real invoice enqueues nothing", async () => {
+  await scenario("x29 · switching auto-submit on and confirming a real invoice enqueues exactly one ETA submission", async () => {
     const config = await req("PUT", "/eta/config", {
       environment: "preproduction", taxRegistrationNumber: "123456789", activityCode: "4610",
       documentVersion: "1.0", autoSubmitOnConfirm: true, signingMethod: "none", buyerDataThreshold: 0,
@@ -353,9 +353,8 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a real, confirmable invoice is confirmed with the switch on", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
     const queueAfter = rows((await req("GET", "/eta/submissions")).body).length;
     check(
-      "D5 (docs/defects.md — do not re-file) — the queue is identical before and after: `EtaService.enqueue` has no caller, and `autoSubmitOnConfirm` is stored but read by nothing. " +
-        "An Egyptian tenant can configure e-invoicing fully, confirm invoices all day, and submit none of them.",
-      queueAfter === queueBefore,
+      "the confirm produced exactly one queued submission (docs/defects.md F33 — the regression guard for D5, whose producer this restored)",
+      queueAfter === queueBefore + 1,
       `before=${queueBefore} after=${queueAfter}`,
     );
   });

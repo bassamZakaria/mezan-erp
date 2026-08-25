@@ -229,11 +229,13 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     const after = ((await req("GET", "/exchange-rates")).body as any[]).find((r: any) => r.id === "SCN-S-FX-EUR-31");
     check(
-      "NEW DEFECT — a locked rate is not locked: POST /exchange-rates upserts by id (packages/api/src/exchange-rates-routes.ts calls `repo.create`, and the SQLite repository's `write` is an INSERT … ON CONFLICT(id) DO UPDATE), " +
-        "so re-posting the same id silently rewrites the rate AND resets its status. A figure the ledger has already converted at can be changed after the fact by anyone who can create a rate.",
-      overwrite.status === 201 && n(after?.rate) === 99,
+      "a locked rate is final: re-posting its id is refused, and the rate the ledger already converted at is untouched " +
+        "(docs/defects.md D25 — the regression guard; the SQLite repository still upserts, so the route must refuse first)",
+      overwrite.status === 409 && n(after?.rate) === 60 && after?.status === "locked",
       `overwrite=${overwrite.status} storedRate=${after?.rate} storedStatus=${after?.status}`,
     );
+    const relock = await req("POST", "/exchange-rates/SCN-S-FX-EUR-31/approve", {});
+    check("and it cannot be walked back down to approved either", relock.status === 409, `status ${relock.status} ${JSON.stringify(relock.body).slice(0, 160)}`);
   });
 
   // ---------------------------------------------------------------------------
@@ -261,8 +263,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const isAfter = n((await req("GET", `/reports/accounting/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
     checkEq("and the income statement sees the same expense once", isBefore - isAfter, 1500);
 
-    // The seam that matters: real spending goes out through the treasury, and a
-    // treasury voucher has no cost-centre dimension to carry.
+    // The seam that matters: real spending goes out through the treasury, so a
+    // treasury voucher has to carry the cost-centre dimension too.
     const centreRowBefore = n(afterRow?.expense);
     const unassignedBefore = n(((after?.rows ?? []) as any[]).find((r) => r.costCenterId === null)?.expense);
     const voucher = await req("POST", "/vouchers", {
@@ -277,10 +279,9 @@ export async function run(ctx: Ctx): Promise<void> {
     const centreRowAfter = n(((afterVoucher?.rows ?? []) as any[]).find((r) => r.costCenterId === centre.id)?.expense);
     const unassignedAfter = n(((afterVoucher?.rows ?? []) as any[]).find((r) => r.costCenterId === null)?.expense);
     check(
-      "NEW DEFECT — the cost-centre report can never see the majority of real spending: `createVoucherSchema` (packages/contracts/src/voucher.ts) has no `costCenterId`, " +
-        "so the field sent here is dropped at the wire boundary and the 400 lands in the غير مخصص bucket. Only hand-written journal entries can be attributed to a cost centre, " +
-        "and almost nothing a business actually spends is entered as one.",
-      centreRowAfter === centreRowBefore && Math.abs(unassignedAfter - unassignedBefore - 400) < 0.005,
+      "a voucher-paid expense reaches the cost centre it names, rather than the غير مخصص bucket " +
+        "(docs/defects.md D26 — the regression guard: the wire contract carries the dimension the report needs)",
+      Math.abs(centreRowAfter - centreRowBefore - 400) < 0.005 && Math.abs(unassignedAfter - unassignedBefore) < 0.005,
       `centre before=${centreRowBefore} after=${centreRowAfter} · unassigned before=${unassignedBefore} after=${unassignedAfter}`,
     );
     checkEq("the report still reconciles: every posted expense is in exactly one bucket, tagged or not", n(afterVoucher?.totals?.expense) - n(after?.totals?.expense), 400);

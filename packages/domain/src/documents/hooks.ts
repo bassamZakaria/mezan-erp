@@ -32,6 +32,11 @@ export interface DocumentGlPostingLine {
   readonly debit: Money;
   readonly credit: Money;
   readonly memo?: string | null;
+  /**
+   * Cost-centre dimension. A posting that drops it is invisible to the
+   * cost-centre P&L forever, and the report cannot recover it later (D26).
+   */
+  readonly costCenterId?: string | null;
 }
 
 /**

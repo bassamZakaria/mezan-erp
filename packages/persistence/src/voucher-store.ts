@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS voucher (
   customer_id                    TEXT,
   supplier_id                    TEXT,
   reference_no                   TEXT,
+  cost_center_id                 TEXT,
   created_at                     TEXT NOT NULL,
   confirmed_at                   TEXT,
   reverses_doc_id                TEXT,
@@ -105,6 +106,7 @@ interface VoucherRow {
   customer_id: string | null;
   supplier_id: string | null;
   reference_no: string | null;
+  cost_center_id: string | null;
   created_at: string;
   confirmed_at: string | null;
   reverses_doc_id: string | null;
@@ -129,6 +131,7 @@ function toDocument(row: VoucherRow): FrameworkDocument<VoucherLine> {
     customerId: row.customer_id,
     supplierId: row.supplier_id,
     referenceNo: row.reference_no,
+    costCenterId: row.cost_center_id,
   };
   return {
     id: row.id,
@@ -171,6 +174,7 @@ function docParams(doc: FrameworkDocument<VoucherLine>) {
     customer_id: line.customerId,
     supplier_id: line.supplierId,
     reference_no: line.referenceNo,
+    cost_center_id: line.costCenterId ?? null,
     created_at: doc.createdAt,
     confirmed_at: doc.confirmedAt,
     reverses_doc_id: doc.reversesDocId,
@@ -191,13 +195,13 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         id, doc_no, doc_type, date, memo, status, voucher_type, direction, amount, currency,
         branch_id, payment_method, treasury_account_id, treasury_gl_account_id,
         counterparty_gl_account_id, counter_treasury_account_id, counter_treasury_gl_account_id,
-        customer_id, supplier_id, reference_no, created_at, confirmed_at,
+        customer_id, supplier_id, reference_no, cost_center_id, created_at, confirmed_at,
         reverses_doc_id, reversed_by_doc_id, workflow_request_id, journal_entry_id
       ) VALUES (
         @id, @doc_no, @doc_type, @date, @memo, @status, @voucher_type, @direction, @amount, @currency,
         @branch_id, @payment_method, @treasury_account_id, @treasury_gl_account_id,
         @counterparty_gl_account_id, @counter_treasury_account_id, @counter_treasury_gl_account_id,
-        @customer_id, @supplier_id, @reference_no, @created_at, @confirmed_at,
+        @customer_id, @supplier_id, @reference_no, @cost_center_id, @created_at, @confirmed_at,
         @reverses_doc_id, @reversed_by_doc_id, @workflow_request_id, @journal_entry_id
       )
     `);
@@ -208,6 +212,7 @@ class SqliteVoucherRepository implements DocumentRepository<VoucherLine> {
         counter_treasury_account_id = @counter_treasury_account_id,
         counter_treasury_gl_account_id = @counter_treasury_gl_account_id,
         customer_id = @customer_id, supplier_id = @supplier_id, reference_no = @reference_no,
+        cost_center_id = @cost_center_id,
         confirmed_at = @confirmed_at, reverses_doc_id = @reverses_doc_id,
         reversed_by_doc_id = @reversed_by_doc_id, workflow_request_id = @workflow_request_id,
         journal_entry_id = @journal_entry_id

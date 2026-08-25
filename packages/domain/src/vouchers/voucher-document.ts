@@ -56,6 +56,8 @@ export interface VoucherLine {
   readonly customerId: string | null;
   readonly supplierId: string | null;
   readonly referenceNo: string | null;
+  /** Cost centre the spending/income belongs to; tagged onto the counterparty GL line. */
+  readonly costCenterId?: string | null;
 }
 
 export type VoucherDocument = FrameworkDocument<VoucherLine>;
@@ -125,6 +127,9 @@ function describeEffectLines(line: VoucherLine): [string, string] {
 function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   const { amount, treasuryGlAccountId } = line;
   const zero = Money.zero();
+  // Only the counterparty side carries the cost centre: the treasury leg is a
+  // cash movement, and tagging both would double the spend in the P&L.
+  const cc = line.costCenterId ?? null;
   if (line.direction === "transfer") {
     const destGl = line.counterTreasuryGlAccountId;
     if (!destGl) throw new Error("transfer voucher missing destination GL account");
@@ -138,12 +143,12 @@ function buildVoucherLines(line: VoucherLine): DocumentGlPosting["lines"] {
   if (line.direction === "receipt") {
     return [
       { accountId: treasuryGlAccountId, debit: amount, credit: zero, memo: null },
-      { accountId: counter, debit: zero, credit: amount, memo: null },
+      { accountId: counter, debit: zero, credit: amount, memo: null, costCenterId: cc },
     ];
   }
   // payment
   return [
-    { accountId: counter, debit: amount, credit: zero, memo: null },
+    { accountId: counter, debit: amount, credit: zero, memo: null, costCenterId: cc },
     { accountId: treasuryGlAccountId, debit: zero, credit: amount, memo: null },
   ];
 }

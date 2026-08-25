@@ -3873,6 +3873,8 @@ const webAr = {
   "vouchers.contraAccount": "الحساب المقابل *",
   "vouchers.date": "التاريخ *",
   "vouchers.referenceNumber": "رقم المرجع",
+  "vouchers.costCenter": "مركز التكلفة",
+  "vouchers.costCenterUnassigned": "غير مخصص",
   "vouchers.enterAnAmountToSee": "أدخل مبلغاً لعرض التأثيرات.",
 
   // bankRec
@@ -9363,6 +9365,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "vouchers.contraAccount": "Contra account *",
   "vouchers.date": "Date *",
   "vouchers.referenceNumber": "Reference number",
+  "vouchers.costCenter": "Cost centre",
+  "vouchers.costCenterUnassigned": "Unassigned",
   "vouchers.enterAnAmountToSee": "Enter an amount to see what it does.",
 
   // bankRec

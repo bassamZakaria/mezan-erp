@@ -57,6 +57,7 @@ function voucher(overrides: Partial<VoucherDTO> = {}): VoucherDTO {
     customerId: "cust-amal",
     supplierId: null,
     referenceNo: "REF-1001",
+    costCenterId: null,
     journalEntryId: "je-cv-1",
     confirmedAt: "2026-08-07T10:00:00.000Z",
     ...overrides,

@@ -67,6 +67,7 @@ export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
             debit: l.debit,
             credit: l.credit,
             memo: l.memo ?? null,
+            costCenterId: l.costCenterId ?? null,
           })),
         },
         deps,
@@ -137,6 +138,7 @@ export interface CreateVoucherCommand {
   readonly customerId?: string | null;
   readonly supplierId?: string | null;
   readonly referenceNo?: string | null;
+  readonly costCenterId?: string | null;
 }
 
 export interface ConfirmVoucherOptions {
@@ -198,6 +200,7 @@ export class VoucherService {
       customerId: cmd.customerId ?? null,
       supplierId: cmd.supplierId ?? null,
       referenceNo: cmd.referenceNo ?? null,
+      costCenterId: cmd.costCenterId ?? null,
     };
     return this.service.createDraft({
       id: cmd.id,

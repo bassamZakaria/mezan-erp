@@ -82,6 +82,7 @@ function serialize(doc: VoucherDocument) {
     customerId: line.customerId,
     supplierId: line.supplierId,
     referenceNo: line.referenceNo,
+    costCenterId: line.costCenterId ?? null,
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
   };
@@ -268,6 +269,7 @@ export function createVouchersRoutes(
         customerId: d.customerId ?? null,
         supplierId: d.supplierId ?? null,
         referenceNo: d.referenceNo ?? null,
+        costCenterId: d.costCenterId ?? null,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {

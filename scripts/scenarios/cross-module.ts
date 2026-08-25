@@ -992,12 +992,12 @@ export async function run(ctx: Ctx): Promise<void> {
       const raw = n((await req("GET", `/gl/accounts/${a.id}/ledger?asOf=${TODAY}`)).body?.balance?.balance);
       const natural = a.naturalBalance === "credit" ? -raw : raw;
       if (a.type === "asset" && code.startsWith("13")) cashSum += natural;
-      if (a.type === "asset" && code.startsWith("11")) receivableSum += natural;
+      if (a.type === "asset" && (code === "1105" || code === "1110")) receivableSum += natural;
       if (a.type === "liability" && code !== OUTPUT_TAX) payableSum += natural;
     }
 
     checkEq("dashboard cash equals the sum of every 13xx cash/bank account, this file's movements included", n(glBlock?.cash), cashSum);
-    checkEq("dashboard receivables equals the sum of every 11xx asset account", n(glBlock?.receivables), receivableSum);
+    checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/defects.md D37)", n(glBlock?.receivables), receivableSum);
     checkEq("dashboard payables equals the sum of every liability account except output VAT", n(glBlock?.payables), payableSum);
   });
 

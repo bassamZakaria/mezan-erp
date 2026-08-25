@@ -455,7 +455,7 @@ export async function run(ctx: Ctx): Promise<void> {
     check("/reports/aging/customers responds", aging.ok, `status ${aging.status}`);
     if (dash.ok && aging.ok) {
       checkEq(
-        "dashboard gl.receivables = aging.customers grand total (DSH-03 vs RPT-18) — gl.receivables sums EVERY code-11xx asset account (trade AR 1105, installment AR 1110, retention 1150, employee advances 1160, and the credit-natural inventory-provision 1190 sign-flipped positive), while aging.customers covers only sales-invoice trade AR; investigate whether that's the intended scope of \"receivables\" before treating this as a single root cause",
+        "dashboard gl.receivables = aging.customers grand total (DSH-03 vs RPT-18) — one meaning of \"receivables\" across the tile and the report (docs/defects.md D37 — the regression guard)",
         n(dash.body?.gl?.receivables),
         n(aging.body?.grandTotals?.total),
       );

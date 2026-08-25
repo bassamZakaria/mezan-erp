@@ -1309,6 +1309,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
     reports: {
       allocatable: vouchers.invoices,
+      // The customer aging ladder has to net every credit the GL already
+      // posted against 1105, or it and the dashboard tile report two
+      // different receivables (D37).
+      salesReturnDocs: salesReturns,
+      cheques,
+      voucherDocuments: vouchers.documents,
+      allocations: vouchers.allocations,
       salesInvoices,
       purchaseInvoices,
       customers,

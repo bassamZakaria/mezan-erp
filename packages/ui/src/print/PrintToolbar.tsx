@@ -1,4 +1,5 @@
 import { Button } from "../primitives/atoms";
+import { useTranslation } from "../i18n";
 import { useElectronPrintToPdf } from "./useElectronPrintToPdf";
 
 /**
@@ -8,12 +9,13 @@ import { useElectronPrintToPdf } from "./useElectronPrintToPdf";
  * `webContents.printToPDF` on the desktop.
  */
 export function PrintToolbar({ pageSize }: { pageSize: "A4" | "A5" }) {
+  const { t } = useTranslation();
   const { isAvailable, printToPdf } = useElectronPrintToPdf();
 
   return (
     <div className="mb-[14px] flex items-center gap-[9px] print:hidden">
       <Button variant="primary" onClick={() => window.print()}>
-        طباعة
+        {t("print.toolbar.print")}
       </Button>
       {isAvailable ? (
         <Button
@@ -22,7 +24,7 @@ export function PrintToolbar({ pageSize }: { pageSize: "A4" | "A5" }) {
             void printToPdf({ pageSize });
           }}
         >
-          حفظ PDF
+          {t("print.toolbar.savePdf")}
         </Button>
       ) : null}
     </div>

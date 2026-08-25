@@ -1,4 +1,5 @@
 import { cn } from "../lib/cn";
+import { useTranslation } from "../i18n";
 import { formatNumber } from "../lib/format";
 import { Card } from "./atoms";
 
@@ -110,6 +111,7 @@ export function TrendChart({
   height = 210,
   className,
 }: TrendChartProps) {
+  const { t } = useTranslation();
   const scaleY = buildScale(series, height);
   const gridLines = [0.19, 0.43, 0.67, 0.9].map((f) => f * height);
 
@@ -191,7 +193,7 @@ export function TrendChart({
         <caption>{title}</caption>
         <thead>
           <tr>
-            <th scope="col">الفترة</th>
+            <th scope="col">{t("charts.period")}</th>
             {series.map((s) => (
               <th key={s.key} scope="col">
                 {s.label}

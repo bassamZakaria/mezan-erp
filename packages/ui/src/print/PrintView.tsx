@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 import { formatDate, formatNumber } from "../lib/format";
 import { Money } from "../primitives/atoms";
@@ -26,13 +27,14 @@ export interface PrintViewProps {
 const PAGE_WIDTH_MM: Record<"A4" | "A5", number> = { A4: 210, A5: 148 };
 
 export function PrintView({ config, document, showToolbar = true, className }: PrintViewProps) {
+  const { t } = useTranslation();
   const effective = useMemo(
     () => resolvePrintTemplateConfig(config, document.documentType),
     [config, document.documentType],
   );
 
   const { identity, header, content, columns, totals: totalsConfig, footer, watermark } = effective;
-  const currencyLabel = document.totals.currencyLabel ?? "ج.م";
+  const currencyLabel = document.totals.currencyLabel ?? t("ui.currency");
   const pageWidthMm = PAGE_WIDTH_MM[effective.pageSize];
   const signatureLabels = footer.signatureLabels.slice(0, footer.signatureCount);
   while (signatureLabels.length < footer.signatureCount) signatureLabels.push("");
@@ -75,16 +77,16 @@ export function PrintView({ config, document, showToolbar = true, className }: P
               {identity.subtitle ? <p className="text-[11px] text-ink-muted">{identity.subtitle}</p> : null}
               <div className="mt-[4px] flex flex-col gap-[1px] text-[10.5px] text-ink-muted">
                 {header.showAddress && document.company.address ? <span>{document.company.address}</span> : null}
-                {header.showPhone && document.company.phone ? <span>هاتف: {document.company.phone}</span> : null}
+                {header.showPhone && document.company.phone ? <span>{t("print.company.phone", { value: document.company.phone })}</span> : null}
                 {header.showEmail && document.company.email ? <span>{document.company.email}</span> : null}
                 {header.showTaxNumber && document.company.taxNumber ? (
                   <span>
-                    الرقم الضريبي: <span className="mz-num">{document.company.taxNumber}</span>
+                    {t("print.company.taxNumber")} <span className="mz-num">{document.company.taxNumber}</span>
                   </span>
                 ) : null}
                 {header.showCommercialRegister && document.company.commercialRegister ? (
                   <span>
-                    السجل التجاري: <span className="mz-num">{document.company.commercialRegister}</span>
+                    {t("print.company.commercialRegister")} <span className="mz-num">{document.company.commercialRegister}</span>
                   </span>
                 ) : null}
               </div>
@@ -109,18 +111,18 @@ export function PrintView({ config, document, showToolbar = true, className }: P
               <h2 className="font-display text-[16px] font-bold text-ink">{document.documentTypeLabel}</h2>
               <div className="mt-[4px] flex flex-col gap-[2px] text-[11px] text-ink-muted">
                 <span>
-                  رقم المستند: <span className="mz-num font-semibold text-ink">{document.number}</span>
+                  {t("print.doc.number")} <span className="mz-num font-semibold text-ink">{document.number}</span>
                 </span>
                 <span>
-                  التاريخ: <span className="mz-num">{formatDate(document.date)}</span>
+                  {t("print.doc.date")} <span className="mz-num">{formatDate(document.date)}</span>
                 </span>
                 {document.dueDate ? (
                   <span>
-                    تاريخ الاستحقاق: <span className="mz-num">{formatDate(document.dueDate)}</span>
+                    {t("print.doc.dueDate")} <span className="mz-num">{formatDate(document.dueDate)}</span>
                   </span>
                 ) : null}
-                {content.showBranchName && document.branchName ? <span>الفرع: {document.branchName}</span> : null}
-                {content.showWarehouseName && document.warehouseName ? <span>المستودع: {document.warehouseName}</span> : null}
+                {content.showBranchName && document.branchName ? <span>{t("print.doc.branch", { value: document.branchName })}</span> : null}
+                {content.showWarehouseName && document.warehouseName ? <span>{t("print.doc.warehouse", { value: document.warehouseName })}</span> : null}
               </div>
             </div>
             {document.statusLabel ? (
@@ -140,12 +142,12 @@ export function PrintView({ config, document, showToolbar = true, className }: P
               <div className="mt-[2px] flex flex-wrap gap-x-[14px] gap-y-[2px] text-[10.5px] text-ink-muted">
                 {document.party.code ? (
                   <span>
-                    الكود: <span className="mz-num">{document.party.code}</span>
+                    {t("print.party.code")} <span className="mz-num">{document.party.code}</span>
                   </span>
                 ) : null}
                 {content.showPartyTaxNumber && document.party.taxNumber ? (
                   <span>
-                    الرقم الضريبي: <span className="mz-num">{document.party.taxNumber}</span>
+                    {t("print.party.taxNumber")} <span className="mz-num">{document.party.taxNumber}</span>
                   </span>
                 ) : null}
                 {document.party.address ? <span>{document.party.address}</span> : null}
@@ -155,21 +157,21 @@ export function PrintView({ config, document, showToolbar = true, className }: P
           ) : null}
 
           {content.showPaymentTerms && document.paymentTerms ? (
-            <p className="text-[11px] text-ink-muted">شروط الدفع: {document.paymentTerms}</p>
+            <p className="text-[11px] text-ink-muted">{t("print.paymentTerms", { value: document.paymentTerms })}</p>
           ) : null}
 
           <table className="w-full border-collapse text-[11px]">
             <thead>
               <tr className="border-y-2 text-start" style={{ borderColor: identity.primaryColor }}>
-                {columns.showItemCode ? <th className="p-[6px_8px] text-start font-semibold">الكود</th> : null}
-                {columns.showDescription ? <th className="p-[6px_8px] text-start font-semibold">الصنف</th> : null}
-                {columns.showUnit ? <th className="p-[6px_8px] text-start font-semibold">الوحدة</th> : null}
-                <th className="p-[6px_8px] text-end font-semibold">الكمية</th>
-                <th className="p-[6px_8px] text-end font-semibold">السعر</th>
-                {columns.showLineDiscount ? <th className="p-[6px_8px] text-end font-semibold">الخصم</th> : null}
-                {columns.showLineTaxPercent ? <th className="p-[6px_8px] text-end font-semibold">الضريبة %</th> : null}
-                {columns.showLineTaxAmount ? <th className="p-[6px_8px] text-end font-semibold">مبلغ الضريبة</th> : null}
-                <th className="p-[6px_8px] text-end font-semibold">الإجمالي</th>
+                {columns.showItemCode ? <th className="p-[6px_8px] text-start font-semibold">{t("print.col.code")}</th> : null}
+                {columns.showDescription ? <th className="p-[6px_8px] text-start font-semibold">{t("print.col.item")}</th> : null}
+                {columns.showUnit ? <th className="p-[6px_8px] text-start font-semibold">{t("print.col.unit")}</th> : null}
+                <th className="p-[6px_8px] text-end font-semibold">{t("print.col.qty")}</th>
+                <th className="p-[6px_8px] text-end font-semibold">{t("print.col.price")}</th>
+                {columns.showLineDiscount ? <th className="p-[6px_8px] text-end font-semibold">{t("print.col.discount")}</th> : null}
+                {columns.showLineTaxPercent ? <th className="p-[6px_8px] text-end font-semibold">{t("print.col.taxPercent")}</th> : null}
+                {columns.showLineTaxAmount ? <th className="p-[6px_8px] text-end font-semibold">{t("print.col.taxAmount")}</th> : null}
+                <th className="p-[6px_8px] text-end font-semibold">{t("print.col.total")}</th>
               </tr>
             </thead>
             <tbody>
@@ -199,13 +201,13 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             <div className="flex w-full max-w-[260px] flex-col gap-[4px] text-[11.5px]">
               {totalsConfig.showSubtotal ? (
                 <div className="flex justify-between">
-                  <span className="text-ink-muted">المجموع الفرعي</span>
+                  <span className="text-ink-muted">{t("print.totals.subtotal")}</span>
                   <Money value={document.totals.subtotal} currencyLabel={currencyLabel} />
                 </div>
               ) : null}
               {totalsConfig.showTotalDiscount && document.totals.totalDiscount ? (
                 <div className="flex justify-between">
-                  <span className="text-ink-muted">إجمالي الخصم</span>
+                  <span className="text-ink-muted">{t("print.totals.totalDiscount")}</span>
                   <Money value={document.totals.totalDiscount} currencyLabel={currencyLabel} />
                 </div>
               ) : null}
@@ -221,7 +223,7 @@ export function PrintView({ config, document, showToolbar = true, className }: P
                   ))
                 : null}
               <div className="flex justify-between border-t pt-[6px] text-[13.5px] font-bold" style={{ borderColor: identity.primaryColor }}>
-                <span>الإجمالي</span>
+                <span>{t("print.totals.grandTotal")}</span>
                 <Money value={document.totals.grandTotal} currencyLabel={currencyLabel} />
               </div>
             </div>
@@ -233,7 +235,7 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             </p>
           ) : null}
 
-          {content.showNotes && document.notes ? <p className="text-[10.5px] text-ink-muted">ملاحظات: {document.notes}</p> : null}
+          {content.showNotes && document.notes ? <p className="text-[10.5px] text-ink-muted">{t("print.notes", { value: document.notes })}</p> : null}
 
           {footer.showSignatures && footer.signatureCount > 0 ? (
             <div className="mt-[10px] grid gap-[24px] pt-[18px]" style={{ gridTemplateColumns: `repeat(${footer.signatureCount}, 1fr)` }}>

@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 import { Barcode128 } from "./Barcode128";
 import { PrintToolbar } from "./PrintToolbar";
@@ -78,10 +79,12 @@ function chunk<T>(items: readonly T[], size: number): T[][] {
 export function LabelSheetView({
   layout,
   entries,
-  currencyLabel = "ج.م",
+  currencyLabel,
   showToolbar = true,
   className,
 }: LabelSheetViewProps) {
+  const { t } = useTranslation();
+  const currency = currencyLabel ?? t("ui.currency");
   const perPage = Math.max(1, layout.columns * layout.rows);
   const page = PAGE_MM[layout.pageSize];
 
@@ -106,7 +109,7 @@ export function LabelSheetView({
 
       {pages.length === 0 ? (
         <p className="rounded-md border border-border bg-surface-2 p-[14px] text-[12.5px] text-ink-muted print:hidden">
-          لا توجد ملصقات للطباعة — اختر أصنافاً وحدّد عدد النسخ.
+          {t("print.labels.empty")}
         </p>
       ) : null}
 
@@ -170,7 +173,7 @@ export function LabelSheetView({
 
                 {layout.showPrice && entry.price ? (
                   <div className="font-bold leading-none" style={{ fontSize: `${priceSizePt}pt` }}>
-                    <span className="mz-num">{trimMoneyString(entry.price)}</span> {currencyLabel}
+                    <span className="mz-num">{trimMoneyString(entry.price)}</span> {currency}
                   </div>
                 ) : null}
               </div>

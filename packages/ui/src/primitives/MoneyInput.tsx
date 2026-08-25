@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 import { formatMoney } from "../lib/format";
 
@@ -31,7 +32,7 @@ function sanitizeDraft(input: string): string {
 export function MoneyInput({
   value,
   onChange,
-  currencyLabel = "ج.م",
+  currencyLabel,
   placeholder = "0.00",
   disabled,
   id,
@@ -39,6 +40,7 @@ export function MoneyInput({
   className,
   ...aria
 }: MoneyInputProps) {
+  const { t } = useTranslation();
   const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState("");
 
@@ -83,7 +85,7 @@ export function MoneyInput({
         className="mz-num w-full flex-1 border-none bg-transparent text-end text-[13px] text-ink outline-none placeholder:text-ink-faint"
         {...aria}
       />
-      <span className="font-ar text-[12px] font-semibold text-ink-faint">{currencyLabel}</span>
+      <span className="font-ar text-[12px] font-semibold text-ink-faint">{currencyLabel ?? t("ui.currency")}</span>
     </div>
   );
 }

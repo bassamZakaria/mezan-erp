@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 
 /**
@@ -81,13 +82,14 @@ export interface Barcode128Props {
 }
 
 export function Barcode128({ value, heightModules = 40, className, style }: Barcode128Props) {
+  const { t } = useTranslation();
   const symbol = useMemo(() => encodeCode128B(value), [value]);
   if (!symbol) return null;
 
   return (
     <svg
       role="img"
-      aria-label={`باركود ${value}`}
+      aria-label={t("print.barcode.label", { value })}
       viewBox={`0 0 ${symbol.totalModules} ${heightModules}`}
       preserveAspectRatio="none"
       className={cn("block h-full w-full", className)}

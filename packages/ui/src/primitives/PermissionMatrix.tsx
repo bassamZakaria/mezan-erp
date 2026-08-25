@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
+import { useTranslation } from "../i18n";
 import { Card } from "./atoms";
 
 /**
@@ -73,10 +74,11 @@ export function PermissionMatrix({
   onToggleModule,
   searchValue,
   onSearchChange,
-  searchPlaceholder = "بحث بالاسم أو الكود…",
+  searchPlaceholder,
   defaultCollapsedModuleKeys = [],
   className,
 }: PermissionMatrixProps) {
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() => {
     const initial: Record<string, boolean> = {};
     for (const key of defaultCollapsedModuleKeys) initial[key] = true;
@@ -109,8 +111,8 @@ export function PermissionMatrix({
             type="text"
             value={query}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder}
-            aria-label={searchPlaceholder}
+            placeholder={searchPlaceholder ?? t("permissions.searchPlaceholder")}
+            aria-label={searchPlaceholder ?? t("permissions.searchPlaceholder")}
             className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
@@ -130,7 +132,7 @@ export function PermissionMatrix({
                 {onToggleModule ? (
                   <input
                     type="checkbox"
-                    aria-label={`تحديد الكل — ${mod.label}`}
+                    aria-label={t("permissions.selectAllIn", { module: mod.label })}
                     checked={allSelected}
                     ref={(el) => {
                       if (el) el.indeterminate = someSelected;
@@ -188,7 +190,7 @@ export function PermissionMatrix({
         })}
 
         {filteredModules.length === 0 ? (
-          <div className="p-8 text-center text-sm text-ink-muted">لا توجد صلاحيات مطابقة</div>
+          <div className="p-8 text-center text-sm text-ink-muted">{t("permissions.empty")}</div>
         ) : null}
       </div>
     </div>
@@ -196,6 +198,7 @@ export function PermissionMatrix({
 }
 
 function PermissionCard({ item, onToggle }: { item: PermissionMatrixItem; onToggle: (code: string) => void }) {
+  const { t } = useTranslation();
   return (
     <label
       data-permission-code={item.code}
@@ -218,20 +221,20 @@ function PermissionCard({ item, onToggle }: { item: PermissionMatrixItem; onTogg
         <span className="flex flex-wrap items-center gap-[6px]">
           <span className="text-[12.5px] font-semibold text-ink">{item.label}</span>
           {item.sensitive ? (
-            <span aria-label="صلاحية حساسة" title="صلاحية حساسة" className="text-[11px] text-warning-ink">
+            <span aria-label={t("permissions.sensitive")} title={t("permissions.sensitive")} className="text-[11px] text-warning-ink">
               ⚠
             </span>
           ) : null}
           {item.platformAdminOnly ? (
             <span className="rounded-pill bg-surface-3 px-[6px] py-[1px] text-[9.5px] font-bold text-ink-faint">
-              مدير المنصة فقط
+              {t("permissions.platformAdminOnly")}
             </span>
           ) : null}
         </span>
         <span className="mz-lat font-mono text-[10.5px] text-ink-faint">{item.code}</span>
         {item.dependsOn && item.dependsOn.length > 0 ? (
           <span className="text-[10.5px] text-ink-faint">
-            يعتمد على: <span className="mz-lat font-mono">{item.dependsOn.join("، ")}</span>
+            {t("permissions.dependsOn")} <span className="mz-lat font-mono">{item.dependsOn.join(t("permissions.dependsOnSeparator"))}</span>
           </span>
         ) : null}
       </span>

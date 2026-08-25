@@ -35,14 +35,14 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               القاهرة، مصر — شارع التحرير
             </span>
             <span>
-              هاتف: 
-              0223456789
+              هاتف: 0223456789
             </span>
             <span>
               info@cyag-demo.com
             </span>
             <span>
-              الرقم الضريبي: 
+              الرقم الضريبي:
+               
               <span
                 class="mz-num"
               >
@@ -65,7 +65,8 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
             class="mt-[4px] flex flex-col gap-[2px] text-[11px] text-ink-muted"
           >
             <span>
-              رقم المستند: 
+              رقم المستند:
+               
               <span
                 class="mz-num font-semibold text-ink"
               >
@@ -73,7 +74,8 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               </span>
             </span>
             <span>
-              التاريخ: 
+              التاريخ:
+               
               <span
                 class="mz-num"
               >
@@ -81,7 +83,8 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               </span>
             </span>
             <span>
-              تاريخ الاستحقاق: 
+              تاريخ الاستحقاق:
+               
               <span
                 class="mz-num"
               >
@@ -89,8 +92,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
               </span>
             </span>
             <span>
-              الفرع: 
-              الفرع الرئيسي
+              الفرع: الفرع الرئيسي
             </span>
           </div>
         </div>
@@ -118,7 +120,8 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
           class="mt-[2px] flex flex-wrap gap-x-[14px] gap-y-[2px] text-[10.5px] text-ink-muted"
         >
           <span>
-            الكود: 
+            الكود:
+             
             <span
               class="mz-num"
             >
@@ -126,7 +129,8 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
             </span>
           </span>
           <span>
-            الرقم الضريبي: 
+            الرقم الضريبي:
+             
             <span
               class="mz-num"
             >
@@ -146,8 +150,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
       <p
         class="text-[11px] text-ink-muted"
       >
-        شروط الدفع: 
-        30 يوماً من تاريخ الفاتورة
+        شروط الدفع: 30 يوماً من تاريخ الفاتورة
       </p>
       <table
         class="w-full border-collapse text-[11px]"
@@ -363,8 +366,7 @@ exports[`PrintView > matches the rendered structure snapshot for the sample invo
       <p
         class="text-[10.5px] text-ink-muted"
       >
-        ملاحظات: 
-        يرجى التأكد من الكمية عند الاستلام.
+        ملاحظات: يرجى التأكد من الكمية عند الاستلام.
       </p>
       <div
         class="mt-[10px] grid gap-[24px] pt-[18px]"

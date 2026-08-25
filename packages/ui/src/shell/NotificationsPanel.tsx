@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { useTranslation } from "../i18n";
 import { cn } from "../lib/cn";
 
 /**
@@ -50,6 +51,7 @@ export function NotificationsPanel({
   onViewAll,
   loading,
 }: NotificationsPanelProps) {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
@@ -67,18 +69,18 @@ export function NotificationsPanel({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="الإشعارات"
+        aria-label={t("notifications.title")}
         className="absolute end-0 top-[calc(100%+8px)] z-[71] flex max-h-[70vh] w-[380px] max-w-[92vw] flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-2"
       >
         <div className="flex items-center justify-between border-b border-border px-[16px] py-[13px]">
           <div className="flex items-center gap-[8px]">
-            <h3 className="font-display text-[14px] font-bold text-ink">الإشعارات</h3>
+            <h3 className="font-display text-[14px] font-bold text-ink">{t("notifications.title")}</h3>
             {unreadCount > 0 ? (
               <span className="mz-num rounded-pill bg-brand-soft px-[8px] py-[1px] text-[11px] font-bold text-brand">{unreadCount}</span>
             ) : null}
           </div>
           <button type="button" onClick={onMarkAllRead} className="text-[11.5px] font-semibold text-brand hover:underline">
-            تحديد الكل كمقروء
+            {t("notifications.markAllRead")}
           </button>
         </div>
 
@@ -93,16 +95,16 @@ export function NotificationsPanel({
                 tab === key ? "bg-brand text-brand-ink" : "bg-surface-2 text-ink-muted hover:text-ink",
               )}
             >
-              {key === "all" ? "الكل" : `غير مقروء${unreadCount > 0 ? ` ${unreadCount}` : ""}`}
+              {key === "all" ? t("notifications.tabAll") : unreadCount > 0 ? t("notifications.tabUnreadWithCount", { count: String(unreadCount) }) : t("notifications.tabUnread")}
             </button>
           ))}
         </div>
 
         <div className="flex-1 overflow-y-auto">
           {loading ? (
-            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">جارِ التحميل…</p>
+            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">{t("notifications.loading")}</p>
           ) : items.length === 0 ? (
-            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">لا توجد إشعارات</p>
+            <p className="px-[16px] py-[24px] text-center text-[12.5px] text-ink-faint">{t("notifications.empty")}</p>
           ) : (
             items.map((item) => (
               <button
@@ -137,7 +139,7 @@ export function NotificationsPanel({
               onClick={onViewAll}
               className="w-full rounded-md py-[8px] text-center text-[12.5px] font-semibold text-brand hover:bg-brand-soft"
             >
-              عرض جميع الإشعارات
+              {t("notifications.viewAll")}
             </button>
           </div>
         ) : null}

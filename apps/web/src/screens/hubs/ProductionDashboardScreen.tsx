@@ -63,7 +63,7 @@ export function ProductionDashboardScreen() {
     <div className="flex flex-col gap-[22px]">
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
-          <div className="mz-eyebrow">Manufacturing · Production</div>
+          <div className="mz-eyebrow">{t("eyebrow.manufacturing.production")}</div>
           <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("production.productionDashboard")}</h1>
           <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("production.theLiveStateOfThe")}</p>
         </div>

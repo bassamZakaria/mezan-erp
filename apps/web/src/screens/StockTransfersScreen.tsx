@@ -331,7 +331,7 @@ function CreateTransferView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">Inventory · New Stock Transfer</div>
+          <div className="mz-eyebrow">{t("eyebrow.inventory.newStockTransfer")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("stockXfer.newStockTransfer")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">

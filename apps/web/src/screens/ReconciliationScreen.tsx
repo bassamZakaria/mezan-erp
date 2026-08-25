@@ -43,7 +43,7 @@ export function ReconciliationScreen() {
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">Accounting · Reconciliation</div>
+          <div className="mz-eyebrow">{t("eyebrow.accounting.reconciliation")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("reconciliation.balanceReconciliation")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("reconciliation.reconcilingSubLedgerBalancesAgainst")}</p>
         </div>

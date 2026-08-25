@@ -200,7 +200,7 @@ export function CostCentersScreen() {
       ) : null}
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">Accounting · Cost Centers</div>
+          <div className="mz-eyebrow">{t("eyebrow.accounting.costCenters")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("costCentres.costCentres")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">
             {t("costCentres.costCentresLetYouSee")}

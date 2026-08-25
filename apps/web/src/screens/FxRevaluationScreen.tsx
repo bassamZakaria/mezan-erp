@@ -77,7 +77,7 @@ export function FxRevaluationScreen() {
   return (
     <div className="w-full">
       <div className="mb-[16px]">
-        <div className="mz-eyebrow">Accounting · FX Revaluation</div>
+        <div className="mz-eyebrow">{t("eyebrow.accounting.fxRevaluation")}</div>
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fx.foreignCurrencyRevaluation")}</h1>
         <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("fx.thisPostsAnEntryRestating")}</p>
       </div>

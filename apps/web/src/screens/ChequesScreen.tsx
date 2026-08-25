@@ -439,7 +439,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">Financial Papers · New Cheque</div>
+          <div className="mz-eyebrow">{t("eyebrow.financialPapers.newCheque")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("cheques.newCheque")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">

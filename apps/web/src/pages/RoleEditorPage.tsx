@@ -118,7 +118,7 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-start justify-between gap-[14px]">
         <div>
-          <div className="mz-eyebrow">Settings · Roles</div>
+          <div className="mz-eyebrow">{t("eyebrow.settings.roles")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{role ? t("roles.editor.title.edit") : t("roles.editor.title.new")}</h1>
         </div>
         <div className="flex gap-[9px]">

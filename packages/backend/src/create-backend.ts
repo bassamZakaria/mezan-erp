@@ -4,6 +4,7 @@ import {
   StockLedgerService,
   applyAllocatedSettlement,
   postJournalEntry,
+  resolvePrice,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   createTreasuryLedgerReader,
@@ -1055,6 +1056,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
       events: salesInvoiceEvents,
       allocatable: vouchers.invoices,
+      // The customer's own price list, consulted SERVER-side. The engine
+      // (resolvePrice) always existed and no route called it, so the whole
+      // pricing order held only in the browser (D35).
+      pricing: {
+        listPriceFor: async (customerId: string, itemId: string) => {
+          const customer = await customers.findById(customerId);
+          if (!customer?.priceListId) return null;
+          const list = await priceLists.findById(customer.priceListId);
+          if (!list) return null;
+          const item = await items.findById(itemId);
+          const fallback = item?.salePrice ?? Money.zero();
+          const resolved = resolvePrice(list, itemId, fallback);
+          return resolved.scaled === 0n ? null : resolved;
+        },
+      },
     },
     cheques: {
       cheques,

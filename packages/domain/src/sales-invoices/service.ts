@@ -64,6 +64,30 @@ export interface SalesInvoiceCreditControlDeps {
   readonly getPolicy: () => Promise<{ readonly enabled: boolean; readonly mode: CreditControlMode }>;
 }
 
+/**
+ * The customer's own price list, consulted server-side. A customer can be
+ * assigned a list quoting 80.00 and an invoice line at 5.00 for the same item
+ * was accepted without a word, because the pricing engine was called from no
+ * route at all — the whole ordering held only in the browser (D35).
+ *
+ * This WARNS rather than refuses, the same way credit control's WARNING mode
+ * does: a negotiated price below the list is a real thing a salesperson does,
+ * and refusing it outright would be a policy this product has not been asked
+ * for. What the product owes the tenant is that nobody can do it unknowingly.
+ */
+export interface SalesInvoicePricingDeps {
+  /** The list price for this customer and item, or null when no list applies. */
+  listPriceFor(customerId: string, itemId: string): Promise<Money | null>;
+}
+
+/** One line charged below the customer's list price. */
+export interface PricingVariance {
+  readonly lineId: string;
+  readonly itemId: string;
+  readonly listPrice: Money;
+  readonly chargedPrice: Money;
+}
+
 /** The workflow action gated on confirm (docs/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
 
@@ -78,6 +102,8 @@ export interface SalesInvoiceServiceDeps {
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   /** Optional promotion evaluation on confirm; when omitted, no invoice ever records a promotion. */
   readonly promotions?: SalesInvoicePromotionHook;
+  /** Customer price lists; when omitted, no invoice is ever checked against one. */
+  readonly pricing?: SalesInvoicePricingDeps;
   readonly audit?: AuditSink;
   /**
    * Receivables sub-ledger. Without it a confirmed invoice never becomes an
@@ -140,6 +166,8 @@ export interface ConfirmSalesInvoiceResult {
   readonly held: boolean;
   /** Set when credit control ran and the customer is over their limit in WARNING mode; null otherwise (incl. when credit control isn't configured, or the customer is within limit). */
   readonly creditWarning: CreditCheckResult | null;
+  /** Lines charged below the customer's assigned price list; empty when none, or when no list applies. */
+  readonly pricingVariances: readonly PricingVariance[];
 }
 
 export class SalesInvoiceService {
@@ -206,7 +234,7 @@ export class SalesInvoiceService {
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
-        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null };
+        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [] };
         assertTransition(id, existing.status, "pending");
         const held: SalesInvoice = {
           ...existing,
@@ -215,7 +243,7 @@ export class SalesInvoiceService {
         };
         await this.deps.repo.update(held);
         this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true, creditWarning: null };
+        return { invoice: held, held: true, creditWarning: null, pricingVariances: [] };
       }
     }
 
@@ -228,6 +256,7 @@ export class SalesInvoiceService {
     const totals = this.totalsOf(promoted);
 
     const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
+    const pricingVariances = await this.checkPricing(promoted);
 
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next({ branchId: existing.branchId });
@@ -296,7 +325,7 @@ export class SalesInvoiceService {
 
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false, creditWarning };
+    return { invoice: confirmed, held: false, creditWarning, pricingVariances };
   }
 
   /**
@@ -393,6 +422,21 @@ export class SalesInvoiceService {
     const updated: SalesInvoice = { ...existing, amountPaid: newPaid, status: nextStatus };
     await this.deps.repo.update(updated);
     return updated;
+  }
+
+  /** Lines charged below the customer's own list price (D35). */
+  private async checkPricing(invoice: SalesInvoice): Promise<readonly PricingVariance[]> {
+    const pricing = this.deps.pricing;
+    if (!pricing) return [];
+    const out: PricingVariance[] = [];
+    for (const line of invoice.lines) {
+      const listPrice = await pricing.listPriceFor(invoice.customerId, line.itemId);
+      if (!listPrice) continue;
+      if (line.unitPrice.scaled < listPrice.scaled) {
+        out.push({ lineId: line.lineId, itemId: line.itemId, listPrice, chargedPrice: line.unitPrice });
+      }
+    }
+    return out;
   }
 
   // --- internals ---

@@ -881,7 +881,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X63 — price list, promotion and credit limit in one document
   // ---------------------------------------------------------------------------
-  await scenario("x63 · three mechanisms, one number: the credit check sees the promoted price — but the price list is never consulted by the server at all", async () => {
+  await scenario("x63 · three mechanisms, one number: the credit check sees the promoted price, and the server knows when a line is under the customer's list", async () => {
     const itemId = "SCN-S-PRICED-ITEM";
     await req("POST", "/items", {
       id: itemId, code: "SCN-S-PRICED", nameAr: "صنف بقائمة أسعار", type: "service",
@@ -927,17 +927,35 @@ export async function run(ctx: Ctx): Promise<void> {
       `status ${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`,
     );
 
-    // Now the half the server does not do.
+    // A line under the customer's own list price is surfaced, not silently taken.
     const wrongPrice = await req("POST", "/sales-invoices", {
       id: "SCN-S-INV-OFFLIST", date: TODAY, dueDate: "2026-09-23", customerId, customerNameAr: "عميل بقائمة أسعار وحد ائتماني",
       warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
       lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بقائمة أسعار", isStock: false, qty: "1", unitPrice: "5.00", taxRatePercent: VAT, revenueAccountId: REVENUE }],
     });
+    check("an under-list draft is still accepted — a negotiated price is a real thing", wrongPrice.status === 201, `status ${wrongPrice.status} ${JSON.stringify(wrongPrice.body).slice(0, 200)}`);
+    const offList = await req("POST", "/sales-invoices/SCN-S-INV-OFFLIST/confirm", {});
+    check("and it confirms, because this warns rather than refuses (the same shape credit control's WARNING mode uses)", offList.status === 200, `status ${offList.status} ${JSON.stringify(offList.body).slice(0, 200)}`);
+    const variances = (offList.body?.pricingVariances ?? []) as any[];
     check(
-      "FINDING — the price list is a lookup table nothing consults: the invoice routes take whatever unitPrice the client sends, so a line at 5.00 against an 80.00 list price is accepted without a warning. " +
-        "The ordering price list → promotion → credit limit holds only for as long as the UI remembers to apply it; nothing server-side enforces it.",
-      wrongPrice.status === 201,
-      `status ${wrongPrice.status} ${JSON.stringify(wrongPrice.body).slice(0, 200)}`,
+      "but the server SAYS SO: it consulted the customer's price list and reported the line charged under it (docs/defects.md D35 — the regression guard)",
+      variances.length === 1 && variances[0]?.lineId === "L1" && n(variances[0]?.listPrice) === 80 && n(variances[0]?.chargedPrice) === 5,
+      JSON.stringify(variances).slice(0, 250),
+    );
+
+    // Credit control has done its job above; restore it before the last check so
+    // the 800 limit does not stand in for the pricing signal being measured.
+    await req("PUT", "/settings", { ...settings });
+    const onList = await req("POST", "/sales-invoices", {
+      id: "SCN-S-INV-ONLIST", date: TODAY, dueDate: "2026-09-23", customerId, customerNameAr: "عميل بقائمة أسعار وحد ائتماني",
+      warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بقائمة أسعار", isStock: false, qty: "1", unitPrice: "80.00", taxRatePercent: VAT, revenueAccountId: REVENUE }],
+    });
+    const onListConfirm = await req("POST", "/sales-invoices/SCN-S-INV-ONLIST/confirm", {});
+    check(
+      "a line AT the list price reports nothing — the warning is a signal, not noise on every sale",
+      onList.status === 201 && onListConfirm.status === 200 && (onListConfirm.body?.pricingVariances ?? []).length === 0,
+      `create=${onList.status} confirm=${onListConfirm.status} variances=${JSON.stringify(onListConfirm.body?.pricingVariances ?? [])}`,
     );
 
     await req("PUT", "/settings", { ...settings });

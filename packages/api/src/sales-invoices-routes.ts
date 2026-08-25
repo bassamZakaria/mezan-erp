@@ -41,6 +41,7 @@ import {
   type AuditSink,
   type CreditCheckResult,
   can,
+  type SalesInvoicePricingDeps,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -74,6 +75,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   /** Evaluates promotions on confirm (docs/catalog/01 §"العروض"); omit and no invoice records one. */
   readonly promotions?: SalesInvoicePromotionHook;
+  /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
+  readonly pricing?: SalesInvoicePricingDeps;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -301,6 +304,7 @@ export function createSalesInvoicesRoutes(
       workflow: deps.workflow,
       creditControl: deps.creditControl,
       promotions: deps.promotions,
+      pricing: deps.pricing,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,
@@ -422,6 +426,14 @@ export function createSalesInvoicesRoutes(
         ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
         held: result.held,
         creditWarning: serializeCreditWarning(result.creditWarning),
+        // Lines charged under the customer's own price list (D35). Empty when
+        // no list applies, so a tenant that prices freely sees nothing new.
+        pricingVariances: result.pricingVariances.map((v) => ({
+          lineId: v.lineId,
+          itemId: v.itemId,
+          listPrice: v.listPrice.toString(),
+          chargedPrice: v.chargedPrice.toString(),
+        })),
       });
     } catch (err) {
       return handleDomainError(c, err);

@@ -67,13 +67,19 @@ const TEMPLATE_HEADER_KEYS = [
   "import.historical.col.paidAmount",
 ] as const;
 
-/** Accepted spellings for the "نوع المستند" column, mapped back to the domain's doc-type code. */
+/**
+ * Accepted spellings for the document-type column, in EVERY locale the
+ * template can be produced in — a workbook downloaded in English and uploaded
+ * with the UI back in Arabic must still parse.
+ */
 const DOC_TYPE_BY_LABEL: Record<string, HistoricalImportFileDocType> = {
   "فاتورة مشتريات": "PURCHASE_INVOICE",
   "فاتورة": "PURCHASE_INVOICE",
+  "Purchase invoice": "PURCHASE_INVOICE",
   PURCHASE_INVOICE: "PURCHASE_INVOICE",
   "مرتجع مشتريات": "PURCHASE_RETURN",
   "مرتجع": "PURCHASE_RETURN",
+  "Purchase return": "PURCHASE_RETURN",
   PURCHASE_RETURN: "PURCHASE_RETURN",
 };
 

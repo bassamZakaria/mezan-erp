@@ -3,26 +3,39 @@ import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCrmActivities, useLeads, useOpportunities } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * إدارة علاقات العملاء hub — leads, opportunities and activities over the
  * real `/crm/*` endpoints already wired in `data/hooks.ts`.
  */
 
-const ACTIVITY_TYPE_LABEL: Record<string, string> = { call: "مكالمة", meeting: "اجتماع", todo: "مهمة", email: "بريد" };
+/** An unknown activity type shows its own code rather than a humanized key. */
+function activityTypeLabel(type: string, t: (key: AppTranslationKey) => string): string {
+  const key = ACTIVITY_TYPE_KEY[type];
+  return key ? t(key) : type;
+}
+
+const ACTIVITY_TYPE_KEY: Record<string, AppTranslationKey> = {
+  call: "crmHub.activityType.call",
+  meeting: "crmHub.activityType.meeting",
+  todo: "crmHub.activityType.todo",
+  email: "crmHub.activityType.email",
+};
 
 function num(value: string | undefined | null): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "عميل محتمل جديد", screen: "leads" },
-  { label: "فرصة جديدة", screen: "opportunities" },
-  { label: "خط المبيعات", screen: "pipeline" },
-  { label: "نشاط جديد", screen: "crm-activities" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "crmHub.newLead", screen: "leads" },
+  { label: "crmHub.newOpportunity", screen: "opportunities" },
+  { label: "crmHub.pipeline", screen: "pipeline" },
+  { label: "crmHub.newActivity", screen: "crm-activities" },
 ];
 
 export function CrmHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const leadsQuery = useLeads();
   const opportunitiesQuery = useOpportunities();
@@ -49,13 +62,13 @@ export function CrmHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">CRM</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">إدارة علاقات العملاء</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">العملاء المحتملون والفرص والأنشطة</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("crmHub.customerRelationships")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("crmHub.leadsOpportunitiesAndActivities")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -66,20 +79,20 @@ export function CrmHubScreen() {
 
       {isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات إدارة علاقات العملاء.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("crmHub.crmDataCouldNotBe")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="عملاء محتملون جدد" value={isLoading ? "—" : newLeads} sub={`من ${leads.length} عميل محتمل`} />
-        <StatCard label="الفرص المفتوحة" value={isLoading ? "—" : openOpportunities.length} sub="قيد المتابعة" />
-        <StatCard label="القيمة المتوقعة للفرص المفتوحة" value={<Money value={openPipelineValue} />} sub="إجمالي الفرص المفتوحة" />
-        <StatCard label="أنشطة قيد الانتظار" value={isLoading ? "—" : pendingActivities} sub="مكالمات واجتماعات ومهام" />
+        <StatCard label={t("crmHub.newLeads")} value={isLoading ? "—" : newLeads} sub={t("crmHub.ofLeads", { count: leads.length })} />
+        <StatCard label={t("crmHub.openOpportunities")} value={isLoading ? "—" : openOpportunities.length} sub={t("crmHub.beingFollowedUp")} />
+        <StatCard label={t("crmHub.expectedValueOfOpenOpportunities")} value={<Money value={openPipelineValue} />} sub={t("crmHub.allOpenOpportunities")} />
+        <StatCard label={t("crmHub.activitiesPending")} value={isLoading ? "—" : pendingActivities} sub={t("crmHub.callsMeetingsAndTasks")} />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">أحدث الأنشطة</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">آخر 5 أنشطة مسجّلة</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("crmHub.latestActivities")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("crmHub.theLast5ActivitiesRecorded")}</div>
         {recentActivities.length > 0 ? (
           <ul className="flex flex-col gap-[10px]">
             {recentActivities.map((a) => (
@@ -87,18 +100,18 @@ export function CrmHubScreen() {
                 <div>
                   <div className="text-[12.5px] text-ink">{a.subject}</div>
                   <div className="mt-[1px] text-[11px] text-ink-faint">
-                    {ACTIVITY_TYPE_LABEL[a.type] ?? a.type}
+                    {activityTypeLabel(a.type, t) ?? a.type}
                     {a.dueDate ? <span className="mz-num"> · {a.dueDate}</span> : null}
                   </div>
                 </div>
                 <span className="text-[11.5px] font-semibold text-ink-faint">
-                  {a.status === "pending" ? "قيد الانتظار" : a.status === "completed" ? "منجزة" : "ملغاة"}
+                  {a.status === "pending" ? t("crmHub.pending") : a.status === "completed" ? t("crmHub.done") : t("crmHub.cancelled")}
                 </span>
               </li>
             ))}
           </ul>
         ) : (
-          <p className="text-[12.5px] text-ink-muted">لا توجد أنشطة بعد — ستظهر هنا فور تسجيل أول نشاط.</p>
+          <p className="text-[12.5px] text-ink-muted">{t("crmHub.noActivitiesYetTheFirst")}</p>
         )}
       </Card>
     </div>

@@ -3,6 +3,7 @@ import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
 import { useAccounts, useDashboardSummary, useFiscalPeriods } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * المحاسبة hub — reuses the SAME `/dashboard/summary` figures the main
@@ -15,14 +16,15 @@ function num(value: string | undefined): number {
   return value ? Number(value) : 0;
 }
 
-const quickActions: { label: string; screen: ScreenKey }[] = [
-  { label: "قيد محاسبي جديد", screen: "journals" },
-  { label: "دليل الحسابات", screen: "coa" },
-  { label: "ميزان المراجعة", screen: "trial-balance-report" },
-  { label: "التقارير المالية", screen: "financial-reports" },
+const quickActions: { label: AppTranslationKey; screen: ScreenKey }[] = [
+  { label: "accountingHub.newJournalEntry", screen: "journals" },
+  { label: "accountingHub.chartOfAccounts", screen: "coa" },
+  { label: "accountingHub.trialBalance", screen: "trial-balance-report" },
+  { label: "accountingHub.financialReports", screen: "financial-reports" },
 ];
 
 export function AccountingHubScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const summaryQuery = useDashboardSummary({});
   const accountsQuery = useAccounts();
@@ -42,13 +44,13 @@ export function AccountingHubScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Accounting</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">المحاسبة</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">دليل الحسابات والقيود والفترات المالية — من القيود المرحلة فعلياً</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("accountingHub.accounting")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("accountingHub.theChartOfAccountsJournal")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           {quickActions.map((action, index) => (
             <Button key={action.screen} size="sm" variant={index === 0 ? "primary" : "default"} onClick={() => navigate(action.screen)}>
-              {action.label}
+              {t(action.label)}
             </Button>
           ))}
         </div>
@@ -59,26 +61,26 @@ export function AccountingHubScreen() {
 
       {isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات المحاسبة.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("accountingHub.accountingDataCouldNotBe")}</p>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="عدد الحسابات" value={isLoading ? "—" : accounts.length} sub="دليل الحسابات" />
-        <StatCard label="القيود المحاسبية" value={isLoading ? "—" : (summary?.counts.journalEntries ?? 0)} sub="إجمالي القيود المسجّلة" />
+        <StatCard label={t("accountingHub.accounts")} value={isLoading ? "—" : accounts.length} sub={t("accountingHub.chartOfAccounts")} />
+        <StatCard label={t("accountingHub.journalEntries")} value={isLoading ? "—" : (summary?.counts.journalEntries ?? 0)} sub={t("accountingHub.allEntriesOnRecord")} />
         <StatCard
-          label="صافي الربح"
+          label={t("accountingHub.netProfit")}
           value={<Money value={netProfit} />}
-          sub="الإيرادات − المصروفات"
+          sub={t("accountingHub.revenueExpenses")}
           subTone={netProfit < 0 ? "down" : "up"}
           valueTone={netProfit < 0 ? "danger" : "default"}
         />
-        <StatCard label="الفترات المالية المفتوحة" value={isLoading ? "—" : openPeriods} sub={`من ${periods.length} فترة`} />
+        <StatCard label={t("accountingHub.openFinancialPeriods")} value={isLoading ? "—" : openPeriods} sub={t("accountingHub.ofPeriods", { count: periods.length })} />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">أحدث القيود المرحلة</h3>
-        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">من نفس بيانات لوحة التحكم</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("accountingHub.latestPostedEntries")}</h3>
+        <div className="mb-[10px] mt-[2px] text-[11.5px] text-ink-faint">{t("accountingHub.fromTheSameDataAs")}</div>
         {summary && summary.recentActivity.length > 0 ? (
           <ul className="flex flex-col gap-[10px]">
             {summary.recentActivity.map((entry) => (
@@ -95,7 +97,7 @@ export function AccountingHubScreen() {
             ))}
           </ul>
         ) : (
-          <p className="text-[12.5px] text-ink-muted">لا يوجد نشاط بعد — ستظهر القيود المرحلة هنا.</p>
+          <p className="text-[12.5px] text-ink-muted">{t("accountingHub.noActivityYetPostedEntries")}</p>
         )}
       </Card>
     </div>

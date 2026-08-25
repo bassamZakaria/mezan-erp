@@ -13,6 +13,7 @@ import {
 } from "@mezan/domain";
 import { ReportScreen } from "./reports/ReportScreen";
 import { useAccounts } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * التقارير المالية (docs/catalog/08-reports.md) — the seven financial
@@ -37,13 +38,14 @@ const vatReturn = createVatReturnReport({ periodFrom: YEAR_START, periodTo: TODA
 const generalLedger = createGeneralLedgerReport({ periodFrom: YEAR_START, periodTo: TODAY });
 
 function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
+  const { t } = useAppTranslation();
   const net = vatNetPayable(rows);
-  const label = net >= 0 ? "صافي الضريبة المستحقة الدفع" : "صافي الضريبة القابلة للاسترداد";
+  const label = net >= 0 ? t("finReports.netTaxPayable") : t("finReports.netTaxRecoverable");
   const amount = Math.abs(net).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return (
     <div className="rounded-lg border border-border bg-surface-2 p-[13px_16px] text-[12.5px]">
-      <span className="font-semibold text-ink">ضريبة المخرجات − ضريبة المدخلات = {label}: </span>
-      <span className="mz-num font-bold text-ink">{amount} ج.م</span>
+      <span className="font-semibold text-ink">{t("finReports.outputTaxInputTax")} {label}: </span>
+      <span className="mz-num font-bold text-ink">{amount} {t("ui.currency")}</span>
     </div>
   );
 }
@@ -55,6 +57,7 @@ function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
  * chosen account against the same real chart.
  */
 function AccountLedgerTab() {
+  const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
   const accounts = useMemo<readonly Account[]>(() => accountsQuery.data ?? [], [accountsQuery.data]);
   const definition = useMemo(() => {
@@ -67,7 +70,7 @@ function AccountLedgerTab() {
   }, [accounts]);
 
   if (accountsQuery.isLoading) {
-    return <div className="rounded-lg border border-border bg-surface p-[28px] text-center text-[13px] text-ink-muted">جارٍ تحميل دليل الحسابات…</div>;
+    return <div className="rounded-lg border border-border bg-surface p-[28px] text-center text-[13px] text-ink-muted">{t("finReports.loadingTheChartOfAccounts")}</div>;
   }
 
   return <ReportScreen eyebrow={EYEBROW} definition={definition} apiPath="/accounting/account-ledger" />;
@@ -75,14 +78,14 @@ function AccountLedgerTab() {
 
 interface TabDef {
   readonly id: string;
-  readonly label: string;
+  readonly labelKey: AppTranslationKey;
   readonly render: () => ReactNode;
 }
 
 const TABS: readonly TabDef[] = [
   {
     id: "trial-balance",
-    label: "ميزان المراجعة",
+    labelKey: "finReports.trialBalance",
     // The four core statements + VAT auto-run on the selected period; only the
     // two ledger dumps (general/account ledger) gate behind عرض التقرير. The
     // trial-balance definition is marked on-demand as a demo, overridden here.
@@ -90,22 +93,22 @@ const TABS: readonly TabDef[] = [
   },
   {
     id: "income-statement",
-    label: "قائمة الدخل",
+    labelKey: "finReports.incomeStatement",
     render: () => <ReportScreen eyebrow={EYEBROW} definition={incomeStatement} apiPath="/accounting/income-statement" />,
   },
   {
     id: "balance-sheet",
-    label: "الميزانية العمومية",
+    labelKey: "finReports.balanceSheet",
     render: () => <ReportScreen eyebrow={EYEBROW} definition={balanceSheet} apiPath="/accounting/balance-sheet" />,
   },
   {
     id: "cash-flow",
-    label: "التدفقات النقدية",
+    labelKey: "finReports.cashFlow",
     render: () => <ReportScreen eyebrow={EYEBROW} definition={cashFlow} apiPath="/accounting/cash-flow" />,
   },
   {
     id: "vat-return",
-    label: "إقرار ضريبة القيمة المضافة",
+    labelKey: "finReports.vatReturn",
     render: () => (
       <ReportScreen
         eyebrow={EYEBROW}
@@ -117,37 +120,38 @@ const TABS: readonly TabDef[] = [
   },
   {
     id: "general-ledger",
-    label: "دفتر الأستاذ العام",
+    labelKey: "finReports.generalLedger",
     render: () => <ReportScreen eyebrow={EYEBROW} definition={generalLedger} apiPath="/accounting/general-ledger" />,
   },
   {
     id: "account-ledger",
-    label: "دفتر حساب",
+    labelKey: "finReports.accountLedger",
     render: () => <AccountLedgerTab />,
   },
 ];
 
 export function FinancialReportsScreen() {
+  const { t } = useAppTranslation();
   const [activeTab, setActiveTab] = useState<string>(TABS[0]?.id ?? "trial-balance");
-  const tab = TABS.find((t) => t.id === activeTab) ?? TABS[0];
+  const tab = TABS.find((entry) => entry.id === activeTab) ?? TABS[0];
 
   return (
     <div className="w-full">
-      <div className="mb-[18px] flex flex-wrap gap-[6px]" role="tablist" aria-label="القوائم المالية">
-        {TABS.map((t) => (
+      <div className="mb-[18px] flex flex-wrap gap-[6px]" role="tablist" aria-label={t("finReports.financialStatements")}>
+        {TABS.map((entry) => (
           <button
-            key={t.id}
+            key={entry.id}
             type="button"
             role="tab"
-            aria-selected={t.id === activeTab}
-            onClick={() => setActiveTab(t.id)}
+            aria-selected={entry.id === activeTab}
+            onClick={() => setActiveTab(entry.id)}
             className={
-              t.id === activeTab
+              entry.id === activeTab
                 ? "rounded-md bg-brand px-[13px] py-[7px] text-[12.5px] font-semibold text-brand-ink"
                 : "rounded-md border border-border bg-surface px-[13px] py-[7px] text-[12.5px] font-semibold text-ink-muted hover:text-ink"
             }
           >
-            {t.label}
+            {t(entry.labelKey)}
           </button>
         ))}
       </div>

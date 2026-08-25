@@ -4,6 +4,7 @@ import type { OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
 import { SelectField } from "../settings/form-controls";
 import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
+import { useAppTranslation } from "../i18n";
 
 /**
  * خط المبيعات (Sales Pipeline) — docs/catalog/06 §"خط المبيعات". A kanban
@@ -13,6 +14,7 @@ import { CreateOpportunityForm } from "./OpportunitiesScreen";
  */
 
 export function PipelineScreen() {
+  const { t } = useAppTranslation();
   const stagesQuery = usePipelineStages();
   const opportunitiesQuery = useOpportunities();
   const customersQuery = useCustomers();
@@ -46,7 +48,7 @@ export function PipelineScreen() {
     try {
       await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
     } catch (err) {
-      setMoveError(err instanceof Error ? err.message : "تعذّر نقل الفرصة.");
+      setMoveError(err instanceof Error ? err.message : t("pipeline.theOpportunityCouldNotBe"));
     } finally {
       setMovingId(null);
     }
@@ -57,18 +59,18 @@ export function PipelineScreen() {
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">CRM · Pipeline</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">خط المبيعات</h1>
-          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">عرض الفرص المفتوحة مجمعة حسب مرحلة خط المبيعات</p>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("pipeline.pipeline")}</h1>
+          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("pipeline.openOpportunitiesGroupedByPipeline")}</p>
         </div>
         <Button variant="primary" onClick={() => setFormOpen(true)}>
-          إضافة فرصة
+          {t("pipeline.addOpportunity")}
         </Button>
       </div>
       <FulcrumRule />
 
       {(stagesQuery.isError || opportunitiesQuery.isError) ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات خط المبيعات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("pipeline.pipelineDataCouldNotBe")}</p>
           <Button
             size="sm"
             className="mt-[10px]"
@@ -77,16 +79,16 @@ export function PipelineScreen() {
               opportunitiesQuery.refetch();
             }}
           >
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="إجمالي الفرص" value={<span className="mz-num">{totalCount}</span>} />
-        <StatCard label="القيمة المتوقعة" value={<MoneyDisplay value={totalExpectedValue} />} />
-        <StatCard label="فرص مكسوبة" value={<span className="mz-num">{wonOpportunities.length}</span>} />
-        <StatCard label="قيمة المكسوب" value={<MoneyDisplay value={wonValue} />} />
+        <StatCard label={t("pipeline.totalOpportunities")} value={<span className="mz-num">{totalCount}</span>} />
+        <StatCard label={t("pipeline.expectedValue")} value={<MoneyDisplay value={totalExpectedValue} />} />
+        <StatCard label={t("pipeline.wonOpportunities")} value={<span className="mz-num">{wonOpportunities.length}</span>} />
+        <StatCard label={t("pipeline.valueWon")} value={<MoneyDisplay value={wonValue} />} />
       </div>
 
       {moveError ? (
@@ -109,7 +111,7 @@ export function PipelineScreen() {
         ))}
       </div>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="إضافة فرصة" description="بيانات الفرصة البيعية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("pipeline.addOpportunity")} description={t("pipeline.opportunityDetails")}>
         <CreateOpportunityForm onDone={() => setFormOpen(false)} onCancel={() => setFormOpen(false)} />
       </SidePanel>
     </div>
@@ -126,6 +128,7 @@ interface PipelineColumnProps {
 }
 
 function PipelineColumn({ stage, stages, opportunities, customerName, movingId, onMove }: PipelineColumnProps) {
+  const { t } = useAppTranslation();
   return (
     <div className="w-[280px] flex-none">
       <Card className="flex h-full flex-col p-[14px]">
@@ -135,7 +138,7 @@ function PipelineColumn({ stage, stages, opportunities, customerName, movingId, 
         </div>
         <div className="flex flex-col gap-[10px]">
           {opportunities.length === 0 ? (
-            <div className="rounded-md border border-dashed border-border p-[14px] text-center text-[11.5px] text-ink-faint">لا توجد فرص</div>
+            <div className="rounded-md border border-dashed border-border p-[14px] text-center text-[11.5px] text-ink-faint">{t("pipeline.noOpportunities")}</div>
           ) : (
             opportunities.map((opportunity) => (
               <div key={opportunity.id} className="rounded-md border border-border bg-surface p-[11px]">
@@ -148,7 +151,7 @@ function PipelineColumn({ stage, stages, opportunities, customerName, movingId, 
                 {opportunity.status === "open" ? (
                   <div className="mt-[8px]">
                     <SelectField
-                      label="نقل إلى"
+                      label={t("pipeline.moveTo")}
                       value={opportunity.stageId}
                       disabled={movingId === opportunity.id}
                       onChange={(stageId) => onMove(opportunity, stageId)}

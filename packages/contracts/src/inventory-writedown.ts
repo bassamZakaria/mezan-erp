@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /**
- * Wire contracts for the Inventory aging-based write-down batch (docs/tasks.md
+ * Wire contracts for the Inventory aging-based write-down batch (docs/backlog.md
  * Phase 4 "Aging-based inventory write-down batch"). Money/Qty fields cross
  * the wire as exact decimal strings, never a float — the domain re-parses
  * them via `Money.fromMajor`/`Qty.fromMajor`.

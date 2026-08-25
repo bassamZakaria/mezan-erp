@@ -148,8 +148,7 @@ Rules learned the hard way, all of them from a failure:
 ## Behaviour, not reaction
 
 Automation proves a control reacts; only a scenario proves it did the right thing.
-`docs/testing-scenarios.md` holds ~29 end-to-end lifecycles taken from the captured
-catalog, `docs/scenarios/` holds 964 numbered per-screen scenarios with
+`docs/scenarios/` holds 964 numbered per-screen scenarios with
 `[NOT IMPLEMENTED]` markers where the build diverges, and `scripts/scenarios/` holds
 the executable subset behind `pnpm scenarios`. `docs/scenarios/09-cross-module.md` is
 the seam file: money trails across modules (`cross-module.ts`) plus the currency, tax,

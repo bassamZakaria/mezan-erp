@@ -202,9 +202,10 @@ be perfect while no button calls it.
 
 **The written scenarios** are `docs/scenarios/01..08` — 964 numbered scenarios
 covering every screen, button, filter, modal and error path, with 222
-`[NOT IMPLEMENTED]` markers where the build diverges from the captured catalog.
-`testing-scenarios.md` holds the 29 headline lifecycles. Work the manual pass
-from those.
+`[NOT IMPLEMENTED]` markers where the build diverges from the captured catalog —
+plus `docs/scenarios/09-cross-module.md` for the seams between modules. Work the
+manual pass from those. (The earlier 29-lifecycle summary they replaced is kept
+at `docs/archive/testing-scenarios.md` for its provenance only.)
 
 The generic checks below apply to every list screen and are what the scenarios
 assume already works.

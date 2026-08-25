@@ -21,7 +21,7 @@ export interface PostWritedownRunDeps {
  * dated the period's last day, through the REAL GL posting engine. Unlike
  * `postDepreciationRun`, this never updates any Item/cost-layer/WAC snapshot
  * — the provision sits entirely in the GL, so the item's recorded inventory
- * cost is untouched (docs/tasks.md: "does not touch recorded inventory cost").
+ * cost is untouched (docs/backlog.md: "does not touch recorded inventory cost").
  */
 export async function postWritedownRun(runId: string, deps: PostWritedownRunDeps): Promise<WritedownRun> {
   const run = await deps.runs.findById(runId);

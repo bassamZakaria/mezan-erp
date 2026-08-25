@@ -1,6 +1,6 @@
 # UX enhancement — review pack
 
-**2026-08-23 · branch `ui-enhancements` · reviewed against `docs/enhancements/design/ux-enhancement-spec.md`**
+**2026-08-23 · branch `ui-enhancements` · reviewed against `docs/enhancements/ux-enhancement-spec.md`**
 
 The enhancement is code-complete. This pack exists so people, not a checklist,
 sign it off: it separates what was verified in the running app from the four

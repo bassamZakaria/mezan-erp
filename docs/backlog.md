@@ -4,7 +4,7 @@
 
 > **Build-status note (2026-08-23, `main` @ `7b65887`):** this document is the *plan*, not a status
 > record — it is kept as-written so the original phasing stays auditable. For what actually exists,
-> read `docs/tasks.md` (per-item) and `docs/plan.md` §"Build status". Two deltas worth flagging
+> read `docs/STATUS.md` (current state) and `docs/plan.md` §"Build status". Two deltas worth flagging
 > against the sequencing below: **Phase 10 (Platform & config) was moved up in priority here but is
 > the least-built phase in reality** — the engines (workflow gate, numbering, audit) exist, none of
 > the admin UIs do, and there is no notification *rules* engine at all, only an event bus. And the

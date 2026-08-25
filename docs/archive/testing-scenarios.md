@@ -1,5 +1,7 @@
 # Mezan — business scenarios
 
+> **Archived — point-in-time.** This was the first pass of business scenarios — 29 lifecycles taken from the catalog. Retired 2026-08-25, superseded by `../scenarios/01..09`, which are per-domain, roughly 25× the size, and each paired with an executable suite. Kept for its evidence, not its conclusions.
+
 Phase 3 of `testing-plan.md`. Where the plan proves a control *reacts*, these
 prove the business *did the right thing*.
 

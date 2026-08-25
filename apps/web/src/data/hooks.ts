@@ -2155,7 +2155,7 @@ export function usePostDepreciationRun() {
 }
 
 // ---------------------------------------------------------------------------
-// Inventory aging-based write-down batch (docs/tasks.md Phase 4) — inv/labels-templates-writedown
+// Inventory aging-based write-down batch (docs/backlog.md Phase 4) — inv/labels-templates-writedown
 // ---------------------------------------------------------------------------
 
 export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> {

@@ -75,10 +75,10 @@ Every screen is wired to the real seeded backend, not static sample arrays. The 
 3. Filters, sorts and date ranges change the query, not a local slice of a static array.
 4. Component tests use a stub transport against the same contracts the real API returns; e2e specs run against the actual seeded backend.
 
-Two exceptions are still open and tracked in [`docs/tasks.md`](docs/tasks.md):
-
-- **Seven `*-sample-data.ts` files remain** under `apps/web/src` (`sample-data.ts` — which still owns the nav registry and command-palette items — plus `accounts-`, `items-`, `accounting-treasury-`, `inventory-ops-`, `settings/`, and `login/login-sample-data.ts`), with roughly twenty importers.
-- **Nine screens run the real domain in the browser, not the backend**: `StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`. They import `@mezan/domain` directly through `apps/web/src/store/*` against in-memory repositories, so the business rules are real but nothing persists to SQLite. Five of them have a mounted route (`/revaluation`, `/eta`, `/cost-center-pl`, `/exchange-rates`, `/inventory/stock-balance`) and need only web wiring; the other four — stock transfers, stock adjustments, physical counts and balance reconciliation — have a route file that `createBackend` never mounts, so they 404 on the running server and need the backend mount first.
+Both exceptions this section used to list are now closed: no `*-sample-data.ts`
+file remains under `apps/web/src`, and no screen runs `@mezan/domain` in the
+browser against in-memory repositories. Current state is tracked in
+[`docs/STATUS.md`](docs/STATUS.md).
 
 ## Internationalisation
 
@@ -146,7 +146,7 @@ pnpm build
 
 ## Branch strategy
 
-- **`main`** — tracks parity with the reference application's captured catalog (`docs/catalog/`, `docs/digest.md`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
+- **`main`** — tracks parity with the reference application's captured catalog (`docs/catalog/`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
 - **An `enhancements` branch** (created off `main` once v1 parity is stable) is where beyond-parity ideas live — anything that improves on the reference system rather than just matching it. Parity work always lands on `main` first; enhancement branches rebase onto it, not the other way around.
 
-See [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/backlog.md`](docs/backlog.md) for the phased issue backlog, [`docs/tasks.md`](docs/tasks.md) for the current done/remaining checklist, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.
+See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/backlog.md`](docs/backlog.md) for the phased issue backlog, [`docs/STATUS.md`](docs/STATUS.md) for what is done and what is broken right now, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.

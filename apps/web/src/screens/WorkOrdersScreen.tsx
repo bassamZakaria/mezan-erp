@@ -64,7 +64,8 @@ const STAGE_STEPS: readonly { key: string; labelKey: AppTranslationKey }[] = [
   { key: "product_received", labelKey: "workOrders.stage.product_received" },
   { key: "completed", labelKey: "workOrders.stage.completed" },
 ];
-const STAGE_ACTION: Record<WorkOrderStageRecord, string | null> = {
+/** The NEXT action for a stage, as a catalogue key. */
+const STAGE_ACTION: Record<WorkOrderStageRecord, AppTranslationKey | null> = {
   not_started: "workOrders.stage.started",
   started: "workOrders.stage.materials_issued",
   materials_issued: "workOrders.stage.product_received",
@@ -101,7 +102,7 @@ function WorkOrderDetail({
         <>
           {action && order.status !== "cancelled" ? (
             <Button variant="primary" onClick={onAdvance} disabled={advancing}>
-              {action}
+              {t(action)}
             </Button>
           ) : null}
           <Button onClick={onBack}>{t("workOrders.backToWorkOrders")}</Button>

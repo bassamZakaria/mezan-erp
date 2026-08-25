@@ -29,12 +29,13 @@ import {
   type WorkOrderStatusRecord,
 } from "../data/hooks";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-const STATUS_LABEL: Record<WorkOrderStatusRecord, string> = {
-  planned: "مخطط",
-  in_progress: "قيد التنفيذ",
-  completed: "مكتمل",
-  cancelled: "ملغي",
+const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
+  planned: "workOrders.status.planned",
+  in_progress: "workOrders.status.in_progress",
+  completed: "workOrders.status.completed",
+  cancelled: "workOrders.status.cancelled",
 };
 const STATUS_TONE: Record<WorkOrderStatusRecord, PillTone> = {
   planned: "neutral",
@@ -42,22 +43,32 @@ const STATUS_TONE: Record<WorkOrderStatusRecord, PillTone> = {
   completed: "success",
   cancelled: "danger",
 };
-const PRIORITY_LABEL: Record<string, string> = { low: "منخفضة", normal: "عادية", high: "عالية" };
+/** An unknown priority shows its own code rather than a humanized key. */
+function priorityLabel(priority: string, t: (key: AppTranslationKey) => string): string {
+  const key = PRIORITY_KEY[priority];
+  return key ? t(key) : priority;
+}
+
+const PRIORITY_KEY: Record<string, AppTranslationKey> = {
+  low: "manufacturingHub.priority.low",
+  normal: "manufacturingHub.priority.normal",
+  high: "manufacturingHub.priority.high",
+};
 const num = (v: string) => Number(v);
 const pct = (f: number) => `${Math.round(f * 100)}%`;
 const today = () => new Date().toISOString().slice(0, 10);
 
-const STAGE_STEPS = [
-  { key: "started", label: "بدء العمل" },
-  { key: "materials_issued", label: "صرف المواد" },
-  { key: "product_received", label: "استلام المنتج" },
-  { key: "completed", label: "إكمال أمر العمل" },
+const STAGE_STEPS: readonly { key: string; labelKey: AppTranslationKey }[] = [
+  { key: "started", labelKey: "workOrders.stage.started" },
+  { key: "materials_issued", labelKey: "workOrders.stage.materials_issued" },
+  { key: "product_received", labelKey: "workOrders.stage.product_received" },
+  { key: "completed", labelKey: "workOrders.stage.completed" },
 ];
 const STAGE_ACTION: Record<WorkOrderStageRecord, string | null> = {
-  not_started: "بدء العمل",
-  started: "صرف المواد",
-  materials_issued: "استلام المنتج",
-  product_received: "إكمال أمر العمل",
+  not_started: "workOrders.stage.started",
+  started: "workOrders.stage.materials_issued",
+  materials_issued: "workOrders.stage.product_received",
+  product_received: "workOrders.stage.completed",
   completed: null,
 };
 /** Map not_started onto the first step so the stepper reads before-issue. */
@@ -78,11 +89,12 @@ function WorkOrderDetail({
   onAdvance: () => void;
   advancing: boolean;
 }) {
+  const { t } = useAppTranslation();
   const action = STAGE_ACTION[order.stage];
   return (
     <DocumentDetail
-      title={`أمر تصنيع ${order.number}`}
-      statusLabel={STATUS_LABEL[order.status]}
+      title={t("workOrders.detailTitle", { number: order.number })}
+      statusLabel={t(STATUS_KEY[order.status])}
       statusTone={STATUS_TONE[order.status]}
       subtitle={`${itemName(order.productItemId)} · ${pct(order.progress)}`}
       actions={
@@ -92,28 +104,28 @@ function WorkOrderDetail({
               {action}
             </Button>
           ) : null}
-          <Button onClick={onBack}>رجوع لأوامر التصنيع</Button>
+          <Button onClick={onBack}>{t("workOrders.backToWorkOrders")}</Button>
         </>
       }
       summary={[
-        { label: "المنتج النهائي", value: itemName(order.productItemId) },
-        { label: "الكمية المخططة", value: <span className="mz-num">{order.plannedQty}</span> },
-        { label: "الكمية المنتجة", value: <span className="mz-num">{order.producedQty}</span> },
-        { label: "مستودع الخامات", value: warehouseName(order.sourceWarehouseId) },
-        { label: "مستودع المنتجات", value: warehouseName(order.destinationWarehouseId) },
-        { label: "الأولوية", value: PRIORITY_LABEL[order.priority] },
-        { label: "قيمة الإنتاج تحت التشغيل", value: <MoneyValue value={num(order.wipTotal)} /> },
+        { label: t("workOrders.finishedProduct"), value: itemName(order.productItemId) },
+        { label: t("workOrders.plannedQuantity"), value: <span className="mz-num">{order.plannedQty}</span> },
+        { label: t("workOrders.quantityProduced"), value: <span className="mz-num">{order.producedQty}</span> },
+        { label: t("workOrders.rawMaterialsWarehouse"), value: warehouseName(order.sourceWarehouseId) },
+        { label: t("workOrders.finishedGoodsWarehouse"), value: warehouseName(order.destinationWarehouseId) },
+        { label: t("workOrders.priority"), value: priorityLabel(order.priority, t) },
+        { label: t("workOrders.workInProgressValue"), value: <MoneyValue value={num(order.wipTotal)} /> },
       ]}
       effects={[
-        "عند صرف المواد تنخفض كمية المخزون الخام (صرف عبر سجل المخزون).",
-        "تتراكم التكلفة (مواد + عمالة + مصاريف) كإنتاج تحت التشغيل أثناء التصنيع.",
-        "المنتج النهائي لا يدخل المخزون إلا عند الاستلام؛ وعند الإكمال تُرحَّل قيود رسملة الإنتاج تحت التشغيل تلقائياً.",
+        t("workOrders.issuingMaterialsReducesRawStock"),
+        t("workOrders.costMaterialsLabourAndOverhead"),
+        t("workOrders.theFinishedProductOnlyEnters"),
       ]}
       aside={
         <div className="rounded-lg border border-border bg-surface p-[14px]">
-          <div className="mb-[10px] text-[12.5px] font-semibold text-ink">المرحلة الحالية</div>
+          <div className="mb-[10px] text-[12.5px] font-semibold text-ink">{t("workOrders.currentStage")}</div>
           <DocumentStatusStepper
-            steps={STAGE_STEPS}
+            steps={STAGE_STEPS.map((step) => ({ key: step.key, label: t(step.labelKey) }))}
             currentKey={stepperKey(order.stage)}
             tone={order.status === "cancelled" ? "danger" : "brand"}
           />
@@ -122,17 +134,17 @@ function WorkOrderDetail({
       tabs={[
         {
           key: "materials",
-          label: `المواد (${order.materials.length})`,
+          label: t("workOrders.tab.materials", { count: order.materials.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-end">المطلوبة</th>
-                    <th className="px-[12px] py-[9px] text-end">الصادرة</th>
-                    <th className="px-[12px] py-[9px] text-end">المرجعة</th>
-                    <th className="px-[12px] py-[9px] text-end">الصافي</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.required")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.issued")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.returned")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.net")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -152,13 +164,13 @@ function WorkOrderDetail({
         },
         {
           key: "costs",
-          label: "التكاليف",
+          label: t("workOrders.costs"),
           content: (
             <dl className="grid grid-cols-2 gap-[12px] text-[13px]">
-              <div><dt className="text-ink-muted">تكلفة المواد</dt><dd className="mz-num"><MoneyValue value={num(order.materialCost)} /></dd></div>
-              <div><dt className="text-ink-muted">العمالة</dt><dd className="mz-num"><MoneyValue value={num(order.laborCost)} /></dd></div>
-              <div><dt className="text-ink-muted">المصاريف</dt><dd className="mz-num"><MoneyValue value={num(order.overheadCost)} /></dd></div>
-              <div><dt className="text-ink-muted">إجمالي الإنتاج تحت التشغيل</dt><dd className="mz-num"><MoneyValue value={num(order.wipTotal)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("workOrders.materialCost")}</dt><dd className="mz-num"><MoneyValue value={num(order.materialCost)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("workOrders.labour")}</dt><dd className="mz-num"><MoneyValue value={num(order.laborCost)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("workOrders.overhead")}</dt><dd className="mz-num"><MoneyValue value={num(order.overheadCost)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("workOrders.totalWorkInProgress")}</dt><dd className="mz-num"><MoneyValue value={num(order.wipTotal)} /></dd></div>
             </dl>
           ),
         },
@@ -168,6 +180,7 @@ function WorkOrderDetail({
 }
 
 export function WorkOrdersScreen() {
+  const { t } = useAppTranslation();
   const query = useWorkOrders();
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
@@ -224,20 +237,20 @@ export function WorkOrdersScreen() {
   }, [orders, statusFilter, search, itemName]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: orders.length },
-    ...(Object.keys(STATUS_LABEL) as WorkOrderStatusRecord[]).map((s) => ({
+    { key: "all", label: t("common.all"), count: orders.length },
+    ...(Object.keys(STATUS_KEY) as WorkOrderStatusRecord[]).map((s) => ({
       key: s,
-      label: STATUS_LABEL[s],
+      label: t(STATUS_KEY[s]),
       count: orders.filter((o) => o.status === s).length,
     })),
   ];
 
   const columns: DocumentListColumn<WorkOrderRecord>[] = [
-    { key: "number", header: "رقم أمر العمل", render: (o) => <span className="mz-num font-semibold text-ink">{o.number}</span> },
-    { key: "product", header: "المنتج النهائي", render: (o) => itemName(o.productItemId) },
+    { key: "number", header: t("workOrders.workOrderNumber"), render: (o) => <span className="mz-num font-semibold text-ink">{o.number}</span> },
+    { key: "product", header: t("workOrders.finishedProduct"), render: (o) => itemName(o.productItemId) },
     {
       key: "progress",
-      header: "الإنتاج",
+      header: t("workOrders.production"),
       align: "end",
       render: (o) => (
         <span className="mz-num">
@@ -245,8 +258,8 @@ export function WorkOrdersScreen() {
         </span>
       ),
     },
-    { key: "priority", header: "الأولوية", render: (o) => PRIORITY_LABEL[o.priority] },
-    { key: "status", header: "الحالة", render: (o) => <StatusPill label={STATUS_LABEL[o.status]} tone={STATUS_TONE[o.status]} /> },
+    { key: "priority", header: t("workOrders.priority"), render: (o) => priorityLabel(o.priority, t) },
+    { key: "status", header: t("common.status"), render: (o) => <StatusPill label={t(STATUS_KEY[o.status])} tone={STATUS_TONE[o.status]} /> },
   ];
 
   function openCreate() {
@@ -281,7 +294,7 @@ export function WorkOrdersScreen() {
       });
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّر إنشاء أمر التصنيع.");
+      setFormError(err instanceof Error ? err.message : t("workOrders.theWorkOrderCouldNot"));
     }
   }
 
@@ -299,7 +312,7 @@ export function WorkOrdersScreen() {
         await completeOrder.mutateAsync(order.id);
       }
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر تنفيذ العملية.");
+      setActionError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
     }
   }
 
@@ -310,47 +323,47 @@ export function WorkOrdersScreen() {
       await receiveOrder.mutateAsync({ id: selected.id, body: { producedQty: String(receiveQty) } });
       setReceivePanelOpen(false);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر استلام المنتج.");
+      setActionError(err instanceof Error ? err.message : t("workOrders.theProductCouldNotBe"));
     }
   }
 
   const advancing = startOrder.isPending || issueOrder.isPending || completeOrder.isPending;
 
   const createPanel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="أمر عمل جديد" description="اختر قائمة المواد والكمية المخططة">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("workOrders.newWorkOrder")} description={t("workOrders.chooseTheBillOfMaterials")}>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {formError}
           </div>
         ) : null}
-        <EntityPicker label="قائمة المواد *" value={bom} onChange={setBom} options={bomOptions} placeholder="اختر قائمة المواد…" />
-        <NumberField label="الكمية المخططة" value={plannedQty} min={0} onChange={setPlannedQty} />
-        <EntityPicker label="مستودع الخامات *" value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder="اختر المستودع…" />
+        <EntityPicker label={t("workOrders.billOfMaterials")} value={bom} onChange={setBom} options={bomOptions} placeholder={t("workOrders.chooseABillOfMaterials")} />
+        <NumberField label={t("workOrders.plannedQuantity")} value={plannedQty} min={0} onChange={setPlannedQty} />
+        <EntityPicker label={t("workOrders.rawMaterialsWarehouse2")} value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder={t("workOrders.chooseAWarehouse")} />
         <EntityPicker
-          label="مستودع المنتجات *"
+          label={t("workOrders.finishedGoodsWarehouse2")}
           value={destinationWarehouse}
           onChange={setDestinationWarehouse}
           options={warehouseOptions}
-          placeholder="اختر المستودع…"
+          placeholder={t("workOrders.chooseAWarehouse")}
         />
         <SelectField
-          label="الأولوية"
+          label={t("workOrders.priority")}
           value={priority}
           onChange={(v) => setPriority(v as "low" | "normal" | "high")}
           options={[
-            { value: "low", label: "منخفضة" },
-            { value: "normal", label: "عادية" },
-            { value: "high", label: "عالية" },
+            { value: "low", label: t("manufacturingHub.priority.low") },
+            { value: "normal", label: t("manufacturingHub.priority.normal") },
+            { value: "high", label: t("manufacturingHub.priority.high") },
           ]}
         />
-        <TextField label="تاريخ البدء" value={scheduledStartDate} onChange={setScheduledStartDate} placeholder="YYYY-MM-DD" />
-        <TextField label="تاريخ الانتهاء المتوقع" value={scheduledEndDate} onChange={setScheduledEndDate} placeholder="YYYY-MM-DD" />
-        <TextField label="ملاحظات" value={notes} onChange={setNotes} />
+        <TextField label={t("workOrders.startDate")} value={scheduledStartDate} onChange={setScheduledStartDate} placeholder="YYYY-MM-DD" />
+        <TextField label={t("workOrders.expectedFinish")} value={scheduledEndDate} onChange={setScheduledEndDate} placeholder="YYYY-MM-DD" />
+        <TextField label={t("common.notes")} value={notes} onChange={setNotes} />
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createOrder.isPending}>
-            حفظ أمر العمل
+            {t("workOrders.saveWorkOrder")}
           </Button>
         </div>
       </div>
@@ -358,18 +371,18 @@ export function WorkOrdersScreen() {
   );
 
   const receivePanel = (
-    <SidePanel open={receivePanelOpen} onClose={() => setReceivePanelOpen(false)} title="استلام المنتج" description="أدخل الكمية المنتجة فعلياً">
+    <SidePanel open={receivePanelOpen} onClose={() => setReceivePanelOpen(false)} title={t("workOrders.receiveProduct")} description={t("workOrders.enterTheQuantityActuallyProduced")}>
       <div className="flex flex-col gap-[14px]">
         {actionError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {actionError}
           </div>
         ) : null}
-        <NumberField label="الكمية المنتجة" value={receiveQty} min={0} onChange={setReceiveQty} />
+        <NumberField label={t("workOrders.quantityProduced")} value={receiveQty} min={0} onChange={setReceiveQty} />
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setReceivePanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setReceivePanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={confirmReceive} disabled={receiveOrder.isPending || receiveQty <= 0}>
-            تأكيد الاستلام
+            {t("workOrders.confirmReceipt")}
           </Button>
         </div>
       </div>
@@ -401,43 +414,43 @@ export function WorkOrdersScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أوامر التصنيع.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("workOrders.workOrdersCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<WorkOrderRecord>
         eyebrow="Manufacturing · Work Orders"
-        title="أوامر التصنيع"
-        description="تنفيذ دورة إنتاج مقابل قائمة مواد — صرف الخامات، تتبّع التكلفة تحت التشغيل، استلام المنتج التام"
+        title={t("workOrders.workOrders")}
+        description={t("workOrders.runningAProductionCycleAgainst")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            أمر عمل جديد
+            {t("workOrders.newWorkOrder")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{orders.length}</span> },
-          { label: "مخطط", value: <span className="mz-num">{orders.filter((o) => o.status === "planned").length}</span> },
-          { label: "جار التنفيذ", value: <span className="mz-num">{orders.filter((o) => o.status === "in_progress").length}</span> },
-          { label: "متأخر", value: <span className="mz-num">{overdueCount}</span>, valueTone: overdueCount > 0 ? "danger" : "default" },
+          { label: t("common.total"), value: <span className="mz-num">{orders.length}</span> },
+          { label: t("workOrders.planned"), value: <span className="mz-num">{orders.filter((o) => o.status === "planned").length}</span> },
+          { label: t("workOrders.running"), value: <span className="mz-num">{orders.filter((o) => o.status === "in_progress").length}</span> },
+          { label: t("workOrders.overdue"), value: <span className="mz-num">{overdueCount}</span>, valueTone: overdueCount > 0 ? "danger" : "default" },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as WorkOrderStatusRecord | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث في أوامر العمل…"
+        searchPlaceholder={t("workOrders.searchWorkOrders")}
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
         onRowClick={(o) => setSelectedId(o.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{orders.length}</span> أمر</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("workOrders.orders")}</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد أوامر تصنيع مطابقة — أنشئ أمراً جديداً"}
+            {query.isLoading ? t("common.loading") : t("workOrders.noMatchingWorkOrdersCreate")}
           </div>
         }
       />

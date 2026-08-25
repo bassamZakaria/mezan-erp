@@ -16,10 +16,11 @@ import {
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 type BomStatus = BomRecord["status"];
 
-const STATUS_LABEL: Record<BomStatus, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<BomStatus, AppTranslationKey> = { active: "boms.status.active", inactive: "boms.status.inactive" };
 const STATUS_TONE: Record<BomStatus, PillTone> = { active: "success", inactive: "neutral" };
 const num = (v: string) => Number(v);
 
@@ -49,50 +50,51 @@ function BomDetail({
   onDeactivate: () => void;
   deactivating: boolean;
 }) {
+  const { t } = useAppTranslation();
   return (
     <DocumentDetail
-      title={`قائمة مواد ${bom.number}`}
-      statusLabel={STATUS_LABEL[bom.status]}
+      title={t("boms.detailTitle", { number: bom.number })}
+      statusLabel={t(STATUS_KEY[bom.status])}
       statusTone={STATUS_TONE[bom.status]}
-      subtitle={`${itemName(bom.productItemId)} · الإصدار ${bom.version}`}
+      subtitle={t("boms.subtitle", { product: itemName(bom.productItemId), version: bom.version })}
       actions={
         <>
           {bom.status === "active" ? (
             <Button onClick={onDeactivate} disabled={deactivating}>
-              تعطيل
+              {t("boms.deactivate")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>رجوع لقوائم المواد</Button>
+          <Button onClick={onBack}>{t("boms.backToBillsOfMaterials")}</Button>
         </>
       }
       summary={[
-        { label: "المنتج النهائي", value: itemName(bom.productItemId) },
-        { label: "الإصدار", value: <span className="mz-num">{bom.version}</span> },
-        { label: "الكمية القياسية", value: <span className="mz-num">{bom.standardQty}</span> },
-        { label: "عدد البنود", value: <span className="mz-num">{bom.lines.length}</span> },
-        { label: "تكلفة المواد", value: <MoneyValue value={bom.estimate ? num(bom.estimate.materialCost) : 0} /> },
-        { label: "إجمالي التكلفة", value: <MoneyValue value={bom.estimate ? num(bom.estimate.totalCost) : 0} /> },
-        { label: "تكلفة الوحدة", value: <MoneyValue value={bom.estimate ? num(bom.estimate.unitCost) : 0} /> },
+        { label: t("boms.finishedProduct"), value: itemName(bom.productItemId) },
+        { label: t("boms.version"), value: <span className="mz-num">{bom.version}</span> },
+        { label: t("boms.standardQuantity"), value: <span className="mz-num">{bom.standardQty}</span> },
+        { label: t("boms.lines"), value: <span className="mz-num">{bom.lines.length}</span> },
+        { label: t("boms.materialCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.materialCost) : 0} /> },
+        { label: t("boms.totalCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.totalCost) : 0} /> },
+        { label: t("boms.unitCost"), value: <MoneyValue value={bom.estimate ? num(bom.estimate.unitCost) : 0} /> },
       ]}
       effects={[
-        "قائمة المواد وصفة تصنيع فقط — لا تؤثر على المخزون أو الحسابات حتى يُنشأ أمر تصنيع منها.",
-        "الكمية المطلوبة تُضخَّم تلقائياً بنسبة الهالك لتغطية الفاقد المتوقع.",
-        "إنشاء إصدار جديد يُلغي تنشيط الإصدار السابق (لا يُعدّله).",
+        t("boms.aBillOfMaterialsIs"),
+        t("boms.theRequiredQuantityIsScaled"),
+        t("boms.creatingANewVersionDeactivates"),
       ]}
       tabs={[
         {
           key: "lines",
-          label: `بنود المواد الخام (${bom.lines.length})`,
+          label: t("boms.tab.lines", { count: bom.lines.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-end">الكمية</th>
-                    <th className="px-[12px] py-[9px] text-end">نسبة الهالك</th>
-                    <th className="px-[12px] py-[9px] text-end">الكمية بعد الهالك</th>
-                    <th className="px-[12px] py-[9px] text-end">تكلفة الوحدة</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("boms.scrapRate")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("boms.quantityAfterScrap")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("boms.unitCost")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -118,6 +120,7 @@ function BomDetail({
 }
 
 export function BomsScreen() {
+  const { t } = useAppTranslation();
   const query = useBoms();
   const itemsQuery = useItems();
   const createBom = useCreateBom();
@@ -163,23 +166,23 @@ export function BomsScreen() {
   }, [boms, statusFilter, search, itemName]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: boms.length },
-    { key: "active", label: "نشط", count: boms.filter((b) => b.status === "active").length },
-    { key: "inactive", label: "غير نشط", count: boms.filter((b) => b.status === "inactive").length },
+    { key: "all", label: t("common.all"), count: boms.length },
+    { key: "active", label: t("common.active"), count: boms.filter((b) => b.status === "active").length },
+    { key: "inactive", label: t("common.inactive"), count: boms.filter((b) => b.status === "inactive").length },
   ];
 
   const columns: DocumentListColumn<BomRecord>[] = [
-    { key: "number", header: "رقم القائمة", render: (b) => <span className="mz-num font-semibold text-ink">{b.number}</span> },
-    { key: "product", header: "المنتج النهائي", render: (b) => itemName(b.productItemId) },
-    { key: "version", header: "الإصدار", render: (b) => <span className="mz-num">v{b.version}</span> },
-    { key: "lines", header: "عدد البنود", align: "end", render: (b) => <span className="mz-num">{b.lines.length}</span> },
+    { key: "number", header: t("boms.bomNumber"), render: (b) => <span className="mz-num font-semibold text-ink">{b.number}</span> },
+    { key: "product", header: t("boms.finishedProduct"), render: (b) => itemName(b.productItemId) },
+    { key: "version", header: t("boms.version"), render: (b) => <span className="mz-num">v{b.version}</span> },
+    { key: "lines", header: t("boms.lines"), align: "end", render: (b) => <span className="mz-num">{b.lines.length}</span> },
     {
       key: "cost",
-      header: "التكلفة التقديرية",
+      header: t("boms.estimatedCost"),
       align: "end",
       render: (b) => <MoneyValue value={b.estimate ? num(b.estimate.totalCost) : 0} />,
     },
-    { key: "status", header: "الحالة", render: (b) => <StatusPill label={STATUS_LABEL[b.status]} tone={STATUS_TONE[b.status]} /> },
+    { key: "status", header: t("common.status"), render: (b) => <StatusPill label={t(STATUS_KEY[b.status])} tone={STATUS_TONE[b.status]} /> },
   ];
 
   function openCreate() {
@@ -214,7 +217,7 @@ export function BomsScreen() {
       });
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّر حفظ قائمة المواد.");
+      setFormError(err instanceof Error ? err.message : t("boms.theBillOfMaterialsCould"));
     }
   }
 
@@ -227,7 +230,7 @@ export function BomsScreen() {
   }
 
   const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="قائمة مواد جديدة" description="اختر المنتج النهائي والخامات المكوّنة له">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("boms.newBillOfMaterials")} description={t("boms.chooseTheFinishedProductAnd")}>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -235,7 +238,7 @@ export function BomsScreen() {
           </div>
         ) : null}
         <EntityPicker
-          label="المنتج النهائي *"
+          label={t("boms.finishedProduct2")}
           value={product}
           onChange={(opt) => {
             setProduct(opt);
@@ -243,32 +246,32 @@ export function BomsScreen() {
             if (item) setUnit(item.baseUnitCode);
           }}
           options={itemOptions}
-          placeholder="اختر المنتج النهائي…"
+          placeholder={t("boms.chooseTheFinishedProduct")}
         />
         <div className="grid grid-cols-2 gap-[10px]">
-          <NumberField label="الكمية القياسية" value={standardQty} min={0} onChange={setStandardQty} />
-          <TextField label="الوحدة" value={unit} onChange={setUnit} />
+          <NumberField label={t("boms.standardQuantity")} value={standardQty} min={0} onChange={setStandardQty} />
+          <TextField label={t("common.unit")} value={unit} onChange={setUnit} />
         </div>
         <div className="grid grid-cols-2 gap-[10px]">
-          <NumberField label="تكلفة العمالة" value={laborCost} min={0} onChange={setLaborCost} />
-          <NumberField label="تكلفة المصاريف الإضافية" value={overheadCost} min={0} onChange={setOverheadCost} />
+          <NumberField label={t("boms.labourCost")} value={laborCost} min={0} onChange={setLaborCost} />
+          <NumberField label={t("boms.overheadCost")} value={overheadCost} min={0} onChange={setOverheadCost} />
         </div>
-        <TextField label="ملاحظات الإصدار" value={versionNotes} onChange={setVersionNotes} />
+        <TextField label={t("boms.versionNotes")} value={versionNotes} onChange={setVersionNotes} />
         <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">بنود المواد الخام</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("boms.rawMaterialLines")}</span>
           {lines.map((line, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
-                label="الصنف"
+                label={t("common.item")}
                 value={itemOptions.find((o) => o.id === line.itemId) ?? null}
                 onChange={(opt) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, itemId: opt?.id ?? "" } : l)))}
                 options={itemOptions}
-                placeholder="اختر صنفاً…"
+                placeholder={t("boms.chooseAnItem")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
-                <NumberField label="الكمية" value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
+                <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />
                 <NumberField
-                  label="نسبة الهالك %"
+                  label={t("boms.scrapRate2")}
                   value={line.wastePercent}
                   min={0}
                   onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, wastePercent: v } : l)))}
@@ -276,17 +279,17 @@ export function BomsScreen() {
               </div>
               {lines.length > 1 ? (
                 <div className="mt-[8px] flex justify-end">
-                  <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>حذف البند</Button>
+                  <Button onClick={() => setLines((prev) => prev.filter((_, j) => j !== i))}>{t("boms.removeLine")}</Button>
                 </div>
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>إضافة صنف</Button>
+          <Button onClick={() => setLines((prev) => [...prev, { itemId: "", qty: 1, wastePercent: 0 }])}>{t("boms.addItem")}</Button>
         </div>
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createBom.isPending}>
-            حفظ قائمة المواد
+            {t("boms.saveBillOfMaterials")}
           </Button>
         </div>
       </div>
@@ -313,42 +316,42 @@ export function BomsScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل قوائم المواد.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("boms.billsOfMaterialsCouldNot")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<BomRecord>
         eyebrow="Manufacturing · BOMs"
-        title="قوائم المواد"
-        description="وصفة التصنيع (المواد الخام + الهالك + التكلفة القياسية) لكل منتج نهائي — القالب الذي يُبنى منه أمر التصنيع"
+        title={t("boms.billsOfMaterials")}
+        description={t("boms.theManufacturingRecipeRawMaterials")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            قائمة مواد جديدة
+            {t("boms.newBillOfMaterials")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{boms.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{boms.filter((b) => b.status === "active").length}</span> },
-          { label: "غير نشط", value: <span className="mz-num">{boms.filter((b) => b.status === "inactive").length}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{boms.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{boms.filter((b) => b.status === "active").length}</span> },
+          { label: t("common.inactive"), value: <span className="mz-num">{boms.filter((b) => b.status === "inactive").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as BomStatus | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالرقم أو اسم المنتج…"
+        searchPlaceholder={t("boms.searchByNumberOrProduct")}
         columns={columns}
         rows={filtered}
         rowKey={(b) => b.id}
         onRowClick={(b) => setSelectedId(b.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{boms.length}</span> قائمة</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{boms.length}</span> {t("boms.bills")}</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد قوائم مواد مطابقة — أنشئ قائمة جديدة"}
+            {query.isLoading ? t("common.loading") : t("boms.noMatchingBillsOfMaterials")}
           </div>
         }
       />

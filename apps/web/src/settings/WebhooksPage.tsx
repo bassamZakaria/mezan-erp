@@ -17,6 +17,7 @@ import type { WebhookDTO, CreateWebhookResultDTO, WebhookDeliveryDTO } from "@me
 import { useWebhooks, useCreateWebhook, useUpdateWebhook, useWebhookDeliveries } from "../data/account-hooks";
 import { useApi } from "../data/ApiContext";
 import { TextField, SectionCard } from "./form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الويب هوك (`/settings/webhooks`) — register a target URL + subscribed
@@ -39,29 +40,30 @@ interface DeliverableEvent {
 }
 
 function useDeliverableEvents() {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<{ events: DeliverableEvent[]; enforced: boolean }>({
     queryKey: ["webhooks", "events"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/webhooks/events");
-      if (!res.ok) throw new Error("تعذّر تحميل الأحداث المتاحة.");
+      if (!res.ok) throw new Error(t("webhooks.couldNotLoadTheAvailable"));
       return res.json<{ events: DeliverableEvent[]; enforced: boolean }>();
     },
   });
 }
 
-const CATEGORY_LABELS: Readonly<Record<EventCategory, string>> = {
-  workflow: "سير العمل",
-  sales: "المبيعات",
-  purchases: "المشتريات",
-  treasury: "الخزينة",
-  installments: "الأقساط",
-  cheques: "الأوراق المالية",
-  pos: "نقطة البيع",
-  inventory: "المخزون",
-  manufacturing: "التصنيع",
-  platform: "المنصة",
+const CATEGORY_KEYS: Readonly<Record<EventCategory, AppTranslationKey>> = {
+  workflow: "webhooks.workflow",
+  sales: "webhooks.sales",
+  purchases: "webhooks.purchasing",
+  treasury: "webhooks.treasury",
+  installments: "webhooks.instalments",
+  cheques: "webhooks.cheques",
+  pos: "webhooks.pointOfSale",
+  inventory: "webhooks.stock",
+  manufacturing: "webhooks.manufacturing",
+  platform: "webhooks.platform",
 };
 
 function EventsChecklist({
@@ -73,10 +75,11 @@ function EventsChecklist({
   selected: ReadonlySet<string>;
   onToggle: (code: string) => void;
 }) {
+  const { t } = useAppTranslation();
   if (available.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-[20px] text-center text-[12.5px] text-ink-muted">
-        لا توجد أحداث قابلة للإرسال في هذه النسخة بعد.
+        {t("webhooks.noEventsCanBeSent")}
       </div>
     );
   }
@@ -87,7 +90,7 @@ function EventsChecklist({
         if (events.length === 0) return null;
         return (
           <div key={category}>
-            <h4 className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">{CATEGORY_LABELS[category]}</h4>
+            <h4 className="mb-[8px] text-[11px] font-bold uppercase tracking-[0.4px] text-ink-faint">{t(CATEGORY_KEYS[category])}</h4>
             <div className="flex flex-wrap gap-[8px]">
               {events.map((e) => (
                 <Chip key={e.code} type="button" active={selected.has(e.code)} onClick={() => onToggle(e.code)}>
@@ -103,6 +106,7 @@ function EventsChecklist({
 }
 
 function CreatedWebhookBanner({ result, onDismiss }: { result: CreateWebhookResultDTO; onDismiss: () => void }) {
+  const { t } = useAppTranslation();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -117,22 +121,23 @@ function CreatedWebhookBanner({ result, onDismiss }: { result: CreateWebhookResu
   return (
     <Card className="mb-[18px] border-warning bg-warning-soft p-[18px_20px]">
       <p className="text-[13px] font-bold text-warning-ink">
-        تم إنشاء الويب هوك "{result.name}" — انسخ مفتاح التوقيع الآن، لن يُعرض مرة أخرى.
+        {t("webhooks.created", { name: result.name })}
       </p>
       <div className="mt-[10px] flex flex-wrap items-center gap-[10px]">
         <code className="mz-lat rounded-md border border-border bg-surface px-[12px] py-[8px] text-[13px] text-ink">{result.secret}</code>
-        <Button size="sm" onClick={() => void copy()}>{copied ? "تم النسخ" : "نسخ"}</Button>
-        <Button size="sm" variant="ghost" onClick={onDismiss}>إغلاق</Button>
+        <Button size="sm" onClick={() => void copy()}>{copied ? t("webhooks.copied") : t("webhooks.copy")}</Button>
+        <Button size="sm" variant="ghost" onClick={onDismiss}>{t("webhooks.close")}</Button>
       </div>
     </Card>
   );
 }
 
-function deliveryStatus(d: WebhookDeliveryDTO): { label: string; tone: PillTone } {
-  return d.success ? { label: "نجحت", tone: "success" as PillTone } : { label: "فشلت", tone: "danger" as PillTone };
+function deliveryStatus(d: WebhookDeliveryDTO): { key: AppTranslationKey; tone: PillTone } {
+  return d.success ? { key: "webhooks.succeeded", tone: "success" as PillTone } : { key: "webhooks.failed", tone: "danger" as PillTone };
 }
 
 function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () => void }) {
+  const { t } = useAppTranslation();
   const deliveriesQuery = useWebhookDeliveries(webhook.id);
   const deliveries = deliveriesQuery.data ?? [];
 
@@ -140,19 +145,19 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
     <DocumentDetail
       title={webhook.name}
       subtitle={webhook.targetUrl}
-      statusLabel={webhook.active ? "مفعّل" : "معطّل"}
+      statusLabel={webhook.active ? t("webhooks.enabled") : t("webhooks.disabled")}
       statusTone={webhook.active ? "success" : "neutral"}
-      actions={<Button onClick={onBack}>رجوع للقائمة</Button>}
+      actions={<Button onClick={onBack}>{t("webhooks.backToTheList")}</Button>}
       summary={[
-        { label: "الأحداث المشترك بها", value: <span className="mz-num">{webhook.events.length}</span> },
-        { label: "تاريخ الإنشاء", value: formatDate(webhook.createdAt, { style: "long" }) },
+        { label: t("webhooks.subscribedEvents"), value: <span className="mz-num">{webhook.events.length}</span> },
+        { label: t("webhooks.createdOn"), value: formatDate(webhook.createdAt, { style: "long" }) },
       ]}
       tabs={[
         {
           key: "overview",
-          label: "نظرة عامة",
+          label: t("common.overview"),
           content: (
-            <SectionCard title="الأحداث المشترك بها">
+            <SectionCard title={t("webhooks.subscribedEvents")}>
               <div className="col-span-full flex flex-wrap gap-[8px]">
                 {webhook.events.map((code) => {
                   const def = DOMAIN_EVENT_CATALOG.find((e) => e.code === code);
@@ -168,22 +173,22 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
         },
         {
           key: "deliveries",
-          label: "محاولات التسليم",
+          label: t("webhooks.deliveryAttempts"),
           content:
             deliveries.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-[24px] text-center text-[12.5px] text-ink-muted">
-                لا توجد محاولات تسليم مسجّلة بعد.
+                {t("webhooks.noDeliveryAttemptsHaveBeen")}
               </div>
             ) : (
               <Card className="overflow-x-auto p-0">
                 <table className="w-full min-w-[680px] border-collapse text-[12.5px]">
                   <thead>
                     <tr className="border-b border-border text-ink-muted">
-                      <th className="p-[10px] text-start font-semibold">الحدث</th>
-                      <th className="p-[10px] text-start font-semibold">الحالة</th>
-                      <th className="p-[10px] text-start font-semibold">رمز الاستجابة</th>
-                      <th className="p-[10px] text-start font-semibold">التفاصيل</th>
-                      <th className="p-[10px] text-end font-semibold">وقت المحاولة</th>
+                      <th className="p-[10px] text-start font-semibold">{t("webhooks.event")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("webhooks.responseCode")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("webhooks.details")}</th>
+                      <th className="p-[10px] text-end font-semibold">{t("webhooks.attemptedAt")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -192,7 +197,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
                       return (
                         <tr key={d.id} className="border-b border-border last:border-b-0">
                           <td className="p-[10px] text-ink">{DOMAIN_EVENT_CATALOG.find((e) => e.code === d.eventCode)?.labelAr ?? d.eventCode}</td>
-                          <td className="p-[10px]"><StatusPill label={status.label} tone={status.tone} /></td>
+                          <td className="p-[10px]"><StatusPill label={t(status.key)} tone={status.tone} /></td>
                           <td className="mz-num p-[10px] text-ink-muted">{d.statusCode ?? "—"}</td>
                           <td className="mz-lat p-[10px] text-[11.5px] text-ink-muted">{d.errorMessage ?? "—"}</td>
                           <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(d.attemptedAt, { style: "long" })}</td>
@@ -210,6 +215,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
 }
 
 export function WebhooksPage() {
+  const { t } = useAppTranslation();
   const query = useWebhooks();
   const createWebhook = useCreateWebhook();
   const updateWebhook = useUpdateWebhook();
@@ -241,15 +247,15 @@ export function WebhooksPage() {
   async function submitNewWebhook() {
     setFormError(null);
     if (name.trim() === "") {
-      setFormError("اسم الويب هوك مطلوب");
+      setFormError(t("webhooks.theWebhookNameIsRequired"));
       return;
     }
     if (targetUrl.trim() === "") {
-      setFormError("رابط الوجهة مطلوب");
+      setFormError(t("webhooks.theDestinationUrlIsRequired"));
       return;
     }
     if (selectedEvents.size === 0) {
-      setFormError("اختر حدثًا واحدًا على الأقل");
+      setFormError(t("webhooks.pickAtLeastOneEvent"));
       return;
     }
     try {
@@ -264,7 +270,7 @@ export function WebhooksPage() {
       setSelectedEvents(new Set());
       setCreatedWebhook(result);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذر إنشاء الويب هوك");
+      setFormError(err instanceof Error ? err.message : t("webhooks.couldNotCreateTheWebhook"));
     }
   }
 
@@ -283,16 +289,16 @@ export function WebhooksPage() {
   }
 
   const columns: DocumentListColumn<WebhookDTO>[] = [
-    { key: "name", header: "الاسم", render: (w) => <span className="font-semibold text-ink">{w.name}</span> },
-    { key: "targetUrl", header: "رابط الوجهة", render: (w) => <span className="mz-lat text-[12px] text-ink-muted">{w.targetUrl}</span> },
-    { key: "events", header: "الأحداث", render: (w) => <span className="mz-num">{w.events.length}</span> },
-    { key: "createdAt", header: "تاريخ الإنشاء", render: (w) => formatDate(w.createdAt, { style: "long" }) },
+    { key: "name", header: t("common.name"), render: (w) => <span className="font-semibold text-ink">{w.name}</span> },
+    { key: "targetUrl", header: t("webhooks.destinationUrl"), render: (w) => <span className="mz-lat text-[12px] text-ink-muted">{w.targetUrl}</span> },
+    { key: "events", header: t("webhooks.events"), render: (w) => <span className="mz-num">{w.events.length}</span> },
+    { key: "createdAt", header: t("webhooks.createdOn"), render: (w) => formatDate(w.createdAt, { style: "long" }) },
     {
       key: "active",
-      header: "الحالة",
+      header: t("common.status"),
       render: (w) => (
         <button type="button" onClick={(e) => { e.stopPropagation(); void handleToggleActive(w); }} disabled={togglingId === w.id}>
-          <StatusPill label={togglingId === w.id ? "…" : w.active ? "مفعّل" : "معطّل"} tone={w.active ? "success" : "neutral"} />
+          <StatusPill label={togglingId === w.id ? "…" : w.active ? t("webhooks.enabled") : t("webhooks.disabled")} tone={w.active ? "success" : "neutral"} />
         </button>
       ),
     },
@@ -306,27 +312,27 @@ export function WebhooksPage() {
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الويب هوك.</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>إعادة المحاولة</Button>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("webhooks.couldNotLoadTheWebhooks")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>{t("common.retry")}</Button>
         </Card>
       ) : null}
 
       <DocumentList<WebhookDTO>
         eyebrow="Settings · Webhooks"
-        title="الويب هوك"
-        description="أرسل الأحداث إلى نظام خارجي عبر رابط ويب هوك موقّع."
+        title={t("webhooks.webhooks")}
+        description={t("webhooks.sendEventsToAnOutside")}
         actions={
           <Button variant="primary" onClick={() => setPanelOpen(true)}>
-            ويب هوك جديد
+            {t("webhooks.newWebhook")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الويب هوك", value: <span className="mz-num">{webhooks.length}</span> },
-          { label: "مفعّلة", value: <span className="mz-num">{webhooks.filter((w) => w.active).length}</span> },
+          { label: t("webhooks.totalWebhooks"), value: <span className="mz-num">{webhooks.length}</span> },
+          { label: t("webhooks.enabled2"), value: <span className="mz-num">{webhooks.filter((w) => w.active).length}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالاسم أو الرابط…"
+        searchPlaceholder={t("webhooks.searchByNameOrUrl")}
         columns={columns}
         rows={filtered}
         rowKey={(w) => w.id}
@@ -335,28 +341,28 @@ export function WebhooksPage() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{webhooks.length}</span> ويب هوك
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{webhooks.length}</span> {t("webhooks.webhook")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد ويب هوك مسجّلة بعد</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("webhooks.noWebhooksHaveBeenRegistered")}</div>}
       />
 
       <SidePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        title="ويب هوك جديد"
-        description="سيُرسل طلب HTTP موقّع إلى الرابط عند وقوع أي من الأحداث المحددة."
+        title={t("webhooks.newWebhook")}
+        description={t("webhooks.aSignedHttpRequestGoes")}
         className="w-[620px]"
       >
         <div className="flex flex-col gap-[14px]">
           {formError ? <StatusPill label={formError} tone="danger" /> : null}
-          <TextField label="الاسم" value={name} onChange={setName} placeholder="مثال: نظام المحاسبة الخارجي" />
-          <TextField label="رابط الوجهة" value={targetUrl} onChange={setTargetUrl} placeholder="https://example.com/webhooks/mezan" />
+          <TextField label={t("common.name")} value={name} onChange={setName} placeholder={t("webhooks.eGTheExternalAccounting")} />
+          <TextField label={t("webhooks.destinationUrl")} value={targetUrl} onChange={setTargetUrl} placeholder="https://example.com/webhooks/mezan" />
           <EventsChecklist events={deliverableEvents} selected={selectedEvents} onToggle={toggleEvent} />
           <div className="flex justify-end gap-[9px]">
-            <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
             <Button variant="primary" disabled={createWebhook.isPending} onClick={() => void submitNewWebhook()}>
-              {createWebhook.isPending ? "جارٍ الإنشاء…" : "إنشاء الويب هوك"}
+              {createWebhook.isPending ? t("webhooks.creating") : t("webhooks.createTheWebhook")}
             </Button>
           </div>
         </div>

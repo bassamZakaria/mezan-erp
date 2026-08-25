@@ -23,15 +23,16 @@ import {
   useEmployeeAdvances,
   useRequestEmployeeAdvance,
 } from "../data/hr-payroll-hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** سلف الموظفين (Employee Advances) — docs/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
-const STATUS_LABEL: Record<EmployeeAdvanceStatusDTO, string> = {
-  pending: "في انتظار الاعتماد",
-  approved: "معتمدة",
-  disbursed: "مصروفة",
-  repaid: "مسددة",
-  rejected: "مرفوضة",
+const STATUS_KEY: Record<EmployeeAdvanceStatusDTO, AppTranslationKey> = {
+  pending: "advances.status.pending",
+  approved: "advances.status.approved",
+  disbursed: "advances.status.disbursed",
+  repaid: "advances.status.repaid",
+  rejected: "advances.status.rejected",
 };
 
 const STATUS_TONE: Record<EmployeeAdvanceStatusDTO, PillTone> = {
@@ -55,6 +56,7 @@ function blankDraft(): AdvanceDraft {
 }
 
 export function EmployeeAdvancesScreen() {
+  const { t } = useAppTranslation();
   const query = useEmployeeAdvances();
   const balancesQuery = useEmployeeAdvanceBalances();
   const employeesQuery = useEmployees();
@@ -111,11 +113,11 @@ export function EmployeeAdvancesScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.employeeId === "" || draft.amount === null || draft.firstDeductionDate.trim() === "") {
-      setFormError("الموظف والمبلغ وتاريخ أول خصم مطلوبة.");
+      setFormError(t("advances.theEmployeeTheAmountAnd"));
       return;
     }
     if (!Number.isInteger(draft.installmentCount) || draft.installmentCount < 1) {
-      setFormError("عدد الأقساط يجب أن يكون رقماً صحيحاً أكبر من صفر.");
+      setFormError(t("advances.theNumberOfInstalmentsMust"));
       return;
     }
     setFormError(null);
@@ -129,7 +131,7 @@ export function EmployeeAdvancesScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر تسجيل طلب السلفة.");
+      setFormError(err instanceof ApiError ? err.message : t("advances.theAdvanceRequestCouldNot"));
     }
   }
 
@@ -140,7 +142,7 @@ export function EmployeeAdvancesScreen() {
     try {
       await decideAdvance.mutateAsync({ id: advance.id, decision });
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "تعذّر تنفيذ القرار.");
+      setDetailError(err instanceof ApiError ? err.message : t("advances.theDecisionCouldNotBe"));
     } finally {
       setPendingId(null);
     }
@@ -149,7 +151,7 @@ export function EmployeeAdvancesScreen() {
   async function runDisburse(advance: EmployeeAdvanceDTO) {
     if (pendingId !== null) return;
     if (treasuryAccountId === "" || branchId === "") {
-      setDetailError("اختر الخزينة والفرع قبل الصرف.");
+      setDetailError(t("advances.chooseTheTreasuryAccountAnd"));
       return;
     }
     setPendingId(advance.id);
@@ -157,35 +159,35 @@ export function EmployeeAdvancesScreen() {
     try {
       await disburseAdvance.mutateAsync({ id: advance.id, body: { treasuryAccountId, branchId } });
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "تعذّر صرف السلفة.");
+      setDetailError(err instanceof ApiError ? err.message : t("advances.theAdvanceCouldNotBe"));
     } finally {
       setPendingId(null);
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: advances.length },
-    { key: "pending", label: STATUS_LABEL.pending, count: advances.filter((a) => a.status === "pending").length },
-    { key: "approved", label: STATUS_LABEL.approved, count: advances.filter((a) => a.status === "approved").length },
-    { key: "disbursed", label: STATUS_LABEL.disbursed, count: advances.filter((a) => a.status === "disbursed").length },
-    { key: "repaid", label: STATUS_LABEL.repaid, count: advances.filter((a) => a.status === "repaid").length },
+    { key: "all", label: t("common.all"), count: advances.length },
+    { key: "pending", label: t(STATUS_KEY.pending), count: advances.filter((a) => a.status === "pending").length },
+    { key: "approved", label: t(STATUS_KEY.approved), count: advances.filter((a) => a.status === "approved").length },
+    { key: "disbursed", label: t(STATUS_KEY.disbursed), count: advances.filter((a) => a.status === "disbursed").length },
+    { key: "repaid", label: t(STATUS_KEY.repaid), count: advances.filter((a) => a.status === "repaid").length },
   ];
 
   const columns: DocumentListColumn<EmployeeAdvanceDTO>[] = [
-    { key: "number", header: "رقم السلفة", render: (a) => <span className="mz-num font-semibold text-ink">{a.number}</span> },
-    { key: "employee", header: "الموظف", render: (a) => employeeName(a.employeeId) },
-    { key: "amount", header: "المبلغ", align: "end", render: (a) => <MoneyDisplay value={Number(a.amount)} /> },
-    { key: "outstanding", header: "المتبقي", align: "end", render: (a) => <MoneyDisplay value={Number(a.outstanding)} /> },
+    { key: "number", header: t("advances.advanceNumber"), render: (a) => <span className="mz-num font-semibold text-ink">{a.number}</span> },
+    { key: "employee", header: t("advances.employee"), render: (a) => employeeName(a.employeeId) },
+    { key: "amount", header: t("common.amount"), align: "end", render: (a) => <MoneyDisplay value={Number(a.amount)} /> },
+    { key: "outstanding", header: t("advances.remaining"), align: "end", render: (a) => <MoneyDisplay value={Number(a.outstanding)} /> },
     {
       key: "installments",
-      header: "الأقساط",
+      header: t("advances.instalments"),
       render: (a) => (
         <span className="mz-num">
           {a.installments.filter((i) => Number(i.recovered) >= Number(i.amount)).length} / {a.installmentCount}
         </span>
       ),
     },
-    { key: "status", header: "الحالة", render: (a) => <StatusPill label={STATUS_LABEL[a.status]} tone={STATUS_TONE[a.status]} /> },
+    { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
   ];
 
   const totalOutstanding = balances.reduce((sum, b) => sum + Number(b.outstanding), 0);
@@ -194,34 +196,34 @@ export function EmployeeAdvancesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل السلف.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("advances.advancesCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <DocumentList<EmployeeAdvanceDTO>
         eyebrow="HR · Advances"
-        title="سلف الموظفين"
-        description="السلفة دين على الموظف (أصل) — لا تحتسب مصروفاً إلا عند الشطب، وتُسترد بأقساط من الرواتب"
+        title={t("advances.employeeAdvances")}
+        description={t("advances.anAdvanceIsADebt")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            طلب سلفة
+            {t("advances.requestAnAdvance")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{advances.length}</span> },
-          { label: "في انتظار الاعتماد", value: <span className="mz-num">{advances.filter((a) => a.status === "pending").length}</span> },
-          { label: "مصروفة", value: <span className="mz-num">{advances.filter((a) => a.status === "disbursed").length}</span> },
-          { label: "إجمالي المتبقي", value: <MoneyDisplay value={totalOutstanding} /> },
+          { label: t("common.total"), value: <span className="mz-num">{advances.length}</span> },
+          { label: t("advances.awaitingApproval"), value: <span className="mz-num">{advances.filter((a) => a.status === "pending").length}</span> },
+          { label: t("advances.paidOut"), value: <span className="mz-num">{advances.filter((a) => a.status === "disbursed").length}</span> },
+          { label: t("advances.totalOutstanding"), value: <MoneyDisplay value={totalOutstanding} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | EmployeeAdvanceStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="ابحث برقم السلفة أو اسم الموظف..."
+        searchPlaceholder={t("advances.searchByAdvanceNumberOr")}
         columns={columns}
         rows={filtered}
         rowKey={(a) => a.id}
@@ -233,59 +235,59 @@ export function EmployeeAdvancesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{advances.length}</span> سلفة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{advances.length}</span> {t("advances.advances")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد سلف — ابدأ بتسجيل طلب سلفة لموظف</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("advances.noAdvancesStartByRecording")}</div>}
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
 
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الموظف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.employee")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{employeeName(selected.employeeId)}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">المبلغ</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.amount")}</div>
                 <div className="mt-[5px]">
                   <MoneyDisplay value={Number(selected.amount)} className="text-[14px] font-bold" />
                 </div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">المتبقي على السلفة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.outstandingOnThisAdvance")}</div>
                 <div className="mt-[5px]">
                   <MoneyDisplay value={Number(selected.outstanding)} className="text-[14px] font-bold" />
                 </div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">إجمالي رصيد سلف الموظف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.theEmployeeSTotalAdvance")}</div>
                 <div className="mt-[5px]">
                   <MoneyDisplay value={Number(selectedOutstanding)} className="text-[14px] font-bold" />
                 </div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">أول خصم</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.firstDeduction")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.firstDeductionDate}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">عدد الأقساط</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.instalments2")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.installmentCount}</div>
               </div>
             </Card>
 
             {selected.reason ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">السبب</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.reason")}</div>
                 <div className="mt-[5px] text-[13px] text-ink">{selected.reason}</div>
               </Card>
             ) : null}
 
             <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">جدول الأقساط</h3>
+              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("advances.instalmentSchedule")}</h3>
               <ul className="flex flex-col gap-[6px]">
                 {selected.installments.map((i) => (
                   <li key={i.seq} className="flex items-center justify-between text-[12.5px]">
@@ -295,7 +297,7 @@ export function EmployeeAdvancesScreen() {
                     <span className="flex items-center gap-[10px]">
                       <MoneyDisplay value={Number(i.amount)} />
                       <span className="text-[11px] text-ink-faint">
-                        {Number(i.recovered) >= Number(i.amount) ? "مسدد" : `مسدد منه ${i.recovered}`}
+                        {Number(i.recovered) >= Number(i.amount) ? t("advances.repaid2") : t("advances.repaidOf", { amount: i.recovered })}
                       </span>
                     </span>
                   </li>
@@ -305,7 +307,7 @@ export function EmployeeAdvancesScreen() {
 
             {selected.disbursementVoucherId ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">سند الصرف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("advances.disbursementVoucher")}</div>
                 <div className="mz-num mt-[5px] text-[12.5px] text-ink">{selected.disbursementVoucherId}</div>
               </Card>
             ) : null}
@@ -319,32 +321,32 @@ export function EmployeeAdvancesScreen() {
             {selected.status === "pending" ? (
               <div className="flex gap-[9px]">
                 <Button variant="primary" disabled={pendingId === selected.id} onClick={() => runDecision(selected, "approve")}>
-                  اعتماد
+                  {t("advances.approve")}
                 </Button>
                 <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => runDecision(selected, "reject")}>
-                  رفض
+                  {t("advances.reject")}
                 </Button>
               </div>
             ) : null}
 
             {selected.status === "approved" ? (
               <div className="flex flex-col gap-[10px] rounded-lg border border-border p-[14px]">
-                <h3 className="font-display text-[13px] font-bold text-ink">صرف السلفة</h3>
-                <p className="text-[12px] text-ink-muted">يصدر سند صرف نقدي: مدين سلف الموظفين (1160) / دائن الخزينة.</p>
+                <h3 className="font-display text-[13px] font-bold text-ink">{t("advances.payOutAdvance")}</h3>
+                <p className="text-[12px] text-ink-muted">{t("advances.thisIssuesACashDisbursement")}</p>
                 <SelectField
-                  label="الخزينة *"
+                  label={t("advances.treasuryAccount")}
                   value={treasuryAccountId}
                   onChange={setTreasuryAccountId}
-                  options={[{ value: "", label: "اختر..." }, ...treasuryAccounts.map((t) => ({ value: t.id, label: `${t.code} — ${t.name}` }))]}
+                  options={[{ value: "", label: t("advances.choose") }, ...treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${account.name}` }))]}
                 />
                 <SelectField
-                  label="الفرع *"
+                  label={t("advances.branch")}
                   value={branchId}
                   onChange={setBranchId}
-                  options={[{ value: "", label: "اختر..." }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+                  options={[{ value: "", label: t("advances.choose") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
                 />
                 <Button variant="primary" disabled={pendingId === selected.id} onClick={() => runDisburse(selected)}>
-                  صرف
+                  {t("advances.payOut")}
                 </Button>
               </div>
             ) : null}
@@ -352,7 +354,7 @@ export function EmployeeAdvancesScreen() {
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="طلب سلفة" description="السلفة دين على الموظف (أصل) — لا تحتسب مصروفاً إلا عند الشطب">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("advances.requestAnAdvance")} description={t("advances.anAdvanceIsADebt2")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -360,35 +362,35 @@ export function EmployeeAdvancesScreen() {
             </div>
           ) : null}
           <EntityPicker
-            label="الموظف *"
+            label={t("advances.employee2")}
             options={employeeOptions}
             value={draft.employeeId ? (employeeOptions.find((o) => o.id === draft.employeeId) ?? null) : null}
             onChange={(option) => setDraft((d) => ({ ...d, employeeId: option?.id ?? "" }))}
           />
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">المبلغ *</div>
-            <MoneyInput aria-label="المبلغ" value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("advances.amount")}</div>
+            <MoneyInput aria-label={t("common.amount")} value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
           </div>
           <NumberField
-            label="عدد الأقساط *"
+            label={t("advances.numberOfInstalments")}
             value={draft.installmentCount}
             onChange={(v) => setDraft((d) => ({ ...d, installmentCount: Number.isNaN(v) ? 1 : v }))}
             min={1}
-            hint="يُقسّم المبلغ بالتساوي بحيث يساوي مجموع الأقساط قيمة السلفة بالضبط"
+            hint={t("advances.theAmountIsSplitEvenly")}
           />
           <TextField
-            label="أول خصم *"
+            label={t("advances.firstDeduction2")}
             value={draft.firstDeductionDate}
             onChange={(v) => setDraft((d) => ({ ...d, firstDeductionDate: v }))}
             placeholder="YYYY-MM-DD"
           />
-          <TextField label="السبب" value={draft.reason} onChange={(v) => setDraft((d) => ({ ...d, reason: v }))} />
+          <TextField label={t("advances.reason")} value={draft.reason} onChange={(v) => setDraft((d) => ({ ...d, reason: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {t("common.add")}
             </Button>
           </div>
         </form>

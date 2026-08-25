@@ -179,8 +179,13 @@ const INVENTORY_WRITEDOWN_GL_ACCOUNTS = {
  * finished goods (1220), labor applied (5110), overhead applied (5210).
  */
 const MANUFACTURING_GL_ACCOUNTS = {
-  finishedGoodsAccountId: "1220",
-  rawInventoryAccountId: "1210",
+  // Both inventory legs post to the ONE control account the stock ledger moves
+  // value through. 1210/1220 are presentational sub-classifications the stock
+  // engine does not distinguish, and posting to them left GL 1200 flat while
+  // the sub-ledger moved by labour plus overhead (D3) — `accountBalance` has no
+  // subtree rollup, so a control account only ever sees what was posted to it.
+  finishedGoodsAccountId: "1200",
+  rawInventoryAccountId: "1200",
   laborAppliedAccountId: "5110",
   overheadAppliedAccountId: "5210",
 };

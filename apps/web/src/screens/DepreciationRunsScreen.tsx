@@ -3,10 +3,11 @@ import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePane
 import type { CreateDepreciationRunDTO, DepreciationRunDTO, DepreciationRunStatusDTO } from "@mezan/contracts";
 import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, usePostDepreciationRun } from "../data/hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** الإهلاك (Depreciation Runs) — docs/catalog/07 §"الإهلاك". List + detail + run-creation panel. */
 
-const STATUS_LABEL: Record<DepreciationRunStatusDTO, string> = { draft: "مسودة", posted: "مرحل", cancelled: "ملغي" };
+const STATUS_KEY: Record<DepreciationRunStatusDTO, AppTranslationKey> = { draft: "depreciation.status.draft", posted: "depreciation.status.posted", cancelled: "depreciation.status.cancelled" };
 const STATUS_TONE: Record<DepreciationRunStatusDTO, PillTone> = { draft: "neutral", posted: "success", cancelled: "danger" };
 
 function toMajor(scaledDecimalString: string): number {
@@ -28,13 +29,15 @@ function formatPeriod(draft: RunDraft): string {
   return `${draft.year}-${String(draft.month).padStart(2, "0")}`;
 }
 
-function validateDraft(draft: RunDraft): string | null {
-  if (!Number.isInteger(draft.year) || draft.year < 2000 || draft.year > 2100) return "السنة غير صحيحة.";
-  if (!Number.isInteger(draft.month) || draft.month < 1 || draft.month > 12) return "الشهر يجب أن يكون بين 1 و12.";
+/** Returns a catalogue KEY, so the caller decides the locale. */
+function validateDraft(draft: RunDraft): AppTranslationKey | null {
+  if (!Number.isInteger(draft.year) || draft.year < 2000 || draft.year > 2100) return "depreciation.yearInvalid";
+  if (!Number.isInteger(draft.month) || draft.month < 1 || draft.month > 12) return "depreciation.monthInvalid";
   return null;
 }
 
 export function DepreciationRunsScreen() {
+  const { t } = useAppTranslation();
   const query = useDepreciationRuns();
   const branchesQuery = useBranches();
   const createRun = useCreateDepreciationRun();
@@ -55,7 +58,7 @@ export function DepreciationRunsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   function branchName(branchId: string | null): string {
-    if (branchId === null) return "كل الفروع";
+    if (branchId === null) return t("depreciation.allBranches");
     return branches.find((b) => b.id === branchId)?.name ?? branchId;
   }
 
@@ -80,7 +83,7 @@ export function DepreciationRunsScreen() {
     event.preventDefault();
     const error = validateDraft(draft);
     if (error) {
-      setFormError(error);
+      setFormError(t(error));
       return;
     }
     setFormError(null);
@@ -89,7 +92,7 @@ export function DepreciationRunsScreen() {
       await createRun.mutateAsync(body);
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر إنشاء عملية الإهلاك.");
+      setFormError(err instanceof ApiError ? err.message : t("depreciation.theDepreciationRunCouldNot"));
     }
   }
 
@@ -100,18 +103,18 @@ export function DepreciationRunsScreen() {
     try {
       await postRun.mutateAsync(run.id);
     } catch (err) {
-      setPostError(err instanceof ApiError ? err.message : "تعذّر ترحيل عملية الإهلاك.");
+      setPostError(err instanceof ApiError ? err.message : t("depreciation.theDepreciationRunCouldNot2"));
     } finally {
       setPostingId(null);
     }
   }
 
   const columns: DocumentListColumn<DepreciationRunDTO>[] = [
-    { key: "period", header: "الفترة", render: (r) => <span className="mz-num font-semibold text-ink">{r.period}</span> },
-    { key: "branch", header: "الفرع", render: (r) => branchName(r.branchId) },
-    { key: "lines", header: "عدد الأصول", align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
-    { key: "total", header: "المبلغ الإجمالي", align: "end", render: (r) => <MoneyDisplay value={toMajor(r.totalAmount)} /> },
-    { key: "status", header: "الحالة", render: (r) => <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} /> },
+    { key: "period", header: t("common.period"), render: (r) => <span className="mz-num font-semibold text-ink">{r.period}</span> },
+    { key: "branch", header: t("common.branch"), render: (r) => branchName(r.branchId) },
+    { key: "lines", header: t("depreciation.assets"), align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
+    { key: "total", header: t("depreciation.totalAmount"), align: "end", render: (r) => <MoneyDisplay value={toMajor(r.totalAmount)} /> },
+    { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
     {
       key: "actions",
       header: "",
@@ -127,7 +130,7 @@ export function DepreciationRunsScreen() {
               void handlePost(r);
             }}
           >
-            {postingId === r.id ? "جارٍ الترحيل..." : "ترحيل"}
+            {postingId === r.id ? t("depreciation.posting") : t("depreciation.post")}
           </Button>
         ) : r.journalEntryId ? (
           <span className="mz-num text-[11px] text-ink-faint">{r.journalEntryId}</span>
@@ -136,19 +139,19 @@ export function DepreciationRunsScreen() {
   ];
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: totalCount },
-    { key: "draft", label: "مسودة", count: draftCount },
-    { key: "posted", label: "مرحل", count: postedCount },
-    { key: "cancelled", label: "ملغي", count: runs.filter((r) => r.status === "cancelled").length },
+    { key: "all", label: t("common.all"), count: totalCount },
+    { key: "draft", label: t("docStatus.draft"), count: draftCount },
+    { key: "posted", label: t("docStatus.posted"), count: postedCount },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: runs.filter((r) => r.status === "cancelled").length },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل عمليات الإهلاك.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("depreciation.depreciationRunsCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -161,17 +164,17 @@ export function DepreciationRunsScreen() {
       ) : null}
       <DocumentList<DepreciationRunDTO>
         eyebrow="Fixed Assets · Depreciation"
-        title="الإهلاك"
-        description="عمليات إهلاك دورية تحسب وترحّل مصروف الإهلاك على كل الأصول المؤهلة لفترة وفرع محددين"
+        title={t("depreciation.depreciation")}
+        description={t("depreciation.periodicRunsThatComputeAnd")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            تشغيل إهلاك جديد
+            {t("depreciation.runDepreciation")}
           </Button>
         }
         stats={[
-          { label: "إجمالي العمليات", value: <span className="mz-num">{totalCount}</span> },
-          { label: "مسودة", value: <span className="mz-num">{draftCount}</span> },
-          { label: "مرحل", value: <span className="mz-num">{postedCount}</span> },
+          { label: t("depreciation.totalRuns"), value: <span className="mz-num">{totalCount}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{draftCount}</span> },
+          { label: t("docStatus.posted"), value: <span className="mz-num">{postedCount}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -184,49 +187,49 @@ export function DepreciationRunsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{totalCount}</span> عملية
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("depreciation.runs")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد عمليات إهلاك — لم يتم تشغيل أي إهلاك بعد</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("depreciation.noDepreciationRunsYet")}</div>}
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `عملية إهلاك — ${selected.period}` : ""}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("depreciation.detailTitle", { period: selected.period }) : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الفترة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.period")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.period}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الفرع</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.branch")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{branchName(selected.branchId)}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ الإنشاء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("depreciation.created")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.createdAt}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ الترحيل</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("depreciation.posted")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.postedAt ?? "—"}</div>
               </div>
             </Card>
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">المبلغ الإجمالي</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("depreciation.totalAmount")}</div>
               <MoneyDisplay value={toMajor(selected.totalAmount)} className="mt-[6px] text-[18px] font-bold" />
               {selected.journalEntryId ? (
-                <div className="mz-num mt-[8px] text-[11.5px] text-ink-faint">قيد اليومية: {selected.journalEntryId}</div>
+                <div className="mz-num mt-[8px] text-[11.5px] text-ink-faint">{t("depreciation.journalEntry")} {selected.journalEntryId}</div>
               ) : null}
             </Card>
             <div>
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">تفاصيل الإهلاك</h3>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("depreciation.depreciationDetail")}</h3>
               <div className="overflow-hidden rounded-lg border border-border">
                 <table className="w-full text-[12.5px]">
                   <thead className="bg-surface-2 text-ink-faint">
                     <tr>
-                      <th className="p-[9px_12px] text-start font-semibold">الأصل</th>
-                      <th className="p-[9px_12px] text-end font-semibold">المبلغ</th>
+                      <th className="p-[9px_12px] text-start font-semibold">{t("depreciation.asset")}</th>
+                      <th className="p-[9px_12px] text-end font-semibold">{t("common.amount")}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -246,7 +249,7 @@ export function DepreciationRunsScreen() {
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="تشغيل إهلاك جديد" description="بيانات دورة الإهلاك">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("depreciation.runDepreciation")} description={t("depreciation.depreciationRunDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -254,21 +257,21 @@ export function DepreciationRunsScreen() {
             </div>
           ) : null}
 
-          <NumberField label="السنة *" value={draft.year} onChange={(v) => setDraft((d) => ({ ...d, year: v }))} min={2000} max={2100} step={1} />
-          <NumberField label="الشهر *" value={draft.month} onChange={(v) => setDraft((d) => ({ ...d, month: v }))} min={1} max={12} step={1} />
+          <NumberField label={t("depreciation.year")} value={draft.year} onChange={(v) => setDraft((d) => ({ ...d, year: v }))} min={2000} max={2100} step={1} />
+          <NumberField label={t("depreciation.month")} value={draft.month} onChange={(v) => setDraft((d) => ({ ...d, month: v }))} min={1} max={12} step={1} />
           <SelectField
-            label="الفرع"
+            label={t("common.branch")}
             value={draft.branchId}
             onChange={(v) => setDraft((d) => ({ ...d, branchId: v }))}
-            options={[{ value: "", label: "كل الفروع" }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+            options={[{ value: "", label: t("depreciation.allBranches") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
           />
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              تشغيل
+              {t("depreciation.run")}
             </Button>
           </div>
         </form>

@@ -3,10 +3,11 @@ import { DocumentList, StatusPill, Card, Button, SidePanel, type DocumentListCol
 import type { AssetCategoryDTO, CreateAssetCategoryDTO } from "@mezan/contracts";
 import { ApiError, useAssetCategories, useCreateAssetCategory } from "../data/hooks";
 import { NumberField, TextField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** تصنيفات الأصول (Asset Categories) — docs/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
 
-const DEPRECIATION_METHOD_LABEL = "القسط الثابت";
+const DEPRECIATION_METHOD_KEY = "assetCategories.straightLine" as const;
 const STATUS_TONE: Record<"active" | "inactive", PillTone> = { active: "success", inactive: "neutral" };
 
 interface AssetCategoryDraft {
@@ -35,21 +36,25 @@ function blankDraft(): AssetCategoryDraft {
   };
 }
 
-function validateDraft(draft: AssetCategoryDraft, existing: AssetCategoryDTO[]): string | null {
+/** Returns a catalogue KEY (with any placeholders), so the caller decides the locale. */
+type ValidationError = { key: AppTranslationKey; params?: Record<string, string | number> };
+
+function validateDraft(draft: AssetCategoryDraft, existing: AssetCategoryDTO[]): ValidationError | null {
   const code = draft.code.trim();
-  if (code === "") return "كود التصنيف مطلوب.";
-  if (existing.some((c) => c.code === code)) return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
-  if (draft.nameAr.trim() === "") return "اسم التصنيف مطلوب.";
+  if (code === "") return { key: "assetCategories.codeRequired" as const };
+  if (existing.some((c) => c.code === code)) return { key: "assetCategories.codeInUse" as const, params: { code } };
+  if (draft.nameAr.trim() === "") return { key: "assetCategories.nameRequired" as const };
   if (!Number.isFinite(draft.defaultUsefulLifeMonths) || draft.defaultUsefulLifeMonths <= 0) {
-    return "العمر الإنتاجي الافتراضي يجب أن يكون رقماً أكبر من صفر.";
+    return { key: "assetCategories.lifePositive" as const };
   }
   if (!Number.isFinite(draft.defaultSalvagePercent) || draft.defaultSalvagePercent < 0 || draft.defaultSalvagePercent > 100) {
-    return "نسبة القيمة المتبقية الافتراضية يجب أن تكون بين 0 و100.";
+    return { key: "assetCategories.salvageRange" as const };
   }
   return null;
 }
 
 export function AssetCategoriesScreen() {
+  const { t } = useAppTranslation();
   const query = useAssetCategories();
   const createAssetCategory = useCreateAssetCategory();
   const categories = query.data ?? [];
@@ -79,7 +84,7 @@ export function AssetCategoriesScreen() {
     event.preventDefault();
     const error = validateDraft(draft, categories);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -99,19 +104,19 @@ export function AssetCategoriesScreen() {
       await createAssetCategory.mutateAsync(body);
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت إضافة التصنيف.");
+      setFormError(err instanceof ApiError ? err.message : t("assetCategories.theCategoryCouldNotBe"));
     }
   }
 
   const columns: DocumentListColumn<AssetCategoryDTO>[] = [
-    { key: "code", header: "كود التصنيف", render: (c) => <span className="mz-num font-semibold text-ink">{c.code}</span> },
-    { key: "nameAr", header: "الاسم", render: (c) => <span className="font-semibold text-ink">{c.nameAr}</span> },
-    { key: "method", header: "طريقة الإهلاك الافتراضية", render: () => DEPRECIATION_METHOD_LABEL },
-    { key: "usefulLife", header: "العمر الإنتاجي الافتراضي (شهور)", align: "end", render: (c) => <span className="mz-num">{c.defaultUsefulLifeMonths}</span> },
+    { key: "code", header: t("assetCategories.categoryCode"), render: (c) => <span className="mz-num font-semibold text-ink">{c.code}</span> },
+    { key: "nameAr", header: t("common.name"), render: (c) => <span className="font-semibold text-ink">{c.nameAr}</span> },
+    { key: "method", header: t("assetCategories.defaultDepreciationMethod"), render: () => t(DEPRECIATION_METHOD_KEY) },
+    { key: "usefulLife", header: t("assetCategories.defaultUsefulLifeMonths"), align: "end", render: (c) => <span className="mz-num">{c.defaultUsefulLifeMonths}</span> },
     {
       key: "status",
-      header: "الحالة",
-      render: (c) => <StatusPill label={c.active ? "نشط" : "غير نشط"} tone={STATUS_TONE[c.active ? "active" : "inactive"]} />,
+      header: t("common.status"),
+      render: (c) => <StatusPill label={c.active ? t("common.active") : t("common.inactive")} tone={STATUS_TONE[c.active ? "active" : "inactive"]} />,
     },
   ];
 
@@ -119,31 +124,31 @@ export function AssetCategoriesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تصنيفات الأصول.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("assetCategories.assetCategoriesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<AssetCategoryDTO>
         eyebrow="Fixed Assets · Categories"
-        title="تصنيفات الأصول"
-        description="افتراضيات الإهلاك وربط الحسابات المحاسبية التي ترثها الأصول الجديدة عند تسجيلها"
+        title={t("assetCategories.assetCategories")}
+        description={t("assetCategories.theDepreciationDefaultsAndAccount")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة تصنيف
+            {t("assetCategories.addCategory")}
           </Button>
         }
         statusChips={[
-          { key: "all", label: "الكل", count: categories.length },
-          { key: "active", label: "نشط", count: categories.filter((c) => c.active).length },
-          { key: "inactive", label: "غير نشط", count: categories.filter((c) => !c.active).length },
+          { key: "all", label: t("common.all"), count: categories.length },
+          { key: "active", label: t("common.active"), count: categories.filter((c) => c.active).length },
+          { key: "inactive", label: t("common.inactive"), count: categories.filter((c) => !c.active).length },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as "all" | "active" | "inactive")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالتصنيف (الكود أو الاسم)..."
+        searchPlaceholder={t("assetCategories.searchByCategoryCodeOr")}
         columns={columns}
         rows={filtered}
         rowKey={(c) => c.id}
@@ -151,13 +156,13 @@ export function AssetCategoriesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{categories.length}</span> تصنيف
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{categories.length}</span> {t("assetCategories.categories")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد بيانات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("assetCategories.nothingToShow")}</div>}
       />
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="إضافة تصنيف" description="بيانات التصنيف الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("assetCategories.addCategory")} description={t("assetCategories.theCategorySCoreDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -166,28 +171,28 @@ export function AssetCategoriesScreen() {
           ) : null}
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">التعريف</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("assetCategories.identity")}</h3>
             <div className="flex flex-col gap-[12px]">
-              <TextField label="كود التصنيف *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} placeholder="FA-01" />
-              <TextField label="اسم التصنيف *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+              <TextField label={t("assetCategories.categoryCode2")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} placeholder="FA-01" />
+              <TextField label={t("assetCategories.categoryName")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
             </div>
           </div>
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[4px] font-display text-[13px] font-bold text-ink">افتراضيات الإهلاك</h3>
+            <h3 className="mb-[4px] font-display text-[13px] font-bold text-ink">{t("assetCategories.depreciationDefaults")}</h3>
             <p className="mb-[10px] text-[11.5px] text-ink-faint">
-              تستخدم هذه القيم تلقائياً عند إنشاء أي أصل ينتمي لهذا التصنيف. يمكن تجاوزها لكل أصل على حدة.
+              {t("assetCategories.theseValuesAreAppliedAutomatically")}
             </p>
             <div className="flex flex-col gap-[12px]">
               <NumberField
-                label="العمر الإنتاجي الافتراضي (شهور) *"
+                label={t("assetCategories.defaultUsefulLifeMonths2")}
                 value={draft.defaultUsefulLifeMonths}
                 onChange={(v) => setDraft((d) => ({ ...d, defaultUsefulLifeMonths: v }))}
                 min={1}
                 step={1}
               />
               <NumberField
-                label="نسبة القيمة المتبقية الافتراضية (%) *"
+                label={t("assetCategories.defaultSalvageRate")}
                 value={draft.defaultSalvagePercent}
                 onChange={(v) => setDraft((d) => ({ ...d, defaultSalvagePercent: v }))}
                 min={0}
@@ -198,55 +203,55 @@ export function AssetCategoriesScreen() {
           </div>
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[4px] font-display text-[13px] font-bold text-ink">ربط الحسابات المحاسبية</h3>
+            <h3 className="mb-[4px] font-display text-[13px] font-bold text-ink">{t("assetCategories.accountMapping")}</h3>
             <p className="mb-[10px] text-[11.5px] text-ink-faint">
-              اختيار حسابات دفتر الأستاذ التي تسجل بها قيود الأصل خلال دورة حياته. اتركها فارغة لاستخدام الحسابات الافتراضية.
+              {t("assetCategories.chooseTheLedgerAccountsAn")}
             </p>
             <div className="flex flex-col gap-[12px]">
               <TextField
-                label="كود حساب الأصل الافتراضي"
+                label={t("assetCategories.defaultAssetAccountCode")}
                 value={draft.assetAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, assetAccountId: v }))}
                 placeholder="1500"
-                hint="اتركه فارغاً لاستخدام الحساب الافتراضي: 1500 — الأصول الثابتة"
+                hint={t("assetCategories.leaveEmptyToUseThe")}
               />
               <TextField
-                label="كود حساب مصروف الإهلاك الافتراضي"
+                label={t("assetCategories.defaultDepreciationExpenseAccountCode")}
                 value={draft.depreciationExpenseAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, depreciationExpenseAccountId: v }))}
                 placeholder="5400"
-                hint="اتركه فارغاً لاستخدام الحساب الافتراضي: 5400 — إهلاك الأصول"
+                hint={t("assetCategories.leaveEmptyToUseThe2")}
               />
               <TextField
-                label="كود حساب مجمع الإهلاك الافتراضي"
+                label={t("assetCategories.defaultAccumulatedDepreciationAccountCode")}
                 value={draft.accumulatedDepreciationAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, accumulatedDepreciationAccountId: v }))}
                 placeholder="1590"
-                hint="اتركه فارغاً لاستخدام الحساب الافتراضي: 1590 — مجمع إهلاك الأصول"
+                hint={t("assetCategories.leaveEmptyToUseThe3")}
               />
               <TextField
-                label="كود حساب أرباح بيع الأصول الافتراضي"
+                label={t("assetCategories.defaultGainOnDisposalAccount")}
                 value={draft.gainOnDisposalAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, gainOnDisposalAccountId: v }))}
                 placeholder="4500"
-                hint="اتركه فارغاً لاستخدام الحساب الافتراضي: 4500 — أرباح بيع الأصول"
+                hint={t("assetCategories.leaveEmptyToUseThe4")}
               />
               <TextField
-                label="كود حساب خسائر بيع الأصول الافتراضي"
+                label={t("assetCategories.defaultLossOnDisposalAccount")}
                 value={draft.lossOnDisposalAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, lossOnDisposalAccountId: v }))}
                 placeholder="5450"
-                hint="اتركه فارغاً لاستخدام الحساب الافتراضي: 5450 — خسارة بيع الأصول"
+                hint={t("assetCategories.leaveEmptyToUseThe5")}
               />
             </div>
           </div>
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

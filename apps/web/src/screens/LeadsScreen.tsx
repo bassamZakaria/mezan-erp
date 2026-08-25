@@ -14,6 +14,7 @@ import {
 import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useConvertLead, useCreateLead, useLeads, usePipelineStages, useTransitionLead } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** العملاء المحتملون (Leads) — docs/catalog/06 §"العملاء المحتملون". List + detail + create + status transitions + convert. */
 
@@ -108,6 +109,7 @@ function blankConvertDraft(lead: LeadDTO, firstStageId: string): ConvertDraft {
 }
 
 export function LeadsScreen() {
+  const { t } = useAppTranslation();
   const query = useLeads();
   const stagesQuery = usePipelineStages();
   const createLead = useCreateLead();
@@ -172,7 +174,7 @@ export function LeadsScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof Error ? err.message : t("leads.theOperationFailed"));
     }
   }
 
@@ -183,7 +185,7 @@ export function LeadsScreen() {
     try {
       await transitionLead.mutateAsync({ id: lead.id, body: { status } });
     } catch (err) {
-      setDetailError(err instanceof Error ? err.message : "تعذّر تحديث الحالة.");
+      setDetailError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
     } finally {
       setPendingStatus(null);
     }
@@ -199,11 +201,11 @@ export function LeadsScreen() {
     event.preventDefault();
     if (!selected || !convertDraft) return;
     if (convertDraft.createCustomer && convertDraft.customerCode.trim() === "") {
-      setConvertError("كود العميل مطلوب لإنشاء عميل جديد.");
+      setConvertError(t("leads.customerCodeIsRequiredTo"));
       return;
     }
     if (convertDraft.createOpportunity && (convertDraft.opportunityTitle.trim() === "" || convertDraft.opportunityStageId === "")) {
-      setConvertError("عنوان الفرصة والمرحلة مطلوبان لإنشاء فرصة جديدة.");
+      setConvertError(t("leads.opportunityTitleAndStageAre"));
       return;
     }
     setConvertError(null);
@@ -230,48 +232,48 @@ export function LeadsScreen() {
       setConvertOpen(false);
       setSelectedId(null);
     } catch (err) {
-      setConvertError(err instanceof Error ? err.message : "تعذّر تحويل العميل المحتمل.");
+      setConvertError(err instanceof Error ? err.message : t("leads.failedToConvertTheLead"));
     } finally {
       setConvertPending(false);
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: leads.length },
+    { key: "all", label: t("common.all"), count: leads.length },
     ...LEAD_STATUSES.map((s) => ({ key: s, label: STATUS_LABEL[s], count: leads.filter((l) => l.status === s).length })),
   ];
 
   const columns: DocumentListColumn<LeadDTO>[] = [
-    { key: "name", header: "الاسم", render: (l) => <span className="font-semibold text-ink">{l.name}</span> },
-    { key: "company", header: "الشركة", render: (l) => <span className="text-ink-muted">{l.company ?? "—"}</span> },
-    { key: "source", header: "المصدر", render: (l) => SOURCE_LABEL[l.source] },
-    { key: "status", header: "الحالة", render: (l) => <StatusPill label={STATUS_LABEL[l.status]} tone={STATUS_TONE[l.status]} /> },
+    { key: "name", header: t("common.name"), render: (l) => <span className="font-semibold text-ink">{l.name}</span> },
+    { key: "company", header: t("leads.company"), render: (l) => <span className="text-ink-muted">{l.company ?? "—"}</span> },
+    { key: "source", header: t("leads.source"), render: (l) => SOURCE_LABEL[l.source] },
+    { key: "status", header: t("common.status"), render: (l) => <StatusPill label={STATUS_LABEL[l.status]} tone={STATUS_TONE[l.status]} /> },
     {
       key: "expectedValue",
-      header: "القيمة المتوقعة",
+      header: t("leads.expectedValue"),
       align: "end",
       render: (l) => (toMajor(l.expectedValue) === null ? <span className="text-ink-faint">—</span> : <MoneyDisplay value={toMajor(l.expectedValue) ?? 0} />),
     },
-    { key: "createdAt", header: "تاريخ الإنشاء", render: (l) => <span className="mz-num text-[11px] text-ink-faint">{l.createdAt.slice(0, 10)}</span> },
+    { key: "createdAt", header: t("leads.createdDate"), render: (l) => <span className="mz-num text-[11px] text-ink-faint">{l.createdAt.slice(0, 10)}</span> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل العملاء المحتملين.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("leads.failedToLoadLeads")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<LeadDTO>
         eyebrow="CRM · Leads"
-        title="العملاء المحتملون"
-        description="التقاط وتأهيل العملاء المحتملين قبل تحويلهم إلى فرص بيعية"
+        title={t("leads.leads")}
+        description={t("leads.captureAndQualifyLeadsBefore")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            عميل محتمل جديد
+            {t("leads.newLead")}
           </Button>
         }
         statusChips={statusChips}
@@ -279,7 +281,7 @@ export function LeadsScreen() {
         onStatusChange={(k) => setStatusFilter(k as "all" | LeadStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالاسم أو الشركة..."
+        searchPlaceholder={t("leads.searchByNameOrCompany")}
         columns={columns}
         rows={filtered}
         rowKey={(l) => l.id}
@@ -291,10 +293,10 @@ export function LeadsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{leads.length}</span> عميل محتمل
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{leads.length}</span> {t("leads.lead")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد بيانات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leads.noData")}</div>}
       />
 
       {/* -------- Lead detail panel -------- */}
@@ -304,24 +306,24 @@ export function LeadsScreen() {
             <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الشركة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("leads.company")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.company ?? "—"}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">المصدر</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("leads.source")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{SOURCE_LABEL[selected.source]}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">البريد الإلكتروني</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.email")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.email ?? "—"}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الهاتف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.phone")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.phone ?? "—"}</div>
               </div>
             </Card>
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">القيمة المتوقعة</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("leads.expectedValue")}</div>
               <div className="mt-[6px]">
                 {toMajor(selected.expectedValue) === null ? (
                   <span className="text-ink-faint">—</span>
@@ -332,13 +334,13 @@ export function LeadsScreen() {
             </Card>
             {selected.interest ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الاهتمام</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("leads.interest")}</div>
                 <div className="mt-[6px] text-[13px] text-ink">{selected.interest}</div>
               </Card>
             ) : null}
             {selected.notes ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">ملاحظات</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                 <div className="mt-[6px] text-[13px] text-ink">{selected.notes}</div>
               </Card>
             ) : null}
@@ -357,11 +359,11 @@ export function LeadsScreen() {
               ))}
               {selected.status === "qualified" ? (
                 <Button variant="primary" disabled={pendingStatus !== null} onClick={() => openConvertForm(selected)}>
-                  تحويل
+                  {t("leads.convert")}
                 </Button>
               ) : null}
               {validTransitions(selected.status).length === 0 && selected.status !== "qualified" ? (
-                <div className="text-[12.5px] text-ink-muted">لا توجد إجراءات متاحة على هذا العميل المحتمل.</div>
+                <div className="text-[12.5px] text-ink-muted">{t("leads.noActionsAreAvailableFor")}</div>
               ) : null}
             </div>
           </div>
@@ -369,7 +371,7 @@ export function LeadsScreen() {
       </SidePanel>
 
       {/* -------- Add lead form -------- */}
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="عميل محتمل جديد" description="بيانات العميل المحتمل الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("leads.newLead")} description={t("leads.basicLeadInformation")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -377,41 +379,41 @@ export function LeadsScreen() {
             </div>
           ) : null}
 
-          <TextField label="الاسم *" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
-          <TextField label="الشركة" value={draft.company} onChange={(v) => setDraft((d) => ({ ...d, company: v }))} />
-          <TextField label="البريد الإلكتروني" type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-          <TextField label="الهاتف" type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
+          <TextField label={t("leads.name")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("leads.company")} value={draft.company} onChange={(v) => setDraft((d) => ({ ...d, company: v }))} />
+          <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+          <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
           <SelectField
-            label="المصدر"
+            label={t("leads.source")}
             value={draft.source}
             onChange={(v) => setDraft((d) => ({ ...d, source: v as LeadSourceDTO }))}
             options={(Object.keys(SOURCE_LABEL) as LeadSourceDTO[]).map((s) => ({ value: s, label: SOURCE_LABEL[s] }))}
           />
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
-            <MoneyInput aria-label="القيمة المتوقعة" value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("leads.expectedValue")}</div>
+            <MoneyInput aria-label={t("leads.expectedValue")} value={draft.expectedValue} onChange={(v) => setDraft((d) => ({ ...d, expectedValue: v }))} />
           </div>
           <TextField
-            label="الاهتمام"
+            label={t("leads.interest")}
             value={draft.interest}
             onChange={(v) => setDraft((d) => ({ ...d, interest: v }))}
-            placeholder="ما هو المنتج أو الخدمة محل الاهتمام؟"
+            placeholder={t("leads.whatProductOrServiceAre")}
           />
-          <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+          <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {t("common.add")}
             </Button>
           </div>
         </form>
       </SidePanel>
 
       {/* -------- Convert lead form -------- */}
-      <SidePanel open={convertOpen} onClose={() => setConvertOpen(false)} title="تحويل العميل المحتمل" description="إنشاء عميل و/أو فرصة من هذا العميل المحتمل">
+      <SidePanel open={convertOpen} onClose={() => setConvertOpen(false)} title={t("leads.convertLead")} description={t("leads.createACustomerAndOr")}>
         {convertDraft ? (
           <form onSubmit={submitConvert} className="flex flex-col gap-[14px]">
             {convertError ? (
@@ -421,53 +423,53 @@ export function LeadsScreen() {
             ) : null}
 
             <ToggleField
-              label="إنشاء عميل"
+              label={t("leads.createCustomer")}
               checked={convertDraft.createCustomer}
               onChange={(v) => setConvertDraft((d) => (d ? { ...d, createCustomer: v } : d))}
             />
             {convertDraft.createCustomer ? (
               <TextField
-                label="كود العميل *"
+                label={t("leads.customerCode")}
                 value={convertDraft.customerCode}
                 onChange={(v) => setConvertDraft((d) => (d ? { ...d, customerCode: v } : d))}
               />
             ) : null}
 
             <ToggleField
-              label="إنشاء فرصة"
+              label={t("leads.createOpportunity")}
               checked={convertDraft.createOpportunity}
               onChange={(v) => setConvertDraft((d) => (d ? { ...d, createOpportunity: v } : d))}
             />
             {convertDraft.createOpportunity ? (
               <>
                 <TextField
-                  label="عنوان الفرصة *"
+                  label={t("leads.opportunityTitle")}
                   value={convertDraft.opportunityTitle}
                   onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityTitle: v } : d))}
                 />
                 <SelectField
-                  label="المرحلة *"
+                  label={t("leads.stage")}
                   value={convertDraft.opportunityStageId}
                   onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityStageId: v } : d))}
                   options={stages.map((s) => ({ value: s.id, label: s.name }))}
                 />
                 <div>
-                  <div className="mb-[6px] text-[12.5px] font-semibold text-ink">القيمة المتوقعة</div>
+                  <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("leads.expectedValue")}</div>
                   <MoneyInput
-                    aria-label="القيمة المتوقعة"
+                    aria-label={t("leads.expectedValue")}
                     value={convertDraft.opportunityExpectedValue}
                     onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityExpectedValue: v } : d))}
                   />
                 </div>
                 <NumberField
-                  label="الاحتمالية %"
+                  label={t("leads.probability")}
                   value={convertDraft.opportunityProbability}
                   min={0}
                   max={100}
                   onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityProbability: v } : d))}
                 />
                 <TextField
-                  label="تاريخ الإغلاق المتوقع"
+                  label={t("leads.expectedCloseDate")}
                   value={convertDraft.opportunityExpectedCloseDate}
                   onChange={(v) => setConvertDraft((d) => (d ? { ...d, opportunityExpectedCloseDate: v } : d))}
                   placeholder="YYYY-MM-DD"
@@ -477,10 +479,10 @@ export function LeadsScreen() {
 
             <div className="mt-[6px] flex justify-end gap-[9px]">
               <Button type="button" onClick={() => setConvertOpen(false)}>
-                إلغاء
+                {t("common.cancel")}
               </Button>
               <Button type="submit" variant="primary" disabled={convertPending}>
-                تحويل
+                {t("leads.convert")}
               </Button>
             </div>
           </form>

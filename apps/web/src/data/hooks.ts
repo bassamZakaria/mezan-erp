@@ -224,6 +224,7 @@ import type {
   WritedownRunDTO,
 } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
+import { useAppTranslation } from "../i18n";
 
 /**
  * The `/sales-quotes` responses (create/list/get/send/accept/reject) — the
@@ -286,13 +287,14 @@ export class ApiError extends Error {
  * sends the permission-gate headers it establishes.
  */
 export function useLogin() {
+  const { t } = useAppTranslation();
   const { request, setSession } = useApi();
   return useMutation<SessionDTO, ApiError, LoginRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر تسجيل الدخول.");
+        throw new ApiError(res.status, err.message ?? t("api.signInFailed"));
       }
       return res.json<SessionDTO>();
     },
@@ -302,12 +304,13 @@ export function useLogin() {
 
 /** First-run wizard "seed base data" step — idempotently seeds an empty DB and returns what exists. */
 export function useBootstrapSeed() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BootstrapSeedResultDTO, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/bootstrap/seed", { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, "تعذّرت تهيئة البيانات الأساسية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theCoreDataCouldNot"));
       return res.json<BootstrapSeedResultDTO>();
     },
     onSuccess: (counts) => queryClient.setQueryData(["bootstrap", "status"], counts),
@@ -316,12 +319,13 @@ export function useBootstrapSeed() {
 
 /** Pre-login tenant identity (ungated) — the name the login screen and first-run wizard show. */
 export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<{ name: string }, ApiError>({
     queryKey: ["tenant"],
     queryFn: async () => {
       const res = await request("/tenant");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات المنشأة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theCompanySDetailsCould"));
       return res.json<{ name: string }>();
     },
   });
@@ -329,12 +333,13 @@ export function useTenantInfo(): UseQueryResult<{ name: string }, ApiError> {
 
 /** What base data already exists — drives the wizard's seed checklist without triggering a seed. */
 export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<BootstrapSeedResultDTO, ApiError>({
     queryKey: ["bootstrap", "status"],
     queryFn: async () => {
       const res = await request("/bootstrap/status");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر قراءة حالة البيانات الأساسية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theCoreDataStatusCould"));
       return res.json<BootstrapSeedResultDTO>();
     },
   });
@@ -347,12 +352,13 @@ export function useBootstrapStatus(): UseQueryResult<BootstrapSeedResultDTO, Api
  * reads it before a session exists.
  */
 export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useQuery<EntitlementsDTO, ApiError>({
     queryKey: ["entitlements"],
     queryFn: async () => {
       const res = await request("/entitlements");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات الترخيص.");
+      if (!res.ok) throw new ApiError(res.status, t("api.licenceDetailsCouldNotBe"));
       return res.json<EntitlementsDTO>();
     },
   });
@@ -360,13 +366,14 @@ export function useEntitlements(): UseQueryResult<EntitlementsDTO, ApiError> {
 
 /** First-run wizard "create admin" step — persists the admin, then establishes their session. */
 export function useCreateFirstAdmin() {
+  const { t } = useAppTranslation();
   const { request, setSession } = useApi();
   return useMutation<SessionDTO, ApiError, BootstrapAdminRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/bootstrap/admin", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر إنشاء حساب المسؤول.");
+        throw new ApiError(res.status, err.message ?? t("api.theAdministratorAccountCouldNot"));
       }
       return res.json<SessionDTO>();
     },
@@ -386,6 +393,7 @@ export interface DashboardRange {
  * only once a session exists.
  */
 export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<DashboardSummaryDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<DashboardSummaryDTO, ApiError>({
     queryKey: ["dashboard", "summary", range.fromDate ?? null, range.toDate ?? null],
@@ -396,7 +404,7 @@ export function useDashboardSummary(range: DashboardRange = {}): UseQueryResult<
       if (range.toDate) params.set("toDate", range.toDate);
       const qs = params.toString();
       const res = await request(`/dashboard/summary${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل بيانات لوحة التحكم.");
+      if (!res.ok) throw new ApiError(res.status, t("api.dashboardDataCouldNotBe"));
       return res.json<DashboardSummaryDTO>();
     },
   });
@@ -409,25 +417,27 @@ async function readError(res: { json<T>(): Promise<T> }, fallback: string): Prom
 
 /** الأصناف (docs/catalog/03) — list, create, edit. */
 export function useItems(): UseQueryResult<ItemDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemDTO[], ApiError>({
     queryKey: ["items"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/items");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأصناف.");
+      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
       return res.json<ItemDTO[]>();
     },
   });
 }
 
 export function useCreateItem() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemDTO, ApiError, CreateItemDTO>({
     mutationFn: async (body) => {
       const res = await request("/items", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الصنف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe")));
       return res.json<ItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -435,12 +445,13 @@ export function useCreateItem() {
 }
 
 export function useUpdateItem() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemDTO, ApiError, { id: string; patch: UpdateItemDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/items/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الصنف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theItemCouldNotBe2")));
       return res.json<ItemDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["items"] }),
@@ -449,25 +460,27 @@ export function useUpdateItem() {
 
 /** العملاء (docs/catalog/01) — list, create, edit; also used for pickers on other real-data screens (e.g. quotes). */
 export function useCustomers(): UseQueryResult<CustomerDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CustomerDTO[], ApiError>({
     queryKey: ["customers"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/customers");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العملاء.");
+      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
       return res.json<CustomerDTO[]>();
     },
   });
 }
 
 export function useCreateCustomer() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CustomerDTO, ApiError, CreateCustomerDTO>({
     mutationFn: async (body) => {
       const res = await request("/customers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العميل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe")));
       return res.json<CustomerDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
@@ -475,12 +488,13 @@ export function useCreateCustomer() {
 }
 
 export function useUpdateCustomer() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CustomerDTO, ApiError, { id: string; patch: UpdateCustomerDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/customers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل العميل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomerCouldNotBe2")));
       return res.json<CustomerDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["customers"] }),
@@ -489,25 +503,27 @@ export function useUpdateCustomer() {
 
 /** الموردون (docs/catalog/02) — list, create, edit. */
 export function useSuppliers(): UseQueryResult<SupplierDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SupplierDTO[], ApiError>({
     queryKey: ["suppliers"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/suppliers");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموردين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
       return res.json<SupplierDTO[]>();
     },
   });
 }
 
 export function useCreateSupplier() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SupplierDTO, ApiError, CreateSupplierDTO>({
     mutationFn: async (body) => {
       const res = await request("/suppliers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المورد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe")));
       return res.json<SupplierDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
@@ -515,12 +531,13 @@ export function useCreateSupplier() {
 }
 
 export function useUpdateSupplier() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SupplierDTO, ApiError, { id: string; patch: UpdateSupplierDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/suppliers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المورد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSupplierCouldNotBe2")));
       return res.json<SupplierDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
@@ -529,25 +546,27 @@ export function useUpdateSupplier() {
 
 /** دليل الحسابات (docs/catalog/04) — list, create, edit. */
 export function useAccounts(): UseQueryResult<AccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AccountDTO[], ApiError>({
     queryKey: ["accounts"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/accounts");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل دليل الحسابات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theChartOfAccountsCould"));
       return res.json<AccountDTO[]>();
     },
   });
 }
 
 export function useCreateAccount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AccountDTO, ApiError, CreateAccountDTO>({
     mutationFn: async (body) => {
       const res = await request("/accounts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الحساب."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe")));
       return res.json<AccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
@@ -555,12 +574,13 @@ export function useCreateAccount() {
 }
 
 export function useUpdateAccount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AccountDTO, ApiError, { id: string; patch: UpdateAccountDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الحساب."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2")));
       return res.json<AccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["accounts"] }),
@@ -569,25 +589,27 @@ export function useUpdateAccount() {
 
 /** حسابات الخزينة (docs/catalog/04) — list, create, edit. */
 export function useTreasuryAccounts(): UseQueryResult<TreasuryAccountDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TreasuryAccountDTO[], ApiError>({
     queryKey: ["treasury-accounts"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/treasury-accounts");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل حسابات الخزينة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.treasuryAccountsCouldNotBe"));
       return res.json<TreasuryAccountDTO[]>();
     },
   });
 }
 
 export function useCreateTreasuryAccount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<TreasuryAccountDTO, ApiError, CreateTreasuryAccountDTO>({
     mutationFn: async (body) => {
       const res = await request("/treasury-accounts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الحساب."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe")));
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
@@ -595,12 +617,13 @@ export function useCreateTreasuryAccount() {
 }
 
 export function useUpdateTreasuryAccount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<TreasuryAccountDTO, ApiError, { id: string; patch: UpdateTreasuryAccountDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/treasury-accounts/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الحساب."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccountCouldNotBe2")));
       return res.json<TreasuryAccountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] }),
@@ -609,19 +632,21 @@ export function useUpdateTreasuryAccount() {
 
 /** قوائم الأسعار (docs/catalog/01) — real list off `/price-lists`. */
 export function usePriceLists(): UseQueryResult<PriceListDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PriceListDTO[], ApiError>({
     queryKey: ["price-lists"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/price-lists");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوائم الأسعار.");
+      if (!res.ok) throw new ApiError(res.status, t("api.priceListsCouldNotBe"));
       return res.json<PriceListDTO[]>();
     },
   });
 }
 
 export function useCreatePriceList() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PriceListDTO, ApiError, CreatePriceListDTO>({
@@ -629,7 +654,7 @@ export function useCreatePriceList() {
       const res = await request("/price-lists", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر إنشاء قائمة الأسعار.");
+        throw new ApiError(res.status, err.message ?? t("api.thePriceListCouldNot"));
       }
       return res.json<PriceListDTO>();
     },
@@ -639,13 +664,14 @@ export function useCreatePriceList() {
 
 /** العروض / promotions (docs/catalog/01) — real list off `/promotions`. */
 export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PromotionDTO[], ApiError>({
     queryKey: ["promotions"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العروض.");
+      if (!res.ok) throw new ApiError(res.status, t("api.promotionsCouldNotBeLoaded"));
       return res.json<PromotionDTO[]>();
     },
   });
@@ -653,19 +679,21 @@ export function usePromotions(): UseQueryResult<PromotionDTO[], ApiError> {
 
 /** تقرير استخدام العروض (docs/catalog/01) — real usage off confirmed invoices, `/promotions/report`. */
 export function usePromotionUsageReport(): UseQueryResult<PromotionUsageRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PromotionUsageRowDTO[], ApiError>({
     queryKey: ["promotions", "report"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/promotions/report");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تقرير استخدام العروض.");
+      if (!res.ok) throw new ApiError(res.status, t("api.thePromotionUsageReportCould"));
       return res.json<PromotionUsageRowDTO[]>();
     },
   });
 }
 
 export function useCreatePromotion() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PromotionDTO, ApiError, CreatePromotionDTO>({
@@ -673,7 +701,7 @@ export function useCreatePromotion() {
       const res = await request("/promotions", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر إنشاء العرض.");
+        throw new ApiError(res.status, err.message ?? t("api.thePromotionCouldNotBe"));
       }
       return res.json<PromotionDTO>();
     },
@@ -683,19 +711,21 @@ export function useCreatePromotion() {
 
 /** عروض الأسعار / sales quotes (docs/catalog/01) — real list off `/sales-quotes`. */
 export function useSalesQuotes(): UseQueryResult<SalesQuoteRecord[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesQuoteRecord[], ApiError>({
     queryKey: ["sales-quotes"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/sales-quotes");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عروض الأسعار.");
+      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
       return res.json<SalesQuoteRecord[]>();
     },
   });
 }
 
 export function useCreateSalesQuote() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesQuoteRecord, ApiError, CreateSalesQuoteDTO>({
@@ -703,7 +733,7 @@ export function useCreateSalesQuote() {
       const res = await request("/sales-quotes", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر إنشاء عرض السعر.");
+        throw new ApiError(res.status, err.message ?? t("api.theQuoteCouldNotBe"));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -712,6 +742,7 @@ export function useCreateSalesQuote() {
 }
 
 function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel") {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesQuoteRecord, ApiError, string>({
@@ -719,7 +750,7 @@ function useSalesQuoteTransition(action: "send" | "accept" | "reject" | "cancel"
       const res = await request(`/sales-quotes/${id}/${action}`, { method: "POST", body: JSON.stringify({}) });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر تنفيذ العملية.");
+        throw new ApiError(res.status, err.message ?? t("api.thatActionCouldNotBe"));
       }
       return res.json<SalesQuoteRecord>();
     },
@@ -742,6 +773,7 @@ export function useRejectSalesQuote() {
 
 /** "إنشاء من عرض سعر" — converts an accepted quote into a draft sales invoice. */
 export function useConvertSalesQuoteToInvoice() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<
@@ -756,7 +788,7 @@ export function useConvertSalesQuoteToInvoice() {
       });
       if (!res.ok) {
         const err = (await res.json<{ message?: string }>().catch(() => ({}))) as { message?: string };
-        throw new ApiError(res.status, err.message ?? "تعذّر تحويل عرض السعر إلى فاتورة.");
+        throw new ApiError(res.status, err.message ?? t("api.theQuoteCouldNotBe2"));
       }
       return res.json<{ quote: SalesQuoteRecord; invoiceId: string; invoiceDocNo: string | null }>();
     },
@@ -781,6 +813,7 @@ export interface JournalEntryDTO {
 
 /** القيود المحاسبية (docs/catalog/04) — the GL posting engine mounted under /gl. */
 export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO[], ApiError>({
     queryKey: ["journal-entries", filter],
@@ -793,7 +826,7 @@ export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryR
       if (filter.toDate) params.set("toDate", filter.toDate);
       const qs = params.toString();
       const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيود المحاسبية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
       return res.json<JournalEntryDTO[]>();
     },
   });
@@ -801,12 +834,13 @@ export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryR
 
 /** Creates and posts a balanced journal entry in one step (POST /gl/journal-entries). */
 export function useCreateJournalEntry() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<JournalEntryDTO, ApiError, CreateGlJournalEntryDTO>({
     mutationFn: async (body) => {
       const res = await request("/gl/journal-entries", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر ترحيل القيد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe")));
       return res.json<JournalEntryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -815,12 +849,13 @@ export function useCreateJournalEntry() {
 
 /** يعكس قيداً مرحّلاً (POST /gl/journal-entries/:id/reverse). */
 export function useReverseJournalEntry() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ original: JournalEntryDTO; reversal: JournalEntryDTO }, ApiError, { id: string; body?: ReverseGlJournalEntryDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/gl/journal-entries/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس القيد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEntryCouldNotBe2")));
       return res.json<{ original: JournalEntryDTO; reversal: JournalEntryDTO }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["journal-entries"] }),
@@ -829,25 +864,27 @@ export function useReverseJournalEntry() {
 
 /** المستخدمون (docs/catalog/09) — list, create, edit, activate/deactivate. */
 export function useUsers(): UseQueryResult<UserDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<UserDTO[], ApiError>({
     queryKey: ["users"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/users");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستخدمين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.usersCouldNotBeLoaded"));
       return res.json<UserDTO[]>();
     },
   });
 }
 
 export function useCreateUser() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<UserDTO, ApiError, CreateUserDTO>({
     mutationFn: async (body) => {
       const res = await request("/users", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ المستخدم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe")));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -855,12 +892,13 @@ export function useCreateUser() {
 }
 
 export function useUpdateUser() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<UserDTO, ApiError, { id: string; body: UpdateUserDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/users/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ المستخدم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserCouldNotBe")));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -868,12 +906,13 @@ export function useUpdateUser() {
 }
 
 export function useSetUserStatus() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<UserDTO, ApiError, { id: string; status: "active" | "inactive" }>({
     mutationFn: async ({ id, status }) => {
       const res = await request(`/users/${id}/${status === "active" ? "activate" : "deactivate"}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث حالة المستخدم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUserSStatusCould")));
       return res.json<UserDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["users"] }),
@@ -882,25 +921,27 @@ export function useSetUserStatus() {
 
 /** الأدوار (docs/catalog/09) — list, create, edit, delete. */
 export function useRoles(): UseQueryResult<RoleDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RoleDTO[], ApiError>({
     queryKey: ["roles"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/roles");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأدوار.");
+      if (!res.ok) throw new ApiError(res.status, t("api.rolesCouldNotBeLoaded"));
       return res.json<RoleDTO[]>();
     },
   });
 }
 
 export function useCreateRole() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<RoleDTO, ApiError, CreateRoleDTO>({
     mutationFn: async (body) => {
       const res = await request("/roles", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الدور."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe")));
       return res.json<RoleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
@@ -908,12 +949,13 @@ export function useCreateRole() {
 }
 
 export function useUpdateRole() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<RoleDTO, ApiError, { id: string; body: UpdateRoleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/roles/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الدور."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe")));
       return res.json<RoleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
@@ -921,13 +963,14 @@ export function useUpdateRole() {
 }
 
 export function useDeleteRole() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/roles/${id}`, { method: "DELETE" });
       // 204 No Content on success — the body is empty, never parse it as JSON.
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف الدور."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRoleCouldNotBe2")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["roles"] }),
   });
@@ -939,25 +982,27 @@ export function useDeleteRole() {
 
 /** إعدادات المنشأة (docs/catalog/09 §"الإعدادات — عام") — the single tenant config bag. */
 export function useSettings(): UseQueryResult<TenantSettingsDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TenantSettingsDTO, ApiError>({
     queryKey: ["settings"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/settings");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
       return res.json<TenantSettingsDTO>();
     },
   });
 }
 
 export function useUpdateSettings() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<TenantSettingsDTO, ApiError, UpdateTenantSettingsDTO>({
     mutationFn: async (body) => {
       const res = await request("/settings", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الإعدادات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.settingsCouldNotBeSaved")));
       return res.json<TenantSettingsDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["settings"] }),
@@ -970,25 +1015,27 @@ export function useUpdateSettings() {
 
 /** الفروع (docs/catalog/09 §"إدارة الفروع") — list, used by the branch typeahead on real-data forms. */
 export function useBranches(): UseQueryResult<BranchDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<BranchDTO[], ApiError>({
     queryKey: ["branches"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/branches");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفروع.");
+      if (!res.ok) throw new ApiError(res.status, t("api.branchesCouldNotBeLoaded"));
       return res.json<BranchDTO[]>();
     },
   });
 }
 
 export function useCreateBranch() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BranchDTO, ApiError, CreateBranchDTO>({
     mutationFn: async (body) => {
       const res = await request("/branches", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء الفرع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe")));
       return res.json<BranchDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
@@ -996,12 +1043,13 @@ export function useCreateBranch() {
 }
 
 export function useUpdateBranch() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BranchDTO, ApiError, { id: string; patch: UpdateBranchDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/branches/${id}`, { method: "PUT", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تعديل الفرع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBranchCouldNotBe2")));
       return res.json<BranchDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["branches"] }),
@@ -1036,25 +1084,27 @@ function chequeQueryString(filters: ChequeListFilters): string {
  * resolved server-side against its own "as of" date, never recomputed here.
  */
 export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<ChequeDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ChequeDTO[], ApiError>({
     queryKey: ["cheques", filters],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/cheques${chequeQueryString(filters)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الشيكات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
       return res.json<ChequeDTO[]>();
     },
   });
 }
 
 export function useCreateCheque() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ChequeDTO, ApiError, CreateChequeDTO>({
     mutationFn: async (body) => {
       const res = await request("/cheques", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ الشيك."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe")));
       return res.json<ChequeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -1077,25 +1127,29 @@ function useChequeAction<Body>(action: "deposit" | "collect" | "bounce", fallbac
 
 /** تسليم الشيك للبنك للتحصيل (قيد الانتظار → مودع). */
 export function useDepositCheque() {
-  return useChequeAction<DepositChequeDTO>("deposit", "تعذّر إيداع الشيك.");
+  const { t } = useAppTranslation();
+  return useChequeAction<DepositChequeDTO>("deposit", t("api.theChequeCouldNotBe2"));
 }
 /** تأكيد البنك للتحصيل (مودع → محصل). */
 export function useCollectCheque() {
-  return useChequeAction<CollectChequeDTO>("collect", "تعذّر تحصيل الشيك.");
+  const { t } = useAppTranslation();
+  return useChequeAction<CollectChequeDTO>("collect", t("api.theChequeCouldNotBe3"));
 }
 /** ارتداد الشيك (مودع → مرتد). */
 export function useBounceCheque() {
-  return useChequeAction<BounceChequeDTO>("bounce", "تعذّر تسجيل ارتداد الشيك.");
+  const { t } = useAppTranslation();
+  return useChequeAction<BounceChequeDTO>("bounce", t("api.theBouncedChequeCouldNot"));
 }
 
 /** استبدال شيك مرتد بشيك جديد بنفس القيمة (مرتد → مستبدل + شيك جديد قيد الانتظار). */
 export function useReplaceCheque() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ original: ChequeDTO; replacement: ChequeDTO }, ApiError, { id: string; body: ReplaceChequeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/cheques/${id}/replace`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استبدال الشيك."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChequeCouldNotBe4")));
       return res.json<{ original: ChequeDTO; replacement: ChequeDTO }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cheques"] }),
@@ -1120,6 +1174,7 @@ export interface BankStatementListFilters {
 }
 
 export function useBankStatements(filters: BankStatementListFilters = {}): UseQueryResult<BankStatementDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<BankStatementDTO[], ApiError>({
     queryKey: ["bank-statements", filters],
@@ -1132,20 +1187,21 @@ export function useBankStatements(filters: BankStatementListFilters = {}): UseQu
       if (filters.toDate) params.set("toDate", filters.toDate);
       const qs = params.toString();
       const res = await request(`/bank-statements${qs === "" ? "" : `?${qs}`}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل كشوف البنك.");
+      if (!res.ok) throw new ApiError(res.status, t("api.bankStatementsCouldNotBe"));
       return res.json<BankStatementDTO[]>();
     },
   });
 }
 
 export function useBankStatement(id: string | null): UseQueryResult<BankStatementDetailDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<BankStatementDetailDTO, ApiError>({
     queryKey: ["bank-statements", "detail", id],
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/bank-statements/${id}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل كشف البنك.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theBankStatementCouldNot"));
       return res.json<BankStatementDetailDTO>();
     },
   });
@@ -1157,6 +1213,7 @@ export function useBankStatement(id: string | null): UseQueryResult<BankStatemen
  * an error, so it resolves to `null` rather than throwing.
  */
 export function useStatementColumnMapping(treasuryAccountId: string | null): UseQueryResult<StatementColumnMappingDTO | null, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StatementColumnMappingDTO | null, ApiError>({
     queryKey: ["bank-statements", "column-mapping", treasuryAccountId],
@@ -1164,7 +1221,7 @@ export function useStatementColumnMapping(treasuryAccountId: string | null): Use
     queryFn: async () => {
       const res = await request(`/bank-statements/column-mapping/${treasuryAccountId}`);
       if (res.status === 404) return null;
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تعيين الأعمدة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theColumnMappingCouldNot"));
       return res.json<StatementColumnMappingDTO>();
     },
   });
@@ -1172,12 +1229,13 @@ export function useStatementColumnMapping(treasuryAccountId: string | null): Use
 
 /** استيراد كشف بنك — persists the column mapping for the account, then the statement + its parsed lines. */
 export function useImportBankStatement() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BankStatementDetailDTO, ApiError, ImportBankStatementDTO>({
     mutationFn: async (body) => {
       const res = await request("/bank-statements/import", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استيراد كشف البنك."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBankStatementCouldNot2")));
       return res.json<BankStatementDetailDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1186,12 +1244,13 @@ export function useImportBankStatement() {
 
 /** مطابقة تلقائية — applies every exact amount + date-tolerance suggestion against the treasury ledger. */
 export function useAutoMatchStatement() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ matchedCount: number }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/bank-statements/${id}/auto-match`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت المطابقة التلقائية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.automaticMatchingFailed")));
       return res.json<{ matchedCount: number }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1199,6 +1258,7 @@ export function useAutoMatchStatement() {
 }
 
 export function useMatchStatementLine() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StatementLineDTO, ApiError, { statementId: string; lineId: string; entryId: string }>({
@@ -1207,7 +1267,7 @@ export function useMatchStatementLine() {
         method: "POST",
         body: JSON.stringify({ entryId }),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت مطابقة السطر."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe")));
       return res.json<StatementLineDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1215,6 +1275,7 @@ export function useMatchStatementLine() {
 }
 
 export function useUnmatchStatementLine() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StatementLineDTO, ApiError, { statementId: string; lineId: string }>({
@@ -1223,7 +1284,7 @@ export function useUnmatchStatementLine() {
         method: "POST",
         body: JSON.stringify({}),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء مطابقة السطر."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLineCouldNotBe2")));
       return res.json<StatementLineDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1232,12 +1293,13 @@ export function useUnmatchStatementLine() {
 
 /** إنهاء التسوية — locks the statement (منتهية); no further matching is possible. */
 export function useFinalizeBankStatement() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BankStatementDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/bank-statements/${id}/finalize`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء التسوية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReconciliationCouldNotBe")));
       return res.json<BankStatementDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["bank-statements"] }),
@@ -1252,13 +1314,14 @@ export function useFinalizeBankStatement() {
 
 /** One posted journal entry, for a document's "القيود المحاسبية" tab (e.g. a confirmed sales invoice's `journalEntryId`). */
 export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO, ApiError>({
     queryKey: ["journal-entries", "detail", id],
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/gl/journal-entries/${id}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل القيد المحاسبي.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theJournalEntryCouldNot"));
       return res.json<JournalEntryDTO>();
     },
   });
@@ -1266,25 +1329,27 @@ export function useJournalEntry(id: string | null): UseQueryResult<JournalEntryD
 
 /** المستودعات (docs/catalog/09 §"إدارة المستودعات") — list, create, edit; also a picker dependency for other real-data screens (e.g. sales invoices). */
 export function useWarehouses(): UseQueryResult<WarehouseDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<WarehouseDTO[], ApiError>({
     queryKey: ["warehouses"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/warehouses");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المستودعات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.warehousesCouldNotBeLoaded"));
       return res.json<WarehouseDTO[]>();
     },
   });
 }
 
 export function useCreateWarehouse() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WarehouseDTO, ApiError, CreateWarehouseDTO>({
     mutationFn: async (body) => {
       const res = await request("/warehouses", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء المستودع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe")));
       return res.json<WarehouseDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
@@ -1292,12 +1357,13 @@ export function useCreateWarehouse() {
 }
 
 export function useUpdateWarehouse() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WarehouseDTO, ApiError, { id: string; patch: UpdateWarehouseDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/warehouses/${id}`, { method: "PUT", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تعديل المستودع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWarehouseCouldNotBe2")));
       return res.json<WarehouseDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["warehouses"] }),
@@ -1312,6 +1378,7 @@ export interface VoucherRowDTO extends VoucherDTO {
 
 /** السندات النقدية (docs/catalog/04) — list, create, confirm, reverse, allocate. */
 export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<VoucherRowDTO[], ApiError>({
     queryKey: ["vouchers", filter],
@@ -1322,7 +1389,7 @@ export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<Vo
       if (filter.status) params.set("status", filter.status);
       const qs = params.toString();
       const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل السندات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
       return res.json<VoucherRowDTO[]>();
     },
   });
@@ -1335,13 +1402,14 @@ export interface VoucherDetailDTO extends VoucherDTO {
 }
 
 export function useVoucherDetail(id: string | null): UseQueryResult<VoucherDetailDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<VoucherDetailDTO, ApiError>({
     queryKey: ["vouchers", "detail", id],
     enabled: session !== null && id !== null,
     queryFn: async () => {
       const res = await request(`/vouchers/${id}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل السند.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theVoucherCouldNotBe"));
       return res.json<VoucherDetailDTO>();
     },
   });
@@ -1352,12 +1420,13 @@ function invalidateVouchers(queryClient: ReturnType<typeof useQueryClient>) {
 }
 
 export function useCreateVoucher() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VoucherDTO, ApiError, CreateVoucherDTO>({
     mutationFn: async (body) => {
       const res = await request("/vouchers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء السند."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe2")));
       return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1365,12 +1434,13 @@ export function useCreateVoucher() {
 }
 
 export function useConfirmVoucher() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VoucherDTO & { held: boolean }, ApiError, { id: string; body?: ConfirmVoucherDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/vouchers/${id}/confirm`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد السند."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3")));
       return res.json<VoucherDTO & { held: boolean }>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1378,12 +1448,13 @@ export function useConfirmVoucher() {
 }
 
 export function useReverseVoucher() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ original: VoucherDTO; reversal: VoucherDTO }, ApiError, { id: string; body?: ReverseVoucherDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/vouchers/${id}/reverse`, { method: "POST", body: JSON.stringify(body ?? {}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس السند."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe4")));
       return res.json<{ original: VoucherDTO; reversal: VoucherDTO }>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1391,12 +1462,13 @@ export function useReverseVoucher() {
 }
 
 export function useCreateAllocation() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VoucherAllocationDTO, ApiError, { voucherId: string; body: CreateAllocationDTO }>({
     mutationFn: async ({ voucherId, body }) => {
       const res = await request(`/vouchers/${voucherId}/allocations`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تخصيص المبلغ."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAmountCouldNotBe")));
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1404,12 +1476,13 @@ export function useCreateAllocation() {
 }
 
 export function useReverseAllocation() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VoucherAllocationDTO, ApiError, string>({
     mutationFn: async (allocationId) => {
       const res = await request(`/allocations/${allocationId}/reverse`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر عكس التخصيص."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAllocationCouldNotBe")));
       return res.json<VoucherAllocationDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
@@ -1417,6 +1490,7 @@ export function useReverseAllocation() {
 }
 
 export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | null): UseQueryResult<OpenInvoiceDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<OpenInvoiceDTO[], ApiError>({
     queryKey: ["open-invoices", kind ?? null, partyId ?? null],
@@ -1427,7 +1501,7 @@ export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | 
       if (partyId) params.set("partyId", partyId);
       const qs = params.toString();
       const res = await request(`/open-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفواتير المفتوحة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.openInvoicesCouldNotBe"));
       return res.json<OpenInvoiceDTO[]>();
     },
   });
@@ -1435,25 +1509,27 @@ export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | 
 
 /** أوامر الشراء (docs/catalog/02) — list, create, confirm (draft → sent). */
 export function usePurchaseOrders(): UseQueryResult<PurchaseOrderDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseOrderDTO[], ApiError>({
     queryKey: ["purchase-orders"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/purchases/orders");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر الشراء.");
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
       return res.json<PurchaseOrderDTO[]>();
     },
   });
 }
 
 export function useCreatePurchaseOrder() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseOrderDTO, ApiError, CreatePurchaseOrderDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/orders", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء أمر الشراء."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot")));
       return res.json<PurchaseOrderDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
@@ -1461,12 +1537,13 @@ export function useCreatePurchaseOrder() {
 }
 
 export function useConfirmPurchaseOrder() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseOrderDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchases/orders/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد أمر الشراء."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseOrderCouldNot2")));
       return res.json<PurchaseOrderDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-orders"] }),
@@ -1475,25 +1552,27 @@ export function useConfirmPurchaseOrder() {
 
 /** إيصالات الاستلام (docs/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
 export function useGoodsReceipts(): UseQueryResult<GoodsReceiptDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<GoodsReceiptDTO[], ApiError>({
     queryKey: ["goods-receipts"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/purchases/receipts");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إيصالات الاستلام.");
+      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
       return res.json<GoodsReceiptDTO[]>();
     },
   });
 }
 
 export function useCreateGoodsReceipt() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<GoodsReceiptDTO, ApiError, CreateGoodsReceiptDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/receipts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء إيصال الاستلام."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot")));
       return res.json<GoodsReceiptDTO>();
     },
     onSuccess: () => {
@@ -1504,12 +1583,13 @@ export function useCreateGoodsReceipt() {
 }
 
 export function useConfirmGoodsReceipt() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<GoodsReceiptDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchases/receipts/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد إيصال الاستلام."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theGoodsReceiptCouldNot2")));
       return res.json<GoodsReceiptDTO>();
     },
     onSuccess: () => {
@@ -1521,25 +1601,27 @@ export function useConfirmGoodsReceipt() {
 
 /** فواتير المشتريات (docs/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
 export function usePurchaseInvoices(): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
     queryKey: ["purchase-invoices"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/purchases/invoices");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل فواتير المشتريات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<PurchaseInvoiceDTO[]>();
     },
   });
 }
 
 export function useCreatePurchaseInvoice() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseInvoiceDTO, ApiError, CreatePurchaseInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchases/invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء فاتورة المشتريات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot")));
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] }),
@@ -1547,12 +1629,13 @@ export function useCreatePurchaseInvoice() {
 }
 
 export function useConfirmPurchaseInvoice() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseInvoiceDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchases/invoices/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد فاتورة المشتريات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseInvoiceCouldNot2")));
       return res.json<PurchaseInvoiceDTO>();
     },
     onSuccess: () => {
@@ -1625,6 +1708,7 @@ export interface SalesInvoiceDTO {
 
 /** فواتير المبيعات (docs/catalog/01) — list, create, confirm, record a payment. */
 export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesInvoiceDTO[], ApiError>({
     queryKey: ["sales-invoices", filter],
@@ -1637,7 +1721,7 @@ export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQuer
       if (filter.toDate) params.set("toDate", filter.toDate);
       const qs = params.toString();
       const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل فواتير المبيعات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceDTO[]>();
     },
   });
@@ -1648,12 +1732,13 @@ function invalidateSalesInvoices(queryClient: ReturnType<typeof useQueryClient>)
 }
 
 export function useCreateSalesInvoice() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesInvoiceDTO, ApiError, CreateSalesInvoiceDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-invoices", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ الفاتورة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe")));
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -1661,12 +1746,13 @@ export function useCreateSalesInvoice() {
 }
 
 export function useConfirmSalesInvoice() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesInvoiceDTO & { held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/sales-invoices/${id}/confirm`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد الفاتورة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInvoiceCouldNotBe2")));
       return res.json<SalesInvoiceDTO & { held: boolean }>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -1674,12 +1760,13 @@ export function useConfirmSalesInvoice() {
 }
 
 export function useRecordSalesInvoicePayment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesInvoiceDTO, ApiError, { id: string; amount: string }>({
     mutationFn: async ({ id, amount }) => {
       const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify({ amount }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تسجيل الدفعة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
       return res.json<SalesInvoiceDTO>();
     },
     onSuccess: () => invalidateSalesInvoices(queryClient),
@@ -1691,25 +1778,27 @@ export function useRecordSalesInvoicePayment() {
 // ---------------------------------------------------------------------------
 
 export function useLeads(): UseQueryResult<LeadDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeadDTO[], ApiError>({
     queryKey: ["crm-leads"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/leads");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العملاء المحتملين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.leadsCouldNotBeLoaded"));
       return res.json<LeadDTO[]>();
     },
   });
 }
 
 export function useCreateLead() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeadDTO, ApiError, CreateLeadDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/leads", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العميل المحتمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe")));
       return res.json<LeadDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
@@ -1717,12 +1806,13 @@ export function useCreateLead() {
 }
 
 export function useTransitionLead() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeadDTO, ApiError, { id: string; body: TransitionLeadDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/leads/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحديث حالة العميل المحتمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadSStatusCould")));
       return res.json<LeadDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-leads"] }),
@@ -1736,12 +1826,13 @@ export interface ConvertLeadResultDTO {
 }
 
 export function useConvertLead() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ConvertLeadResultDTO, ApiError, { id: string; body: ConvertLeadDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/leads/${id}/convert`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحويل العميل المحتمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeadCouldNotBe2")));
       return res.json<ConvertLeadResultDTO>();
     },
     onSuccess: () => {
@@ -1753,25 +1844,27 @@ export function useConvertLead() {
 }
 
 export function useOpportunities(): UseQueryResult<OpportunityDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<OpportunityDTO[], ApiError>({
     queryKey: ["crm-opportunities"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/opportunities");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفرص.");
+      if (!res.ok) throw new ApiError(res.status, t("api.opportunitiesCouldNotBeLoaded"));
       return res.json<OpportunityDTO[]>();
     },
   });
 }
 
 export function useCreateOpportunity() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<OpportunityDTO, ApiError, CreateOpportunityDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/opportunities", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الفرصة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe")));
       return res.json<OpportunityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
@@ -1779,12 +1872,13 @@ export function useCreateOpportunity() {
 }
 
 export function useMoveOpportunityStage() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<OpportunityDTO, ApiError, { id: string; body: MoveOpportunityStageDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/crm/opportunities/${id}/move-stage`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر نقل الفرصة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOpportunityCouldNotBe2")));
       return res.json<OpportunityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-opportunities"] }),
@@ -1792,25 +1886,27 @@ export function useMoveOpportunityStage() {
 }
 
 export function usePipelineStages(): UseQueryResult<PipelineStageDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PipelineStageDTO[], ApiError>({
     queryKey: ["crm-pipeline-stages"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/pipeline-stages");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مراحل خط المبيعات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.pipelineStagesCouldNotBe"));
       return res.json<PipelineStageDTO[]>();
     },
   });
 }
 
 export function useCreatePipelineStage() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PipelineStageDTO, ApiError, CreatePipelineStageDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/pipeline-stages", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المرحلة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe")));
       return res.json<PipelineStageDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
@@ -1818,12 +1914,13 @@ export function useCreatePipelineStage() {
 }
 
 export function useMovePipelineStage() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PipelineStageDTO, ApiError, { id: string; direction: "up" | "down" }>({
     mutationFn: async ({ id, direction }) => {
       const res = await request(`/crm/pipeline-stages/${id}/move`, { method: "POST", body: JSON.stringify({ direction }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إعادة ترتيب المرحلة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStageCouldNotBe2")));
       return res.json<PipelineStageDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-pipeline-stages"] }),
@@ -1831,25 +1928,27 @@ export function useMovePipelineStage() {
 }
 
 export function useCrmActivities(): UseQueryResult<ActivityDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ActivityDTO[], ApiError>({
     queryKey: ["crm-activities"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/crm/activities");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأنشطة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.activitiesCouldNotBeLoaded"));
       return res.json<ActivityDTO[]>();
     },
   });
 }
 
 export function useCreateActivity() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ActivityDTO, ApiError, CreateActivityDTO>({
     mutationFn: async (body) => {
       const res = await request("/crm/activities", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة النشاط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe")));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -1857,12 +1956,13 @@ export function useCreateActivity() {
 }
 
 export function useCompleteActivity() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ActivityDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/crm/activities/${id}/complete`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إكمال النشاط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe2")));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -1870,12 +1970,13 @@ export function useCompleteActivity() {
 }
 
 export function useCancelActivity() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ActivityDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/crm/activities/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء النشاط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theActivityCouldNotBe3")));
       return res.json<ActivityDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["crm-activities"] }),
@@ -1887,25 +1988,27 @@ export function useCancelActivity() {
 // ---------------------------------------------------------------------------
 
 export function useProjects(): UseQueryResult<ProjectDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ProjectDTO[], ApiError>({
     queryKey: ["projects"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/projects");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المشاريع.");
+      if (!res.ok) throw new ApiError(res.status, t("api.projectsCouldNotBeLoaded"));
       return res.json<ProjectDTO[]>();
     },
   });
 }
 
 export function useCreateProject() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProjectDTO, ApiError, CreateProjectDTO>({
     mutationFn: async (body) => {
       const res = await request("/projects", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المشروع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe")));
       return res.json<ProjectDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -1913,12 +2016,13 @@ export function useCreateProject() {
 }
 
 export function useUpdateProject() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProjectDTO, ApiError, { id: string; patch: UpdateProjectDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/projects/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المشروع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProjectCouldNotBe2")));
       return res.json<ProjectDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["projects"] }),
@@ -1930,25 +2034,27 @@ export function useUpdateProject() {
 // ---------------------------------------------------------------------------
 
 export function useAssetCategories(): UseQueryResult<AssetCategoryDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AssetCategoryDTO[], ApiError>({
     queryKey: ["asset-categories"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/categories");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تصنيفات الأصول.");
+      if (!res.ok) throw new ApiError(res.status, t("api.assetCategoriesCouldNotBe"));
       return res.json<AssetCategoryDTO[]>();
     },
   });
 }
 
 export function useCreateAssetCategory() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AssetCategoryDTO, ApiError, CreateAssetCategoryDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets/categories", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة التصنيف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe")));
       return res.json<AssetCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["asset-categories"] }),
@@ -1956,25 +2062,27 @@ export function useCreateAssetCategory() {
 }
 
 export function useAssets(): UseQueryResult<AssetDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AssetDTO[], ApiError>({
     queryKey: ["assets"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سجل الأصول.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
       return res.json<AssetDTO[]>();
     },
   });
 }
 
 export function useCreateAsset() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AssetDTO, ApiError, CreateAssetDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الأصل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBe")));
       return res.json<AssetDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
@@ -1982,25 +2090,27 @@ export function useCreateAsset() {
 }
 
 export function useDepreciationRuns(): UseQueryResult<DepreciationRunDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<DepreciationRunDTO[], ApiError>({
     queryKey: ["depreciation-runs"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/assets/depreciation/runs");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات الإهلاك.");
+      if (!res.ok) throw new ApiError(res.status, t("api.depreciationRunsCouldNotBe"));
       return res.json<DepreciationRunDTO[]>();
     },
   });
 }
 
 export function useCreateDepreciationRun() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DepreciationRunDTO, ApiError, CreateDepreciationRunDTO>({
     mutationFn: async (body) => {
       const res = await request("/assets/depreciation/runs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء عملية الإهلاك."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot")));
       return res.json<DepreciationRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["depreciation-runs"] }),
@@ -2008,12 +2118,13 @@ export function useCreateDepreciationRun() {
 }
 
 export function usePostDepreciationRun() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DepreciationRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/assets/depreciation/runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل عملية الإهلاك."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepreciationRunCouldNot2")));
       return res.json<DepreciationRunDTO>();
     },
     onSuccess: () => {
@@ -2028,25 +2139,27 @@ export function usePostDepreciationRun() {
 // ---------------------------------------------------------------------------
 
 export function useWritedownRuns(): UseQueryResult<WritedownRunDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<WritedownRunDTO[], ApiError>({
     queryKey: ["writedown-runs"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/writedown-runs");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عمليات هبوط قيمة المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("api.inventoryWriteDownRunsCould"));
       return res.json<WritedownRunDTO[]>();
     },
   });
 }
 
 export function useCreateWritedownRun() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WritedownRunDTO, ApiError, CreateWritedownRunDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/writedown-runs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء عملية هبوط قيمة المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould")));
       return res.json<WritedownRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
@@ -2054,12 +2167,13 @@ export function useCreateWritedownRun() {
 }
 
 export function usePostWritedownRun() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WritedownRunDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/writedown-runs/${id}/post`, { method: "POST", body: JSON.stringify({}) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل عملية هبوط قيمة المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWriteDownRunCould2")));
       return res.json<WritedownRunDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["writedown-runs"] }),
@@ -2071,25 +2185,27 @@ export function usePostWritedownRun() {
 // ---------------------------------------------------------------------------
 
 export function useProductTemplates(): UseQueryResult<ProductTemplateDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ProductTemplateDTO[], ApiError>({
     queryKey: ["product-templates"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/inventory/product-templates");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوالب المنتجات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.productTemplatesCouldNotBe"));
       return res.json<ProductTemplateDTO[]>();
     },
   });
 }
 
 export function useCreateProductTemplate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProductTemplateDTO, ApiError, CreateProductTemplateDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/product-templates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء قالب المنتج."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductTemplateCouldNot")));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -2097,25 +2213,27 @@ export function useCreateProductTemplate() {
 }
 
 export function useTemplateVariants(templateId: string | null): UseQueryResult<ProductTemplateVariantDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ProductTemplateVariantDTO[], ApiError>({
     queryKey: ["product-template-variants", templateId],
     enabled: session !== null && templateId !== null,
     queryFn: async () => {
       const res = await request(`/inventory/product-templates/${templateId}/variants`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المتغيرات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.variantsCouldNotBeLoaded"));
       return res.json<ProductTemplateVariantDTO[]>();
     },
   });
 }
 
 export function useAddTemplateAttribute() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; body: AddTemplateAttributeDTO }>({
     mutationFn: async ({ templateId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الخاصية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe")));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -2123,12 +2241,13 @@ export function useAddTemplateAttribute() {
 }
 
 export function useDeleteTemplateAttribute() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string }>({
     mutationFn: async ({ templateId, attributeId }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الخاصية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttributeCouldNotBe2")));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -2136,12 +2255,13 @@ export function useDeleteTemplateAttribute() {
 }
 
 export function useAddAttributeValue() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; body: AddAttributeValueDTO }>({
     mutationFn: async ({ templateId, attributeId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القيمة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe")));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -2149,12 +2269,13 @@ export function useAddAttributeValue() {
 }
 
 export function useDeleteAttributeValue() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProductTemplateDTO, ApiError, { templateId: string; attributeId: string; value: string }>({
     mutationFn: async ({ templateId, attributeId, value }) => {
       const res = await request(`/inventory/product-templates/${templateId}/attributes/${attributeId}/values/${encodeURIComponent(value)}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف القيمة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theValueCouldNotBe2")));
       return res.json<ProductTemplateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["product-templates"] }),
@@ -2162,12 +2283,13 @@ export function useDeleteAttributeValue() {
 }
 
 export function useGenerateVariants() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<GenerateVariantsResultDTO, ApiError, { templateId: string; body: GenerateVariantsDTO }>({
     mutationFn: async ({ templateId, body }) => {
       const res = await request(`/inventory/product-templates/${templateId}/variants/generate`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر توليد المتغيرات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.variantsCouldNotBeGenerated")));
       return res.json<GenerateVariantsResultDTO>();
     },
     onSuccess: (_data, { templateId }) => {
@@ -2182,25 +2304,27 @@ export function useGenerateVariants() {
 // ---------------------------------------------------------------------------
 
 export function useVanTrips(): UseQueryResult<VanTripDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<VanTripDTO[], ApiError>({
     queryKey: ["van-trips"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/field/van-trips");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل رحلات المندوبين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.vanTripsCouldNotBe"));
       return res.json<VanTripDTO[]>();
     },
   });
 }
 
 export function useOpenVanTrip() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VanTripDTO, ApiError, OpenVanTripDTO>({
     mutationFn: async (body) => {
       const res = await request("/field/van-trips", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر فتح الرحلة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe")));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -2208,12 +2332,13 @@ export function useOpenVanTrip() {
 }
 
 export function useRecordVanCashMovement() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VanTripDTO, ApiError, { id: string; body: RecordVanCashMovementDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/field/van-trips/${id}/cash-movements`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الحركة النقدية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCashMovementCouldNot")));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -2221,12 +2346,13 @@ export function useRecordVanCashMovement() {
 }
 
 export function useSettleVanTrip() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<VanTripDTO, ApiError, { id: string; body: SettleVanTripDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/field/van-trips/${id}/settle`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسوية الرحلة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTripCouldNotBe2")));
       return res.json<VanTripDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["van-trips"] }),
@@ -2278,25 +2404,27 @@ export interface BomRecord {
 
 /** قوائم المواد (docs/catalog/07) — the manufacturing recipe a work order is built from. */
 export function useBoms(): UseQueryResult<BomRecord[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<BomRecord[], ApiError>({
     queryKey: ["boms"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/boms");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوائم المواد.");
+      if (!res.ok) throw new ApiError(res.status, t("api.billsOfMaterialsCouldNot"));
       return res.json<BomRecord[]>();
     },
   });
 }
 
 export function useCreateBom() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BomRecord, ApiError, CreateBomDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/boms", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء قائمة المواد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould")));
       return res.json<BomRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
@@ -2304,12 +2432,13 @@ export function useCreateBom() {
 }
 
 export function useDeactivateBom() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<BomRecord, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/boms/${id}/deactivate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعطيل قائمة المواد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theBillOfMaterialsCould2")));
       return res.json<BomRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["boms"] }),
@@ -2382,25 +2511,27 @@ export interface WorkOrderRecord {
 
 /** أوامر التصنيع (docs/catalog/07) — a production run against a BOM, tracked through its 4-stage lifecycle. */
 export function useWorkOrders(): UseQueryResult<WorkOrderRecord[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<WorkOrderRecord[], ApiError>({
     queryKey: ["work-orders"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/work-orders");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر التصنيع.");
+      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
       return res.json<WorkOrderRecord[]>();
     },
   });
 }
 
 export function useCreateWorkOrder() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WorkOrderRecord, ApiError, CreateWorkOrderDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/work-orders", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء أمر التصنيع."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkOrderCouldNot")));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
@@ -2422,25 +2553,29 @@ function useWorkOrderAction(action: "start" | "complete" | "cancel", fallbackMes
 
 /** بدء العمل (not_started → started). */
 export function useStartWorkOrder() {
-  return useWorkOrderAction("start", "تعذّر بدء أمر التصنيع.");
+  const { t } = useAppTranslation();
+  return useWorkOrderAction("start", t("api.theWorkOrderCouldNot2"));
 }
 /** إكمال أمر العمل — رسملة الإنتاج تحت التشغيل (product_received → completed). */
 export function useCompleteWorkOrder() {
-  return useWorkOrderAction("complete", "تعذّر إكمال أمر التصنيع.");
+  const { t } = useAppTranslation();
+  return useWorkOrderAction("complete", t("api.theWorkOrderCouldNot3"));
 }
 /** إلغاء أمر التصنيع. */
 export function useCancelWorkOrder() {
-  return useWorkOrderAction("cancel", "تعذّر إلغاء أمر التصنيع.");
+  const { t } = useAppTranslation();
+  return useWorkOrderAction("cancel", t("api.theWorkOrderCouldNot4"));
 }
 
 /** صرف المواد الخام حسب قائمة المواد (started → materials_issued). */
 export function useIssueWorkOrderMaterials() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WorkOrderRecord, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر صرف المواد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
@@ -2449,12 +2584,13 @@ export function useIssueWorkOrderMaterials() {
 
 /** استلام المنتج التام (materials_issued → product_received). */
 export function useReceiveWorkOrderProduct() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WorkOrderRecord, ApiError, { id: string; body: ReceiveProductDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/manufacturing/work-orders/${id}/receive`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استلام المنتج."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
@@ -2483,25 +2619,27 @@ export interface ConfigurableProductRecord {
 
 /** المنتجات القابلة للتهيئة (docs/catalog/07) — formula-driven master data consumed by التصنيع المخصص orders. */
 export function useConfigurableProducts(): UseQueryResult<ConfigurableProductRecord[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ConfigurableProductRecord[], ApiError>({
     queryKey: ["configurable-products"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/configurable-products");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المنتجات القابلة للتهيئة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.configurableProductsCouldNotBe"));
       return res.json<ConfigurableProductRecord[]>();
     },
   });
 }
 
 export function useCreateConfigurableProduct() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ConfigurableProductRecord, ApiError, UpsertConfigurableProductDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/configurable-products", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المنتج القابل للتهيئة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theConfigurableProductCouldNot")));
       return res.json<ConfigurableProductRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
@@ -2509,12 +2647,13 @@ export function useCreateConfigurableProduct() {
 }
 
 export function useDeactivateConfigurableProduct() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ConfigurableProductRecord, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/configurable-products/${id}/deactivate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعطيل المنتج."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe2")));
       return res.json<ConfigurableProductRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["configurable-products"] }),
@@ -2557,25 +2696,27 @@ export interface ConfigInstanceRecord {
 
 /** التصنيع المخصص (docs/catalog/07) — one-off make-to-order production against a configurable product's formulas. */
 export function useConfigInstances(): UseQueryResult<ConfigInstanceRecord[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ConfigInstanceRecord[], ApiError>({
     queryKey: ["config-instances"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/manufacturing/config-instances");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أوامر التصنيع المخصص.");
+      if (!res.ok) throw new ApiError(res.status, t("api.customOrdersCouldNotBe"));
       return res.json<ConfigInstanceRecord[]>();
     },
   });
 }
 
 export function useCreateConfigInstance() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ConfigInstanceRecord, ApiError, CreateConfigInstanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/config-instances", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء أمر التصنيع المخصص."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCustomOrderCouldNot")));
       return res.json<ConfigInstanceRecord>();
     },
     onSuccess: () => {
@@ -2600,11 +2741,13 @@ function useConfigInstanceAction(action: "close" | "cancel", fallbackMessage: st
 
 /** إغلاق الأمر (→ مغلقة) — captures the linked work order's actual cost. */
 export function useCloseConfigInstance() {
-  return useConfigInstanceAction("close", "تعذّر إغلاق أمر التصنيع المخصص.");
+  const { t } = useAppTranslation();
+  return useConfigInstanceAction("close", t("api.theCustomOrderCouldNot2"));
 }
 /** إلغاء أمر التصنيع المخصص. */
 export function useCancelConfigInstance() {
-  return useConfigInstanceAction("cancel", "تعذّر إلغاء أمر التصنيع المخصص.");
+  const { t } = useAppTranslation();
+  return useConfigInstanceAction("cancel", t("api.theCustomOrderCouldNot3"));
 }
 
 export interface ConfigInstancePreviewMaterial {
@@ -2626,11 +2769,12 @@ export interface ConfigInstancePreviewResult {
 
 /** معاينة الاحتياجات والتكلفة — computes materials/cost/price for a spec with no persistence, as the create form's inputs change. */
 export function usePreviewConfigInstance() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<ConfigInstancePreviewResult, ApiError, PreviewConfigInstanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/manufacturing/config-instances/preview", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّرت معاينة الأمر."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOrderCouldNotBe")));
       return res.json<ConfigInstancePreviewResult>();
     },
   });
@@ -2642,25 +2786,27 @@ export function usePreviewConfigInstance() {
 
 /** مراكز التكلفة (docs/catalog/04) — list, create, edit. */
 export function useCostCenters(): UseQueryResult<CostCenterDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CostCenterDTO[], ApiError>({
     queryKey: ["cost-centers"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/cost-centers");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مراكز التكلفة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.costCentresCouldNotBe"));
       return res.json<CostCenterDTO[]>();
     },
   });
 }
 
 export function useCreateCostCenter() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CostCenterDTO, ApiError, CreateCostCenterDTO>({
     mutationFn: async (body) => {
       const res = await request("/cost-centers", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة مركز التكلفة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot")));
       return res.json<CostCenterDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
@@ -2668,12 +2814,13 @@ export function useCreateCostCenter() {
 }
 
 export function useUpdateCostCenter() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CostCenterDTO, ApiError, { id: string; patch: UpdateCostCenterDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/cost-centers/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل مركز التكلفة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot2")));
       return res.json<CostCenterDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cost-centers"] }),
@@ -2682,13 +2829,14 @@ export function useUpdateCostCenter() {
 
 /** الفترات المالية (docs/catalog/04) — list, generate a fiscal year, and the three-tier close/reopen/lock lifecycle. */
 export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<FiscalPeriodDTO[], ApiError>({
     queryKey: ["fiscal-periods"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/fiscal-periods");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الفترات المالية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.financialPeriodsCouldNotBe"));
       return res.json<FiscalPeriodDTO[]>();
     },
   });
@@ -2696,12 +2844,13 @@ export function useFiscalPeriods(): UseQueryResult<FiscalPeriodDTO[], ApiError> 
 
 /** إنشاء السنة التالية — generates the 12 monthly periods for a fiscal year. */
 export function useGenerateFiscalYear() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FiscalPeriodDTO[], ApiError, GenerateFiscalYearDTO>({
     mutationFn: async (body) => {
       const res = await request("/fiscal-periods/generate-year", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء فترات السنة المالية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFinancialYearSPeriods")));
       return res.json<FiscalPeriodDTO[]>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["fiscal-periods"] }),
@@ -2723,38 +2872,43 @@ function useFiscalPeriodTransition(action: "close" | "reopen" | "lock", fallback
 
 /** إغلاق الفترة (مفتوحة → مغلقة). */
 export function useClosePeriod() {
-  return useFiscalPeriodTransition("close", "تعذر إغلاق الفترة.");
+  const { t } = useAppTranslation();
+  return useFiscalPeriodTransition("close", t("api.thePeriodCouldNotBe"));
 }
 /** إعادة فتح الفترة (مغلقة → مفتوحة). */
 export function useReopenPeriod() {
-  return useFiscalPeriodTransition("reopen", "تعذر إعادة فتح الفترة.");
+  const { t } = useAppTranslation();
+  return useFiscalPeriodTransition("reopen", t("api.thePeriodCouldNotBe2"));
 }
 /** قفل الفترة (مغلقة → مقفلة، نهائي). */
 export function useLockPeriod() {
-  return useFiscalPeriodTransition("lock", "تعذر قفل الفترة.");
+  const { t } = useAppTranslation();
+  return useFiscalPeriodTransition("lock", t("api.thePeriodCouldNotBe3"));
 }
 
 /** الضرائب (docs/catalog/04) — list, create, edit. */
 export function useTaxRates(): UseQueryResult<TaxRateDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<TaxRateDTO[], ApiError>({
     queryKey: ["tax-rates"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/tax-rates");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الضرائب.");
+      if (!res.ok) throw new ApiError(res.status, t("api.taxesCouldNotBeLoaded"));
       return res.json<TaxRateDTO[]>();
     },
   });
 }
 
 export function useCreateTaxRate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<TaxRateDTO, ApiError, CreateTaxRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/tax-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الضريبة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe")));
       return res.json<TaxRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
@@ -2762,12 +2916,13 @@ export function useCreateTaxRate() {
 }
 
 export function useUpdateTaxRate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<TaxRateDTO, ApiError, { id: string; patch: UpdateTaxRateDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/tax-rates/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الضريبة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theTaxCouldNotBe2")));
       return res.json<TaxRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["tax-rates"] }),
@@ -2779,25 +2934,27 @@ export function useUpdateTaxRate() {
 /* -------------------------------------------------------------------- */
 
 export function useExchangeRates(): UseQueryResult<ExchangeRateDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ExchangeRateDTO[], ApiError>({
     queryKey: ["exchange-rates"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/exchange-rates");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أسعار الصرف.");
+      if (!res.ok) throw new ApiError(res.status, t("api.exchangeRatesCouldNotBe"));
       return res.json<ExchangeRateDTO[]>();
     },
   });
 }
 
 export function useCreateExchangeRate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ExchangeRateDTO, ApiError, CreateExchangeRateDTO>({
     mutationFn: async (body) => {
       const res = await request("/exchange-rates", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة سعر الصرف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot")));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -2805,12 +2962,13 @@ export function useCreateExchangeRate() {
 }
 
 export function useApproveExchangeRate() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ExchangeRateDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/exchange-rates/${id}/approve`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اعتماد سعر الصرف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theExchangeRateCouldNot2")));
       return res.json<ExchangeRateDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exchange-rates"] }),
@@ -2823,13 +2981,14 @@ export function useApproveExchangeRate() {
 
 /** Groups posted revenue/expense by the cost-center dimension over `[fromDate, toDate]`. */
 export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResult<CostCenterPnLReportDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CostCenterPnLReportDTO, ApiError>({
     queryKey: ["cost-center-pl", fromDate, toDate],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/cost-center-pl?fromDate=${encodeURIComponent(fromDate)}&toDate=${encodeURIComponent(toDate)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرباح مراكز التكلفة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.costCentreProfitabilityCouldNot"));
       return res.json<CostCenterPnLReportDTO>();
     },
   });
@@ -2840,23 +2999,25 @@ export function useCostCenterPnL(fromDate: string, toDate: string): UseQueryResu
 /* -------------------------------------------------------------------- */
 
 export function useFxRevaluationPreview() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<FxRevaluationPreviewDTO, ApiError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/revaluation/preview", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حساب إعادة التقييم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe")));
       return res.json<FxRevaluationPreviewDTO>();
     },
   });
 }
 
 export function useFxRevaluationPost() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<FxRevaluationPostResultDTO, ApiError, FxRevaluationRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/revaluation/post", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر ترحيل إعادة التقييم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRevaluationCouldNotBe2")));
       return res.json<FxRevaluationPostResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["reconciliation"] }),
@@ -2868,13 +3029,14 @@ export function useFxRevaluationPost() {
 /* -------------------------------------------------------------------- */
 
 export function useReconciliation(): UseQueryResult<ReconciliationReportDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ReconciliationReportDTO, ApiError>({
     queryKey: ["reconciliation"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/reconciliation");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مطابقة الأرصدة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theReconciliationCouldNotBe2"));
       return res.json<ReconciliationReportDTO>();
     },
   });
@@ -2890,25 +3052,27 @@ export interface EtaConfigResponse {
 }
 
 export function useEtaConfig(): UseQueryResult<EtaConfigResponse, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EtaConfigResponse, ApiError>({
     queryKey: ["eta-config"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/eta/config");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات الفاتورة الإلكترونية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
       return res.json<EtaConfigResponse>();
     },
   });
 }
 
 export function useUpdateEtaConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EtaConfigResponse, ApiError, UpdateEtaConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/eta/config", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ إعدادات الفاتورة الإلكترونية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
       return res.json<EtaConfigResponse>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-config"] }),
@@ -2916,13 +3080,14 @@ export function useUpdateEtaConfig() {
 }
 
 export function useEtaSubmissions(status?: EtaSubmissionStatusDTO): UseQueryResult<EtaSubmissionDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EtaSubmissionDTO[], ApiError>({
     queryKey: ["eta-submissions", status ?? "all"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/eta/submissions${status ? `?status=${status}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قائمة الإرسال.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theSubmissionQueueCouldNot"));
       return res.json<EtaSubmissionDTO[]>();
     },
   });
@@ -2935,6 +3100,7 @@ export interface SubmitEtaSubmissionResult {
 }
 
 export function useSubmitEtaSubmission() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SubmitEtaSubmissionResult, ApiError, string>({
@@ -2943,7 +3109,7 @@ export function useSubmitEtaSubmission() {
       // 202 (EtaOfflineError — the stubbed online transmit refusing offline) is a
       // non-fatal, still-queued outcome, not an error — its body has no submission.
       if (res.status === 202) return { submission: null, queuedOffline: true };
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستند."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe")));
       return { submission: await res.json<EtaSubmissionDTO>(), queuedOffline: false };
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -2956,12 +3122,13 @@ export interface SubmitAllReadyEtaResult {
 }
 
 export function useSubmitAllReadyEta() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SubmitAllReadyEtaResult, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/eta/submissions/submit-all", { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال المستندات الجاهزة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theReadyDocumentsCouldNot")));
       return res.json<SubmitAllReadyEtaResult>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -2969,12 +3136,13 @@ export function useSubmitAllReadyEta() {
 }
 
 export function useExcludeEtaSubmission() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EtaSubmissionDTO, ApiError, { id: string; body: ExcludeEtaSubmissionDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/eta/submissions/${id}/exclude`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر استبعاد المستند."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDocumentCouldNotBe2")));
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
@@ -2990,25 +3158,27 @@ interface DocumentStatusFilter {
 }
 
 export function useStockAdjustments(filter: DocumentStatusFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockAdjustmentDocumentDTO[], ApiError>({
     queryKey: ["stock-adjustments", filter],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/stock-adjustments${filter.status ? `?status=${filter.status}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تسويات المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO[]>();
     },
   });
 }
 
 export function useCreateStockAdjustment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StockAdjustmentDocumentDTO, ApiError, CreateStockAdjustmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-adjustments/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تسوية المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot")));
       return res.json<StockAdjustmentDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] }),
@@ -3016,12 +3186,13 @@ export function useCreateStockAdjustment() {
 }
 
 export function useConfirmStockAdjustment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: StockAdjustmentDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/stock-adjustments/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تأكيد تسوية المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockAdjustmentCouldNot2")));
       return res.json<{ document: StockAdjustmentDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -3032,25 +3203,27 @@ export function useConfirmStockAdjustment() {
 }
 
 export function useStockTransfers(filter: DocumentStatusFilter = {}): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockTransferDocumentDTO[], ApiError>({
     queryKey: ["stock-transfers", filter],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/stock-transfers${filter.status ? `?status=${filter.status}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تحويلات المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
       return res.json<StockTransferDocumentDTO[]>();
     },
   });
 }
 
 export function useCreateStockTransfer() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<StockTransferDocumentDTO, ApiError, CreateStockTransferDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/stock-transfers/draft", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تحويل المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot")));
       return res.json<StockTransferDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["stock-transfers"] }),
@@ -3058,12 +3231,13 @@ export function useCreateStockTransfer() {
 }
 
 export function useConfirmStockTransfer() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: StockTransferDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/stock-transfers/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تأكيد تحويل المخزون."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theStockTransferCouldNot2")));
       return res.json<{ document: StockTransferDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -3079,6 +3253,7 @@ interface PhysicalCountFilter {
 }
 
 export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryResult<PhysicalCountDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PhysicalCountDTO[], ApiError>({
     queryKey: ["physical-counts", filter],
@@ -3089,19 +3264,20 @@ export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryRes
       if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
       const qs = params.toString();
       const res = await request(`/inventory/physical-counts${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قوائم الجرد.");
+      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
       return res.json<PhysicalCountDTO[]>();
     },
   });
 }
 
 export function useStartPhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, StartPhysicalCountDTO>({
     mutationFn: async (body) => {
       const res = await request("/inventory/physical-counts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر بدء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -3109,12 +3285,13 @@ export function useStartPhysicalCount() {
 }
 
 export function useRecordPhysicalCountEntries() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, { id: string; body: RecordPhysicalCountEntriesDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/counts`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الكميات المجرودة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountedQuantitiesCouldNot")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -3122,12 +3299,13 @@ export function useRecordPhysicalCountEntries() {
 }
 
 export function useCompletePhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/complete`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe2")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -3135,12 +3313,13 @@ export function useCompletePhysicalCount() {
 }
 
 export function useCancelPhysicalCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PhysicalCountDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/inventory/physical-counts/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountCouldNotBe3")));
       return res.json<PhysicalCountDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["physical-counts"] }),
@@ -3148,6 +3327,7 @@ export function useCancelPhysicalCount() {
 }
 
 export function useGenerateAdjustmentFromCount() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<
@@ -3157,7 +3337,7 @@ export function useGenerateAdjustmentFromCount() {
   >({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/inventory/physical-counts/${id}/generate-adjustment`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء تسوية الجرد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCountAdjustmentCouldNot")));
       return res.json<{ count: PhysicalCountDTO; adjustment: StockAdjustmentDocumentDTO | null }>();
     },
     onSuccess: () => {
@@ -3174,13 +3354,14 @@ export interface StockBalanceFilter {
 
 /** أرصدة المخزون (docs/catalog/03) — cross-warehouse rollup, one row per item (packages/api/src/inventory-routes.ts's `/inventory/stock-balance`). */
 export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult<StockBalanceRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockBalanceRowDTO[], ApiError>({
     queryKey: ["stock-balance", filter],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/inventory/stock-balance${filter.warehouseId ? `?warehouseId=${filter.warehouseId}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل رصيد المخزون.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
       const body = await res.json<{ rows: StockBalanceRowDTO[] }>();
       return body.rows;
     },
@@ -3208,13 +3389,14 @@ export interface RfqComparisonRecord {
 
 /** طلبات عروض الأسعار / RFQs (docs/catalog/02) — list, create, and the draft → sent → closed/cancelled lifecycle. */
 export function useRfqs(): UseQueryResult<PurchaseRfqDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseRfqDTO[], ApiError>({
     queryKey: ["rfqs"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/rfqs");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات عروض الأسعار.");
+      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
       return res.json<PurchaseRfqDTO[]>();
     },
   });
@@ -3222,13 +3404,14 @@ export function useRfqs(): UseQueryResult<PurchaseRfqDTO[], ApiError> {
 
 /** عروض الموردين المسجلة على طلب عرض سعر واحد. */
 export function useRfqQuotes(rfqId: string | null): UseQueryResult<RfqQuoteDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RfqQuoteDTO[], ApiError>({
     queryKey: ["rfqs", rfqId, "quotes"],
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/quotes`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عروض الموردين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.supplierQuotesCouldNotBe"));
       return res.json<RfqQuoteDTO[]>();
     },
   });
@@ -3236,25 +3419,27 @@ export function useRfqQuotes(rfqId: string | null): UseQueryResult<RfqQuoteDTO[]
 
 /** شبكة مقارنة العروض (سعر لكل صنف/مورد، وإجمالي السلة الكاملة لكل مورد). */
 export function useRfqComparison(rfqId: string | null): UseQueryResult<RfqComparisonRecord, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<RfqComparisonRecord, ApiError>({
     queryKey: ["rfqs", rfqId, "comparison"],
     enabled: session !== null && rfqId !== null,
     queryFn: async () => {
       const res = await request(`/rfqs/${rfqId}/comparison`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مقارنة العروض.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theQuoteComparisonCouldNot"));
       return res.json<RfqComparisonRecord>();
     },
   });
 }
 
 export function useCreateRfq() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseRfqDTO, ApiError, CreatePurchaseRfqDTO>({
     mutationFn: async (body) => {
       const res = await request("/rfqs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنشاء طلب عرض السعر."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould")));
       return res.json<PurchaseRfqDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["rfqs"] }),
@@ -3276,25 +3461,29 @@ function useRfqTransition(action: "send" | "close" | "cancel", fallbackMessage: 
 
 /** إرسال طلب عرض السعر للموردين (مسودة → مرسل). */
 export function useSendRfq() {
-  return useRfqTransition("send", "تعذّر إرسال طلب عرض السعر.");
+  const { t } = useAppTranslation();
+  return useRfqTransition("send", t("api.theRequestForQuotationCould2"));
 }
 /** إغلاق طلب عرض السعر بدون تحويل (مرسل → مغلق). */
 export function useCloseRfq() {
-  return useRfqTransition("close", "تعذّر إغلاق طلب عرض السعر.");
+  const { t } = useAppTranslation();
+  return useRfqTransition("close", t("api.theRequestForQuotationCould3"));
 }
 /** إلغاء طلب عرض السعر. */
 export function useCancelRfq() {
-  return useRfqTransition("cancel", "تعذّر إلغاء طلب عرض السعر.");
+  const { t } = useAppTranslation();
+  return useRfqTransition("cancel", t("api.theRequestForQuotationCould4"));
 }
 
 /** تسجيل عرض سعر مورد جديد على طلب عرض سعر مرسل. */
 export function useCreateRfqQuote() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<RfqQuoteDTO, ApiError, { rfqId: string; body: CreateRfqQuoteDTO }>({
     mutationFn: async ({ rfqId, body }) => {
       const res = await request(`/rfqs/${rfqId}/quotes`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل عرض السعر."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theQuoteCouldNotBe3")));
       return res.json<RfqQuoteDTO>();
     },
     onSuccess: (_data, { rfqId }) => {
@@ -3306,12 +3495,13 @@ export function useCreateRfqQuote() {
 
 /** تحويل عرض مختار إلى أمر شراء حقيقي — يغلق طلب عرض السعر ويربطه بالأمر الجديد. */
 export function useConvertRfq() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }, ApiError, { rfqId: string; body: ConvertRfqDTO }>({
     mutationFn: async ({ rfqId, body }) => {
       const res = await request(`/rfqs/${rfqId}/convert`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحويل طلب عرض السعر إلى أمر شراء."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRequestForQuotationCould5")));
       return res.json<{ rfq: PurchaseRfqDTO; purchaseOrderId: string }>();
     },
     onSuccess: (_data, { rfqId }) => {
@@ -3324,6 +3514,7 @@ export function useConvertRfq() {
 
 /** مرتجعات المبيعات (docs/catalog/01) — list, create draft (against a confirmed sales invoice), confirm, cancel/void. */
 export function useSalesReturns(status?: DocumentStatusDTO): UseQueryResult<SalesReturnDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesReturnDocumentDTO[], ApiError>({
     queryKey: ["sales-returns", status ?? null],
@@ -3331,19 +3522,20 @@ export function useSalesReturns(status?: DocumentStatusDTO): UseQueryResult<Sale
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/sales-returns${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مرتجعات المبيعات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
       return res.json<SalesReturnDocumentDTO[]>();
     },
   });
 }
 
 export function useCreateSalesReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesReturnDocumentDTO, ApiError, CreateSalesReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/sales-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مرتجع المبيعات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot")));
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -3351,12 +3543,13 @@ export function useCreateSalesReturn() {
 }
 
 export function useConfirmSalesReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: SalesReturnDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/sales-returns/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مرتجع المبيعات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot2")));
       return res.json<{ document: SalesReturnDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -3364,12 +3557,13 @@ export function useConfirmSalesReturn() {
 }
 
 export function useCancelSalesReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<SalesReturnDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/sales-returns/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مرتجع المبيعات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot3")));
       return res.json<SalesReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
@@ -3378,6 +3572,7 @@ export function useCancelSalesReturn() {
 
 /** مرتجعات المشتريات (docs/catalog/02) — list, create draft (against a confirmed purchase invoice), confirm, cancel/void. */
 export function usePurchaseReturns(status?: DocumentStatusDTO): UseQueryResult<PurchaseReturnDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseReturnDocumentDTO[], ApiError>({
     queryKey: ["purchase-returns", status ?? null],
@@ -3385,19 +3580,20 @@ export function usePurchaseReturns(status?: DocumentStatusDTO): UseQueryResult<P
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/purchase-returns${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مرتجعات المشتريات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
       return res.json<PurchaseReturnDocumentDTO[]>();
     },
   });
 }
 
 export function useCreatePurchaseReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseReturnDocumentDTO, ApiError, CreatePurchaseReturnDTO>({
     mutationFn: async (body) => {
       const res = await request("/purchase-returns", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مرتجع المشتريات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot")));
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -3405,12 +3601,13 @@ export function useCreatePurchaseReturn() {
 }
 
 export function useConfirmPurchaseReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: PurchaseReturnDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchase-returns/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مرتجع المشتريات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot2")));
       return res.json<{ document: PurchaseReturnDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -3418,12 +3615,13 @@ export function useConfirmPurchaseReturn() {
 }
 
 export function useCancelPurchaseReturn() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PurchaseReturnDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/purchase-returns/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مرتجع المشتريات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePurchaseReturnCouldNot3")));
       return res.json<PurchaseReturnDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["purchase-returns"] }),
@@ -3432,6 +3630,7 @@ export function useCancelPurchaseReturn() {
 
 /** التكاليف الإضافية (docs/catalog/02) — list, create draft (server runs distributeLandedCost and persists the allocated lines), confirm (runs the cost-layer revaluation), cancel/void. */
 export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<LandedCostDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LandedCostDocumentDTO[], ApiError>({
     queryKey: ["landed-costs", status ?? null],
@@ -3439,19 +3638,20 @@ export function useLandedCosts(status?: DocumentStatusDTO): UseQueryResult<Lande
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/landed-costs${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل مستندات التكاليف الإضافية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.landedCostDocumentsCouldNot"));
       return res.json<LandedCostDocumentDTO[]>();
     },
   });
 }
 
 export function useCreateLandedCost() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LandedCostDocumentDTO, ApiError, CreateLandedCostDTO>({
     mutationFn: async (body) => {
       const res = await request("/landed-costs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء مستند التكلفة الإضافية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould")));
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -3459,12 +3659,13 @@ export function useCreateLandedCost() {
 }
 
 export function useConfirmLandedCost() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: LandedCostDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/landed-costs/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد مستند التكلفة الإضافية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould2")));
       return res.json<{ document: LandedCostDocumentDTO; held: boolean }>();
     },
     onSuccess: () => {
@@ -3475,12 +3676,13 @@ export function useConfirmLandedCost() {
 }
 
 export function useCancelLandedCost() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LandedCostDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/landed-costs/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء مستند التكلفة الإضافية."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLandedCostDocumentCould3")));
       return res.json<LandedCostDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["landed-costs"] }),
@@ -3489,6 +3691,7 @@ export function useCancelLandedCost() {
 
 /** خطط الأقساط (docs/catalog/05) — list, create (server builds the payment schedule), confirm, cancel/void, and the معالجة المتأخرات overdue batch. */
 export function useInstallmentPlans(status?: DocumentStatusDTO): UseQueryResult<InstallmentPlanDocumentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<InstallmentPlanDocumentDTO[], ApiError>({
     queryKey: ["installment-plans", status ?? null],
@@ -3496,19 +3699,20 @@ export function useInstallmentPlans(status?: DocumentStatusDTO): UseQueryResult<
     queryFn: async () => {
       const qs = status ? `?status=${status}` : "";
       const res = await request(`/installments/plans${qs}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل خطط الأقساط.");
+      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
       return res.json<InstallmentPlanDocumentDTO[]>();
     },
   });
 }
 
 export function useCreateInstallmentPlan() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<InstallmentPlanDocumentDTO, ApiError, CreateInstallmentPlanDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/plans", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء خطة الأقساط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot")));
       return res.json<InstallmentPlanDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -3516,12 +3720,13 @@ export function useCreateInstallmentPlan() {
 }
 
 export function useConfirmInstallmentPlan() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<{ document: InstallmentPlanDocumentDTO; held: boolean }, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/plans/${id}/confirm`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تأكيد خطة الأقساط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot2")));
       return res.json<{ document: InstallmentPlanDocumentDTO; held: boolean }>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -3529,12 +3734,13 @@ export function useConfirmInstallmentPlan() {
 }
 
 export function useCancelInstallmentPlan() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<InstallmentPlanDocumentDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/plans/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء خطة الأقساط."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theInstalmentPlanCouldNot3")));
       return res.json<InstallmentPlanDocumentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -3542,12 +3748,13 @@ export function useCancelInstallmentPlan() {
 }
 
 export function useProcessOverdueInstallments() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ProcessOverdueInstallmentsResultDTO, ApiError, ProcessOverdueInstallmentsDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/plans/overdue/process", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر معالجة الأقساط المتأخرة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theOverdueInstalmentsCouldNot")));
       return res.json<ProcessOverdueInstallmentsResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["installment-plans"] }),
@@ -3561,6 +3768,7 @@ export interface FollowUpListFilters {
 
 /** متابعة التحصيل (docs/catalog/05) — list (filterable by status/customer), create, complete (records an outcome), cancel. */
 export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<CollectionFollowUpDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CollectionFollowUpDTO[], ApiError>({
     queryKey: ["follow-ups", filters.status ?? null, filters.customerId ?? null],
@@ -3571,19 +3779,20 @@ export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<
       if (filters.customerId) params.set("customerId", filters.customerId);
       const qs = params.toString();
       const res = await request(`/installments/follow-ups${qs ? `?${qs}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل متابعات التحصيل.");
+      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
       return res.json<CollectionFollowUpDTO[]>();
     },
   });
 }
 
 export function useCreateFollowUp() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CollectionFollowUpDTO, ApiError, CreateFollowUpDTO>({
     mutationFn: async (body) => {
       const res = await request("/installments/follow-ups", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إضافة متابعة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot")));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -3591,12 +3800,13 @@ export function useCreateFollowUp() {
 }
 
 export function useCompleteFollowUp() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CollectionFollowUpDTO, ApiError, { id: string; outcome: string }>({
     mutationFn: async ({ id, outcome }) => {
       const res = await request(`/installments/follow-ups/${id}/complete`, { method: "POST", body: JSON.stringify({ outcome }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إكمال المتابعة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot2")));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -3604,12 +3814,13 @@ export function useCompleteFollowUp() {
 }
 
 export function useCancelFollowUp() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<CollectionFollowUpDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/installments/follow-ups/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إلغاء المتابعة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFollowUpCouldNot3")));
       return res.json<CollectionFollowUpDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["follow-ups"] }),
@@ -3621,25 +3832,27 @@ export function useCancelFollowUp() {
 // ---------------------------------------------------------------------------
 
 export function useDepartments(): UseQueryResult<DepartmentDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<DepartmentDTO[], ApiError>({
     queryKey: ["hr-departments"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/departments");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الأقسام.");
+      if (!res.ok) throw new ApiError(res.status, t("api.departmentsCouldNotBeLoaded"));
       return res.json<DepartmentDTO[]>();
     },
   });
 }
 
 export function useCreateDepartment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DepartmentDTO, ApiError, CreateDepartmentDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/departments", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة القسم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe")));
       return res.json<DepartmentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
@@ -3647,12 +3860,13 @@ export function useCreateDepartment() {
 }
 
 export function useUpdateDepartment() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DepartmentDTO, ApiError, { id: string; body: UpdateDepartmentDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/departments/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل القسم."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDepartmentCouldNotBe2")));
       return res.json<DepartmentDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-departments"] }),
@@ -3660,25 +3874,27 @@ export function useUpdateDepartment() {
 }
 
 export function useJobTitles(): UseQueryResult<JobTitleDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JobTitleDTO[], ApiError>({
     queryKey: ["hr-job-titles"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/job-titles");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل المسميات الوظيفية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.jobTitlesCouldNotBe"));
       return res.json<JobTitleDTO[]>();
     },
   });
 }
 
 export function useCreateJobTitle() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<JobTitleDTO, ApiError, CreateJobTitleDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/job-titles", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة المسمى الوظيفي."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot")));
       return res.json<JobTitleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
@@ -3686,12 +3902,13 @@ export function useCreateJobTitle() {
 }
 
 export function useUpdateJobTitle() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<JobTitleDTO, ApiError, { id: string; body: UpdateJobTitleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/job-titles/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل المسمى الوظيفي."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theJobTitleCouldNot2")));
       return res.json<JobTitleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-job-titles"] }),
@@ -3699,38 +3916,41 @@ export function useUpdateJobTitle() {
 }
 
 export function useEmployees(): UseQueryResult<EmployeeDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<EmployeeDTO[], ApiError>({
     queryKey: ["hr-employees"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/employees");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموظفين.");
+      if (!res.ok) throw new ApiError(res.status, t("api.employeesCouldNotBeLoaded"));
       return res.json<EmployeeDTO[]>();
     },
   });
 }
 
 export function useEmployeeContracts(employeeId: string | null): UseQueryResult<ContractDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ContractDTO[], ApiError>({
     queryKey: ["hr-employee-contracts", employeeId],
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/employees/${employeeId}/contracts`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عقود الموظف.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theEmployeeSContractsCould"));
       return res.json<ContractDTO[]>();
     },
   });
 }
 
 export function useCreateEmployee() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EmployeeDTO, ApiError, CreateEmployeeDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/employees", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الموظف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe")));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -3738,12 +3958,13 @@ export function useCreateEmployee() {
 }
 
 export function useUpdateEmployee() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EmployeeDTO, ApiError, { id: string; body: UpdateEmployeeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/employees/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الموظف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeCouldNotBe2")));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -3751,12 +3972,13 @@ export function useUpdateEmployee() {
 }
 
 export function useTransitionEmployee() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EmployeeDTO, ApiError, { id: string; body: TransitionEmployeeDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/employees/${id}/transition`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تحديث حالة الموظف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSStatusCould")));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -3764,12 +3986,13 @@ export function useTransitionEmployee() {
 }
 
 export function useTerminateEmployee() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<EmployeeDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/employees/${id}/terminate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء خدمة الموظف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theEmployeeSServiceCould")));
       return res.json<EmployeeDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-employees"] }),
@@ -3777,25 +4000,27 @@ export function useTerminateEmployee() {
 }
 
 export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ContractDTO[], ApiError>({
     queryKey: ["hr-contracts"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/contracts");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل العقود.");
+      if (!res.ok) throw new ApiError(res.status, t("api.contractsCouldNotBeLoaded"));
       return res.json<ContractDTO[]>();
     },
   });
 }
 
 export function useCreateContract() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ContractDTO, ApiError, CreateContractDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/contracts", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة العقد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe")));
       return res.json<ContractDTO>();
     },
     onSuccess: (_data, variables) => {
@@ -3806,12 +4031,13 @@ export function useCreateContract() {
 }
 
 export function useTerminateContract() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ContractDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/contracts/${id}/terminate`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إنهاء العقد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theContractCouldNotBe2")));
       return res.json<ContractDTO>();
     },
     onSuccess: (data) => {
@@ -3822,25 +4048,27 @@ export function useTerminateContract() {
 }
 
 export function useHolidays(year: number): UseQueryResult<HolidayDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<HolidayDTO[], ApiError>({
     queryKey: ["hr-holidays", year],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/holidays?year=${year}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإجازات الرسمية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.publicHolidaysCouldNotBe"));
       return res.json<HolidayDTO[]>();
     },
   });
 }
 
 export function useCreateHoliday() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<HolidayDTO, ApiError, CreateHolidayDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/holidays", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe")));
       return res.json<HolidayDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
@@ -3848,12 +4076,13 @@ export function useCreateHoliday() {
 }
 
 export function useUpdateHoliday() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<HolidayDTO, ApiError, { id: string; body: UpdateHolidayDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/holidays/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe2")));
       return res.json<HolidayDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
@@ -3861,12 +4090,13 @@ export function useUpdateHoliday() {
 }
 
 export function useDeleteHoliday() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/holidays/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theHolidayCouldNotBe3")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-holidays"] }),
   });
@@ -3878,25 +4108,27 @@ export interface MyLeaveDTO {
 }
 
 export function useMyLeave(): UseQueryResult<MyLeaveDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<MyLeaveDTO, ApiError>({
     queryKey: ["hr-my-leave"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/me");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إجازاتي.");
+      if (!res.ok) throw new ApiError(res.status, t("api.yourLeaveCouldNotBe"));
       return res.json<MyLeaveDTO>();
     },
   });
 }
 
 export function useCreateLeaveRequest() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeaveRequestDTO, ApiError, CreateLeaveRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-requests", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إرسال طلب الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot")));
       return res.json<LeaveRequestDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
@@ -3904,12 +4136,13 @@ export function useCreateLeaveRequest() {
 }
 
 export function useCancelLeaveRequest() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeaveRequestDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/leave-requests/${id}/cancel`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إلغاء طلب الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot2")));
       return res.json<LeaveRequestDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
@@ -3917,13 +4150,14 @@ export function useCancelLeaveRequest() {
 }
 
 export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<HrDashboardSummaryDTO, ApiError>({
     queryKey: ["hr-dashboard"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/dashboard");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل لوحة الموارد البشرية.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theHrDashboardCouldNot"));
       return res.json<HrDashboardSummaryDTO>();
     },
   });
@@ -3938,6 +4172,7 @@ export function useHrDashboard(): UseQueryResult<HrDashboardSummaryDTO, ApiError
  * build actually publishes, and which channels actually send.
  */
 export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCatalogDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<NotificationTriggerCatalogDTO, ApiError>({
     queryKey: ["notification-triggers"],
@@ -3945,32 +4180,34 @@ export function useNotificationTriggers(): UseQueryResult<NotificationTriggerCat
     retry: false,
     queryFn: async () => {
       const res = await request("/notification-rules/triggers");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل أحداث الإشعارات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationEventsCouldNotBe")));
       return res.json<NotificationTriggerCatalogDTO>();
     },
   });
 }
 
 export function useNotificationRules(): UseQueryResult<NotificationRuleDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<NotificationRuleDTO[], ApiError>({
     queryKey: ["notification-rules"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/notification-rules");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل قواعد الإشعارات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationRulesCouldNotBe")));
       return res.json<NotificationRuleDTO[]>();
     },
   });
 }
 
 export function useCreateNotificationRule() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<NotificationRuleDTO, ApiError, CreateNotificationRuleDTO>({
     mutationFn: async (body) => {
       const res = await request("/notification-rules", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إنشاء القاعدة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe")));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -3978,12 +4215,13 @@ export function useCreateNotificationRule() {
 }
 
 export function useUpdateNotificationRule() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<NotificationRuleDTO, ApiError, { id: string; body: UpdateNotificationRuleDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/notification-rules/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث القاعدة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe2")));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -3991,12 +4229,13 @@ export function useUpdateNotificationRule() {
 }
 
 export function useSetNotificationRuleActive() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<NotificationRuleDTO, ApiError, { id: string; active: boolean }>({
     mutationFn: async ({ id, active }) => {
       const res = await request(`/notification-rules/${id}/${active ? "activate" : "deactivate"}`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث حالة القاعدة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRuleSStatusCould")));
       return res.json<NotificationRuleDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
@@ -4004,12 +4243,13 @@ export function useSetNotificationRuleActive() {
 }
 
 export function useDeleteNotificationRule() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/notification-rules/${id}`, { method: "DELETE" });
-      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر حذف القاعدة."));
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theRuleCouldNotBe3")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notification-rules"] }),
   });
@@ -4017,6 +4257,7 @@ export function useDeleteNotificationRule() {
 
 /** The current user's own notifications (top-bar bell panel) — real data off `/notifications`. */
 export function useNotifications(status?: "unread" | "read"): UseQueryResult<NotificationDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<NotificationDTO[], ApiError>({
     queryKey: ["notifications", status ?? "all"],
@@ -4025,13 +4266,14 @@ export function useNotifications(status?: "unread" | "read"): UseQueryResult<Not
     queryFn: async () => {
       const qs = status ? `?status=${status}&limit=50` : "?limit=50";
       const res = await request(`/notifications${qs}`);
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل الإشعارات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.notificationsCouldNotBeLoaded")));
       return res.json<NotificationDTO[]>();
     },
   });
 }
 
 export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["notifications", "unread-count"],
@@ -4039,7 +4281,7 @@ export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/notifications/unread-count");
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحميل عدد الإشعارات."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCountCouldNot")));
       const body = await res.json<{ count: number }>();
       return body.count;
     },
@@ -4047,12 +4289,13 @@ export function useUnreadNotificationCount(): UseQueryResult<number, ApiError> {
 }
 
 export function useMarkNotificationRead() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<NotificationDTO, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/notifications/${id}/read`, { method: "POST" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تحديث الإشعار."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theNotificationCouldNotBe")));
       return res.json<NotificationDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
@@ -4060,12 +4303,13 @@ export function useMarkNotificationRead() {
 }
 
 export function useMarkAllNotificationsRead() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, void>({
     mutationFn: async () => {
       const res = await request("/notifications/read-all", { method: "POST" });
-      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, "تعذر تحديد الكل كمقروء."));
+      if (!res.ok && res.status !== 204) throw new ApiError(res.status, await readError(res, t("api.theyCouldNotAllBe")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["notifications"] }),
   });
@@ -4077,25 +4321,27 @@ export function useMarkAllNotificationsRead() {
 
 /** The tenant's saved print-template config, or the shared default if none was saved yet. */
 export function usePrintTemplateConfig(): UseQueryResult<PrintTemplateConfigDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PrintTemplateConfigDTO, ApiError>({
     queryKey: ["print-template-config"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/print-template-config");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل قالب الطباعة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.thePrintTemplateCouldNot"));
       return res.json<PrintTemplateConfigDTO>();
     },
   });
 }
 
 export function useSavePrintTemplateConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<PrintTemplateConfigDTO, ApiError, PrintTemplateConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/print-template-config", { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ قالب الطباعة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePrintTemplateCouldNot2")));
       return res.json<PrintTemplateConfigDTO>();
     },
     onSuccess: (config) => queryClient.setQueryData(["print-template-config"], config),
@@ -4147,13 +4393,14 @@ export type DataMigrationMasterStep =
   | "assets";
 
 export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<DataMigrationStatusDTO, ApiError>({
     queryKey: ["data-migration", "status"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/data-migration/status");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل حالة نقل البيانات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theDataMigrationStatusCould"));
       return res.json<DataMigrationStatusDTO>();
     },
   });
@@ -4161,11 +4408,12 @@ export function useDataMigrationStatus(): UseQueryResult<DataMigrationStatusDTO,
 
 /** Dry-run (no persistence) validation for one master-data step's parsed rows. */
 export function useDataMigrationPreview(step: DataMigrationMasterStep) {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
     mutationFn: async (rows) => {
       const res = await request(`/data-migration/${step}/preview`, { method: "POST", body: JSON.stringify({ rows }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe")));
       return res.json<DataMigrationStepResultDTO>();
     },
   });
@@ -4173,12 +4421,13 @@ export function useDataMigrationPreview(step: DataMigrationMasterStep) {
 
 /** All-or-nothing commit for one master-data step's parsed rows — nothing persists unless every row validates. */
 export function useDataMigrationCommit(step: DataMigrationMasterStep) {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DataMigrationStepResultDTO, ApiError, readonly Record<string, string>[]>({
     mutationFn: async (rows) => {
       const res = await request(`/data-migration/${step}/commit`, { method: "POST", body: JSON.stringify({ rows }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe")));
       return res.json<DataMigrationStepResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
@@ -4255,6 +4504,7 @@ export interface HistoricalImportResultDTO {
 }
 
 export function useHistoricalImportPreview(kind: HistoricalImportKind) {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
     mutationFn: async (rows) => {
@@ -4262,13 +4512,14 @@ export function useHistoricalImportPreview(kind: HistoricalImportKind) {
         method: "POST",
         body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر التحقق من الملف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theFileCouldNotBe")));
       return res.json<HistoricalImportResultDTO>();
     },
   });
 }
 
 export function useHistoricalImportCommit(kind: HistoricalImportKind) {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<HistoricalImportResultDTO, ApiError, readonly HistoricalImportRowDTO[]>({
@@ -4277,7 +4528,7 @@ export function useHistoricalImportCommit(kind: HistoricalImportKind) {
         method: "POST",
         body: JSON.stringify(toHistoricalImportWireBody(kind, rows)),
       });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تنفيذ الاستيراد."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theImportCouldNotBe")));
       return res.json<HistoricalImportResultDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["data-migration", "status"] }),
@@ -4291,25 +4542,27 @@ export function useHistoricalImportCommit(kind: HistoricalImportKind) {
 
 /** إعدادات الموافقات — the persisted approval-chain config per action type. */
 export function useWorkflowConfigs(): UseQueryResult<WorkflowConfigDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<WorkflowConfigDTO[], ApiError>({
     queryKey: ["workflow-configs"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/workflow/configs");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل إعدادات سير العمل.");
+      if (!res.ok) throw new ApiError(res.status, t("api.workflowSettingsCouldNotBe"));
       return res.json<WorkflowConfigDTO[]>();
     },
   });
 }
 
 export function useCreateWorkflowConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WorkflowConfigDTO, ApiError, CreateWorkflowConfigDTO>({
     mutationFn: async (body) => {
       const res = await request("/workflow/configs", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe")));
       return res.json<WorkflowConfigDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
@@ -4317,12 +4570,13 @@ export function useCreateWorkflowConfig() {
 }
 
 export function useUpdateWorkflowConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<WorkflowConfigDTO, ApiError, { id: string; body: UpdateWorkflowConfigDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/workflow/configs/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حفظ سير العمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe")));
       return res.json<WorkflowConfigDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
@@ -4330,12 +4584,13 @@ export function useUpdateWorkflowConfig() {
 }
 
 export function useDeleteWorkflowConfig() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/workflow/configs/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر حذف سير العمل."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkflowCouldNotBe2")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["workflow-configs"] }),
   });
@@ -4348,6 +4603,7 @@ export function useDeleteWorkflowConfig() {
  * badge and the inbox list itself stay live without a manual refresh.
  */
 export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ApprovalRequestDTO[], ApiError>({
     queryKey: ["workflow-requests", "pending"],
@@ -4355,7 +4611,7 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الموافقات المعلّقة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
       return res.json<ApprovalRequestDTO[]>();
     },
   });
@@ -4363,6 +4619,7 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
 
 /** The shell's global pending-count badge on the الموافقات nav item. */
 export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<number, ApiError>({
     queryKey: ["workflow-requests", "pending-count"],
@@ -4370,7 +4627,7 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
     refetchInterval: 30_000,
     queryFn: async () => {
       const res = await request("/workflow/requests/pending-count");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل عدد الموافقات المعلّقة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.thePendingApprovalCountCould"));
       const body = await res.json<{ count: number }>();
       return body.count;
     },
@@ -4379,12 +4636,13 @@ export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
 
 /** Submits a new approval request for a gateable action type (POST /workflow/requests). */
 export function useSubmitApproval() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ApprovalRequestDTO, ApiError, SubmitApprovalRequestDTO>({
     mutationFn: async (body) => {
       const res = await request("/workflow/requests", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر إرسال طلب الموافقة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theApprovalRequestCouldNot")));
       return res.json<ApprovalRequestDTO>();
     },
     onSuccess: () => {
@@ -4395,12 +4653,13 @@ export function useSubmitApproval() {
 
 /** موافقة / رفض / طلب تعديل — the inbox's three per-row actions (POST /workflow/requests/:id/decide). */
 export function useDecideApproval() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ApprovalRequestDTO, ApiError, { id: string; body: DecideApprovalRequestDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/workflow/requests/${id}/decide`, { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذر تنفيذ القرار."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionCouldNotBe")));
       return res.json<ApprovalRequestDTO>();
     },
     onSuccess: () => {
@@ -4416,25 +4675,27 @@ export function useDecideApproval() {
 
 /** وحدات القياس — the unit records an item's `baseUnitCode` resolves against. */
 export function useItemUnits(): UseQueryResult<ItemUnitDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemUnitDTO[], ApiError>({
     queryKey: ["item-units"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-units");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل وحدات القياس.");
+      if (!res.ok) throw new ApiError(res.status, t("api.unitsOfMeasureCouldNot"));
       return res.json<ItemUnitDTO[]>();
     },
   });
 }
 
 export function useCreateItemUnit() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemUnitDTO, ApiError, CreateItemUnitDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-units", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة وحدة القياس."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould")));
       return res.json<ItemUnitDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
@@ -4442,12 +4703,13 @@ export function useCreateItemUnit() {
 }
 
 export function useUpdateItemUnit() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemUnitDTO, ApiError, { code: string; patch: UpdateItemUnitDTO }>({
     mutationFn: async ({ code, patch }) => {
       const res = await request(`/item-units/${code}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل وحدة القياس."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theUnitOfMeasureCould2")));
       return res.json<ItemUnitDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-units"] }),
@@ -4456,25 +4718,27 @@ export function useUpdateItemUnit() {
 
 /** تصنيفات الأصناف — the category records an item's `categoryId` resolves against. */
 export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemCategoryDTO[], ApiError>({
     queryKey: ["item-categories"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/item-categories");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل تصنيفات الأصناف.");
+      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
       return res.json<ItemCategoryDTO[]>();
     },
   });
 }
 
 export function useCreateItemCategory() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemCategoryDTO, ApiError, CreateItemCategoryDTO>({
     mutationFn: async (body) => {
       const res = await request("/item-categories", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة التصنيف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe")));
       return res.json<ItemCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
@@ -4482,12 +4746,13 @@ export function useCreateItemCategory() {
 }
 
 export function useUpdateItemCategory() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<ItemCategoryDTO, ApiError, { id: string; patch: UpdateItemCategoryDTO }>({
     mutationFn: async ({ id, patch }) => {
       const res = await request(`/item-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل التصنيف."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCategoryCouldNotBe2")));
       return res.json<ItemCategoryDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["item-categories"] }),
@@ -4516,38 +4781,41 @@ function attendanceQueryString(filters: AttendanceFilters): string {
 }
 
 export function useAttendance(filters: AttendanceFilters): UseQueryResult<AttendanceEntryDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AttendanceEntryDTO[], ApiError>({
     queryKey: ["hr-attendance", filters],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance${attendanceQueryString(filters)}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سجل الحضور.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theAttendanceRecordCouldNot"));
       return res.json<AttendanceEntryDTO[]>();
     },
   });
 }
 
 export function useAttendanceSummary(employeeId: string | null, from: string, to: string): UseQueryResult<AttendanceSummaryDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AttendanceSummaryDTO, ApiError>({
     queryKey: ["hr-attendance-summary", employeeId, from, to],
     enabled: session !== null && employeeId !== null,
     queryFn: async () => {
       const res = await request(`/hr/attendance/summary?employeeId=${encodeURIComponent(employeeId ?? "")}&from=${from}&to=${to}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل ملخص الحضور.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theAttendanceSummaryCouldNot"));
       return res.json<AttendanceSummaryDTO>();
     },
   });
 }
 
 export function useRecordAttendance() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AttendanceEntryDTO, ApiError, RecordAttendanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/attendance", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تسجيل الحضور."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.attendanceCouldNotBeRecorded")));
       return res.json<AttendanceEntryDTO>();
     },
     onSuccess: () => {
@@ -4558,12 +4826,13 @@ export function useRecordAttendance() {
 }
 
 export function useCorrectAttendance() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<AttendanceEntryDTO, ApiError, { id: string; body: CorrectAttendanceDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/attendance/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل سجل الحضور."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAttendanceRecordCouldNot2")));
       return res.json<AttendanceEntryDTO>();
     },
     onSuccess: () => {
@@ -4574,38 +4843,41 @@ export function useCorrectAttendance() {
 }
 
 export function useLeavePolicies(): UseQueryResult<LeavePolicyDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeavePolicyDTO[], ApiError>({
     queryKey: ["hr-leave-policies"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل سياسات الإجازات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.leavePoliciesCouldNotBe"));
       return res.json<LeavePolicyDTO[]>();
     },
   });
 }
 
 export function useLeavePolicyPresets(): UseQueryResult<LeavePolicyPresetDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeavePolicyPresetDTO[], ApiError>({
     queryKey: ["hr-leave-policy-presets"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-policies/presets");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل الإعدادات الجاهزة.");
+      if (!res.ok) throw new ApiError(res.status, t("api.thePresetsCouldNotBe"));
       return res.json<LeavePolicyPresetDTO[]>();
     },
   });
 }
 
 export function useCreateLeavePolicy() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeavePolicyDTO, ApiError, CreateLeavePolicyDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-policies", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر إضافة سياسة الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot")));
       return res.json<LeavePolicyDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -4613,12 +4885,13 @@ export function useCreateLeavePolicy() {
 }
 
 export function useUpdateLeavePolicy() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeavePolicyDTO, ApiError, { id: string; body: UpdateLeavePolicyDTO }>({
     mutationFn: async ({ id, body }) => {
       const res = await request(`/hr/leave-policies/${id}`, { method: "PUT", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تعديل سياسة الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot2")));
       return res.json<LeavePolicyDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -4626,24 +4899,26 @@ export function useUpdateLeavePolicy() {
 }
 
 export function useDeleteLeavePolicy() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<void, ApiError, string>({
     mutationFn: async (id) => {
       const res = await request(`/hr/leave-policies/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حذف سياسة الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeavePolicyCouldNot3")));
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
   });
 }
 
 export function useApplyLeavePolicyPreset() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeavePolicyDTO[], ApiError, string>({
     mutationFn: async (presetCode) => {
       const res = await request("/hr/leave-policies/apply-preset", { method: "POST", body: JSON.stringify({ presetCode }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تطبيق الإعداد الجاهز."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePresetCouldNotBe")));
       return res.json<LeavePolicyDTO[]>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-policies"] }),
@@ -4651,6 +4926,7 @@ export function useApplyLeavePolicyPreset() {
 }
 
 export function useLeaveBalances(employeeId: string | null, year: number): UseQueryResult<LeaveBalanceDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveBalanceDTO[], ApiError>({
     queryKey: ["hr-leave-balances", employeeId, year],
@@ -4659,19 +4935,20 @@ export function useLeaveBalances(employeeId: string | null, year: number): UseQu
       const params = new URLSearchParams({ year: String(year) });
       if (employeeId) params.set("employeeId", employeeId);
       const res = await request(`/hr/leave-balances?${params.toString()}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل أرصدة الإجازات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.leaveBalancesCouldNotBe"));
       return res.json<LeaveBalanceDTO[]>();
     },
   });
 }
 
 export function useUpsertLeaveBalance() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<LeaveBalanceDTO, ApiError, UpsertLeaveBalanceDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-balances", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر حفظ رصيد الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveBalanceCouldNot")));
       return res.json<LeaveBalanceDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] }),
@@ -4679,13 +4956,14 @@ export function useUpsertLeaveBalance() {
 }
 
 export function useLeaveAccrualBatches(runType: string | null): UseQueryResult<LeaveAccrualBatchDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveAccrualBatchDTO[], ApiError>({
     queryKey: ["hr-leave-accrual-batches", runType],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request(`/hr/leave-accrual-batches${runType ? `?runType=${runType}` : ""}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل دورات الاستحقاق.");
+      if (!res.ok) throw new ApiError(res.status, t("api.accrualBatchesCouldNotBe"));
       return res.json<LeaveAccrualBatchDTO[]>();
     },
   });
@@ -4697,12 +4975,13 @@ export interface RunLeaveAccrualResultDTO {
 }
 
 export function useRunLeaveAccrual() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<RunLeaveAccrualResultDTO, ApiError, RunLeaveAccrualDTO>({
     mutationFn: async (body) => {
       const res = await request("/hr/leave-accrual-batches/run", { method: "POST", body: JSON.stringify(body) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر تشغيل دورة الاستحقاق."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAccrualBatchCouldNot")));
       return res.json<RunLeaveAccrualResultDTO>();
     },
     onSuccess: () => {
@@ -4721,6 +5000,7 @@ export interface LeaveRequestFilters {
 }
 
 export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<LeaveRequestDTO[], ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveRequestDTO[], ApiError>({
     queryKey: ["hr-leave-requests", filters],
@@ -4734,7 +5014,7 @@ export function useLeaveRequests(filters: LeaveRequestFilters): UseQueryResult<L
       if (filters.to) params.set("to", filters.to);
       const query = params.toString();
       const res = await request(`/hr/leave-requests${query === "" ? "" : `?${query}`}`);
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل طلبات الإجازات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.leaveRequestsCouldNotBe"));
       return res.json<LeaveRequestDTO[]>();
     },
   });
@@ -4749,13 +5029,14 @@ export interface LeaveRequestCountsDTO {
 }
 
 export function useLeaveRequestCounts(): UseQueryResult<LeaveRequestCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<LeaveRequestCountsDTO, ApiError>({
     queryKey: ["hr-leave-request-counts"],
     enabled: session !== null,
     queryFn: async () => {
       const res = await request("/hr/leave-requests/counts");
-      if (!res.ok) throw new ApiError(res.status, "تعذّر تحميل ملخص طلبات الإجازات.");
+      if (!res.ok) throw new ApiError(res.status, t("api.theLeaveRequestSummaryCould"));
       return res.json<LeaveRequestCountsDTO>();
     },
   });
@@ -4769,13 +5050,14 @@ export interface DecideLeaveRequestResultDTO {
 }
 
 export function useDecideLeaveRequest() {
+  const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
   return useMutation<DecideLeaveRequestResultDTO, ApiError, { id: string; decision: "approved" | "rejected"; comment?: string | null }>({
     mutationFn: async ({ id, decision, comment }) => {
       const path = decision === "approved" ? "approve" : "reject";
       const res = await request(`/hr/leave-requests/${id}/${path}`, { method: "POST", body: JSON.stringify({ decision, comment: comment ?? null }) });
-      if (!res.ok) throw new ApiError(res.status, await readError(res, "تعذّر اتخاذ القرار على طلب الإجازة."));
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theDecisionOnThisLeave")));
       return res.json<DecideLeaveRequestResultDTO>();
     },
     onSuccess: () => {

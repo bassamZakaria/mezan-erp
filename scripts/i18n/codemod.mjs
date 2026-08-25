@@ -22,14 +22,19 @@ function collect(sf) {
   return hits;
 }
 
-/** The nearest enclosing function, and whether it looks like a React component. */
+/**
+ * The nearest enclosing function that may legally call a hook: a component
+ * (`Capitalised`) or a custom hook (`useSomething`). `data/hooks.ts` is nothing
+ * but custom hooks, so without the second case every string in it would be
+ * misreported as module scope.
+ */
 function enclosingComponent(node, sf) {
   let n = node.parent;
   while (n) {
     if (ts.isFunctionDeclaration(n) || ts.isArrowFunction(n) || ts.isFunctionExpression(n)) {
       let name = n.name?.getText(sf);
       if (!name && ts.isVariableDeclaration(n.parent)) name = n.parent.name.getText(sf);
-      if (name && /^[A-Z]/.test(name)) return n;
+      if (name && (/^[A-Z]/.test(name) || /^use[A-Z]/.test(name))) return n;
     }
     n = n.parent;
   }

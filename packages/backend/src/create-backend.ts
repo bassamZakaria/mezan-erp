@@ -27,8 +27,6 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
-  getVoucherTypeDefinition,
-  sumActive as sumActiveAllocations,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -714,29 +712,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * control accounts (D23), so their remaining balances belong here too.
    */
   async function resolveReconciliationControls() {
-    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs, allocatable, purchaseArchives, salesArchives] = await Promise.all([
+    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs, purchaseArchives, salesArchives] = await Promise.all([
       salesInvoices.list(),
       purchaseInvoices.list(),
       stockLedger.snapshots.list(),
       salesReturns.list(),
       purchaseReturns.list(),
       landedCostDocuments.list(),
-      vouchers.invoices.listAll(),
       historicalImportArchives.list(),
       salesHistoricalImportArchives.list(),
     ]);
-    const allocatedById = new Map(allocatable.map((i) => [i.id, i.allocated.scaled]));
-    const allocatedOn = (invoiceId: string) => allocatedById.get(invoiceId) ?? 0n;
-
     /**
-     * Money already received from a customer / paid to a supplier that no
-     * invoice has claimed yet. The GL moved the control account the moment the
-     * voucher confirmed, so it is a real on-account balance: leaving it out
-     * left the sub-ledger permanently ahead of the ledger by every unallocated
-     * collection and payment.
+     * Every confirmed voucher that names a control account as its counterparty
+     * moves that account the moment it confirms — a collection, a supplier
+     * payment, a refund either way. Whether the money was applied to a specific
+     * invoice is a DISTRIBUTION question, not a second movement: an allocation
+     * says which invoice the cash belongs to, it does not move the GL again. So
+     * the sub-ledger follows the voucher, not the allocation.
+     *
+     * A receipt credits its counterparty (money in settles a receivable, or
+     * un-settles a payable when a supplier refunds); a payment debits it.
      */
-    const onAccount = { sales: 0n, purchase: 0n };
-    const voucherDocs = await vouchers.documents.list({ status: "confirmed" });
+    const voucherEffect = { receivable: 0n, payable: 0n };
+    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      const line = doc.lines[0];
+      if (!line || line.direction === "transfer") continue;
+      const credited = line.direction === "receipt";
+      if (line.counterpartyGlAccountId === "1105") {
+        voucherEffect.receivable += credited ? -line.amount.scaled : line.amount.scaled;
+      }
+      if (line.counterpartyGlAccountId === "2100") {
+        voucherEffect.payable += credited ? line.amount.scaled : -line.amount.scaled;
+      }
+    }
+
     /**
      * A cheque reclassifies a receivable/payable the moment it is written: an
      * incoming cheque credits AR into cheques-under-collection, an outgoing one
@@ -752,21 +761,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       if (cheque.counterpartyGlAccountId === "1105") chequeEffect.receivable += net;
       if (cheque.counterpartyGlAccountId === "2100") chequeEffect.payable += net;
     }
-    for (const doc of voucherDocs) {
-      const line = doc.lines[0];
-      if (!line) continue;
-      const def = getVoucherTypeDefinition(line.voucherType);
-      if (!def.allocatable || !def.allocationKind) continue;
-      const applied = await vouchers.allocations.listByVoucher(doc.id);
-      const unallocated = line.amount.scaled - sumActiveAllocations(applied).scaled;
-      if (unallocated > 0n) onAccount[def.allocationKind] += unallocated;
-    }
 
     let arScaled = 0n;
     for (const inv of invoices) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
       const totals = salesInvoiceTotals(inv);
-      arScaled += totals.grandTotal.scaled - allocatedOn(inv.id);
+      arScaled += totals.grandTotal.scaled;
     }
     for (const archive of salesArchives) {
       if (archive.settled) continue;
@@ -774,7 +774,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
     }
-    arScaled -= onAccount.sales;
+    arScaled += voucherEffect.receivable;
     arScaled += chequeEffect.receivable;
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
@@ -787,7 +787,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let apScaled = 0n;
     for (const inv of purchInvoices) {
       if (inv.status !== "confirmed") continue;
-      apScaled += purchaseInvoiceTotal(inv).scaled - allocatedOn(inv.id);
+      apScaled += purchaseInvoiceTotal(inv).scaled;
     }
     for (const archive of purchaseArchives) {
       if (archive.settled) continue;
@@ -795,7 +795,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         ? -archive.remainingBalance.scaled
         : archive.remainingBalance.scaled;
     }
-    apScaled -= onAccount.purchase;
+    apScaled += voucherEffect.payable;
     apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
@@ -884,6 +884,40 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       treasuryGlAccountId: from?.glAccountId ?? "1010",
       counterTreasuryAccountId: input.toTreasuryAccountId,
       counterTreasuryGlAccountId: to?.glAccountId ?? "1010",
+    });
+    await vanTripVoucherService.confirmVoucher(id);
+  }
+
+  /**
+   * Roadside takings, posted into the van's own treasury as a receipt voucher
+   * (D22). A sale is revenue; a collection is a customer advance until someone
+   * applies it to an invoice — crediting AR here instead would move GL 1105
+   * with no allocation behind it and break the AR reconciliation, because the
+   * movement carries no customer to allocate against.
+   */
+  async function recordVanCashTaking(input: {
+    tripId: string;
+    movementId: string;
+    kind: "sale" | "collection";
+    amount: Money;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+  }): Promise<void> {
+    if (input.amount.scaled <= 0n) return;
+    const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
+    const id = `VAN-CASH:${input.movementId}`;
+    await vanTripVoucherService.createVoucher({
+      id,
+      date: input.date,
+      memo: `${input.kind === "sale" ? "بيع" : "تحصيل"} ميداني — رحلة ${input.tripId}`,
+      voucherType: "other_income",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: "cash",
+      treasuryAccountId: input.vanTreasuryAccountId,
+      treasuryGlAccountId: van?.glAccountId ?? "1010",
+      counterpartyGlAccountId: input.kind === "sale" ? "4100" : "2160",
     });
     await vanTripVoucherService.confirmVoucher(id);
   }
@@ -1071,6 +1105,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       trips: vanTrips,
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
+      recordCashTaking: recordVanCashTaking,
     },
     manufacturing: {
       boms: manufacturing.boms,

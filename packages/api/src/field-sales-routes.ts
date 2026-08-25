@@ -11,6 +11,7 @@ import {
   VanTripNotOngoingError,
   SameWarehouseVanTripError,
   type VanTrip,
+  type VanTripCashMovementKind,
   type VanTripRepository,
   type StockLedgerService,
   type TreasuryTransferInput,
@@ -27,6 +28,22 @@ export interface FieldSalesRoutesDeps {
   readonly trips: VanTripRepository;
   readonly stock: Pick<StockLedgerService, "postTransfer">;
   readonly treasuryTransfer?: (input: TreasuryTransferInput) => Promise<void>;
+  /**
+   * Posts roadside takings INTO the van's treasury account. Without it the trip
+   * document was the only record of them, while settlement transferred the full
+   * counted cash — float plus those unposted takings — out of the van, so every
+   * completed trip drove the van's cash account down by exactly what it sold
+   * (D22).
+   */
+  readonly recordCashTaking?: (input: {
+    tripId: string;
+    movementId: string;
+    kind: VanTripCashMovementKind;
+    amount: Money;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+  }) => Promise<void>;
 }
 
 function serialize(trip: VanTrip) {
@@ -140,13 +157,28 @@ export function createFieldSalesRoutes(
     const trip = await deps.trips.findById(c.req.param("id"));
     if (!trip) return c.json({ error: "VAN_TRIP_NOT_FOUND" }, 404);
     try {
+      const movementId = randomUUID();
+      const amount = Money.fromMajor(body.amount);
       const updated = recordVanCashMovement(trip, {
-        id: randomUUID(),
+        id: movementId,
         kind: body.kind,
-        amount: Money.fromMajor(body.amount),
+        amount,
         occurredAt: body.occurredAt,
         notes: body.notes,
       });
+      // Post before persisting: a refused posting must leave no cash movement
+      // the ledger has never heard of.
+      if (deps.recordCashTaking) {
+        await deps.recordCashTaking({
+          tripId: trip.id,
+          movementId,
+          kind: body.kind,
+          amount,
+          date: body.occurredAt.slice(0, 10),
+          branchId: trip.branchId,
+          vanTreasuryAccountId: trip.vanTreasuryAccountId,
+        });
+      }
       await deps.trips.update(updated);
       return c.json(serialize(updated));
     } catch (err) {

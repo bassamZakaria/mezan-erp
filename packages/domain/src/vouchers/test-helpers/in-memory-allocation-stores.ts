@@ -41,9 +41,6 @@ export class InMemoryInvoiceRepository implements AllocatableInvoiceRepository {
   async save(invoice: AllocatableInvoice): Promise<void> {
     this.rows.set(invoice.id, invoice);
   }
-  async listAll(): Promise<readonly AllocatableInvoice[]> {
-    return [...this.rows.values()];
-  }
   async listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]> {
     return [...this.rows.values()].filter(
       (i) =>

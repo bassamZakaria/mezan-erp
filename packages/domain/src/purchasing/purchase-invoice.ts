@@ -383,6 +383,17 @@ export async function confirmPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
 
+  // The GL goes FIRST, and this ordering is load-bearing: there is no
+  // transaction around this confirm, so whatever runs before a refusal stays
+  // applied. Posting first means a closed period, an inactive account or an
+  // unbalanced entry leaves nothing behind; with the stock move first, a
+  // refused confirm left the inventory sub-ledger permanently ahead of GL 1200
+  // with no document to explain it (D21). The reverse risk does not exist here:
+  // a purchase invoice's movement is always a receipt IN, which no stock policy
+  // can refuse.
+  const posting = buildInvoicePosting(invoice, deps.accounts);
+  await deps.gl.post(posting);
+
   // Manual invoice (no prior receipt): the invoice IS the stock-in document.
   if (!invoice.receiptId) {
     const stockLines = invoice.lines
@@ -405,9 +416,6 @@ export async function confirmPurchaseInvoice(
       });
     }
   }
-
-  const posting = buildInvoicePosting(invoice, deps.accounts);
-  await deps.gl.post(posting);
 
   if (invoice.receiptId && deps.receipts) {
     await markGoodsReceiptInvoiced(invoice.receiptId, { receipts: deps.receipts });

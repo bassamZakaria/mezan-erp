@@ -380,14 +380,6 @@ class SqliteInvoiceRepository implements AllocatableInvoiceRepository {
     });
   }
 
-  async listAll(): Promise<readonly AllocatableInvoice[]> {
-    const rows = this.sqlite
-      .prepare(`SELECT * FROM open_invoice ORDER BY date`)
-      .safeIntegers()
-      .all() as InvoiceRow[];
-    return rows.map(toInvoice);
-  }
-
   async listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]> {
     const clauses: string[] = ["total > allocated"];
     const params: unknown[] = [];

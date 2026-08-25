@@ -4,6 +4,7 @@ import { validateBarcodeConfig, type BarcodeConfig, type EmbeddedBarcodeRule } f
 import type { BarcodeConfigDTO } from "@mezan/contracts";
 import { useBarcodeConfig, useUpdateBarcodeConfig, useParseBarcode } from "../data/barcode-config-hooks";
 import { NumberField, SelectField, TextField, ToggleField } from "./form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * إعدادات الباركود (Barcode configuration) — tenant-wide symbology, whether
@@ -23,14 +24,14 @@ const SYMBOLOGY_OPTIONS = [
   { value: "CODE39", label: "Code 39" },
 ];
 
-const MODE_OPTIONS = [
-  { value: "MANUAL", label: "إدخال يدوي" },
-  { value: "AUTO", label: "توليد تلقائي" },
+const MODE_OPTION_KEYS: { value: string; key: AppTranslationKey }[] = [
+  { value: "MANUAL", key: "barcode.enteredByHand" },
+  { value: "AUTO", key: "barcode.generatedAutomatically" },
 ];
 
-const VALUE_TYPE_OPTIONS = [
-  { value: "PRICE", label: "سعر" },
-  { value: "WEIGHT", label: "وزن" },
+const VALUE_TYPE_OPTION_KEYS: { value: string; key: AppTranslationKey }[] = [
+  { value: "PRICE", key: "barcode.price" },
+  { value: "WEIGHT", key: "barcode.weight" },
 ];
 
 function blankRule(): EmbeddedBarcodeRule {
@@ -58,40 +59,42 @@ function RuleCard({
   onChange: (next: EmbeddedBarcodeRule) => void;
   onRemove: () => void;
 }) {
+  const { t } = useAppTranslation();
   return (
     <Card className="flex flex-col gap-[12px] p-[16px_18px]">
       <div className="flex items-start justify-between gap-[10px]">
         <div className="flex-1">
-          <TextField label="اسم القاعدة" value={rule.nameAr} onChange={(v) => onChange({ ...rule, nameAr: v })} />
+          <TextField label={t("barcode.ruleName")} value={rule.nameAr} onChange={(v) => onChange({ ...rule, nameAr: v })} />
         </div>
         <div className="flex items-center gap-[8px] pt-[22px]">
-          <StatusPill label={rule.active ? "مفعّلة" : "معطّلة"} tone={rule.active ? "success" : "neutral"} />
-          <IconButton aria-label="حذف القاعدة" onClick={onRemove}>
+          <StatusPill label={rule.active ? t("barcode.enabled") : t("barcode.disabled")} tone={rule.active ? "success" : "neutral"} />
+          <IconButton aria-label={t("barcode.deleteTheRule")} onClick={onRemove}>
             ×
           </IconButton>
         </div>
       </div>
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-4">
-        <TextField label="البادئة" value={rule.prefix} onChange={(v) => onChange({ ...rule, prefix: v.replace(/\D/g, "") })} hint="أرقام فقط" />
-        <NumberField label="الطول الكلي" value={rule.totalLength} onChange={(v) => onChange({ ...rule, totalLength: v })} min={1} />
-        <NumberField label="بداية كود الصنف" value={rule.itemCodeStart} onChange={(v) => onChange({ ...rule, itemCodeStart: v })} min={0} />
-        <NumberField label="طول كود الصنف" value={rule.itemCodeLength} onChange={(v) => onChange({ ...rule, itemCodeLength: v })} min={1} />
-        <NumberField label="بداية القيمة" value={rule.valueStart} onChange={(v) => onChange({ ...rule, valueStart: v })} min={0} />
-        <NumberField label="طول القيمة" value={rule.valueLength} onChange={(v) => onChange({ ...rule, valueLength: v })} min={1} />
+        <TextField label={t("barcode.prefix")} value={rule.prefix} onChange={(v) => onChange({ ...rule, prefix: v.replace(/\D/g, "") })} hint={t("barcode.digitsOnly")} />
+        <NumberField label={t("barcode.totalLength")} value={rule.totalLength} onChange={(v) => onChange({ ...rule, totalLength: v })} min={1} />
+        <NumberField label={t("barcode.itemCodeStartsAt")} value={rule.itemCodeStart} onChange={(v) => onChange({ ...rule, itemCodeStart: v })} min={0} />
+        <NumberField label={t("barcode.itemCodeLength")} value={rule.itemCodeLength} onChange={(v) => onChange({ ...rule, itemCodeLength: v })} min={1} />
+        <NumberField label={t("barcode.valueStartsAt")} value={rule.valueStart} onChange={(v) => onChange({ ...rule, valueStart: v })} min={0} />
+        <NumberField label={t("barcode.valueLength")} value={rule.valueLength} onChange={(v) => onChange({ ...rule, valueLength: v })} min={1} />
         <SelectField
-          label="نوع القيمة"
+          label={t("barcode.valueType")}
           value={rule.valueType}
           onChange={(v) => onChange({ ...rule, valueType: v as EmbeddedBarcodeRule["valueType"] })}
-          options={VALUE_TYPE_OPTIONS}
+          options={VALUE_TYPE_OPTION_KEYS.map(({ value, key }) => ({ value, label: t(key) }))}
         />
-        <NumberField label="الخانات العشرية" value={rule.valueDecimals} onChange={(v) => onChange({ ...rule, valueDecimals: v })} min={0} />
+        <NumberField label={t("barcode.decimalPlaces")} value={rule.valueDecimals} onChange={(v) => onChange({ ...rule, valueDecimals: v })} min={0} />
       </div>
-      <ToggleField label="القاعدة مفعّلة" checked={rule.active} onChange={(v) => onChange({ ...rule, active: v })} />
+      <ToggleField label={t("barcode.theRuleIsEnabled")} checked={rule.active} onChange={(v) => onChange({ ...rule, active: v })} />
     </Card>
   );
 }
 
 export function BarcodeConfigPage() {
+  const { t } = useAppTranslation();
   const query = useBarcodeConfig();
   const updateMutation = useUpdateBarcodeConfig();
   const parseMutation = useParseBarcode();
@@ -131,7 +134,7 @@ export function BarcodeConfigPage() {
     if (!draft) return;
     const reasons = validateBarcodeConfig(draft as BarcodeConfig);
     if (reasons.length > 0) {
-      setError(reasons.join("، "));
+      setError(reasons.join(t("barcode.reasonSeparator")));
       return;
     }
     try {
@@ -140,7 +143,7 @@ export function BarcodeConfigPage() {
       setDirty(false);
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ إعدادات الباركود");
+      setError(err instanceof Error ? err.message : t("barcode.couldNotSaveTheBarcode"));
     }
   }
 
@@ -149,13 +152,13 @@ export function BarcodeConfigPage() {
       <Card className="p-[24px] text-center text-[13px] text-ink-muted">
         {query.isError ? (
           <>
-            <p className="font-semibold text-danger-ink">تعذّر تحميل إعدادات الباركود.</p>
+            <p className="font-semibold text-danger-ink">{t("barcode.couldNotLoadTheBarcode")}</p>
             <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-              إعادة المحاولة
+              {t("common.retry")}
             </Button>
           </>
         ) : (
-          "جارٍ التحميل…"
+          t("common.loading")
         )}
       </Card>
     );
@@ -165,44 +168,44 @@ export function BarcodeConfigPage() {
 
   return (
     <DocumentDetail
-      title="إعدادات الباركود"
-      subtitle="نوع الترميز، توليد باركود الصنف، وقواعد قراءة السعر أو الوزن المدمج داخل الباركود الممسوح"
+      title={t("barcode.barcodeSettings")}
+      subtitle={t("barcode.theSymbologyHowAnItem")}
       actions={
         <div className="flex items-center gap-[10px]">
           {error ? <span className="text-[12px] font-semibold text-danger-ink">{error}</span> : null}
           <Button variant="primary" onClick={handleSave} disabled={!dirty || updateMutation.isPending}>
-            {updateMutation.isPending ? "جارٍ الحفظ…" : "حفظ الإعدادات"}
+            {updateMutation.isPending ? t("barcode.saving") : t("barcode.saveTheSettings")}
           </Button>
         </div>
       }
       tabs={[
         {
           key: "general",
-          label: "الإعدادات العامة",
+          label: t("barcode.generalSettings"),
           content: (
             <Card className="flex flex-col gap-[16px] p-[18px_20px]">
               <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">
                 <SelectField
-                  label="نوع الترميز الافتراضي"
+                  label={t("barcode.defaultSymbology")}
                   value={draft.defaultSymbology}
                   onChange={(v) => patch({ defaultSymbology: v as BarcodeConfigDTO["defaultSymbology"] })}
                   options={SYMBOLOGY_OPTIONS}
                 />
                 <SelectField
-                  label="طريقة تحديد باركود الصنف"
+                  label={t("barcode.howAnItemSBarcode")}
                   value={draft.itemBarcodeMode}
                   onChange={(v) => patch({ itemBarcodeMode: v as BarcodeConfigDTO["itemBarcodeMode"] })}
-                  options={MODE_OPTIONS}
-                  hint="يدوي: يُدخل المستخدم الباركود. تلقائي: يُولَّد رقم تسلسلي عند إنشاء الصنف."
+                  options={MODE_OPTION_KEYS.map(({ value, key }) => ({ value, label: t(key) }))}
+                  hint={t("barcode.byHandTheUserTypes")}
                 />
               </div>
               {draft.itemBarcodeMode === "AUTO" ? (
                 <div className="max-w-[240px]">
                   <TextField
-                    label="بادئة الترقيم التلقائي"
+                    label={t("barcode.automaticNumberingPrefix")}
                     value={draft.autoGeneratePrefix ?? ""}
                     onChange={(v) => patch({ autoGeneratePrefix: v.replace(/\D/g, "") || null })}
-                    hint="أرقام فقط، اختياري"
+                    hint={t("barcode.digitsOnlyOptional")}
                   />
                 </div>
               ) : null}
@@ -211,43 +214,43 @@ export function BarcodeConfigPage() {
         },
         {
           key: "embedded",
-          label: "قواعد الباركود المدمج",
+          label: t("barcode.embeddedBarcodeRules"),
           content: (
             <div className="flex flex-col gap-[16px]">
               <Card className="flex flex-col gap-[10px] p-[16px_18px]">
-                <h3 className="font-display text-[13.5px] font-bold text-ink">اختبار مسح باركود</h3>
+                <h3 className="font-display text-[13.5px] font-bold text-ink">{t("barcode.testAScan")}</h3>
                 <p className="text-[12px] text-ink-muted">
-                  جرّب كود ممسوحًا ضوئيًا مقابل القواعد المحفوظة حاليًا (احفظ التغييرات أولًا لتظهر في نتيجة الاختبار).
+                  {t("barcode.tryAScannedCodeAgainst")}
                 </p>
                 <div className="flex flex-wrap items-end gap-[10px]">
                   <div className="max-w-[260px]">
-                    <TextField label="الكود الممسوح" value={testCode} onChange={setTestCode} />
+                    <TextField label={t("barcode.scannedCode")} value={testCode} onChange={setTestCode} />
                   </div>
                   <Button onClick={() => parseMutation.mutate(testCode)} disabled={testCode.trim() === "" || parseMutation.isPending}>
-                    اختبار
+                    {t("barcode.test")}
                   </Button>
                   {parseResult ? (
                     parseResult.matched ? (
                       <StatusPill
                         tone="success"
-                        label={`تطابق: كود الصنف ${parseResult.itemCode} — ${parseResult.valueType === "PRICE" ? "سعر" : "وزن"} ${parseResult.value}`}
+                        label={`تطابق: كود الصنف ${parseResult.itemCode} — ${parseResult.valueType === "PRICE" ? t("barcode.price") : t("barcode.weight")} ${parseResult.value}`}
                       />
                     ) : (
-                      <StatusPill tone="neutral" label="لا يوجد تطابق مع أي قاعدة" />
+                      <StatusPill tone="neutral" label={t("barcode.noRuleMatches")} />
                     )
                   ) : null}
                 </div>
               </Card>
 
               <div className="flex items-center justify-between">
-                <h3 className="font-display text-[14px] font-bold text-ink">القواعد ({draft.embeddedRules.length})</h3>
+                <h3 className="font-display text-[14px] font-bold text-ink">{t("barcode.rulesCount", { count: String(draft.embeddedRules.length) })}</h3>
                 <Button size="sm" onClick={addRule}>
-                  إضافة قاعدة
+                  {t("barcode.addARule")}
                 </Button>
               </div>
               {draft.embeddedRules.length === 0 ? (
                 <Card className="p-[18px] text-center text-[12.5px] text-ink-muted">
-                  لا توجد قواعد باركود مدمج بعد. أضف قاعدة لقراءة سعر أو وزن مدمج داخل الباركود الممسوح.
+                  {t("barcode.noEmbeddedBarcodeRulesYet")}
                 </Card>
               ) : (
                 <div className="flex flex-col gap-[14px]">

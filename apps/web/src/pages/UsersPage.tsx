@@ -13,6 +13,7 @@ import {
 } from "@mezan/ui";
 import { ALL_SCOPE, type ScopeSelection } from "@mezan/domain";
 import type { RoleDTO, ScopeSelectionDTO, UserDTO, UserStatusDTO } from "@mezan/contracts";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 export interface StoreResult<T> {
   ok: boolean;
@@ -44,7 +45,7 @@ export interface UserFormDraft {
   status: UserStatusDTO;
 }
 
-const STATUS_LABEL: Record<UserStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<UserStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
 const STATUS_TONE: Record<UserStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
 function emptyDraft(): UserFormDraft {
@@ -84,6 +85,7 @@ function userToDraft(user: UserDTO, allBranchIds: string[], allWarehouseIds: str
 }
 
 export function UsersPage({ users, roles, branches, warehouses, employees, onSave, onToggleStatus }: UsersPageProps) {
+  const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useState<UserStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const [panelOpen, setPanelOpen] = useState(false);
@@ -125,11 +127,11 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   async function handleSave() {
     setFormError(null);
     if (draft.fullName.trim() === "") {
-      setFormError("الاسم الكامل مطلوب.");
+      setFormError(t("users.theFullNameIsRequired"));
       return;
     }
     if (draft.email.trim() === "") {
-      setFormError("البريد الإلكتروني مطلوب.");
+      setFormError(t("users.theEmailAddressIsRequired"));
       return;
     }
     setSaving(true);
@@ -138,7 +140,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     if (result.ok) {
       setPanelOpen(false);
     } else {
-      setFormError(result.error ?? "تعذر حفظ المستخدم");
+      setFormError(result.error ?? t("users.couldNotSaveTheUser"));
     }
   }
 
@@ -148,7 +150,7 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   const columns: DocumentListColumn<UserDTO>[] = [
     {
       key: "fullName",
-      header: "الاسم الكامل",
+      header: t("users.fullName"),
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-[10px]">
@@ -164,34 +166,34 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
     },
     {
       key: "role",
-      header: "الدور",
+      header: t("users.role"),
       render: (row) => (
         <StatusPill
-          label={row.isCompanyAdmin ? "مدير المنشأة" : (roleById.get(row.roleId ?? "")?.name ?? "—")}
+          label={row.isCompanyAdmin ? t("users.companyAdministrator") : (roleById.get(row.roleId ?? "")?.name ?? "—")}
           tone={row.isCompanyAdmin ? "info" : "neutral"}
         />
       ),
     },
     {
       key: "branches",
-      header: "الفروع المتاحة",
+      header: t("users.branchesAvailable"),
       render: (row) =>
         row.branchScope === ALL_SCOPE
-          ? "كل الفروع"
+          ? t("users.allBranches")
           : branches
               .filter((b) => (row.branchScope as string[]).includes(b.id))
               .map((b) => b.name)
-              .join("، ") || "—",
+              .join(t("users.text")) || "—",
     },
     {
       key: "lastLogin",
-      header: "آخر دخول",
-      render: (row) => (row.lastLoginAt ? row.lastLoginAt.slice(0, 10).split("-").reverse().join("/") : "لم يسجل بعد"),
+      header: t("users.lastSignedIn"),
+      render: (row) => (row.lastLoginAt ? row.lastLoginAt.slice(0, 10).split("-").reverse().join("/") : t("users.never")),
     },
     {
       key: "status",
-      header: "الحالة",
-      render: (row) => <StatusPill label={STATUS_LABEL[row.status]} tone={STATUS_TONE[row.status]} />,
+      header: t("common.status"),
+      render: (row) => <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />,
     },
     {
       key: "actions",
@@ -206,52 +208,52 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             void onToggleStatus(row.id, row.status === "active" ? "inactive" : "active");
           }}
         >
-          {row.status === "active" ? "تعطيل" : "تفعيل"}
+          {row.status === "active" ? t("users.disable") : t("users.enable")}
         </Button>
       ),
     },
   ];
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: users.length },
-    { key: "active", label: "نشط", count: users.filter((u) => u.status === "active").length },
-    { key: "inactive", label: "غير نشط", count: users.filter((u) => u.status === "inactive").length },
+    { key: "all", label: t("common.all"), count: users.length },
+    { key: "active", label: t("common.active"), count: users.filter((u) => u.status === "active").length },
+    { key: "inactive", label: t("common.inactive"), count: users.filter((u) => u.status === "inactive").length },
   ];
 
   return (
     <>
       <DocumentList<UserDTO>
         eyebrow="Settings · Users"
-        title="المستخدمون"
-        description="إدارة حسابات المستخدمين وأدوارهم ونطاق الفروع/المستودعات المتاحة لهم."
-        actions={<Button variant="primary" onClick={openCreate}>إضافة مستخدم</Button>}
+        title={t("users.users")}
+        description={t("users.manageTheUserAccountsTheir")}
+        actions={<Button variant="primary" onClick={openCreate}>{t("users.addAUser")}</Button>}
         stats={[
-          { label: "إجمالي المستخدمين", value: <span className="mz-num">{users.length}</span> },
-          { label: "مستخدمون نشطون", value: <span className="mz-num">{users.filter((u) => u.status === "active").length}</span> },
-          { label: "الأدوار المستخدمة", value: <span className="mz-num">{rolesInUse}</span> },
-          { label: "غير نشط", value: <span className="mz-num">{users.filter((u) => u.status === "inactive").length}</span>, valueTone: "danger" },
+          { label: t("users.totalUsers"), value: <span className="mz-num">{users.length}</span> },
+          { label: t("users.activeUsers"), value: <span className="mz-num">{users.filter((u) => u.status === "active").length}</span> },
+          { label: t("users.rolesInUse"), value: <span className="mz-num">{rolesInUse}</span> },
+          { label: t("common.inactive"), value: <span className="mz-num">{users.filter((u) => u.status === "inactive").length}</span>, valueTone: "danger" },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as UserStatusDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالاسم أو البريد الإلكتروني…"
+        searchPlaceholder={t("users.searchByNameOrEmail")}
         columns={columns}
         rows={filtered}
         rowKey={(row) => row.id}
         onRowClick={openEdit}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{users.length}</span> مستخدم</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا يوجد مستخدمون مطابقون</div>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{users.length}</span> {t("users.user")}</>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("users.noMatchingUsers")}</div>}
       />
 
       <SidePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        title={editingId ? "تعديل مستخدم" : "إضافة مستخدم"}
-        description="معلومات الحساب، الدور والصلاحيات، ونطاق الفروع والمستودعات."
+        title={editingId ? t("users.editAUser") : t("users.addAUser")}
+        description={t("users.theAccountDetailsTheRole")}
       >
         <div className="flex flex-col gap-[18px]">
           {formError ? (
@@ -260,20 +262,20 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
             </div>
           ) : null}
 
-          <FormSection title="معلومات الحساب">
-            <TextField label="الاسم الكامل *" value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} />
-            <TextField label="البريد الإلكتروني *" type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-            <TextField label="الهاتف" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="+20 1xx xxx xxxx" />
+          <FormSection title={t("users.accountDetails")}>
+            <TextField label={t("users.fullName2")} value={draft.fullName} onChange={(v) => setDraft((d) => ({ ...d, fullName: v }))} />
+            <TextField label={t("users.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+            <TextField label={t("common.phone")} value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="+20 1xx xxx xxxx" />
             <TextField
-              label={editingId ? "كلمة مرور جديدة (اتركها فارغة للإبقاء على الحالية)" : "كلمة مرور مؤقتة * (٨ أحرف على الأقل)"}
+              label={editingId ? t("users.newPasswordLeaveEmptyTo") : t("users.temporaryPasswordAtLeast8")}
               type="password"
               value={draft.password}
               onChange={(v) => setDraft((d) => ({ ...d, password: v }))}
             />
-            <TextField label="رمز PIN (اختياري، ٤-٦ أرقام)" value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="1234" />
+            <TextField label={t("users.pinOptional46Digits")} value={draft.pin} onChange={(v) => setDraft((d) => ({ ...d, pin: v }))} placeholder="1234" />
           </FormSection>
 
-          <FormSection title="الدور والصلاحيات">
+          <FormSection title={t("users.roleAndRights")}>
             <label className="flex items-center gap-[9px] rounded-md border border-border bg-surface px-[12px] py-[10px]">
               <input
                 type="checkbox"
@@ -282,37 +284,37 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
                 className="h-[15px] w-[15px] accent-brand"
               />
               <span>
-                <span className="block text-[12.5px] font-semibold text-ink">صلاحيات مدير المنشأة</span>
-                <span className="block text-[11px] text-ink-faint">صلاحيات كاملة لجميع الفروع والمستودعات والإعدادات</span>
+                <span className="block text-[12.5px] font-semibold text-ink">{t("users.companyAdministratorRights")}</span>
+                <span className="block text-[11px] text-ink-faint">{t("users.fullRightsOverEveryBranch")}</span>
               </span>
             </label>
             {!draft.isCompanyAdmin ? (
               <EntityPicker
-                label="الدور *"
+                label={t("users.role2")}
                 value={roleOptions.find((o) => o.id === draft.roleId) ?? null}
                 onChange={(o) => setDraft((d) => ({ ...d, roleId: o?.id ?? null }))}
                 options={roleOptions}
-                placeholder="اختر دورًا…"
+                placeholder={t("users.chooseARole")}
               />
             ) : null}
             <EntityPicker
-              label="الموظف المرتبط (اختياري)"
+              label={t("users.linkedEmployeeOptional")}
               value={employeeOptions.find((o) => o.id === draft.employeeId) ?? null}
               onChange={(o) => setDraft((d) => ({ ...d, employeeId: o?.id ?? null }))}
               options={employeeOptions}
-              placeholder="ربط بسجل موظف…"
+              placeholder={t("users.linkToAnEmployeeRecord")}
             />
           </FormSection>
 
-          <FormSection title="الفروع والمستودعات">
+          <FormSection title={t("users.branchesAndWarehouses")}>
             <CheckboxGroup
-              label="الفروع المتاحة *"
+              label={t("users.branchesAvailable2")}
               options={branches}
               selected={draft.branchIds}
               onChange={(ids) => setDraft((d) => ({ ...d, branchIds: ids }))}
             />
             <CheckboxGroup
-              label="المستودعات المتاحة"
+              label={t("users.warehousesAvailable")}
               options={warehouses}
               selected={draft.warehouseIds}
               onChange={(ids) => setDraft((d) => ({ ...d, warehouseIds: ids }))}
@@ -320,9 +322,9 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           </FormSection>
 
           <div className="flex justify-end gap-[9px] border-t border-border pt-[14px]">
-            <Button variant="ghost" onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button variant="ghost" onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
             <Button variant="primary" disabled={saving} onClick={() => void handleSave()}>
-              {saving ? "جارٍ الحفظ…" : "حفظ المستخدم"}
+              {saving ? t("users.saving") : t("users.saveTheUser")}
             </Button>
           </div>
         </div>

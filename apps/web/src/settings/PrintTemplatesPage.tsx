@@ -4,6 +4,7 @@ import { amountInWords, EGP_WORDS } from "@mezan/domain";
 import type { PrintTemplateConfigDTO, PrintTemplateOverrideDTO } from "@mezan/contracts";
 import { usePrintTemplateConfig, useSavePrintTemplateConfig } from "../data/hooks";
 import { TextField, NumberField, SelectField, ToggleField, SectionCard, Field } from "./form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * قوالب الطباعة (Print templates) — docs/catalog/09 §"قوالب الطباعة": the
@@ -13,43 +14,43 @@ import { TextField, NumberField, SelectField, ToggleField, SectionCard, Field } 
  * renderer every real document print reuses).
  */
 
-const DOCUMENT_TYPE_OPTIONS = [
-  { value: "SALES_INVOICE", label: "فاتورة مبيعات" },
-  { value: "SALES_RETURN", label: "مرتجع مبيعات" },
-  { value: "SALES_QUOTE", label: "عرض سعر" },
-  { value: "PURCHASE_INVOICE", label: "فاتورة مشتريات" },
-  { value: "PURCHASE_RETURN", label: "مرتجع مشتريات" },
-  { value: "PURCHASE_ORDER", label: "أمر شراء" },
-  { value: "GOODS_RECEIPT", label: "استلام بضاعة" },
-  { value: "CASH_VOUCHER", label: "سند نقدي" },
-  { value: "PAYMENT_RECEIPT", label: "سند تحصيل" },
+const DOCUMENT_TYPE_OPTIONS: { value: string; key: AppTranslationKey }[] = [
+  { value: "SALES_INVOICE", key: "printTemplates.salesInvoice" },
+  { value: "SALES_RETURN", key: "printTemplates.salesReturn" },
+  { value: "SALES_QUOTE", key: "printTemplates.quotation" },
+  { value: "PURCHASE_INVOICE", key: "printTemplates.purchaseInvoice" },
+  { value: "PURCHASE_RETURN", key: "printTemplates.purchaseReturn" },
+  { value: "PURCHASE_ORDER", key: "printTemplates.purchaseOrder" },
+  { value: "GOODS_RECEIPT", key: "printTemplates.goodsReceipt" },
+  { value: "CASH_VOUCHER", key: "printTemplates.cashVoucher" },
+  { value: "PAYMENT_RECEIPT", key: "printTemplates.collectionVoucher" },
 ];
 
 const TRI_STATE_FIELDS: {
   section: "header" | "content" | "columns" | "totals";
   key: string;
-  label: string;
+  labelKey: AppTranslationKey;
 }[] = [
-  { section: "header", key: "showAddress", label: "العنوان" },
-  { section: "header", key: "showPhone", label: "الهاتف" },
-  { section: "header", key: "showEmail", label: "البريد الإلكتروني" },
-  { section: "header", key: "showTaxNumber", label: "الرقم الضريبي" },
-  { section: "header", key: "showCommercialRegister", label: "السجل التجاري" },
-  { section: "content", key: "showBranchName", label: "اسم الفرع" },
-  { section: "content", key: "showWarehouseName", label: "اسم المستودع" },
-  { section: "content", key: "showPartyTaxNumber", label: "الرقم الضريبي للعميل/المورد" },
-  { section: "content", key: "showPaymentTerms", label: "شروط الدفع" },
-  { section: "content", key: "showNotes", label: "الملاحظات" },
-  { section: "columns", key: "showItemCode", label: "كود الصنف" },
-  { section: "columns", key: "showUnit", label: "الوحدة" },
-  { section: "columns", key: "showDescription", label: "الوصف" },
-  { section: "columns", key: "showLineDiscount", label: "خصم السطر" },
-  { section: "columns", key: "showLineTaxPercent", label: "نسبة ضريبة السطر" },
-  { section: "columns", key: "showLineTaxAmount", label: "مبلغ ضريبة السطر" },
-  { section: "totals", key: "showSubtotal", label: "المجموع الفرعي" },
-  { section: "totals", key: "showTotalDiscount", label: "إجمالي الخصم" },
-  { section: "totals", key: "showTaxBreakdown", label: "تفاصيل الضريبة" },
-  { section: "totals", key: "showAmountInWords", label: "المبلغ بالحروف" },
+  { section: "header", key: "showAddress", labelKey: "printTemplates.address" },
+  { section: "header", key: "showPhone", labelKey: "common.phone" },
+  { section: "header", key: "showEmail", labelKey: "common.email" },
+  { section: "header", key: "showTaxNumber", labelKey: "common.taxNumber" },
+  { section: "header", key: "showCommercialRegister", labelKey: "printTemplates.commercialRegistration" },
+  { section: "content", key: "showBranchName", labelKey: "printTemplates.branchName" },
+  { section: "content", key: "showWarehouseName", labelKey: "printTemplates.warehouseName" },
+  { section: "content", key: "showPartyTaxNumber", labelKey: "printTemplates.customerSupplierTaxNumber" },
+  { section: "content", key: "showPaymentTerms", labelKey: "printTemplates.paymentTerms" },
+  { section: "content", key: "showNotes", labelKey: "common.notes" },
+  { section: "columns", key: "showItemCode", labelKey: "printTemplates.itemCode" },
+  { section: "columns", key: "showUnit", labelKey: "common.unit" },
+  { section: "columns", key: "showDescription", labelKey: "printTemplates.description" },
+  { section: "columns", key: "showLineDiscount", labelKey: "printTemplates.lineDiscount" },
+  { section: "columns", key: "showLineTaxPercent", labelKey: "printTemplates.lineTaxRate" },
+  { section: "columns", key: "showLineTaxAmount", labelKey: "printTemplates.lineTaxAmount" },
+  { section: "totals", key: "showSubtotal", labelKey: "printTemplates.subtotal" },
+  { section: "totals", key: "showTotalDiscount", labelKey: "printTemplates.totalDiscount" },
+  { section: "totals", key: "showTaxBreakdown", labelKey: "printTemplates.taxBreakdown" },
+  { section: "totals", key: "showAmountInWords", labelKey: "printTemplates.amountInWords" },
 ];
 
 function TriStateField({
@@ -61,15 +62,16 @@ function TriStateField({
   value: boolean | undefined;
   onChange: (value: boolean | undefined) => void;
 }) {
+  const { t } = useAppTranslation();
   return (
     <SelectField
       label={label}
       value={value === undefined ? "inherit" : value ? "on" : "off"}
       onChange={(v) => onChange(v === "inherit" ? undefined : v === "on")}
       options={[
-        { value: "inherit", label: "افتراضي (بدون تخصيص)" },
-        { value: "on", label: "إظهار" },
-        { value: "off", label: "إخفاء" },
+        { value: "inherit", label: t("printTemplates.defaultNoOverride") },
+        { value: "on", label: t("printTemplates.show") },
+        { value: "off", label: t("printTemplates.hide") },
       ]}
     />
   );
@@ -82,6 +84,7 @@ function signatureLabelList(count: number, labels: readonly string[]): string[] 
 }
 
 export function PrintTemplatesPage() {
+  const { t } = useAppTranslation();
   const query = usePrintTemplateConfig();
   const save = useSavePrintTemplateConfig();
   const [draft, setDraft] = useState<PrintTemplateConfigDTO | null>(null);
@@ -116,32 +119,32 @@ export function PrintTemplatesPage() {
   }
 
   if (query.isLoading) {
-    return <p className="text-[13px] text-ink-muted">جارِ تحميل قالب الطباعة…</p>;
+    return <p className="text-[13px] text-ink-muted">{t("printTemplates.loadingThePrintTemplate")}</p>;
   }
   if (query.isError) {
-    return <StatusPill label="تعذّر تحميل قالب الطباعة." tone="danger" />;
+    return <StatusPill label={t("printTemplates.couldNotLoadThePrint")} tone="danger" />;
   }
 
   return (
     <DocumentDetail
-      title="قوالب الطباعة"
-      subtitle="تصميم قالب الطباعة الافتراضي للمنشأة — يستخدمه محرك الطباعة الموحّد لكل أنواع المستندات."
-      statusLabel={dirty ? "تغييرات غير محفوظة" : undefined}
+      title={t("printTemplates.printTemplates")}
+      subtitle={t("printTemplates.designTheCompanySDefault")}
+      statusLabel={dirty ? t("printTemplates.unsavedChanges") : undefined}
       statusTone={dirty ? "warning" : "neutral"}
       actions={
         <>
-          {save.isError ? <StatusPill label="تعذر حفظ القالب" tone="danger" /> : null}
+          {save.isError ? <StatusPill label={t("printTemplates.couldNotSaveTheTemplate")} tone="danger" /> : null}
           <Button variant="default" disabled={!dirty || save.isPending} onClick={() => setDraft(null)}>
-            تراجع
+            {t("printTemplates.discard")}
           </Button>
           <Button variant="primary" disabled={!dirty || save.isPending} onClick={handleSave}>
-            {save.isPending ? "جارِ الحفظ…" : "حفظ القالب"}
+            {save.isPending ? t("printTemplates.saving") : t("printTemplates.saveTheTemplate")}
           </Button>
         </>
       }
       aside={
         <div className="flex flex-col gap-[8px]">
-          <h3 className="text-[12.5px] font-semibold text-ink">معاينة حية</h3>
+          <h3 className="text-[12.5px] font-semibold text-ink">{t("printTemplates.livePreview")}</h3>
           <div className="max-h-[720px] overflow-auto rounded-lg border border-border">
             <PrintView config={config} document={previewDocument} showToolbar={false} className="origin-top-left scale-[0.62]" />
           </div>
@@ -150,31 +153,31 @@ export function PrintTemplatesPage() {
       tabs={[
         {
           key: "identity",
-          label: "الهوية",
+          label: t("printTemplates.identity"),
           content: (
-            <SectionCard title="الشعار والهوية البصرية">
-              <TextField label="رابط الشعار" value={config.identity.logoUrl ?? ""} onChange={(v) => patchSection("identity", { logoUrl: v || undefined })} placeholder="https://…/logo.png" />
+            <SectionCard title={t("printTemplates.logoAndVisualIdentity")}>
+              <TextField label={t("printTemplates.logoUrl")} value={config.identity.logoUrl ?? ""} onChange={(v) => patchSection("identity", { logoUrl: v || undefined })} placeholder="https://…/logo.png" />
               <SelectField
-                label="موضع الشعار"
+                label={t("printTemplates.logoPosition")}
                 value={config.identity.logoPosition}
                 onChange={(v) => patchSection("identity", { logoPosition: v as PrintTemplateConfigDTO["identity"]["logoPosition"] })}
                 options={[
-                  { value: "start", label: "البداية" },
-                  { value: "end", label: "النهاية" },
-                  { value: "center", label: "الوسط" },
+                  { value: "start", label: t("printTemplates.start") },
+                  { value: "end", label: t("printTemplates.end") },
+                  { value: "center", label: t("printTemplates.centre") },
                 ]}
               />
               <SelectField
-                label="حجم الشعار"
+                label={t("printTemplates.logoSize")}
                 value={config.identity.logoSize}
                 onChange={(v) => patchSection("identity", { logoSize: v as PrintTemplateConfigDTO["identity"]["logoSize"] })}
                 options={[
-                  { value: "small", label: "صغير" },
-                  { value: "medium", label: "متوسط" },
-                  { value: "large", label: "كبير" },
+                  { value: "small", label: t("printTemplates.small") },
+                  { value: "medium", label: t("printTemplates.medium") },
+                  { value: "large", label: t("printTemplates.large") },
                 ]}
               />
-              <Field label="اللون الأساسي" hint="لون عنوان المستند والحدود والفواصل">
+              <Field label={t("printTemplates.primaryColour")} hint={t("printTemplates.theColourOfTheDocument")}>
                 <div className="flex items-center gap-[8px]">
                   <input
                     type="color"
@@ -190,9 +193,9 @@ export function PrintTemplatesPage() {
                   />
                 </div>
               </Field>
-              <TextField label="الوصف الفرعي (Tagline)" value={config.identity.subtitle ?? ""} onChange={(v) => patchSection("identity", { subtitle: v || undefined })} placeholder="خدمات محاسبية ومالية متكاملة" />
+              <TextField label={t("printTemplates.tagline")} value={config.identity.subtitle ?? ""} onChange={(v) => patchSection("identity", { subtitle: v || undefined })} placeholder={t("printTemplates.fullAccountingAndFinanceServices")} />
               <SelectField
-                label="مقاس الصفحة"
+                label={t("printTemplates.pageSize")}
                 value={config.pageSize}
                 onChange={(v) => patch({ pageSize: v as PrintTemplateConfigDTO["pageSize"] })}
                 options={[
@@ -205,70 +208,70 @@ export function PrintTemplatesPage() {
         },
         {
           key: "header",
-          label: "الترويسة",
+          label: t("printTemplates.header"),
           content: (
-            <SectionCard title="بيانات المنشأة الظاهرة في الترويسة">
-              <ToggleField label="العنوان" checked={config.header.showAddress} onChange={(v) => patchSection("header", { showAddress: v })} />
-              <ToggleField label="الهاتف" checked={config.header.showPhone} onChange={(v) => patchSection("header", { showPhone: v })} />
-              <ToggleField label="البريد الإلكتروني" checked={config.header.showEmail} onChange={(v) => patchSection("header", { showEmail: v })} />
-              <ToggleField label="الرقم الضريبي" checked={config.header.showTaxNumber} onChange={(v) => patchSection("header", { showTaxNumber: v })} />
-              <ToggleField label="السجل التجاري" checked={config.header.showCommercialRegister} onChange={(v) => patchSection("header", { showCommercialRegister: v })} />
+            <SectionCard title={t("printTemplates.theCompanyDetailsShownIn")}>
+              <ToggleField label={t("printTemplates.address")} checked={config.header.showAddress} onChange={(v) => patchSection("header", { showAddress: v })} />
+              <ToggleField label={t("common.phone")} checked={config.header.showPhone} onChange={(v) => patchSection("header", { showPhone: v })} />
+              <ToggleField label={t("common.email")} checked={config.header.showEmail} onChange={(v) => patchSection("header", { showEmail: v })} />
+              <ToggleField label={t("common.taxNumber")} checked={config.header.showTaxNumber} onChange={(v) => patchSection("header", { showTaxNumber: v })} />
+              <ToggleField label={t("printTemplates.commercialRegistration")} checked={config.header.showCommercialRegister} onChange={(v) => patchSection("header", { showCommercialRegister: v })} />
             </SectionCard>
           ),
         },
         {
           key: "content",
-          label: "المحتوى",
+          label: t("printTemplates.content"),
           content: (
-            <SectionCard title="حقول محتوى المستند">
-              <ToggleField label="اسم الفرع" checked={config.content.showBranchName} onChange={(v) => patchSection("content", { showBranchName: v })} />
-              <ToggleField label="اسم المستودع" checked={config.content.showWarehouseName} onChange={(v) => patchSection("content", { showWarehouseName: v })} />
-              <ToggleField label="الرقم الضريبي للعميل/المورد" checked={config.content.showPartyTaxNumber} onChange={(v) => patchSection("content", { showPartyTaxNumber: v })} />
-              <ToggleField label="شروط الدفع" checked={config.content.showPaymentTerms} onChange={(v) => patchSection("content", { showPaymentTerms: v })} />
-              <ToggleField label="الملاحظات" checked={config.content.showNotes} onChange={(v) => patchSection("content", { showNotes: v })} />
+            <SectionCard title={t("printTemplates.documentContentFields")}>
+              <ToggleField label={t("printTemplates.branchName")} checked={config.content.showBranchName} onChange={(v) => patchSection("content", { showBranchName: v })} />
+              <ToggleField label={t("printTemplates.warehouseName")} checked={config.content.showWarehouseName} onChange={(v) => patchSection("content", { showWarehouseName: v })} />
+              <ToggleField label={t("printTemplates.customerSupplierTaxNumber")} checked={config.content.showPartyTaxNumber} onChange={(v) => patchSection("content", { showPartyTaxNumber: v })} />
+              <ToggleField label={t("printTemplates.paymentTerms")} checked={config.content.showPaymentTerms} onChange={(v) => patchSection("content", { showPaymentTerms: v })} />
+              <ToggleField label={t("common.notes")} checked={config.content.showNotes} onChange={(v) => patchSection("content", { showNotes: v })} />
             </SectionCard>
           ),
         },
         {
           key: "columns",
-          label: "أعمدة الأصناف",
+          label: t("printTemplates.itemColumns"),
           content: (
-            <SectionCard title="أعمدة جدول الأصناف">
-              <ToggleField label="كود الصنف" checked={config.columns.showItemCode} onChange={(v) => patchSection("columns", { showItemCode: v })} />
-              <ToggleField label="الوحدة" checked={config.columns.showUnit} onChange={(v) => patchSection("columns", { showUnit: v })} />
-              <ToggleField label="الوصف" checked={config.columns.showDescription} onChange={(v) => patchSection("columns", { showDescription: v })} />
-              <ToggleField label="خصم السطر" checked={config.columns.showLineDiscount} onChange={(v) => patchSection("columns", { showLineDiscount: v })} />
-              <ToggleField label="نسبة ضريبة السطر" checked={config.columns.showLineTaxPercent} onChange={(v) => patchSection("columns", { showLineTaxPercent: v })} />
-              <ToggleField label="مبلغ ضريبة السطر" checked={config.columns.showLineTaxAmount} onChange={(v) => patchSection("columns", { showLineTaxAmount: v })} />
+            <SectionCard title={t("printTemplates.theColumnsOfTheItem")}>
+              <ToggleField label={t("printTemplates.itemCode")} checked={config.columns.showItemCode} onChange={(v) => patchSection("columns", { showItemCode: v })} />
+              <ToggleField label={t("common.unit")} checked={config.columns.showUnit} onChange={(v) => patchSection("columns", { showUnit: v })} />
+              <ToggleField label={t("printTemplates.description")} checked={config.columns.showDescription} onChange={(v) => patchSection("columns", { showDescription: v })} />
+              <ToggleField label={t("printTemplates.lineDiscount")} checked={config.columns.showLineDiscount} onChange={(v) => patchSection("columns", { showLineDiscount: v })} />
+              <ToggleField label={t("printTemplates.lineTaxRate")} checked={config.columns.showLineTaxPercent} onChange={(v) => patchSection("columns", { showLineTaxPercent: v })} />
+              <ToggleField label={t("printTemplates.lineTaxAmount")} checked={config.columns.showLineTaxAmount} onChange={(v) => patchSection("columns", { showLineTaxAmount: v })} />
             </SectionCard>
           ),
         },
         {
           key: "totals",
-          label: "الإجماليات",
+          label: t("printTemplates.totals"),
           content: (
-            <SectionCard title="عرض الإجماليات والمبلغ بالحروف">
-              <ToggleField label="المجموع الفرعي" checked={config.totals.showSubtotal} onChange={(v) => patchSection("totals", { showSubtotal: v })} />
-              <ToggleField label="إجمالي الخصم" checked={config.totals.showTotalDiscount} onChange={(v) => patchSection("totals", { showTotalDiscount: v })} />
-              <ToggleField label="تفاصيل الضريبة" checked={config.totals.showTaxBreakdown} onChange={(v) => patchSection("totals", { showTaxBreakdown: v })} />
+            <SectionCard title={t("printTemplates.showingTheTotalsAndThe")}>
+              <ToggleField label={t("printTemplates.subtotal")} checked={config.totals.showSubtotal} onChange={(v) => patchSection("totals", { showSubtotal: v })} />
+              <ToggleField label={t("printTemplates.totalDiscount")} checked={config.totals.showTotalDiscount} onChange={(v) => patchSection("totals", { showTotalDiscount: v })} />
+              <ToggleField label={t("printTemplates.taxBreakdown")} checked={config.totals.showTaxBreakdown} onChange={(v) => patchSection("totals", { showTaxBreakdown: v })} />
               <ToggleField
-                label="كتابة المبلغ بالحروف"
+                label={t("printTemplates.writeTheAmountInWords")}
                 checked={config.totals.showAmountInWords}
                 onChange={(v) => patchSection("totals", { showAmountInWords: v })}
-                hint="يُحسب تلقائيًا من إجمالي المستند عبر محرك تحويل الأرقام إلى حروف عربية"
+                hint={t("printTemplates.derivedFromTheDocumentTotal")}
               />
             </SectionCard>
           ),
         },
         {
           key: "footer",
-          label: "التذييل",
+          label: t("printTemplates.footer"),
           content: (
-            <SectionCard title="نص التذييل والتوقيعات">
-              <TextField label="نص التذييل" value={config.footer.text ?? ""} onChange={(v) => patchSection("footer", { text: v || undefined })} />
-              <ToggleField label="إظهار التوقيعات" checked={config.footer.showSignatures} onChange={(v) => patchSection("footer", { showSignatures: v })} />
+            <SectionCard title={t("printTemplates.footerTextAndSignatures")}>
+              <TextField label={t("printTemplates.footerText")} value={config.footer.text ?? ""} onChange={(v) => patchSection("footer", { text: v || undefined })} />
+              <ToggleField label={t("printTemplates.showSignatures")} checked={config.footer.showSignatures} onChange={(v) => patchSection("footer", { showSignatures: v })} />
               <NumberField
-                label="عدد التوقيعات"
+                label={t("printTemplates.numberOfSignatures")}
                 value={config.footer.signatureCount}
                 min={0}
                 max={6}
@@ -296,42 +299,42 @@ export function PrintTemplatesPage() {
         },
         {
           key: "watermark",
-          label: "العلامة المائية",
+          label: t("printTemplates.watermark"),
           content: (
-            <SectionCard title="العلامة المائية" description="تُعطَّل تلقائيًا عند ترك النص فارغًا، بصرف النظر عن الشفافية">
-              <TextField label="نص العلامة المائية" value={config.watermark.text ?? ""} onChange={(v) => patchSection("watermark", { text: v || undefined })} placeholder="مثال: مسودة" />
-              <NumberField label="الشفافية (0-1)" value={config.watermark.opacity} min={0} max={1} step={0.01} onChange={(v) => patchSection("watermark", { opacity: v })} />
+            <SectionCard title={t("printTemplates.watermark")} description={t("printTemplates.switchedOffAutomaticallyWhenThe")}>
+              <TextField label={t("printTemplates.watermarkText")} value={config.watermark.text ?? ""} onChange={(v) => patchSection("watermark", { text: v || undefined })} placeholder={t("printTemplates.eGDraft")} />
+              <NumberField label={t("printTemplates.opacity01")} value={config.watermark.opacity} min={0} max={1} step={0.01} onChange={(v) => patchSection("watermark", { opacity: v })} />
             </SectionCard>
           ),
         },
         {
           key: "pos",
-          label: "إيصال نقطة البيع",
+          label: t("printTemplates.pointOfSaleReceipt"),
           content: (
-            <SectionCard title="تنسيق إيصال نقطة البيع (POS)">
-              <ToggleField label="إظهار عنوان المستند" checked={config.posReceipt.showTitle} onChange={(v) => patchSection("posReceipt", { showTitle: v })} />
-              <ToggleField label="إظهار الرقم الضريبي" checked={config.posReceipt.showTaxNumber} onChange={(v) => patchSection("posReceipt", { showTaxNumber: v })} />
-              <ToggleField label="إظهار اسم العميل" checked={config.posReceipt.showCustomerName} onChange={(v) => patchSection("posReceipt", { showCustomerName: v })} />
-              <TextField label="نص الشكر" value={config.posReceipt.thankYouText ?? ""} onChange={(v) => patchSection("posReceipt", { thankYouText: v || undefined })} />
+            <SectionCard title={t("printTemplates.pointOfSalePosReceipt")}>
+              <ToggleField label={t("printTemplates.showTheDocumentTitle")} checked={config.posReceipt.showTitle} onChange={(v) => patchSection("posReceipt", { showTitle: v })} />
+              <ToggleField label={t("printTemplates.showTheTaxNumber")} checked={config.posReceipt.showTaxNumber} onChange={(v) => patchSection("posReceipt", { showTaxNumber: v })} />
+              <ToggleField label={t("printTemplates.showTheCustomerName")} checked={config.posReceipt.showCustomerName} onChange={(v) => patchSection("posReceipt", { showCustomerName: v })} />
+              <TextField label={t("printTemplates.thankYouText")} value={config.posReceipt.thankYouText ?? ""} onChange={(v) => patchSection("posReceipt", { thankYouText: v || undefined })} />
             </SectionCard>
           ),
         },
         {
           key: "overrides",
-          label: "تخصيص حسب الوثيقة",
+          label: t("printTemplates.perDocumentOverrides"),
           content: (
             <div className="flex flex-col gap-[16px]">
-              <SectionCard title="اختر نوع المستند لتخصيصه">
-                <SelectField label="نوع المستند" value={overrideDocType} onChange={setOverrideDocType} options={DOCUMENT_TYPE_OPTIONS} />
+              <SectionCard title={t("printTemplates.pickADocumentTypeTo")}>
+                <SelectField label={t("printTemplates.documentType")} value={overrideDocType} onChange={setOverrideDocType} options={DOCUMENT_TYPE_OPTIONS.map(({ value, key }) => ({ value, label: t(key) }))} />
               </SectionCard>
               <SectionCard
-                title="تخصيصات هذا المستند"
-                description="القيمة «افتراضي» تعني اتباع إعداد القالب العام أعلاه — أي تخصيص هنا يطبَّق فقط على هذا النوع من المستندات"
+                title={t("printTemplates.overridesForThisDocument")}
+                description={t("printTemplates.defaultMeansFollowTheGeneral")}
               >
                 {TRI_STATE_FIELDS.map((f) => (
                   <TriStateField
                     key={`${f.section}.${f.key}`}
-                    label={f.label}
+                    label={t(f.labelKey)}
                     value={(activeOverride[f.section] as Record<string, boolean> | undefined)?.[f.key]}
                     onChange={(v) => {
                       const section = (activeOverride[f.section] as Record<string, boolean> | undefined) ?? {};

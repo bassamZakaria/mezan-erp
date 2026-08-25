@@ -2,7 +2,7 @@ import { useState } from "react";
 import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { useSettings, useUpdateSettings } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { LOCALES, LOCALE_ENDONYM, type Locale } from "@mezan/ui";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
@@ -18,14 +18,14 @@ import { TextField, NumberField, SelectField, ToggleField, MultiChipField, Secti
  * `updateSettings` and returns 422 on an invalid combination.
  */
 
-const WEEKDAY_OPTIONS = [
-  { value: "0", label: "الأحد" },
-  { value: "1", label: "الإثنين" },
-  { value: "2", label: "الثلاثاء" },
-  { value: "3", label: "الأربعاء" },
-  { value: "4", label: "الخميس" },
-  { value: "5", label: "الجمعة" },
-  { value: "6", label: "السبت" },
+const WEEKDAY_KEYS: { value: string; key: AppTranslationKey }[] = [
+  { value: "0", key: "settingsGeneral.sunday" },
+  { value: "1", key: "settingsGeneral.monday" },
+  { value: "2", key: "settingsGeneral.tuesday" },
+  { value: "3", key: "settingsGeneral.wednesday" },
+  { value: "4", key: "settingsGeneral.thursday" },
+  { value: "5", key: "settingsGeneral.friday" },
+  { value: "6", key: "settingsGeneral.saturday" },
 ];
 
 const CURRENCY_OPTIONS = [
@@ -39,6 +39,7 @@ const CURRENCY_OPTIONS = [
 ];
 
 function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
+  const { t } = useAppTranslation();
   const updateSettingsMutation = useUpdateSettings();
   const { setLocale } = useAppTranslation();
   const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
@@ -62,59 +63,59 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
         setLocale(saved.language as Locale);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ الإعدادات");
+      setError(err instanceof Error ? err.message : t("settingsGeneral.couldNotSaveTheSettings"));
     }
   }
 
   return (
     <DocumentDetail
-      title="الإعدادات"
-      statusLabel={dirty ? "تغييرات غير محفوظة" : undefined}
+      title={t("settingsGeneral.settings")}
+      statusLabel={dirty ? t("settingsGeneral.unsavedChanges") : undefined}
       statusTone={dirty ? "warning" : "neutral"}
-      subtitle="الإعدادات العامة للمنشأة، الفوترة، والسياسات التشغيلية"
+      subtitle={t("settingsGeneral.companyWideSettingsTheCompany")}
       actions={
         <>
           {error ? <StatusPill label={error} tone="danger" /> : null}
           <Button variant="primary" disabled={!dirty} onClick={handleSave}>
-            حفظ الإعدادات
+            {t("settingsGeneral.saveTheSettings")}
           </Button>
         </>
       }
       tabs={[
         {
           key: "general",
-          label: "عام",
+          label: t("settingsGeneral.general"),
           content: (
             <div className="flex flex-col gap-[16px]">
-              <SectionCard title="العملة واللغة">
-                <TextField label="العملة الافتراضية" value={draft.currency} onChange={(v) => patch({ currency: v.toUpperCase() })} />
+              <SectionCard title={t("settingsGeneral.currencyAndLanguage")}>
+                <TextField label={t("settingsGeneral.defaultCurrency")} value={draft.currency} onChange={(v) => patch({ currency: v.toUpperCase() })} />
                 <SelectField
-                  label="اللغة الافتراضية"
+                  label={t("settingsGeneral.defaultLanguage")}
                   value={draft.language}
                   onChange={(v) => patch({ language: v as TenantSettingsDTO["language"] })}
                   options={LOCALES.map((l) => ({ value: l, label: LOCALE_ENDONYM[l] }))}
                 />
                 <MultiChipField
-                  label="العملات الإضافية"
+                  label={t("settingsGeneral.additionalCurrencies")}
                   value={[...draft.secondaryCurrencies]}
                   onChange={(v) => patch({ secondaryCurrencies: v })}
                   options={CURRENCY_OPTIONS}
                 />
                 <SelectField
-                  label="سياسة غياب سعر الصرف"
+                  label={t("settingsGeneral.policyWhenNoExchangeRate")}
                   value={draft.fxRateMissingPolicy}
                   onChange={(v) => patch({ fxRateMissingPolicy: v as TenantSettingsDTO["fxRateMissingPolicy"] })}
                   options={[
-                    { value: "STRICT", label: "صارم — رفض المستند إذا لم يوجد سعر صرف" },
-                    { value: "ALLOW_MISSING", label: "السماح بالمتابعة بدون سعر صرف" },
+                    { value: "STRICT", label: t("settingsGeneral.strictRejectTheDocumentWhen") },
+                    { value: "ALLOW_MISSING", label: t("settingsGeneral.allowItToGoThrough") },
                   ]}
                 />
               </SectionCard>
 
-              <SectionCard title="المنطقة الزمنية والتاريخ">
-                <TextField label="المنطقة الزمنية" value={draft.timezone} onChange={(v) => patch({ timezone: v })} />
+              <SectionCard title={t("settingsGeneral.timeZoneAndDate")}>
+                <TextField label={t("settingsGeneral.timeZone")} value={draft.timezone} onChange={(v) => patch({ timezone: v })} />
                 <SelectField
-                  label="اتجاه الواجهة"
+                  label={t("settingsGeneral.interfaceDirection")}
                   value={draft.direction}
                   onChange={(v) => patch({ direction: v as TenantSettingsDTO["direction"] })}
                   options={[
@@ -122,24 +123,24 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
                     { value: "LTR", label: "LTR" },
                   ]}
                 />
-                <TextField label="تنسيق التاريخ" value={draft.dateFormat} onChange={(v) => patch({ dateFormat: v })} />
+                <TextField label={t("settingsGeneral.dateFormat")} value={draft.dateFormat} onChange={(v) => patch({ dateFormat: v })} />
                 <SelectField
-                  label="نظام الأرقام"
+                  label={t("settingsGeneral.numeralSystem")}
                   value={draft.dateNumerals}
                   onChange={(v) => patch({ dateNumerals: v as TenantSettingsDTO["dateNumerals"] })}
                   options={[
-                    { value: "western", label: "أرقام غربية (0, 1, 2, 3)" },
-                    { value: "arabic", label: "أرقام عربية (٠, ١, ٢, ٣)" },
+                    { value: "western", label: t("settingsGeneral.westernDigits012") },
+                    { value: "arabic", label: t("settingsGeneral.arabicIndicDigits") },
                   ]}
                 />
                 <MultiChipField
-                  label="أيام نهاية الأسبوع"
+                  label={t("settingsGeneral.weekendDays")}
                   value={draft.weekendDays.map(String)}
                   onChange={(v) => patch({ weekendDays: v.map(Number) })}
-                  options={WEEKDAY_OPTIONS}
+                  options={WEEKDAY_KEYS.map(({ value, key }) => ({ value, label: t(key) }))}
                 />
                 <NumberField
-                  label="بداية السنة المالية (شهر)"
+                  label={t("settingsGeneral.financialYearStartsMonth")}
                   value={draft.fiscalYearStartMonth}
                   min={1}
                   max={12}
@@ -151,51 +152,51 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
         },
         {
           key: "company",
-          label: "بيانات المنشأة",
+          label: t("settingsGeneral.companyDetails"),
           content: (
             <div className="flex flex-col gap-[16px]">
-              <SectionCard title="بيانات المنشأة">
-                <TextField label="اسم المنشأة" value={draft.companyName} onChange={(v) => patch({ companyName: v })} />
+              <SectionCard title={t("settingsGeneral.companyDetails")}>
+                <TextField label={t("settingsGeneral.companyName")} value={draft.companyName} onChange={(v) => patch({ companyName: v })} />
                 <TextField
-                  label="الرقم الضريبي"
+                  label={t("common.taxNumber")}
                   value={draft.taxRegistrationNumber}
                   onChange={(v) => patch({ taxRegistrationNumber: v })}
                   placeholder="300xxxxxxxxx"
                 />
                 <TextField
-                  label="السجل التجاري"
+                  label={t("settingsGeneral.commercialRegistration")}
                   value={draft.commercialRegistrationNumber}
                   onChange={(v) => patch({ commercialRegistrationNumber: v })}
                 />
-                <TextField label="الهاتف" type="tel" value={draft.phone} onChange={(v) => patch({ phone: v })} />
-                <TextField label="البريد الإلكتروني" type="email" value={draft.email} onChange={(v) => patch({ email: v })} />
-                <TextField label="العنوان" value={draft.address} onChange={(v) => patch({ address: v })} />
+                <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => patch({ phone: v })} />
+                <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => patch({ email: v })} />
+                <TextField label={t("settingsGeneral.address")} value={draft.address} onChange={(v) => patch({ address: v })} />
               </SectionCard>
 
-              <SectionCard title="سياسات الموارد البشرية المشتركة" description="تعتمد عليها خدمات الإجازات والحضور في حساب أيام العمل">
+              <SectionCard title={t("settingsGeneral.sharedHrPolicies")} description={t("settingsGeneral.leaveAndAttendanceRelyOn")}>
                 <MultiChipField
-                  label="أيام نهاية الأسبوع"
+                  label={t("settingsGeneral.weekendDays")}
                   value={draft.weekendDays.map(String)}
                   onChange={(v) => patch({ weekendDays: v.map(Number) })}
-                  options={WEEKDAY_OPTIONS}
+                  options={WEEKDAY_KEYS.map(({ value, key }) => ({ value, label: t(key) }))}
                 />
                 <NumberField
-                  label="فترة التنبيه على انتهاء العقد (يوم)"
+                  label={t("settingsGeneral.contractExpiryWarningWindowDays")}
                   value={draft.hrContractExpiryWarningDays}
                   min={7}
                   max={365}
                   onChange={(v) => patch({ hrContractExpiryWarningDays: v })}
-                  hint="النطاق المسموح: 7-365، الافتراضي 30"
+                  hint={t("settingsGeneral.allowedRange7365Default")}
                 />
                 <NumberField
-                  label="معامل العمل الإضافي"
+                  label={t("settingsGeneral.overtimeMultiplier")}
                   value={draft.overtimeMultiplier}
                   step={0.1}
                   min={1}
                   onChange={(v) => patch({ overtimeMultiplier: v })}
                 />
                 <NumberField
-                  label="ساعات العمل اليومية القياسية"
+                  label={t("settingsGeneral.standardWorkingHoursADay")}
                   value={draft.standardDailyWorkHours}
                   min={1}
                   max={24}
@@ -207,41 +208,41 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
         },
         {
           key: "tax",
-          label: "الضريبة",
+          label: t("settingsGeneral.tax"),
           content: (
-            <SectionCard title="ضريبة القيمة المضافة">
+            <SectionCard title={t("settingsGeneral.vat")}>
               <ToggleField
-                label="تفعيل ضريبة القيمة المضافة"
+                label={t("settingsGeneral.enableVat")}
                 checked={draft.taxEnabled}
                 onChange={(v) => patch({ taxEnabled: v })}
               />
               <NumberField
-                label="نسبة الضريبة الافتراضية (%)"
+                label={t("settingsGeneral.defaultTaxRate")}
                 value={draft.defaultTaxRate}
                 min={0}
                 max={100}
                 onChange={(v) => patch({ defaultTaxRate: v })}
               />
               <SelectField
-                label="طريقة حساب الضريبة"
+                label={t("settingsGeneral.howTaxIsCalculated")}
                 value={draft.taxCalculation}
                 onChange={(v) => patch({ taxCalculation: v as TenantSettingsDTO["taxCalculation"] })}
                 options={[
-                  { value: "EXCLUSIVE", label: "غير شاملة (تضاف على السعر)" },
-                  { value: "INCLUSIVE", label: "شاملة (مضمنة في السعر)" },
+                  { value: "EXCLUSIVE", label: t("settingsGeneral.exclusiveAddedToThePrice") },
+                  { value: "INCLUSIVE", label: t("settingsGeneral.inclusiveAlreadyInThePrice") },
                 ]}
               />
               <SelectField
-                label="إهلاك شهر الاقتناء"
+                label={t("settingsGeneral.depreciationInTheMonthOf")}
                 value={draft.depreciationProrate}
                 onChange={(v) => patch({ depreciationProrate: v as TenantSettingsDTO["depreciationProrate"] })}
                 options={[
-                  { value: "DAILY", label: "يومي (نسبة الأيام) — IFRS" },
-                  { value: "FULL_MONTH", label: "شهر كامل" },
+                  { value: "DAILY", label: t("settingsGeneral.dailyProRatedIfrs") },
+                  { value: "FULL_MONTH", label: t("settingsGeneral.aWholeMonth") },
                 ]}
               />
               <TextField
-                label="الرقم الضريبي"
+                label={t("common.taxNumber")}
                 value={draft.taxRegistrationNumber}
                 onChange={(v) => patch({ taxRegistrationNumber: v })}
                 placeholder="300xxxxxxxxx"
@@ -251,69 +252,69 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
         },
         {
           key: "policies",
-          label: "السياسات",
+          label: t("settingsGeneral.policies"),
           content: (
             <div className="flex flex-col gap-[16px]">
-              <SectionCard title="الرقابة الائتمانية">
-                <ToggleField label="تفعيل قوائم الأسعار" checked={draft.priceListsEnabled} onChange={(v) => patch({ priceListsEnabled: v })} />
+              <SectionCard title={t("settingsGeneral.creditControl")}>
+                <ToggleField label={t("settingsGeneral.enablePriceLists")} checked={draft.priceListsEnabled} onChange={(v) => patch({ priceListsEnabled: v })} />
                 <ToggleField
-                  label="تفعيل الرقابة الائتمانية"
+                  label={t("settingsGeneral.enableCreditControl")}
                   checked={draft.creditControlEnabled}
                   onChange={(v) => patch({ creditControlEnabled: v })}
                 />
                 <SelectField
-                  label="وضع الرقابة"
+                  label={t("settingsGeneral.controlMode")}
                   value={draft.creditControlMode}
                   onChange={(v) => patch({ creditControlMode: v as TenantSettingsDTO["creditControlMode"] })}
                   options={[
-                    { value: "WARNING", label: "تحذير فقط (WARNING)" },
-                    { value: "BLOCK", label: "منع تام (BLOCK)" },
+                    { value: "WARNING", label: t("settingsGeneral.warnOnlyWarning") },
+                    { value: "BLOCK", label: t("settingsGeneral.blockOutrightBlock") },
                   ]}
                 />
               </SectionCard>
 
-              <SectionCard title="سياسة المخزون">
+              <SectionCard title={t("settingsGeneral.stockPolicy")}>
                 <ToggleField
-                  label="السماح بالبيع من مستودع آخر"
+                  label={t("settingsGeneral.allowSellingFromAnotherWarehouse")}
                   checked={draft.allowCrossWarehouseSales}
                   onChange={(v) => patch({ allowCrossWarehouseSales: v })}
                 />
                 <ToggleField
-                  label="عرض المخزون في المستودعات الأخرى"
+                  label={t("settingsGeneral.showStockInTheOther")}
                   checked={draft.showOtherWarehouseStock}
                   onChange={(v) => patch({ showOtherWarehouseStock: v })}
                 />
-                <ToggleField label="السماح بالطلبات المؤجلة" checked={draft.allowBackorder} onChange={(v) => patch({ allowBackorder: v })} />
-                <ToggleField label="السماح بالمخزون السالب" checked={draft.allowNegativeStock} onChange={(v) => patch({ allowNegativeStock: v })} />
+                <ToggleField label={t("settingsGeneral.allowBackOrders")} checked={draft.allowBackorder} onChange={(v) => patch({ allowBackorder: v })} />
+                <ToggleField label={t("settingsGeneral.allowNegativeStock")} checked={draft.allowNegativeStock} onChange={(v) => patch({ allowNegativeStock: v })} />
               </SectionCard>
 
-              <SectionCard title="التحكم في المشتريات">
+              <SectionCard title={t("settingsGeneral.purchasingControls")}>
                 <ToggleField
-                  label="يجب وجود أمر شراء قبل استلام البضاعة"
+                  label={t("settingsGeneral.aPurchaseOrderIsRequired")}
                   checked={draft.requirePoForGrn}
                   onChange={(v) => patch({ requirePoForGrn: v })}
                 />
                 <ToggleField
-                  label="يجب وجود استلام بضاعة قبل فاتورة الشراء"
+                  label={t("settingsGeneral.aGoodsReceiptIsRequired")}
                   checked={draft.requireGrnForInvoice}
                   onChange={(v) => patch({ requireGrnForInvoice: v })}
                 />
                 <ToggleField
-                  label="تتبع البضاعة المستهلكة من فواتير الشراء"
+                  label={t("settingsGeneral.trackGoodsConsumedFromPurchase")}
                   checked={draft.trackSoldPurchaseItems}
                   onChange={(v) => patch({ trackSoldPurchaseItems: v })}
                 />
               </SectionCard>
 
-              <SectionCard title="سياسة الخزينة">
+              <SectionCard title={t("settingsGeneral.treasuryPolicy")}>
                 <ToggleField
-                  label="منع الرصيد السالب للحسابات النقدية"
+                  label={t("settingsGeneral.blockANegativeBalanceOn")}
                   checked={draft.preventNegativeCashBalance}
                   onChange={(v) => patch({ preventNegativeCashBalance: v })}
-                  hint="ينطبق على حسابات الصندوق فقط — الحسابات البنكية غير متأثرة"
+                  hint={t("settingsGeneral.appliesToCashTillsOnly")}
                 />
                 <ToggleField
-                  label="السماح بالرصيد السالب للحسابات البنكية"
+                  label={t("settingsGeneral.allowANegativeBalanceOn")}
                   checked={draft.allowNegativeTreasury}
                   onChange={(v) => patch({ allowNegativeTreasury: v })}
                 />
@@ -327,14 +328,15 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
 }
 
 export function SettingsGeneral() {
+  const { t } = useAppTranslation();
   const query = useSettings();
 
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الإعدادات.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("settingsGeneral.couldNotLoadTheSettings")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );

@@ -287,6 +287,7 @@ export {
   journalEntryStatusSchema,
   glJournalLineSchema,
   createGlJournalEntrySchema,
+  closeFiscalYearSchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
   type JournalEntrySourceDTO,

@@ -964,7 +964,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X64 — year-end
   // ---------------------------------------------------------------------------
-  await scenario("x64 · a new year opens where the old one ended — but nothing rolls the profit into retained earnings, so the P&L accounts never reset", async () => {
+  await scenario("x64 · closing the year rolls the result into retained earnings, and the P&L accounts open the new one at zero", async () => {
     const generated = await req("POST", "/fiscal-periods/generate-year", { year: 2027 });
     check("the next fiscal year can be generated", generated.status === 201, `status ${generated.status} ${JSON.stringify(generated.body).slice(0, 200)}`);
     const periods = rows((await req("GET", "/fiscal-periods?year=2027")).body);
@@ -976,25 +976,32 @@ export async function run(ctx: Ctx): Promise<void> {
     check("2026 has revenue on the books to roll over", revenue2026 > 0, `revenue=${revenue2026}`);
 
     const closeYear = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
+    check("the year closes", closeYear.status === 201, `status ${closeYear.status} ${JSON.stringify(closeYear.body).slice(0, 250)}`);
     check(
-      "FINDING — there is no year-end close anywhere in the product: no route, no service, no closing entry. " +
-        "Retained earnings is an account in the chart that nothing ever posts to.",
-      closeYear.status === 404,
-      `status ${closeYear.status}`,
+      "and reports what it rolled over — every revenue account, not just sales: the year's asset-disposal gain closes too",
+      n(closeYear.body?.revenueClosed) >= revenue2026,
+      `revenueClosed=${closeYear.body?.revenueClosed} sales alone=${revenue2026}`,
     );
+    checkEq("the disposal-gain account is zeroed as well", await creditBalance("4500"), 0);
 
     const revenue2027 = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2027-01-01&periodTo=2027-12-31")).body?.grandTotals?.amount);
-    checkEq("a fresh year's income statement is correctly empty — the REPORT windows by date, which is what saves this", revenue2027, 0);
-    checkEq("but the revenue ACCOUNT still carries last year's total: opening 2027 does not zero it", await creditBalance(REVENUE), revenue2026);
-    checkEq("and retained earnings never received the profit", (await creditBalance(RETAINED_EARNINGS)) - retainedBefore, 0);
+    checkEq("a fresh year's income statement is empty", revenue2027, 0);
+    checkEq("the revenue ACCOUNT no longer carries last year's total — closing zeroed it (docs/defects.md D34)", await creditBalance(REVENUE), 0);
+    checkEq(
+      "and retained earnings received exactly the year's result",
+      Math.round(((await creditBalance(RETAINED_EARNINGS)) - retainedBefore) * 100) / 100,
+      Math.round(n(closeYear.body?.netResult) * 100) / 100,
+    );
+
+    const twice = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
+    check("closing the same year twice is refused rather than posted twice, in Arabic", twice.status === 409 && /مقفلة بالفعل/.test(String(twice.body?.message)), `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
 
     const balanceSheet = await req("GET", `/reports/accounting/balance-sheet?asOfDate=2027-01-01`);
     check("the balance sheet still runs into the new year", balanceSheet.status === 200, `status ${balanceSheet.status}`);
     const bsRows = (balanceSheet.body?.rows ?? []) as any[];
     const derivedRetained = bsRows.find((r: any) => String(r.rowId).includes("retained"));
     check(
-      "and it balances only because the report DERIVES retained earnings from the P&L accounts itself (packages/domain/src/reports/balance-sheet.ts) rather than reading a posted balance — " +
-        "correct on screen, but it means the ledger alone never tells you last year's result",
+      "and it still balances, now with a POSTED retained-earnings balance behind the row rather than one the report derives for itself",
       Boolean(derivedRetained),
       `rows=${bsRows.map((r: any) => r.rowId).slice(0, 12).join(",")}`,
     );

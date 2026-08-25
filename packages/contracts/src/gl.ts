@@ -24,6 +24,14 @@ export const glJournalLineSchema = z.object({
 });
 
 /** Create (and post) a journal entry. */
+/** إقفال السنة المالية — roll the year's result into retained earnings. */
+export const closeFiscalYearSchema = z.object({
+  year: z.number().int().min(1900).max(9999),
+  retainedEarningsAccountId: z.string().min(1),
+  memo: z.string().optional(),
+});
+export type CloseFiscalYearDTO = z.infer<typeof closeFiscalYearSchema>;
+
 export const createGlJournalEntrySchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),

@@ -42,3 +42,12 @@ export {
   InactiveAccountError,
   DuplicateJournalEntryError,
 } from "./errors.js";
+
+export {
+  closeFiscalYear,
+  YearAlreadyClosedError,
+  NothingToCloseError,
+  type CloseYearCommand,
+  type CloseYearDeps,
+  type CloseYearResult,
+} from "./year-end-close.js";

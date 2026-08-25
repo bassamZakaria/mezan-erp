@@ -28,11 +28,15 @@ import {
   type NextNumberService,
   type AuditSink,
   type GlEventPublisher,
+  closeFiscalYear,
+  YearAlreadyClosedError,
+  NothingToCloseError,
 } from "@mezan/domain";
 import {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
+  closeFiscalYearSchema,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -44,7 +48,7 @@ import {
 /** External dependencies the GL routes bind the posting engine to. */
 export interface GlRoutesDeps {
   readonly ledger: LedgerRepository;
-  readonly accounts: Pick<AccountRepository, "findById">;
+  readonly accounts: Pick<AccountRepository, "findById" | "list">;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
   readonly numbering: NextNumberService;
   readonly audit?: AuditSink;
@@ -112,6 +116,12 @@ function handleDomainError(c: Context, err: unknown): Response {
   }
   if (err instanceof InvalidJournalEntryError) {
     return c.json({ error: err.code, message: err.message }, 400);
+  }
+  if (err instanceof YearAlreadyClosedError) {
+    return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof NothingToCloseError) {
+    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (
     err instanceof AccountNotFoundError ||
@@ -197,6 +207,39 @@ export function createGlRoutes(
         postingDeps(c),
       );
       return c.json(serialize(entry), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  /**
+   * إقفال السنة المالية — moves every revenue and expense balance into retained
+   * earnings, so the new year opens with the P&L accounts at zero and the
+   * ledger itself states last year's result (D34). Idempotent by id: closing
+   * the same year twice is refused rather than posted twice.
+   */
+  app.post("/year-end-close", gate("accounting.period.close"), async (c) => {
+    const parsed = closeFiscalYearSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await closeFiscalYear(
+        {
+          year: parsed.data.year,
+          retainedEarningsAccountId: parsed.data.retainedEarningsAccountId,
+          memo: parsed.data.memo,
+        },
+        { ...postingDeps(c), ledger: deps.ledger, accounts: deps.accounts },
+      );
+      return c.json({
+        journalEntryId: result.journalEntryId,
+        year: parsed.data.year,
+        netResult: result.netResult.toString(),
+        revenueClosed: result.revenueClosed.toString(),
+        expensesClosed: result.expensesClosed.toString(),
+        accountsClosed: result.accountsClosed,
+      }, 201);
     } catch (err) {
       return handleDomainError(c, err);
     }

@@ -19,6 +19,7 @@ import {
 import { moneyToNumber, parseMoney, sumMoney, useBranchStockBalance } from "../data/partner-detail-hooks";
 import { branchName } from "./branch-name";
 import { TextField, ToggleField, SectionCard } from "./form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الفروع (Branches) — docs/catalog/09 §"إدارة الفروع" list +
@@ -33,13 +34,13 @@ import { TextField, ToggleField, SectionCard } from "./form-controls";
  * event (`GET /audit`) carries no branch dimension, so it cannot be scoped here.
  */
 
-const TREASURY_TYPE_LABEL: Record<TreasuryAccountDTO["type"], string> = { cash: "نقدي", bank: "بنكي" };
+const TREASURY_TYPE_KEY: Record<TreasuryAccountDTO["type"], AppTranslationKey> = { cash: "branches.treasuryCash", bank: "branches.treasuryBank" };
 
-const ASSET_STATUS_LABEL: Record<AssetStatusDTO, string> = {
-  active: "نشط",
-  under_maintenance: "تحت الصيانة",
-  fully_depreciated: "مستهلك بالكامل",
-  disposed: "مستبعد",
+const ASSET_STATUS_KEY: Record<AssetStatusDTO, AppTranslationKey> = {
+  active: "common.active",
+  under_maintenance: "branches.assetUnderMaintenance",
+  fully_depreciated: "branches.assetFullyDepreciated",
+  disposed: "branches.assetDisposed",
 };
 
 const ASSET_STATUS_TONE: Record<AssetStatusDTO, PillTone> = {
@@ -49,11 +50,11 @@ const ASSET_STATUS_TONE: Record<AssetStatusDTO, PillTone> = {
   disposed: "neutral",
 };
 
-const EMPLOYEE_STATUS_LABEL: Record<EmployeeDTO["status"], string> = {
-  active: "على رأس العمل",
-  on_leave: "في إجازة",
-  suspended: "موقوف",
-  terminated: "منتهية خدمته",
+const EMPLOYEE_STATUS_KEY: Record<EmployeeDTO["status"], AppTranslationKey> = {
+  active: "branches.employeeActive",
+  on_leave: "branches.employeeOnLeave",
+  suspended: "branches.employeeSuspended",
+  terminated: "branches.employeeTerminated",
 };
 
 const EMPLOYEE_STATUS_TONE: Record<EmployeeDTO["status"], PillTone> = {
@@ -73,11 +74,12 @@ function employeeName(employee: EmployeeDTO): string {
 }
 
 function TabError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { t } = useAppTranslation();
   return (
     <Card className="p-[18px_20px]">
       <p className="text-[13px] font-semibold text-danger-ink">{message}</p>
       <Button size="sm" className="mt-[10px]" onClick={onRetry}>
-        إعادة المحاولة
+        {t("common.retry")}
       </Button>
     </Card>
   );
@@ -104,6 +106,7 @@ function Kpi({ label, value, sub }: { label: string; value: ReactNode; sub?: Rea
 
 /** مؤشرات الفرع — live counts and totals over every document that carries this `branchId`. */
 function BranchKpis({ branch }: { branch: BranchDTO }) {
+  const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
   const salesQuery = useSalesInvoices();
@@ -139,53 +142,54 @@ function BranchKpis({ branch }: { branch: BranchDTO }) {
   return (
     <div className="grid grid-cols-2 gap-[12px] lg:grid-cols-4">
       <Kpi
-        label="مبيعات الفرع (فواتير سارية)"
+        label={t("branches.branchSalesLiveInvoices")}
         value={<MoneyValue value={moneyToNumber(salesTotal)} showUnit={false} />}
-        sub={<span className="mz-num">{salesInvoices.length} فاتورة</span>}
+        sub={<span className="mz-num">{salesInvoices.length} {t("branches.invoice")}</span>}
       />
       <Kpi
-        label="مشتريات الفرع (فواتير مؤكدة)"
+        label={t("branches.branchPurchasesConfirmedInvoices")}
         value={<MoneyValue value={moneyToNumber(purchasesTotal)} showUnit={false} />}
-        sub={<span className="mz-num">{purchaseInvoices.length} فاتورة</span>}
+        sub={<span className="mz-num">{purchaseInvoices.length} {t("branches.invoice")}</span>}
       />
       <Kpi
-        label="صافي حركة السندات"
+        label={t("branches.netVoucherMovement")}
         value={<MoneyValue value={moneyToNumber(voucherNet)} showUnit={false} />}
-        sub={<span className="mz-num">{vouchers.length} سند</span>}
+        sub={<span className="mz-num">{vouchers.length} {t("branches.voucher")}</span>}
       />
       <Kpi
-        label="قيمة المخزون"
+        label={t("branches.stockValue")}
         value={
           warehouseIds.length === 0 ? (
-            <span className="text-[12.5px] font-normal text-ink-muted">لا توجد مستودعات</span>
+            <span className="text-[12.5px] font-normal text-ink-muted">{t("branches.noWarehouses")}</span>
           ) : (
             <MoneyValue value={moneyToNumber(stockValue)} showUnit={false} />
           )
         }
-        sub={<span className="mz-num">{warehouseIds.length} مستودع</span>}
+        sub={<span className="mz-num">{warehouseIds.length} {t("branches.warehouse")}</span>}
       />
       <Kpi
-        label="حسابات الخزينة"
+        label={t("branches.treasuryAccounts")}
         value={<span className="mz-num">{treasuryAccounts.length}</span>}
-        sub={<span className="mz-num">{treasuryAccounts.filter((a) => a.type === "bank").length} بنكي</span>}
+        sub={<span className="mz-num">{treasuryAccounts.filter((a) => a.type === "bank").length} {t("branches.bank")}</span>}
       />
       <Kpi
-        label="الموظفون"
+        label={t("branches.employees")}
         value={<span className="mz-num">{employees.length}</span>}
-        sub={<span className="mz-num">{employees.filter((e) => e.status === "active").length} على رأس العمل</span>}
+        sub={<span className="mz-num">{employees.filter((e) => e.status === "active").length} {t("branches.employed")}</span>}
       />
       <Kpi
-        label="الأصول الثابتة"
+        label={t("branches.fixedAssets")}
         value={<span className="mz-num">{assets.length}</span>}
         sub={<MoneyValue value={moneyToNumber(assetsCost)} showUnit={false} />}
       />
-      <Kpi label="حالة الفرع" value={branch.active ? "نشط" : "غير نشط"} sub={branch.isMain ? "الفرع الرئيسي" : "فرع فرعي"} />
+      <Kpi label={t("branches.branchStatus")} value={branch.active ? t("common.active") : t("common.inactive")} sub={branch.isMain ? t("branches.headBranch") : t("branches.subBranch")} />
     </div>
   );
 }
 
 /** مخزون الفرع — the merged `/inventory/stock-balance` of every warehouse in the branch. */
 function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
+  const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
   const warehouses = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id);
@@ -200,17 +204,17 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
     return (itemId: string) => byId.get(itemId)?.code ?? "—";
   }, [itemsQuery.data]);
 
-  if (warehousesQuery.isError) return <TabError message="تعذّر تحميل مستودعات الفرع." onRetry={() => warehousesQuery.refetch()} />;
+  if (warehousesQuery.isError) return <TabError message={t("branches.couldNotLoadTheBranch")} onRetry={() => warehousesQuery.refetch()} />;
   if (warehouses.length === 0) {
     return (
       <EmptyTab
-        title="لا توجد مستودعات مرتبطة بهذا الفرع"
-        body="رصيد المخزون يُحتسب من مستودعات الفرع. اربط مستودعاً بهذا الفرع من شاشة «المستودعات» ليظهر رصيده هنا."
+        title={t("branches.noWarehousesAreLinkedTo")}
+        body={t("branches.stockIsCountedFromThe")}
       />
     );
   }
-  if (stockQuery.isError) return <TabError message="تعذّر تحميل رصيد مخزون الفرع." onRetry={() => stockQuery.refetch()} />;
-  if (stockQuery.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل رصيد المخزون…</p>;
+  if (stockQuery.isError) return <TabError message={t("branches.couldNotLoadTheBranch2")} onRetry={() => stockQuery.refetch()} />;
+  if (stockQuery.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingStock")}</p>;
 
   const rows = [...(stockQuery.data ?? [])].sort((a, b) => {
     const left = parseMoney(a.totalValue);
@@ -220,8 +224,8 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
   if (rows.length === 0) {
     return (
       <EmptyTab
-        title="لا يوجد رصيد مخزون في مستودعات هذا الفرع"
-        body={`مستودعات الفرع (${warehouses.map((w) => w.name).join("، ")}) لم تستلم أي بضاعة بعد، أو صُرف كل ما بها.`}
+        title={t("branches.noStockInThisBranch")}
+        body={`مستودعات الفرع (${warehouses.map((w) => w.name).join(t("branches.text"))}) لم تستلم أي بضاعة بعد، أو صُرف كل ما بها.`}
       />
     );
   }
@@ -231,20 +235,20 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
-        <Kpi label="عدد الأصناف" value={<span className="mz-num">{rows.length}</span>} />
-        <Kpi label="عدد المستودعات" value={<span className="mz-num">{warehouses.length}</span>} />
-        <Kpi label="إجمالي قيمة المخزون" value={<MoneyValue value={moneyToNumber(totalValue)} showUnit={false} />} />
+        <Kpi label={t("branches.items")} value={<span className="mz-num">{rows.length}</span>} />
+        <Kpi label={t("branches.warehouses")} value={<span className="mz-num">{warehouses.length}</span>} />
+        <Kpi label={t("branches.totalStockValue")} value={<MoneyValue value={moneyToNumber(totalValue)} showUnit={false} />} />
       </div>
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">الصنف</th>
-              <th className="p-[10px] text-start font-semibold">الكود</th>
-              <th className="p-[10px] text-end font-semibold">الكمية</th>
-              <th className="p-[10px] text-end font-semibold">متوسط التكلفة</th>
-              <th className="p-[10px] text-end font-semibold">القيمة</th>
-              <th className="p-[10px] text-end font-semibold">عدد المستودعات</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.item")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.code")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("common.qty")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.averageCost")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.value")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.warehouses")}</th>
             </tr>
           </thead>
           <tbody>
@@ -271,19 +275,20 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
 
 /** موظفو الفرع — `GET /hr/employees` narrowed by the `branchId` every employee carries. */
 function BranchEmployeesTab({ branch }: { branch: BranchDTO }) {
+  const { t } = useAppTranslation();
   const query = useEmployees();
   const employees = useMemo(
     () => (query.data ?? []).filter((e) => e.branchId === branch.id).sort((a, b) => a.code.localeCompare(b.code)),
     [query.data, branch.id],
   );
 
-  if (query.isError) return <TabError message="تعذّر تحميل موظفي الفرع." onRetry={() => query.refetch()} />;
-  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل الموظفين…</p>;
+  if (query.isError) return <TabError message={t("branches.couldNotLoadTheBranch3")} onRetry={() => query.refetch()} />;
+  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingEmployees")}</p>;
   if (employees.length === 0) {
     return (
       <EmptyTab
-        title="لا يوجد موظفون مسجّلون على هذا الفرع"
-        body="كل موظف يُسجَّل على فرع واحد. أضف موظفاً واختر هذا الفرع من شاشة «الموظفون» ليظهر هنا."
+        title={t("branches.noEmployeesAreRecordedAgainst")}
+        body={t("branches.everyEmployeeBelongsToOne")}
       />
     );
   }
@@ -291,20 +296,20 @@ function BranchEmployeesTab({ branch }: { branch: BranchDTO }) {
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
-        <Kpi label="إجمالي الموظفين" value={<span className="mz-num">{employees.length}</span>} />
-        <Kpi label="على رأس العمل" value={<span className="mz-num">{employees.filter((e) => e.status === "active").length}</span>} />
-        <Kpi label="دوام كامل" value={<span className="mz-num">{employees.filter((e) => e.employmentType === "full_time").length}</span>} />
+        <Kpi label={t("branches.totalEmployees")} value={<span className="mz-num">{employees.length}</span>} />
+        <Kpi label={t("branches.employed")} value={<span className="mz-num">{employees.filter((e) => e.status === "active").length}</span>} />
+        <Kpi label={t("branches.fullTime")} value={<span className="mz-num">{employees.filter((e) => e.employmentType === "full_time").length}</span>} />
       </div>
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">الكود</th>
-              <th className="p-[10px] text-start font-semibold">الاسم</th>
-              <th className="p-[10px] text-start font-semibold">الهاتف</th>
-              <th className="p-[10px] text-start font-semibold">تاريخ التعيين</th>
-              <th className="p-[10px] text-start font-semibold">نوع التوظيف</th>
-              <th className="p-[10px] text-start font-semibold">الحالة</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.code")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.name")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.phone")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.hiredOn")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.employmentType")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -314,9 +319,9 @@ function BranchEmployeesTab({ branch }: { branch: BranchDTO }) {
                 <td className="p-[10px] font-semibold text-ink">{employeeName(employee)}</td>
                 <td className="mz-num p-[10px] text-ink-muted">{employee.phone ?? "—"}</td>
                 <td className="mz-num p-[10px] text-ink-muted">{isoToDisplay(employee.hireDate)}</td>
-                <td className="p-[10px] text-ink-muted">{employee.employmentType === "full_time" ? "دوام كامل" : "دوام جزئي"}</td>
+                <td className="p-[10px] text-ink-muted">{employee.employmentType === "full_time" ? t("branches.fullTime") : t("branches.partTime")}</td>
                 <td className="p-[10px]">
-                  <StatusPill label={EMPLOYEE_STATUS_LABEL[employee.status]} tone={EMPLOYEE_STATUS_TONE[employee.status]} />
+                  <StatusPill label={t(EMPLOYEE_STATUS_KEY[employee.status])} tone={EMPLOYEE_STATUS_TONE[employee.status]} />
                 </td>
               </tr>
             ))}
@@ -329,6 +334,7 @@ function BranchEmployeesTab({ branch }: { branch: BranchDTO }) {
 
 /** أصول الفرع — `GET /assets` narrowed by `branchId`. */
 function BranchAssetsTab({ branch }: { branch: BranchDTO }) {
+  const { t } = useAppTranslation();
   const query = useAssets();
   const categoriesQuery = useAssetCategories();
   const assets = useMemo(
@@ -340,13 +346,13 @@ function BranchAssetsTab({ branch }: { branch: BranchDTO }) {
     return (categoryId: string) => byId.get(categoryId) ?? categoryId;
   }, [categoriesQuery.data]);
 
-  if (query.isError) return <TabError message="تعذّر تحميل أصول الفرع." onRetry={() => query.refetch()} />;
-  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل الأصول…</p>;
+  if (query.isError) return <TabError message={t("branches.couldNotLoadTheBranch4")} onRetry={() => query.refetch()} />;
+  if (query.isLoading) return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingAssets")}</p>;
   if (assets.length === 0) {
     return (
       <EmptyTab
-        title="لا توجد أصول ثابتة مسجّلة على هذا الفرع"
-        body="الأصل يُسجَّل إما على مستوى المنشأة أو على فرع بعينه. الأصول المسجّلة على مستوى المنشأة لا تظهر هنا — راجعها من شاشة «سجل الأصول»."
+        title={t("branches.noFixedAssetsAreRecorded")}
+        body={t("branches.anAssetBelongsEitherTo")}
       />
     );
   }
@@ -357,22 +363,22 @@ function BranchAssetsTab({ branch }: { branch: BranchDTO }) {
   return (
     <div className="flex flex-col gap-[16px]">
       <div className="grid grid-cols-2 gap-[12px] sm:grid-cols-3">
-        <Kpi label="عدد الأصول" value={<span className="mz-num">{assets.length}</span>} />
-        <Kpi label="إجمالي التكلفة" value={<MoneyValue value={moneyToNumber(cost)} showUnit={false} />} />
-        <Kpi label="صافي القيمة الدفترية" value={<MoneyValue value={moneyToNumber(cost - accumulated)} showUnit={false} />} />
+        <Kpi label={t("branches.assets")} value={<span className="mz-num">{assets.length}</span>} />
+        <Kpi label={t("branches.totalCost")} value={<MoneyValue value={moneyToNumber(cost)} showUnit={false} />} />
+        <Kpi label={t("branches.netBookValue")} value={<MoneyValue value={moneyToNumber(cost - accumulated)} showUnit={false} />} />
       </div>
       <div className="overflow-x-auto rounded-lg border border-border bg-surface">
         <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">الكود</th>
-              <th className="p-[10px] text-start font-semibold">الأصل</th>
-              <th className="p-[10px] text-start font-semibold">الفئة</th>
-              <th className="p-[10px] text-start font-semibold">تاريخ الاقتناء</th>
-              <th className="p-[10px] text-end font-semibold">التكلفة</th>
-              <th className="p-[10px] text-end font-semibold">مجمع الإهلاك</th>
-              <th className="p-[10px] text-end font-semibold">صافي القيمة</th>
-              <th className="p-[10px] text-start font-semibold">الحالة</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.code")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.asset")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.category")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.acquiredOn")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.cost")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.accumulatedDepreciation")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("branches.netValue")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
             </tr>
           </thead>
           <tbody>
@@ -392,7 +398,7 @@ function BranchAssetsTab({ branch }: { branch: BranchDTO }) {
                   <MoneyValue value={moneyToNumber(parseMoney(asset.acquisitionCost) - parseMoney(asset.accumulatedDepreciation))} showUnit={false} />
                 </td>
                 <td className="p-[10px]">
-                  <StatusPill label={ASSET_STATUS_LABEL[asset.status]} tone={ASSET_STATUS_TONE[asset.status]} />
+                  <StatusPill label={t(ASSET_STATUS_KEY[asset.status])} tone={ASSET_STATUS_TONE[asset.status]} />
                 </td>
               </tr>
             ))}
@@ -417,6 +423,7 @@ interface BranchActivityRow {
  * no branch dimension, so the audit trail cannot be scoped to a branch here.
  */
 function BranchActivityTab({ branch }: { branch: BranchDTO }) {
+  const { t } = useAppTranslation();
   const salesQuery = useSalesInvoices();
   const purchasesQuery = usePurchaseInvoices();
   const vouchersQuery = useVouchers();
@@ -428,7 +435,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
       built.push({
         key: `si-${inv.id}`,
         date: inv.date,
-        kind: "فاتورة مبيعات",
+        kind: t("branches.salesInvoice"),
         reference: inv.docNo ?? inv.id,
         detail: inv.customerNameAr,
         amount: Number(inv.totals.grandTotal),
@@ -439,7 +446,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
       built.push({
         key: `pi-${inv.id}`,
         date: inv.date,
-        kind: "فاتورة مشتريات",
+        kind: t("branches.purchaseInvoice"),
         reference: inv.number,
         detail: inv.supplierInvoiceNumber ?? "—",
         amount: Number(inv.total),
@@ -450,7 +457,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
       built.push({
         key: `vc-${voucher.id}`,
         date: voucher.date,
-        kind: voucher.direction === "receipt" ? "سند قبض" : voucher.direction === "payment" ? "سند صرف" : "تحويل بين الخزائن",
+        kind: voucher.direction === "receipt" ? t("branches.receiptVoucher") : voucher.direction === "payment" ? t("branches.paymentVoucher") : t("branches.treasuryTransfer"),
         reference: voucher.docNo ?? voucher.id,
         detail: voucher.memo === "" ? "—" : voucher.memo,
         amount: Number(voucher.amount),
@@ -462,7 +469,7 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
   if (salesQuery.isError || purchasesQuery.isError || vouchersQuery.isError) {
     return (
       <TabError
-        message="تعذّر تحميل نشاط الفرع."
+        message={t("branches.couldNotLoadTheBranch5")}
         onRetry={() => {
           salesQuery.refetch();
           purchasesQuery.refetch();
@@ -472,13 +479,13 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
     );
   }
   if (salesQuery.isLoading || purchasesQuery.isLoading || vouchersQuery.isLoading) {
-    return <p className="p-[18px] text-[12.5px] text-ink-muted">جارِ تحميل النشاط…</p>;
+    return <p className="p-[18px] text-[12.5px] text-ink-muted">{t("branches.loadingActivity")}</p>;
   }
   if (rows.length === 0) {
     return (
       <EmptyTab
-        title="لا توجد حركة مسجّلة على هذا الفرع"
-        body="النشاط يُبنى من مستندات الفرع نفسها — فواتير المبيعات والمشتريات والسندات النقدية المسجّلة عليه. لم يُسجَّل أي منها بعد."
+        title={t("branches.noMovementIsRecordedAgainst")}
+        body={t("branches.activityIsBuiltFromThe")}
       />
     );
   }
@@ -489,11 +496,11 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
         <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[10px] text-start font-semibold">التاريخ</th>
-              <th className="p-[10px] text-start font-semibold">النوع</th>
-              <th className="p-[10px] text-start font-semibold">المستند</th>
-              <th className="p-[10px] text-start font-semibold">البيان</th>
-              <th className="p-[10px] text-end font-semibold">المبلغ</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.date")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("common.type")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.document")}</th>
+              <th className="p-[10px] text-start font-semibold">{t("branches.description")}</th>
+              <th className="p-[10px] text-end font-semibold">{t("common.amount")}</th>
             </tr>
           </thead>
           <tbody>
@@ -512,14 +519,14 @@ function BranchActivityTab({ branch }: { branch: BranchDTO }) {
         </table>
       </div>
       <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-faint">
-        يعرض هذا التبويب مستندات الفرع نفسها. سجل التدقيق لا يحمل بُعد الفرع، لذلك لا يمكن قصره على فرع بعينه — راجعه كاملاً من شاشة «سجل
-        التدقيق».
+        {t("branches.thisTabShowsTheBranch")}
       </p>
     </div>
   );
 }
 
 function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => void }) {
+  const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
   const warehouseCount = (warehousesQuery.data ?? []).filter((w) => w.branchId === branch.id).length;
@@ -528,40 +535,40 @@ function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => voi
   return (
     <DocumentDetail
       title={`${branch.name} · ${branch.code}`}
-      statusLabel={branch.active ? "نشط" : "غير نشط"}
+      statusLabel={branch.active ? t("common.active") : t("common.inactive")}
       statusTone={branch.active ? "success" : "neutral"}
-      subtitle={branch.isMain ? "الفرع الرئيسي" : "فرع فرعي"}
-      actions={<Button onClick={onBack}>رجوع لقائمة الفروع</Button>}
+      subtitle={branch.isMain ? t("branches.headBranch") : t("branches.subBranch")}
+      actions={<Button onClick={onBack}>{t("branches.backToTheBranchList")}</Button>}
       summary={[
-        { label: "كود الفرع", value: branch.code },
-        { label: "الهاتف", value: branch.phone ?? "لا توجد" },
-        { label: "البريد الإلكتروني", value: branch.email ?? "لا توجد" },
-        { label: "العنوان", value: branch.address ?? "لا توجد" },
-        { label: "المستودعات", value: <span className="mz-num">{warehouseCount}</span> },
-        { label: "الحالة", value: branch.active ? "نشط" : "غير نشط", valueTone: branch.active ? "success" : "default" },
+        { label: t("branches.branchCode"), value: branch.code },
+        { label: t("common.phone"), value: branch.phone ?? t("common.none") },
+        { label: t("common.email"), value: branch.email ?? t("common.none") },
+        { label: t("branches.address"), value: branch.address ?? t("common.none") },
+        { label: t("branches.warehouses2"), value: <span className="mz-num">{warehouseCount}</span> },
+        { label: t("common.status"), value: branch.active ? t("common.active") : t("common.inactive"), valueTone: branch.active ? "success" : "default" },
       ]}
       tabs={[
         {
           key: "overview",
-          label: "نظرة عامة",
+          label: t("common.overview"),
           content: (
             <div className="flex flex-col gap-[16px]">
               <div>
-                <h3 className="mb-[12px] font-display text-[14.5px] font-bold text-ink">مؤشرات الفرع</h3>
+                <h3 className="mb-[12px] font-display text-[14.5px] font-bold text-ink">{t("branches.branchFigures")}</h3>
                 <BranchKpis branch={branch} />
               </div>
-              <SectionCard title="حسابات الخزينة">
+              <SectionCard title={t("branches.treasuryAccounts")}>
                 <div className="col-span-full overflow-x-auto">
                   {treasuryAccounts.length === 0 ? (
-                    <p className="p-[8px] text-[12.5px] text-ink-muted">لا توجد حسابات خزينة مرتبطة بهذا الفرع</p>
+                    <p className="p-[8px] text-[12.5px] text-ink-muted">{t("branches.noTreasuryAccountsAreLinked")}</p>
                   ) : (
                     <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
                       <thead>
                         <tr className="border-b border-border text-ink-muted">
-                          <th className="p-[8px] text-start font-semibold">الحساب</th>
-                          <th className="p-[8px] text-start font-semibold">الكود</th>
-                          <th className="p-[8px] text-start font-semibold">النوع</th>
-                          <th className="p-[8px] text-end font-semibold">الرصيد الافتتاحي</th>
+                          <th className="p-[8px] text-start font-semibold">{t("branches.account")}</th>
+                          <th className="p-[8px] text-start font-semibold">{t("common.code")}</th>
+                          <th className="p-[8px] text-start font-semibold">{t("common.type")}</th>
+                          <th className="p-[8px] text-end font-semibold">{t("branches.openingBalance")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -569,7 +576,7 @@ function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => voi
                           <tr key={acc.id} className="border-b border-border last:border-b-0">
                             <td className="p-[8px] text-ink">{acc.name}</td>
                             <td className="mz-num p-[8px] text-ink-muted">{acc.code}</td>
-                            <td className="p-[8px] text-ink-muted">{TREASURY_TYPE_LABEL[acc.type]}</td>
+                            <td className="p-[8px] text-ink-muted">{t(TREASURY_TYPE_KEY[acc.type])}</td>
                             <td className="mz-num p-[8px] text-end text-ink">{acc.openingBalance}</td>
                           </tr>
                         ))}
@@ -581,16 +588,17 @@ function BranchDetail({ branch, onBack }: { branch: BranchDTO; onBack: () => voi
             </div>
           ),
         },
-        { key: "inventory", label: "المخزون", content: <BranchInventoryTab branch={branch} /> },
-        { key: "employees", label: "الموظفون", content: <BranchEmployeesTab branch={branch} /> },
-        { key: "assets", label: "الأصول", content: <BranchAssetsTab branch={branch} /> },
-        { key: "activity", label: "النشاط", content: <BranchActivityTab branch={branch} /> },
+        { key: "inventory", label: t("branches.stock"), content: <BranchInventoryTab branch={branch} /> },
+        { key: "employees", label: t("branches.employees"), content: <BranchEmployeesTab branch={branch} /> },
+        { key: "assets", label: t("branches.assets2"), content: <BranchAssetsTab branch={branch} /> },
+        { key: "activity", label: t("branches.activity"), content: <BranchActivityTab branch={branch} /> },
       ]}
     />
   );
 }
 
 export function BranchesPage() {
+  const { t } = useAppTranslation();
   const query = useBranches();
   const createBranchMutation = useCreateBranch();
   const branches = query.data ?? [];
@@ -609,14 +617,14 @@ export function BranchesPage() {
   }, [branches, search]);
 
   const columns: DocumentListColumn<BranchDTO>[] = [
-    { key: "name", header: "اسم الفرع", render: (b) => <span className="font-semibold text-ink">{b.name}</span> },
-    { key: "code", header: "رمز الفرع", render: (b) => <span className="mz-num">{b.code}</span> },
-    { key: "parent", header: "الفرع الرئيسي", render: (b) => (b.isMain ? "—" : branchName(b.parentBranchId ?? "", branches)) },
-    { key: "phone", header: "الهاتف", render: (b) => b.phone ?? "—" },
+    { key: "name", header: t("branches.branchName"), render: (b) => <span className="font-semibold text-ink">{b.name}</span> },
+    { key: "code", header: t("branches.branchCode2"), render: (b) => <span className="mz-num">{b.code}</span> },
+    { key: "parent", header: t("branches.headBranch"), render: (b) => (b.isMain ? "—" : branchName(b.parentBranchId ?? "", branches)) },
+    { key: "phone", header: t("common.phone"), render: (b) => b.phone ?? "—" },
     {
       key: "status",
-      header: "الحالة",
-      render: (b) => <StatusPill label={b.active ? "نشط" : "غير نشط"} tone={(b.active ? "success" : "neutral") as PillTone} />,
+      header: t("common.status"),
+      render: (b) => <StatusPill label={b.active ? t("common.active") : t("common.inactive")} tone={(b.active ? "success" : "neutral") as PillTone} />,
     },
   ];
 
@@ -635,16 +643,16 @@ export function BranchesPage() {
       setPanelOpen(false);
       setForm({ code: "", name: "", phone: "", email: "", address: "", isMain: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر إنشاء الفرع");
+      setError(err instanceof Error ? err.message : t("branches.couldNotCreateTheBranch"));
     }
   }
 
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفروع.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("branches.couldNotLoadTheBranches")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -658,21 +666,21 @@ export function BranchesPage() {
     <>
       <DocumentList<BranchDTO>
         eyebrow="Settings · Branches"
-        title="الفروع"
-        description="إدارة فروع المنشأة — لكل فرع مخزونه وحساباته الخزينة وموظفوه الخاصون"
+        title={t("branches.branches")}
+        description={t("branches.manageTheCompanySBranches")}
         actions={
           <Button variant="primary" onClick={() => setPanelOpen(true)}>
-            إضافة فرع
+            {t("branches.addABranch")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الفروع", value: <span className="mz-num">{branches.length}</span> },
-          { label: "الفرع الرئيسي", value: <span className="mz-num">{branches.filter((b) => b.isMain).length}</span> },
-          { label: "نشط", value: <span className="mz-num">{branches.filter((b) => b.active).length}</span> },
+          { label: t("branches.totalBranches"), value: <span className="mz-num">{branches.length}</span> },
+          { label: t("branches.headBranch"), value: <span className="mz-num">{branches.filter((b) => b.isMain).length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{branches.filter((b) => b.active).length}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث باسم الفرع أو الرمز…"
+        searchPlaceholder={t("branches.searchByBranchNameOr")}
         columns={columns}
         rows={filtered}
         rowKey={(b) => b.id}
@@ -681,25 +689,25 @@ export function BranchesPage() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{branches.length}</span> فرع
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{branches.length}</span> {t("branches.branch")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد فروع مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("branches.noMatchingBranches")}</div>}
       />
 
-      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="إضافة فرع" description="بيانات الفرع الأساسية">
+      <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("branches.addABranch")} description={t("branches.coreBranchDetails")}>
         <div className="flex flex-col gap-[14px]">
           {error ? <StatusPill label={error} tone="danger" /> : null}
-          <TextField label="اسم الفرع" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
-          <TextField label="رمز الفرع" value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v }))} placeholder="ALEX" />
-          <TextField label="الهاتف" type="tel" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
-          <TextField label="البريد الإلكتروني" type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
-          <TextField label="العنوان" value={form.address} onChange={(v) => setForm((f) => ({ ...f, address: v }))} />
-          <ToggleField label="فرع رئيسي" checked={form.isMain} onChange={(v) => setForm((f) => ({ ...f, isMain: v }))} />
+          <TextField label={t("branches.branchName")} value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
+          <TextField label={t("branches.branchCode2")} value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v }))} placeholder="ALEX" />
+          <TextField label={t("common.phone")} type="tel" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} />
+          <TextField label={t("common.email")} type="email" value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} />
+          <TextField label={t("branches.address")} value={form.address} onChange={(v) => setForm((f) => ({ ...f, address: v }))} />
+          <ToggleField label={t("branches.headBranch2")} checked={form.isMain} onChange={(v) => setForm((f) => ({ ...f, isMain: v }))} />
           <div className="flex justify-end gap-[9px]">
-            <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+            <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
             <Button variant="primary" onClick={submitNewBranch}>
-              حفظ الفرع
+              {t("branches.saveTheBranch")}
             </Button>
           </div>
         </div>

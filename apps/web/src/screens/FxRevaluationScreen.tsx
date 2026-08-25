@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatCard, Chip, Button, VarianceBeam, type DocumentListColumn } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatCard, Chip, Button, VarianceBeam, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import type { FxRevaluationDetailDTO } from "@mezan/contracts";
 import { nextDay } from "@mezan/domain";
 import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 function fmt(value: string, digits = 2): string {
-  return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+  return formatNumber(Number(value), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 const CURRENCIES = ["USD", "EUR", "SAR", "AED", "QAR", "KWD", "GBP"];

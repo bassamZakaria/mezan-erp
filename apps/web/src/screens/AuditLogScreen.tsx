@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
 import { useAuditLog } from "../data/platform-hooks";
 import { useBranches } from "../data/hooks";
@@ -47,10 +47,10 @@ const SEVERITY_OPTION_KEYS: { value: string; key: AppTranslationKey }[] = [
   { value: "INFO", key: "audit.info" },
 ];
 
-function formatTimestamp(iso: string): string {
+function formatTimestamp(iso: string, locale: Locale): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("ar-EG", { dateStyle: "medium", timeStyle: "short" });
+  return formatDateTime(d, { locale });
 }
 
 interface Filters {
@@ -78,7 +78,7 @@ const BLANK_FILTERS: Filters = {
 };
 
 export function AuditLogScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const branchesQuery = useBranches();
   const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const [filters, setFilters] = useState<Filters>(BLANK_FILTERS);
@@ -120,7 +120,7 @@ export function AuditLogScreen() {
       {
         key: "timestamp",
         header: t("audit.dateAndTime"),
-        render: (e) => <span className="mz-num text-ink-muted">{formatTimestamp(e.timestamp)}</span>,
+        render: (e) => <span className="mz-num text-ink-muted">{formatTimestamp(e.timestamp, locale)}</span>,
       },
       {
         key: "stream",
@@ -239,7 +239,7 @@ export function AuditLogScreen() {
             <dl className="flex flex-col gap-[8px] text-[13px]">
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("audit.dateAndTime")}</dt>
-                <dd className="mz-num text-ink">{formatTimestamp(selected.timestamp)}</dd>
+                <dd className="mz-num text-ink">{formatTimestamp(selected.timestamp, locale)}</dd>
               </div>
               <div className="flex items-center justify-between">
                 <dt className="text-ink-muted">{t("common.type")}</dt>

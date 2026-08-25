@@ -1,4 +1,4 @@
-import { FulcrumRule, Button, Card, StatusPill } from "@mezan/ui";
+import { FulcrumRule, Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
 import { useSystemStatus, type ServiceStateDTO } from "../../data/hub-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
@@ -41,7 +41,7 @@ const RECENT_CHANGES: { date: string; summaryKey: AppTranslationKey }[] = [
 ];
 
 export function SystemStatusScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useSystemStatus();
   const status = query.data;
   const services = status?.services ?? [];
@@ -76,7 +76,7 @@ export function SystemStatusScreen() {
             tone={query.isLoading ? "neutral" : allOperational ? "success" : "danger"}
           />
           {status ? (
-            <span className="mz-num text-[11.5px] text-ink-faint">{t("systemStatus.lastChecked")} {new Date(status.checkedAt).toLocaleTimeString("ar-EG")}</span>
+            <span className="mz-num text-[11.5px] text-ink-faint">{t("systemStatus.lastChecked")} {formatTime(status.checkedAt, { locale, withSeconds: true })}</span>
           ) : null}
         </Card>
       )}

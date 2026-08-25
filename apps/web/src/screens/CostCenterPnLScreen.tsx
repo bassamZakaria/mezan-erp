@@ -1,12 +1,12 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatCard, Card, Button, type DocumentListColumn } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatCard, Card, Button, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
-  return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatNumber(Number(value), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**

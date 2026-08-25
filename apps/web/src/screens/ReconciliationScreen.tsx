@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 
 function fmt(value: string): string {
-  return Number(value).toLocaleString("ar-EG", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return formatNumber(Number(value), { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 /**

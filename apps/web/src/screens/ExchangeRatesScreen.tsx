@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { FulcrumRule, DocumentList, StatusPill, Chip, Card, Button, formatNumber, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -57,7 +57,7 @@ export function ExchangeRatesScreen() {
 
   const columns: DocumentListColumn<ExchangeRateDTO>[] = [
     { key: "pair", header: t("fxRates.currencyPair"), render: (r) => <span className="font-semibold text-ink">{r.currency} / EGP</span> },
-    { key: "rate", header: t("fxRates.rate"), render: (r) => <span className="mz-num text-ink">{Number(r.rate).toLocaleString("ar-EG", { minimumFractionDigits: 4, maximumFractionDigits: 6 })}</span> },
+    { key: "rate", header: t("fxRates.rate"), render: (r) => <span className="mz-num text-ink">{formatNumber(Number(r.rate), { minimumFractionDigits: 4, maximumFractionDigits: 6 })}</span> },
     { key: "date", header: t("fxRates.effectiveFrom"), render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
     { key: "source", header: t("fxRates.source"), render: (r) => <span className="text-ink-muted">{r.source === "manual" ? t("fxRates.manual") : t("fxRates.automatic")}</span> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },

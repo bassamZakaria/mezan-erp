@@ -3,7 +3,15 @@
  * side-effect-free so they're trivial to unit test without React.
  */
 
+import { DEFAULT_LOCALE, type Locale } from "../i18n/locale";
+
 export type NumeralSystem = "western" | "arabic";
+
+/**
+ * `Intl` needs a REGION to pick Egyptian month names and a 12-hour clock; the
+ * app's locale codes carry only the language.
+ */
+const INTL_LOCALE: Record<Locale, string> = { ar: "ar-EG", en: "en-GB" };
 
 const EASTERN_ARABIC_DIGITS = ["٠", "١", "٢", "٣", "٤", "٥", "٦", "٧", "٨", "٩"] as const;
 
@@ -74,11 +82,12 @@ export interface FormatDateOptions {
   numerals?: NumeralSystem;
   /** "short" = 10/08/2026 (numeric, matches document metadata in the mockup). "long" = الجمعة، ٢١ أغسطس ٢٠٢٦ */
   style?: DateFormatStyle;
+  locale?: Locale;
 }
 
 /** Formats a date honoring western or Eastern Arabic-Indic numerals. */
 export function formatDate(value: Date | string, options: FormatDateOptions = {}): string {
-  const { numerals = "western", style = "short" } = options;
+  const { numerals = "western", style = "short", locale = DEFAULT_LOCALE } = options;
   const date = typeof value === "string" ? new Date(value) : value;
 
   if (style === "short") {
@@ -90,11 +99,41 @@ export function formatDate(value: Date | string, options: FormatDateOptions = {}
 
   // "-u-nu-latn" pins western digits so we control the arabic-numeral
   // conversion ourselves (deterministic across ICU builds).
-  const formatted = new Intl.DateTimeFormat("ar-EG-u-nu-latn", {
+  const formatted = new Intl.DateTimeFormat(`${INTL_LOCALE[locale]}-u-nu-latn`, {
     weekday: "long",
     day: "numeric",
     month: "long",
     year: "numeric",
+  }).format(date);
+  return applyNumerals(formatted, numerals);
+}
+
+export interface FormatDateTimeOptions {
+  numerals?: NumeralSystem;
+  locale?: Locale;
+  /** Adds the seconds field — for a "last checked at" style readout. */
+  withSeconds?: boolean;
+}
+
+/** A clock time in the active locale, e.g. "7:08:33 PM" / "٧:٠٨:٣٣ م". */
+export function formatTime(value: Date | string | number, options: FormatDateTimeOptions = {}): string {
+  const { numerals = "western", locale = DEFAULT_LOCALE, withSeconds = false } = options;
+  const date = typeof value === "string" || typeof value === "number" ? new Date(value) : value;
+  const formatted = new Intl.DateTimeFormat(`${INTL_LOCALE[locale]}-u-nu-latn`, {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(withSeconds ? { second: "2-digit" as const } : {}),
+  }).format(date);
+  return applyNumerals(formatted, numerals);
+}
+
+/** A date and a time together, e.g. "10 Aug 2026, 7:08 PM". */
+export function formatDateTime(value: Date | string, options: FormatDateTimeOptions = {}): string {
+  const { numerals = "western", locale = DEFAULT_LOCALE } = options;
+  const date = typeof value === "string" ? new Date(value) : value;
+  const formatted = new Intl.DateTimeFormat(`${INTL_LOCALE[locale]}-u-nu-latn`, {
+    dateStyle: "medium",
+    timeStyle: "short",
   }).format(date);
   return applyNumerals(formatted, numerals);
 }

@@ -3,9 +3,11 @@
 export { cn, type ClassValue } from "./lib/cn";
 export {
   formatDate,
+  formatDateTime,
   formatMoney,
   formatNumber,
   formatQty,
+  formatTime,
   toArabicDigits,
   type DateFormatStyle,
   type NumeralSystem,

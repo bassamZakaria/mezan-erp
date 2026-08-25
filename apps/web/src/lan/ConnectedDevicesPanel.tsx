@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, StatusPill } from "@mezan/ui";
+import { Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
 import type { DeviceSessionDTO, LanSessionsListDTO, LanStatusDTO } from "@mezan/contracts";
 import { useAppTranslation } from "../i18n";
 
@@ -23,8 +23,8 @@ export interface ConnectedDevicesPanelProps {
   pollIntervalMs?: number;
 }
 
-function formatTime(epochMs: number): string {
-  return new Date(epochMs).toLocaleTimeString("ar-EG", { hour: "2-digit", minute: "2-digit" });
+function clockTime(epochMs: number, locale: Locale): string {
+  return formatTime(epochMs, { locale });
 }
 
 export function ConnectedDevicesPanel({
@@ -32,7 +32,7 @@ export function ConnectedDevicesPanel({
   fetchImpl = fetch,
   pollIntervalMs = 5000,
 }: ConnectedDevicesPanelProps) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [status, setStatus] = useState<LanStatusDTO | null>(null);
   const [sessions, setSessions] = useState<DeviceSessionDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -142,8 +142,8 @@ export function ConnectedDevicesPanel({
               sessions.map((session) => (
                 <tr key={session.sessionId} className="border-b border-border last:border-b-0">
                   <td className="p-[8px] font-semibold text-ink">{session.deviceLabel}</td>
-                  <td className="p-[8px] mz-num text-ink-muted">{formatTime(session.connectedAt)}</td>
-                  <td className="p-[8px] mz-num text-ink-muted">{formatTime(session.lastSeenAt)}</td>
+                  <td className="p-[8px] mz-num text-ink-muted">{clockTime(session.connectedAt, locale)}</td>
+                  <td className="p-[8px] mz-num text-ink-muted">{clockTime(session.lastSeenAt, locale)}</td>
                   <td className="p-[8px]">
                     <Button
                       variant="danger-outline"

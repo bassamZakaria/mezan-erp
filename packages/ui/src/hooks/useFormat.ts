@@ -2,9 +2,11 @@ import { useCallback, useMemo } from "react";
 import { useUiTranslation } from "../i18n";
 import {
   formatDate,
+  formatDateTime,
   formatMoney,
   formatNumber,
   formatQty,
+  formatTime,
   type DateFormatStyle,
   type NumeralSystem,
 } from "../lib/format";
@@ -25,6 +27,10 @@ export interface UseFormatResult {
   /** Quantity, trailing zeros trimmed — the API carries six decimal places. */
   qty: (value: number) => string;
   date: (value: Date | string, style?: DateFormatStyle) => string;
+  /** Clock time in the active locale. */
+  time: (value: Date | string | number, withSeconds?: boolean) => string;
+  /** Date and time together, in the active locale. */
+  dateTime: (value: Date | string) => string;
   currencyLabel: string;
 }
 
@@ -35,19 +41,24 @@ export interface UseFormatResult {
  */
 export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
   const numerals = options.numerals ?? "western";
-  const { t } = useUiTranslation();
+  const { t, locale } = useUiTranslation();
   const currencyLabel = options.currencyLabel ?? t("ui.currency");
 
   const money = useCallback((value: number) => formatMoney(value, { numerals }), [numerals]);
   const number = useCallback((value: number) => formatNumber(value, { numerals }), [numerals]);
   const qty = useCallback((value: number) => formatQty(value, { numerals }), [numerals]);
   const date = useCallback(
-    (value: Date | string, style: DateFormatStyle = "short") => formatDate(value, { numerals, style }),
-    [numerals],
+    (value: Date | string, style: DateFormatStyle = "short") => formatDate(value, { numerals, style, locale }),
+    [numerals, locale],
   );
+  const time = useCallback(
+    (value: Date | string | number, withSeconds = false) => formatTime(value, { numerals, locale, withSeconds }),
+    [numerals, locale],
+  );
+  const dateTime = useCallback((value: Date | string) => formatDateTime(value, { numerals, locale }), [numerals, locale]);
 
   return useMemo(
-    () => ({ numerals, money, number, qty, date, currencyLabel }),
-    [numerals, money, number, qty, date, currencyLabel],
+    () => ({ numerals, money, number, qty, date, time, dateTime, currencyLabel }),
+    [numerals, money, number, qty, date, time, dateTime, currencyLabel],
   );
 }

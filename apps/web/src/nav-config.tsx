@@ -19,13 +19,15 @@ interface NavGroupSpec {
 }
 
 const navGroupSpecs: readonly NavGroupSpec[] = [
-  { key: "workflow", itemKeys: ["approvals"] },
+  { key: "workflow", defaultCollapsed: true, itemKeys: ["approvals"] },
   {
     key: "sales",
+    defaultCollapsed: true,
     itemKeys: ["sales-hub", "customers", "quotes", "sales-invoices", "sales-returns", "price-lists", "promotions"],
   },
   {
     key: "purchases",
+    defaultCollapsed: true,
     itemKeys: [
       "purchases-hub",
       "vendors",
@@ -39,6 +41,7 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
   },
   {
     key: "inventory",
+    defaultCollapsed: true,
     itemKeys: [
       "inventory-hub",
       "items",
@@ -55,10 +58,12 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
   },
   {
     key: "manufacturing",
+    defaultCollapsed: true,
     itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "boms", "custom-manufacturing"],
   },
   {
     key: "accounting",
+    defaultCollapsed: true,
     itemKeys: [
       "accounting-hub",
       "coa",
@@ -77,15 +82,18 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
   },
   {
     key: "treasury",
+    defaultCollapsed: true,
     itemKeys: ["treasury-hub", "treasury-accounts", "treasury-vouchers", "bank-reconciliation"],
   },
-  { key: "financial-papers", itemKeys: ["cheques"] },
+  { key: "financial-papers", defaultCollapsed: true, itemKeys: ["cheques"] },
   {
     key: "crm",
+    defaultCollapsed: true,
     itemKeys: ["crm-hub", "leads", "opportunities", "pipeline", "pipeline-stages", "crm-activities"],
   },
   {
     key: "hr",
+    defaultCollapsed: true,
     itemKeys: [
       "hr-dashboard",
       "employees",
@@ -103,12 +111,21 @@ const navGroupSpecs: readonly NavGroupSpec[] = [
       "my-leave",
     ],
   },
-  { key: "projects", itemKeys: ["projects"] },
-  { key: "assets", itemKeys: ["assets-hub", "asset-register", "depreciation-runs", "asset-categories"] },
-  { key: "field", itemKeys: ["van-trips"] },
-  { key: "installments", itemKeys: ["installment-plans", "installment-follow-ups"] },
+  { key: "projects", defaultCollapsed: true, itemKeys: ["projects"] },
+  {
+    key: "assets",
+    defaultCollapsed: true,
+    itemKeys: ["assets-hub", "asset-register", "depreciation-runs", "asset-categories"],
+  },
+  { key: "field", defaultCollapsed: true, itemKeys: ["van-trips"] },
+  {
+    key: "installments",
+    defaultCollapsed: true,
+    itemKeys: ["installment-plans", "installment-follow-ups"],
+  },
   {
     key: "reports",
+    defaultCollapsed: true,
     itemKeys: [
       "report-sales-by-period",
       "report-sales-by-item",

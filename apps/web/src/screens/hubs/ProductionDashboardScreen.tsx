@@ -2,6 +2,7 @@ import { FulcrumRule, Button, Card, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard, type ProductionBucketOrderDTO } from "../../data/hub-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * لوحة الإنتاج (docs/catalog/07 §"لوحة الإنتاج") — the reference app's
@@ -11,12 +12,12 @@ import type { ScreenKey } from "../../App";
  * screen is purely a render of that response.
  */
 
-const PRIORITY_LABEL: Record<string, string> = { low: "منخفضة", normal: "عادية", high: "عالية" };
-const NEXT_ACTION_LABEL: Record<string, string> = {
-  start: "بدء التنفيذ",
-  issue: "صرف المواد",
-  receive: "استلام المنتج",
-  complete: "إنهاء الأمر",
+const PRIORITY_KEY: Record<string, AppTranslationKey> = { low: "production.low", normal: "production.normal", high: "production.high" };
+const NEXT_ACTION_KEY: Record<string, AppTranslationKey> = {
+  start: "production.startIt",
+  issue: "production.issueTheMaterials",
+  receive: "production.receiveTheProduct",
+  complete: "production.closeTheOrder",
 };
 
 function num(value: string | undefined): number {
@@ -24,6 +25,7 @@ function num(value: string | undefined): number {
 }
 
 function BucketList({ title, orders }: { title: string; orders: readonly ProductionBucketOrderDTO[] }) {
+  const { t } = useAppTranslation();
   return (
     <Card className="p-[16px_18px]">
       <div className="flex items-center justify-between">
@@ -36,22 +38,23 @@ function BucketList({ title, orders }: { title: string; orders: readonly Product
             <li key={o.id} className="rounded-md border border-border bg-surface-2 p-[9px_11px]">
               <div className="flex items-center justify-between gap-[8px]">
                 <span className="mz-lat text-[12px] font-semibold text-ink">{o.number}</span>
-                {o.overdue ? <StatusPill label="متأخر" tone="danger" /> : null}
+                {o.overdue ? <StatusPill label={t("production.late")} tone="danger" /> : null}
               </div>
               <div className="mt-[3px] text-[11px] text-ink-faint">
-                <span className="mz-num">{num(o.producedQty)}</span>/<span className="mz-num">{num(o.plannedQty)}</span> · أولوية {PRIORITY_LABEL[o.priority] ?? o.priority}
+                <span className="mz-num">{num(o.producedQty)}</span>/<span className="mz-num">{num(o.plannedQty)}</span> {t("production.priority")} {PRIORITY_KEY[o.priority] ? t(PRIORITY_KEY[o.priority]!) : o.priority}
               </div>
             </li>
           ))}
         </ul>
       ) : (
-        <p className="mt-[10px] text-[12px] text-ink-muted">لا توجد أوامر في هذه المرحلة.</p>
+        <p className="mt-[10px] text-[12px] text-ink-muted">{t("production.noOrdersAreAtThis")}</p>
       )}
     </Card>
   );
 }
 
 export function ProductionDashboardScreen() {
+  const { t } = useAppTranslation();
   const { navigate } = useNavigation();
   const query = useManufacturingDashboard();
   const dashboard = query.data;
@@ -61,15 +64,15 @@ export function ProductionDashboardScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">Manufacturing · Production</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">لوحة الإنتاج</h1>
-          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">حالة أوامر التصنيع الحية — محسوبة من نفس مستودع أوامر التصنيع الفعلي</p>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("production.productionDashboard")}</h1>
+          <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("production.theLiveStateOfThe")}</p>
         </div>
         <div className="flex flex-wrap gap-[8px]">
           <Button size="sm" variant="primary" onClick={() => navigate("work-orders")}>
-            أوامر التصنيع
+            {t("production.workOrders")}
           </Button>
           <Button size="sm" onClick={() => navigate("boms")}>
-            قوائم المواد
+            {t("production.billsOfMaterials")}
           </Button>
         </div>
       </div>
@@ -79,28 +82,28 @@ export function ProductionDashboardScreen() {
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل لوحة الإنتاج.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("production.couldNotLoadTheProduction")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">أوامر نشطة</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.activeOrders")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink mz-num">{query.isLoading ? "—" : dashboard?.kpis.activeWorkOrders}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">قيمة الإنتاج تحت التشغيل</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.workInProgressValue")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink"><Money value={num(dashboard?.kpis.wipValue)} /></div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">الوحدات المنتجة هذا الشهر</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.unitsProducedThisMonth")}</div>
           <div className="mt-2 font-display text-[25px] font-bold text-ink mz-num">{query.isLoading ? "—" : num(dashboard?.kpis.unitsProducedThisMonth)}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[16px_18px] shadow-1">
-          <div className="text-[11.5px] font-semibold text-ink-muted">أوامر متأخرة</div>
+          <div className="text-[11.5px] font-semibold text-ink-muted">{t("production.lateOrders")}</div>
           <div className={`mt-2 font-display text-[25px] font-bold mz-num ${dashboard && dashboard.overdueCount > 0 ? "text-danger-ink" : "text-ink"}`}>
             {query.isLoading ? "—" : dashboard?.overdueCount}
           </div>
@@ -108,25 +111,25 @@ export function ProductionDashboardScreen() {
       </div>
 
       <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-3">
-        <BucketList title="بانتظار صرف المواد" orders={dashboard?.buckets.awaitingMaterialIssue ?? []} />
-        <BucketList title="بانتظار استلام المنتج" orders={dashboard?.buckets.awaitingProductReceipt ?? []} />
-        <BucketList title="جاهزة للإنهاء" orders={dashboard?.buckets.readyToComplete ?? []} />
+        <BucketList title={t("production.waitingOnMaterials")} orders={dashboard?.buckets.awaitingMaterialIssue ?? []} />
+        <BucketList title={t("production.waitingOnTheProduct")} orders={dashboard?.buckets.awaitingProductReceipt ?? []} />
+        <BucketList title={t("production.readyToClose")} orders={dashboard?.buckets.readyToComplete ?? []} />
       </div>
 
       <Card className="overflow-hidden">
         <div className="border-b border-border p-[16px_18px]">
-          <h3 className="font-display text-[14.5px] font-bold text-ink">جميع الأوامر النشطة</h3>
+          <h3 className="font-display text-[14.5px] font-bold text-ink">{t("production.everyActiveOrder")}</h3>
         </div>
         {dashboard && dashboard.activeOrders.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-[12.5px]">
               <thead>
                 <tr className="border-b border-border text-start text-[11px] text-ink-faint">
-                  <th className="p-[10px_16px] text-start font-semibold">الأمر</th>
-                  <th className="p-[10px_16px] text-start font-semibold">التقدّم</th>
-                  <th className="p-[10px_16px] text-start font-semibold">الأولوية</th>
-                  <th className="p-[10px_16px] text-start font-semibold">الموعد المجدول</th>
-                  <th className="p-[10px_16px] text-start font-semibold">الإجراء التالي</th>
+                  <th className="p-[10px_16px] text-start font-semibold">{t("production.order")}</th>
+                  <th className="p-[10px_16px] text-start font-semibold">{t("production.progress")}</th>
+                  <th className="p-[10px_16px] text-start font-semibold">{t("production.priority2")}</th>
+                  <th className="p-[10px_16px] text-start font-semibold">{t("production.due")}</th>
+                  <th className="p-[10px_16px] text-start font-semibold">{t("production.nextStep")}</th>
                 </tr>
               </thead>
               <tbody>
@@ -134,18 +137,18 @@ export function ProductionDashboardScreen() {
                   <tr key={o.id} className="border-b border-border last:border-b-0">
                     <td className="p-[10px_16px]">
                       <span className="mz-lat font-semibold text-ink">{o.number}</span>
-                      {o.overdue ? <span className="ms-[8px]"><StatusPill label="متأخر" tone="danger" /></span> : null}
+                      {o.overdue ? <span className="ms-[8px]"><StatusPill label={t("production.late")} tone="danger" /></span> : null}
                     </td>
                     <td className="p-[10px_16px]">
                       <span className="mz-num">{Math.round(o.progress * 100)}%</span>
                       <span className="mz-num text-ink-faint"> ({num(o.producedQty)}/{num(o.plannedQty)})</span>
                     </td>
-                    <td className="p-[10px_16px] text-ink-muted">{PRIORITY_LABEL[o.priority] ?? o.priority}</td>
+                    <td className="p-[10px_16px] text-ink-muted">{PRIORITY_KEY[o.priority] ? t(PRIORITY_KEY[o.priority]!) : o.priority}</td>
                     <td className="p-[10px_16px] mz-num text-ink-muted">{o.scheduledEndDate ?? "—"}</td>
                     <td className="p-[10px_16px]">
                       {o.nextAction ? (
                         <Button size="sm" onClick={() => navigate("work-orders")}>
-                          {NEXT_ACTION_LABEL[o.nextAction]}
+                          {NEXT_ACTION_KEY[o.nextAction] ? t(NEXT_ACTION_KEY[o.nextAction]!) : o.nextAction}
                         </Button>
                       ) : (
                         <span className="text-ink-faint">—</span>
@@ -157,7 +160,7 @@ export function ProductionDashboardScreen() {
             </table>
           </div>
         ) : (
-          <p className="p-[18px_20px] text-[12.5px] text-ink-muted">لا توجد أوامر تصنيع نشطة حالياً.</p>
+          <p className="p-[18px_20px] text-[12.5px] text-ink-muted">{t("production.noWorkOrdersAreActive")}</p>
         )}
       </Card>
     </div>

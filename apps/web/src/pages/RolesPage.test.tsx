@@ -1,8 +1,11 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render as rtlRender, screen, fireEvent } from "@testing-library/react";
 import type { RoleDTO as Role } from "@mezan/contracts";
 import { RolesPage } from "./RolesPage";
+import { AppI18nProvider } from "../i18n";
+
+const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
 
 const role: Role = {
   id: "role-1",

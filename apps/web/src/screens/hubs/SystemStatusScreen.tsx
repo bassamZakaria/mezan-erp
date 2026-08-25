@@ -1,5 +1,6 @@
 import { FulcrumRule, Button, Card, StatusPill } from "@mezan/ui";
 import { useSystemStatus, type ServiceStateDTO } from "../../data/hub-hooks";
+import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
  * حالة النظام (/status). Mezan is a local-first, fully-offline desktop app —
@@ -22,24 +23,25 @@ const STATE_TONE: Record<ServiceStateDTO, "success" | "warning" | "danger" | "ne
   checking: "neutral",
 };
 
-const STATE_LABEL: Record<ServiceStateDTO, string> = {
-  operational: "تعمل بشكل طبيعي",
-  degraded: "أداء متدهور",
-  down: "غير متاحة",
-  checking: "جارٍ الفحص…",
+const STATE_KEY: Record<ServiceStateDTO, AppTranslationKey> = {
+  operational: "systemStatus.runningNormally",
+  degraded: "systemStatus.degraded",
+  down: "systemStatus.unavailable",
+  checking: "systemStatus.checking",
 };
 
 /** Real commits from this repository's own history (`git log --date=short`), not invented release notes. */
-const RECENT_CHANGES: { date: string; summary: string }[] = [
-  { date: "2026-08-23", summary: "تحديث فئات ووحدات الأصناف لتعمل على البيانات الفعلية، وإزالة آخر ملف بيانات تجريبية" },
-  { date: "2026-08-23", summary: "حفظ أرصدة المخزون والتحويلات والتسويات والجرد الفعلي بشكل دائم" },
-  { date: "2026-08-23", summary: "تفعيل الصلاحيات الممنوحة (entitlements) عبر واجهة API حقيقية" },
-  { date: "2026-08-23", summary: "ربط الإعدادات والفروع والمستودعات وهيكل التطبيق بواجهة API الفعلية" },
-  { date: "2026-08-23", summary: "تشغيل ميزان المراجعة وكل القوائم المالية السبع على دفتر الأستاذ الحي" },
-  { date: "2026-08-23", summary: "استعادة الجلسة تلقائياً بعد إعادة تحميل الصفحة، وإصلاح عناصر الواجهة غير الفعّالة" },
+const RECENT_CHANGES: { date: string; summaryKey: AppTranslationKey }[] = [
+  { date: "2026-08-23", summaryKey: "systemStatus.itemCategoriesAndUnitsNow" },
+  { date: "2026-08-23", summaryKey: "systemStatus.stockBalancesTransfersAdjustmentsAnd" },
+  { date: "2026-08-23", summaryKey: "systemStatus.entitlementsAreServedOverA" },
+  { date: "2026-08-23", summaryKey: "systemStatus.settingsBranchesWarehousesAndThe" },
+  { date: "2026-08-23", summaryKey: "systemStatus.theTrialBalanceAndAll" },
+  { date: "2026-08-23", summaryKey: "systemStatus.theSessionSurvivesAPage" },
 ];
 
 export function SystemStatusScreen() {
+  const { t } = useAppTranslation();
   const query = useSystemStatus();
   const status = query.data;
   const services = status?.services ?? [];
@@ -50,14 +52,13 @@ export function SystemStatusScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-eyebrow">System status</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">حالة النظام</h1>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("systemStatus.systemStatus")}</h1>
           <p className="mt-[4px] max-w-[68ch] text-[12.5px] text-ink-muted">
-            ميزان تطبيق سطح مكتب يعمل محلياً بالكامل بدون إنترنت — لا توجد خدمات سحابية لعرض حالتها. الفحوصات هنا حقيقية: استجابة
-            الخادم، وقراءة فعلية من قاعدة بيانات SQLite.
+            {t("systemStatus.mezanIsADesktopApplication")}
           </p>
         </div>
         <Button size="sm" onClick={() => query.refetch()}>
-          إعادة الفحص الآن
+          {t("systemStatus.checkAgainNow")}
         </Button>
       </div>
       <div className="-mt-[18px] -mb-[22px]">
@@ -66,16 +67,16 @@ export function SystemStatusScreen() {
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تشغيل فحوصات حالة النظام.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("systemStatus.couldNotRunTheSystem")}</p>
         </Card>
       ) : (
         <Card className="flex items-center gap-[10px] p-[14px_18px]">
           <StatusPill
-            label={query.isLoading ? "جارٍ الفحص…" : allOperational ? "كل الأنظمة تعمل بشكل طبيعي" : "توجد مشكلة في أحد الأنظمة"}
+            label={query.isLoading ? t("systemStatus.checking") : allOperational ? t("systemStatus.everythingIsRunningNormally") : t("systemStatus.oneOfTheSystemsHas")}
             tone={query.isLoading ? "neutral" : allOperational ? "success" : "danger"}
           />
           {status ? (
-            <span className="mz-num text-[11.5px] text-ink-faint">آخر فحص: {new Date(status.checkedAt).toLocaleTimeString("ar-EG")}</span>
+            <span className="mz-num text-[11.5px] text-ink-faint">{t("systemStatus.lastChecked")} {new Date(status.checkedAt).toLocaleTimeString("ar-EG")}</span>
           ) : null}
         </Card>
       )}
@@ -85,42 +86,41 @@ export function SystemStatusScreen() {
           <Card key={service.key} className="p-[16px_18px]">
             <div className="flex items-center justify-between">
               <span className="text-[13px] font-bold text-ink">{service.label}</span>
-              <StatusPill label={STATE_LABEL[service.state]} tone={STATE_TONE[service.state]} />
+              <StatusPill label={t(STATE_KEY[service.state])} tone={STATE_TONE[service.state]} />
             </div>
             <p className="mt-[8px] text-[11.5px] text-ink-faint">{service.detail}</p>
           </Card>
         ))}
         <Card className="p-[16px_18px]">
           <div className="flex items-center justify-between">
-            <span className="text-[13px] font-bold text-ink">إصدار التطبيق</span>
-            <StatusPill label="معلومة" tone="neutral" />
+            <span className="text-[13px] font-bold text-ink">{t("systemStatus.applicationVersion")}</span>
+            <StatusPill label={t("systemStatus.note")} tone="neutral" />
           </div>
           <p className="mz-num mt-[8px] text-[11.5px] text-ink-faint">
-            {status ? `الإصدار ${status.appVersion}` : "—"} · لا يوجد تحديث تلقائي عبر السحابة — التحديثات تُثبّت محلياً
+            {status ? `الإصدار ${status.appVersion}` : "—"} {t("systemStatus.nothingUpdatesItselfOverThe")}
           </p>
         </Card>
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">سجل الأعطال</h3>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("systemStatus.incidentLog")}</h3>
         <p className="mt-[2px] text-[11.5px] text-ink-faint">
-          لا يوجد نظام لتتبّع الحوادث في هذا التطبيق المحلي — لا يوجد عطل مسجّل هنا لأنه لا توجد بنية سحابية لتُبلغ عن حالتها، وليس
-          لأن الأعطال أُخفيت.
+          {t("systemStatus.thisLocalApplicationHasNo")}
         </p>
         <div className="mt-[12px] rounded-md border border-dashed border-border p-[16px] text-center text-[12.5px] text-ink-muted">
-          لا توجد حوادث مسجّلة
+          {t("systemStatus.noIncidentsRecorded")}
         </div>
       </Card>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">آخر التحديثات</h3>
-        <div className="mt-[2px] text-[11.5px] text-ink-faint">تغييرات حقيقية من سجل المشروع (git log)</div>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("systemStatus.recentUpdates")}</h3>
+        <div className="mt-[2px] text-[11.5px] text-ink-faint">{t("systemStatus.realChangesFromTheProject")}</div>
         <ul className="mt-[12px] flex flex-col gap-[10px]">
           {RECENT_CHANGES.map((change, index) => (
             <li key={index} className="flex items-start gap-[10px]">
               <span aria-hidden className="mt-[6px] h-[6px] w-[6px] flex-none rounded-full bg-brand" />
               <div>
-                <div className="text-[12.5px] text-ink">{change.summary}</div>
+                <div className="text-[12.5px] text-ink">{t(change.summaryKey)}</div>
                 <div className="mz-num mt-[1px] text-[11px] text-ink-faint">{change.date}</div>
               </div>
             </li>

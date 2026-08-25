@@ -17,7 +17,7 @@ import {
 import type { GoodsReceiptDTO, GoodsReceiptStatusDTO } from "@mezan/contracts";
 import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceipts, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
 import { TextField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
@@ -157,16 +157,18 @@ export function GoodsReceiptsScreen() {
     sublabel: o.date,
   }));
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<GoodsReceiptStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   useScreenIntent(() => openCreate());
   const [pickedOrder, setPickedOrder] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [formError, setFormError] = useState<string | null>(null);
 
-  const selected = receipts.find((r) => r.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
 
   // create-from-PO preview only — the server auto-fills the real lines from the PO's outstanding qty on save.
   const previewLines: PreviewLine[] = useMemo(() => {
@@ -209,7 +211,7 @@ export function GoodsReceiptsScreen() {
     setPickedOrder(null);
     setDate(new Date().toISOString().slice(0, 10));
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   async function confirmSelected(id: string) {
@@ -225,14 +227,24 @@ export function GoodsReceiptsScreen() {
     setFormError(null);
     try {
       await createReceipt.mutateAsync({ id: crypto.randomUUID(), purchaseOrderId: pickedOrder.id, date });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("goodsReceipts.error.createFailed"));
     }
   }
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("goodsReceipts.panel.title")} description={t("goodsReceipts.panel.description")}>
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.goodsReceipts")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("goodsReceipts.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("goodsReceipts.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -261,14 +273,16 @@ export function GoodsReceiptsScreen() {
           </div>
         ) : null}
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!pickedOrder || previewLines.length === 0}>
             {t("goodsReceipts.saveDraft")}
           </Button>
         </div>
       </div>
-    </SidePanel>
+    </div>
   );
+
+  if (firstSegment === "new") return createPage;
 
   if (selected) {
     return (
@@ -278,10 +292,9 @@ export function GoodsReceiptsScreen() {
           order={selected.purchaseOrderId ? orderById.get(selected.purchaseOrderId) : undefined}
           supplierName={supplierName}
           itemName={itemName}
-          onBack={() => setSelectedId(null)}
+          onBack={() => subPage.close()}
           onConfirm={() => confirmSelected(selected.id)}
         />
-        {panel}
       </>
     );
   }
@@ -320,13 +333,12 @@ export function GoodsReceiptsScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(r) => r.id}
-        onRowClick={(r) => setSelectedId(r.id)}
+        onRowClick={(r) => subPage.open(r.number ?? r.id)}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{receipts.length}</span> {t("goodsReceipts.showingSuffix")}</>}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("goodsReceipts.empty")}</div>}
       />
-      {panel}
     </>
   );
 }

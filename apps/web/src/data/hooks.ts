@@ -243,6 +243,10 @@ export interface SalesQuoteLineRecord {
   readonly taxRatePercent?: number;
 }
 
+export type SalesQuoteDiscountRecord =
+  | { readonly type: "percent"; readonly percent: number }
+  | { readonly type: "amount"; readonly amount: string };
+
 export interface SalesQuoteRecord {
   readonly id: string;
   readonly docType: string;
@@ -254,12 +258,24 @@ export interface SalesQuoteRecord {
   readonly customerNameAr: string;
   readonly branchId: string;
   readonly currency: string;
+  readonly customerTaxExempt: boolean;
   readonly notes: string | null;
   readonly internalNotes: string | null;
+  readonly discount: SalesQuoteDiscountRecord;
+  readonly priceListId: string | null;
+  readonly couponCode: string | null;
+  readonly createdAt: string;
+  readonly sentAt: string | null;
+  readonly respondedAt: string | null;
+  readonly convertedAt: string | null;
   readonly convertedInvoiceId: string | null;
   readonly lines: readonly SalesQuoteLineRecord[];
   readonly totals: {
+    readonly grossTotal: string;
+    readonly lineDiscountTotal: string;
+    readonly invoiceDiscountTotal: string;
     readonly subtotal: string;
+    readonly taxableTotal: string;
     readonly taxTotal: string;
     readonly grandTotal: string;
   };
@@ -769,6 +785,10 @@ export function useAcceptSalesQuote() {
 /** رفض العرض (→ مرفوض). */
 export function useRejectSalesQuote() {
   return useSalesQuoteTransition("reject");
+}
+/** إلغاء العرض (→ ملغي) — the route existed with no caller until the quotes screen was rebuilt. */
+export function useCancelSalesQuote() {
+  return useSalesQuoteTransition("cancel");
 }
 
 /** "إنشاء من عرض سعر" — converts an accepted quote into a draft sales invoice. */

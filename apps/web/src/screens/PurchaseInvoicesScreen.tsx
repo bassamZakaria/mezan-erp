@@ -26,7 +26,7 @@ import {
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { TextField, NumberField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<PurchaseInvoiceStatusDTO, AppTranslationKey> = {
@@ -186,10 +186,12 @@ export function PurchaseInvoicesScreen() {
     sublabel: r.date,
   }));
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   useScreenIntent(() => openCreate());
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
@@ -199,7 +201,7 @@ export function PurchaseInvoicesScreen() {
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const selected = invoices.find((inv) => inv.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : (invoices.find((inv) => inv.id === selectedId || inv.number === selectedId) ?? null);
 
   // create-from-receipt preview only — the server auto-fills the real lines from the confirmed receipt when `lines` is omitted.
   const receiptLines: PreviewLine[] = useMemo(() => {
@@ -243,7 +245,7 @@ export function PurchaseInvoicesScreen() {
     setSupplierInvoiceNumber("");
     setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   async function confirmSelected(id: string) {
@@ -300,14 +302,24 @@ export function PurchaseInvoicesScreen() {
           })),
         });
       }
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("purchaseInvoices.error.saveFailed"));
     }
   }
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("purchaseInvoices.panel.title")} description={t("purchaseInvoices.panel.description")}>
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.invoices")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("purchaseInvoices.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("purchaseInvoices.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -399,18 +411,19 @@ export function PurchaseInvoicesScreen() {
         <TextField label={t("purchaseInvoices.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
         <TextField label={t("purchaseInvoices.detail.supplierInvoiceNo")} value={supplierInvoiceNumber} onChange={setSupplierInvoiceNumber} />
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave}>{t("purchaseInvoices.saveDraft")}</Button>
         </div>
       </div>
-    </SidePanel>
+    </div>
   );
+
+  if (firstSegment === "new") return createPage;
 
   if (selected) {
     return (
       <>
-        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
-        {panel}
+        <InvoiceDetail invoice={selected} supplierName={supplierName} itemName={itemName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
       </>
     );
   }
@@ -449,13 +462,12 @@ export function PurchaseInvoicesScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(inv) => inv.id}
-        onRowClick={(inv) => setSelectedId(inv.id)}
+        onRowClick={(inv) => subPage.open(inv.number ?? inv.id)}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{invoices.length}</span> {t("purchaseInvoices.showingSuffix")}</>}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseInvoices.empty")}</div>}
       />
-      {panel}
     </>
   );
 }

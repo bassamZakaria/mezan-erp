@@ -31,7 +31,7 @@ exists because something went wrong without it.
 | Scope, architecture, licensing, competitors | `references/product-and-market.md` |
 | The user's standing preferences and process rules | `references/working-agreement.md` |
 
-## The nine moves that found almost every real defect
+## The ten moves that found almost every real defect
 
 Apply these first — they have the highest yield per minute.
 
@@ -69,6 +69,17 @@ Apply these first — they have the highest yield per minute.
    earnings because no year-end close ever posts it (D34). Both look correct and both
    mean the ledger alone cannot answer the question. When a report computes something
    the books should hold, that is the finding.
+
+10. **Read every form field as "which entity does this bind to?"** A quote line let
+   the user *type* an item name and invented the id `ITEM-1` behind it; the screen
+   still called the real API, still returned 201, still passed typecheck, lint,
+   build and its own tests. Any field naming a domain entity — الصنف، المستودع،
+   الفرع، العميل، المورد، الحساب، مركز التكلفة — must be a picker over that
+   entity's endpoint, and the stored row must carry that entity's **real id**.
+   Check the id in the database, not in the UI: a plausible label is exactly what a
+   fabricated id looks like from the front. Free text where the reference picks an
+   entity is a defect even when everything downstream answers 200.
+
 
 ## Non-negotiables in this codebase
 

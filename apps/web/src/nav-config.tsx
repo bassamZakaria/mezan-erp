@@ -12,13 +12,13 @@ import { navGroupIcon, navItemIcon } from "./nav-icons";
 
 type Translate = (key: AppTranslationKey) => string;
 
-interface NavGroupSpec {
+export interface NavGroupSpec {
   readonly key: string;
   readonly itemKeys: readonly string[];
   readonly defaultCollapsed?: boolean;
 }
 
-const navGroupSpecs: readonly NavGroupSpec[] = [
+export const navGroupSpecs: readonly NavGroupSpec[] = [
   { key: "workflow", itemKeys: ["approvals"] },
   {
     key: "sales",

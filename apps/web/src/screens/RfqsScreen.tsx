@@ -28,6 +28,7 @@ import {
   type RfqComparisonRecord,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { useSubPage } from "../navigation";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -390,10 +391,12 @@ export function RfqsScreen() {
   const createRfqQuote = useCreateRfqQuote();
   const convertRfq = useConvertRfq();
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const [date, setDate] = useState(todayIso());
   const [requiredByDate, setRequiredByDate] = useState("");
   const [notes, setNotes] = useState("");
@@ -405,7 +408,7 @@ export function RfqsScreen() {
     [items],
   );
 
-  const selected = rfqs.find((r) => r.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : (rfqs.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
   const quotesQuery = useRfqQuotes(selectedId);
   const selectedQuotes = quotesQuery.data ?? [];
   const comparisonQuery = useRfqComparison(selectedId);
@@ -448,7 +451,7 @@ export function RfqsScreen() {
     setNotes("");
     setLines([{ itemId: "", qty: 1, notes: "" }]);
     setCreateError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   const canSave = lines.some((l) => l.itemId !== "" && l.qty > 0);
@@ -476,14 +479,24 @@ export function RfqsScreen() {
           notes: l.notes.trim() === "" ? null : l.notes.trim(),
         })),
       });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : String(err));
     }
   }
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("rfqs.panel.title")} description={t("rfqs.panel.description")}>
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.rfqs")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("rfqs.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("rfqs.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       <div className="flex flex-col gap-[14px]">
         <TextField label={t("rfqs.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
         <TextField label={t("rfqs.detail.requiredBy")} value={requiredByDate} onChange={setRequiredByDate} placeholder="YYYY-MM-DD" />
@@ -514,14 +527,16 @@ export function RfqsScreen() {
         <TextField label={t("rfqs.field.generalNotes")} value={notes} onChange={setNotes} />
         {createError ? <div className="rounded-lg bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{createError}</div> : null}
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createRfq.isPending}>
             {t("common.save")}
           </Button>
         </div>
       </div>
-    </SidePanel>
+    </div>
   );
+
+  if (firstSegment === "new") return createPage;
 
   if (selected) {
     return (
@@ -532,14 +547,13 @@ export function RfqsScreen() {
           comparisonQuery={comparisonQuery}
           items={items}
           suppliers={suppliers}
-          onBack={() => setSelectedId(null)}
+          onBack={() => subPage.close()}
           sendRfq={sendRfq}
           closeRfq={closeRfq}
           cancelRfq={cancelRfq}
           createRfqQuote={createRfqQuote}
           convertRfq={convertRfq}
         />
-        {panel}
       </>
     );
   }
@@ -570,7 +584,7 @@ export function RfqsScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(r) => r.id}
-        onRowClick={(r) => setSelectedId(r.id)}
+        onRowClick={(r) => subPage.open(r.number ?? r.id)}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
@@ -580,7 +594,6 @@ export function RfqsScreen() {
           </div>
         }
       />
-      {panel}
     </>
   );
 }

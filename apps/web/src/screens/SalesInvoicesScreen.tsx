@@ -6,7 +6,6 @@ import {
   DocumentDetail,
   Money as MoneyDisplay,
   StatusPill,
-  SidePanel,
   IconButton,
   EntityPicker,
   MoneyInput,
@@ -44,12 +43,12 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, NumberField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
- * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm SidePanel form with live
+ * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
  * totals, wired to the real `/sales-invoices` API (numbering + GL + stock engines). */
 
 /** GL accounts a manually-created invoice falls back to when an item has none configured — leaves of the standard COA (packages/domain/src/accounts/coa-template.ts). */
@@ -97,13 +96,12 @@ function blankLine(): InvoiceLineDraft {
   return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0 };
 }
 
-function CreateInvoicePanel({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+/**
+ * فاتورة مبيعات جديدة — a sub-PAGE at `#/sales/sales-invoices/new`, not a side
+ * panel: a create form is a place you can be, link to and come back to with the
+ * browser's Back button.
+ */
+function CreateInvoicePage({ onClose }: { onClose: () => void }) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -147,8 +145,9 @@ function CreateInvoicePanel({
   }
 
   useEffect(() => {
-    if (open) resetForm();
-  }, [open, warehouses]);
+    resetForm();
+    // Re-seed the default warehouse once the list arrives.
+  }, [warehouses]);
 
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
@@ -271,7 +270,17 @@ function CreateInvoicePanel({
   }
 
   return (
-    <SidePanel open={open} onClose={onClose} title={t("salesInvoices.panel.title")} description={t("salesInvoices.panel.description")}>
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.invoices")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("salesInvoices.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesInvoices.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={onClose}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       <div className="flex flex-col gap-[16px]">
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -463,7 +472,7 @@ function CreateInvoicePanel({
           </Button>
         </div>
       </div>
-    </SidePanel>
+    </div>
   );
 }
 
@@ -728,14 +737,18 @@ export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
   const query = useSalesInvoices();
   const invoices = query.data ?? [];
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | SalesInvoiceStatusDTO>("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
-  useScreenIntent(() => setPanelOpen(true));
+  // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
+  const subPage = useSubPage();
+  useScreenIntent(() => subPage.open("new"));
 
   const today = new Date().toISOString().slice(0, 10);
-  const selected = selectedId ? (invoices.find((inv) => inv.id === selectedId) ?? null) : null;
+  const [firstSegment] = subPage.segments;
+  const selected =
+    firstSegment !== undefined && firstSegment !== "new"
+      ? (invoices.find((inv) => inv.id === firstSegment || inv.docNo === firstSegment) ?? null)
+      : null;
 
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: invoices.length };
@@ -812,10 +825,12 @@ export function SalesInvoicesScreen() {
     },
   ];
 
+  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} />;
+
   return (
     <>
       {selected ? (
-        <InvoiceDetailView invoice={selected} today={today} onBack={() => setSelectedId(null)} />
+        <InvoiceDetailView invoice={selected} today={today} onBack={subPage.close} />
       ) : (
         <div className="w-full">
           {query.isError ? (
@@ -831,7 +846,7 @@ export function SalesInvoicesScreen() {
             title={t("salesInvoices.title")}
             description={t("salesInvoices.description")}
             actions={
-              <Button variant="primary" onClick={() => setPanelOpen(true)}>
+              <Button variant="primary" onClick={() => subPage.open("new")}>
                 {t("salesInvoices.new")}
               </Button>
             }
@@ -850,7 +865,7 @@ export function SalesInvoicesScreen() {
             columns={columns}
             rows={filtered}
             rowKey={(inv) => inv.id}
-            onRowClick={(inv) => setSelectedId(inv.id)}
+            onRowClick={(inv) => subPage.open(inv.docNo ?? inv.id)}
             page={1}
             pageCount={1}
             pageSummary={
@@ -863,7 +878,6 @@ export function SalesInvoicesScreen() {
         </div>
       )}
 
-      <CreateInvoicePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </>
   );
 }

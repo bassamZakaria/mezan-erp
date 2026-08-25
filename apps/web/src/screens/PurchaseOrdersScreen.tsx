@@ -19,7 +19,7 @@ import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseO
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
@@ -153,10 +153,12 @@ export function PurchaseOrdersScreen() {
   const unitLabel = useUnitLabel();
   const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   useScreenIntent(() => openCreate());
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -164,7 +166,7 @@ export function PurchaseOrdersScreen() {
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const selected = orders.find((o) => o.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
 
   const filtered = useMemo(() => {
     let rows = orders;
@@ -199,7 +201,7 @@ export function PurchaseOrdersScreen() {
     setNotes("");
     setLines([{ itemId: "", qty: 1, unitPrice: 0 }]);
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   async function confirmSelected(id: string) {
@@ -233,7 +235,7 @@ export function PurchaseOrdersScreen() {
           .filter((l) => l.itemId !== "" && l.qty > 0)
           .map((l) => ({ itemId: l.itemId, qty: String(l.qty), unitPrice: String(l.unitPrice || 0) })),
       });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("purchaseOrders.error.saveFailed"));
     }
@@ -281,7 +283,7 @@ export function PurchaseOrdersScreen() {
         <MoneyValue value={draftSubtotal} />
       </div>
       <div className="flex justify-end gap-[9px]">
-        <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+        <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={save} disabled={!canSave}>
           {t("purchaseOrders.saveDraft")}
         </Button>
@@ -289,17 +291,28 @@ export function PurchaseOrdersScreen() {
     </div>
   );
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("purchaseOrders.panel.title")} description={t("purchaseOrders.panel.description")}>
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.orders")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("purchaseOrders.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("purchaseOrders.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       {form}
-    </SidePanel>
+    </div>
   );
+
+  if (firstSegment === "new") return createPage;
 
   if (selected) {
     return (
       <>
-        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
-        {panel}
+        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
       </>
     );
   }
@@ -338,13 +351,12 @@ export function PurchaseOrdersScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
-        onRowClick={(o) => setSelectedId(o.id)}
+        onRowClick={(o) => subPage.open(o.number ?? o.id)}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("purchaseOrders.showingSuffix")}</>}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseOrders.empty")}</div>}
       />
-      {panel}
     </>
   );
 }

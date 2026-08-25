@@ -31,7 +31,7 @@ exists because something went wrong without it.
 | Scope, architecture, licensing, competitors | `references/product-and-market.md` |
 | The user's standing preferences and process rules | `references/working-agreement.md` |
 
-## The seven moves that found almost every real defect
+## The nine moves that found almost every real defect
 
 Apply these first — they have the highest yield per minute.
 
@@ -57,7 +57,18 @@ Apply these first — they have the highest yield per minute.
    promising future work are claims to verify against the present.
 7. **Distrust your own instrument first.** A run reported 86 contrast failures; all
    86 were one alpha-parsing bug. Anything that fails on *every* screen is almost
-   always the measurement.
+   always the measurement. Ten of the first twelve failures in the seams scenario
+   suite were the scenario's own wrong field names, not product defects.
+8. **A create route that upserts by id makes every lifecycle state decorative.**
+   `POST /exchange-rates` with an existing id rewrote a **locked** rate and reset its
+   status to pending (D25). Wherever a route persists a caller-supplied id, ask what
+   happens when that id already exists — and what state the overwrite erases.
+9. **A report that is right on screen can be compensating for a ledger that never
+   recorded the fact.** The VAT return derives its rate by dividing tax by base
+   because no posted line carries a rate (D28); the balance sheet derives retained
+   earnings because no year-end close ever posts it (D34). Both look correct and both
+   mean the ledger alone cannot answer the question. When a report computes something
+   the books should hold, that is the finding.
 
 ## Non-negotiables in this codebase
 
@@ -102,6 +113,12 @@ Ask these in order; each maps to a defect that already happened.
    transaction as the insert?
 7. What is the reverse of what you just built — return, void, reversal, unallocate —
    and does it restore both sides?
+8. What **metadata** travels with the posting — currency and rate, tax rate, cost
+   centre, branch? A zod wire schema strips unknown keys, so a dimension the client
+   sends but the contract omits vanishes behind a cheerful `201`: that is how a
+   voucher's cost centre (D26), a payment's withholding (D27) and every foreign
+   currency (D24) disappear. If a report will need it later, the contract must carry
+   it now.
 
 ## Working style the user expects
 

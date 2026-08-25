@@ -34,30 +34,17 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
+import { useAppTranslation } from "../i18n";
+import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
-const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  posted: "مرحل",
-  confirmed: "مؤكد",
-  reversed: "معكوس",
-  cancelled: "ملغي",
-};
-const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
-  draft: "neutral",
-  pending: "warning",
-  posted: "success",
-  confirmed: "success",
-  reversed: "danger",
-  cancelled: "neutral",
-};
 
-const STEPPER_STEPS: DocumentStatusStep[] = [
-  { key: "draft", label: "مسودة" },
-  { key: "confirmed", label: "مؤكد" },
-];
+/** Keys, not copy — the stepper's labels are built with the translator at render. */
+const STEPPER_KEYS = [
+  { key: "draft", labelKey: "docStatus.draft" },
+  { key: "confirmed", labelKey: "docStatus.confirmed" },
+] as const;
 
 function headerOf(doc: StockAdjustmentDocumentDTO): { warehouseId: string; reason: AdjustmentReason } {
   const first = doc.lines[0];
@@ -109,6 +96,7 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
+  const { t } = useAppTranslation();
   const query = useStockAdjustments();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
@@ -154,14 +142,14 @@ export function StockAdjustmentsScreen() {
   const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
       key: "docNo",
-      header: "رقم التسوية",
+      header: t("stockAdj.adjustmentNumber"),
       sortable: true,
       render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>,
     },
-    { key: "date", header: "التاريخ", sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
+    { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     {
       key: "warehouse",
-      header: "المستودع / السبب",
+      header: t("stockAdj.warehouseReason"),
       render: (d) => {
         const { warehouseId, reason } = headerOf(d);
         return (
@@ -171,8 +159,8 @@ export function StockAdjustmentsScreen() {
         );
       },
     },
-    { key: "lines", header: "عدد البنود", align: "end", render: (d) => <span className="mz-num">{d.lines.length}</span> },
-    { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
+    { key: "lines", header: t("stockAdj.lines"), align: "end", render: (d) => <span className="mz-num">{d.lines.length}</span> },
+    { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
   function openDetail(id: string) {
@@ -186,10 +174,10 @@ export function StockAdjustmentsScreen() {
         <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
           <div>
             <div className="mz-eyebrow">Inventory · New Stock Adjustment</div>
-            <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">اختر سبب التسوية</h1>
-            <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">السبب يحدد طريقة إدخال البيانات</p>
+            <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("stockAdj.chooseTheAdjustmentReason")}</h1>
+            <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("stockAdj.theReasonDecidesHowThe")}</p>
           </div>
-          <Button onClick={() => setMode("list")}>إلغاء</Button>
+          <Button onClick={() => setMode("list")}>{t("common.cancel")}</Button>
         </div>
         <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-4">
@@ -234,16 +222,16 @@ export function StockAdjustmentsScreen() {
     return (
       <div className="w-full">
         <DocumentDetail
-          title={selected.docNo ?? "تسوية مخزون"}
-          statusLabel={STATUS_LABEL[selected.status]}
-          statusTone={STATUS_TONE[selected.status]}
-          subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} />}
-          actions={<Button onClick={() => setMode("list")}>رجوع</Button>}
+          title={selected.docNo ?? t("stockAdj.stockAdjustment")}
+          statusLabel={documentStatusLabel(selected.status, t)}
+          statusTone={DOC_STATUS_TONE[selected.status]}
+          subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
+          actions={<Button onClick={() => setMode("list")}>{t("common.back")}</Button>}
           summary={[
-            { label: "المستودع", value: warehouseLabel(warehouseId) },
-            { label: "السبب", value: def.labelAr },
-            { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
-            { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
+            { label: t("common.warehouse"), value: warehouseLabel(warehouseId) },
+            { label: t("stockAdj.reason"), value: def.labelAr },
+            { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
+            { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
           effects={effects.effects.map((e) => (
             <span key={e.description}>
@@ -254,12 +242,12 @@ export function StockAdjustmentsScreen() {
           tabs={[
             {
               key: "lines",
-              label: "بنود التسوية",
+              label: t("stockAdj.adjustmentLines"),
               content: <AdjustmentLinesTable doc={selected} itemLabel={itemLabel} />,
             },
             {
               key: "gl",
-              label: "المحاسبة",
+              label: t("stockAdj.accounting"),
               content: <AdjustmentGlTab docId={selected.id} />,
             },
           ]}
@@ -271,9 +259,9 @@ export function StockAdjustmentsScreen() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تسويات المخزون.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("stockAdj.stockAdjustmentsCouldNotBe")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -283,28 +271,28 @@ export function StockAdjustmentsScreen() {
     <div className="w-full">
       <DocumentList<StockAdjustmentDocumentDTO>
         eyebrow="Inventory · Stock Adjustments"
-        title="تسويات المخزون"
-        description="مسودة ← مؤكد — تسويات تُغيّر كمية المخزون وربما قيمته، على إطار المستندات الموحّد"
+        title={t("stockAdj.stockAdjustments")}
+        description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
         actions={
           <Button variant="primary" onClick={() => setMode("reason")}>
-            تسوية جديدة
+            {t("stockAdj.newAdjustment")}
           </Button>
         }
         stats={[
-          { label: "إجمالي التسويات", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
-          { label: "مؤكد", value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: counts.all },
-          { key: "draft", label: "مسودة", count: counts.draft },
-          { key: "confirmed", label: "مؤكد", count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم التسوية..."
+        searchPlaceholder={t("stockAdj.searchByAdjustmentNumber")}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -313,10 +301,10 @@ export function StockAdjustmentsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> تسوية
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockAdj.adjustments")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد تسويات مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockAdj.noMatchingAdjustments")}</div>}
       />
     </div>
   );
@@ -327,17 +315,18 @@ export function StockAdjustmentsScreen() {
 /* -------------------------------------------------------------------- */
 
 function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocumentDTO; itemLabel: (id: string) => string }) {
+  const { t } = useAppTranslation();
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
         <table className="w-full min-w-[600px] border-collapse text-[13px]">
           <thead>
             <tr>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الاتجاه</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الكمية</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">سعر التكلفة</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">القيمة</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.direction")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.qty")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.costPrice")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.value")}</th>
             </tr>
           </thead>
           <tbody>
@@ -347,11 +336,11 @@ function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocument
                 <tr key={i} className="border-b border-border last:border-b-0">
                   <td className="px-[15px] py-[11px] text-ink">{itemLabel(l.itemId)}</td>
                   <td className="px-[15px] py-[11px]">
-                    <StatusPill label={l.direction === "IN" ? "زيادة" : "نقصان"} tone={l.direction === "IN" ? "success" : "danger"} />
+                    <StatusPill label={l.direction === "IN" ? t("stockAdj.increase") : t("stockAdj.decrease")} tone={l.direction === "IN" ? "success" : "danger"} />
                   </td>
                   <td className="px-[15px] py-[11px] text-end mz-num">{l.qty}</td>
                   <td className="px-[15px] py-[11px] text-end">{l.unitCost ? <MoneyDisplay value={Number(l.unitCost)} /> : "—"}</td>
-                  <td className="px-[15px] py-[11px] text-end">{value !== null ? <MoneyDisplay value={value} /> : "يُحسب بمتوسط التكلفة الحالي"}</td>
+                  <td className="px-[15px] py-[11px] text-end">{value !== null ? <MoneyDisplay value={value} /> : t("stockAdj.calculatedAtTheCurrentAverage")}</td>
                 </tr>
               );
             })}
@@ -372,16 +361,17 @@ function accountLabel(id: string, accounts: readonly AccountDTO[]): string {
 }
 
 function AdjustmentGlTab({ docId }: { docId: string }) {
+  const { t } = useAppTranslation();
   const entryQuery = useJournalEntry(docId);
   const accountsQuery = useAccounts();
   const accounts = accountsQuery.data ?? [];
 
-  if (entryQuery.isPending) return <div className="p-4 text-[12.5px] text-ink-muted">جارٍ التحميل...</div>;
+  if (entryQuery.isPending) return <div className="p-4 text-[12.5px] text-ink-muted">{t("common.loading")}</div>;
   if (entryQuery.isError) {
     if (entryQuery.error.status === 404) {
-      return <div className="p-4 text-[12.5px] text-ink-muted">لا يوجد قيد محاسبي لهذه التسوية (لا يوجد فرق قيمة).</div>;
+      return <div className="p-4 text-[12.5px] text-ink-muted">{t("stockAdj.noJournalEntryForThis")}</div>;
     }
-    return <div className="p-4 text-[12.5px] text-danger-ink">تعذّر تحميل القيد المحاسبي.</div>;
+    return <div className="p-4 text-[12.5px] text-danger-ink">{t("stockAdj.theJournalEntryCouldNot")}</div>;
   }
 
   const entry = entryQuery.data;
@@ -392,9 +382,9 @@ function AdjustmentGlTab({ docId }: { docId: string }) {
         <table className="w-full min-w-[500px] border-collapse text-[13px]">
           <thead>
             <tr>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الحساب</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">مدين</th>
-              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">دائن</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.account")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
+              <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
             </tr>
           </thead>
           <tbody>
@@ -429,6 +419,7 @@ function CreateAdjustmentView({
   onDone: () => void;
   onBack: () => void;
 }) {
+  const { t } = useAppTranslation();
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
   const [date, setDate] = useState("2026-08-22");
@@ -446,7 +437,7 @@ function CreateAdjustmentView({
   }
 
   const itemOptions = useMemo(
-    () => [{ value: "", label: "اختر صنف..." }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    () => [{ value: "", label: t("stockAdj.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
     [itemList],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
@@ -487,7 +478,7 @@ function CreateAdjustmentView({
       await confirmAdjustment.mutateAsync(draft.id);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر اعتماد التسوية.");
+      setError(err instanceof Error ? err.message : t("stockAdj.theAdjustmentCouldNotBe"));
     }
   }
 
@@ -496,12 +487,12 @@ function CreateAdjustmentView({
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Inventory · New Stock Adjustment</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? "الرصيد الافتتاحي" : `تسوية — ${reason.labelAr}`}</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? t("stockAdj.openingBalance") : t("stockAdj.titleForReason", { reason: reason.labelAr })}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onBack}>رجوع</Button>
+          <Button onClick={onBack}>{t("common.back")}</Button>
           <Button variant="primary" disabled={!canPost} onClick={handlePost}>
-            اعتماد التسوية
+            {t("stockAdj.approveAdjustment")}
           </Button>
         </div>
       </div>
@@ -516,9 +507,9 @@ function CreateAdjustmentView({
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-3">
-            <TextField label="تاريخ التسوية *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-            <SelectField label="المستودع *" value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
-            <TextField label="ملاحظات" value={memo} onChange={setMemo} placeholder="وصف التسوية..." />
+            <TextField label={t("stockAdj.adjustmentDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+            <SelectField label={t("stockAdj.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
+            <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("stockAdj.describeTheAdjustment")} />
           </Card>
 
           <Card className="overflow-hidden">
@@ -526,12 +517,12 @@ function CreateAdjustmentView({
               <table className="w-full min-w-[620px] border-collapse text-[13px]">
                 <thead>
                   <tr>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
                     {reason.direction === "EITHER" ? (
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الاتجاه</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.direction")}</th>
                     ) : null}
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الكمية</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">سعر التكلفة</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.qty")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockAdj.costPrice")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
                   </tr>
                 </thead>
@@ -540,7 +531,7 @@ function CreateAdjustmentView({
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
                         <select
-                          aria-label={`الصنف للسطر ${i + 1}`}
+                          aria-label={t("stockAdj.lineItem", { number: i + 1 })}
                           value={line.itemId}
                           onChange={(e) => updateLine(i, { itemId: e.target.value })}
                           className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
@@ -555,20 +546,20 @@ function CreateAdjustmentView({
                       {reason.direction === "EITHER" ? (
                         <td className="px-[12px] py-[8px]">
                           <select
-                            aria-label={`الاتجاه للسطر ${i + 1}`}
+                            aria-label={t("stockAdj.lineDirection", { number: i + 1 })}
                             value={line.direction}
                             onChange={(e) => updateLine(i, { direction: e.target.value as StockMovementDirection })}
                             className="w-full min-w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                           >
-                            <option value="IN">زيادة</option>
-                            <option value="OUT">نقصان</option>
+                            <option value="IN">{t("stockAdj.increase")}</option>
+                            <option value="OUT">{t("stockAdj.decrease")}</option>
                           </select>
                         </td>
                       ) : null}
                       <td className="px-[12px] py-[8px]">
                         <input
                           type="number"
-                          aria-label={`الكمية للسطر ${i + 1}`}
+                          aria-label={t("stockAdj.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
@@ -578,7 +569,7 @@ function CreateAdjustmentView({
                       <td className="px-[12px] py-[8px]">
                         <input
                           type="number"
-                          aria-label={`سعر التكلفة للسطر ${i + 1}`}
+                          aria-label={t("stockAdj.lineCost", { number: i + 1 })}
                           value={line.unitCost || ""}
                           min={0}
                           disabled={line.direction === "OUT"}
@@ -587,7 +578,7 @@ function CreateAdjustmentView({
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">
-                        <IconButton aria-label={`حذف السطر ${i + 1}`} disabled={lines.length <= 1} onClick={() => removeLine(i)}>
+                        <IconButton aria-label={t("stockAdj.removeLine", { number: i + 1 })} disabled={lines.length <= 1} onClick={() => removeLine(i)}>
                           ✕
                         </IconButton>
                       </td>
@@ -598,7 +589,7 @@ function CreateAdjustmentView({
             </div>
             <div className="border-t border-border p-[12px]">
               <Button size="sm" onClick={addLine}>
-                إضافة بند
+                {t("stockAdj.addLine")}
               </Button>
             </div>
           </Card>
@@ -609,19 +600,19 @@ function CreateAdjustmentView({
             className="rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]"
             style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 55%, var(--surface)))" }}
           >
-            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">تأثيرات هذه التسوية</h3>
+            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{t("stockAdj.whatThisAdjustmentDid")}</h3>
             <ul className="flex flex-col gap-[7px] text-[12.5px] text-ink">
               <li className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                {lines.some((l) => l.direction === "IN") ? "ارتفعت قيمة المخزون" : "انخفضت قيمة المخزون"} حسب بنود التسوية
+                {lines.some((l) => l.direction === "IN") ? t("stockAdj.stockValueWentUp") : t("stockAdj.stockValueWentDown")} {t("stockAdj.accordingToTheAdjustmentLines")}
               </li>
               <li className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                لا تأثير على المورد أو العميل
+                {t("stockAdj.noEffectOnAnySupplier")}
               </li>
               <li className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                ينشئ قيداً محاسبياً موازناً عند وجود فرق قيمة
+                {t("stockAdj.itPostsABalancingJournal")}
               </li>
             </ul>
           </div>

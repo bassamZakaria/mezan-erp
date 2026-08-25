@@ -90,16 +90,29 @@ export function run(file, dict, ns, { dryRun = false } = {}) {
     } else edits.push({ start, end, text: call });
   }
 
-  let out = src;
-  for (const e of edits.sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
+  const ordered = edits.slice().sort((a, b) => a.start - b.start);
 
-  // Insert the hook at the top of each component that now calls `t`.
+  // Hook positions are captured in ORIGINAL coordinates, so they must be mapped
+  // through the edits before being applied to the rewritten text — an earlier
+  // version inserted at stale offsets and landed inside a string literal.
+  const shift = (pos) => {
+    let delta = 0;
+    for (const e of ordered) {
+      if (e.end <= pos) delta += e.text.length - (e.end - e.start);
+      else break;
+    }
+    return pos + delta;
+  };
+
   const hookInserts = [];
   for (const comp of componentsNeedingHook) {
     const body = comp.body;
     if (!body || !ts.isBlock(body)) continue;
-    hookInserts.push(body.getStart(sf) + 1);
+    hookInserts.push(shift(body.getStart(sf) + 1));
   }
+
+  let out = src;
+  for (const e of ordered.slice().sort((a, b) => b.start - a.start)) out = out.slice(0, e.start) + e.text + out.slice(e.end);
   for (const pos of hookInserts.sort((a, b) => b - a)) {
     out = out.slice(0, pos) + "\n  const { t } = useAppTranslation();" + out.slice(pos);
   }

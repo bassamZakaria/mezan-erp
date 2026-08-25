@@ -16,30 +16,17 @@ import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contrac
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
 import { useConfirmStockTransfer, useCreateStockTransfer, useItems, useStockTransfers, useWarehouses } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
+import { useAppTranslation } from "../i18n";
+import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 
 /** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
-const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  posted: "مرحل",
-  confirmed: "مؤكد",
-  reversed: "معكوس",
-  cancelled: "ملغي",
-};
-const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
-  draft: "neutral",
-  pending: "warning",
-  posted: "success",
-  confirmed: "success",
-  reversed: "danger",
-  cancelled: "neutral",
-};
 
-const STEPPER_STEPS: DocumentStatusStep[] = [
-  { key: "draft", label: "مسودة" },
-  { key: "confirmed", label: "مؤكد" },
-];
+/** Keys, not copy — the stepper's labels are built with the translator at render. */
+const STEPPER_KEYS = [
+  { key: "draft", labelKey: "docStatus.draft" },
+  { key: "confirmed", labelKey: "docStatus.confirmed" },
+] as const;
 
 function headerOf(doc: StockTransferDocumentDTO): { fromWarehouseId: string; toWarehouseId: string } {
   const first = doc.lines[0];
@@ -82,6 +69,7 @@ function blankLine(): LineDraft {
 }
 
 export function StockTransfersScreen() {
+  const { t } = useAppTranslation();
   const query = useStockTransfers();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
@@ -126,14 +114,14 @@ export function StockTransfersScreen() {
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {
       key: "docNo",
-      header: "رقم التحويل",
+      header: t("stockXfer.transferNumber"),
       sortable: true,
       render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? "—"}</span>,
     },
-    { key: "date", header: "التاريخ", sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
+    { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     {
       key: "route",
-      header: "المسار",
+      header: t("stockXfer.route"),
       render: (d) => {
         const { fromWarehouseId, toWarehouseId } = headerOf(d);
         return (
@@ -143,8 +131,8 @@ export function StockTransfersScreen() {
         );
       },
     },
-    { key: "lines", header: "عدد البنود", align: "end", render: (d) => <span className="mz-num">{d.lines.length}</span> },
-    { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
+    { key: "lines", header: t("stockXfer.lines"), align: "end", render: (d) => <span className="mz-num">{d.lines.length}</span> },
+    { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
   function openDetail(id: string) {
@@ -162,16 +150,16 @@ export function StockTransfersScreen() {
     return (
       <div className="w-full">
         <DocumentDetail
-          title={selected.docNo ?? "تحويل مخزون"}
-          statusLabel={STATUS_LABEL[selected.status]}
-          statusTone={STATUS_TONE[selected.status]}
-          subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} />}
-          actions={<Button onClick={() => setMode("list")}>رجوع</Button>}
+          title={selected.docNo ?? t("stockXfer.stockTransfer")}
+          statusLabel={documentStatusLabel(selected.status, t)}
+          statusTone={DOC_STATUS_TONE[selected.status]}
+          subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
+          actions={<Button onClick={() => setMode("list")}>{t("common.back")}</Button>}
           summary={[
-            { label: "المستودع المصدر", value: warehouseLabel(fromWarehouseId) },
-            { label: "المستودع الوجهة", value: warehouseLabel(toWarehouseId) },
-            { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
-            { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
+            { label: t("stockXfer.fromWarehouse"), value: warehouseLabel(fromWarehouseId) },
+            { label: t("stockXfer.toWarehouse"), value: warehouseLabel(toWarehouseId) },
+            { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
+            { label: t("stockXfer.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
           effects={effects.effects.map((e) => (
             <span key={e.description}>
@@ -182,15 +170,15 @@ export function StockTransfersScreen() {
           tabs={[
             {
               key: "lines",
-              label: "البنود",
+              label: t("stockXfer.lines2"),
               content: (
                 <Card className="overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[400px] border-collapse text-[13px]">
                       <thead>
                         <tr>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">الكمية</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.qty")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -210,7 +198,7 @@ export function StockTransfersScreen() {
         />
         {selected.status === "confirmed" ? (
           <div className="mt-[16px] rounded-md border border-border bg-surface-2 px-[14px] py-[11px] text-[12px] text-ink-muted">
-            لا يمكن إلغاء تحويل مؤكد — بعد تأكيد التحويل لا يمكن إلغاؤه. لعكس الحركة، أنشئ تحويلاً جديداً بالاتجاه المعاكس.
+            {t("stockXfer.aConfirmedTransferCannotBe")}
           </div>
         ) : null}
       </div>
@@ -220,9 +208,9 @@ export function StockTransfersScreen() {
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل تحويلات المخزون.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("stockXfer.stockTransfersCouldNotBe")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -232,28 +220,28 @@ export function StockTransfersScreen() {
     <div className="w-full">
       <DocumentList<StockTransferDocumentDTO>
         eyebrow="Inventory · Stock Transfers"
-        title="تحويلات المخزون"
-        description="مسودة ← مؤكد — نقل كمية بين مستودعين دون أي أثر على قيمة المخزون الإجمالية"
+        title={t("stockXfer.stockTransfers")}
+        description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
         actions={
           <Button variant="primary" onClick={() => setMode("create")}>
-            تحويل جديد
+            {t("stockXfer.newTransfer")}
           </Button>
         }
         stats={[
-          { label: "إجمالي التحويلات", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
-          { label: "مؤكد", value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: counts.all },
-          { key: "draft", label: "مسودة", count: counts.draft },
-          { key: "confirmed", label: "مؤكد", count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم التحويل..."
+        searchPlaceholder={t("stockXfer.searchByTransferNumber")}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -262,10 +250,10 @@ export function StockTransfersScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> تحويل
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockXfer.transfers")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد تحويلات مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockXfer.noMatchingTransfers")}</div>}
       />
     </div>
   );
@@ -284,6 +272,7 @@ function CreateTransferView({
   items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
 }) {
+  const { t } = useAppTranslation();
   const createTransfer = useCreateStockTransfer();
   const confirmTransfer = useConfirmStockTransfer();
   const warehouseList = warehouses ?? [];
@@ -301,7 +290,7 @@ function CreateTransferView({
   }
 
   const itemOptions = useMemo(
-    () => [{ value: "", label: "اختر صنف..." }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    () => [{ value: "", label: t("stockXfer.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
     [itemList],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);
@@ -328,13 +317,13 @@ function CreateTransferView({
       const draft = await createTransfer.mutateAsync({
         id: crypto.randomUUID(),
         date,
-        memo: memo.trim() || `تحويل من ${warehouseLabel(fromWarehouseId)} إلى ${warehouseLabel(toWarehouseId)}`,
+        memo: memo.trim() || t("stockXfer.defaultMemo", { from: warehouseLabel(fromWarehouseId), to: warehouseLabel(toWarehouseId) }),
         lines: lines.map((l) => ({ itemId: l.itemId, fromWarehouseId, toWarehouseId, qty: String(l.qty) })),
       });
       await confirmTransfer.mutateAsync(draft.id);
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر حفظ التحويل.");
+      setError(err instanceof Error ? err.message : t("stockXfer.theTransferCouldNotBe"));
     }
   }
 
@@ -343,12 +332,12 @@ function CreateTransferView({
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Inventory · New Stock Transfer</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">تحويل مخزون جديد</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("stockXfer.newStockTransfer")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onDone}>إلغاء</Button>
+          <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canPost} onClick={handlePost}>
-            حفظ
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -363,14 +352,14 @@ function CreateTransferView({
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
-            <TextField label="التاريخ *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-            <TextField label="ملاحظات" value={memo} onChange={setMemo} placeholder="وصف التحويل..." />
-            <SelectField label="المستودع المصدر *" value={fromWarehouseId} onChange={setFromWarehouseId} options={warehouseOptions} />
-            <SelectField label="المستودع الوجهة *" value={toWarehouseId} onChange={setToWarehouseId} options={warehouseOptions} />
+            <TextField label={t("stockXfer.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+            <TextField label={t("common.notes")} value={memo} onChange={setMemo} placeholder={t("stockXfer.describeTheTransfer")} />
+            <SelectField label={t("stockXfer.fromWarehouse2")} value={fromWarehouseId} onChange={setFromWarehouseId} options={warehouseOptions} />
+            <SelectField label={t("stockXfer.toWarehouse2")} value={toWarehouseId} onChange={setToWarehouseId} options={warehouseOptions} />
           </Card>
           {sameWarehouse ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-              يجب أن يختلف المستودع المصدر عن مستودع الوجهة.
+              {t("stockXfer.theSourceAndDestinationWarehouses")}
             </div>
           ) : null}
 
@@ -379,8 +368,8 @@ function CreateTransferView({
               <table className="w-full min-w-[440px] border-collapse text-[13px]">
                 <thead>
                   <tr>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الصنف</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">كمية التحويل</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("stockXfer.transferQuantity")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
                   </tr>
                 </thead>
@@ -389,7 +378,7 @@ function CreateTransferView({
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
                         <select
-                          aria-label={`الصنف للسطر ${i + 1}`}
+                          aria-label={t("stockXfer.lineItem", { number: i + 1 })}
                           value={line.itemId}
                           onChange={(e) => updateLine(i, { itemId: e.target.value })}
                           className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
@@ -404,7 +393,7 @@ function CreateTransferView({
                       <td className="px-[12px] py-[8px]">
                         <input
                           type="number"
-                          aria-label={`كمية التحويل للسطر ${i + 1}`}
+                          aria-label={t("stockXfer.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
@@ -412,7 +401,7 @@ function CreateTransferView({
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">
-                        <IconButton aria-label={`حذف السطر ${i + 1}`} disabled={lines.length <= 1} onClick={() => removeLine(i)}>
+                        <IconButton aria-label={t("stockXfer.removeLine", { number: i + 1 })} disabled={lines.length <= 1} onClick={() => removeLine(i)}>
                           ✕
                         </IconButton>
                       </td>
@@ -423,7 +412,7 @@ function CreateTransferView({
             </div>
             <div className="border-t border-border p-[12px]">
               <Button size="sm" onClick={addLine}>
-                إضافة بند
+                {t("stockXfer.addLine")}
               </Button>
             </div>
           </Card>
@@ -433,15 +422,15 @@ function CreateTransferView({
           className="rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]"
           style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 55%, var(--surface)))" }}
         >
-          <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">تأثيرات هذا التحويل</h3>
+          <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{t("stockXfer.whatThisTransferDid")}</h3>
           <ul className="flex flex-col gap-[7px] text-[12.5px] text-ink">
             <li className="flex items-start gap-[8px]">
               <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-              خصم الكميات من المستودع المصدر وإضافتها للمستودع الوجهة
+              {t("stockXfer.quantitiesLeaveTheSourceWarehouse")}
             </li>
             <li className="flex items-start gap-[8px]">
               <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-              لا يتغير إجمالي قيمة المخزون
+              {t("stockXfer.totalStockValueDoesNot")}
             </li>
           </ul>
         </div>

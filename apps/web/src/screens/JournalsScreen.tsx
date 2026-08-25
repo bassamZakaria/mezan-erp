@@ -18,16 +18,17 @@ import { Money } from "@mezan/domain";
 import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO } from "@mezan/contracts";
 import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
 type JournalDoc = JournalEntryDTO;
 
-const STATUS_LABEL: Record<JournalEntryStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  posted: "مرحل",
-  reversed: "معكوس",
+const STATUS_KEY: Record<JournalEntryStatusDTO, AppTranslationKey> = {
+  draft: "journals.status.draft",
+  pending: "journals.status.pending",
+  posted: "journals.status.posted",
+  reversed: "journals.status.reversed",
 };
 const STATUS_TONE: Record<JournalEntryStatusDTO, PillTone> = {
   draft: "neutral",
@@ -36,12 +37,13 @@ const STATUS_TONE: Record<JournalEntryStatusDTO, PillTone> = {
   reversed: "danger",
 };
 
-const STEPPER_STEPS: DocumentStatusStep[] = [
-  { key: "draft", label: "مسودة" },
-  { key: "pending", label: "بانتظار الموافقة" },
-  { key: "posted", label: "مرحل" },
-  { key: "reversed", label: "معكوس" },
-];
+/** Keys, not copy — the stepper's labels are built with the translator at render. */
+const STEPPER_KEYS = [
+  { key: "draft", labelKey: "journals.status.draft" },
+  { key: "pending", labelKey: "journals.status.pending" },
+  { key: "posted", labelKey: "journals.status.posted" },
+  { key: "reversed", labelKey: "journals.status.reversed" },
+] as const;
 
 function toMajor(value: string): number {
   return Number(value);
@@ -73,6 +75,7 @@ function blankLine(): LineDraft {
 }
 
 export function JournalsScreen() {
+  const { t } = useAppTranslation();
   const query = useJournalEntries();
   const accountsQuery = useAccounts();
   const createJournalEntry = useCreateJournalEntry();
@@ -117,14 +120,14 @@ export function JournalsScreen() {
   const columns: DocumentListColumn<JournalDoc>[] = [
     {
       key: "entryNo",
-      header: "رقم القيد",
+      header: t("journals.entryNumber"),
       sortable: true,
       render: (d) => <span className="mz-num font-semibold text-ink">{d.entryNo ?? "—"}</span>,
     },
-    { key: "date", header: "التاريخ", sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
-    { key: "memo", header: "البيان", render: (d) => <span className="text-ink">{d.memo}</span> },
-    { key: "debit", header: "إجمالي المدين", align: "end", render: (d) => <MoneyDisplay value={docTotals(d).debit} /> },
-    { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
+    { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
+    { key: "memo", header: t("journals.description"), render: (d) => <span className="text-ink">{d.memo}</span> },
+    { key: "debit", header: t("journals.totalDebit"), align: "end", render: (d) => <MoneyDisplay value={docTotals(d).debit} /> },
+    { key: "status", header: t("common.status"), render: (d) => <StatusPill label={t(STATUS_KEY[d.status])} tone={STATUS_TONE[d.status]} /> },
   ];
 
   function openDetail(id: string) {
@@ -148,13 +151,13 @@ export function JournalsScreen() {
     return (
       <div className="w-full">
         <DocumentDetail
-          title={selected.entryNo ?? "قيد يومية"}
-          statusLabel={STATUS_LABEL[selected.status]}
+          title={selected.entryNo ?? t("journals.journalEntry")}
+          statusLabel={t(STATUS_KEY[selected.status])}
           statusTone={STATUS_TONE[selected.status]}
-          subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
+          subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} tone={selected.status === "reversed" ? "danger" : "brand"} />}
           actions={
             <>
-              <Button onClick={() => setMode("list")}>رجوع</Button>
+              <Button onClick={() => setMode("list")}>{t("common.back")}</Button>
               {selected.status === "posted" ? (
                 <Button
                   variant="danger-outline"
@@ -163,33 +166,33 @@ export function JournalsScreen() {
                     setMode("list");
                   }}
                 >
-                  عكس القيد
+                  {t("journals.reverseEntry")}
                 </Button>
               ) : null}
             </>
           }
           summary={[
-            { label: "التاريخ", value: <span className="mz-num">{selected.date}</span> },
-            { label: "المصدر", value: "يدوي" },
-            { label: "عدد البنود", value: <span className="mz-num">{selected.lines.length}</span> },
-            { label: "إجمالي المدين", value: <MoneyDisplay value={totals.debit} /> },
-            { label: "إجمالي الدائن", value: <MoneyDisplay value={totals.credit} /> },
-            { label: "التوازن", value: balanced ? "متوازن ✓" : "غير متوازن", valueTone: balanced ? "success" : "danger" },
+            { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
+            { label: t("journals.source"), value: t("journals.manual") },
+            { label: t("journals.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
+            { label: t("journals.totalDebit"), value: <MoneyDisplay value={totals.debit} /> },
+            { label: t("journals.totalCredit"), value: <MoneyDisplay value={totals.credit} /> },
+            { label: t("journals.balance"), value: balanced ? t("journals.balanced") : t("journals.outOfBalance"), valueTone: balanced ? "success" : "danger" },
           ]}
           tabs={[
             {
               key: "lines",
-              label: "بنود القيد",
+              label: t("journals.entryLines"),
               content: (
                 <Card className="overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[560px] border-collapse text-[13px]">
                       <thead>
                         <tr>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الحساب</th>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">البيان</th>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">مدين</th>
-                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">دائن</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
+                          <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -205,7 +208,7 @@ export function JournalsScreen() {
                       <tfoot>
                         <tr className="bg-surface-2 font-bold">
                           <td className="px-[15px] py-[11px]" colSpan={2}>
-                            <StatusPill label={balanced ? "متوازن ✓" : "غير متوازن"} tone={balanced ? "success" : "danger"} />
+                            <StatusPill label={balanced ? t("journals.balanced") : t("journals.outOfBalance")} tone={balanced ? "success" : "danger"} />
                           </td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.debit} /></td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={totals.credit} /></td>
@@ -226,38 +229,38 @@ export function JournalsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل القيود المحاسبية.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("journals.journalEntriesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<JournalDoc>
         eyebrow="Accounting · Journal Entries"
-        title="القيود المحاسبية"
-        description="سجل القيود المحاسبية — مسودة ← بانتظار الموافقة ← مرحل ← معكوس، على المحرك المحاسبي الحقيقي"
+        title={t("journals.journalEntries")}
+        description={t("journals.theJournalRegisterDraftAwaiting")}
         actions={
           <Button variant="primary" onClick={() => setMode("create")}>
-            قيد جديد
+            {t("journals.newEntry")}
           </Button>
         }
         stats={[
-          { label: "إجمالي القيود", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مرحل", value: <span className="mz-num">{counts.posted}</span> },
-          { label: "معكوس", value: <span className="mz-num">{counts.reversed}</span> },
-          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("journals.totalEntries"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("docStatus.posted"), value: <span className="mz-num">{counts.posted}</span> },
+          { label: t("docStatus.reversed"), value: <span className="mz-num">{counts.reversed}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: counts.all },
-          { key: "draft", label: "مسودة", count: counts.draft },
-          { key: "posted", label: "مرحل", count: counts.posted },
-          { key: "reversed", label: "معكوس", count: counts.reversed },
+          { key: "all", label: t("common.all"), count: counts.all },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+          { key: "posted", label: t("docStatus.posted"), count: counts.posted },
+          { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | JournalEntryStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم القيد..."
+        searchPlaceholder={t("journals.searchByEntryNumber")}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -266,10 +269,10 @@ export function JournalsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> قيد
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("journals.entries")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد قيود مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("journals.noMatchingEntries")}</div>}
       />
     </div>
   );
@@ -288,6 +291,7 @@ function CreateJournalView({
   accountOptions: { value: string; label: string }[];
   onDone: () => void;
 }) {
+  const { t } = useAppTranslation();
   const [date, setDate] = useState("2026-08-22");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
@@ -301,7 +305,7 @@ function CreateJournalView({
   const allLinesValid = lines.every((l) => l.accountId !== "" && (l.debit > 0) !== (l.credit > 0));
   const canPost = balanced && allLinesValid && memo.trim() !== "" && !busy;
 
-  const options = useMemo(() => [{ value: "", label: "اختر حساب..." }, ...accountOptions], [accountOptions]);
+  const options = useMemo(() => [{ value: "", label: t("journals.chooseAnAccount") }, ...accountOptions], [accountOptions]);
 
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -331,7 +335,7 @@ function CreateJournalView({
       });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر ترحيل القيد.");
+      setError(err instanceof Error ? err.message : t("journals.theEntryCouldNotBe"));
     } finally {
       setBusy(false);
     }
@@ -344,12 +348,12 @@ function CreateJournalView({
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Accounting · New Journal Entry</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">إنشاء قيد يومي</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("journals.createAJournalEntry")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onDone}>إلغاء</Button>
+          <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canPost} onClick={handlePost}>
-            ترحيل القيد
+            {t("journals.postEntry")}
           </Button>
         </div>
       </div>
@@ -364,8 +368,8 @@ function CreateJournalView({
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         <div className="flex flex-col gap-[16px]">
           <Card className="grid grid-cols-1 gap-[14px] p-[18px] sm:grid-cols-2">
-            <TextField label="تاريخ القيد *" value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-            <TextField label="الوصف *" value={memo} onChange={setMemo} placeholder="وصف القيد..." />
+            <TextField label={t("journals.entryDate")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+            <TextField label={t("journals.description2")} value={memo} onChange={setMemo} placeholder={t("journals.describeTheEntry")} />
           </Card>
 
           <Card className="overflow-hidden">
@@ -373,10 +377,10 @@ function CreateJournalView({
               <table className="w-full min-w-[640px] border-collapse text-[13px]">
                 <thead>
                   <tr>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">الحساب</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">البيان</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">مدين</th>
-                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">دائن</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.account")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("journals.description")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.debit")}</th>
+                    <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.credit")}</th>
                     <th scope="col" className="border-b border-border bg-surface-2 px-[12px] py-[10px]" />
                   </tr>
                 </thead>
@@ -385,7 +389,7 @@ function CreateJournalView({
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
                         <select
-                          aria-label={`الحساب للسطر ${i + 1}`}
+                          aria-label={t("journals.lineAccount", { number: i + 1 })}
                           value={line.accountId}
                           onChange={(e) => updateLine(i, { accountId: e.target.value })}
                           className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
@@ -402,7 +406,7 @@ function CreateJournalView({
                           aria-label={`البيان للسطر ${i + 1}`}
                           value={line.memo}
                           onChange={(e) => updateLine(i, { memo: e.target.value })}
-                          placeholder="وصف البند..."
+                          placeholder={t("journals.describeTheLine")}
                           className="w-full min-w-[120px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
@@ -438,7 +442,7 @@ function CreateJournalView({
             </div>
             <div className="border-t border-border p-[12px]">
               <Button size="sm" onClick={addLine}>
-                إضافة سطر
+                {t("journals.addLine")}
               </Button>
             </div>
           </Card>
@@ -447,25 +451,25 @@ function CreateJournalView({
         {/* Live balance + effects panel */}
         <div className="flex flex-col gap-[16px]">
           <Card className="p-[16px_18px]">
-            <h3 className="mb-[12px] font-display text-[14px] font-bold text-ink">التوازن</h3>
+            <h3 className="mb-[12px] font-display text-[14px] font-bold text-ink">{t("journals.balance")}</h3>
             <dl className="flex flex-col gap-[8px] text-[13px]">
               <div className="flex items-center justify-between">
-                <dt className="text-ink-muted">إجمالي المدين</dt>
+                <dt className="text-ink-muted">{t("journals.totalDebit")}</dt>
                 <dd><MoneyDisplay value={totalDebit} /></dd>
               </div>
               <div className="flex items-center justify-between">
-                <dt className="text-ink-muted">إجمالي الدائن</dt>
+                <dt className="text-ink-muted">{t("journals.totalCredit")}</dt>
                 <dd><MoneyDisplay value={totalCredit} /></dd>
               </div>
               <div className="flex items-center justify-between border-t border-border pt-[8px]">
-                <dt className="text-ink-muted">الفرق</dt>
+                <dt className="text-ink-muted">{t("journals.difference")}</dt>
                 <dd className={difference === 0 ? "text-success-ink" : "text-danger-ink"}>
                   <MoneyDisplay value={difference} />
                 </dd>
               </div>
             </dl>
             <div className="mt-[12px]">
-              <StatusPill label={balanced ? "متوازن ✓" : "غير متوازن"} tone={balanced ? "success" : "danger"} />
+              <StatusPill label={balanced ? t("journals.balanced") : t("journals.outOfBalance")} tone={balanced ? "success" : "danger"} />
             </div>
           </Card>
 
@@ -473,20 +477,20 @@ function CreateJournalView({
             className="rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]"
             style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 55%, var(--surface)))" }}
           >
-            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">تأثيرات هذا المستند</h3>
+            <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{t("journals.whatThisDocumentDoes")}</h3>
             <ul className="flex flex-col gap-[7px] text-[12.5px] text-ink">
               <li className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                يُنشئ قيداً محاسبياً مرحّلاً من {lines.length} بند
+                {t("journals.postsAJournalEntryOf")} {lines.length} {t("journals.lines2")}
               </li>
               <li className="flex items-start gap-[8px]">
                 <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-brand" />
-                يُحدّث أرصدة الحسابات في دفتر الأستاذ عند الترحيل
+                {t("journals.updatesAccountBalancesInThe")}
               </li>
               {!balanced ? (
                 <li className="flex items-start gap-[8px] text-danger-ink">
                   <span aria-hidden className="mt-[7px] h-[5px] w-[5px] flex-none rounded-full bg-danger" />
-                  القيد غير متوازن — زر الترحيل معطّل حتى يتساوى المدين والدائن
+                  {t("journals.theEntryIsOutOf")}
                 </li>
               ) : null}
             </ul>

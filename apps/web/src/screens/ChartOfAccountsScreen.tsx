@@ -17,21 +17,22 @@ import {
 import type { AccountDTO, AccountStatusDTO, AccountTypeDTO, NaturalBalanceDTO } from "@mezan/contracts";
 import { buildAccountTree, hasChildAccounts, isDescendantOf, type AccountTreeNode } from "../lib/account-tree";
 import { useAccounts, useCreateAccount, useUpdateAccount } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-const TYPE_LABEL: Record<AccountTypeDTO, string> = {
-  asset: "أصول",
-  liability: "التزامات",
-  equity: "حقوق ملكية",
-  revenue: "إيرادات",
-  expense: "مصروفات",
+const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
+  asset: "coa.type.asset",
+  liability: "coa.type.liability",
+  equity: "coa.type.equity",
+  revenue: "coa.type.revenue",
+  expense: "coa.type.expense",
 };
 
-const NATURAL_BALANCE_LABEL: Record<NaturalBalanceDTO, string> = { debit: "مدين", credit: "دائن" };
-const NATURE_LABEL = { header: "رئيسي", detail: "تفصيلي" } as const;
-const STATUS_LABEL: Record<AccountStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const NATURAL_BALANCE_KEY: Record<NaturalBalanceDTO, AppTranslationKey> = { debit: "coa.natural.debit", credit: "coa.natural.credit" };
+const NATURE_KEY = { header: "coa.nature.header", detail: "coa.nature.detail" } as const;
+const STATUS_KEY: Record<AccountStatusDTO, AppTranslationKey> = { active: "coa.status.active", inactive: "coa.status.inactive" };
 const STATUS_TONE: Record<AccountStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
-const ROOT_PARENT_OPTION: EntityPickerOption = { id: "__root__", label: "بدون رئيسي (جذر)" };
+const ROOT_PARENT_ID = "__root__";
 
 interface FlatRow extends AccountDTO {
   level: number;
@@ -59,25 +60,28 @@ function visibleRows(nodes: readonly AccountTreeNode[], level: number, expanded:
  * re-validates on save; this runs first so the form shows the same messages
  * inline without importing the whole domain package into the web bundle.
  */
-function validateDraft(draft: AccountDraft, existing: AccountDTO[], editingId: string | null): string | null {
+/** Returns a catalogue KEY (with any placeholders), so the caller decides the locale. */
+type ValidationError = { key: AppTranslationKey; params?: Record<string, string | number> };
+
+function validateDraft(draft: AccountDraft, existing: AccountDTO[], editingId: string | null): ValidationError | null {
   if (!editingId && existing.some((a) => a.code === draft.code.trim())) {
-    return `الكود "${draft.code.trim()}" مستخدم بالفعل — اختر كوداً آخر.`;
+    return { key: "coa.codeInUse" as const, params: { code: draft.code.trim() } };
   }
   if (draft.parentId !== null) {
     if (editingId && draft.parentId === editingId) {
-      return "لا يمكن اختيار هذا الحساب كحساب رئيسي له (تسلسل دائري).";
+      return { key: "coa.circularParent" as const };
     }
     const parent = existing.find((a) => a.id === draft.parentId);
-    if (!parent) return "الحساب الرئيسي المختار غير موجود.";
-    if (!parent.isHeader) return "الحساب الرئيسي المختار غير صالح — يجب أن يكون حساباً رئيسياً.";
+    if (!parent) return { key: "coa.parentMissing" as const };
+    if (!parent.isHeader) return { key: "coa.parentNotHeader" as const };
     if (editingId && isDescendantOf(existing, draft.parentId, editingId)) {
-      return "لا يمكن اختيار هذا الحساب كحساب رئيسي له (تسلسل دائري).";
+      return { key: "coa.circularParent" as const };
     }
   }
   if (editingId) {
     const current = existing.find((a) => a.id === editingId);
     if (current?.isHeader && !draft.isHeader && hasChildAccounts(existing, editingId)) {
-      return "هذا الحساب الرئيسي يحتوي على حسابات فرعية، لا يمكن تحويله إلى حساب تفصيلي.";
+      return { key: "coa.hasChildren" as const };
     }
   }
   return null;
@@ -119,6 +123,7 @@ function draftFromAccount(account: AccountDTO): AccountDraft {
 }
 
 export function ChartOfAccountsScreen() {
+  const { t } = useAppTranslation();
   const query = useAccounts();
   const createAccount = useCreateAccount();
   const updateAccount = useUpdateAccount();
@@ -160,9 +165,9 @@ export function ChartOfAccountsScreen() {
     code: row.code,
     nameAr: row.nameAr,
     nameEn: row.nameEn,
-    typeLabel: TYPE_LABEL[row.type],
-    natureLabel: row.isHeader ? NATURE_LABEL.header : NATURE_LABEL.detail,
-    statusLabel: STATUS_LABEL[row.status],
+    typeLabel: t(TYPE_KEY[row.type]),
+    natureLabel: row.isHeader ? t(NATURE_KEY.header) : t(NATURE_KEY.detail),
+    statusLabel: t(STATUS_KEY[row.status]),
     statusTone: STATUS_TONE[row.status],
     level: row.level,
     hasChildren: row.hasChildren,
@@ -173,7 +178,7 @@ export function ChartOfAccountsScreen() {
 
   const headerOptions: EntityPickerOption[] = useMemo(
     () => [
-      ROOT_PARENT_OPTION,
+      { id: ROOT_PARENT_ID, label: t("coa.rootParent") },
       ...accounts
         .filter((a) => a.isHeader && a.id !== editingId)
         .map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` })),
@@ -204,7 +209,7 @@ export function ChartOfAccountsScreen() {
     event.preventDefault();
     const error = validateDraft(draft, accounts, editingId);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -237,7 +242,7 @@ export function ChartOfAccountsScreen() {
       }
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -253,17 +258,17 @@ export function ChartOfAccountsScreen() {
           <div className="mz-eyebrow">
             Accounting · Chart of Accounts
           </div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">دليل الحسابات</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("coa.chartOfAccounts")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">
-            شجرة الحسابات الرئيسية والتفصيلية — انقر على أي حساب لعرض الرصيد والحركات
+            {t("coa.theTreeOfParentAnd")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <Button onClick={() => setExpandedOverride(allExpanded ? new Set() : new Set(allHeaderIds))}>
-            {allExpanded ? "طي الكل" : "توسيع الكل"}
+            {allExpanded ? t("coa.collapseAll") : t("coa.expandAll")}
           </Button>
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة حساب
+            {t("coa.addAccount")}
           </Button>
         </div>
       </div>
@@ -271,18 +276,18 @@ export function ChartOfAccountsScreen() {
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل دليل الحسابات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("coa.theChartOfAccountsCould")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="إجمالي الحسابات" value={<span className="mz-num">{totalCount}</span>} />
-        <StatCard label="حسابات نشطة" value={<span className="mz-num">{activeCount}</span>} />
-        <StatCard label="حسابات رئيسية" value={<span className="mz-num">{headerCount}</span>} />
-        <StatCard label="حسابات تفصيلية" value={<span className="mz-num">{detailCount}</span>} />
+        <StatCard label={t("coa.totalAccounts")} value={<span className="mz-num">{totalCount}</span>} />
+        <StatCard label={t("coa.activeAccounts")} value={<span className="mz-num">{activeCount}</span>} />
+        <StatCard label={t("coa.parentAccounts")} value={<span className="mz-num">{headerCount}</span>} />
+        <StatCard label={t("coa.detailAccounts")} value={<span className="mz-num">{detailCount}</span>} />
       </div>
 
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
@@ -295,33 +300,33 @@ export function ChartOfAccountsScreen() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="بحث بالاسم أو الرقم..."
-            aria-label="بحث بالاسم أو الرقم"
+            placeholder={t("coa.searchByNameOrNumber")}
+            aria-label={t("coa.searchByNameOrNumber2")}
             className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
         <select
-          aria-label="تصفية حسب النوع"
+          aria-label={t("coa.filterByType")}
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as AccountTypeDTO | "all")}
           className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
         >
-          <option value="all">كل الأنواع</option>
-          {(Object.keys(TYPE_LABEL) as AccountTypeDTO[]).map((type) => (
+          <option value="all">{t("coa.allTypes")}</option>
+          {(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => (
             <option key={type} value={type}>
-              {TYPE_LABEL[type]}
+              {t(TYPE_KEY[type])}
             </option>
           ))}
         </select>
         <select
-          aria-label="تصفية حسب الحالة"
+          aria-label={t("coa.filterByStatus")}
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value as AccountStatusDTO | "all")}
           className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
         >
-          <option value="all">كل الحالات</option>
-          <option value="active">نشط</option>
-          <option value="inactive">غير نشط</option>
+          <option value="all">{t("coa.allStatuses")}</option>
+          <option value="active">{t("common.active")}</option>
+          <option value="inactive">{t("common.inactive")}</option>
         </select>
       </div>
 
@@ -341,7 +346,7 @@ export function ChartOfAccountsScreen() {
         }}
         rowActions={(row) => (
           <IconButton
-            aria-label={`تعديل ${row.nameAr}`}
+            aria-label={t("coa.editNamed", { name: row.nameAr })}
             onClick={(event) => {
               event.stopPropagation();
               const account = accounts.find((a) => a.id === row.id);
@@ -358,11 +363,11 @@ export function ChartOfAccountsScreen() {
             </svg>
           </IconButton>
         )}
-        emptyState={<div className="p-4 text-center text-[12.5px] text-ink-muted">لا توجد حسابات مطابقة</div>}
+        emptyState={<div className="p-4 text-center text-[12.5px] text-ink-muted">{t("coa.noMatchingAccounts")}</div>}
       />
 
       <div className="mt-[10px] text-xs text-ink-muted">
-        عرض <span className="mz-num">{rows.length}</span> من <span className="mz-num">{totalCount}</span> حساب
+        {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("coa.accounts")}
       </div>
 
       <div className="mt-[18px] flex items-start gap-[13px] rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]">
@@ -373,10 +378,9 @@ export function ChartOfAccountsScreen() {
           </svg>
         </span>
         <div>
-          <h3 className="mb-[6px] font-display text-[13.5px] font-bold text-brand">دليل أرقام الحسابات</h3>
+          <h3 className="mb-[6px] font-display text-[13.5px] font-bold text-brand">{t("coa.accountNumberingGuide")}</h3>
           <p className="text-[12.5px] text-ink">
-            1xxx أصول · 2xxx التزامات · 3xxx حقوق ملكية · 4xxx إيرادات · 5xxx مصروفات — راعِ هذا النطاق عند إنشاء حساب
-            جديد
+            {t("coa.1xxxAssets2xxxLiabilities3xxx")}
           </p>
         </div>
       </div>
@@ -386,44 +390,44 @@ export function ChartOfAccountsScreen() {
         open={selectedAccount !== null}
         onClose={() => setSelectedAccountId(null)}
         title={selectedAccount ? `${selectedAccount.code} — ${selectedAccount.nameAr}` : ""}
-        description={selectedAccount ? TYPE_LABEL[selectedAccount.type] : undefined}
+        description={selectedAccount ? t(TYPE_KEY[selectedAccount.type]) : undefined}
       >
         {selectedAccount ? (
           <div className="flex flex-col gap-[16px]">
             <div className="flex flex-wrap items-center gap-[8px]">
-              <StatusPill label={STATUS_LABEL[selectedAccount.status]} tone={STATUS_TONE[selectedAccount.status]} />
+              <StatusPill label={t(STATUS_KEY[selectedAccount.status])} tone={STATUS_TONE[selectedAccount.status]} />
               <span className="inline-flex rounded-sm bg-surface-3 px-[8px] py-[3px] text-[11.5px] font-semibold text-ink-muted">
-                {selectedAccount.isHeader ? NATURE_LABEL.header : NATURE_LABEL.detail}
+                {selectedAccount.isHeader ? t(NATURE_KEY.header) : t(NATURE_KEY.detail)}
               </span>
               <Button size="sm" onClick={() => openEditForm(selectedAccount)}>
-                تعديل
+                {t("common.edit")}
               </Button>
             </div>
 
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الرصيد الطبيعي</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{NATURAL_BALANCE_LABEL[selectedAccount.naturalBalance]}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("coa.normalBalance")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(NATURAL_BALANCE_KEY[selectedAccount.naturalBalance])}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الحساب الرئيسي</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("coa.parentAccount")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">
-                  {parentOfSelected ? `${parentOfSelected.code} — ${parentOfSelected.nameAr}` : "بدون رئيسي (جذر)"}
+                  {parentOfSelected ? `${parentOfSelected.code} — ${parentOfSelected.nameAr}` : t("coa.noParentRoot")}
                 </div>
               </div>
             </Card>
 
             <Card className="grid grid-cols-3 overflow-hidden">
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">رصيد أول المدة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("coa.openingBalance")}</div>
                 <div className="mt-[5px]"><Money value={balance?.opening ?? 0} /></div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">حركة الفترة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("coa.movementInThePeriod")}</div>
                 <div className="mt-[5px]"><Money value={balance?.movement ?? 0} /></div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">رصيد نهاية المدة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("coa.closingBalance")}</div>
                 <div className="mt-[5px]"><Money value={balance?.closing ?? 0} /></div>
               </div>
             </Card>
@@ -437,7 +441,7 @@ export function ChartOfAccountsScreen() {
                   onClick={() => setDetailTab("movements")}
                   className={`-mb-px border-b-2 px-3 py-[9px] text-[12.5px] font-semibold transition-colors ${detailTab === "movements" ? "border-brand text-brand" : "border-transparent text-ink-muted hover:text-ink"}`}
                 >
-                  حركات الحساب
+                  {t("coa.accountMovement")}
                 </button>
                 <button
                   type="button"
@@ -446,16 +450,16 @@ export function ChartOfAccountsScreen() {
                   onClick={() => setDetailTab("audit")}
                   className={`-mb-px border-b-2 px-3 py-[9px] text-[12.5px] font-semibold transition-colors ${detailTab === "audit" ? "border-brand text-brand" : "border-transparent text-ink-muted hover:text-ink"}`}
                 >
-                  سجل التدقيق
+                  {t("coa.auditTrail")}
                 </button>
               </div>
               {detailTab === "movements" ? (
                 <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-                  ستُعرض حركات الحساب هنا فور ربط القيود المحاسبية بدفتر الأستاذ (المرحلة الثانية).
+                  {t("coa.accountMovementWillAppearHere")}
                 </div>
               ) : (
                 <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-                  سجل التدقيق يعرض كل تعديل على الحساب بالتاريخ والمستخدم.
+                  {t("coa.theAuditTrailShowsEvery")}
                 </div>
               )}
             </div>
@@ -464,7 +468,7 @@ export function ChartOfAccountsScreen() {
       </SidePanel>
 
       {/* -------- Add / edit account form -------- */}
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={editingId ? "تعديل حساب" : "إضافة حساب"}>
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={editingId ? t("coa.editAccount") : t("coa.addAccount")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -474,7 +478,7 @@ export function ChartOfAccountsScreen() {
 
           <div>
             <label htmlFor="acct-type" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-              النوع *
+              {t("coa.type")}
             </label>
             <select
               id="acct-type"
@@ -483,9 +487,9 @@ export function ChartOfAccountsScreen() {
               onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as AccountTypeDTO }))}
               className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
             >
-              {(Object.keys(TYPE_LABEL) as AccountTypeDTO[]).map((type) => (
+              {(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => (
                 <option key={type} value={type}>
-                  {TYPE_LABEL[type]}
+                  {t(TYPE_KEY[type])}
                 </option>
               ))}
             </select>
@@ -493,7 +497,7 @@ export function ChartOfAccountsScreen() {
 
           <div>
             <label htmlFor="acct-code" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-              الكود *
+              {t("coa.code")}
             </label>
             <input
               id="acct-code"
@@ -505,12 +509,12 @@ export function ChartOfAccountsScreen() {
               placeholder="1xxx"
               className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
             />
-            <span className="mt-[4px] block text-[11px] text-ink-faint">أكواد هذا النوع تبدأ عادة بـ 1xxx حسب دليل الأرقام أعلاه</span>
+            <span className="mt-[4px] block text-[11px] text-ink-faint">{t("coa.codesOfThisTypeUsually")}</span>
           </div>
 
           <div>
             <label htmlFor="acct-name-ar" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-              الاسم *
+              {t("coa.name")}
             </label>
             <input
               id="acct-name-ar"
@@ -523,7 +527,7 @@ export function ChartOfAccountsScreen() {
 
           <div>
             <label htmlFor="acct-name-en" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-              الاسم بالإنجليزي
+              {t("coa.nameInEnglish")}
             </label>
             <input
               id="acct-name-en"
@@ -535,15 +539,15 @@ export function ChartOfAccountsScreen() {
           </div>
 
           <EntityPicker
-            label="الحساب الرئيسي"
+            label={t("coa.parentAccount")}
             options={headerOptions}
-            value={draft.parentId ? (headerOptions.find((o) => o.id === draft.parentId) ?? null) : ROOT_PARENT_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, parentId: !option || option.id === ROOT_PARENT_OPTION.id ? null : option.id }))}
+            value={draft.parentId ? (headerOptions.find((o) => o.id === draft.parentId) ?? null) : (headerOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, parentId: !option || option.id === ROOT_PARENT_ID ? null : option.id }))}
           />
 
           <div>
             <label htmlFor="acct-natural-balance" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-              الرصيد الطبيعي *
+              {t("coa.normalBalance2")}
             </label>
             <select
               id="acct-natural-balance"
@@ -552,13 +556,13 @@ export function ChartOfAccountsScreen() {
               onChange={(e) => setDraft((d) => ({ ...d, naturalBalance: e.target.value as NaturalBalanceDTO }))}
               className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
             >
-              <option value="debit">مدين</option>
-              <option value="credit">دائن</option>
+              <option value="debit">{t("common.debit")}</option>
+              <option value="credit">{t("common.credit")}</option>
             </select>
           </div>
 
           <label htmlFor="acct-is-header" className="flex items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[10px]">
-            <span className="text-[12.5px] font-semibold text-ink">حساب رئيسي (غير قابل للترحيل عليه)</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("coa.parentAccountCannotBePosted")}</span>
             <input
               id="acct-is-header"
               type="checkbox"
@@ -571,7 +575,7 @@ export function ChartOfAccountsScreen() {
           {editingId ? (
             <div>
               <label htmlFor="acct-status" className="mb-[6px] block text-xs font-semibold text-ink-muted">
-                الحالة
+                {t("common.status")}
               </label>
               <select
                 id="acct-status"
@@ -579,18 +583,18 @@ export function ChartOfAccountsScreen() {
                 onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as AccountStatusDTO }))}
                 className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
               >
-                <option value="active">نشط</option>
-                <option value="inactive">غير نشط</option>
+                <option value="active">{t("common.active")}</option>
+                <option value="inactive">{t("common.inactive")}</option>
               </select>
             </div>
           ) : null}
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? "حفظ" : "إضافة"}
+              {editingId ? t("common.save") : t("common.add")}
             </Button>
           </div>
         </form>

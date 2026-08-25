@@ -14,6 +14,11 @@ const [, , file, dictPath, ns] = process.argv;
 const dict = JSON.parse(readFileSync(dictPath, "utf8"));
 const res = run(file, dict, ns);
 
+if (res.shadows) {
+  console.log(`REFUSED: something named \`t\` shadows the translator at line(s) ${res.shadows.join(", ")} — rename it first.`);
+  process.exit(2);
+}
+
 if (res.missing) {
   console.log(JSON.stringify({ missing: res.missing }, null, 1));
   process.exit(1);

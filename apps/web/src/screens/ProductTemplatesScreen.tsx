@@ -14,6 +14,7 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * قوالب المنتجات (Product Templates) — docs/catalog/03-inventory.md §"قوالب
@@ -53,6 +54,7 @@ function comboLabel(attributes: ProductTemplateDTO["attributes"], values: Record
 }
 
 export function ProductTemplatesScreen() {
+  const { t } = useAppTranslation();
   const query = useProductTemplates();
   const createTemplate = useCreateProductTemplate();
   const addAttribute = useAddTemplateAttribute();
@@ -83,7 +85,7 @@ export function ProductTemplatesScreen() {
   const specificationsQuery = useItemSpecifications();
   const specificationOptions = useMemo(() => {
     const selectable = (specificationsQuery.data ?? []).filter((s) => s.type === "select" && s.status === "active");
-    return [{ value: "", label: "خاصية خاصة بهذا القالب" }, ...selectable.map((s) => ({ value: s.code, label: `${s.nameAr} (${s.code})` }))];
+    return [{ value: "", label: t("templates.anAttributeSpecificToThis") }, ...selectable.map((s) => ({ value: s.code, label: `${s.nameAr} (${s.code})` }))];
   }, [specificationsQuery.data]);
 
   function openCreateForm() {
@@ -95,7 +97,7 @@ export function ProductTemplatesScreen() {
   async function handleCreateSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.code.trim() === "" || draft.nameAr.trim() === "" || draft.baseUnitCode.trim() === "") {
-      setFormError("الكود والاسم ووحدة القياس مطلوبة.");
+      setFormError(t("templates.codeNameAndUnitOf"));
       return;
     }
     setFormError(null);
@@ -111,7 +113,7 @@ export function ProductTemplatesScreen() {
       setFormOpen(false);
       setSelectedId(created.id);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر إنشاء قالب المنتج.");
+      setFormError(err instanceof ApiError ? err.message : t("templates.theProductTemplateCouldNot"));
     }
   }
 
@@ -124,7 +126,7 @@ export function ProductTemplatesScreen() {
       } else {
         const values = newAttrValues.split(",").map((v) => v.trim()).filter((v) => v !== "");
         if (newAttrName.trim() === "" || values.length === 0) {
-          setAttrError("اسم الخاصية والقيم (مفصولة بفواصل) مطلوبة.");
+          setAttrError(t("templates.theAttributeNeedsAName"));
           return;
         }
         await addAttribute.mutateAsync({ templateId: selected.id, body: { nameAr: newAttrName.trim(), values } });
@@ -133,7 +135,7 @@ export function ProductTemplatesScreen() {
       setNewAttrValues("");
       setNewAttrSpecCode("");
     } catch (err) {
-      setAttrError(err instanceof ApiError ? err.message : "تعذّر إضافة الخاصية.");
+      setAttrError(err instanceof ApiError ? err.message : t("templates.theAttributeCouldNotBe"));
     }
   }
 
@@ -143,7 +145,7 @@ export function ProductTemplatesScreen() {
     try {
       await deleteAttribute.mutateAsync({ templateId: selected.id, attributeId });
     } catch (err) {
-      setAttrError(err instanceof ApiError ? err.message : "تعذّر حذف الخاصية.");
+      setAttrError(err instanceof ApiError ? err.message : t("templates.theAttributeCouldNotBe2"));
     }
   }
 
@@ -153,7 +155,7 @@ export function ProductTemplatesScreen() {
     try {
       await deleteValue.mutateAsync({ templateId: selected.id, attributeId, value });
     } catch (err) {
-      setAttrError(err instanceof ApiError ? err.message : "تعذّر حذف القيمة.");
+      setAttrError(err instanceof ApiError ? err.message : t("templates.theValueCouldNotBe"));
     }
   }
 
@@ -163,7 +165,7 @@ export function ProductTemplatesScreen() {
     try {
       await addValue.mutateAsync({ templateId: selected.id, attributeId, body: { value: value.trim() } });
     } catch (err) {
-      setAttrError(err instanceof ApiError ? err.message : "تعذّر إضافة القيمة.");
+      setAttrError(err instanceof ApiError ? err.message : t("templates.theValueCouldNotBe2"));
     }
   }
 
@@ -185,15 +187,15 @@ export function ProductTemplatesScreen() {
       await generate.mutateAsync({ templateId: selected.id, body: { selections } });
       setSelectedCombos(new Set());
     } catch (err) {
-      setAttrError(err instanceof ApiError ? err.message : "تعذّر توليد المتغيرات.");
+      setAttrError(err instanceof ApiError ? err.message : t("templates.theVariantsCouldNotBe"));
     }
   }
 
   const columns: DocumentListColumn<ProductTemplateDTO>[] = [
-    { key: "name", header: "اسم المنتج", render: (t) => <span className="font-semibold text-ink">{t.nameAr}</span> },
-    { key: "code", header: "الكود", render: (t) => <span className="mz-num text-ink-faint">{t.code}</span> },
-    { key: "attributes", header: "الخصائص", align: "end", render: (t) => <span className="mz-num">{t.attributes.length}</span> },
-    { key: "status", header: "الحالة", render: (t) => <StatusPill label={t.status === "active" ? "نشط" : "غير نشط"} tone={t.status === "active" ? "success" : "neutral"} /> },
+    { key: "name", header: t("templates.productName"), render: (row) => <span className="font-semibold text-ink">{row.nameAr}</span> },
+    { key: "code", header: t("common.code"), render: (row) => <span className="mz-num text-ink-faint">{row.code}</span> },
+    { key: "attributes", header: t("templates.attributes"), align: "end", render: (row) => <span className="mz-num">{row.attributes.length}</span> },
+    { key: "status", header: t("common.status"), render: (row) => <StatusPill label={row.status === "active" ? t("common.active") : t("common.inactive")} tone={row.status === "active" ? "success" : "neutral"} /> },
   ];
 
   const newComboCount = combos.filter((c) => !existingKeys.has(comboKey(c))).length;
@@ -202,23 +204,23 @@ export function ProductTemplatesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل قوالب المنتجات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("templates.productTemplatesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <DocumentList<ProductTemplateDTO>
         eyebrow="Inventory · Product Templates"
-        title="قوالب المنتجات"
-        description="أنشئ منتجاً بخصائص (مثل اللون والمقاس) وولد المتغيرات كأصناف مستقلة"
+        title={t("templates.productTemplates")}
+        description={t("templates.defineAProductWithAttributes")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            قالب جديد
+            {t("templates.newTemplate")}
           </Button>
         }
-        stats={[{ label: "إجمالي القوالب", value: <span className="mz-num">{templates.length}</span> }]}
+        stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
         columns={columns}
         rows={templates}
         rowKey={(t) => t.id}
@@ -231,30 +233,30 @@ export function ProductTemplatesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{templates.length}</span> من <span className="mz-num">{templates.length}</span> قالب
+            {t("common.show")} <span className="mz-num">{templates.length}</span> {t("common.of")} <span className="mz-num">{templates.length}</span> {t("templates.templates")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد قوالب منتجات — أنشئ قالباً جديداً للبدء</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("templates.noProductTemplatesYetCreate")}</div>}
       />
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="قالب منتج جديد">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("templates.newProductTemplate")}>
         <form onSubmit={handleCreateSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
             </div>
           ) : null}
-          <TextField label="اسم المنتج *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label="الكود *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
-          <TextField label="وحدة القياس الأساسية *" value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
-          <TextField label="السعر الافتراضي" value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
-          <TextField label="التكلفة الافتراضية" value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
+          <TextField label={t("templates.productName2")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("templates.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
+          <TextField label={t("templates.baseUnitOfMeasure")} value={draft.baseUnitCode} onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))} />
+          <TextField label={t("templates.defaultPrice")} value={draft.defaultSalePrice} onChange={(v) => setDraft((d) => ({ ...d, defaultSalePrice: v }))} placeholder="0.00" />
+          <TextField label={t("templates.defaultCost")} value={draft.defaultCost} onChange={(v) => setDraft((d) => ({ ...d, defaultCost: v }))} placeholder="0.00" />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إنشاء
+              {t("templates.create")}
             </Button>
           </div>
         </form>
@@ -270,7 +272,7 @@ export function ProductTemplatesScreen() {
             ) : null}
 
             <div>
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">الخصائص</h3>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("templates.attributes")}</h3>
               <div className="flex flex-col gap-[10px]">
                 {selected.attributes.map((attr) => (
                   <Card key={attr.id} className="p-[12px_14px]">
@@ -279,7 +281,7 @@ export function ProductTemplatesScreen() {
                         {attr.nameAr} <span className="text-ink-faint">({attr.values.length})</span>
                       </span>
                       <Button size="sm" onClick={() => void handleDeleteAttribute(attr.id)}>
-                        حذف الخاصية
+                        {t("templates.removeAttribute")}
                       </Button>
                     </div>
                     <div className="mt-[8px] flex flex-wrap gap-[6px]">
@@ -289,7 +291,7 @@ export function ProductTemplatesScreen() {
                           <button
                             type="button"
                             className="text-ink-faint hover:text-danger-ink"
-                            aria-label={`حذف ${value}`}
+                            aria-label={t("templates.deleteValue", { value })}
                             onClick={() => void handleDeleteValue(attr.id, value)}
                           >
                             ×
@@ -300,28 +302,28 @@ export function ProductTemplatesScreen() {
                     </div>
                   </Card>
                 ))}
-                {selected.attributes.length === 0 ? <p className="text-[12.5px] text-ink-muted">لا توجد خصائص بعد.</p> : null}
+                {selected.attributes.length === 0 ? <p className="text-[12.5px] text-ink-muted">{t("templates.noAttributesYet")}</p> : null}
               </div>
 
               <Card className="mt-[10px] p-[12px_14px]">
                 <div className="flex flex-col gap-[8px]">
                   {specificationOptions.length > 1 ? (
                     <SelectField
-                      label="من سجل المواصفات"
+                      label={t("templates.fromTheSpecificationRegister")}
                       value={newAttrSpecCode}
                       onChange={setNewAttrSpecCode}
                       options={specificationOptions}
-                      hint="اختر مواصفة جاهزة، أو اتركها فارغة واكتب خاصية خاصة بهذا القالب."
+                      hint={t("templates.pickAReadyMadeSpecification")}
                     />
                   ) : null}
                   {newAttrSpecCode === "" ? (
                     <>
-                      <TextField label="اسم الخاصية" value={newAttrName} onChange={setNewAttrName} placeholder="مثال: اللون" />
-                      <TextField label="القيم مفصولة بفواصل" value={newAttrValues} onChange={setNewAttrValues} placeholder="أحمر, أزرق, أخضر" />
+                      <TextField label={t("templates.attributeName")} value={newAttrName} onChange={setNewAttrName} placeholder={t("templates.forExampleColour")} />
+                      <TextField label={t("templates.valuesSeparatedByCommas")} value={newAttrValues} onChange={setNewAttrValues} placeholder={t("templates.redBlueGreen")} />
                     </>
                   ) : null}
                   <Button size="sm" onClick={() => void handleAddAttribute()}>
-                    إضافة خاصية
+                    {t("templates.addAttribute")}
                   </Button>
                 </div>
               </Card>
@@ -330,16 +332,16 @@ export function ProductTemplatesScreen() {
             {selected.attributes.length > 0 ? (
               <div>
                 <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">
-                  توليد المتغيرات — <span className="mz-num">{combos.length}</span> تركيبة ممكنة،{" "}
-                  <span className="mz-num">{existingKeys.size}</span> موجودة بالفعل
+                  {t("templates.generateVariants")} <span className="mz-num">{combos.length}</span> {t("templates.possibleCombinations")}{" "}
+                  <span className="mz-num">{existingKeys.size}</span> {t("templates.alreadyExist")}
                 </h3>
                 <div className="overflow-hidden rounded-lg border border-border">
                   <table className="w-full text-[12.5px]">
                     <thead className="bg-surface-2 text-ink-faint">
                       <tr>
                         <th className="p-[8px_10px] text-start font-semibold" />
-                        <th className="p-[8px_10px] text-start font-semibold">التركيبة</th>
-                        <th className="p-[8px_10px] text-end font-semibold">الحالة</th>
+                        <th className="p-[8px_10px] text-start font-semibold">{t("templates.combination")}</th>
+                        <th className="p-[8px_10px] text-end font-semibold">{t("common.status")}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -358,7 +360,7 @@ export function ProductTemplatesScreen() {
                               />
                             </td>
                             <td className="mz-num p-[8px_10px] text-ink">{comboLabel(selected.attributes, combo)}</td>
-                            <td className="p-[8px_10px] text-end">{exists ? <StatusPill label="موجود" tone="neutral" /> : <StatusPill label="جديد" tone="success" />}</td>
+                            <td className="p-[8px_10px] text-end">{exists ? <StatusPill label={t("templates.exists")} tone="neutral" /> : <StatusPill label={t("templates.new")} tone="success" />}</td>
                           </tr>
                         );
                       })}
@@ -371,15 +373,15 @@ export function ProductTemplatesScreen() {
                   disabled={selectedCombos.size === 0}
                   onClick={() => void handleGenerate()}
                 >
-                  توليد ({selectedCombos.size})
+                  {t("templates.generate")}{selectedCombos.size})
                 </Button>
-                {newComboCount === 0 && combos.length > 0 ? <p className="mt-[6px] text-[12px] text-ink-muted">تم توليد كل التركيبات الممكنة.</p> : null}
+                {newComboCount === 0 && combos.length > 0 ? <p className="mt-[6px] text-[12px] text-ink-muted">{t("templates.everyPossibleCombinationHasBeen")}</p> : null}
               </div>
             ) : null}
 
             <div>
               <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">
-                المتغيرات (<span className="mz-num">{variants.length}</span>)
+                {t("templates.variants")}<span className="mz-num">{variants.length}</span>)
               </h3>
               <div className="flex flex-col gap-[8px]">
                 {variants.map((v) => (
@@ -388,7 +390,7 @@ export function ProductTemplatesScreen() {
                     <span className="mz-num text-[12px] text-ink-faint">{v.itemCode}</span>
                   </Card>
                 ))}
-                {variants.length === 0 ? <p className="text-[12.5px] text-ink-muted">لم يتم توليد أي متغير بعد.</p> : null}
+                {variants.length === 0 ? <p className="text-[12.5px] text-ink-muted">{t("templates.noVariantsGeneratedYet")}</p> : null}
               </div>
             </div>
           </div>
@@ -399,14 +401,15 @@ export function ProductTemplatesScreen() {
 }
 
 function AddValueInline({ onAdd }: { onAdd: (value: string) => void }) {
+  const { t } = useAppTranslation();
   const [value, setValue] = useState("");
   return (
     <span className="inline-flex items-center gap-[4px]">
       <input
         value={value}
         onChange={(e) => setValue(e.target.value)}
-        placeholder="+ قيمة"
-        aria-label="إضافة قيمة"
+        placeholder={t("templates.value")}
+        aria-label={t("templates.addValue")}
         className="w-[90px] rounded-full border border-dashed border-border bg-transparent px-[10px] py-[3px] text-[12px] text-ink outline-none focus:border-brand"
         onKeyDown={(e) => {
           if (e.key === "Enter" && value.trim() !== "") {

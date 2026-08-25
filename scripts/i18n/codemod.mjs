@@ -36,10 +36,30 @@ function enclosingComponent(node, sf) {
   return null;
 }
 
+/**
+ * A parameter or variable literally named `t` shadows the translator, so an
+ * inserted `t("key")` would call whatever that is. `ProductTemplatesScreen`
+ * had four `render: (t) => …` callbacks; the generated code typechecked as a
+ * call on a row object and only tsc caught it. Refuse instead.
+ */
+function findShadows(sf) {
+  const out = [];
+  const visit = (node) => {
+    if ((ts.isParameter(node) || ts.isVariableDeclaration(node)) && node.name && ts.isIdentifier(node.name) && node.name.text === "t") {
+      out.push(sf.getLineAndCharacterOfPosition(node.getStart(sf)).line + 1);
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sf, visit);
+  return out;
+}
+
 export function run(file, dict, ns, { dryRun = false } = {}) {
   const src = readFileSync(file, "utf8");
   const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const hits = collect(sf);
+  const shadows = findShadows(sf).filter((line) => !src.split("\n")[line - 1].includes("const { t } = useAppTranslation()"));
+  if (shadows.length) return { shadows };
 
   const keyOf = new Map();
   const used = new Set();

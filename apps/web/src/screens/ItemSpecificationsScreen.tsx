@@ -16,6 +16,7 @@ import {
   useItemSpecifications,
   useUpdateItemSpecification,
 } from "../data/item-catalog-hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * المواصفات — the reusable specification/attribute registry over the item
@@ -23,16 +24,13 @@ import {
  * is a real, correct state.
  */
 
-const TYPE_LABEL: Record<ItemSpecificationTypeDTO, string> = {
-  select: "قائمة اختيار",
-  number: "رقم",
-  text: "نص",
+const TYPE_KEY: Record<ItemSpecificationTypeDTO, AppTranslationKey> = {
+  select: "specs.type.select",
+  number: "specs.type.number",
+  text: "specs.type.text",
 };
 
-const TYPE_OPTIONS = (Object.keys(TYPE_LABEL) as ItemSpecificationTypeDTO[]).map((value) => ({
-  value,
-  label: TYPE_LABEL[value],
-}));
+const TYPE_VALUES = Object.keys(TYPE_KEY) as ItemSpecificationTypeDTO[];
 
 interface Draft {
   code: string;
@@ -55,7 +53,7 @@ function draftOf(specification: ItemSpecificationDTO): Draft {
     nameAr: specification.nameAr,
     nameEn: specification.nameEn ?? "",
     type: specification.type,
-    values: specification.values.join("، "),
+    values: specification.values.join(", "),
     unit: specification.unit ?? "",
     filterable: specification.filterable,
     active: specification.status === "active",
@@ -69,18 +67,19 @@ function parseValues(raw: string): string[] {
     .filter((value) => value !== "");
 }
 
-function validate(draft: Draft): string | null {
+/** Returns a catalogue KEY, so the caller decides the locale. */
+function validate(draft: Draft): AppTranslationKey | null {
   if (!/^[A-Z0-9_-]{1,20}$/.test(draft.code.trim())) {
-    return "الكود مطلوب — حروف إنجليزية كبيرة أو أرقام أو - أو _ (20 حرفاً كحد أقصى).";
+    return "specs.codeRequired";
   }
-  if (draft.nameAr.trim() === "") return "الاسم بالعربية مطلوب.";
+  if (draft.nameAr.trim() === "") return "specs.nameRequired";
   if (draft.type === "select" && parseValues(draft.values).length === 0) {
-    return "قائمة الاختيار تحتاج قيمة واحدة على الأقل.";
+    return "specs.needsOneValue";
   }
   return null;
 }
 
-function valuesCell(specification: ItemSpecificationDTO) {
+function valuesCell(specification: ItemSpecificationDTO, noUnitLabel: string) {
   if (specification.type === "select") {
     if (specification.values.length === 0) return <span className="text-ink-faint">—</span>;
     return (
@@ -97,12 +96,13 @@ function valuesCell(specification: ItemSpecificationDTO) {
     );
   }
   if (specification.type === "number") {
-    return specification.unit ? <span>{specification.unit}</span> : <span className="text-ink-faint">بدون وحدة</span>;
+    return specification.unit ? <span>{specification.unit}</span> : <span className="text-ink-faint">{noUnitLabel}</span>;
   }
   return <span className="text-ink-faint">—</span>;
 }
 
 export function ItemSpecificationsScreen() {
+  const { t } = useAppTranslation();
   const query = useItemSpecifications();
   const createSpecification = useCreateItemSpecification();
   const updateSpecification = useUpdateItemSpecification();
@@ -147,7 +147,7 @@ export function ItemSpecificationsScreen() {
     event.preventDefault();
     const error = validate(draft);
     if (error) {
-      setFormError(error);
+      setFormError(t(error));
       return;
     }
     setFormError(null);
@@ -180,7 +180,7 @@ export function ItemSpecificationsScreen() {
       }
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof Error ? err.message : t("common.failed"));
     }
   }
 
@@ -191,7 +191,7 @@ export function ItemSpecificationsScreen() {
     try {
       await deleteSpecification.mutateAsync(specification.code);
     } catch (err) {
-      setRowError(err instanceof Error ? err.message : "تعذّر حذف المواصفة.");
+      setRowError(err instanceof Error ? err.message : t("specs.theSpecificationCouldNotBe"));
     } finally {
       setDeletingCode(null);
     }
@@ -200,29 +200,29 @@ export function ItemSpecificationsScreen() {
   const columns: DocumentListColumn<ItemSpecificationDTO>[] = [
     {
       key: "nameAr",
-      header: "الاسم",
+      header: t("common.name"),
       render: (s) => (
         <div className="flex flex-col">
           <span className="flex items-center gap-[8px] font-semibold text-ink">
             {s.nameAr}
-            {s.status === "active" ? null : <StatusPill label="غير نشطة" tone="neutral" />}
+            {s.status === "active" ? null : <StatusPill label={t("specs.inactive")} tone="neutral" />}
           </span>
           <span className="font-mono text-[11.5px] text-ink-faint">{s.code}</span>
         </div>
       ),
     },
-    { key: "type", header: "النوع", render: (s) => TYPE_LABEL[s.type] },
-    { key: "values", header: "القيم / الوحدة", render: valuesCell },
+    { key: "type", header: t("common.type"), render: (s) => t(TYPE_KEY[s.type]) },
+    { key: "values", header: t("specs.valuesUnit"), render: (specification) => valuesCell(specification, t("specs.noUnit")) },
     {
       key: "filterable",
-      header: "قابلة للتصفية في الكتالوج",
+      header: t("specs.filterableInTheCatalogue"),
       render: (s) => (
-        <StatusPill label={s.filterable ? "نعم" : "لا"} tone={s.filterable ? "success" : "neutral"} />
+        <StatusPill label={s.filterable ? t("specs.yes") : t("specs.no")} tone={s.filterable ? "success" : "neutral"} />
       ),
     },
     {
       key: "usage",
-      header: "الاستخدام",
+      header: t("specs.usedBy"),
       align: "end",
       render: (s) => <span className="mz-num">{s.usageCount}</span>,
     },
@@ -233,10 +233,10 @@ export function ItemSpecificationsScreen() {
       render: (s) => (
         <div className="flex items-center justify-end gap-[6px]">
           <Button size="sm" onClick={() => openEdit(s)}>
-            تعديل
+            {t("common.edit")}
           </Button>
           <IconButton
-            aria-label={`حذف ${s.nameAr}`}
+            aria-label={t("specs.deleteNamed", { name: s.nameAr })}
             disabled={deletingCode !== null || s.usageCount > 0}
             onClick={() => remove(s)}
           >
@@ -259,9 +259,9 @@ export function ItemSpecificationsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل المواصفات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("specs.specificationsCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -276,31 +276,31 @@ export function ItemSpecificationsScreen() {
 
       <DocumentList<ItemSpecificationDTO>
         eyebrow="Inventory · Specifications"
-        title="المواصفات"
-        description="سجل المواصفات القابلة لإعادة الاستخدام — قوائم اختيار وأرقام ونصوص تبني عليها قوالب المنتجات"
+        title={t("specs.specifications")}
+        description={t("specs.theRegisterOfReusableSpecifications")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            مواصفة جديدة
+            {t("specs.newSpecification")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المواصفات", value: <span className="mz-num">{specifications.length}</span> },
+          { label: t("specs.totalSpecifications"), value: <span className="mz-num">{specifications.length}</span> },
           {
-            label: "قابلة للتصفية",
+            label: t("specs.filterable"),
             value: <span className="mz-num">{specifications.filter((s) => s.filterable).length}</span>,
           },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: specifications.length },
-          { key: "select", label: TYPE_LABEL.select, count: specifications.filter((s) => s.type === "select").length },
-          { key: "number", label: TYPE_LABEL.number, count: specifications.filter((s) => s.type === "number").length },
-          { key: "text", label: TYPE_LABEL.text, count: specifications.filter((s) => s.type === "text").length },
+          { key: "all", label: t("common.all"), count: specifications.length },
+          { key: "select", label: t(TYPE_KEY.select), count: specifications.filter((s) => s.type === "select").length },
+          { key: "number", label: t(TYPE_KEY.number), count: specifications.filter((s) => s.type === "number").length },
+          { key: "text", label: t(TYPE_KEY.text), count: specifications.filter((s) => s.type === "text").length },
         ]}
         activeStatusKey={typeFilter}
         onStatusChange={(key) => setTypeFilter(key as ItemSpecificationTypeDTO | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالكود أو الاسم…"
+        searchPlaceholder={t("specs.searchByCodeOrName")}
         columns={columns}
         rows={filtered}
         rowKey={(s) => s.code}
@@ -308,13 +308,13 @@ export function ItemSpecificationsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من{" "}
-            <span className="mz-num">{specifications.length}</span> مواصفة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")}{" "}
+            <span className="mz-num">{specifications.length}</span> {t("specs.specifications2")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد مواصفات — أضف مواصفة جديدة"}
+            {query.isLoading ? t("common.loading") : t("specs.noSpecificationsYetAddOne")}
           </div>
         }
       />
@@ -322,8 +322,8 @@ export function ItemSpecificationsScreen() {
       <SidePanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        title={editingCode ? "تعديل المواصفة" : "مواصفة جديدة"}
-        description="النوع والكود لا يتغيران بعد الحفظ — قوالب المنتجات ترتبط بهما"
+        title={editingCode ? t("specs.editSpecification") : t("specs.newSpecification")}
+        description={t("specs.typeAndCodeAreFixed")}
       >
         <form onSubmit={submit} className="flex flex-col gap-[14px] p-5">
           {formError ? (
@@ -336,67 +336,67 @@ export function ItemSpecificationsScreen() {
           ) : null}
 
           <TextField
-            label="الكود *"
+            label={t("specs.code")}
             value={draft.code}
             onChange={(v) => setDraft((d) => ({ ...d, code: v.toUpperCase() }))}
             disabled={editingCode !== null}
-            hint="حروف إنجليزية كبيرة أو أرقام أو - أو _"
+            hint={t("specs.capitalLettersDigitsOr")}
           />
           <TextField
-            label="الاسم بالعربية *"
+            label={t("specs.arabicName")}
             value={draft.nameAr}
             onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))}
           />
           <TextField
-            label="الاسم بالإنجليزية"
+            label={t("specs.englishName")}
             value={draft.nameEn}
             onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))}
           />
           <SelectField
-            label="النوع"
+            label={t("common.type")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as ItemSpecificationTypeDTO }))}
-            options={TYPE_OPTIONS}
+            options={TYPE_VALUES.map((value) => ({ value, label: t(TYPE_KEY[value]) }))}
             disabled={editingCode !== null}
           />
           {draft.type === "select" ? (
             <TextField
-              label="القيم المسموح بها *"
+              label={t("specs.allowedValues")}
               value={draft.values}
               onChange={(v) => setDraft((d) => ({ ...d, values: v }))}
-              placeholder="احمر، اخضر، ازرق"
-              hint="افصل بين القيم بفاصلة"
+              placeholder={t("specs.redGreenBlue")}
+              hint={t("specs.separateValuesWithCommas")}
             />
           ) : null}
           {draft.type === "number" ? (
             <TextField
-              label="الوحدة"
+              label={t("common.unit")}
               value={draft.unit}
               onChange={(v) => setDraft((d) => ({ ...d, unit: v }))}
-              placeholder="كجم"
+              placeholder={t("specs.kg")}
             />
           ) : null}
           <ToggleField
-            label="قابلة للتصفية في الكتالوج"
+            label={t("specs.filterableInTheCatalogue")}
             checked={draft.filterable}
             onChange={(v) => setDraft((d) => ({ ...d, filterable: v }))}
           />
           <ToggleField
-            label="نشطة"
+            label={t("specs.active")}
             checked={draft.active}
             onChange={(v) => setDraft((d) => ({ ...d, active: v }))}
           />
 
           <div className="flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setPanelOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button
               type="submit"
               variant="primary"
               disabled={createSpecification.isPending || updateSpecification.isPending}
             >
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

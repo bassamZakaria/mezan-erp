@@ -12,12 +12,13 @@ import {
   type DocumentListColumn,
   type PillTone,
 } from "@mezan/ui";
-import { DOMAIN_EVENT_CATALOG, EVENT_CATEGORIES, type EventCategory } from "@mezan/domain";
+import { EVENT_CATEGORIES, type EventCategory } from "@mezan/domain";
 import type { WebhookDTO, CreateWebhookResultDTO, WebhookDeliveryDTO } from "@mezan/contracts";
 import { useWebhooks, useCreateWebhook, useUpdateWebhook, useWebhookDeliveries } from "../data/account-hooks";
 import { useApi } from "../data/ApiContext";
 import { TextField, SectionCard } from "./form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { eventLabel, eventLabelByCode } from "../domain-labels";
 
 /**
  * الويب هوك (`/settings/webhooks`) — register a target URL + subscribed
@@ -40,7 +41,7 @@ interface DeliverableEvent {
 }
 
 function useDeliverableEvents() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<{ events: DeliverableEvent[]; enforced: boolean }>({
     queryKey: ["webhooks", "events"],
@@ -75,7 +76,7 @@ function EventsChecklist({
   selected: ReadonlySet<string>;
   onToggle: (code: string) => void;
 }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   if (available.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-border p-[20px] text-center text-[12.5px] text-ink-muted">
@@ -94,7 +95,7 @@ function EventsChecklist({
             <div className="flex flex-wrap gap-[8px]">
               {events.map((e) => (
                 <Chip key={e.code} type="button" active={selected.has(e.code)} onClick={() => onToggle(e.code)}>
-                  {e.labelAr}
+                  {eventLabel(e, t)}
                 </Chip>
               ))}
             </div>
@@ -106,7 +107,7 @@ function EventsChecklist({
 }
 
 function CreatedWebhookBanner({ result, onDismiss }: { result: CreateWebhookResultDTO; onDismiss: () => void }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -137,7 +138,7 @@ function deliveryStatus(d: WebhookDeliveryDTO): { key: AppTranslationKey; tone: 
 }
 
 function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () => void }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const deliveriesQuery = useWebhookDeliveries(webhook.id);
   const deliveries = deliveriesQuery.data ?? [];
 
@@ -150,7 +151,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
       actions={<Button onClick={onBack}>{t("webhooks.backToTheList")}</Button>}
       summary={[
         { label: t("webhooks.subscribedEvents"), value: <span className="mz-num">{webhook.events.length}</span> },
-        { label: t("webhooks.createdOn"), value: formatDate(webhook.createdAt, { style: "long" }) },
+        { label: t("webhooks.createdOn"), value: formatDate(webhook.createdAt, { style: "long", locale }) },
       ]}
       tabs={[
         {
@@ -159,14 +160,11 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
           content: (
             <SectionCard title={t("webhooks.subscribedEvents")}>
               <div className="col-span-full flex flex-wrap gap-[8px]">
-                {webhook.events.map((code) => {
-                  const def = DOMAIN_EVENT_CATALOG.find((e) => e.code === code);
-                  return (
-                    <Chip key={code} active>
-                      {def?.labelAr ?? code}
-                    </Chip>
-                  );
-                })}
+                {webhook.events.map((code) => (
+                  <Chip key={code} active>
+                    {eventLabelByCode(code, t) ?? code}
+                  </Chip>
+                ))}
               </div>
             </SectionCard>
           ),
@@ -196,11 +194,11 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
                       const status = deliveryStatus(d);
                       return (
                         <tr key={d.id} className="border-b border-border last:border-b-0">
-                          <td className="p-[10px] text-ink">{DOMAIN_EVENT_CATALOG.find((e) => e.code === d.eventCode)?.labelAr ?? d.eventCode}</td>
+                          <td className="p-[10px] text-ink">{eventLabelByCode(d.eventCode, t) ?? d.eventCode}</td>
                           <td className="p-[10px]"><StatusPill label={t(status.key)} tone={status.tone} /></td>
                           <td className="mz-num p-[10px] text-ink-muted">{d.statusCode ?? "—"}</td>
                           <td className="mz-lat p-[10px] text-[11.5px] text-ink-muted">{d.errorMessage ?? "—"}</td>
-                          <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(d.attemptedAt, { style: "long" })}</td>
+                          <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(d.attemptedAt, { style: "long", locale })}</td>
                         </tr>
                       );
                     })}
@@ -215,7 +213,7 @@ function WebhookDetail({ webhook, onBack }: { webhook: WebhookDTO; onBack: () =>
 }
 
 export function WebhooksPage() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useWebhooks();
   const createWebhook = useCreateWebhook();
   const updateWebhook = useUpdateWebhook();
@@ -292,7 +290,7 @@ export function WebhooksPage() {
     { key: "name", header: t("common.name"), render: (w) => <span className="font-semibold text-ink">{w.name}</span> },
     { key: "targetUrl", header: t("webhooks.destinationUrl"), render: (w) => <span className="mz-lat text-[12px] text-ink-muted">{w.targetUrl}</span> },
     { key: "events", header: t("webhooks.events"), render: (w) => <span className="mz-num">{w.events.length}</span> },
-    { key: "createdAt", header: t("webhooks.createdOn"), render: (w) => formatDate(w.createdAt, { style: "long" }) },
+    { key: "createdAt", header: t("webhooks.createdOn"), render: (w) => formatDate(w.createdAt, { style: "long", locale }) },
     {
       key: "active",
       header: t("common.status"),

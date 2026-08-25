@@ -5363,6 +5363,23 @@ const webAr = {
   "journals.debitLabel": "مدين للسطر {n}",
   "journals.creditLabel": "دائن للسطر {n}",
   "journals.removeLineLabel": "حذف السطر {n}",
+
+  // report parameter placeholders
+  "report.manufacturing.make-vs-buy.ph.search": "بحث بالاسم أو الكود",
+  "report.inventory.ledger.ph.itemId": "معرف الصنف",
+  "report.inventory.ledger.ph.warehouseId": "معرف المستودع",
+  "report.inventory.movement.ph.itemId": "معرف الصنف",
+  "report.inventory.movement.ph.warehouseId": "معرف المستودع",
+  "report.inventory.slow-moving.ph.search": "اسم الصنف",
+  "report.inventory.slow-moving.ph.warehouseId": "معرف المستودع",
+  "report.inventory.stock-levels.ph.warehouseId": "معرف المستودع (اتركه فارغاً لكل المستودعات)",
+  "report.inventory.stock-levels.ph.search": "ابحث بالاسم أو الكود",
+  "report.inventory.valuation.ph.search": "بحث بالاسم أو الكود",
+  "report.inventory.valuation.ph.warehouseId": "معرف المستودع",
+  "report.inventory.aging.ph.search": "اسم الصنف أو الكود",
+  "report.inventory.aging.ph.warehouseId": "معرف المستودع",
+  "report.inventory.expiring.ph.search": "اسم الصنف أو رقم الدفعة",
+  "report.inventory.expiring.ph.warehouseId": "معرف المستودع",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10731,6 +10748,23 @@ const webEn: Record<WebTranslationKey, string> = {
   "journals.debitLabel": "Debit for line {n}",
   "journals.creditLabel": "Credit for line {n}",
   "journals.removeLineLabel": "Remove line {n}",
+
+  // report parameter placeholders
+  "report.manufacturing.make-vs-buy.ph.search": "Search by name or code",
+  "report.inventory.ledger.ph.itemId": "Item ID",
+  "report.inventory.ledger.ph.warehouseId": "Warehouse ID",
+  "report.inventory.movement.ph.itemId": "Item ID",
+  "report.inventory.movement.ph.warehouseId": "Warehouse ID",
+  "report.inventory.slow-moving.ph.search": "Item name",
+  "report.inventory.slow-moving.ph.warehouseId": "Warehouse ID",
+  "report.inventory.stock-levels.ph.warehouseId": "Warehouse ID (leave empty for every warehouse)",
+  "report.inventory.stock-levels.ph.search": "Search by name or code",
+  "report.inventory.valuation.ph.search": "Search by name or code",
+  "report.inventory.valuation.ph.warehouseId": "Warehouse ID",
+  "report.inventory.aging.ph.search": "Item name or code",
+  "report.inventory.aging.ph.warehouseId": "Warehouse ID",
+  "report.inventory.expiring.ph.search": "Item name or batch number",
+  "report.inventory.expiring.ph.warehouseId": "Warehouse ID",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

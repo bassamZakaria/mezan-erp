@@ -32,7 +32,7 @@ const ACTION_KEYS: Readonly<Record<string, AppTranslationKey>> = {
 };
 
 function InfoTab() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const profileQuery = useProfile();
   const updateProfile = useUpdateProfile();
   const profile = profileQuery.data;
@@ -82,7 +82,7 @@ function InfoTab() {
 }
 
 function SecurityTab() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const changePassword = useChangePassword();
   const changePin = useChangePin();
 
@@ -170,7 +170,7 @@ function activityLabel(event: AuditEventDTO, t: (key: AppTranslationKey) => stri
 }
 
 function ActivityTab() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const activityQuery = useProfileActivity();
   const events = activityQuery.data ?? [];
 
@@ -203,7 +203,7 @@ function ActivityTab() {
               <td className="p-[10px]">
                 <StatusPill label={event.severity} tone={severityTone(event.severity)} />
               </td>
-              <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(event.timestamp, { style: "long" })}</td>
+              <td className="mz-num p-[10px] text-end text-ink-muted">{formatDate(event.timestamp, { style: "long", locale })}</td>
             </tr>
           ))}
         </tbody>
@@ -213,7 +213,7 @@ function ActivityTab() {
 }
 
 export function ProfilePage() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const profileQuery = useProfile();
   const profile = profileQuery.data;
 
@@ -227,8 +227,8 @@ export function ProfilePage() {
         profile
           ? [
               { label: t("profile.pin2"), value: profile.hasPin ? t("profile.set") : t("profile.notSet") },
-              { label: t("profile.lastSignedIn"), value: profile.lastLoginAt ? formatDate(profile.lastLoginAt, { style: "long" }) : t("common.none") },
-              { label: t("profile.createdOn"), value: formatDate(profile.createdAt, { style: "long" }) },
+              { label: t("profile.lastSignedIn"), value: profile.lastLoginAt ? formatDate(profile.lastLoginAt, { style: "long", locale }) : t("common.none") },
+              { label: t("profile.createdOn"), value: formatDate(profile.createdAt, { style: "long", locale }) },
             ]
           : []
       }

@@ -72,7 +72,7 @@ function buildScopeModules(selected: ReadonlySet<string>, t: Translate): Permiss
 }
 
 function CreatedKeyBanner({ result, onDismiss }: { result: CreateApiKeyResultDTO; onDismiss: () => void }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [copied, setCopied] = useState(false);
 
   async function copy() {
@@ -97,7 +97,7 @@ function CreatedKeyBanner({ result, onDismiss }: { result: CreateApiKeyResultDTO
 }
 
 export function ApiKeysPage() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useApiKeys();
   const createKey = useCreateApiKey();
   const revokeKey = useRevokeApiKey();
@@ -157,8 +157,8 @@ export function ApiKeysPage() {
     { key: "name", header: t("apiKeys.col.name"), render: (k) => <span className="font-semibold text-ink">{k.name}</span> },
     { key: "prefix", header: t("apiKeys.col.prefix"), render: (k) => <code className="mz-lat text-[12px] text-ink-muted">{k.prefix}…</code> },
     { key: "scopes", header: t("apiKeys.col.scopes"), render: (k) => <span className="mz-num">{k.scopes.length}</span> },
-    { key: "createdAt", header: t("apiKeys.col.createdAt"), render: (k) => formatDate(k.createdAt, { style: "long" }) },
-    { key: "lastUsedAt", header: t("apiKeys.col.lastUsedAt"), render: (k) => (k.lastUsedAt ? formatDate(k.lastUsedAt, { style: "long" }) : t("apiKeys.neverUsed")) },
+    { key: "createdAt", header: t("apiKeys.col.createdAt"), render: (k) => formatDate(k.createdAt, { style: "long", locale }) },
+    { key: "lastUsedAt", header: t("apiKeys.col.lastUsedAt"), render: (k) => (k.lastUsedAt ? formatDate(k.lastUsedAt, { style: "long", locale }) : t("apiKeys.neverUsed")) },
     {
       key: "status",
       header: t("apiKeys.col.status"),

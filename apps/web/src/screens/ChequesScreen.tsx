@@ -29,6 +29,7 @@ import {
   useSuppliers,
   useTreasuryAccounts,
 } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * سجل الشيكات — Cheque Register (docs/catalog/04, route `/financial-papers/cheques`
@@ -87,14 +88,16 @@ function legalActions(cheque: ChequeDTO): ("deposit" | "collect" | "bounce" | "r
   }
 }
 
-const ACTION_LABEL = {
-  deposit: "إيداع في البنك",
-  collect: "تأكيد التحصيل",
-  bounce: "تسجيل ارتداد",
-  replace: "استبدال الشيك",
+/** Keys, not copy — the action buttons translate at render. */
+const ACTION_KEY = {
+  deposit: "cheques.action.deposit",
+  collect: "cheques.action.collect",
+  bounce: "cheques.action.bounce",
+  replace: "cheques.action.replace",
 } as const;
 
 export function ChequesScreen() {
+  const { t } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
   const [statusFilter, setStatusFilter] = useState<"all" | ChequeStatusDTO>("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | ChequeDirectionDTO>("all");
@@ -133,7 +136,7 @@ export function ChequesScreen() {
   }, [customersQuery.data, suppliersQuery.data]);
 
   const bankTreasuryAccounts = useMemo(
-    () => (treasuryQuery.data ?? []).filter((t) => t.type === "bank" && t.status === "active"),
+    () => (treasuryQuery.data ?? []).filter((account) => account.type === "bank" && account.status === "active"),
     [treasuryQuery.data],
   );
 
@@ -180,7 +183,7 @@ export function ChequesScreen() {
     try {
       if (action === "deposit") {
         const bankAccount = bankTreasuryAccounts[0];
-        if (!bankAccount) throw new Error("لا يوجد حساب خزينة بنكي نشط لإيداع الشيك فيه.");
+        if (!bankAccount) throw new Error(t("cheques.thereIsNoActiveBank"));
         await deposit.mutateAsync({ id: cheque.id, body: { bankTreasuryAccountId: bankAccount.id } });
       } else if (action === "collect") {
         await collect.mutateAsync({ id: cheque.id, body: { bankGlAccountId: BANK_GL_ACCOUNT_ID, date: today() } });
@@ -217,29 +220,29 @@ export function ChequesScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: cheques.length },
+    { key: "all", label: t("common.all"), count: cheques.length },
     ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: statusCounts[d.code] })),
   ];
 
   const columns: DocumentListColumn<ChequeDTO>[] = [
     {
       key: "chequeNumber",
-      header: "رقم الشيك",
+      header: t("cheques.chequeNumber"),
       render: (c) => <span className="mz-num font-semibold text-ink">{c.chequeNumber}</span>,
     },
-    { key: "party", header: "الجهة", render: (c) => <span className="text-ink">{partyName(c.partyId)}</span> },
-    { key: "amount", header: "المبلغ", align: "end", render: (c) => <MoneyDisplay value={Number(c.amount)} /> },
-    { key: "dueDate", header: "تاريخ الاستحقاق", render: (c) => <span className="mz-num">{c.dueDate}</span> },
-    { key: "bankName", header: "اسم البنك", render: (c) => <span className="text-ink-muted">{c.bankName}</span> },
-    { key: "direction", header: "الاتجاه", render: (c) => getChequeDirectionLabel(c.direction) },
+    { key: "party", header: t("cheques.party"), render: (c) => <span className="text-ink">{partyName(c.partyId)}</span> },
+    { key: "amount", header: t("common.amount"), align: "end", render: (c) => <MoneyDisplay value={Number(c.amount)} /> },
+    { key: "dueDate", header: t("cheques.dueDate"), render: (c) => <span className="mz-num">{c.dueDate}</span> },
+    { key: "bankName", header: t("cheques.bankName"), render: (c) => <span className="text-ink-muted">{c.bankName}</span> },
+    { key: "direction", header: t("cheques.direction"), render: (c) => getChequeDirectionLabel(c.direction) },
     {
       key: "status",
-      header: "الحالة",
+      header: t("common.status"),
       render: (c) => <StatusPill label={getChequeStatusLabel(c.effectiveStatus)} tone={STATUS_TONE[c.effectiveStatus]} />,
     },
     {
       key: "createdBy",
-      header: "بواسطة",
+      header: t("cheques.by"),
       render: (c) => <span className="mz-num text-[11px] text-ink-faint">{c.createdAt.slice(0, 10)}</span>,
     },
     {
@@ -251,7 +254,7 @@ export function ChequesScreen() {
         if (actions.length === 0) return <span className="text-ink-faint">—</span>;
         return (
           <Button size="sm" variant="ghost" onClick={() => { setActionError(null); setSelectedId(c.id); }}>
-            إجراءات
+            {t("cheques.actions")}
           </Button>
         );
       },
@@ -262,44 +265,44 @@ export function ChequesScreen() {
     <div className="w-full">
       <DocumentList<ChequeDTO>
         eyebrow="Financial Papers · Cheques"
-        title="سجل الشيكات"
-        description="متابعة الشيكات الواردة من العملاء والصادرة للموردين عبر دورة حياتها الكاملة."
+        title={t("cheques.chequeRegister")}
+        description={t("cheques.trackingChequesInFromCustomers")}
         actions={
           <Button variant="primary" onClick={() => setMode("create")}>
-            شيك جديد
+            {t("cheques.newCheque")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الشيكات", value: <span className="mz-num">{totals.count}</span> },
-          { label: "إجمالي القيمة", value: <MoneyDisplay value={totals.value} /> },
-          { label: "قيد الانتظار", value: <MoneyDisplay value={totals.pendingValue} /> },
-          { label: "مودع", value: <MoneyDisplay value={totals.depositedValue} /> },
+          { label: t("cheques.totalCheques"), value: <span className="mz-num">{totals.count}</span> },
+          { label: t("cheques.totalValue"), value: <MoneyDisplay value={totals.value} /> },
+          { label: t("cheques.pending"), value: <MoneyDisplay value={totals.pendingValue} /> },
+          { label: t("cheques.deposited"), value: <MoneyDisplay value={totals.depositedValue} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | ChequeStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم الشيك..."
+        searchPlaceholder={t("cheques.searchByChequeNumber")}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[150px]">
               <SelectField
-                label="الاتجاه"
+                label={t("cheques.direction")}
                 value={directionFilter}
                 onChange={(v) => setDirectionFilter(v as "all" | ChequeDirectionDTO)}
                 options={[
-                  { value: "all", label: "كل الاتجاهات" },
-                  { value: "incoming", label: "واردة" },
-                  { value: "outgoing", label: "صادرة" },
+                  { value: "all", label: t("cheques.allDirections") },
+                  { value: "incoming", label: t("cheques.incoming") },
+                  { value: "outgoing", label: t("cheques.outgoing") },
                 ]}
               />
             </div>
             <div className="w-[150px]">
-              <TextField label="من تاريخ" value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
+              <TextField label={t("cheques.from")} value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
             </div>
             <div className="w-[150px]">
-              <TextField label="إلى تاريخ" value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
+              <TextField label={t("cheques.to")} value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
             </div>
           </div>
         }
@@ -310,27 +313,27 @@ export function ChequesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{rows.length}</span> من <span className="mz-num">{totals.count}</span> شيك
+            {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totals.count}</span> {t("cheques.cheques")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : query.isError ? (query.error?.message ?? "تعذّر تحميل الشيكات.") : "لا توجد شيكات"}
+            {query.isLoading ? t("common.loading") : query.isError ? (query.error?.message ?? t("cheques.chequesCouldNotBeLoaded")) : t("cheques.noCheques")}
           </div>
         }
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `شيك ${selected.chequeNumber}` : "شيك"}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("cheques.detailTitle", { number: selected.chequeNumber }) : t("cheques.cheques")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={getChequeStatusLabel(selected.effectiveStatus)} tone={STATUS_TONE[selected.effectiveStatus]} />
-            <div className="text-[12.5px] text-ink-muted">الجهة: {partyName(selected.partyId)}</div>
-            <div className="text-[12.5px] text-ink-muted">البنك: {selected.bankName}</div>
+            <div className="text-[12.5px] text-ink-muted">{t("cheques.party2")} {partyName(selected.partyId)}</div>
+            <div className="text-[12.5px] text-ink-muted">{t("cheques.bank")} {selected.bankName}</div>
             <div className="text-[12.5px] text-ink-muted">
-              تاريخ الاستحقاق: <span className="mz-num">{selected.dueDate}</span>
+              {t("cheques.due")} <span className="mz-num">{selected.dueDate}</span>
             </div>
             <div className="flex items-center justify-between text-[13px] font-semibold">
-              <span>المبلغ</span>
+              <span>{t("common.amount")}</span>
               <MoneyDisplay value={Number(selected.amount)} />
             </div>
 
@@ -344,11 +347,11 @@ export function ChequesScreen() {
                   disabled={pendingId === selected.id}
                   onClick={() => runAction(selected, action)}
                 >
-                  {ACTION_LABEL[action]}
+                  {t(ACTION_KEY[action])}
                 </Button>
               ))}
               {legalActions(selected).length === 0 ? (
-                <div className="text-[12.5px] text-ink-muted">لا توجد إجراءات متاحة على هذا الشيك.</div>
+                <div className="text-[12.5px] text-ink-muted">{t("cheques.noActionsAreAvailableOn")}</div>
               ) : null}
             </div>
           </div>
@@ -363,6 +366,7 @@ export function ChequesScreen() {
 /* -------------------------------------------------------------------- */
 
 function CreateChequeView({ onDone }: { onDone: () => void }) {
+  const { t } = useAppTranslation();
   const [direction, setDirection] = useState<ChequeDirectionDTO | null>(null);
   const [partyId, setPartyId] = useState("");
   const [chequeNumber, setChequeNumber] = useState("");
@@ -436,12 +440,12 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Financial Papers · New Cheque</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">شيك جديد</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("cheques.newCheque")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onDone}>إلغاء</Button>
+          <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canSubmit} onClick={submit}>
-            حفظ الشيك
+            {t("cheques.saveCheque")}
           </Button>
         </div>
       </div>
@@ -455,7 +459,7 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
 
       <div className="flex flex-col gap-5">
         <Card className="flex flex-col gap-[14px] p-[18px]">
-          <h2 className="font-display text-[13.5px] font-bold text-ink">نوع الشيك</h2>
+          <h2 className="font-display text-[13.5px] font-bold text-ink">{t("cheques.chequeType")}</h2>
           <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2">
             <button
               type="button"
@@ -463,8 +467,8 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
               aria-pressed={direction === "incoming"}
               className={`rounded-lg border p-[16px] text-start shadow-1 transition-colors ${direction === "incoming" ? "border-brand bg-brand-soft" : "border-border bg-surface hover:border-brand"}`}
             >
-              <div className="font-display text-[14px] font-bold text-ink">واردة</div>
-              <div className="mt-[6px] text-[12px] text-ink-muted">شيك مستلم من عميل</div>
+              <div className="font-display text-[14px] font-bold text-ink">{t("cheques.incoming")}</div>
+              <div className="mt-[6px] text-[12px] text-ink-muted">{t("cheques.receivedFromACustomer")}</div>
             </button>
             <button
               type="button"
@@ -472,54 +476,54 @@ function CreateChequeView({ onDone }: { onDone: () => void }) {
               aria-pressed={direction === "outgoing"}
               className={`rounded-lg border p-[16px] text-start shadow-1 transition-colors ${direction === "outgoing" ? "border-brand bg-brand-soft" : "border-border bg-surface hover:border-brand"}`}
             >
-              <div className="font-display text-[14px] font-bold text-ink">صادرة</div>
-              <div className="mt-[6px] text-[12px] text-ink-muted">شيك صادر لمورد</div>
+              <div className="font-display text-[14px] font-bold text-ink">{t("cheques.outgoing")}</div>
+              <div className="mt-[6px] text-[12px] text-ink-muted">{t("cheques.issuedToASupplier")}</div>
             </button>
           </div>
 
           {direction ? (
             <div>
-              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{direction === "incoming" ? "العميل *" : "المورّد *"}</div>
+              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{direction === "incoming" ? t("cheques.customer") : t("cheques.supplier")}</div>
               <EntityPicker
                 value={partyOptions.find((o) => o.id === partyId) ?? null}
                 onChange={(o) => setPartyId(o?.id ?? "")}
                 options={partyOptions}
-                placeholder={direction === "incoming" ? "اختر العميل..." : "اختر المورد..."}
+                placeholder={direction === "incoming" ? t("cheques.chooseTheCustomer") : t("cheques.chooseTheSupplier")}
               />
             </div>
           ) : null}
         </Card>
 
         <Card className="flex flex-col gap-[14px] p-[18px]">
-          <h2 className="font-display text-[13.5px] font-bold text-ink">بيانات الشيك</h2>
-          <TextField label="رقم الشيك *" value={chequeNumber} onChange={setChequeNumber} placeholder="CHQ-5001" />
-          <TextField label="اسم البنك *" value={bankName} onChange={setBankName} />
-          <TextField label="اسم فرع البنك" value={bankBranchName} onChange={setBankBranchName} />
-          <TextField label="رقم الحساب" value={bankAccountNumber} onChange={setBankAccountNumber} />
+          <h2 className="font-display text-[13.5px] font-bold text-ink">{t("cheques.chequeDetails")}</h2>
+          <TextField label={t("cheques.chequeNumber2")} value={chequeNumber} onChange={setChequeNumber} placeholder="CHQ-5001" />
+          <TextField label={t("cheques.bankName2")} value={bankName} onChange={setBankName} />
+          <TextField label={t("cheques.bankBranch")} value={bankBranchName} onChange={setBankBranchName} />
+          <TextField label={t("cheques.accountNumber")} value={bankAccountNumber} onChange={setBankAccountNumber} />
         </Card>
 
         <Card className="flex flex-col gap-[14px] p-[18px]">
-          <h2 className="font-display text-[13.5px] font-bold text-ink">القيمة والتواريخ</h2>
+          <h2 className="font-display text-[13.5px] font-bold text-ink">{t("cheques.valueAndDates")}</h2>
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">المبلغ *</div>
-            <MoneyInput value={amount} onChange={setAmount} aria-label="المبلغ" />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("cheques.amount")}</div>
+            <MoneyInput value={amount} onChange={setAmount} aria-label={t("common.amount")} />
           </div>
-          <TextField label="تاريخ الإصدار *" value={issueDate} onChange={setIssueDate} placeholder="YYYY-MM-DD" />
-          <TextField label="تاريخ الاستحقاق *" value={dueDate} onChange={setDueDate} placeholder="YYYY-MM-DD" />
+          <TextField label={t("cheques.issueDate")} value={issueDate} onChange={setIssueDate} placeholder="YYYY-MM-DD" />
+          <TextField label={t("cheques.dueDate2")} value={dueDate} onChange={setDueDate} placeholder="YYYY-MM-DD" />
         </Card>
 
         <Card className="flex flex-col gap-[14px] p-[18px]">
-          <h2 className="font-display text-[13.5px] font-bold text-ink">الفرع والملاحظات</h2>
+          <h2 className="font-display text-[13.5px] font-bold text-ink">{t("cheques.branchAndNotes")}</h2>
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الفرع *</div>
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("cheques.branch")}</div>
             <EntityPicker
               value={branchOptions.find((o) => o.id === branchId) ?? null}
               onChange={(o) => setBranchId(o?.id ?? "")}
               options={branchOptions}
-              placeholder="اختر الفرع..."
+              placeholder={t("cheques.chooseTheBranch")}
             />
           </div>
-          <TextField label="ملاحظات" value={notes} onChange={setNotes} />
+          <TextField label={t("common.notes")} value={notes} onChange={setNotes} />
         </Card>
       </div>
     </div>

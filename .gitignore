@@ -17,3 +17,6 @@ mezan.db-*
 *-dashboard.png
 *-invoices.png
 *-settings*.png
+
+# Agent worktrees, not source
+.claude/worktrees/

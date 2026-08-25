@@ -3,13 +3,12 @@ import { DocumentDetail, Button, Card, StatusPill } from "@mezan/ui";
 import type { TenantSettingsDTO, UpdateTenantSettingsDTO } from "@mezan/contracts";
 import { useSettings, useUpdateSettings } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { LOCALES, LOCALE_ENDONYM, type Locale } from "@mezan/ui";
 import { TextField, NumberField, SelectField, ToggleField, MultiChipField, SectionCard } from "./form-controls";
 
 /**
  * Settings — عام hub (docs/catalog/09 §"الإعدادات — عام"): the tabbed
  * tenant-config screen. Four tabs cover the fields the assignment scoped —
- * general/localization, company profile, tax mode, and the credit-control /
+ * general/regional, company profile, tax mode, and the credit-control /
  * inventory / purchase / treasury policy flags (grouped into one "Policies"
  * tab here rather than 4 separate ones, to keep the nav shallow).
  *
@@ -41,7 +40,6 @@ const CURRENCY_OPTIONS = [
 function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   const { t } = useAppTranslation();
   const updateSettingsMutation = useUpdateSettings();
-  const { setLocale } = useAppTranslation();
   const [draft, setDraft] = useState<TenantSettingsDTO>(initial);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -57,11 +55,6 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
       setDraft(saved);
       setDirty(false);
       setError(null);
-      // The tenant's default language IS the UI language — saving it here must
-      // switch the interface, or the setting silently does nothing.
-      if ((LOCALES as readonly string[]).includes(saved.language)) {
-        setLocale(saved.language as Locale);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : t("settingsGeneral.couldNotSaveTheSettings"));
     }
@@ -87,14 +80,8 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
           label: t("settingsGeneral.general"),
           content: (
             <div className="flex flex-col gap-[16px]">
-              <SectionCard title={t("settingsGeneral.currencyAndLanguage")}>
+              <SectionCard title={t("settingsGeneral.currency")}>
                 <TextField label={t("settingsGeneral.defaultCurrency")} value={draft.currency} onChange={(v) => patch({ currency: v.toUpperCase() })} />
-                <SelectField
-                  label={t("settingsGeneral.defaultLanguage")}
-                  value={draft.language}
-                  onChange={(v) => patch({ language: v as TenantSettingsDTO["language"] })}
-                  options={LOCALES.map((l) => ({ value: l, label: LOCALE_ENDONYM[l] }))}
-                />
                 <MultiChipField
                   label={t("settingsGeneral.additionalCurrencies")}
                   value={[...draft.secondaryCurrencies]}
@@ -114,15 +101,6 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
 
               <SectionCard title={t("settingsGeneral.timeZoneAndDate")}>
                 <TextField label={t("settingsGeneral.timeZone")} value={draft.timezone} onChange={(v) => patch({ timezone: v })} />
-                <SelectField
-                  label={t("settingsGeneral.interfaceDirection")}
-                  value={draft.direction}
-                  onChange={(v) => patch({ direction: v as TenantSettingsDTO["direction"] })}
-                  options={[
-                    { value: "RTL", label: "RTL" },
-                    { value: "LTR", label: "LTR" },
-                  ]}
-                />
                 <TextField label={t("settingsGeneral.dateFormat")} value={draft.dateFormat} onChange={(v) => patch({ dateFormat: v })} />
                 <SelectField
                   label={t("settingsGeneral.numeralSystem")}

@@ -8,7 +8,7 @@
 
 ## 1. Why evolve, and against what
 
-The parity UI is competent and coherent: deep-teal (`#0E5049`) brand, gold (`#AE7C24`) accent, a soft green-grey ground (`#EDF1EE`), Cairo for display, IBM Plex Sans Arabic for body, a balance-beam logo, RTL-first with light + dark. It reads as a *good* Arabic ERP. It does not yet read as a *distinctive* one.
+The parity UI is competent and coherent: deep-teal (`#0E5049`) brand, gold (`#AE7C24`) accent, a soft green-grey ground (`#EDF1EE`), Noto Kufi Arabic for display, Noto Sans Arabic for body, a balance-beam logo, RTL-first with light + dark. It reads as a *good* Arabic ERP. It does not yet read as a *distinctive* one.
 
 Three things keep it in the pack of typical Arabic ERPs:
 
@@ -53,13 +53,13 @@ Bare `:root` = full light palette. `@media (prefers-color-scheme: dark)` guarded
 
 | Role | Parity | Enhanced | Rationale |
 |---|---|---|---|
-| Display / headings | Cairo | **Tajawal** 500/700/800 | Geometric, modern, premium — and crucially *not* Cairo. Sheds the generic-Arabic-UI signal while staying highly legible at title sizes. |
-| Signature (wordmark, eyebrows) | — | **Reem Kufi** 500/700, used with restraint | Kufic geometry is the calligraphy of measurement and inscription. Used only for the wordmark and the small uppercase eyebrow labels, it ties the type back to *mizan* without shouting. |
-| Body | IBM Plex Sans Arabic | IBM Plex Sans Arabic 400/500/600 | Kept. It is excellent, open-licensed, and already premium; changing it would cost legibility for no gain. |
+| Display / headings | Cairo | **Noto Kufi Arabic** 500/600/700 | Kufic geometry, wide apertures, no negative tracking. Distinctive at title sizes without costing legibility. |
+| Signature (wordmark, eyebrows) | — | **Noto Kufi Arabic** 500/700, used with restraint | Kufic geometry is the calligraphy of measurement and inscription. Used only for the wordmark and the small uppercase eyebrow labels, it ties the type back to *mizan* without shouting. |
+| Body | IBM Plex Sans Arabic | **Noto Sans Arabic** 400/500/600/700 | Wider counters and a larger effective x-height than Plex Arabic at UI sizes; body runs at 0.9375rem / 1.75 line-height because Arabic needs more leading than Latin. |
 | Numerals / data | IBM Plex Mono | IBM Plex Mono 400/500/600, `tabular-nums`, LTR-isolated | Kept. Column alignment in financial tables is non-negotiable. |
 | Latin | IBM Plex Sans | IBM Plex Sans | Kept, for product codes and English terms. |
 
-**Type scale** (rem, 1rem = 16px): 0.6875 / 0.75 / 0.8125 / 0.875 / 1 / 1.125 / 1.375 / 1.75 / 2.25. Display sizes use Tajawal 700–800 with `letter-spacing: -0.01em` and `text-wrap: balance`; eyebrows use Reem Kufi with `+0.14em` tracking, uppercase. Running text stays near 65ch where it appears as prose.
+**Type scale** (rem, 1rem = 16px): 0.6875 / 0.75 / 0.8125 / 0.875 / 1 / 1.125 / 1.375 / 1.75 / 2.25. Display sizes use Noto Kufi Arabic 600–700 with `text-wrap: balance` and no negative tracking (letter-spacing breaks Arabic letter joins); eyebrows use Noto Kufi Arabic with `+0.14em` tracking, uppercase, on Latin strings only. Running text stays near 65ch where it appears as prose.
 
 ---
 
@@ -77,7 +77,7 @@ Doses 1 and 3 are ambient and cheap; dose 2 is the one loud thing. Boldness is s
 
 ## 5. Componentry & data density
 
-- **Sidebar rail.** Dark teal, grouped nav with Reem Kufi group labels, brass active bar on the inline-start edge, collapsible to icon-only. Branch/company switcher pinned to the top; user + theme toggle pinned to the bottom.
+- **Sidebar rail.** Dark teal, grouped nav with Noto Kufi Arabic group labels, brass active bar on the inline-start edge, collapsible to icon-only. Branch/company switcher pinned to the top; user + theme toggle pinned to the bottom.
 - **Topbar.** A persistent, wide **command bar** (`⌘K` / `Ctrl+K`) as the primary surface — not a hidden palette. Keyboard-first is the default posture, not a power-user afterthought.
 - **KPI cards.** Tighter radius (8px on data surfaces vs the parity 13px), a label in muted ink, a large `tabular-nums` value, and a delta line with a directional micro-beam. Optional inline sparkline.
 - **Data tables.** Denser row rhythm (36px), sticky header, subtle tinted zebra (not lines), right-aligned numeric columns in mono, inline status pills, and a hover row-action that appears only on the hovered row. Sortable headers show direction; column of figures gets a faint total footer.
@@ -121,7 +121,7 @@ No ambient/looping animation (the parity idle-sway is dropped) — perpetual mot
 
 ## 9. What is deliberately kept
 
-Not everything should change. Kept from parity: the effects panel concept, the semantic color system and chart hues (refined only), IBM Plex Sans Arabic + IBM Plex Mono, the three-state theming contract, logical-property RTL discipline, the balance-beam logo, and the overall information architecture. The enhancement is a re-skin and a sharpening of the two or three things that read as generic — not a teardown.
+Not everything should change. Kept from parity: the effects panel concept, the semantic color system and chart hues (refined only), IBM Plex Sans + IBM Plex Mono for Latin and figures, the three-state theming contract, logical-property RTL discipline, the balance-beam logo, and the overall information architecture. The enhancement is a re-skin and a sharpening of the two or three things that read as generic — not a teardown.
 
 ---
 

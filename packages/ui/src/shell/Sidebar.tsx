@@ -95,7 +95,7 @@ function NavGlyph({ item }: { item: NavItem }) {
 
 function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; showLabel: boolean }) {
   const className = cn(
-    "relative flex w-full items-center gap-[11px] rounded-md py-[8px] text-start text-sm font-medium transition-colors duration-150",
+    "relative flex w-full items-center gap-[11px] rounded-md py-[9px] text-start text-md font-medium transition-colors duration-150",
     showLabel ? "px-[11px]" : "justify-center px-0",
     active ? "bg-chrome-active font-semibold text-chrome-ink" : "text-chrome-ink-muted hover:bg-chrome-hover hover:text-chrome-ink",
   );
@@ -243,8 +243,8 @@ export function Sidebar({
           </span>
           {expanded ? (
             <span className="min-w-0">
-              <span className="mz-lat block truncate text-sm font-semibold leading-tight">{tenantName}</span>
-              {scopeLabel ? <span className="block truncate text-2xs text-chrome-ink-muted">{scopeLabel}</span> : null}
+              <span className="mz-lat block truncate text-md font-semibold leading-tight">{tenantName}</span>
+              {scopeLabel ? <span className="block truncate text-xs text-chrome-ink-muted">{scopeLabel}</span> : null}
             </span>
           ) : null}
         </div>
@@ -284,7 +284,7 @@ export function Sidebar({
                 aria-label={expanded ? undefined : group.label}
                 title={expanded ? undefined : group.label}
                 className={cn(
-                  "mz-eyebrow flex w-full items-center gap-[8px] rounded-sm text-chrome-ink-muted transition-colors hover:text-chrome-ink",
+                  "font-sig flex w-full items-center gap-[8px] rounded-sm text-xs font-semibold tracking-[0.04em] text-chrome-ink-muted transition-colors hover:text-chrome-ink",
                   expanded ? "justify-between px-[10px] pb-[6px] pt-[14px]" : "justify-center py-[7px]",
                 )}
               >
@@ -301,7 +301,9 @@ export function Sidebar({
                     </svg>
                   </>
                 ) : (
-                  <span className="text-[13px] leading-none">{firstGlyph(group.label)}</span>
+                  <span className="flex h-[21px] w-[21px] items-center justify-center">
+                    {group.icon ?? <span className="text-[13px] leading-none">{firstGlyph(group.label)}</span>}
+                  </span>
                 )}
               </button>
               {groupCollapsed ? null : (
@@ -330,8 +332,8 @@ export function Sidebar({
         </span>
         {expanded ? (
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold leading-tight">{user.name}</div>
-            <div className="truncate text-xs text-chrome-ink-muted">{user.role}</div>
+            <div className="truncate text-md font-semibold leading-tight">{user.name}</div>
+            <div className="truncate text-sm text-chrome-ink-muted">{user.role}</div>
           </div>
         ) : null}
         {onToggleTheme ? (

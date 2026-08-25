@@ -15,6 +15,7 @@
     "@mezan/ui": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "bwip-js": "^4.11.4",
+    "lucide-react": "^1.33.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },

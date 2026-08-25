@@ -20,6 +20,8 @@ export interface NavGroup {
   label: string;
   items: NavItem[];
   defaultCollapsed?: boolean;
+  /** Shown in place of the group label when the rail is collapsed; without one the header falls back to a monogram. */
+  icon?: ReactNode;
 }
 
 export interface ShellUser {

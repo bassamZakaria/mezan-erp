@@ -5482,6 +5482,9 @@ const webAr = {
   // eyebrow
   "eyebrow.hr.dashboard": "الموارد البشرية · لوحة التحكم",
   "eyebrow.hr.myLeave": "الموارد البشرية · إجازاتي",
+
+  // settingsGeneral
+  "settingsGeneral.currency": "العملة",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10969,6 +10972,9 @@ const webEn: Record<WebTranslationKey, string> = {
   // eyebrow
   "eyebrow.hr.dashboard": "HR · Dashboard",
   "eyebrow.hr.myLeave": "HR · My leave",
+
+  // settingsGeneral
+  "settingsGeneral.currency": "Currency",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

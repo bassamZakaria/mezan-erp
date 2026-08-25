@@ -2,20 +2,21 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
-  DocumentList,
   DocumentDetail,
-  Money as MoneyDisplay,
-  StatusPill,
-  IconButton,
+  DocumentList,
   EntityPicker,
+  IconButton,
+  Money as MoneyDisplay,
   MoneyInput,
+  Qty as QtyDisplay,
   QtyInput,
+  StatusPill,
+  TextInput,
+  useFormat,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
-  useFormat,
-  Qty as QtyDisplay,
 } from "@mezan/ui";
 import {
   Money,
@@ -430,23 +431,18 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
         <div className="grid grid-cols-2 gap-[10px]">
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.date")}</span>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="mz-num w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
-            />
+            <TextInput numeric type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.dueDate")}</span>
-            <input
+            <TextInput
+              numeric
               type="date"
               value={dueDate}
               onChange={(e) => {
                 setDueDateTouched(true);
                 setDueDate(e.target.value);
               }}
-              className="mz-num w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
             />
             <span className="text-xs text-ink-muted">{t("salesInvoices.field.dueDateHint")}</span>
           </label>
@@ -490,12 +486,10 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
 
         <label className="flex flex-col gap-[6px]">
           <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.coupon")}</span>
-          <input
-            type="text"
+          <TextInput
             value={couponCode}
             onChange={(e) => setCouponCode(e.target.value)}
             placeholder={t("salesInvoices.field.couponPlaceholder")}
-            className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
           />
           <span className="text-xs text-ink-muted">{t("salesInvoices.field.couponHint")}</span>
         </label>

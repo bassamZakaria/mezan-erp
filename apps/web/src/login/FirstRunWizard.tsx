@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { BrandMark, Button, StatusPill } from "@mezan/ui";
+import {
+  BrandMark,
+  Button,
+  StatusPill,
+  TextInput,
+} from "@mezan/ui";
 import type { BootstrapSeedResultDTO } from "@mezan/contracts";
 import { useBootstrapSeed, useBootstrapStatus, useCreateFirstAdmin, useTenantInfo } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -71,9 +76,6 @@ function StubNote({ children }: { children: string }) {
     </div>
   );
 }
-
-const fieldClass =
-  "w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none transition-colors focus:border-brand";
 
 /**
  * First-run wizard skeleton — docs/catalog/09-settings-dashboard-ux.md
@@ -179,12 +181,11 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
             <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("firstRun.enterTheLicenceKeyYou")} {tenantName}.</p>
             <label className="mt-[14px] flex flex-col gap-[6px]">
               <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.licenceKey")}</span>
-              <input
-                type="text"
+              <TextInput
                 value={licenseKey}
                 onChange={(e) => setLicenseKey(e.target.value)}
                 placeholder="XXXX-XXXX-XXXX-XXXX"
-                className={`${fieldClass} mz-lat`}
+                className="mz-lat"
               />
             </label>
             <StubNote>{t("firstRun.reallyCallingTheLicenceServer")}</StubNote>
@@ -204,32 +205,32 @@ export function FirstRunWizard({ onFinish, onCancel }: FirstRunWizardProps) {
             <div className="mt-[14px] grid grid-cols-1 gap-[12px] sm:grid-cols-2">
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.fullName")}</span>
-                <input type="text" value={adminName} onChange={(e) => setAdminName(e.target.value)} className={fieldClass} />
+                <TextInput value={adminName} onChange={(e) => setAdminName(e.target.value)} />
               </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("common.email")}</span>
-                <input type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} className={fieldClass} />
+                <TextInput type="email" value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
               </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.pin4Digits")}</span>
-                <input
+                <TextInput
                   type="password"
+                  numeric
                   inputMode="numeric"
                   maxLength={4}
                   value={adminPin}
                   onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, ""))}
-                  className={`${fieldClass} mz-num`}
                 />
               </label>
               <label className="flex flex-col gap-[6px]">
                 <span className="text-[12.5px] font-semibold text-ink">{t("firstRun.confirmThePin")}</span>
-                <input
+                <TextInput
                   type="password"
+                  numeric
                   inputMode="numeric"
                   maxLength={4}
                   value={adminPinConfirm}
                   onChange={(e) => setAdminPinConfirm(e.target.value.replace(/\D/g, ""))}
-                  className={`${fieldClass} mz-num`}
                 />
               </label>
             </div>

@@ -1,5 +1,14 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Card, Button, SidePanel, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  DocumentList,
+  SidePanel,
+  StatusPill,
+  TextInput,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import type { CreateProductTemplateDTO, ProductTemplateDTO } from "@mezan/contracts";
 import {
   ApiError,
@@ -350,8 +359,7 @@ export function ProductTemplatesScreen() {
                         return (
                           <tr key={key} className="border-t border-border">
                             <td className="p-[8px_10px]">
-                              <input
-                                type="checkbox"
+                              <Checkbox
                                 disabled={exists}
                                 checked={exists || selectedCombos.has(key)}
                                 onChange={() => toggleCombo(key)}
@@ -404,12 +412,12 @@ function AddValueInline({ onAdd }: { onAdd: (value: string) => void }) {
   const [value, setValue] = useState("");
   return (
     <span className="inline-flex items-center gap-[4px]">
-      <input
+      <TextInput
         value={value}
         onChange={(e) => setValue(e.target.value)}
         placeholder={t("templates.value")}
         aria-label={t("templates.addValue")}
-        className="w-[90px] rounded-full border border-dashed border-border bg-transparent px-[10px] py-[3px] text-[12px] text-ink outline-none focus:border-brand"
+        className="w-[90px] min-h-0 rounded-pill border-dashed bg-transparent px-[10px] py-[3px] text-[12px]"
         onKeyDown={(e) => {
           if (e.key === "Enter" && value.trim() !== "") {
             e.preventDefault();

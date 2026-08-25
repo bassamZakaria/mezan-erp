@@ -1,15 +1,19 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
-  FulcrumRule,
   AccountTree,
   Button,
   Card,
+  Checkbox,
   EntityPicker,
+  FulcrumRule,
   IconButton,
   Money,
+  SearchInput,
+  Select,
+  SidePanel,
   StatCard,
   StatusPill,
-  SidePanel,
+  TextInput,
   type AccountTreeRow,
   type EntityPickerOption,
   type PillTone,
@@ -288,43 +292,36 @@ export function ChartOfAccountsScreen() {
       </div>
 
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
-        <div className="flex min-w-[240px] flex-1 items-center gap-[9px] rounded-md border border-border bg-surface px-[13px] py-[9px] focus-within:border-brand">
-          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px] flex-none text-ink-faint">
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-            <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t("coa.searchByNameOrNumber")}
-            aria-label={t("coa.searchByNameOrNumber2")}
-            className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
-          />
-        </div>
-        <select
+        <SearchInput
+          className="min-w-[240px] flex-1"
+          value={search}
+          onValueChange={setSearch}
+          placeholder={t("coa.searchByNameOrNumber")}
+          aria-label={t("coa.searchByNameOrNumber2")}
+        />
+        <Select
+          size="sm"
+          className="w-[190px]"
           aria-label={t("coa.filterByType")}
           value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value as AccountTypeDTO | "all")}
-          className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-        >
-          <option value="all">{t("coa.allTypes")}</option>
-          {(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => (
-            <option key={type} value={type}>
-              {t(TYPE_KEY[type])}
-            </option>
-          ))}
-        </select>
-        <select
+          onChange={(value) => setTypeFilter(value as AccountTypeDTO | "all")}
+          options={[
+            { value: "all", label: t("coa.allTypes") },
+            ...(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => ({ value: type, label: t(TYPE_KEY[type]) })),
+          ]}
+        />
+        <Select
+          size="sm"
+          className="w-[170px]"
           aria-label={t("coa.filterByStatus")}
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value as AccountStatusDTO | "all")}
-          className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-        >
-          <option value="all">{t("coa.allStatuses")}</option>
-          <option value="active">{t("common.active")}</option>
-          <option value="inactive">{t("common.inactive")}</option>
-        </select>
+          onChange={(value) => setStatusFilter(value as AccountStatusDTO | "all")}
+          options={[
+            { value: "all", label: t("coa.allStatuses") },
+            { value: "active", label: t("common.active") },
+            { value: "inactive", label: t("common.inactive") },
+          ]}
+        />
       </div>
 
       <AccountTree
@@ -477,26 +474,20 @@ export function ChartOfAccountsScreen() {
             <label htmlFor="acct-type" className="mb-[6px] block text-xs font-semibold text-ink-muted">
               {t("coa.type")}
             </label>
-            <select
+            <Select
               id="acct-type"
               required
               value={draft.type}
-              onChange={(e) => setDraft((d) => ({ ...d, type: e.target.value as AccountTypeDTO }))}
-              className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
-            >
-              {(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => (
-                <option key={type} value={type}>
-                  {t(TYPE_KEY[type])}
-                </option>
-              ))}
-            </select>
+              onChange={(value) => setDraft((d) => ({ ...d, type: value as AccountTypeDTO }))}
+              options={(Object.keys(TYPE_KEY) as AccountTypeDTO[]).map((type) => ({ value: type, label: t(TYPE_KEY[type]) }))}
+            />
           </div>
 
           <div>
             <label htmlFor="acct-code" className="mb-[6px] block text-xs font-semibold text-ink-muted">
               {t("coa.code")}
             </label>
-            <input
+            <TextInput
               id="acct-code"
               required
               dir="ltr"
@@ -504,7 +495,6 @@ export function ChartOfAccountsScreen() {
               value={draft.code}
               onChange={(e) => setDraft((d) => ({ ...d, code: e.target.value }))}
               placeholder="1xxx"
-              className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand disabled:cursor-not-allowed disabled:opacity-60"
             />
             <span className="mt-[4px] block text-[11px] text-ink-faint">{t("coa.codesOfThisTypeUsually")}</span>
           </div>
@@ -513,12 +503,11 @@ export function ChartOfAccountsScreen() {
             <label htmlFor="acct-name-ar" className="mb-[6px] block text-xs font-semibold text-ink-muted">
               {t("coa.name")}
             </label>
-            <input
+            <TextInput
               id="acct-name-ar"
               required
               value={draft.nameAr}
               onChange={(e) => setDraft((d) => ({ ...d, nameAr: e.target.value }))}
-              className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
             />
           </div>
 
@@ -526,12 +515,11 @@ export function ChartOfAccountsScreen() {
             <label htmlFor="acct-name-en" className="mb-[6px] block text-xs font-semibold text-ink-muted">
               {t("coa.nameInEnglish")}
             </label>
-            <input
+            <TextInput
               id="acct-name-en"
               dir="ltr"
               value={draft.nameEn}
               onChange={(e) => setDraft((d) => ({ ...d, nameEn: e.target.value }))}
-              className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
             />
           </div>
 
@@ -546,43 +534,43 @@ export function ChartOfAccountsScreen() {
             <label htmlFor="acct-natural-balance" className="mb-[6px] block text-xs font-semibold text-ink-muted">
               {t("coa.normalBalance2")}
             </label>
-            <select
+            <Select
               id="acct-natural-balance"
               required
               value={draft.naturalBalance}
-              onChange={(e) => setDraft((d) => ({ ...d, naturalBalance: e.target.value as NaturalBalanceDTO }))}
-              className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
-            >
-              <option value="debit">{t("common.debit")}</option>
-              <option value="credit">{t("common.credit")}</option>
-            </select>
+              onChange={(value) => setDraft((d) => ({ ...d, naturalBalance: value as NaturalBalanceDTO }))}
+              options={[
+                { value: "debit", label: t("common.debit") },
+                { value: "credit", label: t("common.credit") },
+              ]}
+            />
           </div>
 
-          <label htmlFor="acct-is-header" className="flex items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[10px]">
-            <span className="text-[12.5px] font-semibold text-ink">{t("coa.parentAccountCannotBePosted")}</span>
-            <input
+          <div className="flex items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[10px]">
+            <label htmlFor="acct-is-header" className="text-[12.5px] font-semibold text-ink">
+              {t("coa.parentAccountCannotBePosted")}
+            </label>
+            <Checkbox
               id="acct-is-header"
-              type="checkbox"
               checked={draft.isHeader}
               onChange={(e) => setDraft((d) => ({ ...d, isHeader: e.target.checked }))}
-              className="h-[18px] w-[18px]"
             />
-          </label>
+          </div>
 
           {editingId ? (
             <div>
               <label htmlFor="acct-status" className="mb-[6px] block text-xs font-semibold text-ink-muted">
                 {t("common.status")}
               </label>
-              <select
+              <Select
                 id="acct-status"
                 value={draft.status}
-                onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value as AccountStatusDTO }))}
-                className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink"
-              >
-                <option value="active">{t("common.active")}</option>
-                <option value="inactive">{t("common.inactive")}</option>
-              </select>
+                onChange={(value) => setDraft((d) => ({ ...d, status: value as AccountStatusDTO }))}
+                options={[
+                  { value: "active", label: t("common.active") },
+                  { value: "inactive", label: t("common.inactive") },
+                ]}
+              />
             </div>
           ) : null}
 

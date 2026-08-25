@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { DocumentDetail, Button, StatusPill, PrintView, DEFAULT_PRINT_TEMPLATE_CONFIG, createSampleInvoiceDocument } from "@mezan/ui";
+import {
+  Button,
+  DEFAULT_PRINT_TEMPLATE_CONFIG,
+  DocumentDetail,
+  PrintView,
+  StatusPill,
+  TextInput,
+  createSampleInvoiceDocument,
+} from "@mezan/ui";
 import { amountInWords, EGP_WORDS } from "@mezan/domain";
 import type { PrintTemplateConfigDTO, PrintTemplateOverrideDTO } from "@mezan/contracts";
 import { usePrintTemplateConfig, useSavePrintTemplateConfig } from "../data/hooks";
@@ -185,11 +193,9 @@ export function PrintTemplatesPage() {
                     onChange={(e) => patchSection("identity", { primaryColor: e.target.value })}
                     className="h-[36px] w-[44px] rounded-md border border-border bg-transparent"
                   />
-                  <input
-                    type="text"
+                  <TextInput
                     value={config.identity.primaryColor}
                     onChange={(e) => patchSection("identity", { primaryColor: e.target.value })}
-                    className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
                   />
                 </div>
               </Field>

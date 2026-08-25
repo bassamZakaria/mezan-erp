@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { Select } from "../primitives/Select";
 import type { TopbarScopeOption } from "./Topbar";
 
 interface RailScopeSelectProps {
@@ -14,45 +15,26 @@ interface RailScopeSelectProps {
 
 /**
  * One working-scope dropdown (branch or warehouse), pinned to the rail top.
- * Still a native `<select>` — real listbox semantics, full keyboard support,
- * and the option list stays screen-reader legible even when the rail is
- * collapsed and the trigger itself is rendered icon-only.
+ * Collapsed, the trigger is the icon alone and the chosen scope moves to the
+ * title attribute, so the rail stays 30px wide without hiding the value.
  */
 function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded }: RailScopeSelectProps) {
   const selectedLabel = (value ? options.find((opt) => opt.id === value)?.label : null) ?? allLabel;
 
   return (
-    <div
-      className={cn(
-        "relative flex items-center gap-[8px] rounded-md border border-chrome-border bg-chrome-hover text-sm font-medium text-chrome-ink transition-colors hover:border-chrome-accent",
-        expanded ? "w-full px-[11px] py-[8px]" : "h-[30px] w-[30px] justify-center p-0",
-      )}
-      title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`}
-    >
-      {icon}
-      <select
+    <div title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`} className={expanded ? "w-full" : "w-[30px]"}>
+      <Select<string>
+        variant="chrome"
+        size="sm"
         aria-label={ariaLabel}
         value={value ?? ""}
-        onChange={(event) => onChange?.(event.target.value === "" ? null : event.target.value)}
-        className={cn(
-          "cursor-pointer appearance-none bg-transparent text-sm font-medium",
-          expanded ? "min-w-0 flex-1 truncate pe-[14px] text-chrome-ink" : "absolute inset-0 text-transparent",
-        )}
-      >
-        <option value="" className="bg-surface text-ink">
-          {allLabel}
-        </option>
-        {options.map((opt) => (
-          <option key={opt.id} value={opt.id} className="bg-surface text-ink">
-            {opt.label}
-          </option>
-        ))}
-      </select>
-      {expanded ? (
-        <svg aria-hidden viewBox="0 0 12 12" fill="none" className="pointer-events-none absolute end-[8px] h-[9px] w-[9px] opacity-70">
-          <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-      ) : null}
+        onChange={(next) => onChange?.(next === "" ? null : next)}
+        options={[{ value: "", label: allLabel }, ...options.map((opt) => ({ value: opt.id, label: opt.label }))]}
+        leadingIcon={icon}
+        chevron={expanded}
+        renderValue={expanded ? undefined : () => null}
+        className={cn(!expanded && "[&>button]:h-[30px] [&>button]:w-[30px] [&>button]:justify-center [&>button]:px-0")}
+      />
     </div>
   );
 }

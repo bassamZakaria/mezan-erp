@@ -2,10 +2,12 @@ import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
+  Checkbox,
   DocumentList,
   EntityPicker,
   SidePanel,
   StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
@@ -275,18 +277,18 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
           </FormSection>
 
           <FormSection title={t("users.roleAndRights")}>
-            <label className="flex items-center gap-[9px] rounded-md border border-border bg-surface px-[12px] py-[10px]">
-              <input
-                type="checkbox"
+            <div className="rounded-md border border-border bg-surface px-[12px] py-[10px]">
+              <Checkbox
                 checked={draft.isCompanyAdmin}
                 onChange={(e) => setDraft((d) => ({ ...d, isCompanyAdmin: e.target.checked, roleId: e.target.checked ? null : d.roleId }))}
-                className="h-[15px] w-[15px] accent-brand"
+                label={
+                  <>
+                    <span className="block text-[12.5px] font-semibold text-ink">{t("users.companyAdministratorRights")}</span>
+                    <span className="block text-[11px] text-ink-faint">{t("users.fullRightsOverEveryBranch")}</span>
+                  </>
+                }
               />
-              <span>
-                <span className="block text-[12.5px] font-semibold text-ink">{t("users.companyAdministratorRights")}</span>
-                <span className="block text-[11px] text-ink-faint">{t("users.fullRightsOverEveryBranch")}</span>
-              </span>
-            </label>
+            </div>
             {!draft.isCompanyAdmin ? (
               <EntityPicker
                 label={t("users.role2")}
@@ -362,13 +364,7 @@ function TextField({
   return (
     <label className="block">
       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{label}</span>
-      <input
-        type={type}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none transition-colors placeholder:text-ink-faint focus:border-brand"
-      />
+      <TextInput type={type} value={value} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }
@@ -391,17 +387,13 @@ function CheckboxGroup({
         {options.map((opt) => {
           const checked = selected.includes(opt.id);
           return (
-            <label key={opt.id} className="flex items-center gap-[8px] text-[12.5px] text-ink">
-              <input
-                type="checkbox"
-                checked={checked}
-                onChange={() =>
-                  onChange(checked ? selected.filter((id) => id !== opt.id) : [...selected, opt.id])
-                }
-                className="h-[14px] w-[14px] accent-brand"
-              />
-              {opt.name}
-            </label>
+            <Checkbox
+              key={opt.id}
+              checked={checked}
+              onChange={() => onChange(checked ? selected.filter((id) => id !== opt.id) : [...selected, opt.id])}
+              label={opt.name}
+              className="items-center"
+            />
           );
         })}
       </div>

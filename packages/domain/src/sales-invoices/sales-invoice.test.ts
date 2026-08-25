@@ -316,23 +316,23 @@ describe("sales-invoice lifecycle transitions", () => {
     await expect(svc.cancel("inv-c2")).rejects.toBeInstanceOf(InvalidSalesInvoiceTransitionError);
   });
 
-  it("records payments advancing confirmed → partially_paid → paid and rejects overpayment", async () => {
+  it("validates a collection against the invoice without writing it — the voucher does that (D1)", async () => {
     const { svc, stockService } = await harness();
     await seedStock(stockService, "ITEM-A", "100", "10");
     await svc.createDraft(draftCmd({ id: "inv-p" }));
     await svc.confirm("inv-p"); // grand total 387.60
 
-    const partial = await svc.recordPayment("inv-p", Money.fromMajor("100"));
-    expect(partial.status).toBe("partially_paid");
-    expect(partial.amountPaid.toString()).toBe("100.000000");
+    const collectable = await svc.assertCollectable("inv-p", Money.fromMajor("100"));
+    expect(collectable.id).toBe("inv-p");
+    // It does NOT write: amountPaid moves only when an allocation settles it.
+    expect((await svc.findById("inv-p"))?.amountPaid.toString()).toBe("0.000000");
 
-    await expect(svc.recordPayment("inv-p", Money.fromMajor("500"))).rejects.toBeInstanceOf(
+    await expect(svc.assertCollectable("inv-p", Money.fromMajor("500"))).rejects.toBeInstanceOf(
       InvalidSalesInvoicePaymentError,
     );
-
-    const paid = await svc.recordPayment("inv-p", Money.fromMajor("287.60"));
-    expect(paid.status).toBe("paid");
-    expect(paid.amountPaid.toString()).toBe("387.600000");
+    await expect(svc.assertCollectable("inv-p", Money.fromMajor("0"))).rejects.toBeInstanceOf(
+      InvalidSalesInvoicePaymentError,
+    );
   });
 });
 

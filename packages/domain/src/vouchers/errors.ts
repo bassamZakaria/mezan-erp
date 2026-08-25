@@ -26,9 +26,12 @@ export class CashBalanceWouldGoNegativeError extends Error {
     readonly amount: string,
     readonly accountType: "cash" | "bank" = "cash",
   ) {
+    // Arabic, because this reaches the UI verbatim: an English refusal in an
+    // Arabic-first product is a defect (docs/defects.md — the same shape the
+    // state-machine refusals were fixed for).
     super(
-      `Confirming this voucher would take ${accountType} treasury account "${treasuryAccountId}" ` +
-        `negative (balance ${currentBalance}, amount ${amount}).`,
+      `لا يمكن تأكيد السند: ${accountType === "cash" ? "الخزينة النقدية" : "الحساب البنكي"} ` +
+        `"${treasuryAccountId}" سيصبح رصيده سالباً (الرصيد الحالي ${currentBalance}، والمبلغ المطلوب صرفه ${amount}).`,
     );
     this.name = "CashBalanceWouldGoNegativeError";
   }

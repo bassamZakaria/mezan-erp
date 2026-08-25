@@ -77,6 +77,23 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
+  /**
+   * Turns a collection recorded on the invoice into a real confirmed collection
+   * voucher, allocated to that invoice. Without it the route refuses rather
+   * than writing a payment the ledger never hears about (D1).
+   */
+  readonly collect?: (input: {
+    invoiceId: string;
+    customerId: string;
+    branchId: string;
+    amount: Money;
+    treasuryAccountId: string;
+    paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+    date: string;
+    referenceNo?: string | null;
+    memo?: string | null;
+    actor?: string;
+  }) => Promise<{ voucherId: string }>;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -450,15 +467,46 @@ export function createSalesInvoicesRoutes(
     }
   });
 
+  /**
+   * تحصيل من عميل. Collecting against an invoice creates and confirms a REAL
+   * collection voucher and allocates it to the invoice — money in, AR credited,
+   * `amountPaid` written back by the allocation. It used to increment
+   * `amountPaid` and post nothing, so the invoice and the ledger disagreed
+   * about the same payment forever (D1).
+   */
   app.post("/:id/payments", gate("sales.invoice.edit"), async (c) => {
     const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    if (!deps.collect) {
+      return c.json(
+        { error: "COLLECTION_UNAVAILABLE", message: "التحصيل يتطلب سند قبض؛ وحدة الخزينة غير مفعّلة." },
+        503,
+      );
+    }
     const svc = service(c);
+    const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const invoice = await svc.recordPayment(c.req.param("id"), Money.fromMajor(parsed.data.amount));
-      return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
+      const invoice = await svc.assertCollectable(c.req.param("id"), amount);
+      const { voucherId } = await deps.collect({
+        invoiceId: invoice.id,
+        customerId: invoice.customerId,
+        branchId: invoice.branchId,
+        amount,
+        treasuryAccountId: parsed.data.treasuryAccountId,
+        paymentMethod: parsed.data.paymentMethod ?? "cash",
+        date: parsed.data.date ?? invoice.date,
+        referenceNo: parsed.data.referenceNo ?? null,
+        memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
+        actor: getAuthContext(c)?.userId,
+      });
+      // Re-read: the allocation wrote amountPaid back through the settlement port.
+      const settled = (await svc.findById(invoice.id)) ?? invoice;
+      return c.json({
+        ...serialize(settled, totalsFor(svc, settled), await creditFor(settled.id), maySeeCost(c)),
+        voucherId,
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

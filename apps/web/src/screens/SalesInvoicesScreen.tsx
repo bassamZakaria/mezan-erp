@@ -40,6 +40,7 @@ import {
   useSalesInvoices,
   useWarehouses,
   type SalesInvoiceDTO,
+  useTreasuryAccounts,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
@@ -492,6 +493,14 @@ function InvoiceDetailView({
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  // A collection lands in a treasury account or it is not a collection: the
+  // route creates a real voucher and this is where its money goes (D1).
+  const treasuryQuery = useTreasuryAccounts();
+  const treasuryOptions = (treasuryQuery.data ?? [])
+    .filter((a) => a.status === "active")
+    .map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }));
+  const [paymentTreasuryId, setPaymentTreasuryId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
 
   const remaining = toMajor(invoice.remainingBalance);
@@ -542,7 +551,16 @@ function InvoiceDetailView({
     setPayBusy(true);
     setPaymentError(null);
     try {
-      await recordPayment.mutateAsync({ id: invoice.id, amount: String(paymentAmount) });
+      if (!paymentTreasuryId) {
+        setPaymentError(t("salesInvoices.error.treasuryRequired"));
+        return;
+      }
+      await recordPayment.mutateAsync({
+        id: invoice.id,
+        amount: String(paymentAmount),
+        treasuryAccountId: paymentTreasuryId,
+        paymentMethod: paymentMethod,
+      });
       setPaymentAmount(null);
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
@@ -699,11 +717,30 @@ function InvoiceDetailView({
                       {paymentError}
                     </div>
                   ) : null}
-                  <div className="flex items-end gap-[10px]">
-                    <div className="flex-1">
+                  <div className="flex flex-col gap-[10px]">
+                    <div>
                       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.amount")}</span>
                       <MoneyInput aria-label={t("salesInvoices.payments.amount")} value={paymentAmount} onChange={setPaymentAmount} />
                     </div>
+                    <SelectField
+                      label={t("salesInvoices.payments.treasury")}
+                      value={paymentTreasuryId}
+                      onChange={setPaymentTreasuryId}
+                      options={[{ value: "", label: t("salesInvoices.payments.treasuryPlaceholder") }, ...treasuryOptions]}
+                    />
+                    <SelectField
+                      label={t("salesInvoices.payments.method")}
+                      value={paymentMethod}
+                      onChange={(v) => setPaymentMethod(v as typeof paymentMethod)}
+                      options={[
+                        { value: "cash", label: t("vouchers.method.cash") },
+                        { value: "bank", label: t("vouchers.method.bank") },
+                        { value: "cheque", label: t("vouchers.method.cheque") },
+                        { value: "card", label: t("vouchers.method.card") },
+                        { value: "wallet", label: t("vouchers.method.wallet") },
+                      ]}
+                    />
+                    <p className="text-[11.5px] text-ink-muted">{t("salesInvoices.payments.hint")}</p>
                     <Button variant="primary" disabled={payBusy} onClick={handleRecordPayment}>
                       {t("salesInvoices.payments.submit")}
                     </Button>

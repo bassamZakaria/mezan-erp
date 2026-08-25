@@ -101,10 +101,17 @@ export function AssetRegisterScreen() {
   const [disposeError, setDisposeError] = useState<string | null>(null);
   const accountsQuery = useAccounts();
   // Where the money from a sale lands: a cash/bank account, or a receivable
-  // when the buyer has not paid yet.
-  const proceedsAccountOptions = (accountsQuery.data ?? [])
-    .filter((a) => a.type === "asset" && (String(a.code).startsWith("13") || String(a.code).startsWith("11")))
-    .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }));
+  // when the buyer has not paid yet. HEADER accounts are excluded — nothing may
+  // post to one, so offering it is offering a choice that always fails. The
+  // empty first option is explicit: without it the list rendered its first real
+  // account as though it were selected while the value was still empty, so the
+  // user saw an account chosen and got "حساب التحصيل مطلوب" on submit.
+  const proceedsAccountOptions = [
+    { value: "", label: t("assets.disposeProceedsPlaceholder") },
+    ...(accountsQuery.data ?? [])
+      .filter((a) => a.type === "asset" && !a.isHeader && (String(a.code).startsWith("13") || String(a.code).startsWith("11")))
+      .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` })),
+  ];
   const [disposeProceedsAccountId, setDisposeProceedsAccountId] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);

@@ -44,6 +44,7 @@ import type {
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
+  SalesInvoicePaymentDTO,
   DisposeAssetDTO,
   CreateBomDTO,
   CreateBranchDTO,
@@ -1764,13 +1765,20 @@ export function useRecordSalesInvoicePayment() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO, ApiError, { id: string; amount: string }>({
-    mutationFn: async ({ id, amount }) => {
-      const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify({ amount }) });
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string } & SalesInvoicePaymentDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
       return res.json<SalesInvoiceDTO>();
     },
-    onSuccess: () => invalidateSalesInvoices(queryClient),
+    // A collection is a real voucher now, so the treasury and the ledger both
+    // moved: their views are stale too.
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 

@@ -28,11 +28,10 @@ Open by DECISION, not by patch: workflow `minAmount` is configurable but never
 enforced (`DocumentWorkflowInput` carries no amount to compare), and
 email/WhatsApp notification channels are modelled but unimplemented.
 
-One residue that will look like a defect: the sales invoice screen's manual
-"record payment" button still writes `amountPaid` without posting to the GL. The
-reconciliation no longer reads that field, so the books hold either way — but it
-is a second store of a fact the allocation sub-ledger owns, and retiring it
-versus turning it into a real collection voucher is a product decision.
+Settled against the live reference product: its invoice-level "Collect" requires
+a treasury account and applies against invoices, i.e. it IS a receipt voucher.
+Mezan's collect action now does the same, so no path records a payment the
+ledger never hears about.
 
 ## What the sweep changed that you will trip over
 

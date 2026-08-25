@@ -47,13 +47,11 @@ re-files them:
   carries no amount to compare)
 - email and WhatsApp notification channels are modelled but unimplemented
 
-One residue is worth naming because it will look like a defect: the sales
-invoice screen's manual "record payment" button writes `amountPaid` without
-posting anything to the GL. The reconciliation no longer depends on that field
-(it follows the vouchers and cheques that actually move the control accounts),
-so the books stay right either way — but the button remains a second store of a
-fact the allocation sub-ledger owns, and whether it should become a real
-collection voucher or be retired is a product decision, not a bug fix.
+D1's last residue is closed too: the invoice screen's collect action creates and
+confirms a REAL collection voucher and allocates it, which is what the reference
+product does (its "Collect" requires a treasury account and applies against
+invoices). There is no longer any path that records a payment the ledger never
+hears about.
 
 ## Fixed
 
@@ -114,6 +112,10 @@ collection voucher or be retired is a product decision, not a bug fix.
 | F53 | **A landed cost wrote no stock movement** (D36), so `replay()` could not reproduce a position it had touched and the drift report read `cacheDrift` nonzero on a healthy tenant. The ledger gained a value-only movement, and replay values an issue at the cost the ledger recorded | this commit |
 | F54 | **The dashboard's receivables tile and the aging report meant different things** (D37). The tile means customer receivables; the ladder nets returns and unapplied credits. Both read the same figure as GL 1105 | this commit |
 | F55 | **A purchase return credited inventory at the price on the return** while stock left at the moving average — found while fixing D36, and it left the sub-ledger 68.28 adrift from GL 1200. The stock hook reports what moved, and the difference books to a new 5080 cost-variance leaf | this commit |
+| F56 | **D1's last store closed against the reference product.** Collecting on an invoice created no voucher and posted nothing; the reference's own invoice-level "Collect" requires a treasury account and applies against invoices, so Mezan's now creates and confirms a real collection voucher and allocates it. Verified in the browser: the button produced CV-000014, AR moved 37,839.28 -> 37,339.28, and all three sub-ledgers still reconciled exactly | this commit |
+| F57 | **The cash-guard refusal reached the Arabic UI in English** — found by clicking, not by any gate. Now Arabic, and it names cash vs bank | this commit |
+| F58 | **The disposal proceeds picker showed a header account as though it were selected** while its value was empty, so the user chose an account and got "الحساب مطلوب" — and every header account it listed could never be posted to anyway. Explicit placeholder, headers excluded | this commit |
+| F59 | **Report grand totals summed money as IEEE-754 doubles**, so a trial balance equal to the piastre reported 681,214.3999999999 against 681,214.4 and "debit = credit" read FALSE on books that balance. Totals accumulate in scaled integers | this commit |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.

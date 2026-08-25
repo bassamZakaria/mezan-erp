@@ -398,11 +398,16 @@ export class SalesInvoiceService {
   }
 
   /**
-   * Record a collection against a live invoice, advancing confirmed →
-   * partially_paid → paid. Does NOT post to the GL — collection is a separate
-   * treasury voucher (docs/catalog/01: "لا يتم التحصيل تلقائياً").
+   * Validate a collection against a live invoice. It does NOT write: the caller
+   * creates and confirms a real collection voucher and allocates it, and the
+   * allocation writes `amountPaid` back through `applyAllocatedSettlement`.
+   *
+   * This used to increment a cumulative `amountPaid` itself and post nothing,
+   * which made the invoice a SECOND store of a fact the allocation sub-ledger
+   * owns — and one the ledger never heard about, so AR drifted by every
+   * collection ever recorded that way (D1).
    */
-  async recordPayment(id: string, amount: Money): Promise<SalesInvoice> {
+  async assertCollectable(id: string, amount: Money): Promise<SalesInvoice> {
     const existing = await this.require(id);
     if (existing.status !== "confirmed" && existing.status !== "partially_paid") {
       throw new InvalidSalesInvoicePaymentError(
@@ -413,15 +418,10 @@ export class SalesInvoiceService {
       throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
     }
     const grandTotal = this.totalsOf(existing).grandTotal;
-    const newPaid = existing.amountPaid.add(amount);
-    if (newPaid.scaled > grandTotal.scaled) {
+    if (existing.amountPaid.scaled + amount.scaled > grandTotal.scaled) {
       throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
     }
-    const nextStatus: SalesInvoiceStatus = newPaid.scaled >= grandTotal.scaled ? "paid" : "partially_paid";
-    assertTransition(id, existing.status, nextStatus);
-    const updated: SalesInvoice = { ...existing, amountPaid: newPaid, status: nextStatus };
-    await this.deps.repo.update(updated);
-    return updated;
+    return existing;
   }
 
   /** Lines charged below the customer's own list price (D35). */

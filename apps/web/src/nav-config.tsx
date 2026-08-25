@@ -1,5 +1,6 @@
 import { modKeyLabel, type CommandItem, type NavGroup, type NavItem } from "@mezan/ui";
 import type { AppTranslationKey } from "./i18n";
+import { navGroupIcon, navItemIcon } from "./nav-icons";
 
 /**
  * Static shell configuration — the navigation tree, its top item, and the
@@ -166,7 +167,7 @@ const commandItemSpecs = [
 ] as const satisfies readonly { id: string; groupKey: AppTranslationKey; hint?: string }[];
 
 export function buildTopNavItem(t: Translate): NavItem {
-  return { key: "dashboard", label: t("nav.item.dashboard") };
+  return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };
 }
 
 export function buildNavGroups(t: Translate): NavGroup[] {
@@ -174,7 +175,12 @@ export function buildNavGroups(t: Translate): NavGroup[] {
     key: group.key,
     label: t(`nav.group.${group.key}` as AppTranslationKey),
     defaultCollapsed: group.defaultCollapsed,
-    items: group.itemKeys.map((key) => ({ key, label: t(`nav.item.${key}` as AppTranslationKey) })),
+    icon: navGroupIcon(group.key),
+    items: group.itemKeys.map((key) => ({
+      key,
+      label: t(`nav.item.${key}` as AppTranslationKey),
+      icon: navItemIcon(key),
+    })),
   }));
 }
 

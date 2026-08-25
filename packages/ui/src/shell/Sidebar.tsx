@@ -301,7 +301,9 @@ export function Sidebar({
                     </svg>
                   </>
                 ) : (
-                  <span className="text-[13px] leading-none">{firstGlyph(group.label)}</span>
+                  <span className="flex h-[21px] w-[21px] items-center justify-center">
+                    {group.icon ?? <span className="text-[13px] leading-none">{firstGlyph(group.label)}</span>}
+                  </span>
                 )}
               </button>
               {groupCollapsed ? null : (

@@ -5478,6 +5478,10 @@ const webAr = {
 
   // eyebrow
   "eyebrow.accounting.chartOfAccounts": "المحاسبة · دليل الحسابات",
+
+  // eyebrow
+  "eyebrow.hr.dashboard": "الموارد البشرية · لوحة التحكم",
+  "eyebrow.hr.myLeave": "الموارد البشرية · إجازاتي",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10961,6 +10965,10 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // eyebrow
   "eyebrow.accounting.chartOfAccounts": "Accounting · Chart of accounts",
+
+  // eyebrow
+  "eyebrow.hr.dashboard": "HR · Dashboard",
+  "eyebrow.hr.myLeave": "HR · My leave",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

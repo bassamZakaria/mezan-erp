@@ -35,7 +35,7 @@ export function HrDashboardScreen() {
   return (
     <div className="flex flex-col gap-[22px]">
       <div>
-        <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">HR · Dashboard</div>
+        <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">{t("eyebrow.hr.dashboard")}</div>
         <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("hrDashboard.hrDashboard")}</h1>
         <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("hrDashboard.anOverviewOfTheWorkforce")}</p>
       </div>

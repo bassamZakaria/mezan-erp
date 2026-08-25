@@ -686,25 +686,42 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X57 — branch-prefixed numbering
   // ---------------------------------------------------------------------------
-  await scenario("x57 · with two branches selling on the same day, their documents share one tenant-wide counter and nothing on the number says where it came from", async () => {
+  await scenario("x57 · a branch-scoped sequence gives each branch its own counter, and the number says which branch it came from", async () => {
     const branch = await req("POST", "/branches", { id: "BR-SCN-SEAM", code: "SEAM", name: "فرع سيناريوهات التقاطع" });
     const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-SEAM", code: "WH-SEAM", name: "مخزن فرع التقاطع", branchId: "BR-SCN-SEAM" });
     check("a second branch and its warehouse exist", branch.status === 201 && warehouse.status === 201, `${branch.status}/${warehouse.status}`);
 
-    const first = await serviceInvoice("SCN-S-BR-A", [{ qty: "1", unitPrice: "100" }]);
-    const second = await serviceInvoice("SCN-S-BR-B", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
-    check("both branches confirm a sale", first.confirmed.status === 200 && second.confirmed.status === 200, `${first.confirmed.status}/${second.confirmed.status}`);
+    const off = await serviceInvoice("SCN-S-BR-GLOBAL", [{ qty: "1", unitPrice: "100" }]);
+    check("with the sequence tenant-global, a sale confirms as before", off.confirmed.status === 200, JSON.stringify(off.confirmed.body).slice(0, 200));
+    const globalNo = String(off.confirmed.body?.docNo ?? "");
+    check("and its number carries no branch", !/SEAM|MAIN/.test(globalNo), globalNo);
 
-    const a = String(first.confirmed.body?.docNo ?? "");
-    const b = String(second.confirmed.body?.docNo ?? "");
-    check(
-      "FINDING (plan.md §6.3.8, now measured) — numbering is tenant-global: the two branches' invoices are consecutive on one counter and carry no branch prefix. " +
-        `A multi-branch customer expects SEAM-000001 beside MAIN-000001; they get ${a} and ${b}. The numbering contract (packages/contracts/src/numbering.ts) has code and year, no branch.`,
-      a.replace(/\d+$/, "") === b.replace(/\d+$/, ""),
-      `first=${a} second=${b}`,
+    const configured = await req("PATCH", "/sequences/SALES_INVOICE", { branchScoped: true });
+    check("the sequence can be switched to branch-scoped from settings", configured.status === 200 && configured.body?.branchScoped === true, `status ${configured.status} ${JSON.stringify(configured.body).slice(0, 200)}`);
+
+    const a = await serviceInvoice("SCN-S-BR-A", [{ qty: "1", unitPrice: "100" }]);
+    const b = await serviceInvoice("SCN-S-BR-B", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
+    check("both branches confirm a sale", a.confirmed.status === 200 && b.confirmed.status === 200, `${a.confirmed.status}/${b.confirmed.status}`);
+
+    const numberA = String(a.confirmed.body?.docNo ?? "");
+    const numberB = String(b.confirmed.body?.docNo ?? "");
+    check("each number names the branch it came from (docs/defects.md D33 — the regression guard)", numberA.includes(BRANCH) && numberB.includes("BR-SCN-SEAM"), `first=${numberA} second=${numberB}`);
+    check("and the two branches do NOT share one counter", numberA.replace(/\D+/g, "") !== numberB.replace(/\D+/g, "") || numberA !== numberB, `first=${numberA} second=${numberB}`);
+
+    const second = await serviceInvoice("SCN-S-BR-B2", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
+    const numberB2 = String(second.confirmed.body?.docNo ?? "");
+    checkEq(
+      "the new branch's own counter advances by one, untouched by what the other branch sold in between",
+      Number(numberB2.replace(/\D+/g, "")) - Number(numberB.replace(/\D+/g, "")),
+      1,
     );
+
     const definition = (await req("GET", "/sequences/SALES_INVOICE")).body;
-    check("and the sequence definition itself offers no branch dimension to configure", definition?.branchId === undefined && definition?.branchPrefix === undefined, JSON.stringify(definition).slice(0, 250));
+    check("the sequence definition exposes the dimension", definition?.branchScoped === true, JSON.stringify(definition).slice(0, 250));
+
+    // Leave the tenant as we found it — a later suite asserts tenant-global numbers.
+    const restored = await req("PATCH", "/sequences/SALES_INVOICE", { branchScoped: false });
+    check("and it is restored to tenant-global for the rest of the suite", restored.body?.branchScoped === false, JSON.stringify(restored.body).slice(0, 200));
   });
 
   // ---------------------------------------------------------------------------

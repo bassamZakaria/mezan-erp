@@ -165,7 +165,7 @@ export class VoucherService {
     };
     this.service = new DocumentService(voucherDocumentType, {
       repo: deps.documents,
-      numbering: { next: () => deps.numbering.next("CASH_VOUCHER") },
+      numbering: { next: (opts) => deps.numbering.next("CASH_VOUCHER", { branchId: opts?.branchId }) },
       gl: createVoucherGlHook(glDeps),
       workflow: createDocumentWorkflowGate(deps.resolveGateConfig ?? (() => null), deps.approvalRequests),
       audit: deps.audit,

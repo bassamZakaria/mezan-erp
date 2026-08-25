@@ -312,7 +312,7 @@ export async function createPurchaseInvoice(
   const lines = normalizeLines(command.lines);
   validate(lines, command.supplierId);
 
-  const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE);
+  const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE, { branchId: command.branchId });
   const invoice: PurchaseInvoice = {
     id: command.id,
     number: number.formatted,

@@ -657,7 +657,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
-    numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
+    numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
@@ -665,7 +665,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
-    numbering: { next: () => ledger.numbering.next("PURCHASE_RETURN") },
+    numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
@@ -673,14 +673,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
-    numbering: { next: () => ledger.numbering.next("LANDED_COST") },
+    numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService);
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
-    numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
+    numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },
     workflow: documentWorkflowGate,
   });
 
@@ -692,12 +692,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
-    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
-    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
   });
   const physicalCounts = new PhysicalCountService({
@@ -1046,7 +1046,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesInvoices: {
       repo: salesInvoices,
-      numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
+      numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
       // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
@@ -1069,7 +1069,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     promotionRepo: promotions,
     salesQuotes: {
       repo: salesQuotes,
-      numbering: { next: () => ledger.numbering.next("SALES_QUOTE") },
+      numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
     },
     // --- phase9/accounting-depth ---
     exchangeRateRepo: exchangeRates,

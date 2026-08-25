@@ -22,7 +22,11 @@ import type { GateableActionType } from "../workflow/index.js";
  * the SQLite `NextNumberService` slots straight in.
  */
 export interface DocumentNumberingHook {
-  next(): Promise<{ readonly value: number; readonly formatted: string }>;
+  /**
+   * `branchId` lets a branch-scoped sequence keep its own counter (D33). A hook
+   * bound to a tenant-global sequence ignores it, so passing it always is safe.
+   */
+  next(opts?: { readonly branchId?: string | null }): Promise<{ readonly value: number; readonly formatted: string }>;
 }
 
 /* --- GL-posting hook (via the GL posting engine) ------------------------- */

@@ -30,7 +30,13 @@ import {
  * again at 1.
  */
 export interface SequenceStore {
-  increment(code: string, period: number | null): Promise<number>;
+  /**
+   * `scope` separates counters that share a code — a branch, for a
+   * branch-scoped sequence. `null` is the tenant-global counter, which is what
+   * every sequence used before branch scoping existed, so an existing counter
+   * row keeps its meaning.
+   */
+  increment(code: string, period: number | null, scope?: string | null): Promise<number>;
 }
 
 export interface NextNumberResult {
@@ -42,6 +48,10 @@ export interface NextNumberResult {
 export interface NextNumberOptions {
   /** Override "now" for annual-reset period derivation (testing, backdating). */
   readonly year?: number;
+  /** The document's branch. Only consulted when the sequence is branch-scoped. */
+  readonly branchId?: string | null;
+  /** The branch's short code, which a branch-scoped number carries. */
+  readonly branchCode?: string | null;
 }
 
 /**
@@ -70,11 +80,12 @@ export class NextNumberService {
     const period = def.annualReset
       ? (opts.year ?? new Date().getUTCFullYear())
       : null;
-    const value = await this.store.increment(code, period);
+    const scope = def.branchScoped ? (opts.branchId ?? null) : null;
+    const value = await this.store.increment(code, period, scope);
     return {
       code,
       value,
-      formatted: formatSequenceNumber(def, value),
+      formatted: formatSequenceNumber(def, value, def.branchScoped ? (opts.branchCode ?? opts.branchId) : null),
     };
   }
 }

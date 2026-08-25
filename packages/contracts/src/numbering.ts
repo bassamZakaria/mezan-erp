@@ -8,6 +8,8 @@ export const sequenceDefinitionSchema = z.object({
   suffix: z.string().optional(),
   padLength: z.number().int().positive(),
   annualReset: z.boolean(),
+  /** Each branch keeps its own counter and carries its code in the number. */
+  branchScoped: z.boolean().optional(),
 });
 
 /** Request to allocate the next number for a document type. */
@@ -37,10 +39,16 @@ export const sequenceOverrideSchema = z
     prefix: z.string().max(20).optional(),
     padLength: z.number().int().positive().max(12).optional(),
     annualReset: z.boolean().optional(),
+    branchScoped: z.boolean().optional(),
   })
-  .refine((v) => v.prefix !== undefined || v.padLength !== undefined || v.annualReset !== undefined, {
-    message: "At least one field (prefix, padLength, annualReset) must be provided",
-  });
+  .refine(
+    (v) =>
+      v.prefix !== undefined ||
+      v.padLength !== undefined ||
+      v.annualReset !== undefined ||
+      v.branchScoped !== undefined,
+    { message: "At least one field (prefix, padLength, annualReset, branchScoped) must be provided" },
+  );
 
 /** One row of `/settings/sequences` — the effective definition plus its live counter state. */
 export const sequenceListItemSchema = z.object({
@@ -50,6 +58,8 @@ export const sequenceListItemSchema = z.object({
   suffix: z.string().optional(),
   padLength: z.number().int().positive(),
   annualReset: z.boolean(),
+  /** Whether each branch keeps its own counter and carries its code in the number. */
+  branchScoped: z.boolean().optional(),
   /** Current allocated counter value for the active period — read-only, never incremented by this read. */
   currentValue: z.number().int().nonnegative(),
   /** Preview of the NEXT document number, computed from currentValue + 1 without allocating it. */

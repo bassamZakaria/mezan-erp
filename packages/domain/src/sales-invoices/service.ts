@@ -230,7 +230,7 @@ export class SalesInvoiceService {
     const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
 
     const confirmed = await this.deps.repo.transaction(async () => {
-      const number = await this.deps.numbering.next();
+      const number = await this.deps.numbering.next({ branchId: existing.branchId });
       const docNo = number.formatted;
       // The LEDGER timestamp is the invoice's own date, never the wall clock:
       // a document-dated movement and a now()-stamped one cannot be replayed in

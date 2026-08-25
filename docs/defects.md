@@ -4,7 +4,7 @@
 and updates it before finishing. Nothing else tracks defects — if it is not
 here, it is not tracked.
 
-Updated 2026-08-24 (after the 964-scenario authoring pass and the fixes it triggered).
+Updated 2026-08-25 (after the cross-module money-trail pass, docs/scenarios/09-cross-module.md).
 
 ## How to use this file
 
@@ -47,7 +47,51 @@ through as "oh, that's the known one".
 | D14 | Reports | F3's fix covers only the 7 financial statements; `useReport` still swallows validation errors for all 22 operational reports | Same symptom, 22 of 30 unfixed | Medium |
 | D15 | UX | Domain state-machine refusals surface in **English** inside the Arabic UI, and the hourly-payroll exclusion embeds the raw string `"hourly"` | | Low |
 | D17 | Demo data | The seeded tenant never funds its bank account, so the dashboard shows cash at **−100,524.88** and looks broken | GL 1310: 113,704 credited vs 5,100 debited — payroll and supplier payments disburse from an account with no opening balance | Medium |
+| D18 | Treasury / AP reconciliation | The AP sub-ledger ignores every payment: paying or refunding a supplier moves GL 2100 and leaves the sub-ledger figure where it was | `SCN-X-PAY-1` pays **2,280** → GL 2100 falls 2,280, AP sub-ledger unchanged; the reconciliation diff goes 35,554 → **37,834**. `resolveReconciliationControls()` sums confirmed invoice totals − returns + landed costs and never subtracts allocations | High |
+| D19 | Settings / Treasury | `preventNegativeCashBalance` and `allowNegativeTreasury` are dead switches — the guard never reads them | With the setting persisted `false` (verified by re-read), the same voucher is still refused `CASH_BALANCE_NEGATIVE`. `create-backend.ts`'s `vouchers:` options never pass `settings`, so `VoucherService.cashPolicy()` returns a hardcoded `true` | Medium |
+| D20 | Purchases / fiscal periods | Confirming a purchase invoice into a **closed** period answers `500 Internal Server Error` | Sales confirm, voucher confirm and journal post all return 422 `PERIOD_NOT_OPEN_FOR_POSTING`; `purchases-routes.ts`'s confirm handler does not map `PeriodNotOpenForPostingError` thrown by the GL port | Medium |
+| D21 | Purchases / atomicity | That same crash is not atomic: the stock IN is applied before the GL refuses, and never rolled back | One blocked line at qty 1 × 50 leaves the inventory sub-ledger exactly **50.00** ahead of GL 1200, with no document that explains it | High |
+| D22 | Field sales / Treasury | A trip's roadside cash never reaches the van treasury, but settling transfers the full counted cash out of it | Float 500 in, 700 of recorded sales, 1,150 counted: the van's GL 1300-2 ends **650** below where it started. `POST /field/van-trips/:id/cash-movements` only mutates the trip document | High |
 | D16 | Data migration | The commit gate is all-or-nothing **per file**, and two shipped fixtures have a required column blank on every row, so they reject their own valid rows | `employees.xlsx` (hire date), `items.xlsx` (base unit code) | Medium |
+
+### D18 — the AP sub-ledger never hears about a payment
+
+`resolveReconciliationControls()` (`create-backend.ts`) builds the AP figure from
+confirmed purchase invoices, minus confirmed purchase returns, plus landed costs.
+Treasury allocations are not in that sum, so **every supplier payment de-reconciles
+AP by its own amount** — the exact twin of D1 on the other side of the books.
+
+It stayed invisible because no scenario had ever paid a supplier: the module
+suites confirm invoices, and the treasury suite posts vouchers that are not
+allocated to purchase invoices. It takes the cross-module trail (buy → pay) to
+see it.
+
+### D19 — the cash guard ignores its own setting
+
+`VoucherService.cashPolicy()` returns `true` whenever `deps.settings` is absent,
+and `create-backend.ts` never passes `settings` into the `vouchers:` options
+object. The Settings screen's منع الرصيد السالب للحسابات النقدية toggle therefore
+changes nothing, in either direction. Same shape as the missing
+`resolveGateConfig` on the same options object (see the treasury approval-gate
+finding in `scripts/scenarios/accounting.ts`) — one under-wired dependency,
+two dead features.
+
+### D20 / D21 — a closed period crashes the purchase confirm, and the crash leaks stock
+
+Two defects from one call. The route does not map the domain's period error, so
+the caller sees a 500 instead of the 422 every sibling route returns (D20). Worse,
+`confirmPurchaseInvoice` moves stock **before** posting the journal entry, and
+nothing unwinds the stock movement when the post throws (D21) — the sub-ledger is
+left ahead of GL 1200 by the invoice's own value with no document behind it. D21
+is the one that corrupts data; D20 is only how it is reported.
+
+### D22 — van trip cash: recorded in one place, transferred from another
+
+`POST /field/van-trips/:id/cash-movements` records a roadside sale on the trip
+document and posts nothing to the van's treasury account. `settleVanTrip` then
+transfers the whole counted cash — float plus those unposted sales — out of that
+treasury. The van's cash account ends every trip short by exactly what the trip
+sold, and the shortfall compounds trip after trip.
 
 ### D1 — collection voucher does not move `amountPaid`
 

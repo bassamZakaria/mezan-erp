@@ -26,15 +26,16 @@ import {
   type ConfigInstanceRecord,
 } from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 type Status = ConfigInstanceRecord["status"];
 
-const STATUS_LABEL: Record<Status, string> = {
-  configured: "مهيأة",
-  in_progress: "في التنفيذ",
-  produced: "تم الإنتاج",
-  closed: "مغلقة",
-  cancelled: "ملغاة",
+const STATUS_KEY: Record<Status, AppTranslationKey> = {
+  configured: "customOrders.status.configured",
+  in_progress: "customOrders.status.in_progress",
+  produced: "customOrders.status.produced",
+  closed: "customOrders.status.closed",
+  cancelled: "customOrders.status.cancelled",
 };
 const STATUS_TONE: Record<Status, PillTone> = {
   configured: "neutral",
@@ -73,56 +74,57 @@ function InstanceDetail({
   closing: boolean;
   cancelling: boolean;
 }) {
+  const { t } = useAppTranslation();
   const canAct = instance.status !== "closed" && instance.status !== "cancelled";
   const actualCost = instance.actualCost !== null ? num(instance.actualCost) : num(instance.estimatedUnitCost) * num(instance.qty);
   const profitMargin = num(instance.sellTotal) - actualCost;
 
   return (
     <DocumentDetail
-      title={`أمر تصنيع مخصص ${instance.number}`}
-      statusLabel={STATUS_LABEL[instance.status]}
+      title={t("customOrders.detailTitle", { number: instance.number })}
+      statusLabel={t(STATUS_KEY[instance.status])}
       statusTone={STATUS_TONE[instance.status]}
       subtitle={`${productName(instance.configurableProductId)} · ${customerName(instance.customerId)}`}
       actions={
         canAct ? (
           <>
             <Button variant="primary" onClick={onClose} disabled={closing}>
-              إغلاق الأمر
+              {t("customOrders.closeOrder")}
             </Button>
             <Button onClick={onCancel} disabled={cancelling}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
-            <Button onClick={onBack}>رجوع للتصنيع المخصص</Button>
+            <Button onClick={onBack}>{t("customOrders.backToCustomManufacturing")}</Button>
           </>
         ) : (
-          <Button onClick={onBack}>رجوع للتصنيع المخصص</Button>
+          <Button onClick={onBack}>{t("customOrders.backToCustomManufacturing")}</Button>
         )
       }
       summary={[
-        { label: "المنتج", value: productName(instance.configurableProductId) },
-        { label: "العميل", value: customerName(instance.customerId) },
-        { label: "الكمية", value: <span className="mz-num">{instance.qty}</span> },
-        { label: "المواصفات", value: specLabel(instance.spec) },
-        { label: "إجمالي البيع", value: <MoneyValue value={num(instance.sellTotal)} /> },
-        { label: "هامش الربح", value: <MoneyValue value={profitMargin} />, valueTone: profitMargin < 0 ? "danger" : "success" },
+        { label: t("customOrders.product"), value: productName(instance.configurableProductId) },
+        { label: t("common.customer"), value: customerName(instance.customerId) },
+        { label: t("common.qty"), value: <span className="mz-num">{instance.qty}</span> },
+        { label: t("customOrders.specification"), value: specLabel(instance.spec) },
+        { label: t("customOrders.totalSale"), value: <MoneyValue value={num(instance.sellTotal)} /> },
+        { label: t("customOrders.margin"), value: <MoneyValue value={profitMargin} />, valueTone: profitMargin < 0 ? "danger" : "success" },
       ]}
       effects={[
-        "يُنشأ أمر تصنيع (Work Order) مرتبط تلقائياً عند إنشاء أمر التصنيع المخصص لتنفيذ الإنتاج الفعلي.",
-        "عند إغلاق الأمر تُحفظ التكلفة الفعلية من أمر التصنيع المرتبط.",
+        t("customOrders.aLinkedWorkOrderIs"),
+        t("customOrders.closingTheOrderRecordsThe"),
       ]}
       tabs={[
         {
           key: "materials",
-          label: `الخامات المطلوبة (${instance.materials.length})`,
+          label: t("customOrders.tab.materials", { count: instance.materials.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[480px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-end">الكمية (للوحدة)</th>
-                    <th className="px-[12px] py-[9px] text-end">نسبة الهالك</th>
-                    <th className="px-[12px] py-[9px] text-end">الإجمالي</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("customOrders.quantityPerUnit")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("customOrders.scrapRate")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -141,18 +143,18 @@ function InstanceDetail({
         },
         {
           key: "cost",
-          label: "التكلفة الفعلية",
+          label: t("customOrders.actualCost"),
           content: (
             <dl className="grid grid-cols-2 gap-[12px] text-[13px]">
-              <div><dt className="text-ink-muted">تكلفة المواد (للوحدة)</dt><dd className="mz-num"><MoneyValue value={num(instance.materialCostPerUnit)} /></dd></div>
-              <div><dt className="text-ink-muted">العمالة (للوحدة)</dt><dd className="mz-num"><MoneyValue value={num(instance.laborCostPerUnit)} /></dd></div>
-              <div><dt className="text-ink-muted">المصاريف (للوحدة)</dt><dd className="mz-num"><MoneyValue value={num(instance.overheadCostPerUnit)} /></dd></div>
-              <div><dt className="text-ink-muted">التكلفة التقديرية (للوحدة)</dt><dd className="mz-num"><MoneyValue value={num(instance.estimatedUnitCost)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("customOrders.materialCostPerUnit")}</dt><dd className="mz-num"><MoneyValue value={num(instance.materialCostPerUnit)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("customOrders.labourPerUnit")}</dt><dd className="mz-num"><MoneyValue value={num(instance.laborCostPerUnit)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("customOrders.overheadPerUnit")}</dt><dd className="mz-num"><MoneyValue value={num(instance.overheadCostPerUnit)} /></dd></div>
+              <div><dt className="text-ink-muted">{t("customOrders.estimatedCostPerUnit")}</dt><dd className="mz-num"><MoneyValue value={num(instance.estimatedUnitCost)} /></dd></div>
               <div>
-                <dt className="text-ink-muted">التكلفة الفعلية</dt>
+                <dt className="text-ink-muted">{t("customOrders.actualCost")}</dt>
                 <dd className="mz-num">{instance.actualCost !== null ? <MoneyValue value={num(instance.actualCost)} /> : "—"}</dd>
               </div>
-              <div><dt className="text-ink-muted">أمر التشغيل</dt><dd className="mz-num">{instance.workOrderId}</dd></div>
+              <div><dt className="text-ink-muted">{t("customOrders.workOrder")}</dt><dd className="mz-num">{instance.workOrderId}</dd></div>
             </dl>
           ),
         },
@@ -162,6 +164,7 @@ function InstanceDetail({
 }
 
 export function ConfigInstancesScreen() {
+  const { t } = useAppTranslation();
   const query = useConfigInstances();
   const productsQuery = useConfigurableProducts();
   const itemsQuery = useItems();
@@ -188,7 +191,7 @@ export function ConfigInstancesScreen() {
   }, [items]);
   const customerName = useMemo(() => {
     const map = new Map(customers.map((c) => [c.id, c.nameAr]));
-    return (id: string | null) => (id === null ? "بدون عميل" : (map.get(id) ?? id));
+    return (id: string | null) => (id === null ? t("customOrders.noCustomer") : (map.get(id) ?? id));
   }, [customers]);
 
   const productOptions: EntityPickerOption[] = products.map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code }));
@@ -240,27 +243,27 @@ export function ConfigInstancesScreen() {
   }, [instances, statusFilter, search, productName, customerName]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: instances.length },
-    { key: "configured", label: STATUS_LABEL.configured, count: instances.filter((i) => i.status === "configured").length },
-    { key: "in_progress", label: STATUS_LABEL.in_progress, count: instances.filter((i) => i.status === "in_progress").length },
-    { key: "produced", label: STATUS_LABEL.produced, count: instances.filter((i) => i.status === "produced").length },
-    { key: "closed", label: STATUS_LABEL.closed, count: instances.filter((i) => i.status === "closed").length },
-    { key: "cancelled", label: STATUS_LABEL.cancelled, count: instances.filter((i) => i.status === "cancelled").length },
+    { key: "all", label: t("common.all"), count: instances.length },
+    { key: "configured", label: t(STATUS_KEY.configured), count: instances.filter((i) => i.status === "configured").length },
+    { key: "in_progress", label: t(STATUS_KEY.in_progress), count: instances.filter((i) => i.status === "in_progress").length },
+    { key: "produced", label: t(STATUS_KEY.produced), count: instances.filter((i) => i.status === "produced").length },
+    { key: "closed", label: t(STATUS_KEY.closed), count: instances.filter((i) => i.status === "closed").length },
+    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: instances.filter((i) => i.status === "cancelled").length },
   ];
 
   const columns: DocumentListColumn<ConfigInstanceRecord>[] = [
-    { key: "number", header: "رقم الأمر", render: (i) => <span className="mz-num font-semibold text-ink">{i.number}</span> },
-    { key: "product", header: "المنتج", render: (i) => productName(i.configurableProductId) },
-    { key: "spec", header: "المواصفات", render: (i) => specLabel(i.spec) },
-    { key: "customer", header: "العميل", render: (i) => customerName(i.customerId) },
-    { key: "qty", header: "الكمية", align: "end", render: (i) => <span className="mz-num">{i.qty}</span> },
+    { key: "number", header: t("customOrders.orderNumber"), render: (i) => <span className="mz-num font-semibold text-ink">{i.number}</span> },
+    { key: "product", header: t("customOrders.product"), render: (i) => productName(i.configurableProductId) },
+    { key: "spec", header: t("customOrders.specification"), render: (i) => specLabel(i.spec) },
+    { key: "customer", header: t("common.customer"), render: (i) => customerName(i.customerId) },
+    { key: "qty", header: t("common.qty"), align: "end", render: (i) => <span className="mz-num">{i.qty}</span> },
     {
       key: "price",
-      header: "سعر البيع (للوحدة)",
+      header: t("customOrders.salePricePerUnit"),
       align: "end",
       render: (i) => (i.sellUnitPrice !== null ? <MoneyValue value={num(i.sellUnitPrice)} /> : "—"),
     },
-    { key: "status", header: "الحالة", render: (i) => <StatusPill label={STATUS_LABEL[i.status]} tone={STATUS_TONE[i.status]} /> },
+    { key: "status", header: t("common.status"), render: (i) => <StatusPill label={t(STATUS_KEY[i.status])} tone={STATUS_TONE[i.status]} /> },
   ];
 
   function openCreate() {
@@ -305,7 +308,7 @@ export function ConfigInstancesScreen() {
       });
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّر إنشاء أمر التصنيع المخصص.");
+      setFormError(err instanceof Error ? err.message : t("customOrders.theCustomOrderCouldNot"));
     }
   }
 
@@ -314,7 +317,7 @@ export function ConfigInstancesScreen() {
     try {
       await closeInstance.mutateAsync(id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر إغلاق الأمر.");
+      setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe"));
     }
   }
 
@@ -323,12 +326,12 @@ export function ConfigInstancesScreen() {
     try {
       await cancelInstance.mutateAsync(id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "تعذّر إلغاء الأمر.");
+      setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2"));
     }
   }
 
   const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="أمر تصنيع مخصص جديد" description="اختر المنتج وأدخل المواصفات لمعاينة الخامات والتكلفة">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("customOrders.newCustomOrder")} description={t("customOrders.chooseTheProductAndEnter")}>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -336,7 +339,7 @@ export function ConfigInstancesScreen() {
           </div>
         ) : null}
         <EntityPicker
-          label="المنتج *"
+          label={t("customOrders.product2")}
           value={product}
           onChange={(opt) => {
             setProduct(opt);
@@ -345,12 +348,12 @@ export function ConfigInstancesScreen() {
             preview.reset();
           }}
           options={productOptions}
-          placeholder="اختر منتجاً قابلاً للتهيئة…"
+          placeholder={t("customOrders.chooseAConfigurableProduct")}
         />
 
         {selectedProduct ? (
           <div className="flex flex-col gap-[10px] rounded-lg border border-border bg-surface p-[12px]">
-            <span className="text-[12.5px] font-semibold text-ink">المواصفات</span>
+            <span className="text-[12.5px] font-semibold text-ink">{t("customOrders.specification")}</span>
             {selectedProduct.inputs.map((inp) => (
               <TextField
                 key={inp.id}
@@ -363,35 +366,35 @@ export function ConfigInstancesScreen() {
         ) : null}
 
         <div className="grid grid-cols-2 gap-[10px]">
-          <NumberField label="الكمية *" value={qty} min={0} onChange={setQty} />
+          <NumberField label={t("customOrders.quantity")} value={qty} min={0} onChange={setQty} />
           <NumberField
-            label="سعر البيع (للوحدة)"
+            label={t("customOrders.salePricePerUnit")}
             value={sellUnitPrice ?? Number.NaN}
             min={0}
             onChange={(v) => setSellUnitPrice(Number.isNaN(v) ? null : v)}
           />
         </div>
-        <EntityPicker label="العميل" value={customer} onChange={setCustomer} options={customerOptions} placeholder="بدون عميل" />
-        <TextField label="ملاحظات" value={notesText} onChange={setNotesText} />
-        <EntityPicker label="مستودع الخامات *" value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder="اختر المستودع…" />
+        <EntityPicker label={t("common.customer")} value={customer} onChange={setCustomer} options={customerOptions} placeholder={t("customOrders.noCustomer")} />
+        <TextField label={t("common.notes")} value={notesText} onChange={setNotesText} />
+        <EntityPicker label={t("customOrders.rawMaterialsWarehouse")} value={sourceWarehouse} onChange={setSourceWarehouse} options={warehouseOptions} placeholder={t("customOrders.chooseAWarehouse")} />
         <EntityPicker
-          label="مستودع المنتجات *"
+          label={t("customOrders.finishedGoodsWarehouse")}
           value={destinationWarehouse}
           onChange={setDestinationWarehouse}
           options={warehouseOptions}
-          placeholder="اختر المستودع…"
+          placeholder={t("customOrders.chooseAWarehouse")}
         />
         <div className="grid grid-cols-2 gap-[10px]">
-          <TextField label="تاريخ البدء" value={scheduledStartDate} onChange={setScheduledStartDate} placeholder="YYYY-MM-DD" />
-          <TextField label="تاريخ الانتهاء المتوقع" value={scheduledEndDate} onChange={setScheduledEndDate} placeholder="YYYY-MM-DD" />
+          <TextField label={t("customOrders.startDate")} value={scheduledStartDate} onChange={setScheduledStartDate} placeholder="YYYY-MM-DD" />
+          <TextField label={t("customOrders.expectedFinish")} value={scheduledEndDate} onChange={setScheduledEndDate} placeholder="YYYY-MM-DD" />
         </div>
 
         <div className="rounded-lg border border-border bg-surface-2 p-[12px]">
-          <span className="text-[12.5px] font-semibold text-ink">معاينة الاحتياجات والتكلفة</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("customOrders.previewRequirementsAndCost")}</span>
           {!selectedProduct ? (
-            <p className="mt-[8px] text-[12.5px] text-ink-muted">أنشئ أمرًا جديدًا باختيار منتج قابل للتهيئة وإدخال المواصفات.</p>
+            <p className="mt-[8px] text-[12.5px] text-ink-muted">{t("customOrders.startANewOrderBy")}</p>
           ) : preview.isPending ? (
-            <p className="mt-[8px] text-[12.5px] text-ink-muted">جارِ الحساب…</p>
+            <p className="mt-[8px] text-[12.5px] text-ink-muted">{t("customOrders.calculating")}</p>
           ) : preview.isError ? (
             <p className="mt-[8px] text-[12.5px] text-danger-ink">{preview.error.message}</p>
           ) : preview.data ? (
@@ -405,25 +408,25 @@ export function ConfigInstancesScreen() {
                 </div>
               ))}
               <div className="flex items-center justify-between border-t border-border pt-[8px] font-semibold">
-                <span>تكلفة الوحدة</span>
+                <span>{t("customOrders.unitCost")}</span>
                 <MoneyValue value={num(preview.data.materialCostPerUnit) + num(preview.data.laborCostPerUnit) + num(preview.data.overheadCostPerUnit)} />
               </div>
               {preview.data.unitPrice !== null ? (
                 <div className="flex items-center justify-between font-semibold text-brand">
-                  <span>السعر المقترح (للوحدة)</span>
+                  <span>{t("customOrders.suggestedPricePerUnit")}</span>
                   <MoneyValue value={num(preview.data.unitPrice)} />
                 </div>
               ) : null}
             </div>
           ) : (
-            <p className="mt-[8px] text-[12.5px] text-ink-muted">أكمل المواصفات لعرض المعاينة.</p>
+            <p className="mt-[8px] text-[12.5px] text-ink-muted">{t("customOrders.completeTheSpecificationToSee")}</p>
           )}
         </div>
 
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createInstance.isPending}>
-            حفظ
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -458,46 +461,46 @@ export function ConfigInstancesScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أوامر التصنيع المخصص.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("customOrders.customOrdersCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<ConfigInstanceRecord>
         eyebrow="Manufacturing · Custom orders"
-        title="التصنيع المخصص"
-        description="تصنيع حسب الطلب لمنتج قابل للتهيئة — يحسب النظام الخامات والسعر من مواصفات العميل عبر معادلات آمنة"
+        title={t("customOrders.customManufacturing")}
+        description={t("customOrders.madeToOrderManufacturingOf")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            أمر تصنيع مخصص جديد
+            {t("customOrders.newCustomOrder")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{instances.length}</span> },
-          { label: STATUS_LABEL.configured, value: <span className="mz-num">{instances.filter((i) => i.status === "configured").length}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{instances.length}</span> },
+          { label: t(STATUS_KEY.configured), value: <span className="mz-num">{instances.filter((i) => i.status === "configured").length}</span> },
           {
-            label: STATUS_LABEL.in_progress,
+            label: t(STATUS_KEY.in_progress),
             value: <span className="mz-num">{instances.filter((i) => i.status === "in_progress" || i.status === "produced").length}</span>,
           },
-          { label: STATUS_LABEL.closed, value: <span className="mz-num">{instances.filter((i) => i.status === "closed").length}</span> },
+          { label: t(STATUS_KEY.closed), value: <span className="mz-num">{instances.filter((i) => i.status === "closed").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as Status | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم الأمر أو المنتج أو العميل…"
+        searchPlaceholder={t("customOrders.searchByOrderNumberProduct")}
         columns={columns}
         rows={filtered}
         rowKey={(i) => i.id}
         onRowClick={(i) => setSelectedId(i.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{instances.length}</span> أمر</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{instances.length}</span> {t("customOrders.orders")}</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد أوامر تصنيع مخصص — أنشئ أمراً جديداً"}
+            {query.isLoading ? t("common.loading") : t("customOrders.noCustomOrdersYetCreate")}
           </div>
         }
       />

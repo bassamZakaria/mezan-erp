@@ -20,12 +20,19 @@ import {
   type ConfigurableProductRecord,
 } from "../data/hooks";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 type Status = ConfigurableProductRecord["status"];
 
-const STATUS_LABEL: Record<Status, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<Status, AppTranslationKey> = { active: "configProducts.status.active", inactive: "configProducts.status.inactive" };
 const STATUS_TONE: Record<Status, PillTone> = { active: "success", inactive: "neutral" };
-const PRICING_LABEL: Record<string, string> = { manual: "بدون — سعر يدوي", formula: "معادلة" };
+/** An unknown pricing method shows its own code rather than a humanized key. */
+function pricingLabel(method: string, t: (key: AppTranslationKey) => string): string {
+  const key = PRICING_KEY[method];
+  return key ? t(key) : method;
+}
+
+const PRICING_KEY: Record<string, AppTranslationKey> = { manual: "configProducts.pricing.manual", formula: "configProducts.pricing.formula" };
 
 interface DraftInput {
   id: string;
@@ -53,46 +60,47 @@ function ProductDetail({
   onDeactivate: () => void;
   deactivating: boolean;
 }) {
+  const { t } = useAppTranslation();
   return (
     <DocumentDetail
       title={`${product.nameAr} (${product.code})`}
-      statusLabel={STATUS_LABEL[product.status]}
+      statusLabel={t(STATUS_KEY[product.status])}
       statusTone={STATUS_TONE[product.status]}
-      subtitle={`منتج قابل للتهيئة · ${itemName(product.outputItemId)}`}
+      subtitle={t("configProducts.subtitle", { product: itemName(product.outputItemId) })}
       actions={
         <>
           {product.status === "active" ? (
             <Button onClick={onDeactivate} disabled={deactivating}>
-              تعطيل
+              {t("configProducts.deactivate")}
             </Button>
           ) : null}
-          <Button onClick={onBack}>رجوع للمنتجات القابلة للتهيئة</Button>
+          <Button onClick={onBack}>{t("configProducts.backToConfigurableProducts")}</Button>
         </>
       }
       summary={[
-        { label: "الكود", value: product.code },
-        { label: "وحدة المنتج النهائي", value: product.unit },
-        { label: "عدد المدخلات", value: <span className="mz-num">{product.inputs.length}</span> },
-        { label: "عدد الخامات", value: <span className="mz-num">{product.materials.length}</span> },
-        { label: "طريقة التسعير", value: PRICING_LABEL[product.pricingMethod] },
+        { label: t("common.code"), value: product.code },
+        { label: t("configProducts.finishedProductUnit"), value: product.unit },
+        { label: t("configProducts.inputs"), value: <span className="mz-num">{product.inputs.length}</span> },
+        { label: t("configProducts.materials"), value: <span className="mz-num">{product.materials.length}</span> },
+        { label: t("configProducts.pricingMethod"), value: pricingLabel(product.pricingMethod, t) },
       ]}
       effects={[
-        "المعادلات تُقيَّم عبر مُقيِّم آمن (Sandbox) — لا يستخدم eval إطلاقاً.",
-        "كل أمر تصنيع مخصص يُقيّم هذه المعادلات مقابل مواصفات العميل لحساب الخامات والسعر.",
+        t("configProducts.formulasAreEvaluatedInA"),
+        t("configProducts.everyCustomOrderEvaluatesThese"),
       ]}
       tabs={[
         {
           key: "inputs",
-          label: `مدخلات التهيئة (${product.inputs.length})`,
+          label: t("configProducts.tab.inputs", { count: product.inputs.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[480px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">المعرف</th>
-                    <th className="px-[12px] py-[9px] text-start">التسمية</th>
-                    <th className="px-[12px] py-[9px] text-end">الحد الأدنى</th>
-                    <th className="px-[12px] py-[9px] text-end">الحد الأقصى</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("configProducts.identifier")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("configProducts.label")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("configProducts.minimum")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("configProducts.maximum")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -111,15 +119,15 @@ function ProductDetail({
         },
         {
           key: "materials",
-          label: `خامات التصنيع (${product.materials.length})`,
+          label: t("configProducts.tab.materials", { count: product.materials.length }),
           content: (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[520px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
-                    <th className="px-[12px] py-[9px] text-start">الصنف</th>
-                    <th className="px-[12px] py-[9px] text-start">معادلة الكمية</th>
-                    <th className="px-[12px] py-[9px] text-end">نسبة الهالك</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
+                    <th className="px-[12px] py-[9px] text-start">{t("configProducts.quantityFormula")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("configProducts.scrapRate")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -137,12 +145,12 @@ function ProductDetail({
         },
         {
           key: "pricing",
-          label: "التسعير والتكلفة",
+          label: t("configProducts.pricingAndCost"),
           content: (
             <dl className="grid grid-cols-1 gap-[10px] text-[13px]">
-              <div><dt className="text-ink-muted">معادلة السعر</dt><dd className="font-mono">{product.priceFormula ?? "— (سعر يدوي)"}</dd></div>
-              <div><dt className="text-ink-muted">معادلة العمالة</dt><dd className="font-mono">{product.laborFormula ?? "—"}</dd></div>
-              <div><dt className="text-ink-muted">معادلة المصاريف</dt><dd className="font-mono">{product.overheadFormula ?? "—"}</dd></div>
+              <div><dt className="text-ink-muted">{t("configProducts.priceFormula")}</dt><dd className="font-mono">{product.priceFormula ?? t("configProducts.pricedByHand")}</dd></div>
+              <div><dt className="text-ink-muted">{t("configProducts.labourFormula")}</dt><dd className="font-mono">{product.laborFormula ?? "—"}</dd></div>
+              <div><dt className="text-ink-muted">{t("configProducts.overheadFormula")}</dt><dd className="font-mono">{product.overheadFormula ?? "—"}</dd></div>
             </dl>
           ),
         },
@@ -152,6 +160,7 @@ function ProductDetail({
 }
 
 export function ConfigurableProductsScreen() {
+  const { t } = useAppTranslation();
   const query = useConfigurableProducts();
   const itemsQuery = useItems();
   const createProduct = useCreateConfigurableProduct();
@@ -198,18 +207,18 @@ export function ConfigurableProductsScreen() {
   }, [products, statusFilter, search]);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: products.length },
-    { key: "active", label: "نشط", count: products.filter((p) => p.status === "active").length },
-    { key: "inactive", label: "غير نشط", count: products.filter((p) => p.status === "inactive").length },
+    { key: "all", label: t("common.all"), count: products.length },
+    { key: "active", label: t("common.active"), count: products.filter((p) => p.status === "active").length },
+    { key: "inactive", label: t("common.inactive"), count: products.filter((p) => p.status === "inactive").length },
   ];
 
   const columns: DocumentListColumn<ConfigurableProductRecord>[] = [
-    { key: "code", header: "الكود", render: (p) => <span className="font-semibold text-ink">{p.code}</span> },
-    { key: "name", header: "الاسم", render: (p) => p.nameAr },
-    { key: "inputs", header: "مدخلات التهيئة", render: (p) => p.inputs.map((i) => i.labelAr).join("، ") },
-    { key: "materials", header: "خامات التصنيع", align: "end", render: (p) => <span className="mz-num">{p.materials.length}</span> },
-    { key: "unit", header: "وحدة المنتج", render: (p) => p.unit },
-    { key: "status", header: "الحالة", render: (p) => <StatusPill label={STATUS_LABEL[p.status]} tone={STATUS_TONE[p.status]} /> },
+    { key: "code", header: t("common.code"), render: (p) => <span className="font-semibold text-ink">{p.code}</span> },
+    { key: "name", header: t("common.name"), render: (p) => p.nameAr },
+    { key: "inputs", header: t("configProducts.configurationInputs"), render: (p) => p.inputs.map((i) => i.labelAr).join(t("common.notes")) },
+    { key: "materials", header: t("configProducts.manufacturingMaterials"), align: "end", render: (p) => <span className="mz-num">{p.materials.length}</span> },
+    { key: "unit", header: t("configProducts.productUnit"), render: (p) => p.unit },
+    { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
   ];
 
   function openCreate() {
@@ -262,7 +271,7 @@ export function ConfigurableProductsScreen() {
       });
       setPanelOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذّر إضافة المنتج القابل للتهيئة.");
+      setFormError(err instanceof Error ? err.message : t("configProducts.theConfigurableProductCouldNot"));
     }
   }
 
@@ -275,7 +284,7 @@ export function ConfigurableProductsScreen() {
   }
 
   const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title="منتج قابل للتهيئة جديد" description="عرّف المدخلات وصيغ حساب الخامات والتسعير">
+    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("configProducts.newConfigurableProduct")} description={t("configProducts.defineTheInputsAndThe")}>
       <div className="flex flex-col gap-[14px]">
         {formError ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -283,12 +292,12 @@ export function ConfigurableProductsScreen() {
           </div>
         ) : null}
         <div className="grid grid-cols-2 gap-[10px]">
-          <TextField label="الكود *" value={code} onChange={setCode} />
-          <TextField label="الاسم بالعربية *" value={nameAr} onChange={setNameAr} />
+          <TextField label={t("configProducts.code")} value={code} onChange={setCode} />
+          <TextField label={t("configProducts.arabicName")} value={nameAr} onChange={setNameAr} />
         </div>
-        <TextField label="الاسم بالإنجليزية" value={nameEn} onChange={setNameEn} />
+        <TextField label={t("configProducts.englishName")} value={nameEn} onChange={setNameEn} />
         <EntityPicker
-          label="المنتج الناتج *"
+          label={t("configProducts.resultingProduct")}
           value={outputItem}
           onChange={(opt) => {
             setOutputItem(opt);
@@ -296,71 +305,71 @@ export function ConfigurableProductsScreen() {
             if (item) setUnit(item.baseUnitCode);
           }}
           options={itemOptions}
-          placeholder="اختر المنتج الناتج…"
+          placeholder={t("configProducts.chooseTheResultingProduct")}
         />
-        <TextField label="وحدة المنتج النهائي" value={unit} onChange={setUnit} />
-        <TextField label="الوصف" value={description} onChange={setDescription} />
+        <TextField label={t("configProducts.finishedProductUnit")} value={unit} onChange={setUnit} />
+        <TextField label={t("configProducts.description")} value={description} onChange={setDescription} />
 
         <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">مدخلات التهيئة *</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("configProducts.configurationInputs2")}</span>
           {inputs.map((inp, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <div className="grid grid-cols-2 gap-[10px]">
                 <TextField
-                  label="المعرف (للمعادلات)"
+                  label={t("configProducts.identifierForFormulas")}
                   value={inp.id}
                   onChange={(v) => setInputs((prev) => prev.map((x, j) => (j === i ? { ...x, id: v } : x)))}
                   placeholder="width"
                 />
                 <TextField
-                  label="التسمية"
+                  label={t("configProducts.label")}
                   value={inp.labelAr}
                   onChange={(v) => setInputs((prev) => prev.map((x, j) => (j === i ? { ...x, labelAr: v } : x)))}
-                  placeholder="العرض"
+                  placeholder={t("configProducts.display")}
                 />
               </div>
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
                 <NumberField
-                  label="الحد الأدنى"
+                  label={t("configProducts.minimum")}
                   value={inp.min ?? Number.NaN}
                   onChange={(v) => setInputs((prev) => prev.map((x, j) => (j === i ? { ...x, min: Number.isNaN(v) ? null : v } : x)))}
                 />
                 <NumberField
-                  label="الحد الأقصى"
+                  label={t("configProducts.maximum")}
                   value={inp.max ?? Number.NaN}
                   onChange={(v) => setInputs((prev) => prev.map((x, j) => (j === i ? { ...x, max: Number.isNaN(v) ? null : v } : x)))}
                 />
               </div>
               {inputs.length > 1 ? (
                 <div className="mt-[8px] flex justify-end">
-                  <Button onClick={() => setInputs((prev) => prev.filter((_, j) => j !== i))}>حذف المدخل</Button>
+                  <Button onClick={() => setInputs((prev) => prev.filter((_, j) => j !== i))}>{t("configProducts.removeInput")}</Button>
                 </div>
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setInputs((prev) => [...prev, { id: "", labelAr: "", min: null, max: null }])}>إضافة مدخل</Button>
+          <Button onClick={() => setInputs((prev) => [...prev, { id: "", labelAr: "", min: null, max: null }])}>{t("configProducts.addInput")}</Button>
         </div>
 
         <div className="flex flex-col gap-[10px]">
-          <span className="text-[12.5px] font-semibold text-ink">خامات التصنيع *</span>
+          <span className="text-[12.5px] font-semibold text-ink">{t("configProducts.manufacturingMaterials2")}</span>
           {materials.map((m, i) => (
             <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
               <EntityPicker
-                label="الصنف"
+                label={t("common.item")}
                 value={itemOptions.find((o) => o.id === m.itemId) ?? null}
                 onChange={(opt) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, itemId: opt?.id ?? "" } : x)))}
                 options={itemOptions}
-                placeholder="اختر صنفاً…"
+                placeholder={t("configProducts.chooseAnItem")}
               />
               <div className="mt-[10px] grid grid-cols-2 gap-[10px]">
                 <TextField
-                  label="معادلة الكمية"
+                  label={t("configProducts.quantityFormula")}
                   value={m.qtyFormula}
                   onChange={(v) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, qtyFormula: v } : x)))}
                   placeholder="width*height/10000"
                 />
                 <NumberField
-                  label="نسبة الهالك %"
+                  label={t("configProducts.scrapRate2")}
                   value={m.wastePercent}
                   min={0}
                   onChange={(v) => setMaterials((prev) => prev.map((x, j) => (j === i ? { ...x, wastePercent: v } : x)))}
@@ -368,42 +377,42 @@ export function ConfigurableProductsScreen() {
               </div>
               {materials.length > 1 ? (
                 <div className="mt-[8px] flex justify-end">
-                  <Button onClick={() => setMaterials((prev) => prev.filter((_, j) => j !== i))}>حذف الخامة</Button>
+                  <Button onClick={() => setMaterials((prev) => prev.filter((_, j) => j !== i))}>{t("configProducts.removeMaterial")}</Button>
                 </div>
               ) : null}
             </div>
           ))}
-          <Button onClick={() => setMaterials((prev) => [...prev, { itemId: "", qtyFormula: "", wastePercent: 0 }])}>إضافة خامة</Button>
+          <Button onClick={() => setMaterials((prev) => [...prev, { itemId: "", qtyFormula: "", wastePercent: 0 }])}>{t("configProducts.addMaterial")}</Button>
         </div>
 
         <SelectField
-          label="طريقة التسعير"
+          label={t("configProducts.pricingMethod")}
           value={pricingMethod}
           onChange={(v) => setPricingMethod(v as "manual" | "formula")}
           options={[
-            { value: "manual", label: "بدون — سعر يدوي" },
-            { value: "formula", label: "معادلة" },
+            { value: "manual", label: t("configProducts.nonePricedByHand") },
+            { value: "formula", label: t("configProducts.formula") },
           ]}
         />
         {pricingMethod === "formula" ? (
-          <TextField label="معادلة السعر (للوحدة) *" value={priceFormula} onChange={setPriceFormula} placeholder="width*height*3.5/100" />
+          <TextField label={t("configProducts.priceFormulaPerUnit")} value={priceFormula} onChange={setPriceFormula} placeholder="width*height*3.5/100" />
         ) : null}
-        <TextField label="معادلة تكلفة العمالة (للوحدة)" value={laborFormula} onChange={setLaborFormula} placeholder="width/10" />
-        <TextField label="معادلة التكاليف الإضافية (للوحدة)" value={overheadFormula} onChange={setOverheadFormula} placeholder="5" />
+        <TextField label={t("configProducts.labourCostFormulaPerUnit")} value={laborFormula} onChange={setLaborFormula} placeholder="width/10" />
+        <TextField label={t("configProducts.overheadFormulaPerUnit")} value={overheadFormula} onChange={setOverheadFormula} placeholder="5" />
         <SelectField
-          label="سياسة الأصناف"
+          label={t("configProducts.itemPolicy")}
           value={itemPolicy}
           onChange={(v) => setItemPolicy(v as "per_order" | "per_spec")}
           options={[
-            { value: "per_order", label: "صنف لكل أمر" },
-            { value: "per_spec", label: "صنف لكل مواصفات" },
+            { value: "per_order", label: t("configProducts.oneItemPerOrder") },
+            { value: "per_spec", label: t("configProducts.oneItemPerSpecification") },
           ]}
         />
 
         <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => setPanelOpen(false)}>إلغاء</Button>
+          <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={save} disabled={!canSave || createProduct.isPending}>
-            حفظ
+            {t("common.save")}
           </Button>
         </div>
       </div>
@@ -429,42 +438,42 @@ export function ConfigurableProductsScreen() {
     <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل المنتجات القابلة للتهيئة.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("configProducts.configurableProductsCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<ConfigurableProductRecord>
         eyebrow="Manufacturing · Configurable products"
-        title="المنتجات القابلة للتهيئة"
-        description="منتجات تُحسب موادها وسعرها من مدخلات العميل عبر معادلات آمنة — بيانات التصنيع المخصص"
+        title={t("configProducts.configurableProducts")}
+        description={t("configProducts.productsWhoseMaterialsAndPrice")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            إضافة منتج قابل للتهيئة
+            {t("configProducts.addConfigurableProduct")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{products.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{products.filter((p) => p.status === "active").length}</span> },
-          { label: "غير نشط", value: <span className="mz-num">{products.filter((p) => p.status === "inactive").length}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{products.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{products.filter((p) => p.status === "active").length}</span> },
+          { label: t("common.inactive"), value: <span className="mz-num">{products.filter((p) => p.status === "inactive").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as Status | "all")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالكود أو الاسم…"
+        searchPlaceholder={t("configProducts.searchByCodeOrName")}
         columns={columns}
         rows={filtered}
         rowKey={(p) => p.id}
         onRowClick={(p) => setSelectedId(p.id)}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{products.length}</span> منتج</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{products.length}</span> {t("configProducts.products")}</>}
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : "لا توجد منتجات قابلة للتهيئة مطابقة — أضف منتجاً جديداً"}
+            {query.isLoading ? t("common.loading") : t("configProducts.noMatchingConfigurableProductsAdd")}
           </div>
         }
       />

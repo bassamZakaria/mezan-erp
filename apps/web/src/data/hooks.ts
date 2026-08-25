@@ -44,6 +44,7 @@ import type {
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
+  DisposeAssetDTO,
   CreateBomDTO,
   CreateBranchDTO,
   CreateChequeDTO,
@@ -2086,6 +2087,23 @@ export function useCreateAsset() {
       return res.json<AssetDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+export function useDisposeAsset() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, { id: string } & DisposeAssetDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/assets/${id}/dispose`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBeDisposed")));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    },
   });
 }
 

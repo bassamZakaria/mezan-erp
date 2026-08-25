@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
-import { ApiError, useAssetCategories, useAssets, useBranches, useCreateAsset } from "../data/hooks";
+import { ApiError, useAccounts, useAssetCategories, useAssets, useBranches, useCreateAsset, useDisposeAsset } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -93,6 +93,18 @@ export function AssetRegisterScreen() {
   const [branchFilter, setBranchFilter] = useState("all");
 
   const [formOpen, setFormOpen] = useState(false);
+  const disposeAsset = useDisposeAsset();
+  const [disposeOpen, setDisposeOpen] = useState(false);
+  const [disposeDate, setDisposeDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [disposeProceeds, setDisposeProceeds] = useState<number | null>(null);
+  const [disposeError, setDisposeError] = useState<string | null>(null);
+  const accountsQuery = useAccounts();
+  // Where the money from a sale lands: a cash/bank account, or a receivable
+  // when the buyer has not paid yet.
+  const proceedsAccountOptions = (accountsQuery.data ?? [])
+    .filter((a) => a.type === "asset" && (String(a.code).startsWith("13") || String(a.code).startsWith("11")))
+    .map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }));
+  const [disposeProceedsAccountId, setDisposeProceedsAccountId] = useState("");
   const [draft, setDraft] = useState<AssetDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -287,6 +299,59 @@ export function AssetRegisterScreen() {
               <Card className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                 <div className="mt-[6px] text-[13px] text-ink">{selected.notes}</div>
+              </Card>
+            ) : null}
+            {selected.status !== "disposed" ? (
+              <Card className="p-[15px]">
+                <div className="text-[11px] font-semibold text-ink-faint">{t("assets.disposeHint")}</div>
+                {disposeOpen ? (
+                  <div className="mt-[12px] flex flex-col gap-[10px]">
+                    <TextField label={t("assets.disposeDate")} value={disposeDate} onChange={setDisposeDate} placeholder="YYYY-MM-DD" />
+                    <div>
+                      <div className="mb-[5px] text-[11px] font-semibold text-ink-faint">{t("assets.disposeProceeds")}</div>
+                      <MoneyInput value={disposeProceeds} onChange={setDisposeProceeds} />
+                    </div>
+                    <SelectField
+                      label={t("assets.disposeProceedsAccount")}
+                      value={disposeProceedsAccountId}
+                      onChange={setDisposeProceedsAccountId}
+                      options={proceedsAccountOptions}
+                    />
+                    {disposeError ? <p className="text-[12px] font-semibold text-danger-ink">{disposeError}</p> : null}
+                    <div className="flex gap-[8px]">
+                      <Button type="button" onClick={() => setDisposeOpen(false)}>
+                        {t("common.cancel")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="primary"
+                        disabled={disposeAsset.isPending}
+                        onClick={async () => {
+                          setDisposeError(null);
+                          try {
+                            await disposeAsset.mutateAsync({
+                              id: selected.id,
+                              date: disposeDate,
+                              proceeds: disposeProceeds ? String(disposeProceeds) : undefined,
+                              proceedsAccountId: disposeProceeds ? disposeProceedsAccountId : null,
+                            });
+                            setDisposeOpen(false);
+                            setDisposeProceeds(null);
+                            setSelectedId(null);
+                          } catch (err) {
+                            setDisposeError(err instanceof Error ? err.message : t("api.theAssetCouldNotBeDisposed"));
+                          }
+                        }}
+                      >
+                        {t("assets.disposeConfirm")}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button type="button" className="mt-[10px]" onClick={() => setDisposeOpen(true)}>
+                    {t("assets.dispose")}
+                  </Button>
+                )}
               </Card>
             ) : null}
           </div>

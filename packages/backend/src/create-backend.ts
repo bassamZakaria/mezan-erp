@@ -158,6 +158,13 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+  // Disposal clears the asset's cost and its accumulated depreciation, and the
+  // difference against the proceeds is a gain or a loss (D13). 1510 is only the
+  // last-resort fallback: every seeded category names its own asset account,
+  // and 1500 itself is a header, so nothing may post to it.
+  assetAccountId: "1510",
+  disposalGainAccountId: "4500",
+  disposalLossAccountId: "5450",
 };
 
 /**

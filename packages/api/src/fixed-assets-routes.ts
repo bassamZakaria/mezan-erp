@@ -12,6 +12,10 @@ import {
   DuplicateAssetCodeError,
   InvalidAssetError,
   AssetNotFoundError,
+  AssetAlreadyDisposedError,
+  InvalidAssetDisposalError,
+  disposeAsset,
+  postJournalEntry,
   DepreciationRunNotFoundError,
   DepreciationRunNotDraftError,
   DuplicateDepreciationPeriodError,
@@ -24,7 +28,7 @@ import {
   type DepreciationRunRepository,
   type JournalPostingDeps,
 } from "@mezan/domain";
-import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema } from "@mezan/contracts";
+import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema, disposeAssetSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 /**
@@ -41,6 +45,10 @@ export interface FixedAssetsRoutesDeps {
   readonly defaultAccounts: {
     readonly depreciationExpenseAccountId: string;
     readonly accumulatedDepreciationAccountId: string;
+    /** Where an asset's cost sits, and where a disposal's gain or loss lands. */
+    readonly assetAccountId?: string;
+    readonly disposalGainAccountId?: string;
+    readonly disposalLossAccountId?: string;
   };
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
@@ -110,8 +118,11 @@ function handleDomainError(c: Context, err: unknown) {
   if (err instanceof DuplicateAssetCategoryCodeError || err instanceof DuplicateAssetCodeError || err instanceof DuplicateDepreciationPeriodError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
-  if (err instanceof DepreciationRunNotDraftError) {
+  if (err instanceof DepreciationRunNotDraftError || err instanceof AssetAlreadyDisposedError) {
     return c.json({ error: err.code, message: err.message }, 409);
+  }
+  if (err instanceof InvalidAssetDisposalError) {
+    return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof InvalidAssetCategoryError || err instanceof InvalidAssetError || err instanceof NoDepreciableAssetsError) {
     return c.json({ error: err.code, message: err.message }, 422);
@@ -180,6 +191,60 @@ export function createFixedAssetsRoutes(
     const asset = await deps.assets.findById(c.req.param("id"));
     if (!asset) return c.json({ error: "ASSET_NOT_FOUND" }, 404);
     return c.json(serializeAsset(asset));
+  });
+
+  /**
+   * التخلص من أصل. The status value and the `assets.dispose` permission both
+   * shipped long before anything could reach them (D13).
+   */
+  app.post("/:id/dispose", gate("assets.dispose"), async (c) => {
+    const parsed = disposeAssetSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const body = parsed.data;
+    try {
+      const result = await disposeAsset(
+        {
+          assetId: c.req.param("id"),
+          date: body.date,
+          proceeds: body.proceeds ? Money.fromMajor(body.proceeds) : undefined,
+          proceedsAccountId: body.proceedsAccountId ?? null,
+          notes: body.notes ?? null,
+        },
+        {
+          assets: deps.assets,
+          categories: deps.categories,
+          accounts: {
+            assetAccountId: deps.defaultAccounts.assetAccountId ?? "1500",
+            accumulatedDepreciationAccountId: deps.defaultAccounts.accumulatedDepreciationAccountId,
+            gainAccountId: deps.defaultAccounts.disposalGainAccountId ?? "4500",
+            lossAccountId: deps.defaultAccounts.disposalLossAccountId ?? "5450",
+          },
+          gl: {
+            post: async (posting) => {
+              await postJournalEntry(
+                {
+                  id: `DISP-JE:${posting.sourceDocId}`,
+                  date: posting.date,
+                  memo: posting.memo,
+                  source: "system",
+                  lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+                },
+                deps.gl,
+              );
+            },
+          },
+        },
+      );
+      return c.json({
+        ...serializeAsset(result.asset),
+        bookValueAtDisposal: result.bookValue.toString(),
+        gainOrLoss: result.gainOrLoss.toString(),
+      });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.get("/depreciation/runs", gate("assets.depreciation.view"), async (c) => {

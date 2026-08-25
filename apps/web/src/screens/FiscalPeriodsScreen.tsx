@@ -8,6 +8,7 @@ import {
   useLockPeriod,
   useReopenPeriod,
 } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/catalog/04 §"الفترات المالية".
@@ -18,7 +19,7 @@ import {
  * invalid transition surfaces the server's real error message.
  */
 
-const STATUS_LABEL: Record<FiscalPeriodStatusDTO, string> = { open: "مفتوحة", closed: "مغلقة", locked: "مقفلة" };
+const STATUS_KEY: Record<FiscalPeriodStatusDTO, AppTranslationKey> = { open: "fiscalPeriods.status.open", closed: "fiscalPeriods.status.closed", locked: "fiscalPeriods.status.locked" };
 const STATUS_TONE: Record<FiscalPeriodStatusDTO, PillTone> = { open: "success", closed: "warning", locked: "neutral" };
 
 const MONTH_LABEL_AR = [
@@ -47,6 +48,7 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
 }
 
 export function FiscalPeriodsScreen() {
+  const { t } = useAppTranslation();
   const query = useFiscalPeriods();
   const generateFiscalYear = useGenerateFiscalYear();
   const closePeriodMutation = useClosePeriod();
@@ -116,19 +118,19 @@ export function FiscalPeriodsScreen() {
   const columns: DocumentListColumn<FiscalPeriodDTO>[] = [
     {
       key: "period",
-      header: "الفترة",
+      header: t("common.period"),
       render: (p) => (
         <div className="flex items-center gap-[8px]">
           <span className="font-semibold text-ink">
             {monthLabel(p.periodNumber)} {p.year}
           </span>
-          {isCurrentPeriod(p) ? <StatusPill label="الفترة الحالية" tone="info" /> : p.endDate < TODAY ? <StatusPill label="منتهية" tone="neutral" /> : null}
+          {isCurrentPeriod(p) ? <StatusPill label={t("fiscalPeriods.currentPeriod")} tone="info" /> : p.endDate < TODAY ? <StatusPill label={t("fiscalPeriods.ended")} tone="neutral" /> : null}
         </div>
       ),
     },
-    { key: "range", header: "من — إلى", render: (p) => <span className="mz-num">{p.startDate} — {p.endDate}</span> },
-    { key: "posting", header: "الترحيل", render: (p) => <StatusPill label={p.status === "open" ? "مسموح" : "غير مسموح"} tone={p.status === "open" ? "success" : "danger"} /> },
-    { key: "status", header: "الحالة", render: (p) => <StatusPill label={STATUS_LABEL[p.status]} tone={STATUS_TONE[p.status]} /> },
+    { key: "range", header: t("fiscalPeriods.fromTo"), render: (p) => <span className="mz-num">{p.startDate} — {p.endDate}</span> },
+    { key: "posting", header: t("fiscalPeriods.posting"), render: (p) => <StatusPill label={p.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={p.status === "open" ? "success" : "danger"} /> },
+    { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
     {
       key: "actions",
       header: "",
@@ -136,16 +138,16 @@ export function FiscalPeriodsScreen() {
         <div className="flex justify-end gap-[6px]">
           {p.status === "open" ? (
             <Button size="sm" onClick={() => closePeriod(p)}>
-              إغلاق
+              {t("fiscalPeriods.close")}
             </Button>
           ) : null}
           {p.status === "closed" ? (
             <>
               <Button size="sm" onClick={() => reopenPeriod(p)}>
-                إعادة فتح
+                {t("fiscalPeriods.reopen")}
               </Button>
               <Button size="sm" onClick={() => lockPeriod(p)}>
-                قفل
+                {t("fiscalPeriods.lock")}
               </Button>
             </>
           ) : null}
@@ -158,21 +160,21 @@ export function FiscalPeriodsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الفترات المالية.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("fiscalPeriods.financialPeriodsCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Accounting · Fiscal Periods</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">الفترات المالية</h1>
-          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">تحكم في إغلاق وقفل الفترات المالية الشهرية لمنع الترحيل بعد إقفال الحسابات</p>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fiscalPeriods.financialPeriods")}</h1>
+          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("fiscalPeriods.closeAndLockMonthlyFinancial")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <select
-            aria-label="السنة المالية"
+            aria-label={t("fiscalPeriods.financialYear")}
             value={selectedYear}
             onChange={(e) => setYear(Number(e.target.value))}
             className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
@@ -188,7 +190,7 @@ export function FiscalPeriodsScreen() {
             )}
           </select>
           <Button variant="primary" onClick={generateNextYear}>
-            إنشاء السنة التالية
+            {t("fiscalPeriods.createNextYear")}
           </Button>
         </div>
       </div>
@@ -202,16 +204,16 @@ export function FiscalPeriodsScreen() {
 
       {currentPeriod ? (
         <div className="mb-[18px] rounded-lg border border-border bg-surface p-[16px_18px]">
-          <div className="text-[12px] font-semibold text-ink-faint">الفترة الحالية</div>
+          <div className="text-[12px] font-semibold text-ink-faint">{t("fiscalPeriods.currentPeriod")}</div>
           <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
             <span className="font-display text-[15px] font-bold text-ink">
               {monthLabel(currentPeriod.periodNumber)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
             </span>
-            <StatusPill label={currentPeriod.status === "open" ? "مسموح" : "غير مسموح"} tone={currentPeriod.status === "open" ? "success" : "danger"} />
+            <StatusPill label={currentPeriod.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={currentPeriod.status === "open" ? "success" : "danger"} />
           </div>
           {stalePeriods.length > 0 ? (
             <div className="mt-[10px] text-[12.5px] text-warning-ink">
-              يحتاج انتباه: <span className="mz-num">{stalePeriods.length}</span> فترة مفتوحة تجاوزت نهايتها.
+              {t("fiscalPeriods.needsAttention")} <span className="mz-num">{stalePeriods.length}</span> {t("fiscalPeriods.openPeriodsArePastTheir")}
             </div>
           ) : null}
         </div>
@@ -219,19 +221,19 @@ export function FiscalPeriodsScreen() {
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
-          <div className="text-[11px] font-semibold text-ink-faint">إجمالي الفترات</div>
+          <div className="text-[11px] font-semibold text-ink-faint">{t("fiscalPeriods.totalPeriods")}</div>
           <div className="mz-num mt-[6px] text-[20px] font-bold text-ink">{periodsInYear.length}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
-          <div className="text-[11px] font-semibold text-ink-faint">فترات مفتوحة</div>
+          <div className="text-[11px] font-semibold text-ink-faint">{t("fiscalPeriods.openPeriods")}</div>
           <div className="mz-num mt-[6px] text-[20px] font-bold text-ink">{periodsInYear.filter((p) => p.status === "open").length}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
-          <div className="text-[11px] font-semibold text-ink-faint">فترات مغلقة</div>
+          <div className="text-[11px] font-semibold text-ink-faint">{t("fiscalPeriods.closedPeriods")}</div>
           <div className="mz-num mt-[6px] text-[20px] font-bold text-ink">{periodsInYear.filter((p) => p.status === "closed").length}</div>
         </div>
         <div className="rounded-lg border border-border bg-surface p-[14px_16px]">
-          <div className="text-[11px] font-semibold text-ink-faint">فترات مقفلة</div>
+          <div className="text-[11px] font-semibold text-ink-faint">{t("fiscalPeriods.lockedPeriods")}</div>
           <div className="mz-num mt-[6px] text-[20px] font-bold text-ink">{periodsInYear.filter((p) => p.status === "locked").length}</div>
         </div>
       </div>
@@ -262,10 +264,10 @@ export function FiscalPeriodsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{periodsInYear.length}</span> فترة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{periodsInYear.length}</span> {t("fiscalPeriods.periods")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد فترات مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fiscalPeriods.noMatchingPeriods")}</div>}
       />
     </div>
   );

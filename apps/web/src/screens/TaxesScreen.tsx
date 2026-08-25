@@ -4,6 +4,7 @@ import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType 
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
 import { useCreateTaxRate, useTaxRates, useUpdateTaxRate } from "../data/hooks";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
  * الضرائب (Taxes) — docs/catalog/04 §"الضرائب". List + add/edit dialog with
@@ -11,12 +12,12 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
  * mapping (V001–V009).
  */
 
-const CALC_TYPE_LABEL: Record<TaxCalculationTypeDTO, string> = {
-  exclusive: "غير شاملة (تضاف على السعر)",
-  inclusive: "شاملة (مضمنة في السعر)",
+const CALC_TYPE_KEY: Record<TaxCalculationTypeDTO, AppTranslationKey> = {
+  exclusive: "taxes.calc.exclusive",
+  inclusive: "taxes.calc.inclusive",
 };
 
-const STATUS_LABEL: Record<TaxRateStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<TaxRateStatusDTO, AppTranslationKey> = { active: "taxes.status.active", inactive: "taxes.status.inactive" };
 const STATUS_TONE: Record<TaxRateStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
 interface TaxDraft {
@@ -57,20 +58,24 @@ function draftFromTax(tax: TaxRateDTO): TaxDraft {
   };
 }
 
-function validateDraft(draft: TaxDraft, existing: TaxRateDTO[], editingId: string | null): string | null {
+/** Returns a catalogue KEY (with any placeholders), so the caller decides the locale. */
+type ValidationError = { key: AppTranslationKey; params?: Record<string, string | number> };
+
+function validateDraft(draft: TaxDraft, existing: TaxRateDTO[], editingId: string | null): ValidationError | null {
   const code = draft.code.trim();
-  if (code === "") return "رمز الضريبة مطلوب.";
-  if (!editingId && existing.some((t) => t.code === code)) {
-    return `رمز الضريبة "${code}" مستخدم بالفعل — اختر رمزاً آخر.`;
+  if (code === "") return { key: "taxes.codeRequired" as const };
+  if (!editingId && existing.some((tax) => tax.code === code)) {
+    return { key: "taxes.codeInUse" as const, params: { code } };
   }
   const rate = Number(draft.rate);
   if (!Number.isFinite(rate) || rate < 0 || rate > 100) {
-    return "نسبة الضريبة يجب أن تكون رقماً بين 0 و 100.";
+    return { key: "taxes.rateRange" as const };
   }
   return null;
 }
 
 export function TaxesScreen() {
+  const { t } = useAppTranslation();
   const query = useTaxRates();
   const createTaxRate = useCreateTaxRate();
   const updateTaxRate = useUpdateTaxRate();
@@ -86,10 +91,10 @@ export function TaxesScreen() {
 
   const filtered = useMemo(() => {
     let rows = taxes;
-    if (statusFilter !== "all") rows = rows.filter((t) => t.status === statusFilter);
+    if (statusFilter !== "all") rows = rows.filter((tax) => tax.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((t) => t.name.toLowerCase().includes(q) || t.code.toLowerCase().includes(q));
+      rows = rows.filter((tax) => tax.name.toLowerCase().includes(q) || tax.code.toLowerCase().includes(q));
     }
     return rows;
   }, [taxes, statusFilter, search]);
@@ -112,7 +117,7 @@ export function TaxesScreen() {
     event.preventDefault();
     const error = validateDraft(draft, taxes, editingId);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -151,33 +156,33 @@ export function TaxesScreen() {
       }
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذر حفظ الضريبة");
+      setFormError(err instanceof Error ? err.message : t("taxes.theTaxCouldNotBe"));
     }
   }
 
   const columns: DocumentListColumn<TaxRateDTO>[] = [
     {
       key: "name",
-      header: "الاسم",
-      render: (t) => (
+      header: t("common.name"),
+      render: (tax) => (
         <div>
           <div className="flex items-center gap-[7px] font-semibold text-ink">
-            {t.name}
-            {t.isDefault ? <StatusPill label="الافتراضي" tone="info" /> : null}
+            {tax.name}
+            {tax.isDefault ? <StatusPill label={t("taxes.default")} tone="info" /> : null}
           </div>
-          <div className="mz-num mt-[2px] text-[11px] text-ink-faint">{t.code}</div>
+          <div className="mz-num mt-[2px] text-[11px] text-ink-faint">{tax.code}</div>
         </div>
       ),
     },
-    { key: "rate", header: "نسبة الضريبة (%)", render: (t) => <span className="mz-num">{t.rate.toFixed(2)}%</span> },
-    { key: "type", header: "النوع", render: (t) => CALC_TYPE_LABEL[t.calculationType] },
-    { key: "status", header: "الحالة", render: (t) => <StatusPill label={STATUS_LABEL[t.status]} tone={STATUS_TONE[t.status]} /> },
+    { key: "rate", header: t("taxes.taxRate"), render: (tax) => <span className="mz-num">{tax.rate.toFixed(2)}%</span> },
+    { key: "type", header: t("common.type"), render: (tax) => t(CALC_TYPE_KEY[tax.calculationType]) },
+    { key: "status", header: t("common.status"), render: (tax) => <StatusPill label={t(STATUS_KEY[tax.status])} tone={STATUS_TONE[tax.status]} /> },
     {
       key: "actions",
       header: "",
-      render: (t) => (
-        <Button size="sm" onClick={() => openEditForm(t)}>
-          تعديل
+      render: (tax) => (
+        <Button size="sm" onClick={() => openEditForm(tax)}>
+          {t("common.edit")}
         </Button>
       ),
     },
@@ -187,58 +192,58 @@ export function TaxesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الضرائب.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("taxes.taxesCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<TaxRateDTO>
         eyebrow="Accounting · Taxes"
-        title="الضرائب"
-        description="تستخدم هذه الضرائب عند إنشاء الفواتير. إذا لم تحدد ضريبة للصنف، تطبق الضريبة الافتراضية تلقائياً."
+        title={t("taxes.taxes")}
+        description={t("taxes.theseTaxesApplyWhenInvoices")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة ضريبة
+            {t("taxes.addTax")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الضرائب", value: <span className="mz-num">{taxes.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{taxes.filter((t) => t.status === "active").length}</span> },
-          { label: "غير نشط", value: <span className="mz-num">{taxes.filter((t) => t.status === "inactive").length}</span> },
+          { label: t("taxes.totalTaxes"), value: <span className="mz-num">{taxes.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "active").length}</span> },
+          { label: t("common.inactive"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "inactive").length}</span> },
         ]}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث"
+        searchPlaceholder={t("taxes.search")}
         filterBarExtra={
           <SelectField
             label=""
             value={statusFilter}
             onChange={(v) => setStatusFilter(v as TaxRateStatusDTO | "all")}
             options={[
-              { value: "all", label: "كل الحالات" },
-              { value: "active", label: "نشط" },
-              { value: "inactive", label: "غير نشط" },
+              { value: "all", label: t("taxes.allStatuses") },
+              { value: "active", label: t("common.active") },
+              { value: "inactive", label: t("common.inactive") },
             ]}
           />
         }
         columns={columns}
         rows={filtered}
-        rowKey={(t) => t.id}
+        rowKey={(tax) => tax.id}
         page={1}
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{taxes.length}</span> ضريبة
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{taxes.length}</span> {t("taxes.taxes2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد ضرائب مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("taxes.noMatchingTaxes")}</div>}
       />
 
       <SidePanel
         open={formOpen}
         onClose={() => setFormOpen(false)}
-        title={editingId ? "تعديل ضريبة" : "إضافة ضريبة"}
+        title={editingId ? t("taxes.editTax") : t("taxes.addTax")}
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
@@ -247,48 +252,48 @@ export function TaxesScreen() {
             </div>
           ) : null}
 
-          <TextField label="اسم الضريبة *" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("taxes.taxName")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
           <TextField
-            label="رمز الضريبة *"
+            label={t("taxes.taxCode")}
             value={draft.code}
             onChange={(v) => setDraft((d) => ({ ...d, code: v }))}
             disabled={editingId !== null}
             placeholder="VAT14"
           />
-          <TextField label="نسبة الضريبة (%) *" value={draft.rate} onChange={(v) => setDraft((d) => ({ ...d, rate: v }))} />
+          <TextField label={t("taxes.taxRate2")} value={draft.rate} onChange={(v) => setDraft((d) => ({ ...d, rate: v }))} />
           <SelectField
-            label="النوع"
+            label={t("common.type")}
             value={draft.calculationType}
             onChange={(v) => setDraft((d) => ({ ...d, calculationType: v as TaxCalculationTypeDTO }))}
             options={[
-              { value: "exclusive", label: CALC_TYPE_LABEL.exclusive },
-              { value: "inclusive", label: CALC_TYPE_LABEL.inclusive },
+              { value: "exclusive", label: t(CALC_TYPE_KEY.exclusive) },
+              { value: "inclusive", label: t(CALC_TYPE_KEY.inclusive) },
             ]}
           />
-          <ToggleField label="ضريبة افتراضية" checked={draft.isDefault} onChange={(v) => setDraft((d) => ({ ...d, isDefault: v }))} />
+          <ToggleField label={t("taxes.defaultTax")} checked={draft.isDefault} onChange={(v) => setDraft((d) => ({ ...d, isDefault: v }))} />
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">حسابات الترحيل</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("taxes.postingAccounts")}</h3>
             <div className="flex flex-col gap-[12px]">
               <TextField
-                label="حساب الضريبة المستحقة (المبيعات)"
+                label={t("taxes.taxPayableAccountSales")}
                 value={draft.outputTaxAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, outputTaxAccountId: v }))}
-                placeholder="تلقائي (الافتراضي 2200)"
+                placeholder={t("taxes.automaticDefault2200")}
               />
               <TextField
-                label="حساب ضريبة المدخلات (المشتريات)"
+                label={t("taxes.inputTaxAccountPurchases")}
                 value={draft.inputTaxAccountId}
                 onChange={(v) => setDraft((d) => ({ ...d, inputTaxAccountId: v }))}
-                placeholder="تلقائي (الافتراضي 1400)"
+                placeholder={t("taxes.automaticDefault1400")}
               />
             </div>
           </div>
 
           <div className="rounded-lg border border-border p-[14px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">تصنيف الفاتورة الإلكترونية (ETA)</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("taxes.eInvoiceClassificationEta")}</h3>
             <SelectField
-              label="النوع الفرعي لضريبة القيمة المضافة"
+              label={t("taxes.vatSubtype")}
               value={draft.etaSubType}
               onChange={(v) => setDraft((d) => ({ ...d, etaSubType: v as EtaVatSubType }))}
               options={ETA_VAT_SUBTYPE_DEFINITIONS.map((d) => ({ value: d.code, label: getEtaVatSubTypeLabel(d.code) }))}
@@ -297,22 +302,22 @@ export function TaxesScreen() {
 
           {editingId ? (
             <SelectField
-              label="الحالة"
+              label={t("common.status")}
               value={draft.status}
               onChange={(v) => setDraft((d) => ({ ...d, status: v as TaxRateStatusDTO }))}
               options={[
-                { value: "active", label: "نشط" },
-                { value: "inactive", label: "غير نشط" },
+                { value: "active", label: t("common.active") },
+                { value: "inactive", label: t("common.inactive") },
               ]}
             />
           ) : null}
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? "حفظ" : "إضافة"}
+              {editingId ? t("common.save") : t("common.add")}
             </Button>
           </div>
         </form>

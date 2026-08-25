@@ -2,8 +2,9 @@ import { useState } from "react";
 import { FulcrumRule, DocumentList, StatusPill, Chip, Card, Button, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
-const STATUS_LABEL: Record<ExchangeRateStatusDTO, string> = { pending: "بانتظار الاعتماد", approved: "معتمد", locked: "مقفل" };
+const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
 
 const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
@@ -14,6 +15,7 @@ const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
 export function ExchangeRatesScreen() {
+  const { t } = useAppTranslation();
   const query = useExchangeRates();
   const createExchangeRate = useCreateExchangeRate();
   const approveExchangeRate = useApproveExchangeRate();
@@ -29,7 +31,7 @@ export function ExchangeRatesScreen() {
     try {
       await approveExchangeRate.mutateAsync(id);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذّر اعتماد سعر الصرف.");
+      setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot"));
     }
   }
 
@@ -49,25 +51,25 @@ export function ExchangeRatesScreen() {
       setAdding(false);
       setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذّر إضافة سعر الصرف.");
+      setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot2"));
     }
   }
 
   const columns: DocumentListColumn<ExchangeRateDTO>[] = [
-    { key: "pair", header: "زوج العملات", render: (r) => <span className="font-semibold text-ink">{r.currency} / EGP</span> },
-    { key: "rate", header: "سعر الصرف", render: (r) => <span className="mz-num text-ink">{Number(r.rate).toLocaleString("ar-EG", { minimumFractionDigits: 4, maximumFractionDigits: 6 })}</span> },
-    { key: "date", header: "تاريخ السريان", render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
-    { key: "source", header: "المصدر", render: (r) => <span className="text-ink-muted">{r.source === "manual" ? "يدوي" : "تلقائي"}</span> },
-    { key: "status", header: "الحالة", render: (r) => <StatusPill label={STATUS_LABEL[r.status]} tone={STATUS_TONE[r.status]} /> },
-    { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>اعتماد</Button></div> : null) },
+    { key: "pair", header: t("fxRates.currencyPair"), render: (r) => <span className="font-semibold text-ink">{r.currency} / EGP</span> },
+    { key: "rate", header: t("fxRates.rate"), render: (r) => <span className="mz-num text-ink">{Number(r.rate).toLocaleString("ar-EG", { minimumFractionDigits: 4, maximumFractionDigits: 6 })}</span> },
+    { key: "date", header: t("fxRates.effectiveFrom"), render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
+    { key: "source", header: t("fxRates.source"), render: (r) => <span className="text-ink-muted">{r.source === "manual" ? t("fxRates.manual") : t("fxRates.automatic")}</span> },
+    { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
+    { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>{t("fxRates.approve")}</Button></div> : null) },
   ];
 
   if (query.isError) {
     return (
       <Card className="p-[18px_20px]">
-        <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أسعار الصرف.</p>
+        <p className="text-[13px] font-semibold text-danger-ink">{t("fxRates.exchangeRatesCouldNotBe")}</p>
         <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-          إعادة المحاولة
+          {t("common.retry")}
         </Button>
       </Card>
     );
@@ -78,10 +80,10 @@ export function ExchangeRatesScreen() {
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Accounting · Exchange Rates</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">أسعار الصرف</h1>
-          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">العملة الأساسية: EGP — جميع الأسعار محسوبة مقابل هذه العملة</p>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fxRates.exchangeRates")}</h1>
+          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("fxRates.baseCurrencyEgpEveryRate")}</p>
         </div>
-        <Button variant="primary" onClick={() => setAdding((v) => !v)}>إضافة سعر صرف</Button>
+        <Button variant="primary" onClick={() => setAdding((v) => !v)}>{t("fxRates.addRate")}</Button>
       </div>
       <FulcrumRule />
 
@@ -90,19 +92,19 @@ export function ExchangeRatesScreen() {
       {adding ? (
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">
           <div className="flex flex-wrap items-end gap-[12px]">
-            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">العملة الأجنبية
-              <select aria-label="العملة الأجنبية" value={draft.currency} onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink">
+            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
+              <select aria-label={t("fxRates.foreignCurrency")} value={draft.currency} onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink">
                 {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </label>
-            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">سعر الصرف
-              <input aria-label="سعر الصرف" inputMode="decimal" value={draft.rate} onChange={(e) => setDraft((d) => ({ ...d, rate: e.target.value }))} placeholder="50.2500" className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.rate")}
+              <input aria-label={t("fxRates.rate")} inputMode="decimal" value={draft.rate} onChange={(e) => setDraft((d) => ({ ...d, rate: e.target.value }))} placeholder="50.2500" className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
             </label>
-            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">تاريخ السريان
-              <input type="date" aria-label="تاريخ السريان" value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.effectiveFrom")}
+              <input type="date" aria-label={t("fxRates.effectiveFrom")} value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
             </label>
-            <Button variant="primary" onClick={submitAdd}>حفظ</Button>
-            <Button onClick={() => setAdding(false)}>إلغاء</Button>
+            <Button variant="primary" onClick={submitAdd}>{t("common.save")}</Button>
+            <Button onClick={() => setAdding(false)}>{t("common.cancel")}</Button>
           </div>
         </div>
       ) : null}
@@ -112,7 +114,7 @@ export function ExchangeRatesScreen() {
         title=""
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
-            {([["all", "الكل"], ["pending", "بانتظار الاعتماد"], ["approved", "معتمد"], ["locked", "مقفل"]] as const).map(([value, label]) => (
+            {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
               <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</Chip>
             ))}
           </div>
@@ -122,8 +124,8 @@ export function ExchangeRatesScreen() {
         rowKey={(r) => r.id}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{filtered.length}</span> سعر صرف</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أسعار صرف</div>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("fxRates.rates")}</>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fxRates.noExchangeRates")}</div>}
       />
     </div>
   );

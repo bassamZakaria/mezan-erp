@@ -135,10 +135,10 @@ export function HolidaysScreen() {
       align: "end",
       render: (h) => (
         <div className="flex items-center justify-end gap-[6px]">
-          <IconButton aria-label={`تعديل ${h.nameAr ?? h.nameEn}`} onClick={() => openEdit(h)}>
+          <IconButton aria-label={t("holidays.editLabel", { name: h.nameAr ?? h.nameEn })} onClick={() => openEdit(h)}>
             <EditIcon />
           </IconButton>
-          <IconButton aria-label={`حذف ${h.nameAr ?? h.nameEn}`} disabled={deletingId !== null} onClick={() => handleDelete(h)}>
+          <IconButton aria-label={t("holidays.deleteLabel", { name: h.nameAr ?? h.nameEn })} disabled={deletingId !== null} onClick={() => handleDelete(h)}>
             <TrashIcon />
           </IconButton>
         </div>

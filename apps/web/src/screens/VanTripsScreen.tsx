@@ -371,7 +371,7 @@ export function VanTripsScreen() {
           setSelectedId(null);
           setSettleOpen(false);
         }}
-        title={selected ? `رحلة ${selected.tripNo ?? selected.id}` : ""}
+        title={selected ? t("vanTrips.panelTitle", { number: selected.tripNo ?? selected.id }) : ""}
       >
         {selected ? (
           <div className="flex flex-col gap-[16px]">
@@ -522,7 +522,7 @@ export function VanTripsScreen() {
                         <div key={line.itemId} className="flex items-center justify-between gap-[10px]">
                           <span className="text-[12.5px] text-ink">{itemName(line.itemId)}</span>
                           <QtyInput
-                            aria-label={`الكمية المعدودة — ${itemName(line.itemId)}`}
+                            aria-label={t("vanTrips.countedQtyLabel", { item: itemName(line.itemId) })}
                             value={settleCounts[line.itemId] ?? 0}
                             onChange={(v) => setSettleCounts((c) => ({ ...c, [line.itemId]: v }))}
                           />

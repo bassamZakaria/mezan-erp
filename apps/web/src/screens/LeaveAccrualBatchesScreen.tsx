@@ -4,14 +4,14 @@ import type { LeaveAccrualBatchDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useLeaveAccrualBatches, useRunLeaveAccrual } from "../data/hooks";
 import { formatDays } from "./hr-leave-labels";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
-const RUN_TYPE_FILTERS: Array<{ key: string; label: string }> = [
-  { key: "", label: "الكل" },
-  { key: "scheduled", label: "مجدول" },
-  { key: "manual", label: "يدوي" },
+const RUN_TYPE_FILTERS: Array<{ key: string; labelKey: AppTranslationKey }> = [
+  { key: "", labelKey: "leaveAccrual.filterAll" },
+  { key: "scheduled", labelKey: "leaveAccrual.filterScheduled" },
+  { key: "manual", labelKey: "leaveAccrual.filterManual" },
 ];
 
 interface RunDraft {
@@ -59,8 +59,8 @@ export function LeaveAccrualBatchesScreen() {
       });
       setBanner(
         result.created
-          ? `تم تشغيل دورة الاستحقاق ${result.batch.number} لفترة ${result.batch.periodKey}.`
-          : `فترة ${result.batch.periodKey} سبق تشغيلها في الدورة ${result.batch.number} — لم تُضف أي أيام.`,
+          ? t("leaveAccrual.batchRan", { number: result.batch.number, period: result.batch.periodKey })
+          : t("leaveAccrual.batchAlreadyRan", { period: result.batch.periodKey, number: result.batch.number }),
       );
       setFormOpen(false);
     } catch (err) {
@@ -102,7 +102,7 @@ export function LeaveAccrualBatchesScreen() {
       <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveAccrual.runType")}>
         {RUN_TYPE_FILTERS.map((filter) => (
           <Chip key={filter.key} type="button" active={runType === filter.key} onClick={() => setRunType(filter.key)}>
-            {filter.label}
+            {t(filter.labelKey)}
           </Chip>
         ))}
       </div>

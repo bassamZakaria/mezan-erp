@@ -21,24 +21,24 @@ import {
   useProcessOverdueInstallments,
   useSalesInvoices,
 } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
-const FREQUENCY_LABEL: Record<InstallmentFrequencyDTO, string> = {
-  WEEKLY: "أسبوعي",
-  BIWEEKLY: "كل أسبوعين",
-  MONTHLY: "شهري",
-  QUARTERLY: "ربع سنوي",
+const FREQUENCY_KEY: Record<InstallmentFrequencyDTO, AppTranslationKey> = {
+  WEEKLY: "instalments.frequencyWeekly",
+  BIWEEKLY: "instalments.frequencyBiweekly",
+  MONTHLY: "instalments.frequencyMonthly",
+  QUARTERLY: "instalments.frequencyQuarterly",
 };
 
-const STATUS_LABEL: Record<DocumentStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  confirmed: "نشط",
-  posted: "نشط",
-  cancelled: "ملغي",
-  reversed: "معكوس",
+const STATUS_KEY: Record<DocumentStatusDTO, AppTranslationKey> = {
+  draft: "instalments.statusDraft",
+  pending: "instalments.statusPending",
+  confirmed: "instalments.statusActive",
+  posted: "instalments.statusActive",
+  cancelled: "instalments.statusCancelled",
+  reversed: "instalments.statusReversed",
 };
 const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
   draft: "neutral",
@@ -178,7 +178,7 @@ export function InstallmentPlansScreen() {
     { key: "docNo", header: t("instalments.planNumber"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
     { key: "customer", header: t("common.customer"), render: (d) => d.lines[0]?.customerId ?? "—" },
     { key: "invoice", header: t("instalments.invoice"), render: (d) => d.lines[0]?.sourceInvoiceNumber ?? "—" },
-    { key: "frequency", header: t("instalments.frequency"), render: (d) => FREQUENCY_LABEL[d.lines[0]?.frequency ?? "MONTHLY"] },
+    { key: "frequency", header: t("instalments.frequency"), render: (d) => t(FREQUENCY_KEY[d.lines[0]?.frequency ?? "MONTHLY"]) },
     {
       key: "remaining",
       header: t("instalments.remaining"),
@@ -192,7 +192,7 @@ export function InstallmentPlansScreen() {
       header: t("common.status"),
       render: (d) => (
         <div className="flex items-center gap-1.5">
-          <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} />
+          <StatusPill label={t(STATUS_KEY[d.status])} tone={STATUS_TONE[d.status]} />
           {d.lines.some((l) => l.status === "overdue") ? <StatusPill label={t("instalments.overdue")} tone="danger" /> : null}
         </div>
       ),
@@ -265,7 +265,7 @@ export function InstallmentPlansScreen() {
             label={t("instalments.frequency2")}
             value={frequency}
             onChange={(v) => setFrequency(v as InstallmentFrequencyDTO)}
-            options={Object.entries(FREQUENCY_LABEL).map(([value, label]) => ({ value, label }))}
+            options={Object.entries(FREQUENCY_KEY).map(([value, key]) => ({ value, label: t(key) }))}
           />
           <TextFieldDate label={t("instalments.startDate")} value={startDate} onChange={setStartDate} />
           <NumberField label={t("instalments.downPayment")} value={downPayment} onChange={setDownPayment} min={0} />
@@ -318,7 +318,7 @@ export function InstallmentPlansScreen() {
       <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("instalments.instalmentPlan")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l) => (
                 <div key={l.no} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">

@@ -150,7 +150,7 @@ export function AttendanceScreen() {
       align: "end",
       render: (e) => (
         <div className="flex items-center justify-end gap-[6px]">
-          <IconButton aria-label={`تعديل سجل ${e.date}`} onClick={() => openEdit(e)}>
+          <IconButton aria-label={t("attendance.editRecordLabel", { date: e.date })} onClick={() => openEdit(e)}>
             <EditIcon />
           </IconButton>
         </div>

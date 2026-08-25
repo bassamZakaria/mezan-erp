@@ -52,7 +52,7 @@ export function EtaScreen() {
   async function submitAll() {
     setNotice(null);
     const result = await submitAllMutation.mutateAsync();
-    if (result.queued.length > 0) setNotice(`تعذر الإرسال الفعلي (متاح فقط عند الاتصال) — ${result.queued.length} مستند بقي في قائمة الإرسال.`);
+    if (result.queued.length > 0) setNotice(t("eta.queuedNotice", { count: String(result.queued.length) }));
   }
 
   async function confirmExclude() {
@@ -137,7 +137,7 @@ export function EtaScreen() {
           <div className="flex flex-wrap gap-[8px]">
             {STATUS_TABS.map((tab) => (
               <Chip key={tab} active={statusFilter === tab} onClick={() => setStatusFilter(tab)}>
-                {tab === "all" ? `الكل (${allSubs.length})` : `${getEtaStatusLabel(tab)} (${countBy(tab)})`}
+                {tab === "all" ? t("eta.tabAll", { count: String(allSubs.length) }) : t("eta.tabCount", { label: getEtaStatusLabel(tab), count: String(countBy(tab)) })}
               </Chip>
             ))}
           </div>

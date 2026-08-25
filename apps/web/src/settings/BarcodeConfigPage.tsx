@@ -233,7 +233,7 @@ export function BarcodeConfigPage() {
                     parseResult.matched ? (
                       <StatusPill
                         tone="success"
-                        label={`تطابق: كود الصنف ${parseResult.itemCode} — ${parseResult.valueType === "PRICE" ? t("barcode.price") : t("barcode.weight")} ${parseResult.value}`}
+                        label={t("barcode.matched", { code: parseResult.itemCode, type: parseResult.valueType === "PRICE" ? t("barcode.price") : t("barcode.weight"), value: String(parseResult.value) })}
                       />
                     ) : (
                       <StatusPill tone="neutral" label={t("barcode.noRuleMatches")} />

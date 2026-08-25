@@ -139,14 +139,14 @@ export function useSystemStatus(): UseQueryResult<SystemStatusDTO, ApiError> {
           key: "api",
           label: t("hubApi.theServerApi"),
           state: health.ok ? "operational" : "down",
-          detail: health.ok ? `يستجيب خلال ${health.ms} مللي ثانية` : `لا يستجيب (HTTP ${health.status || "—"})`,
+          detail: health.ok ? t("hubApi.serverResponds", { ms: String(health.ms) }) : t("hubApi.serverDown", { status: String(health.status || "—") }),
           latencyMs: health.ok ? health.ms : null,
         },
         {
           key: "database",
           label: t("hubApi.theDatabaseSqlite"),
           state: db.ok ? "operational" : "down",
-          detail: db.ok ? `قراءة فعلية ناجحة خلال ${db.ms} مللي ثانية` : `تعذّرت القراءة من قاعدة البيانات (HTTP ${db.status || "—"})`,
+          detail: db.ok ? t("hubApi.dbOk", { ms: String(db.ms) }) : t("hubApi.dbDown", { status: String(db.status || "—") }),
           latencyMs: db.ok ? db.ms : null,
         },
       ];

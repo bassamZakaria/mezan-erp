@@ -137,7 +137,7 @@ export function MyLeaveScreen() {
                     </td>
                     <td className="px-[14px] py-[10px] text-end">
                       {r.status === "pending" || r.status === "approved" ? (
-                        <Button size="sm" aria-label={`إلغاء طلب الإجازة ${r.number}`} disabled={cancellingId !== null} onClick={() => handleCancel(r)}>
+                        <Button size="sm" aria-label={t("myLeave.cancelRequestLabel", { number: r.number })} disabled={cancellingId !== null} onClick={() => handleCancel(r)}>
                           {t("common.cancel")}
                         </Button>
                       ) : null}

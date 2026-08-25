@@ -225,7 +225,7 @@ function BranchInventoryTab({ branch }: { branch: BranchDTO }) {
     return (
       <EmptyTab
         title={t("branches.noStockInThisBranch")}
-        body={`مستودعات الفرع (${warehouses.map((w) => w.name).join(t("branches.text"))}) لم تستلم أي بضاعة بعد، أو صُرف كل ما بها.`}
+        body={t("branches.noStockBody", { warehouses: warehouses.map((w) => w.name).join(t("branches.text")) })}
       />
     );
   }

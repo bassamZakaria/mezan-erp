@@ -351,7 +351,7 @@ export function ItemsScreen() {
       align: "end",
       render: (row) => (
         <IconButton
-          aria-label={`تعديل ${row.nameAr}`}
+          aria-label={t("items.editLabel", { name: row.nameAr })}
           onClick={(event) => {
             event.stopPropagation();
             openEditForm(row);

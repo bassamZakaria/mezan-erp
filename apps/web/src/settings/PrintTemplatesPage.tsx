@@ -285,7 +285,7 @@ export function PrintTemplatesPage() {
               {signatureLabelList(config.footer.signatureCount, config.footer.signatureLabels).map((label, i) => (
                 <TextField
                   key={i}
-                  label={`تسمية التوقيع ${i + 1}`}
+                  label={t("printTemplates.signatureLabel", { n: String(i + 1) })}
                   value={label}
                   onChange={(v) => {
                     const labels = signatureLabelList(config.footer.signatureCount, config.footer.signatureLabels);

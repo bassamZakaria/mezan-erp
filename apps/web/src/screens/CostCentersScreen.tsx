@@ -261,7 +261,7 @@ export function CostCentersScreen() {
         onRowClick={(id) => setSelectedId(id)}
         rowActions={(row) => (
           <IconButton
-            aria-label={`تعديل ${row.nameAr}`}
+            aria-label={t("costCentres.editLabel", { name: row.nameAr })}
             onClick={(event) => {
               event.stopPropagation();
               const cc = costCenters.find((c) => c.id === row.id);

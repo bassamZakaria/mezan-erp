@@ -97,7 +97,7 @@ export function SystemStatusScreen() {
             <StatusPill label={t("systemStatus.note")} tone="neutral" />
           </div>
           <p className="mz-num mt-[8px] text-[11.5px] text-ink-faint">
-            {status ? `الإصدار ${status.appVersion}` : "—"} {t("systemStatus.nothingUpdatesItselfOverThe")}
+            {status ? t("systemStatus.versionIs", { version: status.appVersion }) : "—"} {t("systemStatus.nothingUpdatesItselfOverThe")}
           </p>
         </Card>
       </div>

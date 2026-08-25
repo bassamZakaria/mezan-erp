@@ -50,7 +50,9 @@ export function LeaveRequestsScreen() {
       const result = await decideRequest.mutateAsync({ id: request.id, decision });
       if (result.held) {
         setBanner(
-          `الطلب ${request.number} بانتظار سلسلة الموافقات${result.requiredRole ? ` — الدور المطلوب: ${result.requiredRole}` : ""}.`,
+          result.requiredRole
+        ? t("leaveRequests.awaitingApprovalsWithRole", { number: request.number, role: result.requiredRole })
+        : t("leaveRequests.awaitingApprovals", { number: request.number }),
         );
       }
     } catch (err) {

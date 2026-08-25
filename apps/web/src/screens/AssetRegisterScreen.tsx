@@ -227,7 +227,7 @@ export function AssetRegisterScreen() {
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("asset.noAssetsNothingHasBeen")}</div>}
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `أصل — ${selected.nameAr}` : ""}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("asset.panelTitle", { name: selected.nameAr }) : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
             <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />

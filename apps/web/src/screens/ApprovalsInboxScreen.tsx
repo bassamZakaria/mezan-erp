@@ -85,7 +85,7 @@ export function ApprovalsInboxScreen() {
             value={commentDraft[r.id] ?? ""}
             onChange={(e) => setCommentDraft((prev) => ({ ...prev, [r.id]: e.target.value }))}
             placeholder={t("approvals.noteOptional")}
-            aria-label={`ملاحظة على الطلب ${r.entityLabel ?? r.id}`}
+            aria-label={t("approvals.noteLabel", { request: r.entityLabel ?? r.id })}
             className="w-[140px] rounded-md border border-border bg-surface px-[8px] py-[5px] text-[11.5px] text-ink outline-none transition-colors focus:border-brand"
           />
           <Button size="sm" variant="primary" disabled={pendingId === r.id} onClick={() => void act(r, "approve")}>

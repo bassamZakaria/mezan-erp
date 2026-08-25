@@ -108,7 +108,7 @@ export function FxRevaluationScreen() {
       {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
       {posted ? (
         <div role="status" className="mb-[14px] rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
-          {t("fx.theRevaluationEntryHasBeen")} {posted.entryNo ?? ""}{posted.reversalNo ? ` مع قيد عكسي ${posted.reversalNo}` : ""}.
+          {t("fx.theRevaluationEntryHasBeen")} {posted.entryNo ?? ""}{posted.reversalNo ? ` ${t("fx.withReversal", { number: posted.reversalNo })}` : ""}.
         </div>
       ) : null}
 

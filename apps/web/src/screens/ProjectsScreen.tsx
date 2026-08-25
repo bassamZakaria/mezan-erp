@@ -49,8 +49,8 @@ function statusOptionsFrom(current: ProjectStatusDTO, t: (key: AppTranslationKey
     .map((value) => ({ value, label: t(STATUS_KEY[value]) }));
 }
 
-const NO_CUSTOMER_OPTION: EntityPickerOption = { id: "__none__", label: "بدون عميل" };
-const NO_MANAGER_OPTION: EntityPickerOption = { id: "__none__", label: "بدون مدير" };
+const NO_CUSTOMER_ID = "__none__";
+const NO_MANAGER_ID = "__none__";
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -84,11 +84,11 @@ function blankDraft(): ProjectDraft {
   };
 }
 
-function validateDraft(draft: ProjectDraft, existing: ProjectDTO[]): string | null {
+function validateDraft(draft: ProjectDraft, existing: ProjectDTO[]): { key: AppTranslationKey; params?: Record<string, string> } | null {
   const code = draft.code.trim();
-  if (code === "") return "كود المشروع مطلوب.";
-  if (existing.some((p) => p.code === code)) return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
-  if (draft.nameAr.trim() === "") return "اسم المشروع مطلوب.";
+  if (code === "") return { key: "projects.codeRequired" };
+  if (existing.some((p) => p.code === code)) return { key: "assetCategories.codeInUse", params: { code } };
+  if (draft.nameAr.trim() === "") return { key: "projects.nameRequired" };
   return null;
 }
 
@@ -143,10 +143,10 @@ export function ProjectsScreen() {
   const selected = selectedId ? projects.find((p) => p.id === selectedId) ?? null : null;
 
   const customerOptions: EntityPickerOption[] = [
-    NO_CUSTOMER_OPTION,
+    { id: NO_CUSTOMER_ID, label: t("projects.noCustomer") },
     ...customers.map((c) => ({ id: c.id, label: `${c.code} — ${c.nameAr}` })),
   ];
-  const managerOptions: EntityPickerOption[] = [NO_MANAGER_OPTION, ...users.map((u) => ({ id: u.id, label: u.fullName }))];
+  const managerOptions: EntityPickerOption[] = [{ id: NO_MANAGER_ID, label: t("projects.noManager") }, ...users.map((u) => ({ id: u.id, label: u.fullName }))];
 
   function openCreateForm() {
     setDraft(blankDraft());
@@ -164,7 +164,7 @@ export function ProjectsScreen() {
     event.preventDefault();
     const error = validateDraft(draft, projects);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -266,7 +266,7 @@ export function ProjectsScreen() {
         }
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `مشروع — ${selected.nameAr}` : ""}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("projects.panelTitle", { name: selected.nameAr }) : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
             <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
@@ -358,14 +358,14 @@ export function ProjectsScreen() {
           <EntityPicker
             label={t("common.customer")}
             options={customerOptions}
-            value={draft.customerId ? (customerOptions.find((o) => o.id === draft.customerId) ?? null) : NO_CUSTOMER_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, customerId: !option || option.id === NO_CUSTOMER_OPTION.id ? null : option.id }))}
+            value={draft.customerId ? (customerOptions.find((o) => o.id === draft.customerId) ?? null) : (customerOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, customerId: !option || option.id === NO_CUSTOMER_ID ? null : option.id }))}
           />
           <EntityPicker
             label={t("projects.projectManager")}
             options={managerOptions}
-            value={draft.managerId ? (managerOptions.find((o) => o.id === draft.managerId) ?? null) : NO_MANAGER_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, managerId: !option || option.id === NO_MANAGER_OPTION.id ? null : option.id }))}
+            value={draft.managerId ? (managerOptions.find((o) => o.id === draft.managerId) ?? null) : (managerOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, managerId: !option || option.id === NO_MANAGER_ID ? null : option.id }))}
           />
           <TextField label={t("projects.startDate")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("projects.endDate")} value={draft.endDate} onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))} placeholder="YYYY-MM-DD" />

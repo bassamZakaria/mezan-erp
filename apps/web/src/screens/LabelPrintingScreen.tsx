@@ -202,7 +202,7 @@ export function LabelPrintingScreen() {
                       <span className="mz-num">{line.price.toString()}</span>
                     </td>
                     <td className="p-[8px_10px] text-end">
-                      <QtyInput value={line.copies} onChange={(v) => setCopies(line.itemId, v)} min={1} max={999} step={1} aria-label={`عدد نسخ ${line.nameAr}`} />
+                      <QtyInput value={line.copies} onChange={(v) => setCopies(line.itemId, v)} min={1} max={999} step={1} aria-label={t("labelPrinting.copiesLabel", { name: line.nameAr })} />
                     </td>
                     <td className="p-[8px_10px] text-end">
                       <Button size="sm" onClick={() => removeLine(line.itemId)}>

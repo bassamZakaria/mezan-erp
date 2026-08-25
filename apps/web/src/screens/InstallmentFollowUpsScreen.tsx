@@ -3,12 +3,12 @@ import { Button, Card, DocumentList, StatusPill, SidePanel, type DocumentListCol
 import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
-import { useAppTranslation } from "../i18n";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
-const TYPE_LABEL: Record<FollowUpTypeDTO, string> = { CALL: "اتصال", VISIT: "زيارة", SMS: "رسالة نصية", EMAIL: "بريد إلكتروني", NOTE: "ملاحظة" };
-const STATUS_LABEL: Record<FollowUpStatusDTO, string> = { pending: "معلق", completed: "مكتمل", cancelled: "ملغي" };
+const TYPE_KEY: Record<FollowUpTypeDTO, AppTranslationKey> = { CALL: "followUps.typeCall", VISIT: "followUps.typeVisit", SMS: "followUps.typeSms", EMAIL: "followUps.typeEmail", NOTE: "followUps.typeNote" };
+const STATUS_KEY: Record<FollowUpStatusDTO, AppTranslationKey> = { pending: "followUps.statusPending", completed: "followUps.statusCompleted", cancelled: "followUps.statusCancelled" };
 const STATUS_TONE: Record<FollowUpStatusDTO, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
 
 function today(): string {
@@ -121,11 +121,11 @@ export function InstallmentFollowUpsScreen() {
 
   const columns: DocumentListColumn<CollectionFollowUpDTO>[] = [
     { key: "customer", header: t("common.customer"), render: (f) => customerName(f.customerId) },
-    { key: "type", header: t("followUps.followUpType"), render: (f) => TYPE_LABEL[f.type] },
+    { key: "type", header: t("followUps.followUpType"), render: (f) => t(TYPE_KEY[f.type]) },
     { key: "date", header: t("followUps.followUpDate"), render: (f) => <span className="mz-num">{f.followUpDate}</span> },
     { key: "owner", header: t("followUps.assignedTo"), render: (f) => f.assignedTo ?? t("followUps.me") },
     { key: "outcome", header: t("followUps.outcome"), render: (f) => f.outcome ?? "—" },
-    { key: "status", header: t("common.status"), render: (f) => <StatusPill label={STATUS_LABEL[f.status]} tone={STATUS_TONE[f.status]} /> },
+    { key: "status", header: t("common.status"), render: (f) => <StatusPill label={t(STATUS_KEY[f.status])} tone={STATUS_TONE[f.status]} /> },
   ];
 
   return (
@@ -172,7 +172,7 @@ export function InstallmentFollowUpsScreen() {
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("followUps.newFollowUp")}>
         <div className="flex flex-col gap-4 p-5">
           <SelectField label={t("followUps.customer")} value={customerId} onChange={setCustomerId} options={customers.map((c) => ({ value: c.id, label: c.nameAr }))} />
-          <SelectField label={t("followUps.followUpType2")} value={type} onChange={(v) => setType(v as FollowUpTypeDTO)} options={Object.entries(TYPE_LABEL).map(([value, label]) => ({ value, label }))} />
+          <SelectField label={t("followUps.followUpType2")} value={type} onChange={(v) => setType(v as FollowUpTypeDTO)} options={Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key) }))} />
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-bold text-ink-muted">{t("followUps.followUpDate2")}</span>
             <input
@@ -193,9 +193,9 @@ export function InstallmentFollowUpsScreen() {
       <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected ? customerName(selected.customerId) : t("followUps.followUps")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <div className="text-[12.5px] text-ink-muted">
-              {TYPE_LABEL[selected.type]} — {selected.followUpDate}
+              {t(TYPE_KEY[selected.type])} — {selected.followUpDate}
             </div>
             {selected.notes ? <div className="text-[13px] text-ink">{selected.notes}</div> : null}
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}

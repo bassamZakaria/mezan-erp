@@ -5475,6 +5475,9 @@ const webAr = {
   "eyebrow.treasury.accounts": "الخزينة · الحسابات",
   "eyebrow.treasury.bankReconciliation": "الخزينة · المطابقة البنكية",
   "eyebrow.treasury.vouchers": "الخزينة · السندات",
+
+  // eyebrow
+  "eyebrow.accounting.chartOfAccounts": "المحاسبة · دليل الحسابات",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -10955,6 +10958,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "eyebrow.treasury.accounts": "Treasury · Accounts",
   "eyebrow.treasury.bankReconciliation": "Treasury · Bank Reconciliation",
   "eyebrow.treasury.vouchers": "Treasury · Vouchers",
+
+  // eyebrow
+  "eyebrow.accounting.chartOfAccounts": "Accounting · Chart of accounts",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

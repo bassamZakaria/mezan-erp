@@ -11,7 +11,7 @@ open.
 Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 "reconciliation looks wrong" is a feeling.
 
-## Open (as of 2026-08-24 — re-read `docs/defects.md`, it moves)
+## Open (as of 2026-08-25 — re-read `docs/defects.md`, it moves; it now runs to D35)
 
 | # | Area | Defect | Evidence |
 |---|---|---|---|
@@ -21,6 +21,41 @@ Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 | D13 | Fixed assets | No disposal action — the status value and the permission exist, the route and button do not | |
 | D18 | Inventory reporting | A landed cost writes **no stock movement**, so `replay()` can never reproduce the snapshot it mutated | ITEM-DEMO-1 cached 146.827936 vs recomputed 140.000000, on a healthy tenant, while the field's own docstring says nonzero means "the cache is CORRUPTED" |
 | D19 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by 5,486.12 | the tile sums every 11xx asset account (incl. the credit-natural provision 1190, sign-flipped); aging covers trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic |
+
+The seam pass (2026-08-25, `scripts/scenarios/seams.ts`) added **D24–D35**. Their
+shapes, because they will recur:
+
+- **The engine is right; nothing can speak to it.** FX revaluation is correct end to
+  end, and no document carries a currency or rate for it to revalue (D24). Same family
+  as "built but never wired", one layer further along: the wiring exists, the *input*
+  does not.
+- **A create route that upserts by id.** Re-POSTing a **locked** exchange rate's id
+  rewrote the rate and reset its status to pending (D25). Any lifecycle state a route
+  can silently overwrite is decorative.
+- **The wire contract drops the dimension.** A zod schema strips unknown keys, so
+  `costCenterId` on a voucher (D26) and withholding on a payment (D27) vanish behind a
+  `201`. Nothing errors; the report is simply blind forever.
+- **A report deriving what the ledger never recorded.** The VAT return computes rate =
+  tax ÷ base per entry (D28) and the balance sheet derives retained earnings (D34).
+  Correct on screen, unanswerable from the books.
+- **A control that exists in the catalog and in no route.** `view_own` / `view_all` /
+  `view_cost` and `hr.employee.view_salary` are resolved, documented, ⚠-flagged — and
+  consulted nowhere, so a `.confirm` holder is 403 on the list route while a plain
+  `.view` holder reads every colleague's invoice **and** its unit cost (D31). Module
+  licensing (X38) is the same shape.
+- **The state that is never recorded at all.** Nothing marks a VAT period as filed, so
+  a backdated entry restated an already-submitted return by 140.00 silently (D29).
+  Period close *does* block it — the mechanism exists, nothing ties the two together.
+- **Attribution taken from the caller, not the document** — audit rows with
+  `branchId: null` (D30). Also: no server-side search anywhere and no Arabic
+  normalisation, so احمد never finds أحمد (D32); tenant-global numbering with no branch
+  dimension (D33); a customer's price list consulted by no route (D35).
+
+What the same pass proved *sound*, so nobody re-audits it: the FX engine itself,
+promotion ordering and its immutability after deactivation, rounding across forty
+awkward documents and every instalment split, eight concurrent confirms taking
+gap-free numbers with none burned by a refused confirm, and one-notification-per-rule
+with a dead webhook unable to duplicate or roll back its document.
 
 Also open by decision, not by patch: workflow `minAmount` is configurable but never
 enforced (`DocumentWorkflowInput` carries no amount to compare), and email/WhatsApp
@@ -109,6 +144,16 @@ Kept so nobody rediscovers them:
 - **`/inventory/drift` 400** — it requires `itemId` and `warehouseId`.
 - **Blank dashboard screenshot** — a hidden tab can paint blank while the DOM is full.
   Assert on the DOM, never the picture.
+- **Ten of the first twelve "failures" in a new scenario suite were the suite's own
+  errors** — an envelope not unwrapped (`{config:…}`, `{events:…}`), a field that does
+  not exist (`lineTotal`), a journal entry looked up by the wrong id (purchase invoices
+  do not reuse the document id), a float sum compared against per-line rounding, and an
+  assertion that ignored the auto-reversal it had just asked for. Probe the real
+  response shape with a throwaway script *before* writing assertions.
+- **An assertion that passes alone and fails in the full run** is usually a claim about
+  global state. "Every audit row has a null branch" held for one suite and broke once
+  another suite wrote rows with real branches. Scope every claim to the rows the
+  scenario itself created.
 - **"Report X is missing"** — twice it was built, routed and in the nav; `STATUS.md` was
   simply wrong, and three reports stayed blocked on false claims in it. Verify the
   running app before trusting a status document, including this project's own.

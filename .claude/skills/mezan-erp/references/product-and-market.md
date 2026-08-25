@@ -110,3 +110,28 @@ claims.
 Catalog gaps worth verifying before finalizing those modules: BOQ / progress
 certificates / retention billing for contracting, FEFO for pharma, cheque
 endorsement/replacement states, own-fleet delivery tracking, IAS-21 FX gain/loss depth.
+
+## What Egyptian compliance actually demands (measured 2026-08-25)
+
+Scoped in `docs/scenarios/09-cross-module.md` X40–X51 and partly asserted in
+`seams.ts`. These are not polish; they are what a customer is audited on.
+
+- **ETA e-invoicing** — B2B is pre-clearance, B2C an e-receipt within 72 hours with a
+  QR on the printed copy. Registration threshold cut to **EGP 250,000** (Resolution
+  281/2025), enforcement from 1 Jan 2026, and late-submission penalties escalate on a
+  rolling 12-month count. Today no user action enqueues anything (D5) and
+  `autoSubmitOnConfirm` is stored and read by nothing — the whole flow is unreachable.
+- **VAT is not 14% of everything** — a 5% reduced rate, zero-rated exports, exempt
+  supplies, and the legacy construction treatment of 14% on **36% of value** with no
+  input deduction. Per-line rates post correctly; the VAT return cannot report them
+  separately (D28) and a partial taxable base cannot be expressed at all.
+- **Withholding tax** on local B2B payments — the payment is net, the withheld amount
+  is owed to the authority, and the supplier must still read as settled in full. No
+  account, no field, no report exists (D27).
+- **Statutory payroll** — income tax, social insurance as **two** liabilities
+  (employee share and employer cost), Article 47 seniority, end-of-service gratuity.
+  None is computed, and the honest requirement is that every payslip *says so* rather
+  than presenting a confident net that is wrong.
+- **Multi-currency** is presented and unimplemented (D24): documents take a currency
+  label, no rate is ever applied, and the revaluation engine behind them is correct but
+  unreachable. If multi-currency is to be a licensable module, this is the work.

@@ -15,7 +15,8 @@ by driving documents through the running app and reading the resulting balances.
 pnpm typecheck && pnpm lint && pnpm build   # lint = eslint + RTL logical-CSS + colour tokens
 pnpm smoke                                  # boots the real backend, seeds, hits every read surface
 pnpm check:seed                             # every list surface must return rows
-pnpm scenarios                              # the executable suite — 1,412 assertions
+pnpm scenarios                              # the executable suite — 1,899 assertions, 10 suites
+pnpm scenarios seams cross-module           # or just the named suites
 ```
 
 `pnpm lint`'s colour-token rule exists because a Tailwind class naming a token that
@@ -75,13 +76,52 @@ network call, navigation, dialog). No reaction is a *candidate* dead control —
 confirm each by hand before reporting. Already-selected toggles and disabled controls
 are expected non-reactions.
 
+## Writing an executable scenario
+
+`scripts/scenarios/` runs in-process against a freshly seeded backend, through the
+**same HTTP routes the UI calls**. It exists because driving the browser proved
+unreliable for money paths (a background tab clamps timers to once a minute) while
+this path found and proved real defects in an evening. It does not replace UI testing
+— it cannot see layout, focus or contrast — it replaces the part a click-through is
+worst at: asserting a document left the books correct.
+
+Rules learned the hard way, all of them from a failure:
+
+- **Assert the business requirement, not the current behaviour.** Where the product
+  cannot meet it, invert the check deliberately and label it with the measured
+  evidence *and the root cause file* — so a fix flips it back rather than deleting it.
+  Never weaken an assertion to get green; a failure is either a defect or a wrong
+  assertion, and you must work out which before changing anything.
+- **Probe the response shape before writing assertions.** A throwaway script that
+  prints one real response saves an afternoon of arguing with wrong field names.
+- **Every assertion must hold standalone *and* in the full ordered run.** Suites share
+  one seeded tenant and run in a fixed order, so a claim about global state ("every
+  audit row has a null branch") can pass alone and fail in the suite. Scope claims to
+  the rows the scenario itself created.
+- **Keep the harness invariants meaningful.** `scenario()` re-checks the trial balance
+  and the inventory/AP reconciliation around every scenario, so hand-posted journal
+  entries must use **non-control** accounts (2170, 2190) — posting to 1200/1105/2100 by
+  hand breaks the very check that catches real defects.
+- **Use service lines (`isStock: false`) for anything about tax, discount, rounding,
+  numbering or pricing.** A forty-document sweep on stock lines drains the warehouse
+  and moves the invariants for every later scenario.
+- **Prefix every id with the suite's own tag** (`SCN-X-`, `SCN-S-`) so it can collide
+  neither with the seed nor with another suite.
+- **Leave the tenant as you found it**: reopen any period you closed, restore any
+  setting you flipped, and clear approval gates an earlier suite left configured — a
+  money trail measured behind a gate is a journey that stopped halfway.
+
 ## Behaviour, not reaction
 
 Automation proves a control reacts; only a scenario proves it did the right thing.
 `docs/testing-scenarios.md` holds ~29 end-to-end lifecycles taken from the captured
 catalog, `docs/scenarios/` holds 964 numbered per-screen scenarios with
 `[NOT IMPLEMENTED]` markers where the build diverges, and `scripts/scenarios/` holds
-the executable subset behind `pnpm scenarios`. Making all 102 list surfaces non-empty
+the executable subset behind `pnpm scenarios`. `docs/scenarios/09-cross-module.md` is
+the seam file: money trails across modules (`cross-module.ts`) plus the currency, tax,
+Egypt-compliance, concurrency, permission, search, audit, pricing and year-end seams
+(`seams.ts`). What is still manual is listed there and named — POS, the ETA lifecycle,
+statutory payroll, Postgres parity, five-year volume, restore, offline. Making all 102 list surfaces non-empty
 is what surfaced four of the six currently-open defects — none was visible on an empty
 tenant.
 

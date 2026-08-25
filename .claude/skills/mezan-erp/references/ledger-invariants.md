@@ -15,6 +15,10 @@ this page is the map.
 - **Never call `Number()` on a scaled amount**, including to interpolate it into a
   string. Format by string surgery at 2 decimals. A notification body once read
   `478.8` because the enricher floated the total purely for display.
+- Line extension rounds to the **piastre** (2dp, HALF_UP) *before* anything is
+  summed, so the gross total is the sum of rounded lines, never the rounded sum of
+  raw products. Any check that recomputes a total must round the same way — three
+  lines of 0.005 × 3, 0.005 and 0.33 give 0.36, not 0.35.
 - Rounding is permitted **only** at four named boundaries (`rounding.ts`):
   `LINE_EXTENSION`, `TAX_COMPUTATION`, `DISCOUNT_ALLOCATION`,
   `LANDED_COST_DISTRIBUTION`. Everywhere else arithmetic stays exact.
@@ -170,3 +174,38 @@ A user action must pass all four, and they are distinct:
   A failing delivery must never roll back the business operation that triggered it.
 - Domain refusals reach an Arabic UI: give every error type an Arabic label in its own
   module. A raw status code or an English state-machine message in the UI is a defect.
+
+## 9. Metadata a posting must carry (and mostly does not)
+
+Proved in `scripts/scenarios/seams.ts`; each gap is a register entry.
+
+- **Currency and rate.** `glJournalLineSchema` carries `currency` and `fxRate`, and
+  the FX revaluation engine (`fx-revaluation/revaluation.ts`) is correct end to end:
+  it derives the open foreign balance from base ÷ rate, restates at the closing rate,
+  posts gain/loss against 4900/5900 only, and auto-reverses next day. But **no
+  document route ever sets those fields** — a `currency: "USD"` purchase invoice
+  posts its foreign numbers as EGP (D24). `findRate` correctly refuses a pending
+  rate, so an unapproved rate is genuinely unspendable.
+- **Tax rate.** Per-line rates are charged correctly, and nothing records *which*
+  rate a posted line carried, so the VAT return re-derives one blended rate per
+  entry (D28). A 14% / 5% / zero-rated invoice files at ~6.3%. A tax rate also cannot
+  express a partial taxable base (Egypt's 14%-on-36% construction treatment).
+- **Cost centre.** Journal lines carry `costCenterId` and the cost-centre P&L groups
+  by it, with a غير مخصص bucket so totals always reconcile. Treasury vouchers have no
+  such field (D26), so the report is blind to almost all real spending.
+- **Branch.** The audit sink stamps the **caller's** `x-branch-scope`, not the
+  document's branch, so a caller scoped to all branches (the default) writes rows with
+  `branchId: null` that the audit viewer's branch filter can never find (D30).
+- **Withholding.** No account, no field, no report (D27) — the voucher stores the net
+  paid, so a supplier's ledger still shows them owed what the tenant is legally
+  holding for the authority.
+
+Two more facts worth knowing before writing anything that reads the books:
+
+- **A confirmed document's journal entry uses the document's own id** for sales
+  invoices and vouchers — but *not* for purchase invoices, whose entry has to be
+  found by its memo (`فاتورة مشتريات <number>`).
+- **There is no year-end close** anywhere in the product (D34): revenue and expense
+  accounts never reset and GL 3900 (الأرباح المرحلة) is never posted to. Reports
+  window by date, so they read correctly; the ledger alone cannot state last year's
+  result.

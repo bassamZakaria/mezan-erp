@@ -922,6 +922,38 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     await vanTripVoucherService.confirmVoucher(id);
   }
 
+  /**
+   * The settlement's counted-versus-expected difference, written off the van's
+   * treasury to عجز/فائض الصندوق. The transfer only hands back what was
+   * counted, so without this the difference stays on the van's books as cash
+   * nobody holds and the next trip inherits it.
+   */
+  async function recordVanCashVariance(input: {
+    tripId: string;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+    variance: Money;
+  }): Promise<void> {
+    if (input.variance.scaled === 0n) return;
+    const shortage = input.variance.scaled < 0n;
+    const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
+    const id = `VAN-VAR:${input.tripId}`;
+    await vanTripVoucherService.createVoucher({
+      id,
+      date: input.date,
+      memo: `${shortage ? "عجز" : "فائض"} تسوية رحلة ${input.tripId}`,
+      voucherType: shortage ? "other_expense" : "other_income",
+      amount: Money.fromScaled(shortage ? -input.variance.scaled : input.variance.scaled),
+      branchId: input.branchId,
+      paymentMethod: "cash",
+      treasuryAccountId: input.vanTreasuryAccountId,
+      treasuryGlAccountId: van?.glAccountId ?? "1010",
+      counterpartyGlAccountId: shortage ? "5900" : "4900",
+    });
+    await vanTripVoucherService.confirmVoucher(id);
+  }
+
   const app = createApp(uow, {
     settingsStore: settings,
     branchStore: branches,
@@ -1106,6 +1138,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
       recordCashTaking: recordVanCashTaking,
+      recordCashVariance: recordVanCashVariance,
     },
     manufacturing: {
       boms: manufacturing.boms,

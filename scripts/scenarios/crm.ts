@@ -468,9 +468,9 @@ export async function run(ctx: Ctx): Promise<void> {
       rows(dayBefore.body).length, 0);
   });
 
-  // --- Installments: D1 reaches here too — a confirmed collection never moves amountPaid ---
+  // --- Installments: an allocated collection reaches the invoice it settles ---
 
-  await scenario("installments · D1: a confirmed, allocated collection voucher never moves the source invoice's amountPaid (docs/defects.md D1)", async () => {
+  await scenario("installments · a confirmed, allocated collection voucher moves the source invoice's amountPaid", async () => {
     const voucher = await req("GET", "/vouchers/VCH-DEMO-1");
     checkEq("voucher fetched", voucher.status, 200);
     check("voucher is confirmed", voucher.body.status === "confirmed");
@@ -479,9 +479,10 @@ export async function run(ctx: Ctx): Promise<void> {
     check("with a real, non-zero amount", n(allocation.amount) > 0);
 
     const invoice = await req("GET", "/sales-invoices/INV-DEMO-1");
-    checkEq("D1: amountPaid stays 0.00 despite the confirmed, allocated collection above", n(invoice.body.amountPaid), 0);
-    check("D1: remainingBalance therefore still shows the invoice's full, uncollected grand total",
-      invoice.body.remainingBalance === invoice.body.totals.grandTotal);
+    checkEq("amountPaid equals what the allocation applied (docs/defects.md D1 — the regression guard)", n(invoice.body.amountPaid), n(allocation.amount));
+    check("remainingBalance therefore drops below the grand total",
+      n(invoice.body.remainingBalance) < n(invoice.body.totals.grandTotal),
+      `remaining=${invoice.body.remainingBalance} grandTotal=${invoice.body.totals.grandTotal}`);
   });
 
   // --- Installments must-not-do: no route sets a line to 'paid' — do not invent one, assert the gap (INST-08) ---

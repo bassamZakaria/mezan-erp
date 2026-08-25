@@ -14,6 +14,7 @@ import {
   type VanTripCashMovementKind,
   type VanTripRepository,
   type StockLedgerService,
+  type SettleVanTripDeps,
   type TreasuryTransferInput,
 } from "@mezan/domain";
 import { openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
@@ -44,6 +45,8 @@ export interface FieldSalesRoutesDeps {
     branchId: string;
     vanTreasuryAccountId: string;
   }) => Promise<void>;
+  /** Writes a settlement's counted-versus-expected cash difference off the van treasury. */
+  readonly recordCashVariance?: SettleVanTripDeps["recordCashVariance"];
 }
 
 function serialize(trip: VanTrip) {
@@ -199,7 +202,7 @@ export function createFieldSalesRoutes(
           countedCash: Money.fromMajor(body.countedCash),
           stockCounts: body.stockCounts.map((s) => ({ itemId: s.itemId, countedQty: Qty.fromMajor(s.countedQty) })),
         },
-        { trips: deps.trips, treasuryTransfer: deps.treasuryTransfer },
+        { trips: deps.trips, treasuryTransfer: deps.treasuryTransfer, recordCashVariance: deps.recordCashVariance },
       );
       return c.json(serialize(trip));
     } catch (err) {

@@ -222,9 +222,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const invoiceAfter = (await req("GET", "/sales-invoices/SCN-X-INV-1")).body;
     check(
-      "D1 — the invoice's own amountPaid stays 0 even though the allocated collection cleared its AR in the GL " +
-        "(docs/defects.md D1); the sub-ledger and the ledger disagree about the same payment",
-      n(invoiceAfter?.amountPaid) === 0,
+      "the invoice's own amountPaid follows the allocated collection that cleared its AR in the GL " +
+        "(docs/defects.md D1 — the regression guard: the document and the sub-ledger are one fact)",
+      n(invoiceAfter?.amountPaid) === 1140 && invoiceAfter?.status === "paid",
       `amountPaid=${invoiceAfter?.amountPaid} status=${invoiceAfter?.status}`,
     );
   });
@@ -1168,12 +1168,13 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("a roadside sale is recorded on the trip", movement.status === 200 || movement.status === 201, `status ${movement.status} ${JSON.stringify(movement.body).slice(0, 250)}`);
 
-    // The settlement transfers the counted cash out of the van's treasury, so it
-    // can only be counted up to what that account actually holds — see the defect
-    // named below for why those two figures are not the same thing.
+    // The roadside sale posts into the van's own treasury, so what the account
+    // holds and what the trip expects are the same figure; the count comes in
+    // 50 short of both, which settlement has to write off.
     const vanHoldsNow = await gl("1300-2");
-    const countedCash = Math.min(500 + roadsideSale - 50, vanHoldsNow);
     const expectedCash = 500 + roadsideSale;
+    checkEq("the roadside sale reaches the van's treasury, not just the trip document", vanHoldsNow - vanCashBefore, expectedCash);
+    const countedCash = expectedCash - 50;
 
     const settled = await req("POST", `/field/van-trips/${tripId}/settle`, {
       countedCash: countedCash.toFixed(2),
@@ -1191,9 +1192,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const vanCashAfter = await gl("1300-2");
     checkEq("settling hands the counted cash back to the branch خزنة, net of the float it lent out", branchCashAfter - branchCashBefore, countedCash - 500);
     checkEq(
-      "NEW DEFECT — the van's treasury account is left short by the roadside takings: POST /field/van-trips/:id/cash-movements only mutates the trip document " +
-        "(packages/api/src/field-sales-routes.ts) and posts nothing to the van treasury, yet settling transfers the FULL counted cash — float plus those unposted sales — out of it. " +
-        "Every completed trip drives the van's cash account down by exactly the cash its sales brought in.",
+      "the van's treasury ends exactly where it started: the float and the takings went in, the counted cash went back, " +
+        "and the 50.00 shortfall was written off to عجز الصندوق rather than left on the van's books (docs/defects.md D22 — the regression guard)",
       vanCashAfter,
       vanCashBefore,
     );

@@ -294,13 +294,19 @@ async function physicalCountAdjustmentPostsNoJournalEntry_D2(ctx: Ctx): Promise<
     JSON.stringify(adjustment),
   );
   const je = await ctx.req("GET", "/gl/journal-entries/SCN-ADJ-D2");
-  ctx.check("D2 — the PHYSICAL_COUNT adjustment posts NO journal entry", je.status === 404, `status ${je.status}: ${JSON.stringify(je.body)}`);
+  ctx.check(
+    "the PHYSICAL_COUNT adjustment posts a balanced journal entry against 1200 and the shrinkage account (docs/defects.md D2 — the regression guard)",
+    je.status === 200 &&
+      je.body?.lines?.some((l: any) => l.accountId === "1200") &&
+      je.body?.lines?.some((l: any) => l.accountId === "5070"),
+    `status ${je.status}: ${JSON.stringify(je.body)}`,
+  );
 
   const after = await ctx.invariants();
   ctx.checkEq(
-    "D2 — the one-sided count leaves the inventory sub-ledger off GL 1200 by exactly the variance value",
+    "so the count leaves the inventory sub-ledger still reconciled to GL 1200",
     after.inventory - before.inventory,
-    netValue,
+    0,
   );
 }
 

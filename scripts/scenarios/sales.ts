@@ -123,7 +123,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const payment = await req("POST", "/sales-invoices/SCN-INV-1/payments", { amount: "300" });
     check("a partial payment is recorded", payment.status === 200 && payment.body?.status === "partially_paid", JSON.stringify(payment.body));
-    checkEq("amountPaid reflects the payment (unaffected by D1 — this is the invoice's own recordPayment path)", n(payment.body?.amountPaid), 300);
+    checkEq("amountPaid reflects the payment (the invoice's own recordPayment path)", n(payment.body?.amountPaid), 300);
     checkEq("remainingBalance drops by exactly the payment amount", n(payment.body?.remainingBalance), expectedGrand - 300);
 
     const reloaded = await req("GET", "/sales-invoices/SCN-INV-1");
@@ -506,9 +506,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 13. D1 + D9 on the real seeded example, read live rather than assumed ---
 
-  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns; the voucher collection is still D1", async () => {
+  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns AND its voucher collection", async () => {
     const invoice = (await req("GET", "/sales-invoices/INV-DEMO-1")).body;
-    check("D1: amountPaid never reflects VCH-DEMO-1's Treasury-voucher collection", n(invoice.amountPaid) === 0, JSON.stringify(invoice.amountPaid));
+    check("amountPaid reflects VCH-DEMO-1's Treasury-voucher collection (docs/defects.md D1 — the regression guard)", n(invoice.amountPaid) > 0, JSON.stringify(invoice.amountPaid));
 
     const allReturns = rows((await req("GET", "/sales-returns")).body);
     const against = allReturns.filter((r: any) => r.status === "confirmed" && r.lines?.[0]?.sourceInvoiceId === "INV-DEMO-1");

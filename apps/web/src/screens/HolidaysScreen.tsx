@@ -3,6 +3,7 @@ import { Button, Card, Chip, DocumentList, IconButton, SidePanel, StatusPill, ty
 import type { HolidayDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** الإجازات الرسمية (Official Holidays) — docs/catalog/06 §"الإجازات الرسمية". Year-scoped company calendar; recurring holidays repeat every year. */
 
@@ -49,6 +50,7 @@ function EditIcon() {
 }
 
 export function HolidaysScreen() {
+  const { t } = useAppTranslation();
   const [year, setYear] = useState(CURRENT_YEAR);
   const query = useHolidays(year);
   const createHoliday = useCreateHoliday();
@@ -83,7 +85,7 @@ export function HolidaysScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.date.trim() === "" || draft.nameEn.trim() === "") {
-      setFormError("التاريخ والاسم بالإنجليزية مطلوبان.");
+      setFormError(t("holidays.aDateAndAnEnglish"));
       return;
     }
     setFormError(null);
@@ -102,7 +104,7 @@ export function HolidaysScreen() {
         setFormOpen(false);
       }
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof ApiError ? err.message : t("common.failed"));
     }
   }
 
@@ -113,19 +115,19 @@ export function HolidaysScreen() {
     try {
       await deleteHoliday.mutateAsync(holiday.id);
     } catch (err) {
-      setRowError(err instanceof ApiError ? err.message : "تعذّر حذف الإجازة.");
+      setRowError(err instanceof ApiError ? err.message : t("holidays.theHolidayCouldNotBe"));
     } finally {
       setDeletingId(null);
     }
   }
 
   const columns: DocumentListColumn<HolidayDTO>[] = [
-    { key: "date", header: "التاريخ", render: (h) => <span className="mz-num font-semibold text-ink">{h.date}</span> },
-    { key: "name", header: "الاسم", render: (h) => <span className="font-semibold text-ink">{h.nameAr ?? h.nameEn}</span> },
+    { key: "date", header: t("common.date"), render: (h) => <span className="mz-num font-semibold text-ink">{h.date}</span> },
+    { key: "name", header: t("common.name"), render: (h) => <span className="font-semibold text-ink">{h.nameAr ?? h.nameEn}</span> },
     {
       key: "type",
-      header: "النوع",
-      render: (h) => <StatusPill label={h.recurringAnnual ? "سنوية" : "لمرة واحدة"} tone={(h.recurringAnnual ? "info" : "neutral") as PillTone} />,
+      header: t("common.type"),
+      render: (h) => <StatusPill label={h.recurringAnnual ? t("holidays.annual") : t("holidays.oneOff")} tone={(h.recurringAnnual ? "info" : "neutral") as PillTone} />,
     },
     {
       key: "actions",
@@ -148,9 +150,9 @@ export function HolidaysScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الإجازات الرسمية.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("holidays.publicHolidaysCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -160,7 +162,7 @@ export function HolidaysScreen() {
         </div>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label="السنة">
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("holidays.year")}>
         {YEAR_OPTIONS.map((y) => (
           <Chip key={y} type="button" active={year === y} onClick={() => setYear(y)}>
             <span className="mz-num">{y}</span>
@@ -170,17 +172,17 @@ export function HolidaysScreen() {
 
       <DocumentList<HolidayDTO>
         eyebrow="HR · Holidays"
-        title="الإجازات الرسمية"
-        description="التقويم الرسمي للشركة، يُستخدم لاستبعاد الإجازات من حسابات الحضور والإجازات"
+        title={t("holidays.publicHolidays")}
+        description={t("holidays.theCompanySOfficialCalendar")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة إجازة
+            {t("holidays.addHoliday")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الإجازات", value: <span className="mz-num">{holidays.length}</span> },
-          { label: "سنوية", value: <span className="mz-num">{recurringCount}</span> },
-          { label: "لمرة واحدة", value: <span className="mz-num">{holidays.length - recurringCount}</span> },
+          { label: t("holidays.totalHolidays"), value: <span className="mz-num">{holidays.length}</span> },
+          { label: t("holidays.annual"), value: <span className="mz-num">{recurringCount}</span> },
+          { label: t("holidays.oneOff"), value: <span className="mz-num">{holidays.length - recurringCount}</span> },
         ]}
         columns={columns}
         rows={holidays}
@@ -189,10 +191,10 @@ export function HolidaysScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{holidays.length}</span> إجازة لعام <span className="mz-num">{year}</span>
+            {t("common.show")} <span className="mz-num">{holidays.length}</span> {t("holidays.holidaysIn")} <span className="mz-num">{year}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد إجازات رسمية لهذا العام</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("holidays.noPublicHolidaysForThis")}</div>}
       />
 
       <SidePanel
@@ -201,7 +203,7 @@ export function HolidaysScreen() {
           setFormOpen(false);
           setEditingId(null);
         }}
-        title={editing ? "تعديل إجازة" : "إضافة إجازة"}
+        title={editing ? t("holidays.editHoliday") : t("holidays.addHoliday")}
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
@@ -209,10 +211,10 @@ export function HolidaysScreen() {
               {formError}
             </div>
           ) : null}
-          <TextField label="التاريخ *" value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
-          <TextField label="الاسم بالإنجليزية *" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} placeholder="National Day" />
-          <TextField label="الاسم بالعربية" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} placeholder="اليوم الوطني" />
-          <ToggleField label="إجازة سنوية متكررة" checked={draft.recurringAnnual} onChange={(v) => setDraft((d) => ({ ...d, recurringAnnual: v }))} />
+          <TextField label={t("holidays.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("holidays.englishName")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} placeholder="National Day" />
+          <TextField label={t("holidays.arabicName")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} placeholder={t("holidays.nationalDay")} />
+          <ToggleField label={t("holidays.repeatsEveryYear")} checked={draft.recurringAnnual} onChange={(v) => setDraft((d) => ({ ...d, recurringAnnual: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button
               type="button"
@@ -221,10 +223,10 @@ export function HolidaysScreen() {
                 setEditingId(null);
               }}
             >
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editing ? "حفظ التعديلات" : "إضافة"}
+              {editing ? t("holidays.saveChanges") : t("common.add")}
             </Button>
           </div>
         </form>

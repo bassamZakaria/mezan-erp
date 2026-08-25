@@ -3,7 +3,8 @@ import { Button, Card, SidePanel, StatusPill } from "@mezan/ui";
 import type { LeaveRequestDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCancelLeaveRequest, useCreateLeaveRequest, useMyLeave } from "../data/hooks";
-import { LEAVE_STATUS_LABEL, LEAVE_STATUS_TONE, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
+import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
+import { useAppTranslation } from "../i18n";
 
 /** إجازاتي (My Leave — employee self-service) — docs/catalog/06 §"إجازاتي". Lets the logged-in user request leave and see their own leave-request history, gated on their account being linked to an HR employee record. */
 
@@ -20,6 +21,7 @@ function blankDraft(): LeaveDraft {
 }
 
 export function MyLeaveScreen() {
+  const { t } = useAppTranslation();
   const query = useMyLeave();
   const createLeaveRequest = useCreateLeaveRequest();
   const cancelLeaveRequest = useCancelLeaveRequest();
@@ -42,7 +44,7 @@ export function MyLeaveScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.startDate.trim() === "" || draft.endDate.trim() === "") {
-      setFormError("تاريخ البداية والنهاية مطلوبان.");
+      setFormError(t("myLeave.bothAStartAndAn"));
       return;
     }
     setFormError(null);
@@ -56,7 +58,7 @@ export function MyLeaveScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر إرسال طلب الإجازة.");
+      setFormError(err instanceof ApiError ? err.message : t("myLeave.theLeaveRequestCouldNot"));
     }
   }
 
@@ -67,7 +69,7 @@ export function MyLeaveScreen() {
     try {
       await cancelLeaveRequest.mutateAsync(request.id);
     } catch (err) {
-      setRowError(err instanceof ApiError ? err.message : "تعذّر إلغاء طلب الإجازة.");
+      setRowError(err instanceof ApiError ? err.message : t("myLeave.theLeaveRequestCouldNot2"));
     } finally {
       setCancellingId(null);
     }
@@ -78,28 +80,28 @@ export function MyLeaveScreen() {
       <div className="flex flex-wrap items-start justify-between gap-[16px]">
         <div>
           <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">HR · My Leave</div>
-          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">إجازاتي</h1>
+          <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("myLeave.myLeave")}</h1>
         </div>
         {linked ? (
           <Button variant="primary" onClick={openForm}>
-            طلب إجازة
+            {t("myLeave.requestLeave")}
           </Button>
         ) : null}
       </div>
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل إجازاتي.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("myLeave.yourLeaveCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       {!query.isLoading && !linked ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-ink">غير مرتبط بموظف</p>
-          <p className="mt-[4px] text-[12.5px] text-ink-muted">حسابك غير مرتبط بسجل موظف. تواصل مع المسؤول.</p>
+          <p className="text-[13px] font-semibold text-ink">{t("myLeave.notLinkedToAnEmployee")}</p>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("myLeave.yourAccountIsNotLinked")}</p>
         </Card>
       ) : null}
 
@@ -115,28 +117,28 @@ export function MyLeaveScreen() {
             <table className="w-full border-collapse text-[12.5px]">
               <thead>
                 <tr className="border-b border-border text-ink-faint">
-                  <th className="px-[14px] py-[10px] text-start font-semibold">نوع الإجازة</th>
-                  <th className="px-[14px] py-[10px] text-start font-semibold">الفترة</th>
-                  <th className="px-[14px] py-[10px] text-end font-semibold">عدد الأيام</th>
-                  <th className="px-[14px] py-[10px] text-start font-semibold">الحالة</th>
+                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("myLeave.leaveType")}</th>
+                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.period")}</th>
+                  <th className="px-[14px] py-[10px] text-end font-semibold">{t("myLeave.days")}</th>
+                  <th className="px-[14px] py-[10px] text-start font-semibold">{t("common.status")}</th>
                   <th className="px-[14px] py-[10px]" />
                 </tr>
               </thead>
               <tbody>
                 {requests.map((r) => (
                   <tr key={r.id} className="border-b border-border last:border-0">
-                    <td className="px-[14px] py-[10px] font-semibold text-ink">{LEAVE_TYPE_LABEL[r.leaveType]}</td>
+                    <td className="px-[14px] py-[10px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
                     <td className="mz-num px-[14px] py-[10px] text-ink">
                       {r.startDate} — {r.endDate}
                     </td>
                     <td className="mz-num px-[14px] py-[10px] text-end text-ink">{r.days}</td>
                     <td className="px-[14px] py-[10px]">
-                      <StatusPill label={LEAVE_STATUS_LABEL[r.status]} tone={LEAVE_STATUS_TONE[r.status]} />
+                      <StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} />
                     </td>
                     <td className="px-[14px] py-[10px] text-end">
                       {r.status === "pending" || r.status === "approved" ? (
                         <Button size="sm" aria-label={`إلغاء طلب الإجازة ${r.number}`} disabled={cancellingId !== null} onClick={() => handleCancel(r)}>
-                          إلغاء
+                          {t("common.cancel")}
                         </Button>
                       ) : null}
                     </td>
@@ -146,11 +148,11 @@ export function MyLeaveScreen() {
             </table>
           </Card>
         ) : (
-          <Card className="p-[18px_20px] text-center text-[12.5px] text-ink-muted">لا توجد طلبات إجازة — لم تقدم أي طلب إجازة بعد</Card>
+          <Card className="p-[18px_20px] text-center text-[12.5px] text-ink-muted">{t("myLeave.noLeaveRequestsYouHave")}</Card>
         )
       ) : null}
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="طلب إجازة">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("myLeave.requestLeave")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -158,32 +160,32 @@ export function MyLeaveScreen() {
             </div>
           ) : null}
           <SelectField
-            label="نوع الإجازة *"
+            label={t("myLeave.leaveType2")}
             value={draft.leaveType}
             onChange={(v) => setDraft((d) => ({ ...d, leaveType: v as LeaveTypeDTO }))}
-            options={LEAVE_TYPE_OPTIONS}
+            options={leaveTypeOptions(t)}
           />
           <ToggleField
-            label="نصف يوم"
+            label={t("myLeave.halfDay")}
             checked={draft.halfDay}
             onChange={(v) => setDraft((d) => ({ ...d, halfDay: v }))}
-            hint="حدد يوماً واحداً وسيتم احتساب نصف يوم (0.5)"
+            hint={t("myLeave.pickASingleDayAnd")}
           />
-          <TextField label="تاريخ البداية *" value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("myLeave.startDate")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
           <TextField
-            label="تاريخ النهاية *"
+            label={t("myLeave.endDate")}
             value={draft.halfDay ? draft.startDate : draft.endDate}
             onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))}
             placeholder="YYYY-MM-DD"
             disabled={draft.halfDay}
           />
-          <TextField label="السبب" value={draft.reason} onChange={(v) => setDraft((d) => ({ ...d, reason: v }))} />
+          <TextField label={t("myLeave.reason")} value={draft.reason} onChange={(v) => setDraft((d) => ({ ...d, reason: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إرسال الطلب
+              {t("myLeave.submitRequest")}
             </Button>
           </div>
         </form>

@@ -10,7 +10,8 @@ import {
   useEmployees,
   useRecordAttendance,
 } from "../data/hooks";
-import { ATTENDANCE_STATUS_LABEL, ATTENDANCE_STATUS_TONE, formatWorkedDuration } from "./hr-leave-labels";
+import { ATTENDANCE_STATUS_KEY, ATTENDANCE_STATUS_TONE, formatWorkedDuration } from "./hr-leave-labels";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** الحضور والانصراف (Attendance) — docs/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
 
@@ -24,10 +25,12 @@ function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
 }
 
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: "", label: "كل الحالات" },
-  ...(Object.keys(ATTENDANCE_STATUS_LABEL) as AttendanceStatusDTO[]).map((code) => ({ value: code, label: ATTENDANCE_STATUS_LABEL[code] })),
-];
+function statusOptions(t: (key: AppTranslationKey) => string): Array<{ value: string; label: string }> {
+  return [
+    { value: "", label: t("attendance.allStatuses") },
+    ...(Object.keys(ATTENDANCE_STATUS_KEY) as AttendanceStatusDTO[]).map((code) => ({ value: code, label: t(ATTENDANCE_STATUS_KEY[code]) })),
+  ];
+}
 
 interface AttendanceDraft {
   employeeId: string;
@@ -53,6 +56,7 @@ function EditIcon() {
 }
 
 export function AttendanceScreen() {
+  const { t } = useAppTranslation();
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
@@ -103,7 +107,7 @@ export function AttendanceScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.employeeId === "" || draft.date.trim() === "") {
-      setFormError("الموظف والتاريخ مطلوبان.");
+      setFormError(t("attendance.anEmployeeAndADate"));
       return;
     }
     setFormError(null);
@@ -124,22 +128,22 @@ export function AttendanceScreen() {
       setFormOpen(false);
       setEditingId(null);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof ApiError ? err.message : t("common.failed"));
     }
   }
 
   const columns: DocumentListColumn<AttendanceEntryDTO>[] = [
-    { key: "date", header: "التاريخ", render: (e) => <span className="mz-num font-semibold text-ink">{e.date}</span> },
-    { key: "employee", header: "الموظف", render: (e) => <span className="font-semibold text-ink">{employeeName(e.employeeId)}</span> },
-    { key: "checkIn", header: "الحضور", render: (e) => <span className="mz-num text-ink">{e.checkIn ?? "—"}</span> },
-    { key: "checkOut", header: "الانصراف", render: (e) => <span className="mz-num text-ink">{e.checkOut ?? "—"}</span> },
+    { key: "date", header: t("common.date"), render: (e) => <span className="mz-num font-semibold text-ink">{e.date}</span> },
+    { key: "employee", header: t("attendance.employee"), render: (e) => <span className="font-semibold text-ink">{employeeName(e.employeeId)}</span> },
+    { key: "checkIn", header: t("attendance.in"), render: (e) => <span className="mz-num text-ink">{e.checkIn ?? "—"}</span> },
+    { key: "checkOut", header: t("attendance.out"), render: (e) => <span className="mz-num text-ink">{e.checkOut ?? "—"}</span> },
     {
       key: "worked",
-      header: "ساعات العمل",
+      header: t("attendance.hoursWorked"),
       align: "end",
       render: (e) => <span className="mz-num text-ink">{formatWorkedDuration(e.workedMinutes)}</span>,
     },
-    { key: "status", header: "الحالة", render: (e) => <StatusPill label={ATTENDANCE_STATUS_LABEL[e.status]} tone={ATTENDANCE_STATUS_TONE[e.status]} /> },
+    { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(ATTENDANCE_STATUS_KEY[e.status])} tone={ATTENDANCE_STATUS_TONE[e.status]} /> },
     {
       key: "actions",
       header: "",
@@ -160,44 +164,44 @@ export function AttendanceScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل سجل الحضور.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("attendance.theAttendanceRecordCouldNot")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <DocumentList<AttendanceEntryDTO>
         eyebrow="HR · Attendance"
-        title="الحضور والانصراف"
-        description="سجل الحضور اليومي لكل موظف مع مدة العمل المحتسبة وحالة اليوم"
+        title={t("attendance.attendance")}
+        description={t("attendance.theDailyAttendanceRecordPer")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            تسجيل حضور
+            {t("attendance.recordAttendance")}
           </Button>
         }
         stats={[
-          { label: "أيام العمل", value: <span className="mz-num">{summary?.workingDays ?? 0}</span> },
-          { label: "أيام الحضور", value: <span className="mz-num">{summary?.daysPresent ?? 0}</span> },
-          { label: "أيام التأخير", value: <span className="mz-num">{summary?.daysLate ?? 0}</span> },
-          { label: "أيام الغياب", value: <span className="mz-num">{summary?.daysAbsent ?? 0}</span> },
-          { label: "نسبة الحضور", value: <span className="mz-num">{summary?.attendanceRatePercent ?? 0}%</span> },
+          { label: t("attendance.workingDays"), value: <span className="mz-num">{summary?.workingDays ?? 0}</span> },
+          { label: t("attendance.daysPresent"), value: <span className="mz-num">{summary?.daysPresent ?? 0}</span> },
+          { label: t("attendance.daysLate"), value: <span className="mz-num">{summary?.daysLate ?? 0}</span> },
+          { label: t("attendance.daysAbsent"), value: <span className="mz-num">{summary?.daysAbsent ?? 0}</span> },
+          { label: t("attendance.attendanceRate"), value: <span className="mz-num">{summary?.attendanceRatePercent ?? 0}%</span> },
         ]}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="min-w-[150px]">
-              <TextField label="الشهر" value={month} onChange={setMonth} placeholder="YYYY-MM" />
+              <TextField label={t("attendance.month")} value={month} onChange={setMonth} placeholder="YYYY-MM" />
             </div>
             <div className="min-w-[190px]">
               <SelectField
-                label="الموظف"
+                label={t("attendance.employee")}
                 value={employeeId}
                 onChange={setEmployeeId}
-                options={[{ value: "", label: "كل الموظفين" }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
+                options={[{ value: "", label: t("attendance.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
               />
             </div>
             <div className="min-w-[160px]">
-              <SelectField label="الحالة" value={status} onChange={setStatus} options={STATUS_OPTIONS} />
+              <SelectField label={t("common.status")} value={status} onChange={setStatus} options={statusOptions(t)} />
             </div>
           </div>
         }
@@ -208,27 +212,27 @@ export function AttendanceScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{entries.length}</span> سجل حضور
+            {t("common.show")} <span className="mz-num">{entries.length}</span> {t("attendance.records")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد سجلات حضور لهذه الفترة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("attendance.noAttendanceRecordsForThis")}</div>}
       />
 
       {employeeId !== "" && summary ? (
         <Card className="mt-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-ink">الملخص الشهري للحضور</p>
+          <p className="text-[13px] font-semibold text-ink">{t("attendance.monthlyAttendanceSummary")}</p>
           <div className="mt-[10px] grid grid-cols-2 gap-[10px] text-[12.5px] text-ink-muted sm:grid-cols-4">
             <div>
-              أنصاف الأيام: <span className="mz-num text-ink">{summary.halfDays}</span>
+              {t("attendance.halfDays")} <span className="mz-num text-ink">{summary.halfDays}</span>
             </div>
             <div>
-              أيام الإجازات: <span className="mz-num text-ink">{summary.daysOnLeave}</span>
+              {t("attendance.leaveDays")} <span className="mz-num text-ink">{summary.daysOnLeave}</span>
             </div>
             <div>
-              الإجازات الرسمية: <span className="mz-num text-ink">{summary.holidays}</span>
+              {t("attendance.publicHolidays")} <span className="mz-num text-ink">{summary.holidays}</span>
             </div>
             <div>
-              ساعات العمل: <span className="mz-num text-ink">{formatWorkedDuration(summary.workedMinutes)}</span>
+              {t("attendance.hoursWorked2")} <span className="mz-num text-ink">{formatWorkedDuration(summary.workedMinutes)}</span>
             </div>
           </div>
         </Card>
@@ -240,7 +244,7 @@ export function AttendanceScreen() {
           setFormOpen(false);
           setEditingId(null);
         }}
-        title={editingId ? "تعديل سجل الحضور" : "تسجيل حضور"}
+        title={editingId ? t("attendance.editAttendanceRecord") : t("attendance.recordAttendance")}
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
@@ -249,37 +253,37 @@ export function AttendanceScreen() {
             </div>
           ) : null}
           <SelectField
-            label="الموظف *"
+            label={t("attendance.employee2")}
             value={draft.employeeId}
             onChange={(v) => setDraft((d) => ({ ...d, employeeId: v }))}
             options={employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))}
             disabled={editingId !== null}
           />
           <TextField
-            label="التاريخ *"
+            label={t("attendance.date")}
             value={draft.date}
             onChange={(v) => setDraft((d) => ({ ...d, date: v }))}
             placeholder="YYYY-MM-DD"
             disabled={editingId !== null}
           />
-          <TextField label="وقت الحضور" value={draft.checkIn} onChange={(v) => setDraft((d) => ({ ...d, checkIn: v }))} placeholder="09:00" />
-          <TextField label="وقت الانصراف" value={draft.checkOut} onChange={(v) => setDraft((d) => ({ ...d, checkOut: v }))} placeholder="17:00" />
+          <TextField label={t("attendance.timeIn")} value={draft.checkIn} onChange={(v) => setDraft((d) => ({ ...d, checkIn: v }))} placeholder="09:00" />
+          <TextField label={t("attendance.timeOut")} value={draft.checkOut} onChange={(v) => setDraft((d) => ({ ...d, checkOut: v }))} placeholder="17:00" />
           <TextField
-            label="بداية الوردية"
+            label={t("attendance.shiftStart")}
             value={draft.expectedCheckIn}
             onChange={(v) => setDraft((d) => ({ ...d, expectedCheckIn: v }))}
             placeholder="09:00"
-            hint="اتركه فارغاً إذا لم يكن هناك وقت بداية محدد؛ يُستخدم لاحتساب التأخير"
+            hint={t("attendance.leaveEmptyIfThereIs")}
           />
-          <ToggleField label="نصف يوم" checked={draft.halfDay} onChange={(v) => setDraft((d) => ({ ...d, halfDay: v }))} />
+          <ToggleField label={t("attendance.halfDay")} checked={draft.halfDay} onChange={(v) => setDraft((d) => ({ ...d, halfDay: v }))} />
           <SelectField
-            label="تجاوز الحالة"
+            label={t("attendance.overrideStatus")}
             value={draft.status}
             onChange={(v) => setDraft((d) => ({ ...d, status: v }))}
-            options={[{ value: "", label: "احتساب تلقائي" }, ...STATUS_OPTIONS.slice(1)]}
-            hint="الاحتساب التلقائي يراعي الإجازات الرسمية والإجازات المعتمدة والعطلة الأسبوعية"
+            options={[{ value: "", label: t("attendance.computedAutomatically") }, ...statusOptions(t).slice(1)]}
+            hint={t("attendance.theAutomaticCalculationAccountsFor")}
           />
-          <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+          <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button
               type="button"
@@ -288,10 +292,10 @@ export function AttendanceScreen() {
                 setEditingId(null);
               }}
             >
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? "حفظ التعديلات" : "تسجيل"}
+              {editingId ? t("attendance.saveChanges") : t("attendance.record")}
             </Button>
           </div>
         </form>

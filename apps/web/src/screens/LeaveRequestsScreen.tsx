@@ -3,16 +3,20 @@ import { Button, Card, DocumentList, StatusPill, type DocumentListColumn } from 
 import type { LeaveRequestDTO, LeaveRequestStatusDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useDecideLeaveRequest, useEmployees, useLeaveRequestCounts, useLeaveRequests } from "../data/hooks";
-import { LEAVE_STATUS_LABEL, LEAVE_STATUS_TONE, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
+import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** طلبات الإجازات (Leave Requests — admin) — docs/catalog/06 §"طلبات الإجازات". Manager list with employee/status/date filters plus approve/reject, which route through the workflow gate configured for the leave type. */
 
-const STATUS_CHIPS: Array<{ key: string; label: string }> = [
-  { key: "", label: "الكل" },
-  ...(Object.keys(LEAVE_STATUS_LABEL) as LeaveRequestStatusDTO[]).map((code) => ({ key: code, label: LEAVE_STATUS_LABEL[code] })),
-];
+function statusChips(t: (key: AppTranslationKey) => string): Array<{ key: string; label: string }> {
+  return [
+    { key: "", label: t("common.all") },
+    ...(Object.keys(LEAVE_STATUS_KEY) as LeaveRequestStatusDTO[]).map((code) => ({ key: code, label: t(LEAVE_STATUS_KEY[code]) })),
+  ];
+}
 
 export function LeaveRequestsScreen() {
+  const { t } = useAppTranslation();
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
   const [leaveType, setLeaveType] = useState("");
@@ -50,27 +54,27 @@ export function LeaveRequestsScreen() {
         );
       }
     } catch (err) {
-      setRowError(err instanceof ApiError ? err.message : "تعذّر اتخاذ القرار على طلب الإجازة.");
+      setRowError(err instanceof ApiError ? err.message : t("leaveRequests.theDecisionOnThisLeave"));
     } finally {
       setDecidingId(null);
     }
   }
 
   const columns: DocumentListColumn<LeaveRequestDTO>[] = [
-    { key: "number", header: "رقم الطلب", render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
-    { key: "employee", header: "اسم الموظف", render: (r) => <span className="font-semibold text-ink">{employeeName(r.employeeId)}</span> },
-    { key: "leaveType", header: "نوع الإجازة", render: (r) => <span className="text-ink">{LEAVE_TYPE_LABEL[r.leaveType]}</span> },
+    { key: "number", header: t("leaveRequests.requestNumber"), render: (r) => <span className="mz-num font-semibold text-ink">{r.number}</span> },
+    { key: "employee", header: t("leaveRequests.employee"), render: (r) => <span className="font-semibold text-ink">{employeeName(r.employeeId)}</span> },
+    { key: "leaveType", header: t("leaveRequests.leaveType"), render: (r) => <span className="text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</span> },
     {
       key: "period",
-      header: "الفترة",
+      header: t("common.period"),
       render: (r) => (
         <span className="mz-num text-ink">
           {r.startDate} — {r.endDate}
         </span>
       ),
     },
-    { key: "days", header: "عدد الأيام", align: "end", render: (r) => <span className="mz-num text-ink">{r.days}</span> },
-    { key: "status", header: "الحالة", render: (r) => <StatusPill label={LEAVE_STATUS_LABEL[r.status]} tone={LEAVE_STATUS_TONE[r.status]} /> },
+    { key: "days", header: t("leaveRequests.days"), align: "end", render: (r) => <span className="mz-num text-ink">{r.days}</span> },
+    { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} /> },
     {
       key: "actions",
       header: "",
@@ -79,10 +83,10 @@ export function LeaveRequestsScreen() {
         r.status === "pending" ? (
           <div className="flex items-center justify-end gap-[6px]">
             <Button size="sm" variant="primary" disabled={decidingId !== null} onClick={() => decide(r, "approved")}>
-              موافقة
+              {t("leaveRequests.approve")}
             </Button>
             <Button size="sm" disabled={decidingId !== null} onClick={() => decide(r, "rejected")}>
-              رفض
+              {t("leaveRequests.reject")}
             </Button>
           </div>
         ) : null,
@@ -93,9 +97,9 @@ export function LeaveRequestsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل طلبات الإجازات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("leaveRequests.leaveRequestsCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -112,16 +116,16 @@ export function LeaveRequestsScreen() {
 
       <DocumentList<LeaveRequestDTO>
         eyebrow="HR · Leave Requests"
-        title="طلبات الإجازات"
-        description="مراجعة طلبات إجازات الموظفين والموافقة عليها أو رفضها"
+        title={t("leaveRequests.leaveRequests")}
+        description={t("leaveRequests.reviewEmployeesLeaveRequestsAnd")}
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{counts?.total ?? 0}</span> },
-          { label: "بانتظار الموافقة", value: <span className="mz-num">{counts?.pending ?? 0}</span> },
-          { label: "موافق عليه", value: <span className="mz-num">{counts?.approved ?? 0}</span> },
-          { label: "مرفوض", value: <span className="mz-num">{counts?.rejected ?? 0}</span> },
-          { label: "ملغى", value: <span className="mz-num">{counts?.cancelled ?? 0}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{counts?.total ?? 0}</span> },
+          { label: t("leaveStatus.pending"), value: <span className="mz-num">{counts?.pending ?? 0}</span> },
+          { label: t("leaveStatus.approved"), value: <span className="mz-num">{counts?.approved ?? 0}</span> },
+          { label: t("leaveStatus.rejected"), value: <span className="mz-num">{counts?.rejected ?? 0}</span> },
+          { label: t("leaveStatus.cancelled"), value: <span className="mz-num">{counts?.cancelled ?? 0}</span> },
         ]}
-        statusChips={STATUS_CHIPS.map((chip) => ({
+        statusChips={statusChips(t).map((chip) => ({
           key: chip.key,
           label: chip.label,
           count: chip.key === "" ? requests.length : requests.filter((r) => r.status === chip.key).length,
@@ -132,25 +136,25 @@ export function LeaveRequestsScreen() {
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="min-w-[200px]">
               <SelectField
-                label="الموظف"
+                label={t("leaveRequests.employee2")}
                 value={employeeId}
                 onChange={setEmployeeId}
-                options={[{ value: "", label: "كل الموظفين" }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
+                options={[{ value: "", label: t("leaveRequests.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
               />
             </div>
             <div className="min-w-[180px]">
               <SelectField
-                label="نوع الإجازة"
+                label={t("leaveRequests.leaveType")}
                 value={leaveType}
                 onChange={setLeaveType}
-                options={[{ value: "", label: "كل الأنواع" }, ...LEAVE_TYPE_OPTIONS]}
+                options={[{ value: "", label: t("leaveRequests.allTypes") }, ...leaveTypeOptions(t)]}
               />
             </div>
             <div className="min-w-[150px]">
-              <TextField label="من تاريخ" value={from} onChange={setFrom} placeholder="YYYY-MM-DD" />
+              <TextField label={t("leaveRequests.from")} value={from} onChange={setFrom} placeholder="YYYY-MM-DD" />
             </div>
             <div className="min-w-[150px]">
-              <TextField label="إلى تاريخ" value={to} onChange={setTo} placeholder="YYYY-MM-DD" />
+              <TextField label={t("leaveRequests.to")} value={to} onChange={setTo} placeholder="YYYY-MM-DD" />
             </div>
           </div>
         }
@@ -161,10 +165,10 @@ export function LeaveRequestsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{requests.length}</span> طلب إجازة
+            {t("common.show")} <span className="mz-num">{requests.length}</span> {t("leaveRequests.requests")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد نتائج مطابقة للفلتر الحالي</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leaveRequests.nothingMatchesTheCurrentFilter")}</div>}
       />
     </div>
   );

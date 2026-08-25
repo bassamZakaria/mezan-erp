@@ -1,26 +1,35 @@
 import type { PillTone } from "@mezan/ui";
+import type { AppTranslationKey } from "../i18n";
 import type { AttendanceStatusDTO, LeaveAccrualFrequencyDTO, LeaveRequestStatusDTO, LeaveTypeDTO } from "@mezan/contracts";
 
-/** Shared Arabic labels for the HR leave/attendance screens (docs/catalog/06 §"الموارد البشرية"). */
+/**
+ * Shared catalogue KEYS for the HR leave/attendance screens (docs/catalog/06
+ * §"الموارد البشرية"). Six screens read from here, so the vocabulary is stated
+ * once and each screen translates at render.
+ */
 
-export const LEAVE_TYPE_LABEL: Record<LeaveTypeDTO, string> = {
-  annual: "إجازة سنوية",
-  sick: "إجازة مرضية",
-  personal: "إجازة شخصية",
-  casual: "إجازة عارضة",
-  maternity: "إجازة أمومة",
-  paternity: "إجازة أبوة",
-  unpaid: "إجازة بدون أجر",
-  emergency: "إجازة طارئة",
+export const LEAVE_TYPE_KEY: Record<LeaveTypeDTO, AppTranslationKey> = {
+  annual: "leaveType.annual",
+  sick: "leaveType.sick",
+  personal: "leaveType.personal",
+  casual: "leaveType.casual",
+  maternity: "leaveType.maternity",
+  paternity: "leaveType.paternity",
+  unpaid: "leaveType.unpaid",
+  emergency: "leaveType.emergency",
 };
 
-export const LEAVE_TYPE_OPTIONS = (Object.keys(LEAVE_TYPE_LABEL) as LeaveTypeDTO[]).map((code) => ({ value: code, label: LEAVE_TYPE_LABEL[code] }));
+export const LEAVE_TYPE_CODES = Object.keys(LEAVE_TYPE_KEY) as LeaveTypeDTO[];
 
-export const LEAVE_STATUS_LABEL: Record<LeaveRequestStatusDTO, string> = {
-  pending: "بانتظار الموافقة",
-  approved: "موافق عليه",
-  rejected: "مرفوض",
-  cancelled: "ملغى",
+export function leaveTypeOptions(t: (key: AppTranslationKey) => string) {
+  return LEAVE_TYPE_CODES.map((code) => ({ value: code, label: t(LEAVE_TYPE_KEY[code]) }));
+}
+
+export const LEAVE_STATUS_KEY: Record<LeaveRequestStatusDTO, AppTranslationKey> = {
+  pending: "leaveStatus.pending",
+  approved: "leaveStatus.approved",
+  rejected: "leaveStatus.rejected",
+  cancelled: "leaveStatus.cancelled",
 };
 
 export const LEAVE_STATUS_TONE: Record<LeaveRequestStatusDTO, PillTone> = {
@@ -30,14 +39,14 @@ export const LEAVE_STATUS_TONE: Record<LeaveRequestStatusDTO, PillTone> = {
   cancelled: "neutral",
 };
 
-export const ATTENDANCE_STATUS_LABEL: Record<AttendanceStatusDTO, string> = {
-  present: "حاضر",
-  late: "تأخير",
-  half_day: "نصف يوم",
-  absent: "غائب",
-  on_leave: "في إجازة",
-  holiday: "إجازة رسمية",
-  weekly_off: "إجازة أسبوعية",
+export const ATTENDANCE_STATUS_KEY: Record<AttendanceStatusDTO, AppTranslationKey> = {
+  present: "attendanceStatus.present",
+  late: "attendanceStatus.late",
+  half_day: "attendanceStatus.half_day",
+  absent: "attendanceStatus.absent",
+  on_leave: "attendanceStatus.on_leave",
+  holiday: "attendanceStatus.holiday",
+  weekly_off: "attendanceStatus.weekly_off",
 };
 
 export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatusDTO, PillTone> = {
@@ -50,10 +59,10 @@ export const ATTENDANCE_STATUS_TONE: Record<AttendanceStatusDTO, PillTone> = {
   weekly_off: "neutral",
 };
 
-export const ACCRUAL_FREQUENCY_LABEL: Record<LeaveAccrualFrequencyDTO, string> = {
-  annual: "سنوياً",
-  monthly: "شهرياً",
-  none: "بدون استحقاق",
+export const ACCRUAL_FREQUENCY_KEY: Record<LeaveAccrualFrequencyDTO, AppTranslationKey> = {
+  annual: "accrualFrequency.annual",
+  monthly: "accrualFrequency.monthly",
+  none: "accrualFrequency.none",
 };
 
 /** Trims `Qty`'s fixed six-decimal wire form down to what a matrix cell should read. */

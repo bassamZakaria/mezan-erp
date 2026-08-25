@@ -11,7 +11,8 @@ import {
   useLeavePolicyPresets,
   useUpdateLeavePolicy,
 } from "../data/hooks";
-import { ACCRUAL_FREQUENCY_LABEL, formatDays, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
+import { ACCRUAL_FREQUENCY_KEY, formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** سياسات الإجازات (Leave Policies) — docs/catalog/06 §"سياسات الإجازات" (`/settings/leave-policies`). The matrix starts empty; the two dated Egyptian Labour Law presets fill it in one action. */
 
@@ -39,10 +40,12 @@ function blankDraft(): PolicyDraft {
   };
 }
 
-const FREQUENCY_OPTIONS = (Object.keys(ACCRUAL_FREQUENCY_LABEL) as LeaveAccrualFrequencyDTO[]).map((code) => ({
-  value: code,
-  label: ACCRUAL_FREQUENCY_LABEL[code],
-}));
+function frequencyOptions(t: (key: AppTranslationKey) => string) {
+  return (Object.keys(ACCRUAL_FREQUENCY_KEY) as LeaveAccrualFrequencyDTO[]).map((code) => ({
+    value: code,
+    label: t(ACCRUAL_FREQUENCY_KEY[code]),
+  }));
+}
 
 function TrashIcon() {
   return (
@@ -67,6 +70,7 @@ function EditIcon() {
 }
 
 export function LeavePoliciesScreen() {
+  const { t } = useAppTranslation();
   const query = useLeavePolicies();
   const presetsQuery = useLeavePolicyPresets();
   const createPolicy = useCreateLeavePolicy();
@@ -116,14 +120,14 @@ export function LeavePoliciesScreen() {
       await applyPreset.mutateAsync(presetCode);
       setBanner(`تم تطبيق الإعداد "${presets.find((p) => p.code === presetCode)?.labelAr ?? presetCode}".`);
     } catch (err) {
-      setRowError(err instanceof ApiError ? err.message : "تعذّر تطبيق الإعداد الجاهز.");
+      setRowError(err instanceof ApiError ? err.message : t("leavePolicies.thePresetCouldNotBe"));
     }
   }
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.entitlementDays.trim() === "") {
-      setFormError("الرصيد الأساسي مطلوب.");
+      setFormError(t("leavePolicies.aBaseEntitlementIsRequired"));
       return;
     }
     setFormError(null);
@@ -156,7 +160,7 @@ export function LeavePoliciesScreen() {
       setFormOpen(false);
       setEditingId(null);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت العملية.");
+      setFormError(err instanceof ApiError ? err.message : t("common.failed"));
     }
   }
 
@@ -167,30 +171,30 @@ export function LeavePoliciesScreen() {
     try {
       await deletePolicy.mutateAsync(policy.id);
     } catch (err) {
-      setRowError(err instanceof ApiError ? err.message : "تعذّر حذف السياسة.");
+      setRowError(err instanceof ApiError ? err.message : t("leavePolicies.thePolicyCouldNotBe"));
     } finally {
       setDeletingId(null);
     }
   }
 
   const columns: DocumentListColumn<LeavePolicyDTO>[] = [
-    { key: "leaveType", header: "نوع الإجازة", render: (p) => <span className="font-semibold text-ink">{LEAVE_TYPE_LABEL[p.leaveType]}</span> },
-    { key: "entitlement", header: "الرصيد الأساسي", align: "end", render: (p) => <span className="mz-num text-ink">{formatDays(p.entitlementDays)}</span> },
-    { key: "accrual", header: "وتيرة الاستحقاق", render: (p) => <span className="text-ink">{ACCRUAL_FREQUENCY_LABEL[p.accrualFrequency]}</span> },
+    { key: "leaveType", header: t("leavePolicies.leaveType"), render: (p) => <span className="font-semibold text-ink">{t(LEAVE_TYPE_KEY[p.leaveType])}</span> },
+    { key: "entitlement", header: t("leavePolicies.baseEntitlement"), align: "end", render: (p) => <span className="mz-num text-ink">{formatDays(p.entitlementDays)}</span> },
+    { key: "accrual", header: t("leavePolicies.accrualFrequency"), render: (p) => <span className="text-ink">{t(ACCRUAL_FREQUENCY_KEY[p.accrualFrequency])}</span> },
     {
       key: "carryOver",
-      header: "الترحيل",
+      header: t("leavePolicies.carryOver"),
       render: (p) => (
         <span className="text-ink">
-          {p.carryOver ? (p.maxCarryOverDays === null ? "نعم" : `حتى ${formatDays(p.maxCarryOverDays)} يوم`) : "لا"}
+          {p.carryOver ? (p.maxCarryOverDays === null ? t("leavePolicies.yes") : `حتى ${formatDays(p.maxCarryOverDays)} يوم`) : t("leavePolicies.no")}
         </span>
       ),
     },
-    { key: "payout", header: "صرف عند الإنهاء", render: (p) => <span className="text-ink">{p.payoutOnTermination ? "نعم" : "لا"}</span> },
+    { key: "payout", header: t("leavePolicies.paidOutOnTermination"), render: (p) => <span className="text-ink">{p.payoutOnTermination ? t("leavePolicies.yes") : t("leavePolicies.no")}</span> },
     {
       key: "mandated",
-      header: "إجباري قانوناً",
-      render: (p) => <StatusPill label={p.legallyMandated ? "إجباري" : "اختياري"} tone={p.legallyMandated ? "info" : "neutral"} />,
+      header: t("leavePolicies.requiredByLaw"),
+      render: (p) => <StatusPill label={p.legallyMandated ? t("leavePolicies.mandatory") : t("leavePolicies.optional")} tone={p.legallyMandated ? "info" : "neutral"} />,
     },
     {
       key: "actions",
@@ -198,10 +202,10 @@ export function LeavePoliciesScreen() {
       align: "end",
       render: (p) => (
         <div className="flex items-center justify-end gap-[6px]">
-          <IconButton aria-label={`تعديل ${LEAVE_TYPE_LABEL[p.leaveType]}`} onClick={() => openEdit(p)}>
+          <IconButton aria-label={`تعديل ${t(LEAVE_TYPE_KEY[p.leaveType])}`} onClick={() => openEdit(p)}>
             <EditIcon />
           </IconButton>
-          <IconButton aria-label={`حذف ${LEAVE_TYPE_LABEL[p.leaveType]}`} disabled={deletingId !== null} onClick={() => handleDelete(p)}>
+          <IconButton aria-label={`حذف ${t(LEAVE_TYPE_KEY[p.leaveType])}`} disabled={deletingId !== null} onClick={() => handleDelete(p)}>
             <TrashIcon />
           </IconButton>
         </div>
@@ -213,9 +217,9 @@ export function LeavePoliciesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل سياسات الإجازات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("leavePolicies.leavePoliciesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -231,38 +235,38 @@ export function LeavePoliciesScreen() {
       ) : null}
 
       <Card className="mb-[18px] p-[16px_18px]">
-        <p className="text-[13px] font-semibold text-ink">تطبيق إعداد جاهز</p>
+        <p className="text-[13px] font-semibold text-ink">{t("leavePolicies.applyAPreset")}</p>
         <p className="mt-[4px] text-[12.5px] text-ink-muted">
-          الإعدادات الجاهزة تمثّل قوانين العمل المصرية بتواريخ نفاذها؛ يمكن تعديل أي صف بعد التطبيق.
+          {t("leavePolicies.thePresetsReflectEgyptianLabour")}
         </p>
         <div className="mt-[10px] flex flex-wrap items-end gap-[10px]">
           <div className="min-w-[240px]">
             <SelectField
-              label="الإعداد"
+              label={t("leavePolicies.preset")}
               value={presetCode}
               onChange={setPresetCode}
-              options={[{ value: "", label: "اختر إعداداً..." }, ...presets.map((p) => ({ value: p.code, label: p.labelAr }))]}
+              options={[{ value: "", label: t("leavePolicies.chooseAPreset") }, ...presets.map((p) => ({ value: p.code, label: p.labelAr }))]}
             />
           </div>
           <Button variant="primary" disabled={presetCode === ""} onClick={handleApplyPreset}>
-            تطبيق إعداد جاهز
+            {t("leavePolicies.applyAPreset")}
           </Button>
         </div>
       </Card>
 
       <DocumentList<LeavePolicyDTO>
         eyebrow="HR · Leave Policies"
-        title="سياسات الإجازات"
-        description="مصفوفة أنواع الإجازات: الرصيد الأساسي، وتيرة الاستحقاق، الترحيل، الصرف عند الإنهاء"
+        title={t("leavePolicies.leavePolicies")}
+        description={t("leavePolicies.theLeaveTypeMatrixBase")}
         actions={
           <Button variant="primary" onClick={openCreate}>
-            إضافة سياسة
+            {t("leavePolicies.addPolicy")}
           </Button>
         }
         stats={[
-          { label: "عدد السياسات", value: <span className="mz-num">{policies.length}</span> },
-          { label: "إجباري قانوناً", value: <span className="mz-num">{policies.filter((p) => p.legallyMandated).length}</span> },
-          { label: "قابلة للترحيل", value: <span className="mz-num">{policies.filter((p) => p.carryOver).length}</span> },
+          { label: t("leavePolicies.policies"), value: <span className="mz-num">{policies.length}</span> },
+          { label: t("leavePolicies.requiredByLaw"), value: <span className="mz-num">{policies.filter((p) => p.legallyMandated).length}</span> },
+          { label: t("leavePolicies.canCarryOver"), value: <span className="mz-num">{policies.filter((p) => p.carryOver).length}</span> },
         ]}
         columns={columns}
         rows={policies}
@@ -271,12 +275,12 @@ export function LeavePoliciesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{policies.length}</span> سياسة
+            {t("common.show")} <span className="mz-num">{policies.length}</span> {t("leavePolicies.policies2")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            لا توجد سياسات إجازات معدة حالياً. استخدم &quot;تطبيق إعداد جاهز&quot; للبدء بسرعة، أو أضف كل سياسة يدوياً.
+            {t("leavePolicies.noLeavePoliciesAreSet")}
           </div>
         }
       />
@@ -287,7 +291,7 @@ export function LeavePoliciesScreen() {
           setFormOpen(false);
           setEditingId(null);
         }}
-        title={editingId ? "تعديل سياسة الإجازة" : "إضافة سياسة إجازة"}
+        title={editingId ? t("leavePolicies.editLeavePolicy") : t("leavePolicies.addLeavePolicy")}
       >
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
@@ -296,40 +300,40 @@ export function LeavePoliciesScreen() {
             </div>
           ) : null}
           <SelectField
-            label="نوع الإجازة *"
+            label={t("leavePolicies.leaveType2")}
             value={draft.leaveType}
             onChange={(v) => setDraft((d) => ({ ...d, leaveType: v as LeaveTypeDTO }))}
-            options={LEAVE_TYPE_OPTIONS}
+            options={leaveTypeOptions(t)}
             disabled={editingId !== null}
           />
           <TextField
-            label="الرصيد الأساسي (أيام/سنة) *"
+            label={t("leavePolicies.baseEntitlementDaysYear")}
             value={draft.entitlementDays}
             onChange={(v) => setDraft((d) => ({ ...d, entitlementDays: v }))}
             placeholder="21"
           />
           <SelectField
-            label="وتيرة الاستحقاق *"
+            label={t("leavePolicies.accrualFrequency2")}
             value={draft.accrualFrequency}
             onChange={(v) => setDraft((d) => ({ ...d, accrualFrequency: v as LeaveAccrualFrequencyDTO }))}
-            options={FREQUENCY_OPTIONS}
+            options={frequencyOptions(t)}
           />
-          <ToggleField label="ترحيل الرصيد للسنة التالية" checked={draft.carryOver} onChange={(v) => setDraft((d) => ({ ...d, carryOver: v }))} />
+          <ToggleField label={t("leavePolicies.carryTheBalanceIntoNext")} checked={draft.carryOver} onChange={(v) => setDraft((d) => ({ ...d, carryOver: v }))} />
           {draft.carryOver ? (
             <TextField
-              label="حد الترحيل (أيام)"
+              label={t("leavePolicies.carryOverCapDays")}
               value={draft.maxCarryOverDays}
               onChange={(v) => setDraft((d) => ({ ...d, maxCarryOverDays: v }))}
-              hint="اتركه فارغاً لترحيل بدون حد"
+              hint={t("leavePolicies.leaveEmptyToCarryOver")}
             />
           ) : null}
           <ToggleField
-            label="صرف الرصيد عند إنهاء الخدمة"
+            label={t("leavePolicies.payTheBalanceOutOn")}
             checked={draft.payoutOnTermination}
             onChange={(v) => setDraft((d) => ({ ...d, payoutOnTermination: v }))}
           />
-          <ToggleField label="إجباري قانوناً" checked={draft.legallyMandated} onChange={(v) => setDraft((d) => ({ ...d, legallyMandated: v }))} />
-          {editingId ? <ToggleField label="مفعّلة" checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
+          <ToggleField label={t("leavePolicies.requiredByLaw")} checked={draft.legallyMandated} onChange={(v) => setDraft((d) => ({ ...d, legallyMandated: v }))} />
+          {editingId ? <ToggleField label={t("leavePolicies.enabled")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button
               type="button"
@@ -338,10 +342,10 @@ export function LeavePoliciesScreen() {
                 setEditingId(null);
               }}
             >
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? "حفظ التعديلات" : "إضافة"}
+              {editingId ? t("leavePolicies.saveChanges") : t("common.add")}
             </Button>
           </div>
         </form>

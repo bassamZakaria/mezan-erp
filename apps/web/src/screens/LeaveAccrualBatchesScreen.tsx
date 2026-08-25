@@ -4,6 +4,7 @@ import type { LeaveAccrualBatchDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useLeaveAccrualBatches, useRunLeaveAccrual } from "../data/hooks";
 import { formatDays } from "./hr-leave-labels";
+import { useAppTranslation } from "../i18n";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
@@ -24,6 +25,7 @@ function today(): string {
 }
 
 export function LeaveAccrualBatchesScreen() {
+  const { t } = useAppTranslation();
   const [runType, setRunType] = useState("");
   const query = useLeaveAccrualBatches(runType || null);
   const runAccrual = useRunLeaveAccrual();
@@ -44,7 +46,7 @@ export function LeaveAccrualBatchesScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.runDate.trim() === "") {
-      setFormError("تاريخ التشغيل مطلوب.");
+      setFormError(t("leaveAccrual.aRunDateIsRequired"));
       return;
     }
     setFormError(null);
@@ -62,32 +64,32 @@ export function LeaveAccrualBatchesScreen() {
       );
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر تشغيل دورة الاستحقاق.");
+      setFormError(err instanceof ApiError ? err.message : t("leaveAccrual.theAccrualBatchCouldNot"));
     }
   }
 
   const columns: DocumentListColumn<LeaveAccrualBatchDTO>[] = [
-    { key: "number", header: "رقم الدورة", render: (b) => <span className="mz-num font-semibold text-ink">{b.number}</span> },
-    { key: "runDate", header: "تاريخ التشغيل", render: (b) => <span className="mz-num text-ink">{b.runDate}</span> },
-    { key: "period", header: "الفترة", render: (b) => <span className="mz-num text-ink">{b.periodKey}</span> },
+    { key: "number", header: t("leaveAccrual.batchNumber"), render: (b) => <span className="mz-num font-semibold text-ink">{b.number}</span> },
+    { key: "runDate", header: t("leaveAccrual.runDate"), render: (b) => <span className="mz-num text-ink">{b.runDate}</span> },
+    { key: "period", header: t("common.period"), render: (b) => <span className="mz-num text-ink">{b.periodKey}</span> },
     {
       key: "runType",
-      header: "نوع التشغيل",
-      render: (b) => <StatusPill label={b.runType === "manual" ? "يدوي" : "مجدول"} tone={b.runType === "manual" ? "neutral" : "info"} />,
+      header: t("leaveAccrual.runType"),
+      render: (b) => <StatusPill label={b.runType === "manual" ? t("leaveAccrual.manual") : t("leaveAccrual.scheduled")} tone={b.runType === "manual" ? "neutral" : "info"} />,
     },
-    { key: "notes", header: "ملاحظات", render: (b) => <span className="text-ink-muted">{b.notes ?? "—"}</span> },
-    { key: "employees", header: "عدد الموظفين", align: "end", render: (b) => <span className="mz-num text-ink">{b.employeeCount}</span> },
-    { key: "totalDays", header: "إجمالي الأيام", align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.totalDays)}</span> },
-    { key: "runBy", header: "المنفذ", render: (b) => <span className="text-ink-muted">{b.runBy ?? "—"}</span> },
+    { key: "notes", header: t("common.notes"), render: (b) => <span className="text-ink-muted">{b.notes ?? "—"}</span> },
+    { key: "employees", header: t("leaveAccrual.employees"), align: "end", render: (b) => <span className="mz-num text-ink">{b.employeeCount}</span> },
+    { key: "totalDays", header: t("leaveAccrual.totalDays"), align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.totalDays)}</span> },
+    { key: "runBy", header: t("leaveAccrual.runBy"), render: (b) => <span className="text-ink-muted">{b.runBy ?? "—"}</span> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل دورات الاستحقاق.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("leaveAccrual.accrualBatchesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
@@ -97,7 +99,7 @@ export function LeaveAccrualBatchesScreen() {
         </div>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label="نوع التشغيل">
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveAccrual.runType")}>
         {RUN_TYPE_FILTERS.map((filter) => (
           <Chip key={filter.key} type="button" active={runType === filter.key} onClick={() => setRunType(filter.key)}>
             {filter.label}
@@ -107,17 +109,17 @@ export function LeaveAccrualBatchesScreen() {
 
       <DocumentList<LeaveAccrualBatchDTO>
         eyebrow="HR · Leave Accrual"
-        title="استحقاقات الإجازات"
-        description="دورات استحقاق الإجازات المجدولة واليدوية التي تُضيف الأيام إلى أرصدة الموظفين"
+        title={t("leaveAccrual.leaveAccruals")}
+        description={t("leaveAccrual.theScheduledAndManualAccrual")}
         actions={
           <Button variant="primary" onClick={openForm}>
-            تشغيل استحقاق الآن
+            {t("leaveAccrual.runAccrualNow")}
           </Button>
         }
         stats={[
-          { label: "عدد الدورات", value: <span className="mz-num">{batches.length}</span> },
+          { label: t("leaveAccrual.batches"), value: <span className="mz-num">{batches.length}</span> },
           {
-            label: "إجمالي الأيام",
+            label: t("leaveAccrual.totalDays"),
             value: <span className="mz-num">{formatDays(String(batches.reduce((sum, b) => sum + Number(b.totalDays), 0)))}</span>,
           },
         ]}
@@ -128,15 +130,15 @@ export function LeaveAccrualBatchesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{batches.length}</span> دورة استحقاق
+            {t("common.show")} <span className="mz-num">{batches.length}</span> {t("leaveAccrual.batches2")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">لا توجد دورات استحقاق بعد — ستظهر هنا كل دورات الاستحقاق المجدولة واليدوية</div>
+          <div className="p-8 text-center text-sm text-ink-muted">{t("leaveAccrual.noAccrualBatchesYetScheduled")}</div>
         }
       />
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="تشغيل استحقاق الآن">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("leaveAccrual.runAccrualNow")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -144,26 +146,26 @@ export function LeaveAccrualBatchesScreen() {
             </div>
           ) : null}
           <p className="text-[12.5px] text-ink-muted">
-            تشغيل دورة استحقاق الإجازات يدوياً لكل الموظفين المؤهلين وتحديث الأرصدة فوراً. تشغيل نفس الفترة مرة أخرى لا يضيف أي أيام.
+            {t("leaveAccrual.runALeaveAccrualBy")}
           </p>
-          <TextField label="تاريخ التشغيل *" value={draft.runDate} onChange={(v) => setDraft((d) => ({ ...d, runDate: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("leaveAccrual.runDate2")} value={draft.runDate} onChange={(v) => setDraft((d) => ({ ...d, runDate: v }))} placeholder="YYYY-MM-DD" />
           <SelectField
-            label="وتيرة الاستحقاق *"
+            label={t("leaveAccrual.accrualFrequency")}
             value={draft.frequency}
             onChange={(v) => setDraft((d) => ({ ...d, frequency: v as "monthly" | "annual" }))}
             options={[
-              { value: "monthly", label: "شهرياً" },
-              { value: "annual", label: "سنوياً" },
+              { value: "monthly", label: t("accrualFrequency.monthly") },
+              { value: "annual", label: t("accrualFrequency.annual") },
             ]}
-            hint="تُحتسب السياسات ذات نفس الوتيرة فقط"
+            hint={t("leaveAccrual.onlyPoliciesWithTheSame")}
           />
-          <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+          <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              تشغيل
+              {t("leaveAccrual.run")}
             </Button>
           </div>
         </form>

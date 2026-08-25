@@ -3,7 +3,8 @@ import { Button, Card, Chip, DocumentList, SidePanel, type DocumentListColumn } 
 import type { LeaveBalanceDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useEmployees, useLeaveBalances, useUpsertLeaveBalance } from "../data/hooks";
-import { formatDays, LEAVE_TYPE_LABEL, LEAVE_TYPE_OPTIONS } from "./hr-leave-labels";
+import { formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
+import { useAppTranslation } from "../i18n";
 
 /** أرصدة الإجازات (Leave Balances) — per-employee, per-leave-type position for a year: what accrual credited, what carried over, what approved leave consumed. */
 
@@ -19,6 +20,7 @@ interface BalanceDraft {
 }
 
 export function LeaveBalancesScreen() {
+  const { t } = useAppTranslation();
   const [year, setYear] = useState(CURRENT_YEAR);
   const [employeeId, setEmployeeId] = useState("");
 
@@ -57,7 +59,7 @@ export function LeaveBalancesScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.employeeId === "") {
-      setFormError("الموظف مطلوب.");
+      setFormError(t("leaveBalances.anEmployeeIsRequired"));
       return;
     }
     setFormError(null);
@@ -72,19 +74,19 @@ export function LeaveBalancesScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّر حفظ رصيد الإجازة.");
+      setFormError(err instanceof ApiError ? err.message : t("leaveBalances.theLeaveBalanceCouldNot"));
     }
   }
 
   const columns: DocumentListColumn<LeaveBalanceDTO>[] = [
-    { key: "employee", header: "الموظف", render: (b) => <span className="font-semibold text-ink">{employeeName(b.employeeId)}</span> },
-    { key: "leaveType", header: "نوع الإجازة", render: (b) => <span className="text-ink">{LEAVE_TYPE_LABEL[b.leaveType]}</span> },
-    { key: "entitled", header: "المستحق", align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.entitled)}</span> },
-    { key: "carriedOver", header: "المرحّل", align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.carriedOver)}</span> },
-    { key: "used", header: "المستخدم", align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.used)}</span> },
+    { key: "employee", header: t("leaveBalances.employee"), render: (b) => <span className="font-semibold text-ink">{employeeName(b.employeeId)}</span> },
+    { key: "leaveType", header: t("leaveBalances.leaveType"), render: (b) => <span className="text-ink">{t(LEAVE_TYPE_KEY[b.leaveType])}</span> },
+    { key: "entitled", header: t("leaveBalances.accrued"), align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.entitled)}</span> },
+    { key: "carriedOver", header: t("leaveBalances.carriedOver"), align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.carriedOver)}</span> },
+    { key: "used", header: t("leaveBalances.used"), align: "end", render: (b) => <span className="mz-num text-ink">{formatDays(b.used)}</span> },
     {
       key: "available",
-      header: "المتاح",
+      header: t("leaveBalances.available"),
       align: "end",
       render: (b) => <span className="mz-num font-semibold text-ink">{formatDays(b.available)}</span>,
     },
@@ -94,7 +96,7 @@ export function LeaveBalancesScreen() {
       align: "end",
       render: (b) => (
         <Button size="sm" onClick={() => openForm(b)}>
-          تعديل
+          {t("common.edit")}
         </Button>
       ),
     },
@@ -104,14 +106,14 @@ export function LeaveBalancesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرصدة الإجازات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("leaveBalances.leaveBalancesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
-      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label="السنة">
+      <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveBalances.year")}>
         {YEAR_OPTIONS.map((y) => (
           <Chip key={y} type="button" active={year === y} onClick={() => setYear(y)}>
             <span className="mz-num">{y}</span>
@@ -121,21 +123,21 @@ export function LeaveBalancesScreen() {
 
       <DocumentList<LeaveBalanceDTO>
         eyebrow="HR · Leave Balances"
-        title="أرصدة الإجازات"
-        description="رصيد كل موظف في كل نوع إجازة: المستحق والمرحّل والمستخدم والمتاح"
+        title={t("leaveBalances.leaveBalances")}
+        description={t("leaveBalances.eachEmployeeSBalanceBy")}
         actions={
           <Button variant="primary" onClick={() => openForm()}>
-            تسوية رصيد
+            {t("leaveBalances.adjustBalance")}
           </Button>
         }
-        stats={[{ label: "عدد الأرصدة", value: <span className="mz-num">{balances.length}</span> }]}
+        stats={[{ label: t("leaveBalances.balances"), value: <span className="mz-num">{balances.length}</span> }]}
         filterBarExtra={
           <div className="min-w-[220px]">
             <SelectField
-              label="الموظف"
+              label={t("leaveBalances.employee")}
               value={employeeId}
               onChange={setEmployeeId}
-              options={[{ value: "", label: "كل الموظفين" }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
+              options={[{ value: "", label: t("leaveBalances.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
             />
           </div>
         }
@@ -146,13 +148,13 @@ export function LeaveBalancesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{balances.length}</span> رصيد لعام <span className="mz-num">{year}</span>
+            {t("common.show")} <span className="mz-num">{balances.length}</span> {t("leaveBalances.balancesFor")} <span className="mz-num">{year}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أرصدة إجازات — شغّل دورة استحقاق لإنشائها</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leaveBalances.noLeaveBalancesRunAn")}</div>}
       />
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="تسوية رصيد إجازة">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("leaveBalances.adjustLeaveBalance")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -160,26 +162,26 @@ export function LeaveBalancesScreen() {
             </div>
           ) : null}
           <SelectField
-            label="الموظف *"
+            label={t("leaveBalances.employee2")}
             value={draft.employeeId}
             onChange={(v) => setDraft((d) => ({ ...d, employeeId: v }))}
             options={employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))}
           />
           <SelectField
-            label="نوع الإجازة *"
+            label={t("leaveBalances.leaveType2")}
             value={draft.leaveType}
             onChange={(v) => setDraft((d) => ({ ...d, leaveType: v as LeaveTypeDTO }))}
-            options={LEAVE_TYPE_OPTIONS}
+            options={leaveTypeOptions(t)}
           />
-          <TextField label="المستحق" value={draft.entitled} onChange={(v) => setDraft((d) => ({ ...d, entitled: v }))} placeholder="21" />
-          <TextField label="المرحّل" value={draft.carriedOver} onChange={(v) => setDraft((d) => ({ ...d, carriedOver: v }))} placeholder="0" />
-          <TextField label="المستخدم" value={draft.used} onChange={(v) => setDraft((d) => ({ ...d, used: v }))} placeholder="0" />
+          <TextField label={t("leaveBalances.accrued")} value={draft.entitled} onChange={(v) => setDraft((d) => ({ ...d, entitled: v }))} placeholder="21" />
+          <TextField label={t("leaveBalances.carriedOver")} value={draft.carriedOver} onChange={(v) => setDraft((d) => ({ ...d, carriedOver: v }))} placeholder="0" />
+          <TextField label={t("leaveBalances.used")} value={draft.used} onChange={(v) => setDraft((d) => ({ ...d, used: v }))} placeholder="0" />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

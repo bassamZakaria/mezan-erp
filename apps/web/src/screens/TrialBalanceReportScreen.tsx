@@ -2,6 +2,8 @@ import { useState } from "react";
 import { ReportRunner } from "@mezan/ui";
 import { createTrialBalanceReport, type TrialBalanceRow } from "@mezan/domain";
 import { useFinancialReport } from "../data/financial-reports-hooks";
+import { localizeReportDefinition } from "../report-labels";
+import { useAppTranslation } from "../i18n";
 
 /**
  * ميزان المراجعة (docs/catalog/08-reports.md), wired to `GET
@@ -12,7 +14,7 @@ import { useFinancialReport } from "../data/financial-reports-hooks";
  */
 
 const TODAY = new Date().toISOString().slice(0, 10);
-const definition = createTrialBalanceReport(TODAY);
+const rawDefinition = createTrialBalanceReport(TODAY);
 
 function toStringParams(defaults: object): Record<string, string> {
   return Object.fromEntries(
@@ -21,8 +23,10 @@ function toStringParams(defaults: object): Record<string, string> {
 }
 
 export function TrialBalanceReportScreen() {
-  const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
-  const [hasRun, setHasRun] = useState<boolean>(!definition.onDemand);
+  const { t } = useAppTranslation();
+  const definition = localizeReportDefinition(rawDefinition, t);
+  const [params, setParams] = useState<Record<string, string>>(() => toStringParams(rawDefinition.defaultParams));
+  const [hasRun, setHasRun] = useState<boolean>(!rawDefinition.onDemand);
 
   const query = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", params, { enabled: hasRun });
 
@@ -31,7 +35,7 @@ export function TrialBalanceReportScreen() {
 
   return (
     <ReportRunner
-      eyebrow="eyebrow.reports.financial"
+      eyebrow={t("eyebrow.reports.financial")}
       title={definition.titleAr}
       description={definition.descriptionAr}
       paramFields={definition.paramFields}

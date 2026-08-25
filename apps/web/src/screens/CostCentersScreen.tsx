@@ -5,13 +5,14 @@ import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mez
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
 import { useBranches, useCostCenters, useCreateCostCenter, useUpdateCostCenter } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مراكز التكلفة (Cost Centers) — docs/catalog/04 §"مراكز التكلفة". Tree/list + detail panel, mirroring ChartOfAccountsScreen's tree pattern (no header/detail distinction here — any cost center may have children). */
 
-const STATUS_LABEL: Record<CostCenterStatusDTO, string> = { active: "نشط", inactive: "غير نشط" };
+const STATUS_KEY: Record<CostCenterStatusDTO, AppTranslationKey> = { active: "costCentres.status.active", inactive: "costCentres.status.inactive" };
 const STATUS_TONE: Record<CostCenterStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 
-const ROOT_PARENT_OPTION: EntityPickerOption = { id: "__root__", label: "بدون مركز رئيسي" };
+const ROOT_PARENT_ID = "__root__";
 
 interface FlatRow extends CostCenterDTO {
   level: number;
@@ -46,24 +47,28 @@ function draftFromCostCenter(cc: CostCenterDTO): CostCenterDraft {
   return { code: cc.code, nameAr: cc.nameAr, nameEn: cc.nameEn ?? "", type: cc.type, parentId: cc.parentId, notes: cc.notes ?? "", status: cc.status };
 }
 
-function validateDraft(draft: CostCenterDraft, existing: CostCenterDTO[], editingId: string | null): string | null {
+/** Returns a catalogue KEY (with any placeholders), so the caller decides the locale. */
+type ValidationError = { key: AppTranslationKey; params?: Record<string, string | number> };
+
+function validateDraft(draft: CostCenterDraft, existing: CostCenterDTO[], editingId: string | null): ValidationError | null {
   const code = draft.code.trim();
-  if (code === "") return "الكود مطلوب.";
+  if (code === "") return { key: "costCentres.codeRequired" as const };
   if (!editingId && existing.some((c) => c.code === code)) {
-    return `الكود "${code}" مستخدم بالفعل — اختر كوداً آخر.`;
+    return { key: "costCentres.codeInUse" as const, params: { code } };
   }
-  if (draft.nameAr.trim() === "") return "الاسم مطلوب.";
+  if (draft.nameAr.trim() === "") return { key: "costCentres.nameRequired" as const };
   if (draft.parentId !== null) {
-    if (editingId && draft.parentId === editingId) return "لا يمكن اختيار هذا المركز كمركز رئيسي له (تسلسل دائري).";
-    if (!existing.some((c) => c.id === draft.parentId)) return "المركز الرئيسي المختار غير موجود.";
+    if (editingId && draft.parentId === editingId) return { key: "costCentres.circularParent" as const };
+    if (!existing.some((c) => c.id === draft.parentId)) return { key: "costCentres.parentMissing" as const };
     if (editingId && isDescendantOf(existing, draft.parentId, editingId)) {
-      return "لا يمكن اختيار هذا المركز كمركز رئيسي له (تسلسل دائري).";
+      return { key: "costCentres.circularParent" as const };
     }
   }
   return null;
 }
 
 export function CostCentersScreen() {
+  const { t } = useAppTranslation();
   const query = useCostCenters();
   const createCostCenter = useCreateCostCenter();
   const updateCostCenter = useUpdateCostCenter();
@@ -110,8 +115,8 @@ export function CostCentersScreen() {
     nameAr: row.nameAr,
     nameEn: row.nameEn,
     typeLabel: getCostCenterTypeLabel(row.type as DomainCostCenterType),
-    natureLabel: costCenterIsLinked(row) ? "مرتبط" : "مستقل",
-    statusLabel: STATUS_LABEL[row.status],
+    natureLabel: costCenterIsLinked(row) ? t("costCentres.linked") : t("costCentres.standalone"),
+    statusLabel: t(STATUS_KEY[row.status]),
     statusTone: STATUS_TONE[row.status],
     level: row.level,
     hasChildren: row.hasChildren,
@@ -122,8 +127,8 @@ export function CostCentersScreen() {
   const allExpanded = allIds.length > 0 && allIds.every((id) => expandedIds.has(id));
 
   const parentOptions: EntityPickerOption[] = useMemo(
-    () => [ROOT_PARENT_OPTION, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${c.nameAr}` }))],
-    [costCenters, editingId],
+    () => [{ id: ROOT_PARENT_ID, label: t("costCentres.rootParent") }, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${c.nameAr}` }))],
+    [costCenters, editingId, t],
   );
 
   const selected = selectedId ? costCenters.find((c) => c.id === selectedId) ?? null : null;
@@ -149,7 +154,7 @@ export function CostCentersScreen() {
     event.preventDefault();
     const error = validateDraft(draft, costCenters, editingId);
     if (error) {
-      setFormError(error);
+      setFormError(t(error.key, error.params));
       return;
     }
     setFormError(null);
@@ -174,7 +179,7 @@ export function CostCentersScreen() {
       }
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : "تعذر حفظ مركز التكلفة");
+      setFormError(err instanceof Error ? err.message : t("costCentres.theCostCentreCouldNot"));
     }
   }
 
@@ -187,34 +192,34 @@ export function CostCentersScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل مراكز التكلفة.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("costCentres.costCentresCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Accounting · Cost Centers</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">مراكز التكلفة</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("costCentres.costCentres")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">
-            مراكز التكلفة تتيح لك معرفة أرباح ومصروفات كل قسم أو مشروع على حدة
+            {t("costCentres.costCentresLetYouSee")}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
-          <Button onClick={() => setExpandedIds(allExpanded ? new Set() : new Set(allIds))}>{allExpanded ? "طي الكل" : "توسيع الكل"}</Button>
+          <Button onClick={() => setExpandedIds(allExpanded ? new Set() : new Set(allIds))}>{allExpanded ? t("costCentres.collapseAll") : t("costCentres.expandAll")}</Button>
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة مركز تكلفة
+            {t("costCentres.addCostCentre")}
           </Button>
         </div>
       </div>
       <FulcrumRule />
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="إجمالي مراكز التكلفة" value={<span className="mz-num">{totalCount}</span>} />
-        <StatCard label="نشط" value={<span className="mz-num">{activeCount}</span>} />
-        <StatCard label="مرتبط" value={<span className="mz-num">{linkedCount}</span>} />
-        <StatCard label="مستقل" value={<span className="mz-num">{standaloneCount}</span>} />
+        <StatCard label={t("costCentres.totalCostCentres")} value={<span className="mz-num">{totalCount}</span>} />
+        <StatCard label={t("common.active")} value={<span className="mz-num">{activeCount}</span>} />
+        <StatCard label={t("costCentres.linked")} value={<span className="mz-num">{linkedCount}</span>} />
+        <StatCard label={t("costCentres.standalone")} value={<span className="mz-num">{standaloneCount}</span>} />
       </div>
 
       <div className="mb-[14px] flex flex-wrap gap-[10px]">
@@ -223,18 +228,18 @@ export function CostCentersScreen() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="ابحث بالكود أو الاسم…"
-            aria-label="ابحث بالكود أو الاسم"
+            placeholder={t("costCentres.searchByCodeOrName")}
+            aria-label={t("costCentres.searchByCodeOrName2")}
             className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
           />
         </div>
         <select
-          aria-label="تصفية حسب النوع"
+          aria-label={t("costCentres.filterByType")}
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value as CostCenterTypeDTO | "all")}
           className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
         >
-          <option value="all">كل الأنواع</option>
+          <option value="all">{t("costCentres.allTypes")}</option>
           {COST_CENTER_TYPE_DEFINITIONS.map((d) => (
             <option key={d.code} value={d.code}>
               {d.labelAr}
@@ -270,17 +275,17 @@ export function CostCentersScreen() {
         )}
         emptyState={
           <div className="p-8 text-center">
-            <p className="text-[13px] font-semibold text-ink">لا توجد مراكز تكلفة بعد</p>
-            <p className="mt-[4px] text-[12.5px] text-ink-muted">مراكز التكلفة تتيح لك معرفة أرباح ومصروفات كل قسم أو مشروع على حدة</p>
+            <p className="text-[13px] font-semibold text-ink">{t("costCentres.noCostCentresYet")}</p>
+            <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("costCentres.costCentresLetYouSee")}</p>
             <Button className="mt-[12px]" variant="primary" onClick={openCreateForm}>
-              إضافة مركز تكلفة
+              {t("costCentres.addCostCentre")}
             </Button>
           </div>
         }
       />
 
       <div className="mt-[10px] text-xs text-ink-muted">
-        عرض <span className="mz-num">{rows.length}</span> من <span className="mz-num">{totalCount}</span> مركز تكلفة
+        {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("costCentres.costCentres2")}
       </div>
 
       {/* -------- Cost center detail panel -------- */}
@@ -293,36 +298,36 @@ export function CostCentersScreen() {
         {selected ? (
           <div className="flex flex-col gap-[16px]">
             <div className="flex flex-wrap items-center gap-[8px]">
-              <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+              <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
               <span className="inline-flex rounded-sm bg-surface-3 px-[8px] py-[3px] text-[11.5px] font-semibold text-ink-muted">
-                {costCenterIsLinked(selected) ? "مرتبط" : "مستقل"}
+                {costCenterIsLinked(selected) ? t("costCentres.linked") : t("costCentres.standalone")}
               </span>
               <Button size="sm" onClick={() => openEditForm(selected)}>
-                تعديل
+                {t("common.edit")}
               </Button>
             </div>
 
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">المركز الرئيسي</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{parentOfSelected ? `${parentOfSelected.code} — ${parentOfSelected.nameAr}` : "بدون مركز رئيسي"}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("costCentres.parentCentre")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{parentOfSelected ? `${parentOfSelected.code} — ${parentOfSelected.nameAr}` : t("costCentres.noParentCentre")}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الفرع</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.branchId ? (branchOfSelected?.name ?? selected.branchId) : "بدون ربط"}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.branch")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.branchId ? (branchOfSelected?.name ?? selected.branchId) : t("costCentres.notLinked")}</div>
               </div>
             </Card>
 
             {selected.notes ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">ملاحظات</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                 <div className="mt-[5px] text-[13px] text-ink">{selected.notes}</div>
               </Card>
             ) : null}
 
             {childrenOfSelected.length > 0 ? (
               <div>
-                <h3 className="mb-[8px] text-[12.5px] font-semibold text-ink-muted">المراكز الفرعية ({childrenOfSelected.length})</h3>
+                <h3 className="mb-[8px] text-[12.5px] font-semibold text-ink-muted">{t("costCentres.childCentres")}{childrenOfSelected.length})</h3>
                 <div className="flex flex-col gap-[6px]">
                   {childrenOfSelected.map((child) => (
                     <button
@@ -342,7 +347,7 @@ export function CostCentersScreen() {
       </SidePanel>
 
       {/* -------- Add / edit cost center form -------- */}
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={editingId ? "تعديل مركز تكلفة" : "إضافة مركز تكلفة"}>
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={editingId ? t("costCentres.editCostCentre") : t("costCentres.addCostCentre")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -350,41 +355,41 @@ export function CostCentersScreen() {
             </div>
           ) : null}
 
-          <TextField label="الكود *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} disabled={editingId !== null} placeholder="CC-005" />
-          <TextField label="الاسم *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label="الاسم بالعربي" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+          <TextField label={t("costCentres.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} disabled={editingId !== null} placeholder="CC-005" />
+          <TextField label={t("costCentres.name")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("costCentres.nameInArabic")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
           <SelectField
-            label="النوع"
+            label={t("common.type")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as CostCenterTypeDTO }))}
             options={COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr }))}
           />
           <EntityPicker
-            label="المركز الرئيسي"
+            label={t("costCentres.parentCentre")}
             options={parentOptions}
-            value={draft.parentId ? (parentOptions.find((o) => o.id === draft.parentId) ?? null) : ROOT_PARENT_OPTION}
-            onChange={(option) => setDraft((d) => ({ ...d, parentId: !option || option.id === ROOT_PARENT_OPTION.id ? null : option.id }))}
+            value={draft.parentId ? (parentOptions.find((o) => o.id === draft.parentId) ?? null) : (parentOptions[0] ?? null)}
+            onChange={(option) => setDraft((d) => ({ ...d, parentId: !option || option.id === ROOT_PARENT_ID ? null : option.id }))}
           />
-          <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+          <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
           {editingId ? (
             <SelectField
-              label="الحالة"
+              label={t("common.status")}
               value={draft.status}
               onChange={(v) => setDraft((d) => ({ ...d, status: v as CostCenterStatusDTO }))}
               options={[
-                { value: "active", label: "نشط" },
-                { value: "inactive", label: "غير نشط" },
+                { value: "active", label: t("common.active") },
+                { value: "inactive", label: t("common.inactive") },
               ]}
             />
           ) : null}
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              {editingId ? "حفظ" : "إضافة"}
+              {editingId ? t("common.save") : t("common.add")}
             </Button>
           </div>
         </form>

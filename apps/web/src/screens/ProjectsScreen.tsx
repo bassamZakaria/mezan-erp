@@ -17,15 +17,16 @@ import { canTransitionProject } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
 import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** المشاريع والمقاولات (Projects & Contracting) — docs/catalog/07 §"المشاريع والمقاولات". List + detail + new-project panel. */
 
-const STATUS_LABEL: Record<ProjectStatusDTO, string> = {
-  planned: "مخطط",
-  active: "نشط",
-  on_hold: "متوقف مؤقتاً",
-  completed: "مكتمل",
-  cancelled: "ملغي",
+const STATUS_KEY: Record<ProjectStatusDTO, AppTranslationKey> = {
+  planned: "projects.status.planned",
+  active: "projects.status.active",
+  on_hold: "projects.status.on_hold",
+  completed: "projects.status.completed",
+  cancelled: "projects.status.cancelled",
 };
 
 const STATUS_TONE: Record<ProjectStatusDTO, PillTone> = {
@@ -42,10 +43,10 @@ const STATUS_TONE: Record<ProjectStatusDTO, PillTone> = {
  * never offer a move the save will refuse. A terminal project (مكتمل / ملغي)
  * offers only its own status back.
  */
-function statusOptionsFrom(current: ProjectStatusDTO) {
-  return (Object.keys(STATUS_LABEL) as ProjectStatusDTO[])
+function statusOptionsFrom(current: ProjectStatusDTO, t: (key: AppTranslationKey) => string) {
+  return (Object.keys(STATUS_KEY) as ProjectStatusDTO[])
     .filter((value) => canTransitionProject(current, value))
-    .map((value) => ({ value, label: STATUS_LABEL[value] }));
+    .map((value) => ({ value, label: t(STATUS_KEY[value]) }));
 }
 
 const NO_CUSTOMER_OPTION: EntityPickerOption = { id: "__none__", label: "بدون عميل" };
@@ -92,6 +93,7 @@ function validateDraft(draft: ProjectDraft, existing: ProjectDTO[]): string | nu
 }
 
 export function ProjectsScreen() {
+  const { t } = useAppTranslation();
   const query = useProjects();
   const customersQuery = useCustomers();
   const usersQuery = useUsers();
@@ -114,12 +116,12 @@ export function ProjectsScreen() {
   const [statusError, setStatusError] = useState<string | null>(null);
 
   function customerName(customerId: string | null): string {
-    if (customerId === null) return "بدون عميل";
+    if (customerId === null) return t("projects.noCustomer");
     return customers.find((c) => c.id === customerId)?.nameAr ?? customerId;
   }
 
   function managerName(managerId: string | null): string {
-    if (managerId === null) return "بدون مدير";
+    if (managerId === null) return t("projects.noManager");
     return users.find((u) => u.id === managerId)?.fullName ?? managerId;
   }
 
@@ -183,7 +185,7 @@ export function ProjectsScreen() {
       await createProject.mutateAsync(body);
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت إضافة المشروع.");
+      setFormError(err instanceof ApiError ? err.message : t("projects.theProjectCouldNotBe"));
     }
   }
 
@@ -193,24 +195,24 @@ export function ProjectsScreen() {
     try {
       await updateProject.mutateAsync({ id: selected.id, patch: { status: statusDraft } });
     } catch (err) {
-      setStatusError(err instanceof ApiError ? err.message : "تعذّر تحديث حالة المشروع.");
+      setStatusError(err instanceof ApiError ? err.message : t("projects.theProjectSStatusCould"));
     }
   }
 
   const columns: DocumentListColumn<ProjectDTO>[] = [
-    { key: "code", header: "كود المشروع", render: (p) => <span className="mz-num font-semibold text-ink">{p.code}</span> },
-    { key: "nameAr", header: "اسم المشروع", render: (p) => <span className="font-semibold text-ink">{p.nameAr}</span> },
-    { key: "customer", header: "العميل", render: (p) => customerName(p.customerId) },
-    { key: "manager", header: "مدير المشروع", render: (p) => managerName(p.managerId) },
-    { key: "budget", header: "الميزانية", align: "end", render: (p) => <MoneyDisplay value={toMajor(p.budget)} /> },
-    { key: "status", header: "الحالة", render: (p) => <StatusPill label={STATUS_LABEL[p.status]} tone={STATUS_TONE[p.status]} /> },
+    { key: "code", header: t("projects.projectCode"), render: (p) => <span className="mz-num font-semibold text-ink">{p.code}</span> },
+    { key: "nameAr", header: t("projects.projectName"), render: (p) => <span className="font-semibold text-ink">{p.nameAr}</span> },
+    { key: "customer", header: t("common.customer"), render: (p) => customerName(p.customerId) },
+    { key: "manager", header: t("projects.projectManager"), render: (p) => managerName(p.managerId) },
+    { key: "budget", header: t("projects.budget"), align: "end", render: (p) => <MoneyDisplay value={toMajor(p.budget)} /> },
+    { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
   ];
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: totalCount },
-    ...(Object.keys(STATUS_LABEL) as ProjectStatusDTO[]).map((status) => ({
+    { key: "all", label: t("common.all"), count: totalCount },
+    ...(Object.keys(STATUS_KEY) as ProjectStatusDTO[]).map((status) => ({
       key: status,
-      label: STATUS_LABEL[status],
+      label: t(STATUS_KEY[status]),
       count: projects.filter((p) => p.status === status).length,
     })),
   ];
@@ -219,33 +221,33 @@ export function ProjectsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل المشاريع.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("projects.projectsCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<ProjectDTO>
         eyebrow="Projects · Contracting"
-        title="المشاريع والمقاولات"
-        description="تتبّع تكلفة كل مشروع وفوترته عبر مركز تكلفة مخصص له"
+        title={t("projects.projectsAndContracting")}
+        description={t("projects.trackingEachProjectSCost")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            مشروع جديد
+            {t("projects.newProject")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المشاريع", value: <span className="mz-num">{totalCount}</span> },
-          { label: "نشط", value: <span className="mz-num">{activeCount}</span> },
-          { label: "مخطط", value: <span className="mz-num">{plannedCount}</span> },
-          { label: "مكتمل", value: <span className="mz-num">{completedCount}</span> },
+          { label: t("projects.totalProjects"), value: <span className="mz-num">{totalCount}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
+          { label: t("projects.planned"), value: <span className="mz-num">{plannedCount}</span> },
+          { label: t("projects.completed"), value: <span className="mz-num">{completedCount}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={setStatusFilter}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="ابحث بالكود أو الاسم..."
+        searchPlaceholder={t("projects.searchByCodeOrName")}
         columns={columns}
         rows={filtered}
         rowKey={(p) => p.id}
@@ -254,12 +256,12 @@ export function ProjectsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{totalCount}</span> مشروع
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("projects.projects")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            لا توجد مشاريع — أنشئ أول مشروع لبدء تتبع التكاليف والفوترة لكل مشروع
+            {t("projects.noProjectsCreateTheFirst")}
           </div>
         }
       />
@@ -267,55 +269,55 @@ export function ProjectsScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? `مشروع — ${selected.nameAr}` : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">كود المشروع</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.projectCode")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.code}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">الاسم بالإنجليزية</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.nameInEnglish")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.nameEn ?? "—"}</div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">العميل</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.customer")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{customerName(selected.customerId)}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">مدير المشروع</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.projectManager")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{managerName(selected.managerId)}</div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ البدء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.startDate")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.startDate ?? "—"}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ الانتهاء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.endDate")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.endDate ?? "—"}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">عنوان الموقع</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.siteAddress")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.siteAddress ?? "—"}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">مركز التكلفة</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("projects.costCentre")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.costCenterId}</div>
               </div>
             </Card>
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">الميزانية</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("projects.budget")}</div>
               <div className="mt-[6px]">
                 <MoneyDisplay value={toMajor(selected.budget)} className="text-[18px] font-bold" />
               </div>
             </Card>
             {selected.notes ? (
               <Card className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">ملاحظات</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("common.notes")}</div>
                 <div className="mt-[6px] text-[13px] text-ink">{selected.notes}</div>
               </Card>
             ) : null}
             <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">تغيير الحالة</h3>
+              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("projects.changeStatus")}</h3>
               {statusError ? (
                 <div role="alert" className="mb-[10px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
                   {statusError}
@@ -323,12 +325,12 @@ export function ProjectsScreen() {
               ) : null}
               <div className="flex items-end gap-[10px]">
                 <div className="flex-1">
-                  <SelectField label="الحالة" value={statusDraft} onChange={(v) => setStatusDraft(v as ProjectStatusDTO)} options={statusOptionsFrom(selected.status)}
-                    disabled={statusOptionsFrom(selected.status).length <= 1}
+                  <SelectField label={t("common.status")} value={statusDraft} onChange={(v) => setStatusDraft(v as ProjectStatusDTO)} options={statusOptionsFrom(selected.status, t)}
+                    disabled={statusOptionsFrom(selected.status, t).length <= 1}
                   />
                 </div>
                 <Button variant="primary" onClick={handleStatusSave}>
-                  حفظ
+                  {t("common.save")}
                 </Button>
               </div>
             </div>
@@ -336,7 +338,7 @@ export function ProjectsScreen() {
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="مشروع جديد" description="بيانات المشروع الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("projects.newProject")} description={t("projects.theProjectSCoreDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -345,41 +347,41 @@ export function ProjectsScreen() {
           ) : null}
 
           <TextField
-            label="كود المشروع *"
+            label={t("projects.projectCode2")}
             value={draft.code}
             onChange={(v) => setDraft((d) => ({ ...d, code: v }))}
             placeholder="TOWER-A"
-            hint="يستخدم لإنشاء مركز تكلفة المشروع (PRJ-الكود)"
+            hint={t("projects.usedToCreateTheProject")}
           />
-          <TextField label="اسم المشروع *" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label="الاسم بالإنجليزية" value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+          <TextField label={t("projects.projectName2")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("projects.nameInEnglish")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
           <EntityPicker
-            label="العميل"
+            label={t("common.customer")}
             options={customerOptions}
             value={draft.customerId ? (customerOptions.find((o) => o.id === draft.customerId) ?? null) : NO_CUSTOMER_OPTION}
             onChange={(option) => setDraft((d) => ({ ...d, customerId: !option || option.id === NO_CUSTOMER_OPTION.id ? null : option.id }))}
           />
           <EntityPicker
-            label="مدير المشروع"
+            label={t("projects.projectManager")}
             options={managerOptions}
             value={draft.managerId ? (managerOptions.find((o) => o.id === draft.managerId) ?? null) : NO_MANAGER_OPTION}
             onChange={(option) => setDraft((d) => ({ ...d, managerId: !option || option.id === NO_MANAGER_OPTION.id ? null : option.id }))}
           />
-          <TextField label="تاريخ البدء" value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
-          <TextField label="تاريخ الانتهاء" value={draft.endDate} onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("projects.startDate")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("projects.endDate")} value={draft.endDate} onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))} placeholder="YYYY-MM-DD" />
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الميزانية (EGP)</div>
-            <MoneyInput aria-label="الميزانية (EGP)" value={draft.budget} onChange={(v) => setDraft((d) => ({ ...d, budget: v }))} />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("projects.budgetEgp")}</div>
+            <MoneyInput aria-label={t("projects.budgetEgp")} value={draft.budget} onChange={(v) => setDraft((d) => ({ ...d, budget: v }))} />
           </div>
-          <TextField label="عنوان الموقع" value={draft.siteAddress} onChange={(v) => setDraft((d) => ({ ...d, siteAddress: v }))} />
-          <TextField label="ملاحظات" value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+          <TextField label={t("projects.siteAddress")} value={draft.siteAddress} onChange={(v) => setDraft((d) => ({ ...d, siteAddress: v }))} />
+          <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
 
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

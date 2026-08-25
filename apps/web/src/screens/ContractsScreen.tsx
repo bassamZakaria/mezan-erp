@@ -16,19 +16,20 @@ import {
 import type { ContractDTO, PayBasisDTO, ContractStatusDTO, ContractTypeDTO, PayFrequencyDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useContracts, useCreateContract, useEmployees, useTerminateContract } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** العقود (Contracts) — docs/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
-const TYPE_LABEL: Record<ContractTypeDTO, string> = {
-  indefinite: "غير محدد المدة",
-  fixed_term: "محدد المدة",
-  seasonal: "موسمي",
-  probationary: "تجريبي",
+const TYPE_KEY: Record<ContractTypeDTO, AppTranslationKey> = {
+  indefinite: "contracts.type.indefinite",
+  fixed_term: "contracts.type.fixed_term",
+  seasonal: "contracts.type.seasonal",
+  probationary: "contracts.type.probationary",
 };
 
-const PAY_BASIS_LABEL: Record<PayBasisDTO, string> = { monthly: "راتب شهري", hourly: "بالساعة", daily: "باليوم" };
-const PAY_FREQUENCY_LABEL: Record<PayFrequencyDTO, string> = { monthly: "شهري", biweekly: "كل أسبوعين", weekly: "أسبوعي" };
-const STATUS_LABEL: Record<ContractStatusDTO, string> = { active: "ساري", terminated: "مفسوخ" };
+const PAY_BASIS_KEY: Record<PayBasisDTO, AppTranslationKey> = { monthly: "contracts.payBasis.monthly", hourly: "contracts.payBasis.hourly", daily: "contracts.payBasis.daily" };
+const PAY_FREQUENCY_KEY: Record<PayFrequencyDTO, AppTranslationKey> = { monthly: "contracts.payFreq.monthly", biweekly: "contracts.payFreq.biweekly", weekly: "contracts.payFreq.weekly" };
+const STATUS_KEY: Record<ContractStatusDTO, AppTranslationKey> = { active: "contracts.status.active", terminated: "contracts.status.terminated" };
 const STATUS_TONE: Record<ContractStatusDTO, PillTone> = { active: "success", terminated: "neutral" };
 const CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
 
@@ -63,6 +64,7 @@ function blankDraft(): ContractDraft {
 }
 
 export function ContractsScreen() {
+  const { t } = useAppTranslation();
   const query = useContracts();
   const employeesQuery = useEmployees();
   const createContract = useCreateContract();
@@ -111,11 +113,11 @@ export function ContractsScreen() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (draft.employeeId === "" || draft.startDate.trim() === "" || draft.monthlySalary === null) {
-      setFormError("الموظف وتاريخ البداية والراتب الشهري مطلوبة.");
+      setFormError(t("contracts.theEmployeeTheStartDate"));
       return;
     }
     if (draft.type !== "indefinite" && draft.endDate.trim() === "") {
-      setFormError("تاريخ الانتهاء مطلوب للعقود محددة المدة/الموسمية/التجريبية.");
+      setFormError(t("contracts.anEndDateIsRequired"));
       return;
     }
     setFormError(null);
@@ -137,7 +139,7 @@ export function ContractsScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت إضافة العقد.");
+      setFormError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe"));
     }
   }
 
@@ -148,58 +150,58 @@ export function ContractsScreen() {
     try {
       await terminateContract.mutateAsync(selected.id);
     } catch (err) {
-      setDetailError(err instanceof ApiError ? err.message : "تعذّر إنهاء العقد.");
+      setDetailError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe2"));
     } finally {
       setPendingAction(false);
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: contracts.length },
-    { key: "active", label: "ساري", count: contracts.filter((c) => c.status === "active").length },
-    { key: "terminated", label: "مفسوخ", count: contracts.filter((c) => c.status === "terminated").length },
+    { key: "all", label: t("common.all"), count: contracts.length },
+    { key: "active", label: t("contracts.active"), count: contracts.filter((c) => c.status === "active").length },
+    { key: "terminated", label: t("contracts.terminated"), count: contracts.filter((c) => c.status === "terminated").length },
   ];
 
   const columns: DocumentListColumn<ContractDTO>[] = [
-    { key: "number", header: "رقم العقد", render: (c) => <span className="mz-num font-semibold text-ink">{c.number}</span> },
-    { key: "employee", header: "اسم الموظف", render: (c) => employeeName(c.employeeId) },
-    { key: "type", header: "نوع العقد", render: (c) => TYPE_LABEL[c.type] },
-    { key: "startDate", header: "تاريخ البداية", render: (c) => <span className="mz-num">{c.startDate}</span> },
-    { key: "endDate", header: "تاريخ الانتهاء", render: (c) => <span className="mz-num">{c.endDate ?? "—"}</span> },
-    { key: "salary", header: "الراتب الأساسي", align: "end", render: (c) => <MoneyDisplay value={Number(c.monthlySalary)} /> },
-    { key: "status", header: "الحالة", render: (c) => <StatusPill label={STATUS_LABEL[c.status]} tone={STATUS_TONE[c.status]} /> },
+    { key: "number", header: t("contracts.contractNumber"), render: (c) => <span className="mz-num font-semibold text-ink">{c.number}</span> },
+    { key: "employee", header: t("contracts.employee"), render: (c) => employeeName(c.employeeId) },
+    { key: "type", header: t("contracts.contractType"), render: (c) => t(TYPE_KEY[c.type]) },
+    { key: "startDate", header: t("contracts.startDate"), render: (c) => <span className="mz-num">{c.startDate}</span> },
+    { key: "endDate", header: t("contracts.endDate"), render: (c) => <span className="mz-num">{c.endDate ?? "—"}</span> },
+    { key: "salary", header: t("contracts.basicSalary"), align: "end", render: (c) => <MoneyDisplay value={Number(c.monthlySalary)} /> },
+    { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
 
   return (
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل العقود.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("contracts.contractsCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <DocumentList<ContractDTO>
         eyebrow="HR · Contracts"
-        title="العقود"
-        description="العقد الرسمي لكل موظف: نوع العقد، أساس وتكرار الدفع، الراتب، البدلات والاستقطاعات"
+        title={t("contracts.contracts")}
+        description={t("contracts.eachEmployeeSFormalContract")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة عقد
+            {t("contracts.addContract")}
           </Button>
         }
         stats={[
-          { label: "إجمالي العقود", value: <span className="mz-num">{contracts.length}</span> },
-          { label: "عقود سارية", value: <span className="mz-num">{contracts.filter((c) => c.status === "active").length}</span> },
+          { label: t("contracts.totalContracts"), value: <span className="mz-num">{contracts.length}</span> },
+          { label: t("contracts.activeContracts"), value: <span className="mz-num">{contracts.filter((c) => c.status === "active").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | ContractStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث برقم العقد أو اسم الموظف..."
+        searchPlaceholder={t("contracts.searchByContractNumberOr")}
         columns={columns}
         rows={filtered}
         rowKey={(c) => c.id}
@@ -211,70 +213,70 @@ export function ContractsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{contracts.length}</span> عقد
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{contracts.length}</span> {t("contracts.contracts2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد بيانات</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("contracts.nothingToShow")}</div>}
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
         {selected ? (
           <div className="flex flex-col gap-[16px]">
-            <StatusPill label={STATUS_LABEL[selected.status]} tone={STATUS_TONE[selected.status]} />
+            <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
             <Card className="grid grid-cols-2 overflow-hidden">
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">اسم الموظف</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.employee")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{employeeName(selected.employeeId)}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">نوع العقد</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{TYPE_LABEL[selected.type]}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.contractType")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(TYPE_KEY[selected.type])}</div>
               </div>
               <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">أساس الدفع</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{PAY_BASIS_LABEL[selected.payBasis]}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.payBasis")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(PAY_BASIS_KEY[selected.payBasis])}</div>
               </div>
               <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تكرار الدفع</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{PAY_FREQUENCY_LABEL[selected.payFrequency]}</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.payFrequency")}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(PAY_FREQUENCY_KEY[selected.payFrequency])}</div>
               </div>
               <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ البداية</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.startDate")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.startDate}</div>
               </div>
               <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">تاريخ الانتهاء</div>
+                <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.endDate")}</div>
                 <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.endDate ?? "—"}</div>
               </div>
             </Card>
 
             <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">الراتب الشهري ({selected.currency})</div>
+              <div className="text-[11px] font-semibold text-ink-faint">{t("contracts.monthlySalary2")}{selected.currency})</div>
               <div className="mt-[6px]">
                 <MoneyDisplay value={Number(selected.monthlySalary)} className="text-[18px] font-bold" />
               </div>
             </Card>
 
             <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">استحقاق الإجازات</h3>
+              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("contracts.leaveEntitlement")}</h3>
               <dl className="grid grid-cols-3 gap-[10px] text-[12.5px]">
                 <div>
-                  <dt className="text-ink-faint">الإجازة السنوية</dt>
+                  <dt className="text-ink-faint">{t("contracts.annualLeave")}</dt>
                   <dd className="mz-num text-ink">{selected.leaveEntitlement.annualLeaveDays ?? "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-ink-faint">إجازة مرضية</dt>
+                  <dt className="text-ink-faint">{t("contracts.sickLeave")}</dt>
                   <dd className="mz-num text-ink">{selected.leaveEntitlement.sickLeaveDays ?? "—"}</dd>
                 </div>
                 <div>
-                  <dt className="text-ink-faint">الإجازة الشخصية</dt>
+                  <dt className="text-ink-faint">{t("contracts.personalLeave")}</dt>
                   <dd className="mz-num text-ink">{selected.leaveEntitlement.personalLeaveDays ?? "—"}</dd>
                 </div>
               </dl>
             </div>
 
             <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">البدلات</h3>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.allowances")}</h3>
               {selected.allowances.length > 0 ? (
                 <ul className="flex flex-col gap-[6px]">
                   {selected.allowances.map((a) => (
@@ -285,12 +287,12 @@ export function ContractsScreen() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-[12.5px] text-ink-muted">لا توجد بدلات</p>
+                <p className="text-[12.5px] text-ink-muted">{t("contracts.noAllowances")}</p>
               )}
             </div>
 
             <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">الاستقطاعات</h3>
+              <h3 className="mb-[8px] font-display text-[13px] font-bold text-ink">{t("contracts.deductions")}</h3>
               {selected.deductions.length > 0 ? (
                 <ul className="flex flex-col gap-[6px]">
                   {selected.deductions.map((d) => (
@@ -301,7 +303,7 @@ export function ContractsScreen() {
                   ))}
                 </ul>
               ) : (
-                <p className="text-[12.5px] text-ink-muted">لا توجد خصومات</p>
+                <p className="text-[12.5px] text-ink-muted">{t("contracts.noDeductions")}</p>
               )}
             </div>
 
@@ -313,14 +315,14 @@ export function ContractsScreen() {
 
             {selected.status === "active" ? (
               <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
-                إنهاء العقد
+                {t("contracts.endContract")}
               </Button>
             ) : null}
           </div>
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="عقد جديد" description="بيانات العقد الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("contracts.newContract")} description={t("contracts.theContractSCoreDetails")}>
         <form onSubmit={handleSubmit} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -328,70 +330,70 @@ export function ContractsScreen() {
             </div>
           ) : null}
           <EntityPicker
-            label="اسم الموظف *"
+            label={t("contracts.employee2")}
             options={employeeOptions}
             value={draft.employeeId ? (employeeOptions.find((o) => o.id === draft.employeeId) ?? null) : null}
             onChange={(option) => setDraft((d) => ({ ...d, employeeId: option?.id ?? "" }))}
           />
           <SelectField
-            label="نوع العقد *"
+            label={t("contracts.contractType2")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as ContractTypeDTO }))}
-            options={(Object.keys(TYPE_LABEL) as ContractTypeDTO[]).map((t) => ({ value: t, label: TYPE_LABEL[t] }))}
+            options={(Object.keys(TYPE_KEY) as ContractTypeDTO[]).map((code) => ({ value: code, label: t(TYPE_KEY[code]) }))}
           />
           <SelectField
-            label="أساس الدفع *"
+            label={t("contracts.payBasis2")}
             value={draft.payBasis}
             onChange={(v) => setDraft((d) => ({ ...d, payBasis: v as PayBasisDTO }))}
-            options={(Object.keys(PAY_BASIS_LABEL) as PayBasisDTO[]).map((p) => ({ value: p, label: PAY_BASIS_LABEL[p] }))}
+            options={(Object.keys(PAY_BASIS_KEY) as PayBasisDTO[]).map((p) => ({ value: p, label: t(PAY_BASIS_KEY[p]) }))}
           />
           <SelectField
-            label="تكرار الدفع *"
+            label={t("contracts.payFrequency2")}
             value={draft.payFrequency}
             onChange={(v) => setDraft((d) => ({ ...d, payFrequency: v as PayFrequencyDTO }))}
-            options={(Object.keys(PAY_FREQUENCY_LABEL) as PayFrequencyDTO[]).map((p) => ({ value: p, label: PAY_FREQUENCY_LABEL[p] }))}
+            options={(Object.keys(PAY_FREQUENCY_KEY) as PayFrequencyDTO[]).map((p) => ({ value: p, label: t(PAY_FREQUENCY_KEY[p]) }))}
           />
-          <TextField label="تاريخ البداية *" value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("contracts.startDate2")} value={draft.startDate} onChange={(v) => setDraft((d) => ({ ...d, startDate: v }))} placeholder="YYYY-MM-DD" />
           <TextField
-            label="تاريخ الانتهاء"
+            label={t("contracts.endDate")}
             value={draft.endDate}
             onChange={(v) => setDraft((d) => ({ ...d, endDate: v }))}
             placeholder="YYYY-MM-DD"
             disabled={draft.type === "indefinite"}
-            hint={draft.type === "indefinite" ? "العقد غير محدد المدة لا يحتوي على تاريخ انتهاء" : undefined}
+            hint={draft.type === "indefinite" ? t("contracts.anOpenEndedContractHas") : undefined}
           />
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">الراتب الشهري *</div>
-            <MoneyInput aria-label="الراتب الشهري" value={draft.monthlySalary} onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))} />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("contracts.monthlySalary3")}</div>
+            <MoneyInput aria-label={t("contracts.monthlySalary4")} value={draft.monthlySalary} onChange={(v) => setDraft((d) => ({ ...d, monthlySalary: v }))} />
           </div>
           <SelectField
-            label="العملة *"
+            label={t("contracts.currency")}
             value={draft.currency}
             onChange={(v) => setDraft((d) => ({ ...d, currency: v }))}
             options={CURRENCIES.map((c) => ({ value: c, label: c }))}
           />
           <NumberField
-            label="الإجازة السنوية (أيام)"
+            label={t("contracts.annualLeaveDays")}
             value={draft.annualLeaveDays ?? Number.NaN}
             onChange={(v) => setDraft((d) => ({ ...d, annualLeaveDays: Number.isNaN(v) ? null : v }))}
-            hint="اتركه فارغاً لاستخدام قيمة سياسة الإجازة"
+            hint={t("contracts.leaveEmptyToUseThe")}
           />
           <NumberField
-            label="إجازة مرضية (أيام)"
+            label={t("contracts.sickLeaveDays")}
             value={draft.sickLeaveDays ?? Number.NaN}
             onChange={(v) => setDraft((d) => ({ ...d, sickLeaveDays: Number.isNaN(v) ? null : v }))}
           />
           <NumberField
-            label="الإجازة الشخصية (أيام)"
+            label={t("contracts.personalLeaveDays")}
             value={draft.personalLeaveDays ?? Number.NaN}
             onChange={(v) => setDraft((d) => ({ ...d, personalLeaveDays: Number.isNaN(v) ? null : v }))}
           />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              حفظ
+              {t("common.save")}
             </Button>
           </div>
         </form>

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { FulcrumRule, DocumentList, StatCard, Card, Button, type DocumentListColumn } from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
@@ -15,19 +16,20 @@ function fmt(value: string): string {
  * which runs the SAME `computeCostCenterPnL` domain function server-side.
  */
 export function CostCenterPnLScreen() {
+  const { t } = useAppTranslation();
   const [fromDate, setFromDate] = useState("2026-08-01");
   const [toDate, setToDate] = useState("2026-08-31");
   const query = useCostCenterPnL(fromDate, toDate);
   const report = query.data ?? null;
 
   const columns: DocumentListColumn<CostCenterPnLRowDTO>[] = [
-    { key: "code", header: "الكود", render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },
-    { key: "name", header: "مركز التكلفة", render: (r) => <span className="font-semibold text-ink">{r.name}</span> },
-    { key: "revenue", header: "الإيرادات", render: (r) => <span className="mz-num text-ink">{fmt(r.revenue)}</span> },
-    { key: "expense", header: "المصروفات", render: (r) => <span className="mz-num text-ink">{fmt(r.expense)}</span> },
+    { key: "code", header: t("common.code"), render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },
+    { key: "name", header: t("costCenterPnl.costCentre"), render: (r) => <span className="font-semibold text-ink">{r.name}</span> },
+    { key: "revenue", header: t("costCenterPnl.revenue"), render: (r) => <span className="mz-num text-ink">{fmt(r.revenue)}</span> },
+    { key: "expense", header: t("costCenterPnl.expenses"), render: (r) => <span className="mz-num text-ink">{fmt(r.expense)}</span> },
     {
       key: "profit",
-      header: "صافي الربح",
+      header: t("costCenterPnl.netProfit"),
       render: (r) => <span className={`mz-num font-bold ${Number(r.profit) < 0 ? "text-danger-ink" : "text-success-ink"}`}>{fmt(r.profit)}</span>,
     },
   ];
@@ -37,31 +39,31 @@ export function CostCenterPnLScreen() {
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
           <div className="mz-eyebrow">Accounting · Cost Center P&L</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">أرباح مراكز التكلفة</h1>
-          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">أرباح ومصروفات كل مركز تكلفة من بنود القيود التي تحمل بُعد مركز التكلفة</p>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("costCenterPnl.costCentrePL")}</h1>
+          <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("costCenterPnl.theRevenueAndExpensesOf")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
-          <label className="text-[12px] text-ink-muted">من</label>
-          <input type="date" aria-label="من تاريخ" value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
-          <label className="text-[12px] text-ink-muted">إلى</label>
-          <input type="date" aria-label="إلى تاريخ" value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <label className="text-[12px] text-ink-muted">{t("common.of")}</label>
+          <input type="date" aria-label={t("costCenterPnl.from")} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <label className="text-[12px] text-ink-muted">{t("costCenterPnl.to")}</label>
+          <input type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
         </div>
       </div>
       <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل أرباح مراكز التكلفة.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("costCenterPnl.couldNotLoadTheCost")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="mb-[18px] grid grid-cols-1 gap-[14px] sm:grid-cols-3">
-        <StatCard label="إجمالي الإيرادات" value={<span className="mz-num">{report ? fmt(report.totals.revenue) : "—"}</span>} />
-        <StatCard label="إجمالي المصروفات" value={<span className="mz-num">{report ? fmt(report.totals.expense) : "—"}</span>} />
-        <StatCard label="صافي الربح" value={<span className="mz-num">{report ? fmt(report.totals.profit) : "—"}</span>} valueTone={report && Number(report.totals.profit) < 0 ? "danger" : "default"} />
+        <StatCard label={t("costCenterPnl.totalRevenue")} value={<span className="mz-num">{report ? fmt(report.totals.revenue) : "—"}</span>} />
+        <StatCard label={t("costCenterPnl.totalExpenses")} value={<span className="mz-num">{report ? fmt(report.totals.expense) : "—"}</span>} />
+        <StatCard label={t("costCenterPnl.netProfit")} value={<span className="mz-num">{report ? fmt(report.totals.profit) : "—"}</span>} valueTone={report && Number(report.totals.profit) < 0 ? "danger" : "default"} />
       </div>
 
       <DocumentList<CostCenterPnLRowDTO>
@@ -72,8 +74,8 @@ export function CostCenterPnLScreen() {
         rowKey={(r) => r.costCenterId ?? "unassigned"}
         page={1}
         pageCount={1}
-        pageSummary={<>عرض <span className="mz-num">{report?.rows.length ?? 0}</span> مركز تكلفة</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد حركات في هذه الفترة</div>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{report?.rows.length ?? 0}</span> {t("costCenterPnl.costCentre2")}</>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("costCenterPnl.noMovementInThisPeriod")}</div>}
       />
     </div>
   );

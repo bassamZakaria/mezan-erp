@@ -1,9 +1,12 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { render as rtlRender, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { ConnectedDevicesPanel } from "./ConnectedDevicesPanel";
+import { AppI18nProvider } from "../i18n";
+
+const render = (ui: React.ReactElement) => rtlRender(<AppI18nProvider>{ui}</AppI18nProvider>);
 
 function jsonResponse(body: unknown, init: ResponseInit = {}) {
   return new Response(JSON.stringify(body), {

@@ -22,23 +22,24 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 const STATUS_KEY: Record<FiscalPeriodStatusDTO, AppTranslationKey> = { open: "fiscalPeriods.status.open", closed: "fiscalPeriods.status.closed", locked: "fiscalPeriods.status.locked" };
 const STATUS_TONE: Record<FiscalPeriodStatusDTO, PillTone> = { open: "success", closed: "warning", locked: "neutral" };
 
-const MONTH_LABEL_AR = [
-  "يناير",
-  "فبراير",
-  "مارس",
-  "أبريل",
-  "مايو",
-  "يونيو",
-  "يوليو",
-  "أغسطس",
-  "سبتمبر",
-  "أكتوبر",
-  "نوفمبر",
-  "ديسمبر",
+const MONTH_KEYS: AppTranslationKey[] = [
+  "month.january",
+  "month.february",
+  "month.march",
+  "month.april",
+  "month.may",
+  "month.june",
+  "month.july",
+  "month.august",
+  "month.september",
+  "month.october",
+  "month.november",
+  "month.december",
 ];
 
-function monthLabel(periodNumber: number): string {
-  return MONTH_LABEL_AR[periodNumber - 1] ?? String(periodNumber);
+function monthLabel(periodNumber: number, t: (key: AppTranslationKey) => string): string {
+  const key = MONTH_KEYS[periodNumber - 1];
+  return key ? t(key) : String(periodNumber);
 }
 
 const TODAY = new Date().toISOString().slice(0, 10);
@@ -82,7 +83,7 @@ export function FiscalPeriodsScreen() {
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `تعذر إغلاق فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
     }
   }
 
@@ -91,7 +92,7 @@ export function FiscalPeriodsScreen() {
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `تعذر قفل فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
     }
   }
 
@@ -100,7 +101,7 @@ export function FiscalPeriodsScreen() {
     try {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `تعذر إعادة فتح فترة "${monthLabel(period.periodNumber)} ${period.year}".`);
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
     }
   }
 
@@ -111,7 +112,7 @@ export function FiscalPeriodsScreen() {
       await generateFiscalYear.mutateAsync({ year: nextYear });
       setYear(nextYear);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : `تعذر إنشاء فترات سنة ${nextYear}.`);
+      setActionError(err instanceof Error ? err.message : t("fiscalPeriods.generateFailed", { year: String(nextYear) }));
     }
   }
 
@@ -122,7 +123,7 @@ export function FiscalPeriodsScreen() {
       render: (p) => (
         <div className="flex items-center gap-[8px]">
           <span className="font-semibold text-ink">
-            {monthLabel(p.periodNumber)} {p.year}
+            {monthLabel(p.periodNumber, t)} {p.year}
           </span>
           {isCurrentPeriod(p) ? <StatusPill label={t("fiscalPeriods.currentPeriod")} tone="info" /> : p.endDate < TODAY ? <StatusPill label={t("fiscalPeriods.ended")} tone="neutral" /> : null}
         </div>
@@ -207,7 +208,7 @@ export function FiscalPeriodsScreen() {
           <div className="text-[12px] font-semibold text-ink-faint">{t("fiscalPeriods.currentPeriod")}</div>
           <div className="mt-[4px] flex flex-wrap items-center gap-[10px]">
             <span className="font-display text-[15px] font-bold text-ink">
-              {monthLabel(currentPeriod.periodNumber)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
+              {monthLabel(currentPeriod.periodNumber, t)} {currentPeriod.year} ({currentPeriod.startDate} → {currentPeriod.endDate})
             </span>
             <StatusPill label={currentPeriod.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={currentPeriod.status === "open" ? "success" : "danger"} />
           </div>
@@ -245,10 +246,10 @@ export function FiscalPeriodsScreen() {
           <div className="flex flex-wrap gap-[8px]">
             {(
               [
-                ["all", `الكل (${periodsInYear.length})`],
-                ["open", `مفتوحة (${periodsInYear.filter((p) => p.status === "open").length})`],
-                ["closed", `مغلقة (${periodsInYear.filter((p) => p.status === "closed").length})`],
-                ["locked", `مقفلة (${periodsInYear.filter((p) => p.status === "locked").length})`],
+                ["all", t("fiscalPeriods.filterAll", { count: String(periodsInYear.length) })],
+                ["open", t("fiscalPeriods.filterOpen", { count: String(periodsInYear.filter((p) => p.status === "open").length) })],
+                ["closed", t("fiscalPeriods.filterClosed", { count: String(periodsInYear.filter((p) => p.status === "closed").length) })],
+                ["locked", t("fiscalPeriods.filterLocked", { count: String(periodsInYear.filter((p) => p.status === "locked").length) })],
               ] as const
             ).map(([value, label]) => (
               <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>

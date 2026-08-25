@@ -3,6 +3,7 @@ import bwipjs from "bwip-js/browser";
 import { Card, Button, EntityPicker, QtyInput, type EntityPickerOption } from "@mezan/ui";
 import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
 import { useItems } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * طباعة الملصقات (Label Printing) — docs/catalog/03-inventory.md §"طباعة
@@ -34,6 +35,7 @@ function renderBarcodeSvg(barcode: string): string | null {
 }
 
 function LabelTile({ line, template }: { line: SelectedLine; template: (typeof LABEL_TEMPLATES)[number] }) {
+  const { t } = useAppTranslation();
   const svg = useMemo(() => renderBarcodeSvg(line.barcode), [line.barcode]);
   return (
     <div
@@ -46,17 +48,18 @@ function LabelTile({ line, template }: { line: SelectedLine; template: (typeof L
       {svg ? (
         <div className="mz-label-barcode w-full flex-1" dangerouslySetInnerHTML={{ __html: svg }} />
       ) : (
-        <div className="flex-1 text-[8px] text-ink-faint">لا يوجد باركود</div>
+        <div className="flex-1 text-[8px] text-ink-faint">{t("labelPrinting.noBarcode")}</div>
       )}
       <div className="flex w-full items-center justify-between text-[8px] text-ink-muted">
         <span className="mz-num">{line.code}</span>
-        <span className="mz-num font-bold text-ink">{line.priceMajor} ج.م</span>
+        <span className="mz-num font-bold text-ink">{line.priceMajor} {t("ui.currency")}</span>
       </div>
     </div>
   );
 }
 
 export function LabelPrintingScreen() {
+  const { t } = useAppTranslation();
   const itemsQuery = useItems();
   const items = itemsQuery.data ?? [];
 
@@ -127,36 +130,36 @@ export function LabelPrintingScreen() {
       <div className="print:hidden">
         <div className="mb-[16px]">
           <div className="mz-eyebrow">Inventory · Label Printing</div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">طباعة الملصقات</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("labelPrinting.labelPrinting")}</h1>
           <p className="mt-[6px] text-[13px] text-ink-muted">
-            اختر الأصناف وعدد النسخ، ثم اطبع ورقة ملصقات بالباركود الفعلي لكل صنف.
+            {t("labelPrinting.pickTheItemsAndHow")}
           </p>
         </div>
 
         <Card className="mb-[16px] p-[14px_18px]">
           <p className="text-[12.5px] text-ink-muted">
-            السعر المطبوع هو السعر الفعلي الذي تحسبه نقطة البيع للعميل العادي (بعد قوائم الأسعار والشرائح). الطباعة لا تغير أي سعر.
+            {t("labelPrinting.thePrintedPriceIsThe")}
           </p>
         </Card>
 
         <Card className="mb-[16px] p-[16px_18px]">
-          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">الأصناف المختارة</h2>
+          <h2 className="mb-[10px] font-display text-[15px] font-bold text-ink">{t("labelPrinting.itemsChosen")}</h2>
 
           <div className="mb-[14px] flex flex-wrap items-end gap-[12px]">
             <div className="min-w-[260px] flex-1">
               <EntityPicker
-                label="إضافة صنف"
+                label={t("labelPrinting.addAnItem")}
                 value={pickerValue}
                 onChange={addItem}
                 options={options}
-                placeholder="ابحث عن صنف بالاسم أو الكود..."
-                emptyMessage="لا توجد نتائج"
+                placeholder={t("labelPrinting.searchForAnItemBy")}
+                emptyMessage={t("labelPrinting.noResults")}
               />
             </div>
 
             <div>
               <label htmlFor="label-template" className="mb-[4px] block text-[11.5px] font-semibold text-ink-faint">
-                قالب الملصق
+                {t("labelPrinting.labelTemplate")}
               </label>
               <select
                 id="label-template"
@@ -164,9 +167,9 @@ export function LabelPrintingScreen() {
                 onChange={(e) => setTemplateCode(e.target.value as LabelTemplateCode)}
                 className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
               >
-                {LABEL_TEMPLATES.map((t) => (
-                  <option key={t.code} value={t.code}>
-                    {t.labelAr}
+                {LABEL_TEMPLATES.map((template) => (
+                  <option key={template.code} value={template.code}>
+                    {template.labelAr}
                   </option>
                 ))}
               </select>
@@ -177,10 +180,10 @@ export function LabelPrintingScreen() {
             <table className="w-full text-[12.5px]">
               <thead className="bg-surface-2 text-ink-faint">
                 <tr>
-                  <th className="p-[8px_10px] text-start font-semibold">الصنف</th>
-                  <th className="p-[8px_10px] text-start font-semibold">الباركود</th>
-                  <th className="p-[8px_10px] text-end font-semibold">السعر المطبوع</th>
-                  <th className="p-[8px_10px] text-end font-semibold">عدد النسخ</th>
+                  <th className="p-[8px_10px] text-start font-semibold">{t("common.item")}</th>
+                  <th className="p-[8px_10px] text-start font-semibold">{t("labelPrinting.barcode")}</th>
+                  <th className="p-[8px_10px] text-end font-semibold">{t("labelPrinting.printedPrice")}</th>
+                  <th className="p-[8px_10px] text-end font-semibold">{t("labelPrinting.copies")}</th>
                   <th className="p-[8px_10px]" />
                 </tr>
               </thead>
@@ -203,7 +206,7 @@ export function LabelPrintingScreen() {
                     </td>
                     <td className="p-[8px_10px] text-end">
                       <Button size="sm" onClick={() => removeLine(line.itemId)}>
-                        إزالة
+                        {t("labelPrinting.remove")}
                       </Button>
                     </td>
                   </tr>
@@ -211,7 +214,7 @@ export function LabelPrintingScreen() {
                 {batch.lines.length === 0 ? (
                   <tr>
                     <td colSpan={5} className="p-[16px] text-center text-[12.5px] text-ink-muted">
-                      لم تتم إضافة أي صنف بعد.
+                      {t("labelPrinting.noItemsHaveBeenAdded")}
                     </td>
                   </tr>
                 ) : null}
@@ -221,17 +224,17 @@ export function LabelPrintingScreen() {
 
           <div className="mt-[12px] flex items-center justify-between">
             <span className="text-[12.5px] font-semibold text-ink">
-              الإجمالي: <span className="mz-num">{batch.totalLabelCount}</span> ملصق
+              {t("labelPrinting.total")} <span className="mz-num">{batch.totalLabelCount}</span> {t("labelPrinting.label")}
             </span>
             <Button variant="primary" disabled={batch.lines.length === 0 || batch.hasBlockingIssues} onClick={() => window.print()}>
-              معاينة وطباعة
+              {t("labelPrinting.previewAndPrint")}
             </Button>
           </div>
         </Card>
 
         {lines.length > 0 ? (
           <Card className="p-[16px_18px]">
-            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">معاينة الملصق</h3>
+            <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("labelPrinting.labelPreview")}</h3>
             <div className="flex flex-wrap gap-[10px]">
               {lines.slice(0, 6).map((l) => (
                 <LabelTile key={l.itemId} line={l} template={template} />

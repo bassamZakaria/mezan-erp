@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button, Card, StatusPill } from "@mezan/ui";
 import type { DeviceSessionDTO, LanSessionsListDTO, LanStatusDTO } from "@mezan/contracts";
+import { useAppTranslation } from "../i18n";
 
 /**
  * Admin panel for LAN multi-till (docs/plan.md §6.3.3): shows the connected
@@ -31,6 +32,7 @@ export function ConnectedDevicesPanel({
   fetchImpl = fetch,
   pollIntervalMs = 5000,
 }: ConnectedDevicesPanelProps) {
+  const { t } = useAppTranslation();
   const [status, setStatus] = useState<LanStatusDTO | null>(null);
   const [sessions, setSessions] = useState<DeviceSessionDTO[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +55,7 @@ export function ConnectedDevicesPanel({
       const listBody = (await listRes.json()) as LanSessionsListDTO;
       setSessions(listBody.sessions);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تحميل الأجهزة المتصلة");
+      setError(err instanceof Error ? err.message : t("devices.couldNotLoadTheConnected"));
     }
   }, [baseUrl, fetchImpl]);
 
@@ -74,7 +76,7 @@ export function ConnectedDevicesPanel({
         });
         await refresh();
       } catch (err) {
-        setError(err instanceof Error ? err.message : "تعذر فصل الجهاز");
+        setError(err instanceof Error ? err.message : t("devices.couldNotDisconnectTheDevice"));
       } finally {
         setDisconnectingId(null);
       }
@@ -85,9 +87,9 @@ export function ConnectedDevicesPanel({
   if (status && !status.licensed) {
     return (
       <Card className="p-[18px]">
-        <div className="text-[13px] font-semibold text-ink">الأجهزة المتصلة عبر الشبكة المحلية</div>
+        <div className="text-[13px] font-semibold text-ink">{t("devices.devicesConnectedOverTheLocal")}</div>
         <p className="mt-2 text-[12.5px] text-ink-muted">
-          وضع تعدد نقاط البيع عبر الشبكة المحلية غير مفعّل في هذا الترخيص.
+          {t("devices.multiTillOverTheLocal")}
         </p>
       </Card>
     );
@@ -97,23 +99,23 @@ export function ConnectedDevicesPanel({
     <Card className="p-[18px]">
       <div className="flex items-center justify-between gap-[12px]">
         <div>
-          <div className="text-[13px] font-semibold text-ink">الأجهزة المتصلة عبر الشبكة المحلية</div>
+          <div className="text-[13px] font-semibold text-ink">{t("devices.devicesConnectedOverTheLocal")}</div>
           <p className="mt-1 text-[12px] text-ink-muted">
             {status ? (
               <>
                 <span className="mz-num font-semibold text-ink">{status.connected}</span>
                 {" / "}
-                <span className="mz-num">{status.seats}</span> مقعد مستخدَم
+                <span className="mz-num">{status.seats}</span> {t("devices.seatInUse")}
               </>
             ) : (
-              "جارٍ التحميل…"
+              t("common.loading")
             )}
           </p>
         </div>
         {status && status.connected >= status.seats ? (
-          <StatusPill label="اكتمل عدد المقاعد" tone="warning" />
+          <StatusPill label={t("devices.everySeatIsTaken")} tone="warning" />
         ) : (
-          <StatusPill label="متاح" tone="success" />
+          <StatusPill label={t("devices.available")} tone="success" />
         )}
       </div>
 
@@ -123,17 +125,17 @@ export function ConnectedDevicesPanel({
         <table className="w-full border-collapse text-[12.5px]">
           <thead>
             <tr className="border-b border-border text-ink-muted">
-              <th className="p-[8px] text-start font-semibold">الجهاز</th>
-              <th className="p-[8px] text-start font-semibold">متصل منذ</th>
-              <th className="p-[8px] text-start font-semibold">آخر ظهور</th>
-              <th className="p-[8px] text-start font-semibold">إجراء</th>
+              <th className="p-[8px] text-start font-semibold">{t("devices.device")}</th>
+              <th className="p-[8px] text-start font-semibold">{t("devices.connectedSince")}</th>
+              <th className="p-[8px] text-start font-semibold">{t("devices.lastSeen")}</th>
+              <th className="p-[8px] text-start font-semibold">{t("devices.action")}</th>
             </tr>
           </thead>
           <tbody>
             {sessions.length === 0 ? (
               <tr>
                 <td colSpan={4} className="p-[16px] text-center text-ink-faint">
-                  لا توجد أجهزة متصلة حالياً
+                  {t("devices.noDevicesAreConnectedRight")}
                 </td>
               </tr>
             ) : (
@@ -149,7 +151,7 @@ export function ConnectedDevicesPanel({
                       disabled={disconnectingId === session.sessionId}
                       onClick={() => void handleDisconnect(session.sessionId)}
                     >
-                      {disconnectingId === session.sessionId ? "جارٍ الفصل…" : "فصل"}
+                      {disconnectingId === session.sessionId ? t("devices.disconnecting") : t("devices.disconnect")}
                     </Button>
                   </td>
                 </tr>

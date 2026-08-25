@@ -1,12 +1,14 @@
 import { Button, Card, DonutChart, StatCard, type DonutSegment } from "@mezan/ui";
 import { useBranches, useHrDashboard } from "../data/hooks";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** لوحة الموارد البشرية (HR Dashboard) — docs/catalog/06 §"لوحة الموارد البشرية". Headcount/attendance/leave KPIs, department/branch breakdowns, leave-consumption table, and alert chips. */
 
-const LEAVE_TYPE_LABEL: Record<string, string> = { annual: "إجازة سنوية", sick: "إجازة مرضية", personal: "الإجازة الشخصية" };
+const LEAVE_TYPE_KEY: Record<string, AppTranslationKey> = { annual: "hrDashboard.annualLeave", sick: "hrDashboard.sickLeave", personal: "hrDashboard.personalLeave" };
 const CHART_COLORS = ["var(--chart-1)", "var(--chart-2)", "var(--chart-3)", "var(--chart-4)", "var(--chart-5)", "var(--chart-6)"];
 
 export function HrDashboardScreen() {
+  const { t } = useAppTranslation();
   const query = useHrDashboard();
   const branchesQuery = useBranches();
   const summary = query.data;
@@ -34,34 +36,34 @@ export function HrDashboardScreen() {
     <div className="flex flex-col gap-[22px]">
       <div>
         <div className="mz-lat text-[11px] font-bold uppercase tracking-[1.2px] text-ink-faint">HR · Dashboard</div>
-        <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">لوحة الموارد البشرية</h1>
-        <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">نظرة عامة على القوى العاملة، العقود والإجازات</p>
+        <h1 className="mt-[4px] font-display text-[23px] font-bold text-ink">{t("hrDashboard.hrDashboard")}</h1>
+        <p className="mt-[4px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("hrDashboard.anOverviewOfTheWorkforce")}</p>
       </div>
 
       {query.isError ? (
         <Card className="p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل بيانات لوحة الموارد البشرية.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("hrDashboard.couldNotLoadTheHr")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
 
       <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-        <StatCard label="الموظفون النشطون" value={<span className="mz-num">{summary?.activeEmployees ?? 0}</span>} />
-        <StatCard label="في إجازة" value={<span className="mz-num">{summary?.onLeave ?? 0}</span>} />
-        <StatCard label="التعيينات هذا الشهر" value={<span className="mz-num">{summary?.hiresThisMonth ?? 0}</span>} />
-        <StatCard label="إنهاء الخدمة هذا الشهر" value={<span className="mz-num">{summary?.terminationsThisMonth ?? 0}</span>} />
+        <StatCard label={t("hrDashboard.activeEmployees")} value={<span className="mz-num">{summary?.activeEmployees ?? 0}</span>} />
+        <StatCard label={t("hrDashboard.onLeave")} value={<span className="mz-num">{summary?.onLeave ?? 0}</span>} />
+        <StatCard label={t("hrDashboard.hiresThisMonth")} value={<span className="mz-num">{summary?.hiresThisMonth ?? 0}</span>} />
+        <StatCard label={t("hrDashboard.leaversThisMonth")} value={<span className="mz-num">{summary?.terminationsThisMonth ?? 0}</span>} />
       </div>
 
       <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">
         <StatCard
-          label="عقود تنتهي خلال 30 يوماً"
+          label={t("hrDashboard.contractsEndingWithin30Days")}
           value={<span className="mz-num">{summary?.contractsExpiringSoon ?? 0}</span>}
           valueTone={(summary?.contractsExpiringSoon ?? 0) > 0 ? "danger" : "default"}
         />
         <StatCard
-          label="انتهاء الفترة التجريبية قريباً"
+          label={t("hrDashboard.probationEndingSoon")}
           value={<span className="mz-num">{summary?.probationEndingSoon ?? 0}</span>}
           valueTone={(summary?.probationEndingSoon ?? 0) > 0 ? "danger" : "default"}
         />
@@ -69,29 +71,29 @@ export function HrDashboardScreen() {
 
       <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-2">
         <DonutChart
-          title="الموظفون حسب القسم"
+          title={t("hrDashboard.employeesByDepartment")}
           segments={departmentSegments}
           centerLabel={String(summary?.activeEmployees ?? 0)}
-          centerSub="موظف"
+          centerSub={t("hrDashboard.employee")}
         />
-        <DonutChart title="الموظفون حسب الفرع" segments={branchSegments} centerLabel={String(summary?.activeEmployees ?? 0)} centerSub="موظف" />
+        <DonutChart title={t("hrDashboard.employeesByBranch")} segments={branchSegments} centerLabel={String(summary?.activeEmployees ?? 0)} centerSub={t("hrDashboard.employee")} />
       </div>
 
       <Card className="p-[18px_20px]">
-        <h3 className="font-display text-[14.5px] font-bold text-ink">استهلاك الإجازات</h3>
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("hrDashboard.leaveTaken")}</h3>
         <div className="mt-[14px] overflow-x-auto">
           <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
             <thead>
               <tr className="border-b border-border text-start text-ink-faint">
-                <th className="px-[10px] py-[8px] text-start font-semibold">نوع الإجازة</th>
-                <th className="px-[10px] py-[8px] text-end font-semibold">المستخدم</th>
-                <th className="px-[10px] py-[8px] text-end font-semibold">قيد الانتظار</th>
+                <th className="px-[10px] py-[8px] text-start font-semibold">{t("hrDashboard.leaveType")}</th>
+                <th className="px-[10px] py-[8px] text-end font-semibold">{t("hrDashboard.taken")}</th>
+                <th className="px-[10px] py-[8px] text-end font-semibold">{t("hrDashboard.pending")}</th>
               </tr>
             </thead>
             <tbody>
               {(summary?.leaveConsumption ?? []).map((row) => (
                 <tr key={row.leaveType} className="border-b border-border last:border-0">
-                  <td className="px-[10px] py-[8px] font-semibold text-ink">{LEAVE_TYPE_LABEL[row.leaveType] ?? row.leaveType}</td>
+                  <td className="px-[10px] py-[8px] font-semibold text-ink">{LEAVE_TYPE_KEY[row.leaveType] ? t(LEAVE_TYPE_KEY[row.leaveType]!) : row.leaveType}</td>
                   <td className="mz-num px-[10px] py-[8px] text-end text-ink">{row.used}</td>
                   <td className="mz-num px-[10px] py-[8px] text-end text-ink">{row.pending}</td>
                 </tr>

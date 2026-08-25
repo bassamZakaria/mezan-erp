@@ -71,9 +71,9 @@ export function PrintView({ config, document, showToolbar = true, className }: P
             style={{ borderColor: identity.primaryColor }}
           >
             <div className={cn("flex flex-col gap-[3px]", identity.logoPosition === "center" && "items-center text-center")}>
-              <h1 className="font-display text-[19px] font-bold" style={{ color: identity.primaryColor }}>
+              <div className="font-display text-[19px] font-bold" style={{ color: identity.primaryColor }}>
                 {document.company.name}
-              </h1>
+              </div>
               {identity.subtitle ? <p className="text-[11px] text-ink-muted">{identity.subtitle}</p> : null}
               <div className="mt-[4px] flex flex-col gap-[1px] text-[10.5px] text-ink-muted">
                 {header.showAddress && document.company.address ? <span>{document.company.address}</span> : null}

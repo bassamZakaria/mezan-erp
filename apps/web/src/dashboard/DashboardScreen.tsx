@@ -297,7 +297,6 @@ export function DashboardScreen() {
     <div className="flex flex-col gap-[20px]">
       <div className="flex flex-wrap items-start justify-between gap-[16px]" style={riseStyle(0, reduced)}>
         <div>
-          <div className="mz-eyebrow">{t("dashboard.eyebrow")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("dashboard.greeting", { name: greetingName })}</h1>
           <p className="mt-[4px] max-w-[62ch] text-sm text-ink-muted">{t("dashboard.subtitle")}</p>
         </div>
@@ -370,7 +369,6 @@ export function DashboardScreen() {
 
       <div className="grid grid-cols-1 gap-[16px] xl:grid-cols-[1.5fr_1fr]">
         <Card className="p-[20px_22px]" style={riseStyle(3, reduced)}>
-          <div className="mz-eyebrow">{t("dashboard.hero.eyebrow")}</div>
           <h2 className="mt-[4px] font-display text-lg font-bold text-ink">{t("dashboard.hero.title")}</h2>
 
           <BalanceBeam

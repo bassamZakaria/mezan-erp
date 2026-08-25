@@ -169,7 +169,6 @@ export function DepartmentsScreen() {
         </Card>
       ) : null}
       <DocumentList<DepartmentDTO>
-        eyebrow={t("eyebrow.hr.departments")}
         title={t("departments.departments")}
         description={t("departments.coreDepartmentDetailsCodeManager")}
         actions={

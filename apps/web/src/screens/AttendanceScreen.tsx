@@ -172,7 +172,6 @@ export function AttendanceScreen() {
       ) : null}
 
       <DocumentList<AttendanceEntryDTO>
-        eyebrow={t("eyebrow.hr.attendance")}
         title={t("attendance.attendance")}
         description={t("attendance.theDailyAttendanceRecordPer")}
         actions={

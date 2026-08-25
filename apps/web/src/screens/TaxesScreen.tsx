@@ -199,7 +199,6 @@ export function TaxesScreen() {
         </Card>
       ) : null}
       <DocumentList<TaxRateDTO>
-        eyebrow={t("eyebrow.accounting.taxes")}
         title={t("taxes.taxes")}
         description={t("taxes.theseTaxesApplyWhenInvoices")}
         actions={

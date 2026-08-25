@@ -129,7 +129,6 @@ export function LabelPrintingScreen() {
 
       <div className="print:hidden">
         <div className="mb-[16px]">
-          <div className="mz-eyebrow">{t("eyebrow.inventory.labelPrinting")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("labelPrinting.labelPrinting")}</h1>
           <p className="mt-[6px] text-[13px] text-ink-muted">
             {t("labelPrinting.pickTheItemsAndHow")}

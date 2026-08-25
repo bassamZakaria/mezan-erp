@@ -43,7 +43,6 @@ export function ReconciliationScreen() {
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.accounting.reconciliation")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("reconciliation.balanceReconciliation")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("reconciliation.reconcilingSubLedgerBalancesAgainst")}</p>
         </div>
@@ -73,7 +72,6 @@ export function ReconciliationScreen() {
 
       {tab === "summary" ? (
         <DocumentList<ReconciliationRowDTO>
-          eyebrow={t("eyebrow.accounting.reconciliation")}
           title=""
           columns={summaryColumns}
           rows={report?.rows ?? []}
@@ -89,7 +87,6 @@ export function ReconciliationScreen() {
             <Card className="p-8 text-center text-sm text-ink-muted">{t("reconciliation.everyControlAccountLineIs")}</Card>
           ) : (
             <DocumentList<UnlinkedEntryLineDTO>
-              eyebrow={t("eyebrow.accounting.reconciliation")}
               title=""
               columns={unlinkedColumns}
               rows={report?.unlinked ?? []}

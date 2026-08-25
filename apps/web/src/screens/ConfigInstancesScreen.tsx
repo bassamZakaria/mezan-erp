@@ -468,7 +468,6 @@ export function ConfigInstancesScreen() {
         </Card>
       ) : null}
       <DocumentList<ConfigInstanceRecord>
-        eyebrow={t("eyebrow.manufacturing.customOrders")}
         title={t("customOrders.customManufacturing")}
         description={t("customOrders.madeToOrderManufacturingOf")}
         actions={

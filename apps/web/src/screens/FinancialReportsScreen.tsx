@@ -73,7 +73,7 @@ function AccountLedgerTab() {
     return <div className="rounded-lg border border-border bg-surface p-[28px] text-center text-[13px] text-ink-muted">{t("finReports.loadingTheChartOfAccounts")}</div>;
   }
 
-  return <ReportScreen eyebrow={EYEBROW} definition={definition} apiPath="/accounting/account-ledger" />;
+  return <ReportScreen definition={definition} apiPath="/accounting/account-ledger" />;
 }
 
 interface TabDef {
@@ -89,29 +89,28 @@ const TABS: readonly TabDef[] = [
     // The four core statements + VAT auto-run on the selected period; only the
     // two ledger dumps (general/account ledger) gate behind عرض التقرير. The
     // trial-balance definition is marked on-demand as a demo, overridden here.
-    render: () => <ReportScreen eyebrow={EYEBROW} definition={trialBalance} apiPath="/accounting/trial-balance" onDemand={false} />,
+    render: () => <ReportScreen definition={trialBalance} apiPath="/accounting/trial-balance" onDemand={false} />,
   },
   {
     id: "income-statement",
     labelKey: "finReports.incomeStatement",
-    render: () => <ReportScreen eyebrow={EYEBROW} definition={incomeStatement} apiPath="/accounting/income-statement" />,
+    render: () => <ReportScreen definition={incomeStatement} apiPath="/accounting/income-statement" />,
   },
   {
     id: "balance-sheet",
     labelKey: "finReports.balanceSheet",
-    render: () => <ReportScreen eyebrow={EYEBROW} definition={balanceSheet} apiPath="/accounting/balance-sheet" />,
+    render: () => <ReportScreen definition={balanceSheet} apiPath="/accounting/balance-sheet" />,
   },
   {
     id: "cash-flow",
     labelKey: "finReports.cashFlow",
-    render: () => <ReportScreen eyebrow={EYEBROW} definition={cashFlow} apiPath="/accounting/cash-flow" />,
+    render: () => <ReportScreen definition={cashFlow} apiPath="/accounting/cash-flow" />,
   },
   {
     id: "vat-return",
     labelKey: "finReports.vatReturn",
     render: () => (
       <ReportScreen
-        eyebrow={EYEBROW}
         definition={vatReturn}
         apiPath="/accounting/vat-return"
         renderSummary={(rows) => <VatNetSummary rows={rows} />}
@@ -121,7 +120,7 @@ const TABS: readonly TabDef[] = [
   {
     id: "general-ledger",
     labelKey: "finReports.generalLedger",
-    render: () => <ReportScreen eyebrow={EYEBROW} definition={generalLedger} apiPath="/accounting/general-ledger" />,
+    render: () => <ReportScreen definition={generalLedger} apiPath="/accounting/general-ledger" />,
   },
   {
     id: "account-ledger",

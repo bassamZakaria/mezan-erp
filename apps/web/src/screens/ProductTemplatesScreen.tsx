@@ -212,7 +212,6 @@ export function ProductTemplatesScreen() {
       ) : null}
 
       <DocumentList<ProductTemplateDTO>
-        eyebrow={t("eyebrow.inventory.productTemplates")}
         title={t("templates.productTemplates")}
         description={t("templates.defineAProductWithAttributes")}
         actions={

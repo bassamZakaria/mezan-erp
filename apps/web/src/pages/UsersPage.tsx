@@ -223,7 +223,6 @@ export function UsersPage({ users, roles, branches, warehouses, employees, onSav
   return (
     <>
       <DocumentList<UserDTO>
-        eyebrow={t("eyebrow.settings.users")}
         title={t("users.users")}
         description={t("users.manageTheUserAccountsTheir")}
         actions={<Button variant="primary" onClick={openCreate}>{t("users.addAUser")}</Button>}

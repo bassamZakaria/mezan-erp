@@ -35,7 +35,6 @@ export function TrialBalanceReportScreen() {
 
   return (
     <ReportRunner
-      eyebrow={t("eyebrow.reports.financial")}
       title={definition.titleAr}
       description={definition.descriptionAr}
       paramFields={definition.paramFields}

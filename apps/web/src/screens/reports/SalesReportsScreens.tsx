@@ -13,21 +13,21 @@ const TODAY = "2026-08-22";
 const MONTH_START = "2026-08-01";
 
 export function SalesByPeriodReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.sales" definition={createSalesByPeriodReport(MONTH_START, TODAY)} apiPath="/sales/by-period" />;
+  return <ReportScreen definition={createSalesByPeriodReport(MONTH_START, TODAY)} apiPath="/sales/by-period" />;
 }
 
 export function SalesByItemReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.sales" definition={createSalesByItemReport(MONTH_START, TODAY)} apiPath="/sales/by-item" />;
+  return <ReportScreen definition={createSalesByItemReport(MONTH_START, TODAY)} apiPath="/sales/by-item" />;
 }
 
 export function SalesByCustomerReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.sales" definition={createSalesByCustomerReport(MONTH_START, TODAY)} apiPath="/sales/by-customer" />;
+  return <ReportScreen definition={createSalesByCustomerReport(MONTH_START, TODAY)} apiPath="/sales/by-customer" />;
 }
 
 export function SalesBySalespersonReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.sales" definition={createSalesBySalespersonReport(MONTH_START, TODAY)} apiPath="/sales/by-salesperson" />;
+  return <ReportScreen definition={createSalesBySalespersonReport(MONTH_START, TODAY)} apiPath="/sales/by-salesperson" />;
 }
 
 export function TopProductsReportScreen() {
-  return <ReportScreen eyebrow="eyebrow.reports.sales" definition={createTopProductsReport(MONTH_START, TODAY)} apiPath="/sales/top-products" />;
+  return <ReportScreen definition={createTopProductsReport(MONTH_START, TODAY)} apiPath="/sales/top-products" />;
 }

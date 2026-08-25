@@ -184,7 +184,6 @@ export function ContractsScreen() {
       ) : null}
 
       <DocumentList<ContractDTO>
-        eyebrow={t("eyebrow.hr.contracts")}
         title={t("contracts.contracts")}
         description={t("contracts.eachEmployeeSFormalContract")}
         actions={

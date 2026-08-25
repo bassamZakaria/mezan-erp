@@ -803,7 +803,6 @@ export function ItemsScreen() {
         </Card>
       ) : null}
       <DocumentList<ItemDTO>
-        eyebrow={t("eyebrow.inventory.items")}
         title={t("items.items")}
         description={t("items.theMasterCatalogueOfProducts")}
         actions={

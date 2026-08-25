@@ -842,7 +842,6 @@ export function SalesInvoicesScreen() {
             </Card>
           ) : null}
           <DocumentList<SalesInvoiceDTO>
-            eyebrow={t("eyebrow.sales.invoices")}
             title={t("salesInvoices.title")}
             description={t("salesInvoices.description")}
             actions={

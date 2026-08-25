@@ -261,7 +261,6 @@ export function LandedCostsScreen() {
         </Card>
       ) : null}
       <DocumentList<(typeof documents)[number]>
-        eyebrow={t("eyebrow.purchases.landedCosts")}
         title={t("landedCosts.title")}
         description={t("landedCosts.description")}
         actions={

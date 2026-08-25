@@ -159,7 +159,6 @@ export function AuditLogScreen() {
       ) : null}
 
       <DocumentList<AuditEventDTO>
-        eyebrow={t("eyebrow.platform.auditLog")}
         title={t("audit.auditLog")}
         description={t("audit.aRecordOfSecurityEvents")}
         stats={[
@@ -220,7 +219,8 @@ export function AuditLogScreen() {
         }
         columns={columns}
         rows={events}
-        rowKey={(e) => `${e.timestamp}-${e.actor}-${e.action}-${e.entityType}`}
+        // Bulk writes share a millisecond, an actor and an action — only the position separates them.
+        rowKey={(e, i) => `${e.timestamp}-${e.actor}-${e.action}-${e.entityType}-${i}`}
         onRowClick={setSelected}
         page={page}
         pageCount={pageCount}

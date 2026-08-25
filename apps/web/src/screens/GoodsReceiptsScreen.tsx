@@ -310,7 +310,6 @@ export function GoodsReceiptsScreen() {
         </Card>
       ) : null}
       <DocumentList<GoodsReceiptDTO>
-        eyebrow={t("eyebrow.purchases.goodsReceipts")}
         title={t("goodsReceipts.title")}
         description={t("goodsReceipts.description")}
         actions={

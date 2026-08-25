@@ -26,6 +26,7 @@ import {
   useTreasuryAccounts,
   useUnmatchStatementLine,
 } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /**
  * تسوية كشوف البنك — Bank Statement Reconciliation (docs/catalog/04, route
@@ -52,6 +53,7 @@ function formatPercent(rate: number): string {
 }
 
 export function BankReconciliationScreen() {
+  const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useState<"all" | BankStatementStatusDTO>("all");
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -70,11 +72,11 @@ export function BankReconciliationScreen() {
 
   const treasuryQuery = useTreasuryAccounts();
   const bankAccounts = useMemo(
-    () => (treasuryQuery.data ?? []).filter((t) => t.type === "bank" && t.status === "active"),
+    () => (treasuryQuery.data ?? []).filter((account) => account.type === "bank" && account.status === "active"),
     [treasuryQuery.data],
   );
   const accountName = useMemo(() => {
-    const map = new Map((treasuryQuery.data ?? []).map((t) => [t.id, t.name]));
+    const map = new Map((treasuryQuery.data ?? []).map((account) => [account.id, account.name]));
     return (id: string) => map.get(id) ?? id;
   }, [treasuryQuery.data]);
 
@@ -106,14 +108,14 @@ export function BankReconciliationScreen() {
   const openMatchRate = detail.data?.matchSummary.matchRate ?? 0;
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: counts.all },
+    { key: "all", label: t("common.all"), count: counts.all },
     ...BANK_STATEMENT_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] })),
   ];
 
   const columns: DocumentListColumn<BankStatementDTO>[] = [
     {
       key: "account",
-      header: "الحساب",
+      header: t("bankRec.account"),
       render: (s) => (
         <div>
           <div className="font-semibold text-ink">{accountName(s.treasuryAccountId)}</div>
@@ -123,31 +125,31 @@ export function BankReconciliationScreen() {
     },
     {
       key: "period",
-      header: "الفترة",
+      header: t("common.period"),
       render: (s) => (
         <span className="mz-num text-ink-muted">
           {s.periodStart} — {s.periodEnd}
         </span>
       ),
     },
-    { key: "opening", header: "الرصيد الافتتاحي", align: "end", render: (s) => <MoneyDisplay value={Number(s.openingBalance)} /> },
-    { key: "closing", header: "الرصيد الختامي", align: "end", render: (s) => <MoneyDisplay value={Number(s.closingBalance)} /> },
+    { key: "opening", header: t("bankRec.openingBalance"), align: "end", render: (s) => <MoneyDisplay value={Number(s.openingBalance)} /> },
+    { key: "closing", header: t("bankRec.closingBalance"), align: "end", render: (s) => <MoneyDisplay value={Number(s.closingBalance)} /> },
     {
       key: "matchRate",
-      header: "نسبة المطابقة",
+      header: t("bankRec.matched"),
       align: "end",
       render: (s) => (
         <span className="mz-num text-ink-muted">{s.id === openStatementId ? formatPercent(openMatchRate) : "—"}</span>
       ),
     },
-    { key: "status", header: "الحالة", render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
+    { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
     {
       key: "actions",
       header: "",
       align: "end",
       render: (s) => (
         <Button size="sm" variant="ghost" onClick={() => setOpenStatementId(s.id)}>
-          فتح التسوية
+          {t("bankRec.openReconciliation")}
         </Button>
       ),
     },
@@ -157,42 +159,42 @@ export function BankReconciliationScreen() {
     <div className="w-full">
       <DocumentList<BankStatementDTO>
         eyebrow="Treasury · Bank Reconciliation"
-        title="تسوية كشوف البنك"
-        description="استيراد كشوف البنك ومطابقتها مع معاملات النظام"
+        title={t("bankRec.bankReconciliation")}
+        description={t("bankRec.importBankStatementsAndMatch")}
         actions={
           <Button variant="primary" onClick={() => setImportOpen(true)}>
-            استيراد كشف بنك
+            {t("bankRec.importAStatement")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الكشوف", value: <span className="mz-num">{counts.all}</span> },
-          { label: "قيد التسوية", value: <span className="mz-num">{counts.in_progress}</span> },
-          { label: "منتهية", value: <span className="mz-num">{counts.completed}</span> },
-          { label: "نسبة المطابقة", value: <span className="mz-num">{formatPercent(openMatchRate)}</span> },
+          { label: t("bankRec.totalStatements"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("bankRec.beingReconciled"), value: <span className="mz-num">{counts.in_progress}</span> },
+          { label: t("bankRec.finished"), value: <span className="mz-num">{counts.completed}</span> },
+          { label: t("bankRec.matched"), value: <span className="mz-num">{formatPercent(openMatchRate)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | BankStatementStatusDTO)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالحساب أو المرجع أو الفترة..."
+        searchPlaceholder={t("bankRec.searchByAccountReferenceOr")}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[220px]">
               <EntityPicker
-                label="حساب الخزينة"
+                label={t("bankRec.treasuryAccount")}
                 value={bankAccounts.map((a) => ({ id: a.id, label: a.name })).find((o) => o.id === treasuryAccountId) ?? null}
                 onChange={(o) => setTreasuryAccountId(o?.id ?? "")}
                 options={bankAccounts.map((a) => ({ id: a.id, label: a.name }))}
-                placeholder="جميع الحسابات"
-                emptyMessage="لا توجد حسابات بنكية"
+                placeholder={t("bankRec.allAccounts")}
+                emptyMessage={t("bankRec.noBankAccounts")}
               />
             </div>
             <div className="w-[150px]">
-              <TextField label="من" value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
+              <TextField label={t("common.of")} value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
             </div>
             <div className="w-[150px]">
-              <TextField label="إلى" value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
+              <TextField label={t("bankRec.to")} value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
             </div>
           </div>
         }
@@ -204,12 +206,12 @@ export function BankReconciliationScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{rows.length}</span> من <span className="mz-num">{counts.all}</span> كشف
+            {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("bankRec.statements")}
           </>
         }
         emptyState={
           <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? "جارِ التحميل…" : query.isError ? (query.error?.message ?? "تعذّر تحميل كشوف البنك.") : "لا توجد كشوف بنك بعد"}
+            {query.isLoading ? t("common.loading") : query.isError ? (query.error?.message ?? t("bankRec.bankStatementsCouldNotBe")) : t("bankRec.noBankStatementsYet")}
           </div>
         }
       />
@@ -254,6 +256,7 @@ function ImportStatementDialog({
   onClose: () => void;
   onImported: (statementId: string) => void;
 }) {
+  const { t } = useAppTranslation();
   const [treasuryAccountId, setTreasuryAccountId] = useState("");
   const [fileName, setFileName] = useState("");
   const [rawCsv, setRawCsv] = useState("");
@@ -270,7 +273,7 @@ function ImportStatementDialog({
 
   const treasuryQuery = useTreasuryAccounts();
   const bankAccounts = useMemo(
-    () => (treasuryQuery.data ?? []).filter((t) => t.type === "bank" && t.status === "active"),
+    () => (treasuryQuery.data ?? []).filter((account) => account.type === "bank" && account.status === "active"),
     [treasuryQuery.data],
   );
   const bankOptions: EntityPickerOption[] = bankAccounts.map((a) => ({ id: a.id, label: `${a.name} (${a.code})` }));
@@ -370,95 +373,95 @@ function ImportStatementDialog({
     }
   }
 
-  const columnOptions = [{ value: "", label: "— بدون —" }, ...headers.map((h) => ({ value: h, label: h }))];
+  const columnOptions = [{ value: "", label: t("bankRec.none") }, ...headers.map((h) => ({ value: h, label: h }))];
 
   return (
-    <SidePanel open={open} onClose={onClose} title="استيراد كشف بنك">
+    <SidePanel open={open} onClose={onClose} title={t("bankRec.importAStatement")}>
       <div className="flex flex-col gap-4 p-5">
         <div>
           <EntityPicker
-            label="حساب الخزينة *"
+            label={t("bankRec.treasuryAccount2")}
             value={bankOptions.find((o) => o.id === treasuryAccountId) ?? null}
             onChange={(o) => setTreasuryAccountId(o?.id ?? "")}
             options={bankOptions}
-            placeholder="اختر حسابا بنكيا"
-            emptyMessage="لا توجد حسابات بنكية"
+            placeholder={t("bankRec.chooseABankAccount")}
+            emptyMessage={t("bankRec.noBankAccounts")}
           />
         </div>
 
-        <SelectField label="المصدر *" value="csv" onChange={() => undefined} options={[{ value: "csv", label: "ملف CSV" }]} />
+        <SelectField label={t("bankRec.source")} value="csv" onChange={() => undefined} options={[{ value: "csv", label: t("bankRec.csvFile") }]} />
 
         <div>
-          <div className="mb-[6px] text-[12.5px] font-semibold text-ink">ملف الكشف *</div>
+          <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("bankRec.statementFile")}</div>
           <input
             ref={fileInputRef}
             type="file"
             accept=".csv,text/csv"
-            aria-label="ملف الكشف"
+            aria-label={t("bankRec.statementFile2")}
             onChange={onFileChange}
             className="w-full rounded-[8px] border border-border bg-surface px-3 py-2 text-[12.5px] text-ink"
           />
           {fileName !== "" ? <div className="mt-[6px] text-[11.5px] text-ink-muted">{fileName}</div> : null}
         </div>
 
-        <TextField label="بداية الفترة *" value={periodStart} onChange={setPeriodStart} placeholder="YYYY-MM-DD" />
-        <TextField label="نهاية الفترة *" value={periodEnd} onChange={setPeriodEnd} placeholder="YYYY-MM-DD" />
-        <TextField label="الرصيد الافتتاحي *" value={openingBalance} onChange={setOpeningBalance} placeholder="0.00" />
-        <TextField label="الرصيد الختامي *" value={closingBalance} onChange={setClosingBalance} placeholder="0.00" />
-        <TextField label="رقم الكشف" value={statementNumber} onChange={setStatementNumber} />
+        <TextField label={t("bankRec.periodStart")} value={periodStart} onChange={setPeriodStart} placeholder="YYYY-MM-DD" />
+        <TextField label={t("bankRec.periodEnd")} value={periodEnd} onChange={setPeriodEnd} placeholder="YYYY-MM-DD" />
+        <TextField label={t("bankRec.openingBalance2")} value={openingBalance} onChange={setOpeningBalance} placeholder="0.00" />
+        <TextField label={t("bankRec.closingBalance2")} value={closingBalance} onChange={setClosingBalance} placeholder="0.00" />
+        <TextField label={t("bankRec.statementNumber")} value={statementNumber} onChange={setStatementNumber} />
 
         <Card className="flex flex-col gap-[12px] p-[14px]">
           <div className="flex items-center justify-between gap-2">
-            <h3 className="font-display text-[13px] font-bold text-ink">تعيين الأعمدة *</h3>
+            <h3 className="font-display text-[13px] font-bold text-ink">{t("bankRec.columnMapping")}</h3>
             <Button size="sm" disabled={!hasFile} onClick={() => setMappingOpen((v) => !v)}>
-              تعيين الأعمدة
+              {t("bankRec.columnMapping2")}
             </Button>
           </div>
           <p className="text-[11.5px] text-ink-muted">
-            اختر ملف CSV أولاً ثم عين الأعمدة على الحقول القياسية. يحفظ التعيين لكل حساب
+            {t("bankRec.chooseACsvFirstThen")}
           </p>
 
           {hasFile && mappingOpen ? (
             <div className="flex flex-col gap-[10px]">
               <SelectField
-                label="عمود التاريخ *"
+                label={t("bankRec.dateColumn")}
                 value={mapping.dateColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, dateColumn: v }))}
                 options={columnOptions}
               />
               <SelectField
-                label="عمود البيان *"
+                label={t("bankRec.descriptionColumn")}
                 value={mapping.descriptionColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, descriptionColumn: v }))}
                 options={columnOptions}
               />
               <SelectField
-                label="عمود المبلغ (بإشارة)"
+                label={t("bankRec.amountColumnSigned")}
                 value={mapping.amountColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, amountColumn: v }))}
                 options={columnOptions}
-                hint="استخدم إما عمود مبلغ واحد بإشارة، أو عمودَي مدين ودائن"
+                hint={t("bankRec.useEitherOneSignedAmount")}
               />
               <SelectField
-                label="عمود المدين"
+                label={t("bankRec.debitColumn")}
                 value={mapping.debitColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, debitColumn: v }))}
                 options={columnOptions}
               />
               <SelectField
-                label="عمود الدائن"
+                label={t("bankRec.creditColumn")}
                 value={mapping.creditColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, creditColumn: v }))}
                 options={columnOptions}
               />
               <SelectField
-                label="عمود المرجع"
+                label={t("bankRec.referenceColumn")}
                 value={mapping.referenceColumn}
                 onChange={(v) => setMapping((m) => ({ ...m, referenceColumn: v }))}
                 options={columnOptions}
               />
               <SelectField
-                label="صيغة التاريخ"
+                label={t("bankRec.dateFormat")}
                 value={mapping.dateFormat}
                 onChange={(v) => setMapping((m) => ({ ...m, dateFormat: v as StatementDateFormatDTO }))}
                 options={DATE_FORMATS.map((f) => ({ value: f, label: f }))}
@@ -470,9 +473,9 @@ function ImportStatementDialog({
         {error ? <div role="alert" className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
 
         <div className="flex gap-2 pt-2">
-          <Button onClick={() => { reset(); onClose(); }}>إلغاء</Button>
+          <Button onClick={() => { reset(); onClose(); }}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canImport} onClick={submit}>
-            استيراد
+            {t("bankRec.import")}
           </Button>
         </div>
       </div>
@@ -493,6 +496,7 @@ function StatementMatchingPanel({
   onClose: () => void;
   accountName: (id: string) => string;
 }) {
+  const { t } = useAppTranslation();
   const detail = useBankStatement(statementId);
   const autoMatch = useAutoMatchStatement();
   const matchLine = useMatchStatementLine();
@@ -532,9 +536,9 @@ function StatementMatchingPanel({
     <SidePanel
       open={statementId !== null}
       onClose={onClose}
-      title={statement ? `تسوية ${accountName(statement.treasuryAccountId)}` : "تسوية كشف بنك"}
+      title={statement ? t("bankRec.reconcileNamed", { account: accountName(statement.treasuryAccountId) }) : t("bankRec.reconcileABankStatement")}
     >
-      {detail.isLoading ? <div className="p-5 text-[12.5px] text-ink-muted">جارِ التحميل…</div> : null}
+      {detail.isLoading ? <div className="p-5 text-[12.5px] text-ink-muted">{t("common.loading")}</div> : null}
       {statement ? (
         <div className="flex flex-col gap-4 p-5">
           <div className="flex flex-wrap items-center gap-[10px]">
@@ -546,21 +550,21 @@ function StatementMatchingPanel({
 
           <div className="grid grid-cols-2 gap-2 text-[12.5px]">
             <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">الرصيد الافتتاحي</div>
+              <div className="text-ink-muted">{t("bankRec.openingBalance")}</div>
               <MoneyDisplay value={Number(statement.openingBalance)} />
             </div>
             <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">الرصيد الختامي</div>
+              <div className="text-ink-muted">{t("bankRec.closingBalance")}</div>
               <MoneyDisplay value={Number(statement.closingBalance)} />
             </div>
             <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">مطابَق</div>
+              <div className="text-ink-muted">{t("bankRec.matched2")}</div>
               <span className="mz-num">
                 {statement.matchSummary.matched} / {statement.matchSummary.total}
               </span>
             </div>
             <div className="rounded-[8px] border border-border px-3 py-2">
-              <div className="text-ink-muted">نسبة المطابقة</div>
+              <div className="text-ink-muted">{t("bankRec.matched")}</div>
               <span className="mz-num">{formatPercent(statement.matchSummary.matchRate)}</span>
             </div>
           </div>
@@ -573,21 +577,21 @@ function StatementMatchingPanel({
               disabled={locked || autoMatch.isPending}
               onClick={() => runStatementAction(() => autoMatch.mutateAsync(statement.id))}
             >
-              مطابقة تلقائية
+              {t("bankRec.matchAutomatically")}
             </Button>
             <Button
               variant="default"
               disabled={locked || finalize.isPending}
               onClick={() => runStatementAction(() => finalize.mutateAsync(statement.id))}
             >
-              إنهاء التسوية
+              {t("bankRec.finishReconciliation")}
             </Button>
           </div>
 
           <div className="flex flex-col gap-2">
             {statement.lines.length === 0 ? (
               <div className="rounded-[8px] border border-border px-3 py-4 text-center text-[12.5px] text-ink-muted">
-                لا توجد سطور في هذا الكشف
+                {t("bankRec.thisStatementHasNoLines")}
               </div>
             ) : (
               statement.lines.map((line) => (
@@ -631,6 +635,7 @@ function StatementLineRow({
   onMatch: () => void;
   onUnmatch: () => void;
 }) {
+  const { t } = useAppTranslation();
   const matched = line.status === "matched";
   return (
     <div className="flex flex-col gap-2 rounded-[10px] border border-border p-3">
@@ -646,24 +651,24 @@ function StatementLineRow({
           <span className={Number(line.amount) < 0 ? "text-danger-ink" : "text-success-ink"}>
             <MoneyDisplay value={Number(line.amount)} />
           </span>
-          <StatusPill label={matched ? "مطابَق" : "غير مطابَق"} tone={matched ? "success" : "neutral"} />
+          <StatusPill label={matched ? t("bankRec.matched2") : t("bankRec.unmatched")} tone={matched ? "success" : "neutral"} />
         </div>
       </div>
 
       {matched ? (
         <div className="flex items-center justify-between gap-2">
-          <span className="mz-num truncate text-[11.5px] text-ink-muted">القيد: {line.matchedEntryId}</span>
+          <span className="mz-num truncate text-[11.5px] text-ink-muted">{t("bankRec.entry")} {line.matchedEntryId}</span>
           <Button size="sm" variant="danger-outline" disabled={locked || pending} onClick={onUnmatch}>
-            إلغاء المطابقة
+            {t("bankRec.unmatch")}
           </Button>
         </div>
       ) : (
         <div className="flex items-end gap-2">
           <div className="flex-1">
-            <TextField label="معرّف القيد" value={entryIdDraft} onChange={onEntryIdChange} disabled={locked} />
+            <TextField label={t("bankRec.entryId")} value={entryIdDraft} onChange={onEntryIdChange} disabled={locked} />
           </div>
           <Button size="sm" variant="primary" disabled={locked || pending || entryIdDraft.trim() === ""} onClick={onMatch}>
-            مطابقة
+            {t("bankRec.match")}
           </Button>
         </div>
       )}

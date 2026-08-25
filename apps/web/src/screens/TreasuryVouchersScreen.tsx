@@ -49,16 +49,17 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
+import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
-const STATUS_LABEL: Record<VoucherStatusDTO, string> = {
-  draft: "مسودة",
-  pending: "بانتظار الموافقة",
-  posted: "مرحل",
-  confirmed: "مؤكد",
-  reversed: "معكوس",
-  cancelled: "ملغي",
+const STATUS_KEY: Record<VoucherStatusDTO, AppTranslationKey> = {
+  draft: "vouchers.status.draft",
+  pending: "vouchers.status.pending",
+  posted: "vouchers.status.posted",
+  confirmed: "vouchers.status.confirmed",
+  reversed: "vouchers.status.reversed",
+  cancelled: "vouchers.status.cancelled",
 };
 const STATUS_TONE: Record<VoucherStatusDTO, PillTone> = {
   draft: "neutral",
@@ -69,12 +70,13 @@ const STATUS_TONE: Record<VoucherStatusDTO, PillTone> = {
   cancelled: "neutral",
 };
 
-const STEPPER_STEPS: DocumentStatusStep[] = [
-  { key: "draft", label: "مسودة" },
-  { key: "pending", label: "بانتظار الموافقة" },
-  { key: "confirmed", label: "مؤكد" },
-  { key: "reversed", label: "معكوس" },
-];
+/** Keys, not copy — labels are built with the translator at render. */
+const STEPPER_KEYS = [
+  { key: "draft", labelKey: "vouchers.status.draft" },
+  { key: "pending", labelKey: "vouchers.status.pending" },
+  { key: "confirmed", labelKey: "vouchers.status.confirmed" },
+  { key: "reversed", labelKey: "vouchers.status.reversed" },
+] as const;
 
 /**
  * Fixed counterparty GL account per voucher type — leaves of the standard COA
@@ -139,6 +141,7 @@ function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo
 }
 
 export function TreasuryVouchersScreen() {
+  const { t } = useAppTranslation();
   const query = useVouchers();
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
@@ -162,11 +165,11 @@ export function TreasuryVouchersScreen() {
     const map = new Map<string, string>();
     for (const c of customers) map.set(c.id, c.nameAr);
     for (const s of suppliers) map.set(s.id, s.nameAr);
-    return (id: string | null) => (id ? (map.get(id) ?? id) : "بدون طرف محدد");
+    return (id: string | null) => (id ? (map.get(id) ?? id) : t("vouchers.noParty"));
   }, [customers, suppliers]);
 
   const treasuryName = useMemo(() => {
-    const map = new Map(treasuryAccounts.map((t) => [t.id, t.name]));
+    const map = new Map(treasuryAccounts.map((account) => [account.id, account.name]));
     return (id: string) => map.get(id) ?? id;
   }, [treasuryAccounts]);
 
@@ -212,7 +215,7 @@ export function TreasuryVouchersScreen() {
   const columns: DocumentListColumn<VoucherRowDTO>[] = [
     {
       key: "docNo",
-      header: "رقم السند",
+      header: t("vouchers.voucherNumber"),
       sortable: true,
       render: (d) => (
         <div>
@@ -221,15 +224,15 @@ export function TreasuryVouchersScreen() {
         </div>
       ),
     },
-    { key: "type", header: "نوع السند", render: (d) => getVoucherTypeDefinition(d.voucherType).labelAr },
+    { key: "type", header: t("vouchers.voucherType"), render: (d) => getVoucherTypeDefinition(d.voucherType).labelAr },
     {
       key: "party",
-      header: "الطرف",
+      header: t("vouchers.party"),
       render: (d) => <span className="text-ink">{partyName(d.customerId ?? d.supplierId)}</span>,
     },
     {
       key: "treasury",
-      header: "حساب الخزينة",
+      header: t("vouchers.treasuryAccount"),
       render: (d) => {
         if (d.direction === "transfer" && d.counterTreasuryAccountId) {
           return (
@@ -243,7 +246,7 @@ export function TreasuryVouchersScreen() {
     },
     {
       key: "amount",
-      header: "المبلغ",
+      header: t("common.amount"),
       align: "end",
       render: (d) => {
         const tone = d.direction === "receipt" ? "text-success-ink" : d.direction === "payment" ? "text-danger-ink" : "text-ink";
@@ -256,7 +259,7 @@ export function TreasuryVouchersScreen() {
         );
       },
     },
-    { key: "status", header: "الحالة", render: (d) => <StatusPill label={STATUS_LABEL[d.status]} tone={STATUS_TONE[d.status]} /> },
+    { key: "status", header: t("common.status"), render: (d) => <StatusPill label={t(STATUS_KEY[d.status])} tone={STATUS_TONE[d.status]} /> },
   ];
 
   function openDetail(id: string) {
@@ -284,42 +287,42 @@ export function TreasuryVouchersScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل السندات.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("vouchers.vouchersCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<VoucherRowDTO>
         eyebrow="Treasury · Vouchers"
-        title="السندات النقدية"
-        description="سندات القبض والصرف والتحويل — مستند موحّد بـ11 نوعاً على إطار المستندات، مع تخصيص على الفواتير"
+        title={t("vouchers.cashVouchers")}
+        description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={
           <Button variant="primary" onClick={() => setMode("create")}>
-            سند جديد
+            {t("vouchers.newVoucher")}
           </Button>
         }
         stats={[
-          { label: "الإجمالي", value: <span className="mz-num">{counts.all}</span> },
-          { label: "مؤكد", value: <span className="mz-num">{counts.confirmed}</span> },
-          { label: "بحاجة لتخصيص", value: <span className="mz-num">{counts.needsAllocation}</span> },
-          { label: "مسودة", value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("vouchers.needsAllocation"), value: <span className="mz-num">{counts.needsAllocation}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
         ]}
         statusChips={[
-          { key: "all", label: "الكل", count: counts.all },
-          { key: "needs_allocation", label: "بحاجة لتخصيص", count: counts.needsAllocation },
-          { key: "confirmed", label: "مؤكد", count: counts.confirmed },
-          { key: "draft", label: "مسودة", count: counts.draft },
+          { key: "all", label: t("common.all"), count: counts.all },
+          { key: "needs_allocation", label: t("vouchers.needsAllocation"), count: counts.needsAllocation },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as typeof statusFilter)}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="ابحث برقم السند، المرجع، العميل، المورد…"
+        searchPlaceholder={t("vouchers.searchByVoucherNumberReference")}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             <Chip active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
-              كل الأنواع
+              {t("vouchers.allTypes")}
             </Chip>
             {typeBreakdown.map(([type, n]) => (
               <Chip key={type} active={typeFilter === type} onClick={() => setTypeFilter(type)}>
@@ -336,10 +339,10 @@ export function TreasuryVouchersScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{counts.all}</span> سند
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("vouchers.vouchers")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد سندات مطابقة</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("vouchers.noMatchingVouchers")}</div>}
       />
     </div>
   );
@@ -360,6 +363,7 @@ function VoucherDetailView({
   treasuryName: (id: string) => string;
   onBack: () => void;
 }) {
+  const { t } = useAppTranslation();
   const query = useVoucherDetail(id);
   const reverseVoucher = useReverseVoucher();
   const createAllocation = useCreateAllocation();
@@ -393,7 +397,7 @@ function VoucherDetailView({
       await reverseVoucher.mutateAsync({ id: doc.id });
       onBack();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر عكس السند.");
+      setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe"));
     } finally {
       setBusy(false);
     }
@@ -408,7 +412,7 @@ function VoucherDetailView({
       setInvoiceId("");
       setAllocAmount(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر تخصيص المبلغ.");
+      setError(err instanceof Error ? err.message : t("vouchers.theAmountCouldNotBe"));
     } finally {
       setBusy(false);
     }
@@ -421,7 +425,7 @@ function VoucherDetailView({
     try {
       await reverseAllocation.mutateAsync(allocId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر عكس التخصيص.");
+      setError(err instanceof Error ? err.message : t("vouchers.theAllocationCouldNotBe"));
     } finally {
       setReversingAllocId(null);
     }
@@ -430,10 +434,10 @@ function VoucherDetailView({
   if (!doc || !def) {
     return (
       <div className="w-full">
-        <Button onClick={onBack}>رجوع</Button>
+        <Button onClick={onBack}>{t("common.back")}</Button>
         {query.isError ? (
           <Card className="mt-[16px] p-[18px_20px]">
-            <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل السند.</p>
+            <p className="text-[13px] font-semibold text-danger-ink">{t("vouchers.theVoucherCouldNotBe2")}</p>
           </Card>
         ) : null}
       </div>
@@ -444,16 +448,16 @@ function VoucherDetailView({
   const activeAllocations = doc.allocations.filter((a) => a.status === "active");
 
   const summaryItems = [
-    { label: "النوع", value: def.labelAr },
-    { label: "التاريخ", value: <span className="mz-num">{doc.date}</span> },
-    { label: "طريقة الدفع", value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
-    { label: "الطرف", value: partyName(partyId) },
-    { label: "المبلغ", value: <MoneyDisplay value={toMajor(doc.amount)} /> },
+    { label: t("common.type"), value: def.labelAr },
+    { label: t("common.date"), value: <span className="mz-num">{doc.date}</span> },
+    { label: t("vouchers.paymentMethod"), value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
+    { label: t("vouchers.party"), value: partyName(partyId) },
+    { label: t("common.amount"), value: <MoneyDisplay value={toMajor(doc.amount)} /> },
     ...(def.allocatable
       ? [
           {
-            label: "التخصيص",
-            value: summary.fullyAllocated ? "مخصّص بالكامل" : `مخصّص ${summary.allocated}`,
+            label: t("vouchers.allocation"),
+            value: summary.fullyAllocated ? t("vouchers.fullyAllocated") : t("vouchers.allocatedAmount", { amount: summary.allocated }),
             valueTone: summary.needsAllocation ? ("danger" as const) : ("success" as const),
           },
         ]
@@ -462,16 +466,16 @@ function VoucherDetailView({
 
   const allocationTab = {
     key: "allocation",
-    label: `تخصيص على الفواتير (${activeAllocations.length})`,
+    label: t("vouchers.tab.allocations", { count: activeAllocations.length }),
     content: (
       <div className="flex flex-col gap-[16px]">
         <div className="flex flex-wrap items-center gap-[10px]">
           <StatusPill
-            label={summary.needsAllocation ? "بحاجة لتخصيص" : "مخصّص بالكامل"}
+            label={summary.needsAllocation ? t("vouchers.needsAllocation") : t("vouchers.fullyAllocated")}
             tone={summary.needsAllocation ? "warning" : "success"}
           />
           <span className="text-[12.5px] text-ink-muted">
-            المتبقي غير المخصص: <MoneyDisplay value={toMajor(summary.unallocated)} />
+            {t("vouchers.unallocatedRemainder")} <MoneyDisplay value={toMajor(summary.unallocated)} />
           </span>
         </div>
 
@@ -480,16 +484,16 @@ function VoucherDetailView({
             <table className="w-full min-w-[520px] border-collapse text-[13px]">
               <thead>
                 <tr>
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">رقم الفاتورة</th>
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">المبلغ</th>
-                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">التاريخ</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("vouchers.invoiceNumber")}</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.amount")}</th>
+                  <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.date")}</th>
                   <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px]" />
                 </tr>
               </thead>
               <tbody>
                 {activeAllocations.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-[15px] py-[16px] text-center text-ink-muted">لا توجد تخصيصات بعد</td>
+                    <td colSpan={4} className="px-[15px] py-[16px] text-center text-ink-muted">{t("vouchers.noAllocationsYet")}</td>
                   </tr>
                 ) : (
                   activeAllocations.map((a) => {
@@ -506,7 +510,7 @@ function VoucherDetailView({
                             disabled={reversingAllocId === a.id}
                             onClick={() => handleReverseAllocation(a.id)}
                           >
-                            {reversingAllocId === a.id ? "…" : "عكس التخصيص"}
+                            {reversingAllocId === a.id ? "…" : t("vouchers.reverseAllocation")}
                           </Button>
                         </td>
                       </tr>
@@ -520,30 +524,30 @@ function VoucherDetailView({
 
         {doc.status === "confirmed" && summary.needsAllocation ? (
           <Card className="flex flex-col gap-[12px] p-[16px_18px]">
-            <h3 className="font-display text-[13.5px] font-bold text-ink">تخصيص مبلغ على فاتورة</h3>
+            <h3 className="font-display text-[13.5px] font-bold text-ink">{t("vouchers.allocateAnAmountToAn")}</h3>
             {openInvoices.length === 0 ? (
-              <div className="text-[12.5px] text-ink-muted">لا توجد فواتير مفتوحة لهذا الطرف.</div>
+              <div className="text-[12.5px] text-ink-muted">{t("vouchers.thisPartyHasNoOpen")}</div>
             ) : (
               <>
                 <SelectField
-                  label="الفاتورة"
+                  label={t("vouchers.invoice")}
                   value={invoiceId}
                   onChange={setInvoiceId}
                   options={[
-                    { value: "", label: "اختر فاتورة…" },
+                    { value: "", label: t("vouchers.chooseAnInvoice") },
                     ...openInvoices.map((i) => ({
                       value: i.id,
-                      label: `${i.invoiceNo} — متبقٍ ${i.outstanding}`,
+                      label: t("vouchers.invoiceOutstanding", { number: i.invoiceNo, outstanding: i.outstanding }),
                     })),
                   ]}
                 />
                 <div>
-                  <div className="mb-[6px] text-[12.5px] font-semibold text-ink">المبلغ</div>
-                  <MoneyInput value={allocAmount} onChange={setAllocAmount} aria-label="مبلغ التخصيص" />
+                  <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("common.amount")}</div>
+                  <MoneyInput value={allocAmount} onChange={setAllocAmount} aria-label={t("vouchers.amountToAllocate")} />
                 </div>
                 <div className="flex justify-end">
                   <Button variant="primary" disabled={busy || invoiceId === "" || !allocAmount} onClick={handleAllocate}>
-                    تخصيص
+                    {t("vouchers.allocate")}
                   </Button>
                 </div>
               </>
@@ -558,15 +562,15 @@ function VoucherDetailView({
     ...(def.allocatable ? [allocationTab] : []),
     {
       key: "gl",
-      label: "القيود المحاسبية",
+      label: t("vouchers.journalEntries"),
       content: (
         <Card className="p-[16px_18px] text-[12.5px] text-ink-muted">
           {doc.journalEntryId ? (
             <span>
-              رُحّل هذا السند إلى قيد محاسبي متوازن — المعرّف: <span className="mz-num text-ink">{doc.docNo}</span>
+              {t("vouchers.thisVoucherPostedABalanced")} <span className="mz-num text-ink">{doc.docNo}</span>
             </span>
           ) : (
-            <span>لم يُرحّل هذا السند بعد.</span>
+            <span>{t("vouchers.thisVoucherHasNotPosted")}</span>
           )}
         </Card>
       ),
@@ -581,22 +585,22 @@ function VoucherDetailView({
         </div>
       ) : null}
       <DocumentDetail
-        title={doc.docNo ?? "سند نقدي"}
-        statusLabel={STATUS_LABEL[doc.status]}
+        title={doc.docNo ?? t("vouchers.cashVoucher")}
+        statusLabel={t(STATUS_KEY[doc.status])}
         statusTone={STATUS_TONE[doc.status]}
-        subtitle={<DocumentStatusStepper steps={STEPPER_STEPS} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
+        subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={doc.status} tone={doc.status === "reversed" ? "danger" : "brand"} />}
         actions={
           <>
-            <Button onClick={onBack}>رجوع</Button>
+            <Button onClick={onBack}>{t("common.back")}</Button>
             {doc.status === "confirmed" ? (
               <Button variant="danger-outline" disabled={busy} onClick={handleReverseVoucher}>
-                عكس السند
+                {t("vouchers.reverseVoucher")}
               </Button>
             ) : null}
           </>
         }
         summary={summaryItems}
-        effectsTitle="تأثيرات هذا السند"
+        effectsTitle={t("vouchers.whatThisVoucherDoes")}
         effects={(effects?.effects ?? []).map((e) => e.description)}
         tabs={tabs}
       />
@@ -633,6 +637,7 @@ function CreateVoucherView({
   accounts: AccountDTO[];
   onDone: () => void;
 }) {
+  const { t } = useAppTranslation();
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const branchesQuery = useBranches();
@@ -655,7 +660,7 @@ function CreateVoucherView({
   const def = type ? getVoucherTypeDefinition(type) : null;
 
   const workingLocation = useWorkingLocation();
-  const treasuryOptions = treasuryAccounts.map((t) => ({ value: t.id, label: `${t.name} (${t.code})` }));
+  const treasuryOptions = treasuryAccounts.map((account) => ({ value: account.id, label: `${account.name} (${account.code})` }));
   const partyOptions: EntityPickerOption[] = def?.requiresCustomer
     ? customers.map((c) => ({ id: c.id, label: c.nameAr }))
     : def?.requiresSupplier
@@ -669,7 +674,7 @@ function CreateVoucherView({
         : [];
 
   function treasuryGlOf(id: string): string {
-    return treasuryAccounts.find((t) => t.id === id)?.glAccountId ?? "";
+    return treasuryAccounts.find((account) => account.id === id)?.glAccountId ?? "";
   }
 
   function counterpartyGl(): string | null {
@@ -739,7 +744,7 @@ function CreateVoucherView({
       await confirmVoucher.mutateAsync({ id: created.id });
       onDone();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "تعذر إنشاء السند.");
+      setError(err instanceof Error ? err.message : t("vouchers.theVoucherCouldNotBe3"));
     } finally {
       setBusy(false);
     }
@@ -751,9 +756,9 @@ function CreateVoucherView({
         <div className="mb-[16px] flex items-end justify-between gap-[18px]">
           <div>
             <div className="mz-eyebrow">Treasury · New Voucher</div>
-            <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">اختر نوع السند</h1>
+            <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("vouchers.chooseAVoucherType")}</h1>
           </div>
-          <Button onClick={onDone}>إلغاء</Button>
+          <Button onClick={onDone}>{t("common.cancel")}</Button>
         </div>
         <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-3">
@@ -787,13 +792,13 @@ function CreateVoucherView({
           <div className="mz-eyebrow">Treasury · New Voucher</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{def.labelAr}</h1>
           <button type="button" onClick={() => setType(null)} className="mt-[6px] text-[12px] text-brand underline">
-            تغيير نوع السند
+            {t("vouchers.changeVoucherType")}
           </button>
         </div>
         <div className="flex items-center gap-[9px]">
-          <Button onClick={onDone}>إلغاء</Button>
+          <Button onClick={onDone}>{t("common.cancel")}</Button>
           <Button variant="primary" disabled={!canSubmit} onClick={submitVoucher}>
-            إنشاء وتأكيد
+            {t("vouchers.createAndConfirm")}
           </Button>
         </div>
       </div>
@@ -808,19 +813,19 @@ function CreateVoucherView({
       <div className="grid gap-5 lg:grid-cols-[2fr_1fr]">
         <Card className="flex flex-col gap-[14px] p-[18px]">
           <div>
-            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">المبلغ *</div>
-            <MoneyInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label="المبلغ" />
+            <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("vouchers.amount")}</div>
+            <MoneyInput value={draft.amount} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} aria-label={t("common.amount")} />
           </div>
 
           <SelectField
-            label="طريقة الدفع *"
+            label={t("vouchers.paymentMethod2")}
             value={draft.paymentMethod}
             onChange={(v) => setDraft((d) => ({ ...d, paymentMethod: v as VoucherPaymentMethod }))}
             options={VOUCHER_PAYMENT_METHODS.map((m) => ({ value: m.code, label: m.labelAr }))}
           />
 
           <SelectField
-            label={def.direction === "transfer" ? "من الخزينة *" : "حساب الخزينة *"}
+            label={def.direction === "transfer" ? t("vouchers.fromTreasury") : t("vouchers.treasuryAccount2")}
             value={draft.treasuryAccountId}
             onChange={(v) => setDraft((d) => ({ ...d, treasuryAccountId: v }))}
             options={treasuryOptions}
@@ -828,7 +833,7 @@ function CreateVoucherView({
 
           {def.direction === "transfer" ? (
             <SelectField
-              label="إلى الخزينة *"
+              label={t("vouchers.toTreasury")}
               value={draft.counterTreasuryAccountId}
               onChange={(v) => setDraft((d) => ({ ...d, counterTreasuryAccountId: v }))}
               options={treasuryOptions}
@@ -837,36 +842,36 @@ function CreateVoucherView({
 
           {def.requiresCustomer || def.requiresSupplier ? (
             <div>
-              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{def.requiresCustomer ? "العميل *" : "المورّد *"}</div>
+              <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{def.requiresCustomer ? t("vouchers.customer") : t("vouchers.supplier")}</div>
               <EntityPicker
                 label={undefined}
                 value={partyOptions.find((o) => o.id === draft.partyId) ?? null}
                 onChange={(o) => setDraft((d) => ({ ...d, partyId: o?.id ?? "" }))}
                 options={partyOptions}
-                placeholder={def.requiresCustomer ? "ابحث عن عميل…" : "ابحث عن مورّد…"}
+                placeholder={def.requiresCustomer ? t("vouchers.searchForACustomer") : t("vouchers.searchForASupplier")}
               />
             </div>
           ) : null}
 
           {type === "other_income" || type === "other_expense" ? (
             <SelectField
-              label="الحساب المقابل *"
+              label={t("vouchers.contraAccount")}
               value={draft.counterpartyGlAccountId}
               onChange={(v) => setDraft((d) => ({ ...d, counterpartyGlAccountId: v }))}
               options={revenueOrExpenseOptions}
             />
           ) : null}
 
-          <TextField label="التاريخ *" value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
-          <TextField label="رقم المرجع" value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
-          <TextField label="ملاحظات" value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={def.labelAr} />
+          <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
+          <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
+          <TextField label={t("common.notes")} value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={def.labelAr} />
         </Card>
 
         <div
           className="h-fit rounded-lg border border-[color-mix(in_srgb,var(--brand)_26%,transparent)] p-[16px_18px]"
           style={{ background: "linear-gradient(180deg, var(--brand-soft), color-mix(in srgb, var(--brand-soft) 55%, var(--surface)))" }}
         >
-          <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">تأثيرات هذا السند</h3>
+          <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-brand">{t("vouchers.whatThisVoucherDoes")}</h3>
           <p className="mb-[10px] text-[12px] text-ink-muted">{def.subtitleAr}</p>
           <ul className="flex flex-col gap-[7px] text-[12.5px] text-ink">
             {(previewEffects?.effects ?? []).map((e, i) => (
@@ -875,7 +880,7 @@ function CreateVoucherView({
                 {e.description}
               </li>
             ))}
-            {!previewEffects ? <li className="text-ink-muted">أدخل مبلغاً لعرض التأثيرات.</li> : null}
+            {!previewEffects ? <li className="text-ink-muted">{t("vouchers.enterAnAmountToSee")}</li> : null}
           </ul>
         </div>
       </div>

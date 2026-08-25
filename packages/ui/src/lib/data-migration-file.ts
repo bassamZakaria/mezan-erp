@@ -1,5 +1,15 @@
 import ExcelJS from "exceljs";
 import type { ReportExportFile } from "./report-export";
+import { DEFAULT_LOCALE, translate, uiCatalogs, type TranslationParams, type UiTranslationKey } from "../i18n";
+
+/**
+ * Narrowed to the UI catalogue's keys on purpose: the app's own translator is
+ * typed to a WIDER key union, and a function taking the wider union is only
+ * assignable here because this parameter takes the narrower one.
+ */
+type ImportTranslate = (key: UiTranslationKey, params?: TranslationParams) => string;
+
+const defaultT: ImportTranslate = (key, params) => translate(uiCatalogs, DEFAULT_LOCALE, key, params);
 
 /**
  * File I/O for the نقل البيانات (Data Migration) go-live wizard
@@ -78,6 +88,7 @@ function cellText(value: ExcelJS.CellValue): string {
 export async function parseDataMigrationFile(
   buffer: ArrayBuffer,
   spec: DataMigrationStepSpec,
+  t: ImportTranslate = defaultT,
 ): Promise<DataMigrationParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
@@ -85,7 +96,7 @@ export async function parseDataMigrationFile(
   const rows: Record<string, string>[] = [];
   const errors: DataMigrationParseError[] = [];
   if (!sheet) {
-    return { rows, errors: [{ rowNumber: 0, reason: "الملف لا يحتوي على أي ورقة بيانات" }] };
+    return { rows, errors: [{ rowNumber: 0, reason: t("import.noSheet") }] };
   }
 
   sheet.eachRow((row, rowNumber) => {

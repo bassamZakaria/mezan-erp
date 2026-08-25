@@ -116,6 +116,23 @@ const uiAr = {
   "print.totals.totalDiscount": "إجمالي الخصم",
   "print.totals.grandTotal": "الإجمالي",
   "print.notes": "ملاحظات: {value}",
+
+  // spreadsheet import
+  "import.noSheet": "الملف لا يحتوي على أي ورقة بيانات",
+  "import.unknownDocType": "نوع مستند غير معروف: \"{value}\"",
+  "import.historical.sheetName": "استيراد سابق",
+  "import.historical.col.docType": "نوع المستند",
+  "import.historical.col.docNumber": "رقم المستند",
+  "import.historical.col.supplierId": "معرف المورد",
+  "import.historical.col.date": "التاريخ",
+  "import.historical.col.dueDate": "تاريخ الاستحقاق",
+  "import.historical.col.itemId": "معرف الصنف",
+  "import.historical.col.description": "الوصف",
+  "import.historical.col.qty": "الكمية",
+  "import.historical.col.unitCost": "تكلفة الوحدة",
+  "import.historical.col.paidAmount": "المبلغ المسدد من المستند بالكامل",
+  "import.historical.docType.purchaseInvoice": "فاتورة مشتريات",
+  "import.historical.docType.purchaseReturn": "مرتجع مشتريات",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -231,6 +248,23 @@ const uiEn: Record<UiTranslationKey, string> = {
   "print.totals.totalDiscount": "Total discount",
   "print.totals.grandTotal": "Total",
   "print.notes": "Notes: {value}",
+
+  // spreadsheet import
+  "import.noSheet": "The file contains no data sheet",
+  "import.unknownDocType": "Unknown document type: \"{value}\"",
+  "import.historical.sheetName": "Historical import",
+  "import.historical.col.docType": "Document type",
+  "import.historical.col.docNumber": "Document no.",
+  "import.historical.col.supplierId": "Supplier ID",
+  "import.historical.col.date": "Date",
+  "import.historical.col.dueDate": "Due date",
+  "import.historical.col.itemId": "Item ID",
+  "import.historical.col.description": "Description",
+  "import.historical.col.qty": "Qty",
+  "import.historical.col.unitCost": "Unit cost",
+  "import.historical.col.paidAmount": "Amount paid against the whole document",
+  "import.historical.docType.purchaseInvoice": "Purchase invoice",
+  "import.historical.docType.purchaseReturn": "Purchase return",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

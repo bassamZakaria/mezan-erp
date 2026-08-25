@@ -137,7 +137,7 @@ function MasterStepCard({ def, open, onToggle, registeredCount }: { def: MasterS
   async function handleFile(file: File) {
     setResult(null);
     const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec);
+    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
     setRows([...parsed.rows]);
     const previewResult = await preview.mutateAsync(parsed.rows);
     setResult(previewResult);
@@ -202,7 +202,7 @@ function HistoricalStepCard({ def, open, onToggle, registeredCount }: { def: His
   async function handleFile(file: File) {
     setResult(null);
     const buffer = await file.arrayBuffer();
-    const parsed = await parseDataMigrationFile(buffer, def.spec);
+    const parsed = await parseDataMigrationFile(buffer, def.spec, t);
     const built = toRows(parsed.rows);
     setRows(built);
     const previewResult = await preview.mutateAsync(built);

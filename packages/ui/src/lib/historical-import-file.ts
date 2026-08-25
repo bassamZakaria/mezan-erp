@@ -1,5 +1,15 @@
 import ExcelJS from "exceljs";
 import type { ReportExportFile } from "./report-export";
+import { DEFAULT_LOCALE, translate, uiCatalogs, type TranslationParams, type UiTranslationKey } from "../i18n";
+
+/**
+ * Narrowed to the UI catalogue's keys on purpose: the app's own translator is
+ * typed to a WIDER key union, and a function taking the wider union is only
+ * assignable here because this parameter takes the narrower one.
+ */
+type ImportTranslate = (key: UiTranslationKey, params?: TranslationParams) => string;
+
+const defaultT: ImportTranslate = (key, params) => translate(uiCatalogs, DEFAULT_LOCALE, key, params);
 
 /**
  * File I/O for the historical purchase-document import (docs/catalog/02
@@ -44,23 +54,18 @@ export interface HistoricalImportParseResult {
   readonly errors: readonly HistoricalImportParseError[];
 }
 
-const TEMPLATE_HEADERS = [
-  "نوع المستند",
-  "رقم المستند",
-  "معرف المورد",
-  "التاريخ",
-  "تاريخ الاستحقاق",
-  "معرف الصنف",
-  "الوصف",
-  "الكمية",
-  "تكلفة الوحدة",
-  "المبلغ المسدد من المستند بالكامل",
+const TEMPLATE_HEADER_KEYS = [
+  "import.historical.col.docType",
+  "import.historical.col.docNumber",
+  "import.historical.col.supplierId",
+  "import.historical.col.date",
+  "import.historical.col.dueDate",
+  "import.historical.col.itemId",
+  "import.historical.col.description",
+  "import.historical.col.qty",
+  "import.historical.col.unitCost",
+  "import.historical.col.paidAmount",
 ] as const;
-
-const DOC_TYPE_LABEL: Record<HistoricalImportFileDocType, string> = {
-  PURCHASE_INVOICE: "فاتورة مشتريات",
-  PURCHASE_RETURN: "مرتجع مشتريات",
-};
 
 /** Accepted spellings for the "نوع المستند" column, mapped back to the domain's doc-type code. */
 const DOC_TYPE_BY_LABEL: Record<string, HistoricalImportFileDocType> = {
@@ -73,12 +78,12 @@ const DOC_TYPE_BY_LABEL: Record<string, HistoricalImportFileDocType> = {
 };
 
 /** Builds the downloadable "تحميل النموذج" Excel template — a header row + one filled example row. */
-export async function buildHistoricalImportTemplate(): Promise<ReportExportFile> {
+export async function buildHistoricalImportTemplate(t: ImportTranslate = defaultT): Promise<ReportExportFile> {
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet("استيراد سابق");
-  sheet.addRow([...TEMPLATE_HEADERS]);
+  const sheet = workbook.addWorksheet(t("import.historical.sheetName"));
+  sheet.addRow(TEMPLATE_HEADER_KEYS.map((key) => t(key)));
   sheet.addRow([
-    DOC_TYPE_LABEL.PURCHASE_INVOICE,
+    t("import.historical.docType.purchaseInvoice"),
     "INV-1001",
     "sup-1",
     "2026-01-15",
@@ -120,14 +125,14 @@ function cellText(value: ExcelJS.CellValue): string {
  * value is reported in `errors` and excluded from `rows` (field-level
  * validation of everything else is left to the domain's dry-run preview).
  */
-export async function parseHistoricalImportFile(buffer: ArrayBuffer): Promise<HistoricalImportParseResult> {
+export async function parseHistoricalImportFile(buffer: ArrayBuffer, t: ImportTranslate = defaultT): Promise<HistoricalImportParseResult> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(buffer);
   const sheet = workbook.worksheets[0];
   const rows: ParsedHistoricalImportRow[] = [];
   const errors: HistoricalImportParseError[] = [];
   if (!sheet) {
-    return { rows, errors: [{ rowNumber: 0, reason: "الملف لا يحتوي على أي ورقة بيانات" }] };
+    return { rows, errors: [{ rowNumber: 0, reason: t("import.noSheet") }] };
   }
 
   sheet.eachRow((row, rowNumber) => {
@@ -141,7 +146,7 @@ export async function parseHistoricalImportFile(buffer: ArrayBuffer): Promise<Hi
 
     const docType = DOC_TYPE_BY_LABEL[docTypeLabel];
     if (!docType) {
-      errors.push({ rowNumber, reason: `نوع مستند غير معروف: "${docTypeLabel}"` });
+      errors.push({ rowNumber, reason: t("import.unknownDocType", { value: docTypeLabel }) });
       return;
     }
 

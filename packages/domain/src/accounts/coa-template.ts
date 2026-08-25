@@ -86,6 +86,11 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // against, so no adjustment reason can move stock silently. A stock GAIN
   // credits it (a negative expense), which is the standard treatment.
   { id: "5070", code: "5070", nameAr: "مصروف عجز وتلف المخزون", nameEn: "Inventory Shrinkage & Damage Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // A purchase return credits inventory at the stock's MOVING AVERAGE, which
+  // is not the price on the return once the position has been re-costed. The
+  // difference is a real cost variance and lands here rather than being
+  // silently absorbed, which would take GL 1200 away from the sub-ledger.
+  { id: "5080", code: "5080", nameAr: "فروق تكلفة المخزون", nameEn: "Inventory Cost Variance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.

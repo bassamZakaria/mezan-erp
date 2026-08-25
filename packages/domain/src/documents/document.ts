@@ -15,7 +15,7 @@ import type { SequenceCode } from "../numbering/index.js";
 import type { GateableActionType } from "../workflow/index.js";
 import type { DocumentStatus } from "./status.js";
 import type { DocumentEffects } from "./effects.js";
-import type { DocumentGlPosting, DocumentStockPlan } from "./hooks.js";
+import type { DocumentGlPosting, DocumentStockPlan, DocumentStockResult } from "./hooks.js";
 
 /** The shared document envelope. `Line` is the type-specific line shape. */
 export interface FrameworkDocument<Line> {
@@ -68,7 +68,7 @@ export interface DocumentTypeDefinition<Line> {
   /** Structural validation of a draft's lines. Throw {@link InvalidDocumentError} on failure. */
   validate?(doc: FrameworkDocument<Line>): void;
   /** Build the balanced GL posting to hand the GL hook, or null if this document posts nothing. */
-  buildGlPosting?(doc: FrameworkDocument<Line>): DocumentGlPosting | null;
+  buildGlPosting?(doc: FrameworkDocument<Line>, stock?: DocumentStockResult): DocumentGlPosting | null;
   /** Build the stock plan to hand the stock hook, or null if this document moves no stock. */
   buildStockPlan?(doc: FrameworkDocument<Line>): DocumentStockPlan | null;
   /** Compute the "تأثيرات هذا المستند" descriptor for the panel + confirm gate. Pure. */

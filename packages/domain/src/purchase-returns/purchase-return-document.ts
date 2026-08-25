@@ -53,6 +53,8 @@ export interface PurchaseReturnGlAccounts {
   readonly accountsPayableId: string;
   readonly inputTaxPayableId: string;
   readonly inventoryAccountId: string;
+  /** Where the difference between the return price and the stock's moving average lands. */
+  readonly costVarianceAccountId: string;
 }
 
 function totals(lines: readonly PurchaseReturnLine[]) {
@@ -116,9 +118,17 @@ export function createPurchaseReturnDocumentType(
       };
     },
 
-    buildGlPosting(doc): DocumentGlPosting | null {
+    buildGlPosting(doc, stock): DocumentGlPosting | null {
       const { costValue, taxValue, grandTotal } = totals(doc.lines);
       if (grandTotal.scaled === 0n) return null;
+      // Stock leaves at the MOVING AVERAGE, which is not the price on the
+      // return line once the position has been re-costed (a landed cost, a
+      // later receipt at another price). Crediting inventory by the document's
+      // own figure left the sub-ledger permanently adrift from GL 1200 by the
+      // difference; the difference is a real cost variance and gets its own
+      // line, so the entry still balances to the supplier's grand total.
+      const stockValue = stock ? Money.fromScaled(-stock.netValue.scaled) : costValue;
+      const variance = Money.fromScaled(costValue.scaled - stockValue.scaled);
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,
@@ -130,7 +140,12 @@ export function createPurchaseReturnDocumentType(
           ...(taxValue.scaled > 0n
             ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: taxValue }]
             : []),
-          { accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: costValue },
+          { accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: stockValue },
+          ...(variance.scaled === 0n
+            ? []
+            : variance.scaled > 0n
+              ? [{ accountId: accounts.costVarianceAccountId, debit: Money.zero(), credit: variance }]
+              : [{ accountId: accounts.costVarianceAccountId, debit: Money.fromScaled(-variance.scaled), credit: Money.zero() }]),
         ],
       };
     },

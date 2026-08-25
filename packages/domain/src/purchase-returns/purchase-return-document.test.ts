@@ -24,6 +24,7 @@ const ACCOUNTS = {
   accountsPayableId: "AP",
   inputTaxPayableId: "INPUT_TAX",
   inventoryAccountId: "INVENTORY",
+  costVarianceAccountId: "COST_VARIANCE",
 };
 
 function harness() {

@@ -108,8 +108,21 @@ export interface DocumentStockPlan {
   readonly date?: string;
 }
 
+/**
+ * What the stock engine actually did, handed back so the document's GL posting
+ * can credit inventory by the value that really left rather than by the price
+ * on the document. Stock leaves at the moving average, so the two differ
+ * whenever the position has been re-costed since — after a landed cost, for
+ * instance — and a posting that ignores it puts the sub-ledger out of step with
+ * GL 1200 by exactly that difference.
+ */
+export interface DocumentStockResult {
+  /** Signed: positive when value entered stock, negative when it left. */
+  readonly netValue: Money;
+}
+
 export interface DocumentStockHook {
-  apply(plan: DocumentStockPlan): Promise<void>;
+  apply(plan: DocumentStockPlan): Promise<DocumentStockResult | void>;
 }
 
 /* --- Workflow-gate hook (via the workflow engine) ------------------------ */

@@ -26,6 +26,7 @@ import type {
   DocumentWorkflowGate,
   DocumentEventPublisher,
   DocumentEventType,
+  DocumentStockResult,
 } from "./hooks.js";
 import { assertTransition, isActive, type DocumentStatus } from "./status.js";
 import {
@@ -181,17 +182,18 @@ export class DocumentService<Line> {
 
       let working: FrameworkDocument<Line> = { ...existing, docNo };
 
+      let stockResult: DocumentStockResult | undefined;
       if (this.def.buildStockPlan) {
         const plan = this.def.buildStockPlan(working);
         if (plan) {
           if (!this.deps.stock) throw new MissingHookError(this.def.code, "stock");
-          await this.deps.stock.apply(plan);
+          stockResult = (await this.deps.stock.apply(plan)) ?? undefined;
         }
       }
 
       let journalEntryId = existing.journalEntryId;
       if (this.def.buildGlPosting) {
-        const posting = this.def.buildGlPosting(working);
+        const posting = this.def.buildGlPosting(working, stockResult);
         if (posting) {
           if (!this.deps.gl) throw new MissingHookError(this.def.code, "gl");
           const result = await this.deps.gl.post(posting);

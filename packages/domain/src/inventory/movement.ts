@@ -24,6 +24,7 @@ export const STOCK_SOURCE_DOC_TYPES = [
   "PURCHASE_RETURN",
   "POS_SALE",
   "WORK_ORDER",
+  "LANDED_COST",
 ] as const;
 export type StockSourceDocType = (typeof STOCK_SOURCE_DOC_TYPES)[number];
 
@@ -53,6 +54,24 @@ export interface StockMovement {
    */
   readonly batchNo?: string | null;
   readonly expiryDate?: string | null;
+  /**
+   * A REVALUATION: value added to the position with no quantity moving, which
+   * is what a landed cost is. Before this the landed cost mutated the cached
+   * snapshot and the cost layers directly and appended nothing, so `replay()`
+   * could never reproduce a position it had touched and the drift report read
+   * `cacheDrift` nonzero on a healthy tenant (D36).
+   *
+   * `qty` and `unitCost` are zero on such a movement; `valueDelta` carries the
+   * whole of it, and `revaluesSourceDocId` names the receipt whose layers
+   * absorb the cost.
+   */
+  readonly valueDelta?: Money | null;
+  readonly revaluesSourceDocId?: string | null;
+}
+
+/** True for a value-only movement — a landed cost, not a quantity movement. */
+export function isRevaluation(movement: StockMovement): boolean {
+  return (movement.valueDelta?.scaled ?? 0n) !== 0n;
 }
 
 /** Signed on-hand contribution of a movement (+qty for IN, −qty for OUT). */
@@ -72,11 +91,16 @@ export function occurredAtFromDocumentDate(date: string): string {
 }
 
 export function signedQty(movement: StockMovement): Qty {
+  if (isRevaluation(movement)) return Qty.zero();
   return movement.direction === "IN" ? movement.qty : movement.qty.negate();
 }
 
 /** Signed value contribution of a movement (+value for IN, −value for OUT). */
 export function signedValue(movement: StockMovement): Money {
+  if (isRevaluation(movement)) {
+    const delta = movement.valueDelta as Money;
+    return movement.direction === "IN" ? delta : delta.negate();
+  }
   const value = extend(movement.qty, movement.unitCost);
   return movement.direction === "IN" ? value : value.negate();
 }

@@ -133,6 +133,23 @@ const uiAr = {
   "import.historical.col.paidAmount": "المبلغ المسدد من المستند بالكامل",
   "import.historical.docType.purchaseInvoice": "فاتورة مشتريات",
   "import.historical.docType.purchaseReturn": "مرتجع مشتريات",
+
+  // print preview sample
+  "sample.invoice.typeLabel": "فاتورة مبيعات",
+  "sample.invoice.status": "مؤكدة",
+  "sample.company.name": "شركة سياج للتجارة والتوزيع",
+  "sample.company.address": "القاهرة، مصر — شارع التحرير",
+  "sample.branchName": "الفرع الرئيسي",
+  "sample.warehouseName": "المستودع الرئيسي",
+  "sample.party.role": "العميل",
+  "sample.party.name": "شركة الأمل للتجارة",
+  "sample.party.address": "الجيزة، مصر",
+  "sample.paymentTerms": "30 يوماً من تاريخ الفاتورة",
+  "sample.notes": "يرجى التأكد من الكمية عند الاستلام.",
+  "sample.line1.description": "جهاز عرض بيانات (بروجكتور)",
+  "sample.line2.description": "كابل HDMI — 5 متر",
+  "sample.unit.piece": "قطعة",
+  "sample.tax.vat": "ضريبة القيمة المضافة",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -265,6 +282,23 @@ const uiEn: Record<UiTranslationKey, string> = {
   "import.historical.col.paidAmount": "Amount paid against the whole document",
   "import.historical.docType.purchaseInvoice": "Purchase invoice",
   "import.historical.docType.purchaseReturn": "Purchase return",
+
+  // print preview sample
+  "sample.invoice.typeLabel": "Sales invoice",
+  "sample.invoice.status": "Confirmed",
+  "sample.company.name": "Seyaj Trading & Distribution",
+  "sample.company.address": "Tahrir Street, Cairo, Egypt",
+  "sample.branchName": "Head branch",
+  "sample.warehouseName": "Main warehouse",
+  "sample.party.role": "Customer",
+  "sample.party.name": "Al-Amal Trading",
+  "sample.party.address": "Giza, Egypt",
+  "sample.paymentTerms": "30 days from the invoice date",
+  "sample.notes": "Please check the quantity on delivery.",
+  "sample.line1.description": "Data projector",
+  "sample.line2.description": "HDMI cable — 5 m",
+  "sample.unit.piece": "each",
+  "sample.tax.vat": "VAT",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

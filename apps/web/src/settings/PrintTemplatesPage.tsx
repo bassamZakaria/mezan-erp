@@ -108,9 +108,9 @@ export function PrintTemplatesPage() {
   }
 
   const previewDocument = useMemo(() => {
-    const base = createSampleInvoiceDocument();
+    const base = createSampleInvoiceDocument({}, t);
     return { ...base, totals: { ...base.totals, amountInWords: amountInWords(base.totals.grandTotal, EGP_WORDS) } };
-  }, []);
+  }, [t]);
 
   const activeOverride = config.perDocumentOverrides[overrideDocType] ?? {};
 

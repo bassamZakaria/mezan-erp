@@ -3,6 +3,7 @@ import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListCol
 import type { DepartmentDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateDepartment } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** الأقسام (Departments) — docs/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
 
@@ -31,6 +32,7 @@ function draftFrom(d: DepartmentDTO): DepartmentDraft {
 }
 
 export function DepartmentsScreen() {
+  const { t } = useAppTranslation();
   const query = useDepartments();
   const employeesQuery = useEmployees();
   const createDepartment = useCreateDepartment();
@@ -60,7 +62,7 @@ export function DepartmentsScreen() {
   }, [employees]);
 
   function managerName(managerId: string | null): string {
-    if (!managerId) return "بدون مدير";
+    if (!managerId) return t("departments.noManager");
     const emp = employees.find((e) => e.id === managerId);
     return emp ? `${emp.firstNameAr ?? emp.firstName} ${emp.lastNameAr ?? emp.lastName}` : managerId;
   }
@@ -93,7 +95,7 @@ export function DepartmentsScreen() {
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
     if (draft.code.trim() === "" || draft.name.trim() === "") {
-      setFormError("كود القسم والاسم مطلوبان.");
+      setFormError(t("departments.aDepartmentCodeAndName"));
       return;
     }
     setFormError(null);
@@ -108,7 +110,7 @@ export function DepartmentsScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت إضافة القسم.");
+      setFormError(err instanceof ApiError ? err.message : t("departments.theDepartmentCouldNotBe"));
     }
   }
 
@@ -116,7 +118,7 @@ export function DepartmentsScreen() {
     event.preventDefault();
     if (!selected || !editDraft) return;
     if (editDraft.name.trim() === "") {
-      setEditError("اسم القسم مطلوب.");
+      setEditError(t("departments.aDepartmentNameIsRequired"));
       return;
     }
     setEditError(null);
@@ -134,25 +136,25 @@ export function DepartmentsScreen() {
       });
       setSelectedId(null);
     } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : "تعذّر تعديل القسم.");
+      setEditError(err instanceof ApiError ? err.message : t("departments.theDepartmentCouldNotBe2"));
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: departments.length },
-    { key: "active", label: "نشط", count: departments.filter((d) => d.active).length },
-    { key: "inactive", label: "غير نشط", count: departments.filter((d) => !d.active).length },
+    { key: "all", label: t("common.all"), count: departments.length },
+    { key: "active", label: t("common.active"), count: departments.filter((d) => d.active).length },
+    { key: "inactive", label: t("common.inactive"), count: departments.filter((d) => !d.active).length },
   ];
 
   const columns: DocumentListColumn<DepartmentDTO>[] = [
-    { key: "code", header: "كود القسم", render: (d) => <span className="mz-num font-semibold text-ink">{d.code}</span> },
-    { key: "name", header: "اسم القسم", render: (d) => <span className="font-semibold text-ink">{d.nameAr ?? d.name}</span> },
-    { key: "manager", header: "المدير", render: (d) => managerName(d.managerId) },
-    { key: "headcount", header: "الموظفون", align: "end", render: (d) => <span className="mz-num">{headcountByDepartment.get(d.id) ?? 0}</span> },
+    { key: "code", header: t("departments.departmentCode"), render: (d) => <span className="mz-num font-semibold text-ink">{d.code}</span> },
+    { key: "name", header: t("departments.departmentName"), render: (d) => <span className="font-semibold text-ink">{d.nameAr ?? d.name}</span> },
+    { key: "manager", header: t("departments.manager"), render: (d) => managerName(d.managerId) },
+    { key: "headcount", header: t("departments.employees"), align: "end", render: (d) => <span className="mz-num">{headcountByDepartment.get(d.id) ?? 0}</span> },
     {
       key: "status",
-      header: "الحالة",
-      render: (d) => <StatusPill label={d.active ? "نشط" : "غير نشط"} tone={(d.active ? "success" : "neutral") as PillTone} />,
+      header: t("common.status"),
+      render: (d) => <StatusPill label={d.active ? t("common.active") : t("common.inactive")} tone={(d.active ? "success" : "neutral") as PillTone} />,
     },
   ];
 
@@ -160,32 +162,32 @@ export function DepartmentsScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل الأقسام.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("departments.departmentsCouldNotBeLoaded")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<DepartmentDTO>
         eyebrow="HR · Departments"
-        title="الأقسام"
-        description="بيانات الأقسام الأساسية: الكود، المدير، وسياسات العمل الإضافي وساعات العمل الافتراضية"
+        title={t("departments.departments")}
+        description={t("departments.coreDepartmentDetailsCodeManager")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة قسم
+            {t("departments.addDepartment")}
           </Button>
         }
         stats={[
-          { label: "إجمالي الأقسام", value: <span className="mz-num">{departments.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{departments.filter((d) => d.active).length}</span> },
-          { label: "إجمالي الموظفين", value: <span className="mz-num">{employees.length}</span> },
+          { label: t("departments.totalDepartments"), value: <span className="mz-num">{departments.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{departments.filter((d) => d.active).length}</span> },
+          { label: t("departments.totalEmployees"), value: <span className="mz-num">{employees.length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | "active" | "inactive")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالكود أو الاسم..."
+        searchPlaceholder={t("departments.searchByCodeOrName")}
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -194,13 +196,13 @@ export function DepartmentsScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{departments.length}</span> قسم
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{departments.length}</span> {t("departments.departments2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد أقسام — أضف أول قسم لبدء تنظيم الموظفين</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("departments.noDepartmentsAddTheFirst")}</div>}
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? "تعديل القسم" : ""}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("departments.editDepartment") : ""}>
         {selected && editDraft ? (
           <form onSubmit={handleEditSave} className="flex flex-col gap-[14px]">
             {editError ? (
@@ -208,58 +210,58 @@ export function DepartmentsScreen() {
                 {editError}
               </div>
             ) : null}
-            <TextField label="كود القسم" value={editDraft.code} onChange={() => {}} disabled />
-            <TextField label="اسم القسم *" value={editDraft.name} onChange={(v) => setEditDraft((d) => (d ? { ...d, name: v } : d))} />
-            <TextField label="اسم القسم (عربي)" value={editDraft.nameAr} onChange={(v) => setEditDraft((d) => (d ? { ...d, nameAr: v } : d))} />
-            <TextField label="مدير القسم (معرّف الموظف)" value={editDraft.managerId} onChange={(v) => setEditDraft((d) => (d ? { ...d, managerId: v } : d))} hint="اترك فارغاً لإزالة المدير" />
+            <TextField label={t("departments.departmentCode")} value={editDraft.code} onChange={() => {}} disabled />
+            <TextField label={t("departments.departmentName2")} value={editDraft.name} onChange={(v) => setEditDraft((d) => (d ? { ...d, name: v } : d))} />
+            <TextField label={t("departments.departmentNameArabic")} value={editDraft.nameAr} onChange={(v) => setEditDraft((d) => (d ? { ...d, nameAr: v } : d))} />
+            <TextField label={t("departments.departmentManagerEmployeeId")} value={editDraft.managerId} onChange={(v) => setEditDraft((d) => (d ? { ...d, managerId: v } : d))} hint={t("departments.leaveEmptyToRemoveThe")} />
             <ToggleField
-              label="احتساب العمل الإضافي"
+              label={t("departments.overtimeCounts")}
               checked={editDraft.overtimeEligible}
               onChange={(v) => setEditDraft((d) => (d ? { ...d, overtimeEligible: v } : d))}
             />
             <NumberField
-              label="ساعات العمل القياسية"
+              label={t("departments.standardWorkingHours")}
               value={editDraft.standardWorkHours ?? Number.NaN}
               onChange={(v) => setEditDraft((d) => (d ? { ...d, standardWorkHours: Number.isNaN(v) ? null : v } : d))}
-              hint="اتركه فارغاً لاستخدام إعداد المنشأة (8 ساعات)"
+              hint={t("departments.leaveEmptyToUseThe")}
             />
-            <ToggleField label="نشط" checked={editActive} onChange={setEditActive} />
+            <ToggleField label={t("common.active")} checked={editActive} onChange={setEditActive} />
             <div className="mt-[6px] flex justify-end gap-[9px]">
               <Button type="button" onClick={() => setSelectedId(null)}>
-                إلغاء
+                {t("common.cancel")}
               </Button>
               <Button type="submit" variant="primary">
-                حفظ التعديلات
+                {t("departments.saveChanges")}
               </Button>
             </div>
           </form>
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="إضافة قسم" description="بيانات القسم الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("departments.addDepartment")} description={t("departments.theDepartmentSCoreDetails")}>
         <form onSubmit={handleCreate} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
               {formError}
             </div>
           ) : null}
-          <TextField label="كود القسم *" value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} placeholder="SALES" />
-          <TextField label="اسم القسم *" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
-          <TextField label="اسم القسم (عربي)" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label="مدير القسم (معرّف الموظف)" value={draft.managerId} onChange={(v) => setDraft((d) => ({ ...d, managerId: v }))} />
-          <ToggleField label="احتساب العمل الإضافي" checked={draft.overtimeEligible} onChange={(v) => setDraft((d) => ({ ...d, overtimeEligible: v }))} />
+          <TextField label={t("departments.departmentCode2")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} placeholder="SALES" />
+          <TextField label={t("departments.departmentName2")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("departments.departmentNameArabic")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("departments.departmentManagerEmployeeId")} value={draft.managerId} onChange={(v) => setDraft((d) => ({ ...d, managerId: v }))} />
+          <ToggleField label={t("departments.overtimeCounts")} checked={draft.overtimeEligible} onChange={(v) => setDraft((d) => ({ ...d, overtimeEligible: v }))} />
           <NumberField
-            label="ساعات العمل القياسية"
+            label={t("departments.standardWorkingHours")}
             value={draft.standardWorkHours ?? Number.NaN}
             onChange={(v) => setDraft((d) => ({ ...d, standardWorkHours: Number.isNaN(v) ? null : v }))}
-            hint="اتركه فارغاً لاستخدام إعداد المنشأة (8 ساعات)"
+            hint={t("departments.leaveEmptyToUseThe")}
           />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {t("common.add")}
             </Button>
           </div>
         </form>

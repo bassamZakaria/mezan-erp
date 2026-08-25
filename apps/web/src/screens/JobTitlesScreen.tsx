@@ -3,6 +3,7 @@ import { Button, Card, DocumentList, EntityPicker, SidePanel, StatusPill, type D
 import type { JobTitleDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles, useUpdateJobTitle } from "../data/hooks";
+import { useAppTranslation } from "../i18n";
 
 /** المسميات الوظيفية (Job Titles) — docs/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
@@ -17,6 +18,7 @@ function blankDraft(): JobTitleDraft {
 }
 
 export function JobTitlesScreen() {
+  const { t } = useAppTranslation();
   const query = useJobTitles();
   const departmentsQuery = useDepartments();
   const employeesQuery = useEmployees();
@@ -83,7 +85,7 @@ export function JobTitlesScreen() {
   async function handleCreate(event: FormEvent) {
     event.preventDefault();
     if (draft.departmentId === "" || draft.name.trim() === "") {
-      setFormError("القسم واسم المسمى الوظيفي مطلوبان.");
+      setFormError(t("jobTitles.aDepartmentAndAJob"));
       return;
     }
     setFormError(null);
@@ -95,7 +97,7 @@ export function JobTitlesScreen() {
       });
       setFormOpen(false);
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "تعذّرت إضافة المسمى الوظيفي.");
+      setFormError(err instanceof ApiError ? err.message : t("jobTitles.theJobTitleCouldNot"));
     }
   }
 
@@ -103,7 +105,7 @@ export function JobTitlesScreen() {
     event.preventDefault();
     if (!selected) return;
     if (editName.trim() === "") {
-      setEditError("اسم المسمى الوظيفي مطلوب.");
+      setEditError(t("jobTitles.aJobTitleNameIs"));
       return;
     }
     setEditError(null);
@@ -114,24 +116,24 @@ export function JobTitlesScreen() {
       });
       setSelectedId(null);
     } catch (err) {
-      setEditError(err instanceof ApiError ? err.message : "تعذّر تعديل المسمى الوظيفي.");
+      setEditError(err instanceof ApiError ? err.message : t("jobTitles.theJobTitleCouldNot2"));
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: "الكل", count: jobTitles.length },
-    { key: "active", label: "نشط", count: jobTitles.filter((j) => j.active).length },
-    { key: "inactive", label: "غير نشط", count: jobTitles.filter((j) => !j.active).length },
+    { key: "all", label: t("common.all"), count: jobTitles.length },
+    { key: "active", label: t("common.active"), count: jobTitles.filter((j) => j.active).length },
+    { key: "inactive", label: t("common.inactive"), count: jobTitles.filter((j) => !j.active).length },
   ];
 
   const columns: DocumentListColumn<JobTitleDTO>[] = [
-    { key: "name", header: "اسم المسمى الوظيفي", render: (j) => <span className="font-semibold text-ink">{j.nameAr ?? j.name}</span> },
-    { key: "department", header: "القسم", render: (j) => departmentName(j.departmentId) },
-    { key: "headcount", header: "الموظفون", align: "end", render: (j) => <span className="mz-num">{headcountByJobTitle.get(j.id) ?? 0}</span> },
+    { key: "name", header: t("jobTitles.jobTitle"), render: (j) => <span className="font-semibold text-ink">{j.nameAr ?? j.name}</span> },
+    { key: "department", header: t("jobTitles.department"), render: (j) => departmentName(j.departmentId) },
+    { key: "headcount", header: t("jobTitles.employees"), align: "end", render: (j) => <span className="mz-num">{headcountByJobTitle.get(j.id) ?? 0}</span> },
     {
       key: "status",
-      header: "الحالة",
-      render: (j) => <StatusPill label={j.active ? "نشط" : "غير نشط"} tone={(j.active ? "success" : "neutral") as PillTone} />,
+      header: t("common.status"),
+      render: (j) => <StatusPill label={j.active ? t("common.active") : t("common.inactive")} tone={(j.active ? "success" : "neutral") as PillTone} />,
     },
   ];
 
@@ -139,31 +141,31 @@ export function JobTitlesScreen() {
     <div className="w-full">
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">تعذّر تحميل المسميات الوظيفية.</p>
+          <p className="text-[13px] font-semibold text-danger-ink">{t("jobTitles.jobTitlesCouldNotBe")}</p>
           <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            إعادة المحاولة
+            {t("common.retry")}
           </Button>
         </Card>
       ) : null}
       <DocumentList<JobTitleDTO>
         eyebrow="HR · Job Titles"
-        title="المسميات الوظيفية"
-        description="مسميات وظيفية مرتبطة بقسم واحد، تُستخدم في نموذج إضافة/تعديل الموظف"
+        title={t("jobTitles.jobTitles")}
+        description={t("jobTitles.jobTitlesEachTiedTo")}
         actions={
           <Button variant="primary" onClick={openCreateForm}>
-            إضافة مسمى وظيفي
+            {t("jobTitles.addJobTitle")}
           </Button>
         }
         stats={[
-          { label: "إجمالي المسميات", value: <span className="mz-num">{jobTitles.length}</span> },
-          { label: "نشط", value: <span className="mz-num">{jobTitles.filter((j) => j.active).length}</span> },
+          { label: t("jobTitles.totalJobTitles"), value: <span className="mz-num">{jobTitles.length}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{jobTitles.filter((j) => j.active).length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | "active" | "inactive")}
         searchValue={search}
         onSearchChange={setSearch}
-        searchPlaceholder="بحث بالاسم..."
+        searchPlaceholder={t("jobTitles.searchByName")}
         columns={columns}
         rows={filtered}
         rowKey={(j) => j.id}
@@ -172,13 +174,13 @@ export function JobTitlesScreen() {
         pageCount={1}
         pageSummary={
           <>
-            عرض <span className="mz-num">{filtered.length}</span> من <span className="mz-num">{jobTitles.length}</span> مسمى وظيفي
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{jobTitles.length}</span> {t("jobTitles.jobTitles2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">لا توجد مسميات وظيفية — أضف أول مسمى وظيفي</div>}
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("jobTitles.noJobTitlesAddThe")}</div>}
       />
 
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? "تعديل المسمى الوظيفي" : ""}>
+      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("jobTitles.editJobTitle") : ""}>
         {selected ? (
           <form onSubmit={handleEditSave} className="flex flex-col gap-[14px]">
             {editError ? (
@@ -186,23 +188,23 @@ export function JobTitlesScreen() {
                 {editError}
               </div>
             ) : null}
-            <TextField label="القسم" value={departmentName(selected.departmentId)} onChange={() => {}} disabled />
-            <TextField label="اسم المسمى الوظيفي *" value={editName} onChange={setEditName} />
-            <TextField label="الاسم (عربي)" value={editNameAr} onChange={setEditNameAr} />
-            <ToggleField label="نشط" checked={editActive} onChange={setEditActive} />
+            <TextField label={t("jobTitles.department")} value={departmentName(selected.departmentId)} onChange={() => {}} disabled />
+            <TextField label={t("jobTitles.jobTitle2")} value={editName} onChange={setEditName} />
+            <TextField label={t("jobTitles.nameArabic")} value={editNameAr} onChange={setEditNameAr} />
+            <ToggleField label={t("common.active")} checked={editActive} onChange={setEditActive} />
             <div className="mt-[6px] flex justify-end gap-[9px]">
               <Button type="button" onClick={() => setSelectedId(null)}>
-                إلغاء
+                {t("common.cancel")}
               </Button>
               <Button type="submit" variant="primary">
-                حفظ التعديلات
+                {t("jobTitles.saveChanges")}
               </Button>
             </div>
           </form>
         ) : null}
       </SidePanel>
 
-      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title="إضافة مسمى وظيفي" description="بيانات المسمى الوظيفي الأساسية">
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("jobTitles.addJobTitle")} description={t("jobTitles.theJobTitleSCore")}>
         <form onSubmit={handleCreate} className="flex flex-col gap-[14px]">
           {formError ? (
             <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -210,19 +212,19 @@ export function JobTitlesScreen() {
             </div>
           ) : null}
           <EntityPicker
-            label="القسم *"
+            label={t("jobTitles.department2")}
             options={departmentOptions}
             value={draft.departmentId ? (departmentOptions.find((o) => o.id === draft.departmentId) ?? null) : null}
             onChange={(option) => setDraft((d) => ({ ...d, departmentId: option?.id ?? "" }))}
           />
-          <TextField label="اسم المسمى الوظيفي *" value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
-          <TextField label="الاسم (عربي)" value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("jobTitles.jobTitle2")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("jobTitles.nameArabic")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
-              إلغاء
+              {t("common.cancel")}
             </Button>
             <Button type="submit" variant="primary">
-              إضافة
+              {t("common.add")}
             </Button>
           </div>
         </form>

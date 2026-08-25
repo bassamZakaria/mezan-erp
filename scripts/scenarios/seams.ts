@@ -727,45 +727,65 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X58 — permissions are a graph, and some are sensitive
   // ---------------------------------------------------------------------------
-  await scenario("x58 · the dependency graph is enforced server-side, but the visibility tiers it grants are enforced nowhere", async () => {
+  await scenario("x58 · the dependency graph is enforced server-side, and so are the visibility tiers it grants", async () => {
     const confirmOnly = { "x-permissions": "sales.invoice.confirm", "x-user-id": "USER-SCN-CONFIRM" };
     const viewOnly = { "x-permissions": "sales.invoice.view", "x-user-id": "USER-SCN-VIEW" };
+    const withCost = { "x-permissions": "sales.invoice.view_cost", "x-user-id": "USER-SCN-COST" };
 
     const denied = await req("GET", "/items", undefined, { ...confirmOnly });
     check("a permission the caller does not hold is refused with the code it is missing", denied.status === 403 && denied.body?.error === "PERMISSION_DENIED", `status ${denied.status} ${JSON.stringify(denied.body).slice(0, 200)}`);
 
     const listAsConfirmer = await req("GET", "/sales-invoices", undefined, confirmOnly);
     check(
-      "FINDING — granting `.confirm` implies `.view_own` (packages/domain/src/permissions/resolve.ts expands the graph inside createAuthContext, correctly), but every sales-invoice read route gates on `.view`. " +
-        "A user who may confirm invoices cannot open the list to find one: the visibility tier the catalog grants them addresses no route in the product.",
-      listAsConfirmer.status === 403,
-      `status ${listAsConfirmer.status}`,
+      "granting `.confirm` implies `.view_own`, and the read route honours that tier rather than demanding `.view` (docs/defects.md D31)",
+      listAsConfirmer.status === 200,
+      `status ${listAsConfirmer.status} ${JSON.stringify(listAsConfirmer.body).slice(0, 200)}`,
+    );
+    const confirmerSees = rows(listAsConfirmer.body);
+    check(
+      "and `view_own` NARROWS: a confirmer sees only what they are the salesperson on, not every colleague's invoice",
+      confirmerSees.every((i: any) => i.salespersonId === "USER-SCN-CONFIRM"),
+      `rows=${confirmerSees.length} salespeople=${[...new Set(confirmerSees.map((i: any) => String(i.salespersonId)))].join(",")}`,
     );
 
     const listAsViewer = await req("GET", "/sales-invoices", undefined, viewOnly);
     const all = rows(listAsViewer.body);
     check(
-      "FINDING — and `view_own` never narrows anything: a plain `.view` holder sees every colleague's invoice, because no route filters by createdBy. " +
-        "view_own / view_all are catalog vocabulary with no runtime meaning.",
-      listAsViewer.status === 200 && all.length > 0 && all.some((i: any) => i.createdBy !== "USER-SCN-VIEW"),
-      `rows=${all.length}`,
+      "a `.view` holder is the wider tier and does see the whole book",
+      listAsViewer.status === 200 && all.length > confirmerSees.length,
+      `view=${all.length} view_own=${confirmerSees.length}`,
     );
 
     const withoutCostSight = await req("GET", "/sales-invoices/SCN-S-INV-PROMO", undefined, viewOnly);
-    const lines = (withoutCostSight.body?.lines ?? []) as any[];
+    const hiddenLines = (withoutCostSight.body?.lines ?? []) as any[];
     check(
-      "FINDING — `sales.invoice.view_cost` is flagged ⚠ sensitive in the catalog and checked by no route: the caller holds only `.view` and still reads unit cost off every line. " +
-        "The requirement is that costs are HIDDEN, not that the page errors.",
-      withoutCostSight.status === 200 && lines.some((l: any) => "unitCost" in l),
-      `status ${withoutCostSight.status} line=${JSON.stringify(lines[0] ?? null).slice(0, 200)}`,
+      "`sales.invoice.view_cost` is ⚠ sensitive and now enforced: a plain `.view` holder gets no unit cost at all — the field is absent, not null",
+      withoutCostSight.status === 200 && hiddenLines.length > 0 && hiddenLines.every((l: any) => !("unitCost" in l)),
+      `status ${withoutCostSight.status} line=${JSON.stringify(hiddenLines[0] ?? null).slice(0, 200)}`,
+    );
+
+    const withCostSight = await req("GET", "/sales-invoices/SCN-S-INV-PROMO", undefined, withCost);
+    const shownLines = (withCostSight.body?.lines ?? []) as any[];
+    check(
+      "and the holder of view_cost reads it",
+      withCostSight.status === 200 && shownLines.some((l: any) => "unitCost" in l),
+      `status ${withCostSight.status} line=${JSON.stringify(shownLines[0] ?? null).slice(0, 200)}`,
     );
 
     const contracts = await req("GET", "/hr/contracts", undefined, { "x-permissions": "hr.contract.view", "x-user-id": "USER-SCN-HR" });
     const contractRows = rows(contracts.body);
     check(
-      "FINDING — the same hole on salary: `hr.employee.view_salary` is ⚠ sensitive, yet `hr.contract.view` alone returns monthlySalary for every employee.",
-      contracts.status === 200 && contractRows.some((r: any) => r.monthlySalary !== undefined),
+      "the same tier on salary: `hr.contract.view` alone reads the contract and NOT the pay on it",
+      contracts.status === 200 && contractRows.length > 0 && contractRows.every((r: any) => !("monthlySalary" in r)),
       `status ${contracts.status} row=${JSON.stringify(contractRows[0] ?? null).slice(0, 200)}`,
+    );
+
+    const payroll = await req("GET", "/hr/contracts", undefined, { "x-permissions": "hr.contract.view,hr.employee.view_salary", "x-user-id": "USER-SCN-PAY" });
+    const payRows = rows(payroll.body);
+    check(
+      "while a payroll user, who also holds `hr.employee.view_salary`, reads it",
+      payroll.status === 200 && payRows.some((r: any) => r.monthlySalary !== undefined),
+      `status ${payroll.status} row=${JSON.stringify(payRows[0] ?? null).slice(0, 200)}`,
     );
   });
 

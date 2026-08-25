@@ -47,6 +47,7 @@ import {
   type LeaveRequest,
   type LeaveRequestRepository,
   type UserRepository,
+  can,
 } from "@mezan/domain";
 import {
   createDepartmentSchema,
@@ -165,7 +166,13 @@ function serializeEmployee(e: Employee) {
   };
 }
 
-function serializeContract(c: Contract) {
+/**
+ * `withSalary` is `hr.employee.view_salary`, which the catalog flags ⚠ sensitive
+ * and which no route used to consult: `hr.contract.view` alone returned every
+ * colleague's pay (D31). The pay fields are OMITTED rather than nulled — a null
+ * still tells the caller what it is not being shown.
+ */
+function serializeContract(c: Contract, withSalary = true) {
   return {
     id: c.id,
     number: c.number,
@@ -175,11 +182,15 @@ function serializeContract(c: Contract) {
     payFrequency: c.payFrequency,
     startDate: c.startDate,
     endDate: c.endDate,
-    monthlySalary: c.monthlySalary.toString(),
+    ...(withSalary
+      ? {
+          monthlySalary: c.monthlySalary.toString(),
+          allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
+          deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
+        }
+      : {}),
     currency: c.currency,
     leaveEntitlement: c.leaveEntitlement,
-    allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
-    deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
     status: c.status,
     terminatedAt: c.terminatedAt,
     createdAt: c.createdAt,
@@ -253,6 +264,10 @@ async function resolveCallerEmployeeId(c: Context, deps: HrRoutesDeps): Promise<
 export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const maySeeSalary = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? can(ctx, "hr.employee.view_salary") : false;
+  };
 
   // --- Dashboard -----------------------------------------------------------
 
@@ -395,7 +410,8 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   });
 
   app.get("/employees/:id/contracts", gate("hr.contract.view"), async (c) => {
-    return c.json((await deps.contracts.listByEmployeeId(c.req.param("id"))).map(serializeContract));
+    const withSalary = maySeeSalary(c);
+    return c.json((await deps.contracts.listByEmployeeId(c.req.param("id"))).map((row) => serializeContract(row, withSalary)));
   });
 
   app.post("/employees", gate("hr.employee.create"), async (c) => {
@@ -454,13 +470,14 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   // --- Contracts -----------------------------------------------------------
 
   app.get("/contracts", gate("hr.contract.view"), async (c) => {
-    return c.json((await deps.contracts.list()).map(serializeContract));
+    const withSalary = maySeeSalary(c);
+    return c.json((await deps.contracts.list()).map((row) => serializeContract(row, withSalary)));
   });
 
   app.get("/contracts/:id", gate("hr.contract.view"), async (c) => {
     const contract = await deps.contracts.findById(c.req.param("id"));
     if (!contract) return c.json({ error: "CONTRACT_NOT_FOUND" }, 404);
-    return c.json(serializeContract(contract));
+    return c.json(serializeContract(contract, maySeeSalary(c)));
   });
 
   app.post("/contracts", gate("hr.contract.create"), async (c) => {

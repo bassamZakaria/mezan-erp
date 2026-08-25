@@ -40,6 +40,7 @@ import {
   type DocumentEventPublisher,
   type AuditSink,
   type CreditCheckResult,
+  can,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -49,6 +50,7 @@ import {
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
 import {
+  createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
   headerAuthContextResolver,
@@ -139,7 +141,7 @@ function serializeTotals(totals: SalesInvoiceTotals) {
   };
 }
 
-function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCredit: Money = Money.zero()) {
+function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCredit: Money = Money.zero(), withCost = true) {
   // A confirmed return credits the customer's receivable in the GL, so it has
   // to come off what the invoice still says is owed — otherwise the invoice
   // screen and the AR sub-ledger disagree with the ledger by the returned
@@ -186,7 +188,9 @@ function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCr
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
-      unitCost: l.unitCost ? l.unitCost.toString() : null,
+      // Omitted, not nulled: `sales.invoice.view_cost` is ⚠ sensitive in the
+      // catalog, and a null would still tell the caller the field exists (D31).
+      ...(withCost ? { unitCost: l.unitCost ? l.unitCost.toString() : null } : {}),
     })),
     totals: serializeTotals(totals),
   };
@@ -263,7 +267,20 @@ export function createSalesInvoicesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
+
+  const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  /** True when the caller's only visibility grant is the own-records tier. */
+  const ownVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    if (!ctx) return false;
+    return !can(ctx, "sales.invoice.view") && !can(ctx, "sales.invoice.view_all");
+  };
+  const maySeeCost = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? can(ctx, "sales.invoice.view_cost") : false;
+  };
 
   /** Confirmed-return credit per invoice; empty when the app mounts no returns module. */
   async function returnCredits(): Promise<ReadonlyMap<string, Money>> {
@@ -344,7 +361,15 @@ export function createSalesInvoicesRoutes(
     }
   });
 
-  app.get("/", gate("sales.invoice.view"), async (c) => {
+  /**
+   * The visibility tiers the catalog defines, enforced (D31):
+   *   - `.view` / `.view_all` see every invoice
+   *   - `.view_own` (which `.confirm`, `.create`, `.edit` all imply) sees only
+   *     the invoices the caller is the salesperson on
+   *   - `.view_cost` is what reveals unit cost; without it the field is absent,
+   *     because the requirement is that costs are HIDDEN, not that the page errors
+   */
+  app.get("/", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const parsed = salesInvoiceListQuerySchema.safeParse({
       status: c.req.query("status"),
       customerId: c.req.query("customerId"),
@@ -355,16 +380,23 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
-    const invoices = withinScope(await svc.list(parsed.data), branchScopeOf(c), (inv) => inv.branchId);
+    const scoped = withinScope(await svc.list(parsed.data), branchScopeOf(c), (inv) => inv.branchId);
+    const invoices = ownVisibilityOnly(c) ? scoped.filter((inv) => inv.salespersonId === actorOf(c)) : scoped;
     const credits = await returnCredits();
-    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id))));
+    const costs = maySeeCost(c);
+    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), costs)));
   });
 
-  app.get("/:id", gate("sales.invoice.view"), async (c) => {
+  app.get("/:id", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const svc = service(c);
     const invoice = await svc.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
+    // A `view_own` holder gets 404, not 403: whether an invoice they may not
+    // see exists at all is itself information.
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== actorOf(c)) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)));
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {

@@ -179,7 +179,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const again = await req("POST", "/revaluation/preview", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
     checkEq("re-running the same revaluation reports the same figure, never a doubled one", n(again.body?.totalLoss), 4000);
 
-    // The product half of X23: no DOCUMENT can carry a foreign balance into the GL.
+    // The product half of X23: a DOCUMENT carries its foreign balance into the GL.
     const usdPurchase = await req("POST", "/purchases/invoices", {
       id: "SCN-S-PI-USD", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH, currency: "USD",
       lines: [{ itemId: null, kind: "expense", description: "خدمة بالدولار", qty: "1", unitCost: "1000", taxRatePercent: 0 }],
@@ -189,11 +189,28 @@ export async function run(ctx: Ctx): Promise<void> {
     const usdNumber = String(usdConfirm.body?.number ?? "");
     const usdEntryId = rows((await req("GET", "/gl/journal-entries")).body).find((e: any) => String(e.memo ?? "").includes(usdNumber))?.id ?? "";
     const usdEntry = await journalOf(usdEntryId);
+    const usdRate = n((await req("GET", "/exchange-rates")).body?.find?.((r: any) => r.currency === "USD" && r.effectiveDate <= TODAY && r.status === "approved")?.rate ?? 0);
     check(
-      "NEW DEFECT — a foreign-currency document is a label, not a currency: `buildInvoicePosting` (packages/domain/src/purchasing/purchase-invoice.ts) never looks up a rate and never tags a line, " +
-        "so USD 1,000 is posted as EGP 1,000 and the debt is invisible to revaluation. Every multi-currency purchase in this build understates the payable by the exchange rate.",
-      usdEntry.lines.length > 0 && usdEntry.lines.every((l: any) => !l.currency && !l.fxRate) && usdEntry.credit === 1000,
-      `lines=${JSON.stringify(usdEntry.lines).slice(0, 250)}`,
+      "USD 1,000 posts its BASE-currency value at the approved rate of the invoice's own date, not 1,000 EGP (docs/defects.md D24)",
+      usdEntry.credit > 1000 && Math.abs(usdEntry.credit - 1000 * usdRate) < 0.01,
+      `credit=${usdEntry.credit} rate=${usdRate} lines=${JSON.stringify(usdEntry.lines).slice(0, 250)}`,
+    );
+    const payableLine = usdEntry.lines.find((l: any) => l.accountId === PAYABLE);
+    check(
+      "and the payable line keeps the currency and the rate, which is what makes the debt revaluable at all",
+      payableLine?.currency === "USD" && n(payableLine?.fxRate) === usdRate,
+      `payable=${JSON.stringify(payableLine).slice(0, 250)}`,
+    );
+
+    const noRate = await req("POST", "/purchases/invoices", {
+      id: "SCN-S-PI-XAU", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH, currency: "XAU",
+      lines: [{ itemId: null, kind: "expense", description: "عملة بلا سعر صرف", qty: "1", unitCost: "10", taxRatePercent: 0 }],
+    });
+    const noRateConfirm = await req("POST", "/purchases/invoices/SCN-S-PI-XAU/confirm", {});
+    check(
+      "a currency with no approved rate on that date is REFUSED rather than posted at 1:1 — silently mis-stating a debt is the worse failure",
+      noRate.status === 201 && noRateConfirm.status === 422 && /سعر صرف/.test(JSON.stringify(noRateConfirm.body)),
+      `create=${noRate.status} confirm=${noRateConfirm.status} ${JSON.stringify(noRateConfirm.body).slice(0, 250)}`,
     );
   });
 

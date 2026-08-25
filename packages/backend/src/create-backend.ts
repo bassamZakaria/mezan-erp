@@ -28,6 +28,7 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -805,7 +806,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let apScaled = 0n;
     for (const inv of purchInvoices) {
       if (inv.status !== "confirmed") continue;
-      apScaled += purchaseInvoiceTotal(inv).scaled;
+      // The BASE-currency figure, which is what the control account holds.
+      apScaled += purchaseInvoiceBaseTotal(inv).scaled;
     }
     for (const archive of purchaseArchives) {
       if (archive.settled) continue;
@@ -1044,6 +1046,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       accounts: PURCHASE_GL_ACCOUNTS,
       allocatable: vouchers.invoices,
+      // Without these a foreign-currency invoice posted its foreign figures as
+      // though they were EGP, and the debt was invisible to revaluation (D24).
+      exchangeRates,
+      baseCurrency: "EGP",
       audit: auditSink,
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this

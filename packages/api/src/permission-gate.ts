@@ -62,9 +62,9 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
  *
  * The catalog grants visibility in tiers — `.confirm` implies `.view_own`,
  * `.view_all` implies `.view` — and gating a read route on `.view` alone locked
- * out everyone whose grant was a different tier of the same right: a user who
- * could confirm invoices could not open the list to find one (D31). The route
- * gates on the weakest tier that should see anything and NARROWS afterwards.
+ * out everyone whose grant was a different tier of the same permission: a user
+ * who could confirm invoices could not open the list to find one (D31). The
+ * route gates on the weakest tier that should see anything, then NARROWS.
  */
 export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver) {
   return function gateAny(...permissions: string[]): MiddlewareHandler {

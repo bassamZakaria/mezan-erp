@@ -503,6 +503,10 @@ export interface CreateAppOptions {
     readonly gl: JournalPostingDeps;
     readonly accounts: PurchaseGlAccounts;
     readonly allocatable?: AllocatableInvoiceRepository;
+    /** Exchange rates, so a foreign-currency invoice posts at the rate of its own date (D24). */
+    readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+    /** The tenant's own currency; anything else on a document needs a rate. */
+    readonly baseCurrency?: string;
     /**
      * A static policy value. Omit it (and supply `settingsStore`) to instead
      * derive the 3-gate procurement strictness policy from the LIVE tenant
@@ -955,6 +959,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               accountId: l.accountId,
               debit: l.debit,
               credit: l.credit,
+              // Carried through, or the FX revaluation engine can never find
+              // the foreign balance this entry created (D24).
+              currency: l.currency ?? null,
+              fxRate: l.fxRate ?? null,
             })),
           },
           purchases.gl,
@@ -993,6 +1001,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
+          exchangeRates: purchases.exchangeRates,
+          baseCurrency: purchases.baseCurrency,
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,

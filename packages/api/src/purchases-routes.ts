@@ -95,6 +95,10 @@ export interface PurchasesRoutesDeps {
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
+  /** Exchange rates, so a foreign-currency invoice posts at the rate of its own date (D24). */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's own currency; anything else on a document needs a rate. */
+  readonly baseCurrency?: string;
   /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
   readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
@@ -497,6 +501,8 @@ export function createPurchasesRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
         allocatable: deps.allocatable,
+        exchangeRates: deps.exchangeRates,
+        baseCurrency: deps.baseCurrency,
         audit: audit(c),
         actor: actor(c),
         now: deps.now,

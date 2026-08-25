@@ -67,6 +67,17 @@ export interface PurchaseGlPostingLine {
   readonly accountId: string;
   readonly debit: Money;
   readonly credit: Money;
+  /**
+   * The ORIGINAL transaction currency, when it is not the base one, and the
+   * rate it was converted at. `debit`/`credit` are always base-currency; these
+   * two are what makes the balance revaluable later.
+   *
+   * The FX revaluation engine was correct end to end and no document ever set
+   * these, so a `currency: "USD"` invoice posted its foreign numbers as EGP and
+   * the debt was invisible to revaluation (D24).
+   */
+  readonly currency?: string | null;
+  readonly fxRate?: string | null;
 }
 
 /**

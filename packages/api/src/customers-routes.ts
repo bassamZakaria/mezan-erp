@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { createCustomer, updateCustomer, InvalidCustomerError, Money, type Customer, type CustomerRepository } from "@mezan/domain";
+import { createCustomer, updateCustomer, InvalidCustomerError, matchesSearch, Money, type Customer, type CustomerRepository } from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
@@ -50,7 +50,14 @@ export function createCustomersRouter(
 
   app.get("/", gate("sales.customer.view"), async (c) => {
     const customers = await repo.findAll();
-    return c.json(customers.map(serialize));
+    // `?q=` is Arabic-forgiving: احمد finds أحمد, فاطمه finds فاطمة. Before this
+    // the parameter was not read by any list route at all, so every screen
+    // filtered in the browser with a raw `includes` that forgave nothing (D32).
+    const q = c.req.query("q");
+    const matched = customers.filter((customer) =>
+      matchesSearch(q, customer.nameAr, customer.nameEn, customer.code, customer.phone, customer.email),
+    );
+    return c.json(matched.map(serialize));
   });
 
   app.get("/:id", gate("sales.customer.view"), async (c) => {

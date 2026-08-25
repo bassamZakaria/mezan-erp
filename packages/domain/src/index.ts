@@ -233,3 +233,6 @@ export type {
   PrintTemplateConfig,
   PrintTemplateConfigRepository,
 } from "./settings/print-template-config.js";
+
+/** Arabic-forgiving search, shared by the server filters and the screens. */
+export { normalizeForSearch, matchesSearch } from "./search/arabic.js";

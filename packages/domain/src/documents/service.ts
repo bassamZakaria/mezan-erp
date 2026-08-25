@@ -338,6 +338,7 @@ export class DocumentService<Line> {
       entityType: this.def.code,
       action,
       actor: this.deps.actor ?? "system",
+      branchId: this.def.branchOf?.(doc) ?? null,
       severity,
       details: {
         docId: doc.id,

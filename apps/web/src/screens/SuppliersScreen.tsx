@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -604,7 +605,7 @@ export function SuppliersScreen() {
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter(
-        (s) => s.nameAr.includes(search.trim()) || s.code.toLowerCase().includes(q) || (s.phone ?? "").includes(search.trim()),
+        (s) => matchesSearch(search, s.nameAr, s.nameEn, s.code, s.phone),
       );
     }
     return rows;

@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   FulcrumRule,
   AccountTree,
@@ -155,7 +156,7 @@ export function ChartOfAccountsScreen() {
     return [...accounts]
       .filter((a) => typeFilter === "all" || a.type === typeFilter)
       .filter((a) => statusFilter === "all" || a.status === statusFilter)
-      .filter((a) => q === "" || a.nameAr.toLowerCase().includes(q) || a.code.toLowerCase().includes(q) || (a.nameEn ?? "").toLowerCase().includes(q))
+      .filter((a) => matchesSearch(search, a.nameAr, a.code, a.nameEn))
       .sort((a, b) => a.code.localeCompare(b.code))
       .map((a) => ({ ...a, level: 0, hasChildren: false }));
   }, [tree, accounts, expandedIds, hasActiveFilter, search, typeFilter, statusFilter]);

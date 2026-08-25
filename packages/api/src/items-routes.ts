@@ -10,8 +10,7 @@ import {
   type Item,
   type ItemRepository,
   type AlternateUnit,
-  type WacSnapshotRepository,
-} from "@mezan/domain";
+  type WacSnapshotRepository, matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
@@ -88,7 +87,9 @@ export function createItemsRouter(
 
   app.get("/", gate("inventory.item.view"), async (c) => {
     const items = await repo.list();
-    return c.json(items.map(serialize));
+    const q = c.req.query("q");
+    const matched = items.filter((item) => matchesSearch(q, item.nameAr, item.nameEn, item.code, ...(item.barcodes ?? [])));
+    return c.json(matched.map(serialize));
   });
 
   app.get("/:id", gate("inventory.item.view"), async (c) => {

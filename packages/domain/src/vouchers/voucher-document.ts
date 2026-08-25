@@ -228,6 +228,10 @@ export const voucherDocumentType: DocumentTypeDefinition<VoucherLine> = {
     }
   },
 
+  branchOf(doc) {
+    return doc.lines[0]?.branchId ?? null;
+  },
+
   buildGlPosting(doc): DocumentGlPosting {
     const line = voucherLine(doc);
     return {

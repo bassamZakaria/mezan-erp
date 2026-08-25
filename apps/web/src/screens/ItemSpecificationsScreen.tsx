@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -124,7 +125,7 @@ export function ItemSpecificationsScreen() {
     if (typeFilter !== "all") rows = rows.filter((s) => s.type === typeFilter);
     const q = search.trim();
     if (q !== "") {
-      rows = rows.filter((s) => s.code.toLowerCase().includes(q.toLowerCase()) || s.nameAr.includes(q));
+      rows = rows.filter((s) => matchesSearch(q, s.code, s.nameAr));
     }
     return rows;
   }, [specifications, typeFilter, search]);

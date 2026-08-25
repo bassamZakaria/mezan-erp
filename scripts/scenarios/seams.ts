@@ -1,3 +1,4 @@
+import { matchesSearch } from "@mezan/domain";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -754,7 +755,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X59 — Arabic search must forgive Arabic
   // ---------------------------------------------------------------------------
-  await scenario("x59 · a name typed without its hamza must still find the customer — and today nothing on either side normalises Arabic", async () => {
+  await scenario("x59 · a name typed without its hamza still finds the customer, on the server and in the screens alike", async () => {
     const variants: Array<[string, string]> = [
       ["SCN-S-AR-1", "أحمد عبد الله"],
       ["SCN-S-AR-2", "فاطمة السيد"],
@@ -766,26 +767,38 @@ export async function run(ctx: Ctx): Promise<void> {
     }
 
     const unfiltered = rows((await req("GET", "/customers")).body).length;
-    const queried = rows((await req("GET", "/customers?q=احمد")).body).length;
+    const hamzaless = rows((await req("GET", "/customers?q=احمد")).body);
     check(
-      "FINDING — the server has no search at all: `?q=` is not a parameter of any list route, so it is ignored and the full table comes back. " +
-        "Every screen filters in the browser, which means search quality is a client concern that no server test can guard.",
-      queried === unfiltered,
-      `unfiltered=${unfiltered} with q=${queried}`,
+      "`?q=` narrows on the SERVER — it is a real parameter now, not one the route ignores (docs/defects.md D32)",
+      hamzaless.length > 0 && hamzaless.length < unfiltered,
+      `unfiltered=${unfiltered} with q=${hamzaless.length}`,
+    );
+    check(
+      "and it forgives the hamza: احمد finds أحمد",
+      hamzaless.some((c: any) => c.id === "SCN-S-AR-1"),
+      JSON.stringify(hamzaless.map((c: any) => c.nameAr)).slice(0, 200),
     );
 
-    // The filter the screens actually run, reproduced exactly (see apps/web/src/settings/BranchesPage.tsx:608
-    // and the same expression in a dozen other screens): a raw `includes`, no normalisation.
-    const clientFilter = (rowsIn: string[], q: string) => rowsIn.filter((r) => r.toLowerCase().includes(q.trim().toLowerCase()));
+    const taaMarbuta = rows((await req("GET", "/customers?q=فاطمه")).body);
+    check("فاطمه finds فاطمة", taaMarbuta.some((c: any) => c.id === "SCN-S-AR-2"), JSON.stringify(taaMarbuta.map((c: any) => c.nameAr)).slice(0, 200));
+
+    const alifMaqsura = rows((await req("GET", "/customers?q=ليلي")).body);
+    check("ليلي finds ليلى", alifMaqsura.some((c: any) => c.id === "SCN-S-AR-3"), JSON.stringify(alifMaqsura.map((c: any) => c.nameAr)).slice(0, 200));
+
+    const cleared = rows((await req("GET", "/customers?q=")).body).length;
+    checkEq("an empty query shows everything, rather than nothing", cleared, unfiltered);
+
+    const nonsense = rows((await req("GET", "/customers?q=زقزوقةلاتوجد")).body).length;
+    checkEq("and a query that matches nothing returns nothing, not the whole table", nonsense, 0);
+
+    // The screens filter the SAME way — one helper, both ends (D32's other half).
     const names = variants.map(([, nameAr]) => nameAr);
-    check(
-      "FINDING — and that raw `includes` cannot forgive Arabic: searching احمد (no hamza) finds nothing, though أحمد is right there. " +
-        "The fix is one shared normalisation helper (strip hamza forms أإآ→ا, ة→ه, ى→ي, tashkeel) used by both ends; today it exists nowhere in the repo.",
-      clientFilter(names, "احمد").length === 0,
-      `matches for احمد = ${clientFilter(names, "احمد").length}, for أحمد = ${clientFilter(names, "أحمد").length}`,
-    );
-    check("the same for فاطمه against فاطمة", clientFilter(names, "فاطمه").length === 0, `matches=${clientFilter(names, "فاطمه").length}`);
-    check("and for ليلي against ليلى", clientFilter(names, "ليلي").length === 0, `matches=${clientFilter(names, "ليلي").length}`);
+    check("the shared helper the screens use forgives the same spellings", names.filter((nameAr) => matchesSearch("احمد", nameAr)).length === 1, `matches=${names.filter((nameAr) => matchesSearch("احمد", nameAr)).length}`);
+
+    const suppliersQ = await req("GET", "/suppliers?q=");
+    check("suppliers take the same parameter", suppliersQ.status === 200 && rows(suppliersQ.body).length > 0, `status ${suppliersQ.status}`);
+    const itemsQ = await req("GET", "/items?q=");
+    check("and so do items", itemsQ.status === 200 && rows(itemsQ.body).length > 0, `status ${itemsQ.status}`);
   });
 
   // ---------------------------------------------------------------------------
@@ -821,9 +834,9 @@ export async function run(ctx: Ctx): Promise<void> {
     check("both halves are recorded — money out AND the reversal that put it back", mine.length >= 2, `actions=${mine.map((row: any) => row.action).join(",")}`);
     check("each names the actor who did it", mine.every((row: any) => row.actor && row.actor !== "system"), `actors=${mine.map((row: any) => row.actor).join(",")}`);
     check(
-      "FINDING — but these rows cannot say WHERE the money moved: the voucher names BR-MAIN and every audit row it produced carries branchId null, because `branchScopedAuditSink` takes the branch from the CALLER's x-branch-scope, " +
-        "not from the document. A caller scoped to all branches — the default, and what the shell sends until a branch is picked — writes an unattributed row, and the audit viewer's branch filter never finds it again.",
-      mine.every((row: any) => row.branchId === null),
+      "and they say WHERE: every row carries the DOCUMENT's branch, not the caller's scope — an all-branches caller (the default, and what the shell sends until a branch is picked) " +
+        "used to write unattributed rows the audit viewer's branch filter could never find again (docs/defects.md D30 — the regression guard)",
+      mine.length > 0 && mine.every((row: any) => row.branchId === BRANCH),
       `voucher branchId=BR-MAIN · audit branchIds=${[...new Set(mine.map((row: any) => String(row.branchId)))].join(",")}`,
     );
   });

@@ -509,6 +509,9 @@ export class SalesInvoiceService {
       entityType: "SALES_INVOICE",
       action,
       actor: this.deps.actor ?? "system",
+      // The DOCUMENT's branch, not the caller's scope: the default scope is
+      // all-branches, which would leave every row unfindable by branch (D30).
+      branchId: invoice.branchId ?? null,
       severity,
       details: {
         invoiceId: invoice.id,

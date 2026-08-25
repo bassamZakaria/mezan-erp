@@ -4,6 +4,7 @@ import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@m
 import { ApiError, useAccounts, useAssetCategories, useAssets, useBranches, useCreateAsset, useDisposeAsset } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { matchesSearch } from "@mezan/domain";
 
 /** سجل الأصول (Asset Register) — docs/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -121,7 +122,7 @@ export function AssetRegisterScreen() {
     if (branchFilter !== "all") rows = rows.filter((a) => a.branchId === branchFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((a) => a.nameAr.toLowerCase().includes(q) || a.code.toLowerCase().includes(q));
+      rows = rows.filter((a) => matchesSearch(search, a.nameAr, a.nameEn, a.code));
     }
     return rows;
   }, [assets, categoryFilter, branchFilter, search]);

@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { createSupplier, updateSupplier, InvalidSupplierError, Money, type Supplier, type SupplierRepository } from "@mezan/domain";
+import { createSupplier, updateSupplier, InvalidSupplierError, Money, type Supplier, type SupplierRepository, matchesSearch } from "@mezan/domain";
 import { createSupplierSchema, updateSupplierSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
@@ -48,7 +48,11 @@ export function createSuppliersRouter(
 
   app.get("/", gate("purchases.supplier.view"), async (c) => {
     const suppliers = await repo.findAll();
-    return c.json(suppliers.map(serialize));
+    const q = c.req.query("q");
+    const matched = suppliers.filter((supplier) =>
+      matchesSearch(q, supplier.nameAr, supplier.nameEn, supplier.code, supplier.phone, supplier.email),
+    );
+    return c.json(matched.map(serialize));
   });
 
   app.get("/:id", gate("purchases.supplier.view"), async (c) => {

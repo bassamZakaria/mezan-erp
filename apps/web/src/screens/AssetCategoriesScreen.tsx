@@ -4,6 +4,7 @@ import type { AssetCategoryDTO, CreateAssetCategoryDTO } from "@mezan/contracts"
 import { ApiError, useAssetCategories, useCreateAssetCategory } from "../data/hooks";
 import { NumberField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { matchesSearch } from "@mezan/domain";
 
 /** تصنيفات الأصول (Asset Categories) — docs/catalog/07 §"تصنيفات الأصول". List + add panel; API supports list+create only. */
 
@@ -71,7 +72,7 @@ export function AssetCategoriesScreen() {
     if (statusFilter === "inactive" && c.active) return false;
     if (search.trim() === "") return true;
     const q = search.trim().toLowerCase();
-    return c.code.toLowerCase().includes(q) || c.nameAr.toLowerCase().includes(q);
+    return matchesSearch(search, c.code, c.nameAr);
   });
 
   function openCreateForm() {

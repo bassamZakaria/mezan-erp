@@ -69,6 +69,14 @@ export interface DocumentTypeDefinition<Line> {
   validate?(doc: FrameworkDocument<Line>): void;
   /** Build the balanced GL posting to hand the GL hook, or null if this document posts nothing. */
   buildGlPosting?(doc: FrameworkDocument<Line>, stock?: DocumentStockResult): DocumentGlPosting | null;
+  /**
+   * The branch the DOCUMENT belongs to, for the audit trail. Without it the
+   * sink falls back to the caller's `x-branch-scope`, and the default scope is
+   * all-branches, so a voucher naming BR-MAIN produced audit rows with
+   * `branchId: null` that the audit viewer's branch filter could never find
+   * again (D30).
+   */
+  branchOf?(doc: FrameworkDocument<Line>): string | null;
   /** Build the stock plan to hand the stock hook, or null if this document moves no stock. */
   buildStockPlan?(doc: FrameworkDocument<Line>): DocumentStockPlan | null;
   /** Compute the "تأثيرات هذا المستند" descriptor for the panel + confirm gate. Pure. */

@@ -11,7 +11,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
 } from "@mezan/ui";
-import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR } from "@mezan/domain";
+import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
@@ -561,7 +561,7 @@ export function CustomersScreen() {
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter(
-        (c) => c.nameAr.includes(search.trim()) || c.code.toLowerCase().includes(q) || (c.phone ?? "").includes(search.trim()),
+        (c) => matchesSearch(search, c.nameAr, c.nameEn, c.code, c.phone),
       );
     }
     return rows;

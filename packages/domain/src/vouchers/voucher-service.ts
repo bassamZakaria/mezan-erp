@@ -36,6 +36,7 @@ import {
 } from "./voucher-document.js";
 import {
   getVoucherTypeDefinition,
+  type AllocationInvoiceKind,
   type VoucherType,
 } from "./voucher-types.js";
 import { assertCashBalanceAllows } from "./cash-guard.js";
@@ -49,6 +50,7 @@ import {
   type VoucherAllocation,
 } from "./allocation.js";
 import { VoucherNotAllocatableError, VoucherNotConfirmedError } from "./errors.js";
+import { Money } from "../money/index.js";
 
 /** GL hook binding the REAL posting engine behind the framework, tagging vouchers as "system". */
 export function createVoucherGlHook(deps: JournalPostingDeps): DocumentGlHook {
@@ -91,8 +93,17 @@ export interface VoucherServiceDeps {
   readonly treasuryAccounts: Pick<TreasuryAccountRepository, "findById">;
   readonly allocations: AllocationRepository;
   readonly invoices: AllocatableInvoiceRepository;
-  /** Tenant settings source for the cash-negative policy; when absent the policy defaults ON. */
+  /** Tenant settings source for the treasury-negative policies; absent means cash guarded, bank not. */
   readonly settings?: SettingsRepository;
+  /**
+   * Projects an allocation back onto the source invoice document, so the
+   * document and the allocation sub-ledger stay one fact rather than two (D1).
+   * `settled` is the invoice's ACTIVE allocated total after the change, not a
+   * delta — reversing an allocation therefore lowers it.
+   */
+  readonly settlement?: {
+    applySettled(input: { invoiceId: string; kind: AllocationInvoiceKind; settled: Money }): Promise<void>;
+  };
   /** Resolves the configured approval chain per action type (null = none → auto-grant). */
   readonly resolveGateConfig?: (actionType: GateableActionType) => GateConfig | null;
   /**
@@ -208,7 +219,7 @@ export class VoucherService {
       await assertCashBalanceAllows(line, {
         treasuryAccounts: this.deps.treasuryAccounts,
         ledger: this.deps.ledger,
-        preventNegativeCashBalance: await this.cashPolicy(),
+        ...(await this.cashPolicy()),
       }, existing.date);
     }
     return this.service.confirm(id, opts);
@@ -235,10 +246,11 @@ export class VoucherService {
   ): Promise<{ original: VoucherDocument; reversal: VoucherDocument }> {
     const active = (await this.deps.allocations.listByVoucher(id)).filter((a) => a.status === "active");
     for (const alloc of active) {
-      await reverseAllocationFn(alloc.id, this.now(), {
+      const undone = await reverseAllocationFn(alloc.id, this.now(), {
         allocations: this.deps.allocations,
         invoices: this.deps.invoices,
       });
+      await this.projectSettlement(undone.invoice);
     }
     return this.service.reverse(id, opts);
   }
@@ -264,6 +276,7 @@ export class VoucherService {
       },
       { allocations: this.deps.allocations, invoices: this.deps.invoices },
     );
+    await this.projectSettlement(result.invoice);
     return { allocation: result.allocation };
   }
 
@@ -272,7 +285,17 @@ export class VoucherService {
       allocations: this.deps.allocations,
       invoices: this.deps.invoices,
     });
+    await this.projectSettlement(result.invoice);
     return { allocation: result.allocation };
+  }
+
+  private async projectSettlement(invoice: { id: string; kind: AllocationInvoiceKind; allocated: Money } | null): Promise<void> {
+    if (!invoice || !this.deps.settlement) return;
+    await this.deps.settlement.applySettled({
+      invoiceId: invoice.id,
+      kind: invoice.kind,
+      settled: invoice.allocated,
+    });
   }
 
   async listAllocations(voucherId: string): Promise<readonly VoucherAllocation[]> {
@@ -294,10 +317,12 @@ export class VoucherService {
     return this.service.list(filter);
   }
 
-  private async cashPolicy(): Promise<boolean> {
-    if (!this.deps.settings) return true;
-    const settings = await this.deps.settings.get();
-    return settings?.preventNegativeCashBalance ?? true;
+  private async cashPolicy(): Promise<{ preventNegativeCashBalance: boolean; allowNegativeTreasury: boolean }> {
+    const settings = await this.deps.settings?.get();
+    return {
+      preventNegativeCashBalance: settings?.preventNegativeCashBalance ?? true,
+      allowNegativeTreasury: settings?.allowNegativeTreasury ?? true,
+    };
   }
 
   private async requireConfirmedAllocatable(voucherId: string): Promise<VoucherDocument> {

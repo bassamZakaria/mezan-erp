@@ -72,6 +72,12 @@ export interface AllocatableInvoiceRepository {
   save(invoice: AllocatableInvoice): Promise<void>;
   /** Open invoices (outstanding > 0) for a party, optionally filtered by kind. */
   listOpen(filter: { kind?: AllocationInvoiceKind; partyId?: string }): Promise<readonly AllocatableInvoice[]>;
+  /**
+   * EVERY sub-ledger record, settled ones included. Balance reconciliation needs
+   * the settled ones too: an invoice paid in full still has to cancel out of the
+   * control account, and listOpen alone silently drops it.
+   */
+  listAll(): Promise<readonly AllocatableInvoice[]>;
 }
 
 /** Sum of ACTIVE allocation amounts. */

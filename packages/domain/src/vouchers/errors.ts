@@ -13,9 +13,10 @@ export class InvalidVoucherError extends Error {
 }
 
 /**
- * Raised when confirming a payment/transfer would push a CASH treasury account
- * below zero and the tenant's "منع الرصيد السالب للحسابات النقدية" policy is on.
- * Bank accounts are exempt (overdraft allowed) — docs/catalog/04 + docs/catalog/09.
+ * Raised when confirming a payment/transfer would push a treasury account below
+ * zero while the tenant guards that account's type: cash under "منع الرصيد
+ * السالب للحسابات النقدية", bank when "السماح بالرصيد السالب للحسابات البنكية"
+ * is off — docs/catalog/04 + docs/catalog/09.
  */
 export class CashBalanceWouldGoNegativeError extends Error {
   readonly code = "CASH_BALANCE_NEGATIVE";
@@ -23,9 +24,10 @@ export class CashBalanceWouldGoNegativeError extends Error {
     readonly treasuryAccountId: string,
     readonly currentBalance: string,
     readonly amount: string,
+    readonly accountType: "cash" | "bank" = "cash",
   ) {
     super(
-      `Confirming this voucher would take cash treasury account "${treasuryAccountId}" ` +
+      `Confirming this voucher would take ${accountType} treasury account "${treasuryAccountId}" ` +
         `negative (balance ${currentBalance}, amount ${amount}).`,
     );
     this.name = "CashBalanceWouldGoNegativeError";

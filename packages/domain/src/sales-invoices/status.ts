@@ -18,8 +18,10 @@ export const SALES_INVOICE_TRANSITIONS: Readonly<
   draft: ["pending", "confirmed", "cancelled"],
   pending: ["confirmed", "draft", "cancelled"],
   confirmed: ["partially_paid", "paid", "reversed"],
-  partially_paid: ["paid", "reversed"],
-  paid: ["reversed"],
+  // Reversing an allocation genuinely un-pays an invoice, so the payment states
+  // have to be walkable backwards as well as forwards.
+  partially_paid: ["confirmed", "paid", "reversed"],
+  paid: ["confirmed", "partially_paid", "reversed"],
   cancelled: [],
   reversed: [],
 };

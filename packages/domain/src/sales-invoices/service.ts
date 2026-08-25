@@ -25,7 +25,7 @@ import type {
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
-import { SALES_INVOICE_STATUS_LABELS_AR } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES } from "./sales-invoice.js";
 import type {
   SalesInvoice,
   SalesInvoiceDiscount,
@@ -528,4 +528,34 @@ function divCost(cost: Money, qty: Qty): Money {
   const r = numerator % qty.scaled;
   const rounded = r * 2n >= qty.scaled ? q + 1n : q;
   return Money.fromScaled(rounded);
+}
+
+/**
+ * Project the allocation sub-ledger back onto the invoice document: `settled`
+ * is the sum of ACTIVE allocations against this invoice, so it falls as well as
+ * rises when one is reversed. This is the only writer that keeps `amountPaid`
+ * truthful for voucher-driven collection — before it, a confirmed collection
+ * credited AR in the GL and left the invoice reporting amountPaid 0 forever
+ * (D1). A free function rather than a service method so the wiring layer can
+ * call it with the repository alone.
+ */
+export async function applyAllocatedSettlement(
+  repo: SalesInvoiceRepository,
+  id: string,
+  settled: Money,
+): Promise<SalesInvoice | null> {
+  const existing = await repo.findById(id);
+  if (!existing) return null;
+  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) return existing;
+
+  const grandTotal = salesInvoiceTotals(existing).grandTotal;
+  const capped = settled.scaled > grandTotal.scaled ? grandTotal : settled;
+  const nextStatus: SalesInvoiceStatus =
+    capped.scaled <= 0n ? "confirmed" : capped.scaled >= grandTotal.scaled ? "paid" : "partially_paid";
+  if (capped.scaled === existing.amountPaid.scaled && nextStatus === existing.status) return existing;
+
+  if (nextStatus !== existing.status) assertTransition(id, existing.status, nextStatus);
+  const updated: SalesInvoice = { ...existing, amountPaid: capped, status: nextStatus };
+  await repo.update(updated);
+  return updated;
 }

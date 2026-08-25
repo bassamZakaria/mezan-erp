@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { createApp, type App } from "@mezan/api";
 import {
   StockLedgerService,
+  applyAllocatedSettlement,
+  postJournalEntry,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   createTreasuryLedgerReader,
@@ -25,6 +27,8 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
+  getVoucherTypeDefinition,
+  sumActive as sumActiveAllocations,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -206,16 +210,21 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
 
 /**
  * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
- * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
- * stock funded by owner's capital — mirroring
- * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
- * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
- * move quantity/value through the stock ledger only: no dedicated inventory
- * shrinkage/write-off leaf exists yet in the standard COA template
- * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ * المخزون). EVERY reason posts a balancing journal entry: an adjustment that
+ * moves the stock ledger and posts nothing puts the sub-ledger permanently out
+ * of step with GL 1200 (D2 — a physical count left inventory off by 122.00).
+ *
+ * Opening stock is funded by owner's capital; every other reason is a shrinkage
+ * or a gain against 5070. SUPPLIER_RETURN here is the stock-only correction —
+ * the payable side belongs to a purchase-return document, which owns both
+ * halves; posting AP from an adjustment would move GL 2100 with no document
+ * behind it and break the AP reconciliation.
  */
-function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
-  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } {
+  return {
+    inventoryAccountId: "1200",
+    counterpartAccountId: reason === "INITIAL_STOCK" ? "3100" : "5070",
+  };
 }
 
 /**
@@ -590,8 +599,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
-    // posts only when BOTH are present) — today that's just stock-adjustments'
-    // INITIAL_STOCK reason (createInventoryOpsStockHook below); every other stock
+    // posts only when BOTH are present) — today that's every stock-adjustment
+    // reason (createInventoryOpsStockHook below); every other stock
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
@@ -693,29 +702,80 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * cost postings above already use (1105 trade receivables, 2100 trade
    * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed
    * independently of the GL (never read the ledger itself, or a mismatch could
-   * never surface) — AR from live sales invoices' outstanding balance (the
-   * SAME grandTotal-minus-amountPaid math credit-control exposure uses),
-   * inventory from the stock-ledger's own WAC snapshots. Purchase invoices
-   * don't track payments yet (purchasing/purchase-invoice.ts), so every
-   * confirmed invoice's full total is outstanding AP — matching
-   * reports/aging-suppliers.ts's own documented assumption.
+   * never surface) — inventory from the stock-ledger's own WAC snapshots, AR
+   * and AP from the documents minus what the ALLOCATION sub-ledger records as
+   * settled.
+   *
+   * Allocations are the single store of "how much of this invoice is paid"
+   * (D1/D18). Reading the invoice's own `amountPaid` counted collections that
+   * had never moved cash, and ignoring allocations entirely on the AP side left
+   * every supplier payment moving GL 2100 while the sub-ledger stood still.
+   * Historical-import archives carry opening balances that post to the same two
+   * control accounts (D23), so their remaining balances belong here too.
    */
   async function resolveReconciliationControls() {
-    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs] = await Promise.all([
+    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs, allocatable, purchaseArchives, salesArchives] = await Promise.all([
       salesInvoices.list(),
       purchaseInvoices.list(),
       stockLedger.snapshots.list(),
       salesReturns.list(),
       purchaseReturns.list(),
       landedCostDocuments.list(),
+      vouchers.invoices.listAll(),
+      historicalImportArchives.list(),
+      salesHistoricalImportArchives.list(),
     ]);
+    const allocatedById = new Map(allocatable.map((i) => [i.id, i.allocated.scaled]));
+    const allocatedOn = (invoiceId: string) => allocatedById.get(invoiceId) ?? 0n;
+
+    /**
+     * Money already received from a customer / paid to a supplier that no
+     * invoice has claimed yet. The GL moved the control account the moment the
+     * voucher confirmed, so it is a real on-account balance: leaving it out
+     * left the sub-ledger permanently ahead of the ledger by every unallocated
+     * collection and payment.
+     */
+    const onAccount = { sales: 0n, purchase: 0n };
+    const voucherDocs = await vouchers.documents.list({ status: "confirmed" });
+    /**
+     * A cheque reclassifies a receivable/payable the moment it is written: an
+     * incoming cheque credits AR into cheques-under-collection, an outgoing one
+     * debits AP into cheques-payable. Both move the control account, so the
+     * sub-ledger has to follow them or it reads permanently high. Only an
+     * OUTGOING bounce credits the counterparty back — an incoming bounce moves
+     * under-collection to the bounced account and leaves AR where it is.
+     */
+    const chequeEffect = { receivable: 0n, payable: 0n };
+    for (const cheque of await cheques.list()) {
+      const restored = cheque.direction === "outgoing" && cheque.status === "bounced";
+      const net = restored ? 0n : -cheque.amount.scaled;
+      if (cheque.counterpartyGlAccountId === "1105") chequeEffect.receivable += net;
+      if (cheque.counterpartyGlAccountId === "2100") chequeEffect.payable += net;
+    }
+    for (const doc of voucherDocs) {
+      const line = doc.lines[0];
+      if (!line) continue;
+      const def = getVoucherTypeDefinition(line.voucherType);
+      if (!def.allocatable || !def.allocationKind) continue;
+      const applied = await vouchers.allocations.listByVoucher(doc.id);
+      const unallocated = line.amount.scaled - sumActiveAllocations(applied).scaled;
+      if (unallocated > 0n) onAccount[def.allocationKind] += unallocated;
+    }
 
     let arScaled = 0n;
     for (const inv of invoices) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
       const totals = salesInvoiceTotals(inv);
-      arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
+      arScaled += totals.grandTotal.scaled - allocatedOn(inv.id);
     }
+    for (const archive of salesArchives) {
+      if (archive.settled) continue;
+      arScaled += archive.docType === "SALES_RETURN"
+        ? -archive.remainingBalance.scaled
+        : archive.remainingBalance.scaled;
+    }
+    arScaled -= onAccount.sales;
+    arScaled += chequeEffect.receivable;
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
@@ -727,8 +787,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let apScaled = 0n;
     for (const inv of purchInvoices) {
       if (inv.status !== "confirmed") continue;
-      apScaled += purchaseInvoiceTotal(inv).scaled;
+      apScaled += purchaseInvoiceTotal(inv).scaled - allocatedOn(inv.id);
     }
+    for (const archive of purchaseArchives) {
+      if (archive.settled) continue;
+      apScaled += archive.docType === "PURCHASE_RETURN"
+        ? -archive.remainingBalance.scaled
+        : archive.remainingBalance.scaled;
+    }
+    apScaled -= onAccount.purchase;
+    apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
     for (const doc of purchaseReturnDocs) {
@@ -868,6 +936,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       treasuryAccounts,
+      // Without this the treasury guard reads its own hardcoded default and both
+      // سياسة الخزينة switches on the settings screen do nothing (D19).
+      settings,
+      // Allocating a collection has to reach the invoice document, or the GL
+      // credits AR while the invoice still reports amountPaid 0 forever (D1).
+      // Purchase invoices carry no paid field; their settled figure lives in the
+      // allocation sub-ledger, which the reconciliation above now reads.
+      settlement: {
+        applySettled: async ({ invoiceId, kind, settled }) => {
+          if (kind !== "sales") return;
+          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+        },
+      },
     },
     purchases: {
       orders: purchaseOrders,
@@ -1011,10 +1092,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       orders: purchaseOrders,
       numbering: ledger.numbering,
     },
-    // gl/accounts omitted — no historical-import GL adapter yet; archives
-    // import without posting a remaining-balance journal entry.
     historicalImport: {
       archives: historicalImportArchives,
+      // Without these the domain's opening-balance branch never runs and a
+      // migrated business owes its suppliers nothing in the ledger (D23).
+      gl: {
+        post: async (posting) => {
+          await postJournalEntry(
+            {
+              id: `HIST-PI-JE:${posting.sourceDocId}`,
+              date: posting.date,
+              memo: posting.memo,
+              source: "system",
+              lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+            },
+            salesInvoiceGl,
+          );
+        },
+      },
+      accounts: { openingBalanceAccountId: "3200", payableAccountId: "2100" },
     },
     printTemplateConfig: {
       repo: printTemplateConfig,
@@ -1045,10 +1141,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         };
       },
     },
-    // gl/accounts omitted — no historical-import GL adapter yet; archives
-    // import without posting a remaining-balance journal entry.
     salesHistoricalImport: {
       archives: salesHistoricalImportArchives,
+      gl: {
+        post: async (posting) => {
+          await postJournalEntry(
+            {
+              id: `HIST-SI-JE:${posting.sourceDocId}`,
+              date: posting.date,
+              memo: posting.memo,
+              source: "system",
+              lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+            },
+            salesInvoiceGl,
+          );
+        },
+      },
+      accounts: { openingBalanceAccountId: "3200", receivableAccountId: "1105" },
     },
     salesReturns: {
       service: salesReturns,

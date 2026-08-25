@@ -57,6 +57,7 @@ export type {
 
 export {
   SalesInvoiceService,
+  applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
   type SalesInvoiceCreditControlDeps,
   type CreateSalesInvoiceCommand,

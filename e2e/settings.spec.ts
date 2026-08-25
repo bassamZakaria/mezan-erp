@@ -19,7 +19,7 @@ test.describe("Settings — general", () => {
   test("switches between general / company / tax / policies tabs", async ({ page }) => {
     const tablist = page.getByRole("tablist");
     await expect(tablist.getByRole("tab", { name: "عام" })).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByText("العملة واللغة")).toBeVisible();
+    await expect(page.getByText("العملة", { exact: true })).toBeVisible();
 
     await tablist.getByRole("tab", { name: "بيانات المنشأة" }).click();
     await expect(page.getByLabel("اسم المنشأة")).toHaveValue("Cyag — شركة سياج للصناعات");

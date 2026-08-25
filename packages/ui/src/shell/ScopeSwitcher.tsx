@@ -24,7 +24,7 @@ function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, 
   return (
     <div
       className={cn(
-        "relative flex items-center gap-[8px] rounded-md border border-chrome-border bg-chrome-hover text-xs font-medium text-chrome-ink transition-colors hover:border-chrome-accent",
+        "relative flex items-center gap-[8px] rounded-md border border-chrome-border bg-chrome-hover text-sm font-medium text-chrome-ink transition-colors hover:border-chrome-accent",
         expanded ? "w-full px-[11px] py-[8px]" : "h-[30px] w-[30px] justify-center p-0",
       )}
       title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`}
@@ -35,7 +35,7 @@ function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, 
         value={value ?? ""}
         onChange={(event) => onChange?.(event.target.value === "" ? null : event.target.value)}
         className={cn(
-          "cursor-pointer appearance-none bg-transparent text-xs font-medium",
+          "cursor-pointer appearance-none bg-transparent text-sm font-medium",
           expanded ? "min-w-0 flex-1 truncate pe-[14px] text-chrome-ink" : "absolute inset-0 text-transparent",
         )}
       >

@@ -6,6 +6,10 @@ import type {
   ItemCategoryRepository,
   ItemUnit,
   ItemUnitRepository,
+  ItemBrand,
+  ItemBrandRepository,
+  ItemSeason,
+  ItemSeasonRepository,
 } from "@mezan/domain";
 
 /**
@@ -20,6 +24,24 @@ CREATE TABLE IF NOT EXISTS item_unit (
   name_ar TEXT NOT NULL,
   name_en TEXT,
   status  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS item_brand (
+  id      TEXT PRIMARY KEY,
+  code    TEXT NOT NULL,
+  name_ar TEXT NOT NULL,
+  name_en TEXT,
+  status  TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS item_season (
+  id         TEXT PRIMARY KEY,
+  code       TEXT NOT NULL,
+  name_ar    TEXT NOT NULL,
+  name_en    TEXT,
+  start_date TEXT,
+  end_date   TEXT,
+  status     TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS item_category (
@@ -133,15 +155,149 @@ function createCategoryRepository(sqlite: Database.Database): ItemCategoryReposi
   };
 }
 
+interface BrandRow {
+  id: string;
+  code: string;
+  name_ar: string;
+  name_en: string | null;
+  status: string;
+}
+
+interface SeasonRow extends BrandRow {
+  start_date: string | null;
+  end_date: string | null;
+}
+
+function toBrand(row: BrandRow): ItemBrand {
+  return {
+    id: row.id,
+    code: row.code,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
+    status: row.status as ItemCatalogStatus,
+  };
+}
+
+function toSeason(row: SeasonRow): ItemSeason {
+  return {
+    id: row.id,
+    code: row.code,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status as ItemCatalogStatus,
+  };
+}
+
+function createBrandRepository(sqlite: Database.Database): ItemBrandRepository {
+  const upsert = sqlite.prepare(`
+    INSERT INTO item_brand (id, code, name_ar, name_en, status)
+    VALUES (@id, @code, @name_ar, @name_en, @status)
+    ON CONFLICT(id) DO UPDATE SET
+      code = excluded.code,
+      name_ar = excluded.name_ar,
+      name_en = excluded.name_en,
+      status = excluded.status
+  `);
+  const selectById = sqlite.prepare(`SELECT * FROM item_brand WHERE id = ?`);
+  const selectAll = sqlite.prepare(`SELECT * FROM item_brand ORDER BY name_ar`);
+  const remove = sqlite.prepare(`DELETE FROM item_brand WHERE id = ?`);
+
+  function write(brand: ItemBrand): void {
+    upsert.run({
+      id: brand.id,
+      code: brand.code,
+      name_ar: brand.nameAr,
+      name_en: brand.nameEn,
+      status: brand.status,
+    });
+  }
+
+  return {
+    async findById(id) {
+      const row = selectById.get(id) as BrandRow | undefined;
+      return row ? toBrand(row) : null;
+    },
+    async list() {
+      return (selectAll.all() as BrandRow[]).map(toBrand);
+    },
+    async create(brand) {
+      write(brand);
+    },
+    async update(brand) {
+      write(brand);
+    },
+    async delete(id) {
+      remove.run(id);
+    },
+  };
+}
+
+function createSeasonRepository(sqlite: Database.Database): ItemSeasonRepository {
+  const upsert = sqlite.prepare(`
+    INSERT INTO item_season (id, code, name_ar, name_en, start_date, end_date, status)
+    VALUES (@id, @code, @name_ar, @name_en, @start_date, @end_date, @status)
+    ON CONFLICT(id) DO UPDATE SET
+      code = excluded.code,
+      name_ar = excluded.name_ar,
+      name_en = excluded.name_en,
+      start_date = excluded.start_date,
+      end_date = excluded.end_date,
+      status = excluded.status
+  `);
+  const selectById = sqlite.prepare(`SELECT * FROM item_season WHERE id = ?`);
+  const selectAll = sqlite.prepare(`SELECT * FROM item_season ORDER BY start_date DESC, name_ar`);
+  const remove = sqlite.prepare(`DELETE FROM item_season WHERE id = ?`);
+
+  function write(season: ItemSeason): void {
+    upsert.run({
+      id: season.id,
+      code: season.code,
+      name_ar: season.nameAr,
+      name_en: season.nameEn,
+      start_date: season.startDate,
+      end_date: season.endDate,
+      status: season.status,
+    });
+  }
+
+  return {
+    async findById(id) {
+      const row = selectById.get(id) as SeasonRow | undefined;
+      return row ? toSeason(row) : null;
+    },
+    async list() {
+      return (selectAll.all() as SeasonRow[]).map(toSeason);
+    },
+    async create(season) {
+      write(season);
+    },
+    async update(season) {
+      write(season);
+    },
+    async delete(id) {
+      remove.run(id);
+    },
+  };
+}
+
 export interface SqliteItemCatalogStores {
   readonly units: ItemUnitRepository;
   readonly categories: ItemCategoryRepository;
+  readonly brands: ItemBrandRepository;
+  readonly seasons: ItemSeasonRepository;
 }
 
 /** Build the item-catalog repositories on an EXISTING connection, so a composed app keeps one DB handle. */
 export function createSqliteItemCatalogStores(sqlite: Database.Database): SqliteItemCatalogStores {
   sqlite.exec(CREATE_TABLES);
-  return { units: createUnitRepository(sqlite), categories: createCategoryRepository(sqlite) };
+  return {
+    units: createUnitRepository(sqlite),
+    categories: createCategoryRepository(sqlite),
+    brands: createBrandRepository(sqlite),
+    seasons: createSeasonRepository(sqlite),
+  };
 }
 
 export interface SqliteItemCatalogStoreHandle extends SqliteItemCatalogStores {

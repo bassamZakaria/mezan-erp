@@ -47,12 +47,37 @@ const SPECIFICATIONS = [
   { code: "STORAGE", nameAr: "طريقة التخزين", nameEn: "Storage", type: "text" as const, values: [], filterable: false },
 ];
 
+/**
+ * العلامات التجارية والمواسم (R5.10). Seeded so the item form's pickers and
+ * the items list's facet filters have real records to bind to — the brand was
+ * free text before, which is how one brand becomes three spellings.
+ */
+const BRANDS = [
+  { id: "BRD-DEMO-1", code: "MEZAN", nameAr: "ميزان", nameEn: "Mezan" },
+  { id: "BRD-DEMO-2", code: "ALAHRAM", nameAr: "الأهرام", nameEn: "Al Ahram" },
+  { id: "BRD-DEMO-3", code: "ELNILE", nameAr: "النيل", nameEn: "El Nile" },
+];
+
+const SEASONS = [
+  { id: "SSN-DEMO-1", code: "RAMADAN-2026", nameAr: "موسم رمضان ٢٠٢٦", nameEn: "Ramadan 2026", startDate: "2026-02-17", endDate: "2026-03-19" },
+  { id: "SSN-DEMO-2", code: "SUMMER-2026", nameAr: "موسم الصيف ٢٠٢٦", nameEn: "Summer 2026", startDate: "2026-06-01", endDate: "2026-09-30" },
+];
+
+/** Which seeded items carry which facets, so the filters return rows. */
+const ITEM_FACETS = [
+  { itemId: "ITEM-DEMO-1", brandId: "BRD-DEMO-2", seasonId: "SSN-DEMO-1", specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "PACK", value: "كيس" }] },
+  { itemId: "ITEM-DEMO-4", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-1", specifications: [{ code: "ORIGIN", value: "سريلانكا" }, { code: "SIZE", value: "وسط" }] },
+  { itemId: "ITEM-DEMO-5", brandId: "BRD-DEMO-1", seasonId: null, specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "SIZE", value: "كبير" }] },
+  { itemId: "ITEM-DEMO-6", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-2", specifications: [{ code: "ORIGIN", value: "الهند" }] },
+  { itemId: "ITEM-DEMO-2", brandId: "BRD-DEMO-3", seasonId: "SSN-DEMO-2", specifications: [{ code: "PACK", value: "برطمان" }] },
+];
+
 const TEMPLATES = [
   {
     code: "TPL-TEA",
     nameAr: "شاي ميزان المعبأ",
     nameEn: "Mezan Packed Tea",
-    brand: "ميزان",
+    brandId: "BRD-DEMO-1",
     defaultSalePrice: "260",
     defaultCost: "205",
     specificationCodes: ["SIZE", "PACK"],
@@ -66,7 +91,7 @@ const TEMPLATES = [
     code: "TPL-RICE",
     nameAr: "أرز ميزان المعبأ",
     nameEn: "Mezan Packed Rice",
-    brand: "ميزان",
+    brandId: "BRD-DEMO-1",
     defaultSalePrice: "180",
     defaultCost: "140",
     specificationCodes: ["SIZE", "ORIGIN"],
@@ -213,6 +238,21 @@ async function seedSpecificationsAndTemplates(app: App): Promise<void> {
   for (const specification of SPECIFICATIONS) {
     await step(app, "POST", "/item-specifications", specification);
   }
+  for (const brand of BRANDS) {
+    await step(app, "POST", "/item-brands", brand);
+  }
+  for (const season of SEASONS) {
+    await step(app, "POST", "/item-seasons", season);
+  }
+  // Bind the facets onto real items — an empty registry filters to nothing and
+  // proves nothing.
+  for (const facets of ITEM_FACETS) {
+    await step(app, "PATCH", `/items/${facets.itemId}`, {
+      brandId: facets.brandId,
+      seasonId: facets.seasonId,
+      specifications: facets.specifications,
+    });
+  }
 
   for (const template of TEMPLATES) {
     const created = (await step(app, "POST", "/inventory/product-templates", {
@@ -220,7 +260,7 @@ async function seedSpecificationsAndTemplates(app: App): Promise<void> {
       nameAr: template.nameAr,
       nameEn: template.nameEn,
       baseUnitCode: "PCS",
-      brand: template.brand,
+      brandId: template.brandId,
       costingMethod: "WAC",
       defaultSalePrice: template.defaultSalePrice,
       defaultCost: template.defaultCost,

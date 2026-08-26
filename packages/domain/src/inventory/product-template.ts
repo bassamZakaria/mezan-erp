@@ -38,7 +38,8 @@ export interface ProductTemplate {
   readonly nameEn: string | null;
   readonly baseUnitCode: string;
   readonly categoryId: string | null;
-  readonly brand: string | null;
+  /** The brand this template's variants carry, by id (R5.10). */
+  readonly brandId: string | null;
   readonly costingMethod: CostingMethod;
   /** Seeded onto every generated variant's Item.salePrice. */
   readonly defaultSalePrice: Money | null;

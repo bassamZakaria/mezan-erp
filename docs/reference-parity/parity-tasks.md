@@ -112,7 +112,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R4.6 / R4.7** GRN from PO only; landed-cost allocation basis and typed cost lines
 - [ ] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
 - [ ] **R5.8** Transfer import from Excel
-- [ ] **R5.10** Brands, seasons and specification facets
+- [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
 - [ ] **R10.5** Leave-request create action
 - [ ] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
 

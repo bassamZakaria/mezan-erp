@@ -66,7 +66,7 @@ function serializeTemplate(template: ProductTemplate) {
     nameEn: template.nameEn,
     baseUnitCode: template.baseUnitCode,
     categoryId: template.categoryId,
-    brand: template.brand,
+    brandId: template.brandId,
     costingMethod: template.costingMethod,
     defaultSalePrice: template.defaultSalePrice?.toString() ?? null,
     defaultCost: template.defaultCost?.toString() ?? null,

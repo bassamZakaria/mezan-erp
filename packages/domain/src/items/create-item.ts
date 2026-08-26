@@ -1,6 +1,6 @@
 import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
-import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType } from "./item.js";
+import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType, ItemSpecificationValue } from "./item.js";
 import { DuplicateItemCodeError, InvalidItemError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 import { itemTypeTracksStock } from "./item-type.js";
@@ -15,7 +15,9 @@ export interface CreateItemCommand {
   readonly alternateUnits?: readonly AlternateUnit[];
   readonly barcodes?: readonly string[];
   readonly categoryId?: string | null;
-  readonly brand?: string | null;
+  readonly brandId?: string | null;
+  readonly seasonId?: string | null;
+  readonly specifications?: readonly ItemSpecificationValue[];
   readonly costingMethod?: CostingMethod;
   readonly salePrice?: Money | null;
   readonly costPrice?: Money | null;
@@ -45,7 +47,9 @@ function buildCandidate(command: CreateItemCommand): Item {
     alternateUnits: command.alternateUnits ?? [],
     barcodes: command.barcodes ?? [],
     categoryId: command.categoryId ?? null,
-    brand: command.brand ?? null,
+    brandId: command.brandId ?? null,
+    seasonId: command.seasonId ?? null,
+    specifications: command.specifications ?? [],
     costingMethod: command.costingMethod ?? "WAC",
     salePrice: command.salePrice ?? null,
     costPrice: command.costPrice ?? null,

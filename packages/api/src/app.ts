@@ -17,6 +17,8 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
+  type ItemBrandRepository,
+  type ItemSeasonRepository,
   type ItemSpecificationRepository,
   type ItemSpecificationUsageCounter,
   type EventCode,
@@ -104,7 +106,12 @@ import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
 import { createSuppliersRouter } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
-import { createItemCategoriesRoutes, createItemUnitsRoutes } from "./item-catalog-routes.js";
+import {
+  createItemCategoriesRoutes,
+  createItemBrandsRoutes,
+  createItemSeasonsRoutes,
+  createItemUnitsRoutes,
+} from "./item-catalog-routes.js";
 import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
@@ -271,6 +278,9 @@ export interface CreateAppOptions {
   readonly itemCatalog?: {
     readonly units: ItemUnitRepository;
     readonly categories: ItemCategoryRepository;
+    /** العلامات التجارية والمواسم (R5.10) — omit and neither route mounts. */
+    readonly brands?: ItemBrandRepository;
+    readonly seasons?: ItemSeasonRepository;
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
@@ -903,6 +913,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/item-categories",
       createItemCategoriesRoutes(options.itemCatalog.categories, options.itemCatalog.resolveAuthContext),
     );
+    if (options.itemCatalog.brands) {
+      app.route("/item-brands", createItemBrandsRoutes(options.itemCatalog.brands, options.itemCatalog.resolveAuthContext));
+    }
+    if (options.itemCatalog.seasons) {
+      app.route("/item-seasons", createItemSeasonsRoutes(options.itemCatalog.seasons, options.itemCatalog.resolveAuthContext));
+    }
   }
   if (options.itemSpecifications) {
     app.route(

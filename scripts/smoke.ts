@@ -34,6 +34,8 @@ const READ_PATHS = [
   "/items",
   "/item-units",
   "/item-categories",
+  "/item-brands",
+  "/item-seasons",
   "/item-specifications",
   "/label-layouts",
   "/inventory/product-templates",

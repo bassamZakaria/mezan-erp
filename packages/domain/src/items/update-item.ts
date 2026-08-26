@@ -1,6 +1,6 @@
 import type { Account } from "../accounts/index.js";
 import type { Money } from "../money/index.js";
-import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType } from "./item.js";
+import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType, ItemSpecificationValue } from "./item.js";
 import { InvalidItemError, ItemNotFoundError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
 
@@ -17,7 +17,9 @@ export interface UpdateItemCommand {
   readonly alternateUnits?: readonly AlternateUnit[];
   readonly barcodes?: readonly string[];
   readonly categoryId?: string | null;
-  readonly brand?: string | null;
+  readonly brandId?: string | null;
+  readonly seasonId?: string | null;
+  readonly specifications?: readonly ItemSpecificationValue[];
   readonly costingMethod?: CostingMethod;
   readonly salePrice?: Money | null;
   readonly costPrice?: Money | null;
@@ -60,7 +62,9 @@ export async function updateItem(
     alternateUnits: command.alternateUnits ?? current.alternateUnits,
     barcodes: command.barcodes ?? current.barcodes,
     categoryId: command.categoryId !== undefined ? command.categoryId : current.categoryId,
-    brand: command.brand !== undefined ? command.brand : current.brand,
+    brandId: command.brandId !== undefined ? command.brandId : current.brandId,
+    seasonId: command.seasonId !== undefined ? command.seasonId : current.seasonId,
+    specifications: command.specifications !== undefined ? command.specifications : current.specifications,
     costingMethod: command.costingMethod ?? current.costingMethod,
     salePrice: command.salePrice !== undefined ? command.salePrice : current.salePrice,
     costPrice: command.costPrice !== undefined ? command.costPrice : current.costPrice,

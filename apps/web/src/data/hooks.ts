@@ -20,6 +20,8 @@ import type {
   CreateItemCategoryDTO,
   CreateItemUnitDTO,
   ItemCategoryDTO,
+  ItemBrandDTO,
+  ItemSeasonDTO,
   ItemUnitDTO,
   UpdateItemCategoryDTO,
   UpdateItemUnitDTO,
@@ -4963,6 +4965,36 @@ export function useItemCategories(): UseQueryResult<ItemCategoryDTO[], ApiError>
       const res = await request("/item-categories");
       if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
       return res.json<ItemCategoryDTO[]>();
+    },
+  });
+}
+
+/** العلامات التجارية (R5.10) — the brand an item points at, by id. */
+export function useItemBrands(): UseQueryResult<ItemBrandDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ItemBrandDTO[], ApiError>({
+    queryKey: ["item-brands"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-brands");
+      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      return res.json<ItemBrandDTO[]>();
+    },
+  });
+}
+
+/** المواسم (R5.10). */
+export function useItemSeasons(): UseQueryResult<ItemSeasonDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ItemSeasonDTO[], ApiError>({
+    queryKey: ["item-seasons"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/item-seasons");
+      if (!res.ok) throw new ApiError(res.status, t("api.itemCategoriesCouldNotBe"));
+      return res.json<ItemSeasonDTO[]>();
     },
   });
 }

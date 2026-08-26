@@ -834,7 +834,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
-    itemCatalog: { units: itemCatalog.units, categories: itemCatalog.categories },
+    itemCatalog: {
+      units: itemCatalog.units,
+      categories: itemCatalog.categories,
+      brands: itemCatalog.brands,
+      seasons: itemCatalog.seasons,
+    },
     itemSpecifications: {
       repo: itemSpecifications,
       usage: createProductTemplateSpecificationUsage(productTemplateStore.templates),

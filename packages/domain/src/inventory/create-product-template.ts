@@ -10,7 +10,7 @@ export interface CreateProductTemplateCommand {
   readonly nameEn?: string | null;
   readonly baseUnitCode: string;
   readonly categoryId?: string | null;
-  readonly brand?: string | null;
+  readonly brandId?: string | null;
   readonly costingMethod?: CostingMethod;
   readonly defaultSalePrice?: Money | null;
   readonly defaultCost?: Money | null;
@@ -25,7 +25,7 @@ function buildCandidate(command: CreateProductTemplateCommand): ProductTemplate 
     nameEn: command.nameEn ?? null,
     baseUnitCode: command.baseUnitCode,
     categoryId: command.categoryId ?? null,
-    brand: command.brand ?? null,
+    brandId: command.brandId ?? null,
     costingMethod: command.costingMethod ?? "WAC",
     defaultSalePrice: command.defaultSalePrice ?? null,
     defaultCost: command.defaultCost ?? null,

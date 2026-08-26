@@ -23,7 +23,7 @@ function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
     alternateUnits: [],
     barcodes: [],
     categoryId: null,
-    brand: null,
+    brandId: null, seasonId: null, specifications: [],
     costingMethod: "WAC",
     salePrice: "185.00",
     costPrice: "150.00",

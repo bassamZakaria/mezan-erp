@@ -34,7 +34,10 @@ export const itemSchema = z.object({
   alternateUnits: z.array(alternateUnitSchema),
   barcodes: z.array(z.string()),
   categoryId: z.string().nullable(),
-  brand: z.string().nullable(),
+  /** The brand's id (R5.10) — replaces the free-text `brand`. */
+  brandId: z.string().nullable(),
+  seasonId: z.string().nullable(),
+  specifications: z.array(z.object({ code: z.string(), value: z.string() })),
   costingMethod: costingMethodSchema,
   salePrice: z.string().nullable(),
   costPrice: z.string().nullable(),
@@ -71,7 +74,9 @@ export const createItemSchema = z.object({
   alternateUnits: z.array(alternateUnitSchema).optional(),
   barcodes: z.array(z.string()).optional(),
   categoryId: z.string().nullable().optional(),
-  brand: z.string().nullable().optional(),
+  brandId: z.string().nullable().optional(),
+  seasonId: z.string().nullable().optional(),
+  specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
   costingMethod: costingMethodSchema.optional(),
   salePrice: z.string().nullable().optional(),
   costPrice: z.string().nullable().optional(),
@@ -98,7 +103,9 @@ export const updateItemSchema = z.object({
   alternateUnits: z.array(alternateUnitSchema).optional(),
   barcodes: z.array(z.string()).optional(),
   categoryId: z.string().nullable().optional(),
-  brand: z.string().nullable().optional(),
+  brandId: z.string().nullable().optional(),
+  seasonId: z.string().nullable().optional(),
+  specifications: z.array(z.object({ code: z.string().min(1), value: z.string() })).optional(),
   costingMethod: costingMethodSchema.optional(),
   salePrice: z.string().nullable().optional(),
   costPrice: z.string().nullable().optional(),
@@ -125,3 +132,48 @@ export type AlternateUnitDTO = z.infer<typeof alternateUnitSchema>;
 export type ItemDTO = z.infer<typeof itemSchema>;
 export type CreateItemDTO = z.infer<typeof createItemSchema>;
 export type UpdateItemDTO = z.infer<typeof updateItemSchema>;
+
+// --- العلامات التجارية والمواسم (R5.10) ---------------------------------
+
+export const itemCatalogStatusSchema = z.enum(["active", "inactive"]);
+
+export const upsertItemBrandSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullish(),
+  status: itemCatalogStatusSchema.optional(),
+});
+
+export const upsertItemSeasonSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullish(),
+  startDate: z.string().nullish(),
+  endDate: z.string().nullish(),
+  status: itemCatalogStatusSchema.optional(),
+});
+
+export const itemBrandSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  status: itemCatalogStatusSchema,
+});
+
+export const itemSeasonSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  startDate: z.string().nullable(),
+  endDate: z.string().nullable(),
+  status: itemCatalogStatusSchema,
+});
+
+export type UpsertItemBrandDTO = z.infer<typeof upsertItemBrandSchema>;
+export type UpsertItemSeasonDTO = z.infer<typeof upsertItemSeasonSchema>;
+export type ItemBrandDTO = z.infer<typeof itemBrandSchema>;
+export type ItemSeasonDTO = z.infer<typeof itemSeasonSchema>;

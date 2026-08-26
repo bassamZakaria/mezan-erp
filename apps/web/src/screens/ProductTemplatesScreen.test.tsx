@@ -14,7 +14,7 @@ function template(overrides: Partial<ProductTemplateDTO> = {}): ProductTemplateD
     nameEn: null,
     baseUnitCode: "PCS",
     categoryId: null,
-    brand: null,
+    brandId: null,
     costingMethod: "WAC",
     defaultSalePrice: "150.000000",
     defaultCost: "80.000000",

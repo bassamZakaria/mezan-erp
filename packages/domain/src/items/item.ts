@@ -29,6 +29,16 @@ export interface AlternateUnit {
   readonly factor: number;
 }
 
+/**
+ * One specification value on an item. `code` points at an `ItemSpecification`;
+ * `value` is checked against that specification's allowed values when it is a
+ * `select`.
+ */
+export interface ItemSpecificationValue {
+  readonly code: string;
+  readonly value: string;
+}
+
 export interface Item {
   readonly id: string;
   /** Unique, auto-generated at creation and immutable afterward (catalog: "disabled on edit"). */
@@ -40,7 +50,15 @@ export interface Item {
   readonly alternateUnits: readonly AlternateUnit[];
   readonly barcodes: readonly string[];
   readonly categoryId: string | null;
-  readonly brand: string | null;
+  /**
+   * The brand this item carries, by id (R5.10). Replaces the free-text `brand`
+   * that let "Nestle", "نستله" and "nestle " become three brands nobody could
+   * filter by.
+   */
+  readonly brandId: string | null;
+  readonly seasonId: string | null;
+  /** Values against the tenant's specification registry — the catalog facets. */
+  readonly specifications: readonly ItemSpecificationValue[];
   readonly costingMethod: CostingMethod;
   readonly salePrice: Money | null;
   /** Becomes system-derived once stock movements exist (Phase 2) — editable here in Phase 1. */

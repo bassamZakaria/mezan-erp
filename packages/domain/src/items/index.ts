@@ -6,6 +6,7 @@ export type {
   ItemStatus,
   EtaCodeType,
   AlternateUnit,
+  ItemSpecificationValue,
 } from "./item.js";
 export {
   DuplicateItemCodeError,
@@ -46,6 +47,10 @@ export {
   type UpdateItemUnitCommand,
   type ItemCategory,
   type ItemCategoryRepository,
+  type ItemBrand,
+  type ItemBrandRepository,
+  type ItemSeason,
+  type ItemSeasonRepository,
   type CreateItemCategoryCommand,
   type UpdateItemCategoryCommand,
 } from "./item-catalog.js";

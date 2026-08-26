@@ -18,7 +18,7 @@ const suppliers: SupplierDTO[] = [
 const items: ItemDTO[] = [
   {
     id: "item-cement", code: "ITM-1", nameAr: "أسمنت بورتلاندي", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [],
-    categoryId: null, brand: null, costingMethod: "WAC", salePrice: "100.00", costPrice: "85.00", taxRatePercent: 14, trackInventory: true,
+    categoryId: null, brandId: null, seasonId: null, specifications: [], costingMethod: "WAC", salePrice: "100.00", costPrice: "85.00", taxRatePercent: 14, trackInventory: true,
     trackBatches: false, trackExpiry: false, reorderPoint: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null,
     etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active",
   },

@@ -116,7 +116,7 @@ export async function generateVariants(
         type: "stock",
         baseUnitCode: template.baseUnitCode,
         categoryId: template.categoryId,
-        brand: template.brand,
+        brandId: template.brandId,
         costingMethod: template.costingMethod,
         salePrice: template.defaultSalePrice,
         costPrice: template.defaultCost,

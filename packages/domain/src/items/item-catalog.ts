@@ -24,6 +24,50 @@ export interface ItemCategory {
   readonly status: ItemCatalogStatus;
 }
 
+/**
+ * العلامات التجارية — brands as records, not free text (R5.10). `brand` was a
+ * string on the item, which is how "Nestle", "نستله" and "nestle " become three
+ * brands nobody can filter by. An item points at one of these by id.
+ */
+export interface ItemBrand {
+  readonly id: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly status: ItemCatalogStatus;
+}
+
+/**
+ * المواسم — a selling season an item belongs to (R5.10). Dated, because "which
+ * items are in this season" is a question with an answer that changes, and a
+ * season with no dates cannot answer it.
+ */
+export interface ItemSeason {
+  readonly id: string;
+  readonly code: string;
+  readonly nameAr: string;
+  readonly nameEn: string | null;
+  readonly startDate: string | null;
+  readonly endDate: string | null;
+  readonly status: ItemCatalogStatus;
+}
+
+export interface ItemBrandRepository {
+  findById(id: string): Promise<ItemBrand | null>;
+  list(): Promise<ItemBrand[]>;
+  create(brand: ItemBrand): Promise<void>;
+  update(brand: ItemBrand): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
+export interface ItemSeasonRepository {
+  findById(id: string): Promise<ItemSeason | null>;
+  list(): Promise<ItemSeason[]>;
+  create(season: ItemSeason): Promise<void>;
+  update(season: ItemSeason): Promise<void>;
+  delete(id: string): Promise<void>;
+}
+
 export interface ItemUnitRepository {
   findByCode(code: string): Promise<ItemUnit | null>;
   list(): Promise<ItemUnit[]>;

@@ -126,6 +126,14 @@ export {
 
 export {
   itemTypeSchema,
+  upsertItemBrandSchema,
+  upsertItemSeasonSchema,
+  itemBrandSchema,
+  itemSeasonSchema,
+  type UpsertItemBrandDTO,
+  type UpsertItemSeasonDTO,
+  type ItemBrandDTO,
+  type ItemSeasonDTO,
   costingMethodSchema,
   itemStatusSchema,
   etaCodeTypeSchema,

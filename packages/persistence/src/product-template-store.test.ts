@@ -15,7 +15,7 @@ function template(overrides: Partial<ProductTemplate> = {}): ProductTemplate {
     nameEn: null,
     baseUnitCode: "PCS",
     categoryId: null,
-    brand: null,
+    brandId: null,
     costingMethod: "WAC",
     defaultSalePrice: Money.fromMajor("150.00"),
     defaultCost: Money.fromMajor("80.00"),

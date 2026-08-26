@@ -17,6 +17,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
   await itemTypeCapabilitiesBind_R51(ctx);
   await openingBalanceShortcutTargetsARealItem_R53(ctx);
+  await catalogFacetsAreEntities_R510(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -575,5 +576,61 @@ async function openingBalanceShortcutTargetsARealItem_R53(ctx: Ctx): Promise<voi
     const row = after.find((i) => i.id === target.id);
     ctx.checkEq("the item now holds the opened quantity", ctx.n(row?.onHand), 12);
     ctx.check("and it has left the out-of-stock chip", row?.stockState !== "out", JSON.stringify(row));
+  });
+}
+
+/**
+ * R5.10 — brands, seasons and specifications are entities an item points at,
+ * not free text. The check that matters is the one the old free-text field
+ * would have failed: every brand an item carries must resolve to a real brand
+ * record, and every specification value to a value its specification allows.
+ */
+async function catalogFacetsAreEntities_R510(ctx: Ctx): Promise<void> {
+  await ctx.scenario("brands, seasons and specifications are bound entities, not free text (R5.10)", async () => {
+    const brands = ((await ctx.req("GET", "/item-brands")).body ?? []) as Array<{ id: string }>;
+    const seasons = ((await ctx.req("GET", "/item-seasons")).body ?? []) as Array<{ id: string }>;
+    const specs = ((await ctx.req("GET", "/item-specifications")).body ?? []) as Array<{
+      code: string;
+      type: string;
+      values: string[];
+    }>;
+    ctx.check("the brand registry has records", brands.length > 0, `${brands.length}`);
+    ctx.check("the season registry has records", seasons.length > 0, `${seasons.length}`);
+
+    const brandIds = new Set(brands.map((b) => b.id));
+    const seasonIds = new Set(seasons.map((s) => s.id));
+    const specByCode = new Map(specs.map((s) => [s.code, s]));
+
+    const items = ((await ctx.req("GET", "/items")).body ?? []) as Array<{
+      id: string;
+      code: string;
+      brandId: string | null;
+      seasonId: string | null;
+      specifications: Array<{ code: string; value: string }>;
+    }>;
+    const bound = items.filter((i) => i.brandId !== null);
+    ctx.check("some items actually carry a brand", bound.length > 0, `${bound.length}`);
+
+    for (const item of items) {
+      // The defect the entity binding removes: a plausible NAME sitting in an
+      // id field. Only a lookup against the registry catches it.
+      if (item.brandId !== null) {
+        ctx.check(`${item.code}'s brand resolves to a real brand record`, brandIds.has(item.brandId), item.brandId);
+      }
+      if (item.seasonId !== null) {
+        ctx.check(`${item.code}'s season resolves to a real season record`, seasonIds.has(item.seasonId), item.seasonId);
+      }
+      for (const value of item.specifications ?? []) {
+        const spec = specByCode.get(value.code);
+        ctx.check(`${item.code}'s specification "${value.code}" is in the registry`, spec !== undefined, value.code);
+        if (spec?.type === "select") {
+          ctx.check(
+            `${item.code}'s "${value.code}" value is one the specification allows`,
+            spec.values.includes(value.value),
+            `${value.value} not in ${JSON.stringify(spec.values)}`,
+          );
+        }
+      }
+    }
   });
 }

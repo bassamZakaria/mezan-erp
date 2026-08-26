@@ -23,7 +23,19 @@ import {
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
 import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
-import { useAccounts, useCreateItem, useItemCategories, useItemStock, useItemUnits, useItems, useUpdateItem, useWarehouses } from "../data/hooks";
+import {
+  useAccounts,
+  useCreateItem,
+  useItemBrands,
+  useItemCategories,
+  useItemSeasons,
+  useItemStock,
+  useItemUnits,
+  useItems,
+  useUpdateItem,
+  useWarehouses,
+} from "../data/hooks";
+import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -67,7 +79,9 @@ interface ItemDraft {
   alternateUnits: AlternateUnitDTO[];
   barcodes: string[];
   categoryId: string | null;
-  brand: string;
+  brandId: string;
+  seasonId: string;
+  specifications: { code: string; value: string }[];
   costingMethod: CostingMethodDTO;
   salePrice: number | null;
   costPrice: number | null;
@@ -94,7 +108,9 @@ const BLANK_DRAFT: ItemDraft = {
   alternateUnits: [],
   barcodes: [],
   categoryId: null,
-  brand: "",
+  brandId: "",
+  seasonId: "",
+  specifications: [],
   costingMethod: "WAC",
   salePrice: null,
   costPrice: null,
@@ -122,7 +138,9 @@ function draftFromItem(item: ItemDTO): ItemDraft {
     alternateUnits: item.alternateUnits,
     barcodes: item.barcodes,
     categoryId: item.categoryId,
-    brand: item.brand ?? "",
+    brandId: item.brandId ?? "",
+    seasonId: item.seasonId ?? "",
+    specifications: [...(item.specifications ?? [])],
     costingMethod: item.costingMethod,
     salePrice: item.salePrice === null ? null : Number(item.salePrice),
     costPrice: item.costPrice === null ? null : Number(item.costPrice),
@@ -194,7 +212,10 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     alternateUnits: draft.alternateUnits,
     barcodes: draft.barcodes,
     categoryId: draft.categoryId,
-    brand: draft.brand.trim() === "" ? null : draft.brand.trim(),
+    brandId: draft.brandId === "" ? null : draft.brandId,
+    seasonId: draft.seasonId === "" ? null : draft.seasonId,
+    // Blank values are absent values, not a specification set to "".
+    specifications: draft.specifications.filter((spec) => spec.value.trim() !== ""),
     costingMethod: draft.costingMethod,
     salePrice: draft.salePrice === null ? null : draft.salePrice.toFixed(2),
     costPrice: draft.costPrice === null ? null : draft.costPrice.toFixed(2),
@@ -323,6 +344,11 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
 export function ItemsScreen() {
   const { t } = useAppTranslation();
   const { openScreenAt } = useNavigation();
+  const brands = useItemBrands().data ?? [];
+  const seasons = useItemSeasons().data ?? [];
+  const specifications = useItemSpecifications().data ?? [];
+  const brandName = (id: string | null | undefined) => (id ? (brands.find((b) => b.id === id)?.nameAr ?? id) : "—");
+  const seasonName = (id: string | null | undefined) => (id ? (seasons.find((x) => x.id === id)?.nameAr ?? id) : "—");
   const query = useItems();
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
@@ -346,6 +372,8 @@ export function ItemsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusChipKey, setStatusChipKey] = useState("all");
+  const [brandFilter, setBrandFilter] = useState("");
+  const [seasonFilter, setSeasonFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [sort, setSort] = useState<DocumentListSort>({ key: "code", direction: "asc" });
@@ -377,6 +405,8 @@ export function ItemsScreen() {
     if (statusChipKey === "low_stock") rows = rows.filter((i) => i.stockState === "low");
     if (statusChipKey === "out_of_stock") rows = rows.filter((i) => i.stockState === "out");
     if (categoryFilter !== "all") rows = rows.filter((i) => i.categoryId === categoryFilter);
+    if (brandFilter) rows = rows.filter((i) => i.brandId === brandFilter);
+    if (seasonFilter) rows = rows.filter((i) => i.seasonId === seasonFilter);
     if (unitFilter !== "all") rows = rows.filter((i) => i.baseUnitCode === unitFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
@@ -392,7 +422,7 @@ export function ItemsScreen() {
       return a.code.localeCompare(b.code) * dir;
     });
     return sorted;
-  }, [items, statusChipKey, categoryFilter, unitFilter, search, sort]);
+  }, [items, statusChipKey, categoryFilter, brandFilter, seasonFilter, unitFilter, search, sort]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
@@ -596,7 +626,55 @@ export function ItemsScreen() {
           value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : (categoryOptions[0] ?? null)}
           onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_ID ? null : option.id }))}
         />
-        <TextField label={t("items.brand")} value={draft.brand} onChange={(v) => setDraft((d) => ({ ...d, brand: v }))} />
+        <SelectField
+          label={t("items.brand")}
+          value={draft.brandId}
+          onChange={(v) => setDraft((d) => ({ ...d, brandId: v }))}
+          options={[{ value: "", label: t("items.noBrand") }, ...brands.map((b) => ({ value: b.id, label: b.nameAr }))]}
+        />
+        <SelectField
+          label={t("items.season")}
+          value={draft.seasonId}
+          onChange={(v) => setDraft((d) => ({ ...d, seasonId: v }))}
+          options={[{ value: "", label: t("items.noSeason") }, ...seasons.map((x) => ({ value: x.id, label: x.nameAr }))]}
+        />
+
+        {/* المواصفات — one control per specification the tenant defined, so
+            an item's values are checked against the registry rather than typed
+            free-hand (R5.10). */}
+        {specifications.length > 0 ? (
+          <FieldGroup label={t("items.specifications")}>
+            <div className="flex flex-col gap-[8px]">
+              {specifications.map((spec) => {
+                const current = draft.specifications.find((value) => value.code === spec.code)?.value ?? "";
+                const setValue = (value: string) =>
+                  setDraft((d) => ({
+                    ...d,
+                    specifications: [
+                      ...d.specifications.filter((entry) => entry.code !== spec.code),
+                      ...(value === "" ? [] : [{ code: spec.code, value }]),
+                    ],
+                  }));
+                return spec.type === "select" ? (
+                  <SelectField
+                    key={spec.code}
+                    label={spec.nameAr}
+                    value={current}
+                    onChange={setValue}
+                    options={[{ value: "", label: "—" }, ...spec.values.map((value) => ({ value, label: value }))]}
+                  />
+                ) : (
+                  <TextField
+                    key={spec.code}
+                    label={spec.unit ? `${spec.nameAr} (${spec.unit})` : spec.nameAr}
+                    value={current}
+                    onChange={setValue}
+                  />
+                );
+              })}
+            </div>
+          </FieldGroup>
+        ) : null}
 
         <FieldGroup label={t("items.alternateUnitsOfMeasure")} hint={t("items.forExampleCarton12Pieces")}>
           <div className="flex flex-col gap-[8px]">
@@ -790,7 +868,8 @@ export function ItemsScreen() {
             {[
               [t("items.itemType"), t(TYPE_KEY[item.type])],
               [t("common.category"), categoryLabel(item.categoryId, itemCategories, t("common.uncategorized"))],
-              [t("items.brand"), item.brand ?? "—"],
+              [t("items.brand"), brandName(item.brandId)],
+              [t("items.season"), seasonName(item.seasonId)],
               [t("items.costingMethod"), t(COSTING_KEY[item.costingMethod])],
               [t("items.trackStock"), item.trackInventory ? t("items.yes") : t("items.no")],
               [t("items.trackBatchesAndExpiryDates"), item.trackBatches || item.trackExpiry ? t("items.yes") : t("items.no")],
@@ -1019,6 +1098,34 @@ export function ItemsScreen() {
               options={[
                 { value: "all", label: t("items.allCategories") },
                 ...itemCategories.map((c) => ({ value: c.id, label: c.nameAr })),
+              ]}
+            />
+            <Select
+              size="sm"
+              className="w-[170px]"
+              aria-label={t("items.filter.brand")}
+              value={brandFilter}
+              onChange={(value) => {
+                setBrandFilter(value);
+                setPage(1);
+              }}
+              options={[
+                { value: "", label: t("items.filter.allBrands") },
+                ...brands.map((b) => ({ value: b.id, label: b.nameAr })),
+              ]}
+            />
+            <Select
+              size="sm"
+              className="w-[170px]"
+              aria-label={t("items.filter.season")}
+              value={seasonFilter}
+              onChange={(value) => {
+                setSeasonFilter(value);
+                setPage(1);
+              }}
+              options={[
+                { value: "", label: t("items.filter.allSeasons") },
+                ...seasons.map((x) => ({ value: x.id, label: x.nameAr })),
               ]}
             />
             <Select

@@ -6166,6 +6166,36 @@ const webAr = {
   "salesInvoices.effects.balanceBody": "يرتفع رصيد {customer} المدين بمبلغ {total}.",
   "salesInvoices.effects.noAutoCollection": "لا يتم التحصيل تلقائياً — سجّل سند تحصيل لإثبات الدفعة.",
   "salesInvoices.effects.pendingCustomer": "العميل",
+
+  // نظام الحالة + الدعم الفني — شريط التطبيق (R1.7 / R1.8)
+  "shell.systemStatus.ok": "متصل",
+  "shell.systemStatus.issue": "يوجد خلل في أحد الأنظمة",
+  "shell.systemStatus.checking": "جارٍ التحقق…",
+  "shell.support.shortcuts": "اختصارات لوحة المفاتيح",
+  "shell.support.status": "حالة النظام",
+  "nav.item.notifications": "الإشعارات",
+
+  // مركز الإشعارات — صفحة "عرض الكل" (R1.6)
+  "notifications.screen.description": "كل التنبيهات التي أرسلها النظام لك.",
+  "notifications.screen.col.title": "العنوان",
+  "notifications.screen.col.body": "التفاصيل",
+  "notifications.screen.col.type": "النوع",
+  "notifications.screen.col.time": "الوقت",
+  "notifications.screen.markOneRead": "تحديد كمقروء",
+  "notifications.screen.stat.total": "الإجمالي",
+  "notifications.screen.filter.priority": "الأولوية",
+  "notifications.screen.filter.allPriorities": "كل الأولويات",
+  "notifications.screen.filter.type": "النوع",
+  "notifications.screen.filter.allTypes": "كل الأنواع",
+  "notifications.screen.search": "ابحث في العنوان أو التفاصيل…",
+  "notifications.screen.unit": "إشعار",
+  "notifications.screen.emptyAll.title": "لا توجد إشعارات بعد",
+  "notifications.screen.emptyAll.description": "ستظهر هنا التنبيهات الحقيقية بمجرد تفعيل قاعدة إشعار من الإعدادات.",
+  "notifications.screen.emptyAll.action": "إعداد قواعد الإشعارات",
+  "notifications.screen.emptyFiltered.title": "لا توجد نتائج مطابقة",
+  "notifications.screen.emptyFiltered.description": "جرّب تغيير التصفية أو مصطلح البحث.",
+  "notifications.screen.emptyFiltered.action": "مسح التصفية",
+  "notifications.screen.couldNotLoad": "تعذّر تحميل الإشعارات.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12337,6 +12367,36 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.effects.balanceBody": "{customer}'s receivable rises by {total}.",
   "salesInvoices.effects.noAutoCollection": "Nothing is collected automatically — record a collection voucher to register the payment.",
   "salesInvoices.effects.pendingCustomer": "The customer",
+
+  // System status + support — app header (R1.7 / R1.8)
+  "shell.systemStatus.ok": "Online",
+  "shell.systemStatus.issue": "One system has an issue",
+  "shell.systemStatus.checking": "Checking…",
+  "shell.support.shortcuts": "Keyboard shortcuts",
+  "shell.support.status": "System status",
+  "nav.item.notifications": "Notifications",
+
+  // Notification centre — "see all" screen (R1.6)
+  "notifications.screen.description": "Every alert the system has sent you.",
+  "notifications.screen.col.title": "Title",
+  "notifications.screen.col.body": "Details",
+  "notifications.screen.col.type": "Type",
+  "notifications.screen.col.time": "Time",
+  "notifications.screen.markOneRead": "Mark as read",
+  "notifications.screen.stat.total": "Total",
+  "notifications.screen.filter.priority": "Priority",
+  "notifications.screen.filter.allPriorities": "All priorities",
+  "notifications.screen.filter.type": "Type",
+  "notifications.screen.filter.allTypes": "All types",
+  "notifications.screen.search": "Search title or details…",
+  "notifications.screen.unit": "notification",
+  "notifications.screen.emptyAll.title": "No notifications yet",
+  "notifications.screen.emptyAll.description": "Real alerts will appear here once you activate a notification rule from settings.",
+  "notifications.screen.emptyAll.action": "Set up notification rules",
+  "notifications.screen.emptyFiltered.title": "No matching results",
+  "notifications.screen.emptyFiltered.description": "Try changing the filter or search term.",
+  "notifications.screen.emptyFiltered.action": "Clear filters",
+  "notifications.screen.couldNotLoad": "Could not load notifications.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

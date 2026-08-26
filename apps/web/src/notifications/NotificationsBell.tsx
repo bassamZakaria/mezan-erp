@@ -39,7 +39,7 @@ function toPanelItem(n: NotificationDTO, now: number, t: AppI18n["t"]): Notifica
  * `/notifications`, renders them through the presentational
  * `NotificationsPanel`, and marks read on click / "تحديد الكل كمقروء".
  */
-export function useNotificationsBell() {
+export function useNotificationsBell(onViewAll?: () => void) {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<"all" | "unread">("all");
 
@@ -67,6 +67,14 @@ export function useNotificationsBell() {
         if (item && item.status === "unread") markRead.mutate(id);
       }}
       loading={listQuery.isLoading}
+      onViewAll={
+        onViewAll
+          ? () => {
+              setOpen(false);
+              onViewAll();
+            }
+          : undefined
+      }
     />
   );
 

@@ -40,7 +40,10 @@ export function Breadcrumbs({ screen }: { screen: ScreenKey }) {
   });
 
   for (const [i, segment] of segments.entries()) {
-    // A sub-page is either the create form or a document, addressed by its number.
+    // A sub-page is either the create form or a document, addressed by its
+    // number. Anything after `new` is a prefill parameter — a reason code, an
+    // item id — and printing it puts a raw enum in the Arabic breadcrumb.
+    if (i > 0 && segments[0] === "new") break;
     crumbs.push({ label: segment === "new" ? t("breadcrumb.new") : segment, onClick: undefined });
     if (i > 0) break;
   }

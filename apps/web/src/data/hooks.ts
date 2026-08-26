@@ -4341,6 +4341,28 @@ function stockAdjustmentParams(filter: StockAdjustmentFilter): URLSearchParams {
   return params;
 }
 
+/**
+ * One adjustment by id or document number, straight from the server.
+ *
+ * A deep link (`#/inventory/stock-adjustments/<id>`) used to be resolved against
+ * whatever rows the list query happened to hold, and the list is scoped and
+ * paged — so a link to a real document rendered the list instead (D54).
+ */
+export function useStockAdjustment(id: string | null): UseQueryResult<StockAdjustmentDocumentDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<StockAdjustmentDocumentDTO, ApiError>({
+    queryKey: ["stock-adjustment", id],
+    enabled: session !== null && id !== null,
+    retry: false,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-adjustments/${encodeURIComponent(id ?? "")}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      return res.json<StockAdjustmentDocumentDTO>();
+    },
+  });
+}
+
 export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -4416,6 +4438,22 @@ export function useConfirmStockAdjustment() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["stock-adjustments"] });
       queryClient.invalidateQueries({ queryKey: ["stock-balance"] });
+    },
+  });
+}
+
+/** One transfer by id or document number — the deep-link sibling of `useStockAdjustment` (D54). */
+export function useStockTransfer(id: string | null): UseQueryResult<StockTransferDocumentDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<StockTransferDocumentDTO, ApiError>({
+    queryKey: ["stock-transfer", id],
+    enabled: session !== null && id !== null,
+    retry: false,
+    queryFn: async () => {
+      const res = await request(`/inventory/stock-transfers/${encodeURIComponent(id ?? "")}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      return res.json<StockTransferDocumentDTO>();
     },
   });
 }

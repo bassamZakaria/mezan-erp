@@ -107,7 +107,7 @@ const ACTION_KEY = {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ChequesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
   const [statusFilter, setStatusFilter] = useState<"all" | ChequeStatusDTO>("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | ChequeDirectionDTO>("all");
@@ -217,7 +217,7 @@ export function ChequesScreen() {
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all ?? 0 },
-    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] ?? 0 })),
+    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: locale === "en" ? d.labelEn : d.labelAr, count: counts[d.code] ?? 0 })),
   ];
 
   const columns: DocumentListColumn<ChequeDTO>[] = [
@@ -230,11 +230,11 @@ export function ChequesScreen() {
     { key: "amount", header: t("common.amount"), align: "end", render: (c) => <MoneyDisplay value={Number(c.amount)} /> },
     { key: "dueDate", header: t("cheques.dueDate"), render: (c) => <span className="mz-num">{c.dueDate}</span> },
     { key: "bankName", header: t("cheques.bankName"), render: (c) => <span className="text-ink-muted">{c.bankName}</span> },
-    { key: "direction", header: t("cheques.direction"), render: (c) => getChequeDirectionLabel(c.direction) },
+    { key: "direction", header: t("cheques.direction"), render: (c) => getChequeDirectionLabel(c.direction, locale) },
     {
       key: "status",
       header: t("common.status"),
-      render: (c) => <StatusPill label={getChequeStatusLabel(c.effectiveStatus)} tone={STATUS_TONE[c.effectiveStatus]} />,
+      render: (c) => <StatusPill label={getChequeStatusLabel(c.effectiveStatus, locale)} tone={STATUS_TONE[c.effectiveStatus]} />,
     },
     {
       key: "createdBy",
@@ -365,7 +365,7 @@ export function ChequesScreen() {
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("cheques.detailTitle", { number: selected.chequeNumber }) : t("cheques.cheques")}>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
-            <StatusPill label={getChequeStatusLabel(selected.effectiveStatus)} tone={STATUS_TONE[selected.effectiveStatus]} />
+            <StatusPill label={getChequeStatusLabel(selected.effectiveStatus, locale)} tone={STATUS_TONE[selected.effectiveStatus]} />
             <div className="text-[12.5px] text-ink-muted">{t("cheques.party2")} {partyName(selected.partyId)}</div>
             <div className="text-[12.5px] text-ink-muted">{t("cheques.bank")} {selected.bankName}</div>
             <div className="text-[12.5px] text-ink-muted">

@@ -460,6 +460,12 @@ const ASSETS = [
 ] as const;
 
 /** Seed profile module — see `./shared.ts`. Local and test environments only. */
+
+const DEPRECIATION_RUNS = [
+  { period: "2026-06", post: true },
+  { period: "2026-07", post: false },
+];
+
 export async function seedCrm(app: App): Promise<void> {
   for (const lead of LEADS) {
     await step(app, "POST", "/crm/leads", {
@@ -577,5 +583,16 @@ export async function seedCrm(app: App): Promise<void> {
       acquisitionCost: asset.acquisitionCost,
       salvageValue: asset.salvageValue ?? undefined,
     });
+  }
+
+  // الإهلاك opened onto an empty list on a fresh tenant, so the run form, the
+  // post action and the run detail were all unprovable (D54). Two runs: June
+  // posted, so the accumulated-depreciation account and the expense actually
+  // carry figures, and July left as a draft so the post action has something
+  // to act on.
+  for (const run of DEPRECIATION_RUNS) {
+    // The route mints the run's own id; the seed cannot name it.
+    const created = (await step(app, "POST", "/assets/depreciation/runs", { period: run.period, branchId: BRANCH_ID })) as { id?: string };
+    if (run.post && created?.id) await step(app, "POST", `/assets/depreciation/runs/${created.id}/post`, {});
   }
 }

@@ -23,6 +23,7 @@ import {
   useConfirmStockTransfer,
   useCreateStockTransfer,
   useItems,
+  useStockTransfer,
   useStockTransfers,
   useStockTransferCounts,
   useStockTransferStats,
@@ -139,7 +140,16 @@ export function StockTransfersScreen() {
   }, [page, pageCount]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
+  /**
+   * A deep link names a document the LIST may not hold: the list is warehouse-
+   * scoped and paged, so `#/…/<id>` for a real document rendered the list with
+   * no message at all (D54). Fall back to fetching the one document by id, and
+   * say so plainly when the server does not have it either.
+   */
+  const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
+  const fetched = useStockTransfer(selectedId !== null && inList === null ? selectedId : null);
+  const selected: StockTransferDocumentDTO | null = inList ?? fetched.data ?? null;
+  const selectedMissing = selectedId !== null && selected === null && !fetched.isPending;
 
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {
@@ -185,6 +195,18 @@ export function StockTransfersScreen() {
 
   if (firstSegment === "new") {
     return <CreateTransferView warehouses={warehouses} items={items} onDone={subPage.close} initialItemId={routedItemId} />;
+  }
+
+  if (selectedMissing) {
+    return (
+      <div className="w-full p-[24px]">
+        <EmptyState
+          title={t("stockTransfers.notFoundTitle")}
+          description={t("stockTransfers.notFoundBody", { id: selectedId ?? "" })}
+          action={{ label: t("common.back"), onClick: subPage.close }}
+        />
+      </div>
+    );
   }
 
   if (selected) {

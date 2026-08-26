@@ -27,35 +27,50 @@ export type ChequeStatus = ChequeStoredStatus | "under_collection" | "due_today"
 export interface ChequeDirectionDefinition {
   readonly code: ChequeDirection;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const CHEQUE_DIRECTION_DEFINITIONS: readonly ChequeDirectionDefinition[] = [
-  { code: "incoming", labelAr: "واردة" },
-  { code: "outgoing", labelAr: "صادرة" },
+  { code: "incoming", labelAr: "واردة", labelEn: "Incoming" },
+  { code: "outgoing", labelAr: "صادرة", labelEn: "Outgoing" },
 ] as const;
 
 export interface ChequeStatusDefinition {
   readonly code: ChequeStatus;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
-/** Ordered exactly as docs/catalog/04 lists the status filter tabs. */
+/**
+ * Ordered exactly as docs/catalog/04 lists the status filter tabs.
+ *
+ * `under_collection` and `due_today` are DERIVED from a still-`pending`
+ * cheque's due date — nobody has handed the paper to a bank yet. They used to
+ * read «تحت التحصيل» / "under collection", which names the bank action the row
+ * still OFFERS as «إيداع في البنك», so the pill and the button contradicted
+ * each other on every maturing cheque (D55). They now describe the maturity
+ * window instead of a bank action.
+ */
 export const CHEQUE_STATUS_DEFINITIONS: readonly ChequeStatusDefinition[] = [
-  { code: "pending", labelAr: "قيد الانتظار" },
-  { code: "under_collection", labelAr: "تحت التحصيل" },
-  { code: "due_today", labelAr: "المستحقة اليوم" },
-  { code: "deposited", labelAr: "مودع" },
-  { code: "collected", labelAr: "محصل" },
-  { code: "bounced", labelAr: "مرتد" },
-  { code: "replaced", labelAr: "مستبدل" },
+  { code: "pending", labelAr: "قيد الانتظار", labelEn: "Pending" },
+  { code: "under_collection", labelAr: "يقترب موعد الاستحقاق", labelEn: "Due soon" },
+  { code: "due_today", labelAr: "استحق ولم يُودع", labelEn: "Due, not deposited" },
+  { code: "deposited", labelAr: "تحت التحصيل بالبنك", labelEn: "At the bank for collection" },
+  { code: "collected", labelAr: "محصل", labelEn: "Collected" },
+  { code: "bounced", labelAr: "مرتد", labelEn: "Bounced" },
+  { code: "replaced", labelAr: "مستبدل", labelEn: "Replaced" },
 ] as const;
 
-export function getChequeStatusLabel(status: ChequeStatus): string {
-  return CHEQUE_STATUS_DEFINITIONS.find((d) => d.code === status)?.labelAr ?? status;
+export function getChequeStatusLabel(status: ChequeStatus, locale = "ar"): string {
+  const def = CHEQUE_STATUS_DEFINITIONS.find((d) => d.code === status);
+  if (!def) return status;
+  return locale === "en" ? def.labelEn : def.labelAr;
 }
 
-export function getChequeDirectionLabel(direction: ChequeDirection): string {
-  return CHEQUE_DIRECTION_DEFINITIONS.find((d) => d.code === direction)?.labelAr ?? direction;
+export function getChequeDirectionLabel(direction: ChequeDirection, locale = "ar"): string {
+  const def = CHEQUE_DIRECTION_DEFINITIONS.find((d) => d.code === direction);
+  if (!def) return direction;
+  return locale === "en" ? def.labelEn : def.labelAr;
 }
 
 /**

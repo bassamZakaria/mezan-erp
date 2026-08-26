@@ -36,6 +36,7 @@ import {
   useCreateStockAdjustment,
   useItems,
   useJournalEntry,
+  useStockAdjustment,
   useStockAdjustments,
   useStockAdjustmentCounts,
   useStockAdjustmentStats,
@@ -196,7 +197,16 @@ export function StockAdjustmentsScreen() {
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (reasonFilter ? 1 : 0) + (warehouseFilter ? 1 : 0);
 
-  const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
+  /**
+   * A deep link names a document the LIST may not hold: the list is warehouse-
+   * scoped and paged, so `#/…/<id>` for a real document rendered the list with
+   * no message at all (D54). Fall back to fetching the one document by id, and
+   * say so plainly when the server does not have it either.
+   */
+  const inList = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
+  const fetched = useStockAdjustment(selectedId !== null && inList === null ? selectedId : null);
+  const selected: StockAdjustmentDocumentDTO | null = inList ?? fetched.data ?? null;
+  const selectedMissing = selectedId !== null && selected === null && !fetched.isPending;
 
   const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
@@ -283,6 +293,18 @@ export function StockAdjustmentsScreen() {
         }}
         onBack={() => setSelectedReason(null)}
       />
+    );
+  }
+
+  if (selectedMissing) {
+    return (
+      <div className="w-full p-[24px]">
+        <EmptyState
+          title={t("stockAdj.notFoundTitle")}
+          description={t("stockAdj.notFoundBody", { id: selectedId ?? "" })}
+          action={{ label: t("common.back"), onClick: subPage.close }}
+        />
+      </div>
     );
   }
 

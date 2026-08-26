@@ -1,5 +1,8 @@
-import { FulcrumRule, Button, Card, Money, StatusPill } from "@mezan/ui";
+import { useState } from "react";
+import { FulcrumRule, Button, Card, EmptyState, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard, type ProductionBucketOrderDTO } from "../../data/hub-hooks";
+import { useCreateWorkStation, useSetWorkStationStatus, useWorkStations } from "../../data/hooks";
+import { TextField } from "../../settings/form-controls";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
@@ -49,6 +52,99 @@ function BucketList({ title, orders }: { title: string; orders: readonly Product
       ) : (
         <p className="mt-[10px] text-[12px] text-ink-muted">{t("production.noOrdersAreAtThis")}</p>
       )}
+    </Card>
+  );
+}
+
+/**
+ * محطات العمل (R9.1) — the registry the shop-floor panel binds a movement's
+ * station to. It lives on the production hub because that is where the floor is
+ * managed; a station with no screen to create it would be dead master data.
+ */
+function WorkStationsCard() {
+  const { t } = useAppTranslation();
+  const query = useWorkStations();
+  const createStation = useCreateWorkStation();
+  const setStatus = useSetWorkStationStatus();
+  const [code, setCode] = useState("");
+  const [nameAr, setNameAr] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const stations = query.data ?? [];
+
+  async function add() {
+    setError(null);
+    if (code.trim() === "" || nameAr.trim() === "") {
+      setError(t("production.station.needCodeAndName"));
+      return;
+    }
+    try {
+      await createStation.mutateAsync({ id: crypto.randomUUID(), code: code.trim(), nameAr: nameAr.trim() });
+      setCode("");
+      setNameAr("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("production.station.createFailed"));
+    }
+  }
+
+  async function toggle(id: string, status: "active" | "inactive") {
+    if (pendingId !== null) return;
+    setError(null);
+    setPendingId(id);
+    try {
+      await setStatus.mutateAsync({ id, status });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("production.station.createFailed"));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="border-b border-border p-[16px_18px]">
+        <h3 className="font-display text-[14.5px] font-bold text-ink">{t("production.station.heading")}</h3>
+        <p className="mt-[4px] text-[12px] text-ink-muted">{t("production.station.description")}</p>
+      </div>
+      {error ? (
+        <div role="alert" className="border-b border-border bg-danger-soft px-[18px] py-[10px] text-[12.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
+      {stations.length === 0 ? (
+        <EmptyState title={t("production.station.empty")} description={t("production.station.emptyHint")} />
+      ) : (
+        <ul className="flex flex-col">
+          {stations.map((station) => (
+            <li key={station.id} className="flex flex-wrap items-center justify-between gap-[10px] border-b border-border p-[10px_18px] last:border-b-0">
+              <span className="text-[12.5px] text-ink">
+                <span className="mz-lat font-semibold">{station.code}</span> — {station.nameAr}
+              </span>
+              <span className="flex items-center gap-[10px]">
+                <StatusPill
+                  label={station.status === "active" ? t("production.station.active") : t("production.station.inactive")}
+                  tone={station.status === "active" ? "success" : "neutral"}
+                />
+                <Button
+                  size="sm"
+                  disabled={pendingId === station.id}
+                  onClick={() => void toggle(station.id, station.status === "active" ? "inactive" : "active")}
+                >
+                  {station.status === "active" ? t("production.station.deactivate") : t("production.station.activate")}
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="grid gap-[10px] border-t border-border p-[14px_18px] sm:grid-cols-[160px_1fr_auto] sm:items-end">
+        <TextField label={t("production.station.code")} value={code} onChange={setCode} />
+        <TextField label={t("production.station.name")} value={nameAr} onChange={setNameAr} />
+        <Button variant="primary" disabled={createStation.isPending} onClick={() => void add()}>
+          {t("production.station.add")}
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -115,6 +211,8 @@ export function ProductionDashboardScreen() {
         <BucketList title={t("production.waitingOnTheProduct")} orders={dashboard?.buckets.awaitingProductReceipt ?? []} />
         <BucketList title={t("production.readyToClose")} orders={dashboard?.buckets.readyToComplete ?? []} />
       </div>
+
+      <WorkStationsCard />
 
       <Card className="overflow-hidden">
         <div className="border-b border-border p-[16px_18px]">

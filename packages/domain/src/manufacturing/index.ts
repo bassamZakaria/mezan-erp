@@ -78,6 +78,8 @@ export {
   type WorkOrderMaterial,
   type WorkOrderCostLogEntry,
   type WorkOrderWasteEntry,
+  type WorkOrderShopFloorEntry,
+  type ShopFloorAttribution,
   type WorkOrderRepository,
   type CreateWorkOrderCommand,
   type CreateWorkOrderDeps,
@@ -86,6 +88,16 @@ export {
   type CompleteWorkOrderResult,
   type IssueMoreLine,
 } from "./work-order.js";
+
+export {
+  createWorkStation,
+  setWorkStationStatus,
+  resolveWorkStation,
+  type WorkStation,
+  type WorkStationRepository,
+  type CreateWorkStationCommand,
+  type WorkStationDeps,
+} from "./work-station.js";
 
 export {
   createConfigurableProduct,

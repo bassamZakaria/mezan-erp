@@ -5,14 +5,17 @@ import {
   DocumentList,
   DocumentDetail,
   DocumentStatusStepper,
+  EmptyState,
   EntityPicker,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import {
   useBoms,
@@ -29,11 +32,14 @@ import {
   useWarehouses,
   useWorkOrders,
   useWorkOrderActivity,
+  useWorkStations,
+  useEmployees,
   type WorkOrderRecord,
   type WorkOrderStageRecord,
   type WorkOrderStatusRecord,
 } from "../data/hooks";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
@@ -96,12 +102,23 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
   const returnMaterials = useReturnWorkOrderMaterials();
   const logWaste = useLogWorkOrderWaste();
   const logCost = useLogWorkOrderCost();
+  const stations = (useWorkStations().data ?? []).filter((station) => station.status === "active");
+  const employees = useEmployees().data ?? [];
 
   const [itemId, setItemId] = useState(order.materials[0]?.itemId ?? "");
   const [qty, setQty] = useState(0);
+  const [stationId, setStationId] = useState("");
+  const [operatorId, setOperatorId] = useState("");
   const [costKind, setCostKind] = useState<"labor" | "overhead" | "other">("labor");
   const [amount, setAmount] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  /**
+   * Both dimensions ride on every material action, so the movement the action
+   * produces can be read back as "who, where" and not just "what". They are
+   * ids into the two registries — never free text.
+   */
+  const attribution = { stationId: stationId === "" ? null : stationId, operatorId: operatorId === "" ? null : operatorId };
 
   const busy = extraIssue.isPending || returnMaterials.isPending || logWaste.isPending || logCost.isPending;
   // Only a started order has materials on the floor to add to, return or scrap.
@@ -119,6 +136,17 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
   }
 
   const itemOptions = order.materials.map((m) => ({ value: m.itemId, label: itemName(m.itemId) }));
+  const stationOptions = [
+    { value: "", label: t("workOrders.station.none") },
+    ...stations.map((station) => ({ value: station.id, label: `${station.code} — ${station.nameAr}` })),
+  ];
+  const operatorOptions = [
+    { value: "", label: t("workOrders.operator.none") },
+    ...employees.map((employee) => ({
+      value: employee.id,
+      label: `${employee.code} — ${[employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ") || `${employee.firstName} ${employee.lastName}`}`,
+    })),
+  ];
 
   return (
     <div className="flex flex-col gap-[14px]">
@@ -133,24 +161,27 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
         <div className="grid gap-[10px] sm:grid-cols-2">
           <SelectField label={t("workOrders.pickItem")} value={itemId} onChange={setItemId} options={itemOptions} />
           <NumberField label={t("workOrders.qty")} value={qty} min={0} onChange={setQty} />
+          <SelectField label={t("workOrders.station")} value={stationId} onChange={setStationId} options={stationOptions} />
+          <SelectField label={t("workOrders.operator")} value={operatorId} onChange={setOperatorId} options={operatorOptions} />
         </div>
+        <p className="mt-[8px] text-[11.5px] leading-[1.9] text-ink-muted">{t("workOrders.attributionHint")}</p>
         <div className="mt-[10px] flex flex-wrap gap-[8px]">
           <Button
             disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
-            onClick={() => run(() => extraIssue.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+            onClick={() => run(() => extraIssue.mutateAsync({ id: order.id, body: { ...attribution, lines: [{ itemId, qty: String(qty) }] } }))}
           >
             {t("workOrders.action.extraIssue")}
           </Button>
           <Button
             disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
-            onClick={() => run(() => returnMaterials.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+            onClick={() => run(() => returnMaterials.mutateAsync({ id: order.id, body: { ...attribution, lines: [{ itemId, qty: String(qty) }] } }))}
           >
             {t("workOrders.action.returnMaterials")}
           </Button>
           <Button
             variant="danger-outline"
             disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
-            onClick={() => run(() => logWaste.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+            onClick={() => run(() => logWaste.mutateAsync({ id: order.id, body: { ...attribution, lines: [{ itemId, qty: String(qty) }] } }))}
           >
             {t("workOrders.action.logWaste")}
           </Button>
@@ -337,13 +368,23 @@ function WorkOrderDetail({
           label: t("workOrders.tab.movements"),
           content: (
             <ActivityTable
-              head={[t("common.item"), t("workOrders.rawMaterialsWarehouse"), t("workOrders.direction.in"), t("common.qty"), t("workOrders.materialCost")]}
+              head={[
+                t("common.item"),
+                t("workOrders.rawMaterialsWarehouse"),
+                t("workOrders.direction.in"),
+                t("common.qty"),
+                t("workOrders.materialCost"),
+                t("workOrders.station"),
+                t("workOrders.operator"),
+              ]}
               rows={(activity?.movements ?? []).map((m) => [
                 itemName(m.itemId),
                 warehouseName(m.warehouseId),
                 dirLabel(m.direction),
                 m.qty,
                 <MoneyValue value={num(m.unitCost)} />,
+                m.stationName ?? "—",
+                m.operatorName ?? "—",
               ])}
               empty={t("workOrders.noMovements")}
             />
@@ -354,12 +395,21 @@ function WorkOrderDetail({
           label: t("workOrders.tab.receipts"),
           content: (
             <ActivityTable
-              head={[t("common.item"), t("workOrders.finishedGoodsWarehouse"), t("common.qty"), t("workOrders.materialCost")]}
+              head={[
+                t("common.item"),
+                t("workOrders.finishedGoodsWarehouse"),
+                t("common.qty"),
+                t("workOrders.materialCost"),
+                t("workOrders.station"),
+                t("workOrders.operator"),
+              ]}
               rows={(activity?.receipts ?? []).map((m) => [
                 itemName(m.itemId),
                 warehouseName(m.warehouseId),
                 m.qty,
                 <MoneyValue value={num(m.unitCost)} />,
+                m.stationName ?? "—",
+                m.operatorName ?? "—",
               ])}
               empty={t("workOrders.noReceipts")}
             />
@@ -380,6 +430,11 @@ function WorkOrderDetail({
               empty={t("workOrders.noJournal")}
             />
           ),
+        },
+        {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="work-order" entityId={order.id} />,
         },
         {
           key: "audit",
@@ -410,6 +465,8 @@ export function WorkOrdersScreen() {
   const completeOrder = useCompleteWorkOrder();
 
   const orders = query.data ?? [];
+  const activeStations = (useWorkStations().data ?? []).filter((station) => station.status === "active");
+  const screenEmployees = useEmployees().data ?? [];
   const boms = (bomsQuery.data ?? []).filter((b) => b.status === "active");
   const items = itemsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
@@ -428,6 +485,10 @@ export function WorkOrdersScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<WorkOrderStatusRecord | "all">("all");
   const [search, setSearch] = useState("");
+  const [priorityFilter, setPriorityFilter] = useState("");
+  const [stageFilter, setStageFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [bom, setBom] = useState<EntityPickerOption | null>(null);
   const [plannedQty, setPlannedQty] = useState(1);
@@ -440,6 +501,8 @@ export function WorkOrdersScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [receivePanelOpen, setReceivePanelOpen] = useState(false);
   const [receiveQty, setReceiveQty] = useState(0);
+  const [receiveStationId, setReceiveStationId] = useState("");
+  const [receiveOperatorId, setReceiveOperatorId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
   const selected = orders.find((o) => o.id === selectedId) ?? null;
@@ -447,12 +510,19 @@ export function WorkOrdersScreen() {
   const filtered = useMemo(() => {
     let rows = orders;
     if (statusFilter !== "all") rows = rows.filter((o) => o.status === statusFilter);
+    if (priorityFilter) rows = rows.filter((o) => o.priority === priorityFilter);
+    if (stageFilter) rows = rows.filter((o) => o.stage === stageFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((o) => o.number.toLowerCase().includes(q) || itemName(o.productItemId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [orders, statusFilter, search, itemName]);
+  }, [orders, statusFilter, priorityFilter, stageFilter, search, itemName]);
+
+  const activeFilterCount = [priorityFilter, stageFilter].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: orders.length },
@@ -522,7 +592,7 @@ export function WorkOrdersScreen() {
       if (order.stage === "not_started") {
         await startOrder.mutateAsync(order.id);
       } else if (order.stage === "started") {
-        await issueOrder.mutateAsync(order.id);
+        await issueOrder.mutateAsync({ id: order.id });
       } else if (order.stage === "materials_issued") {
         setReceiveQty(num(order.plannedQty));
         setReceivePanelOpen(true);
@@ -538,7 +608,14 @@ export function WorkOrdersScreen() {
     if (!selected) return;
     setActionError(null);
     try {
-      await receiveOrder.mutateAsync({ id: selected.id, body: { producedQty: String(receiveQty) } });
+      await receiveOrder.mutateAsync({
+        id: selected.id,
+        body: {
+          producedQty: String(receiveQty),
+          stationId: receiveStationId === "" ? null : receiveStationId,
+          operatorId: receiveOperatorId === "" ? null : receiveOperatorId,
+        },
+      });
       setReceivePanelOpen(false);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("workOrders.theProductCouldNotBe"));
@@ -597,6 +674,27 @@ export function WorkOrdersScreen() {
           </div>
         ) : null}
         <NumberField label={t("workOrders.quantityProduced")} value={receiveQty} min={0} onChange={setReceiveQty} />
+        <SelectField
+          label={t("workOrders.station")}
+          value={receiveStationId}
+          onChange={setReceiveStationId}
+          options={[
+            { value: "", label: t("workOrders.station.none") },
+            ...activeStations.map((station) => ({ value: station.id, label: `${station.code} — ${station.nameAr}` })),
+          ]}
+        />
+        <SelectField
+          label={t("workOrders.operator")}
+          value={receiveOperatorId}
+          onChange={setReceiveOperatorId}
+          options={[
+            { value: "", label: t("workOrders.operator.none") },
+            ...screenEmployees.map((employee) => ({
+              value: employee.id,
+              label: `${employee.code} — ${[employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ") || `${employee.firstName} ${employee.lastName}`}`,
+            })),
+          ]}
+        />
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setReceivePanelOpen(false)}>{t("common.cancel")}</Button>
           <Button variant="primary" onClick={confirmReceive} disabled={receiveOrder.isPending || receiveQty <= 0}>
@@ -660,17 +758,73 @@ export function WorkOrdersScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("workOrders.searchWorkOrders")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2">
+            <SelectField
+              label={t("workOrders.priority")}
+              value={priorityFilter}
+              onChange={setPriorityFilter}
+              options={[
+                { value: "", label: t("workOrders.allPriorities") },
+                { value: "low", label: t("manufacturingHub.priority.low") },
+                { value: "normal", label: t("manufacturingHub.priority.normal") },
+                { value: "high", label: t("manufacturingHub.priority.high") },
+              ]}
+            />
+            <SelectField
+              label={t("workOrders.currentStage")}
+              value={stageFilter}
+              onChange={setStageFilter}
+              options={[
+                { value: "", label: t("workOrders.allStages") },
+                { value: "not_started", label: t("workOrders.stage.started") },
+                { value: "materials_issued", label: t("workOrders.stage.materials_issued") },
+                { value: "product_received", label: t("workOrders.stage.product_received") },
+                { value: "completed", label: t("workOrders.stage.completed") },
+              ]}
+            />
+          </div>
+        }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(o) => o.id}
         onRowClick={(o) => setSelectedId(o.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("workOrders.orders")}</>}
+        rowAction={(o) => {
+          // The next action a run can actually take, read off THIS row's stage (R1.3).
+          const next = STAGE_ACTION[o.stage];
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(o.id) },
+            ...(next && o.status !== "cancelled" && o.status !== "completed"
+              ? [{ key: "advance", label: t(next), onSelect: () => void advance(o) }]
+              : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <RowMenu items={menuItems} label={t("workOrders.row.actionsFor", { doc: o.number })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("workOrders.orders")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("workOrders.noMatchingWorkOrdersCreate")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("workOrders.noMatchingWorkOrdersCreate")}
+              description={t("workOrders.emptyHint")}
+              action={{ label: t("workOrders.newWorkOrder"), onClick: openCreate }}
+            />
+          )
         }
       />
       {createPanel}

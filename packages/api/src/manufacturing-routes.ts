@@ -27,6 +27,9 @@ import {
   closeConfigInstance,
   cancelConfigInstance,
   configInstanceSellTotal,
+  createWorkStation,
+  setWorkStationStatus,
+  resolveWorkStation,
   BomNotFoundError,
   WorkOrderNotFoundError,
   ConfigurableProductNotFoundError,
@@ -47,6 +50,9 @@ import {
   type ManufacturingGlPostingPort,
   type ManufacturingStockPort,
   type WorkOrderGlAccounts,
+  type ShopFloorAttribution,
+  type WorkStation,
+  type WorkStationRepository,
 } from "@mezan/domain";
 import {
   createBomSchema,
@@ -59,6 +65,8 @@ import {
   upsertConfigurableProductSchema,
   createConfigInstanceSchema,
   previewConfigInstanceSchema,
+  createWorkStationSchema,
+  issueMaterialsSchema,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -104,6 +112,14 @@ export interface WorkOrderAuditView {
 export interface ManufacturingRoutesDeps {
   readonly boms: BomRepository;
   readonly workOrders: WorkOrderRepository;
+  /** محطات العمل — the registry a shop-floor action's `stationId` is resolved against (R9.1). */
+  readonly workStations: WorkStationRepository;
+  /**
+   * المشغّلون — the employee registry an `operatorId` is resolved against. A
+   * supplied operator is REFUSED when this is not wired, so a missing wiring
+   * is loud rather than a gate that quietly passes everything.
+   */
+  readonly operators?: { findById(id: string): Promise<{ id: string; fullName: string } | null> };
   readonly configurableProducts: ConfigurableProductRepository;
   readonly configInstances: ConfigInstanceRepository;
   readonly numbering: NextNumberService;
@@ -230,6 +246,7 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     progress: workOrderProgress(o),
     costLog: o.costLog.map((c) => ({ kind: c.kind, amount: num(c.amount), notes: c.notes, at: c.at })),
     wasteLog: o.wasteLog.map((w) => ({ itemId: w.itemId, qty: num(w.qty), notes: w.notes, at: w.at })),
+    shopFloorLog: o.shopFloorLog.map((e) => ({ kind: e.kind, stationId: e.stationId, operatorId: e.operatorId, at: e.at })),
     configInstanceId: o.configInstanceId,
     glPosted: o.glPosted,
     createdBy: o.createdBy,
@@ -238,6 +255,18 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     issuedAt: o.issuedAt,
     receivedAt: o.receivedAt,
     completedAt: o.completedAt,
+  };
+}
+
+function serializeWorkStation(w: WorkStation) {
+  return {
+    id: w.id,
+    code: w.code,
+    nameAr: w.nameAr,
+    nameEn: w.nameEn,
+    notes: w.notes,
+    status: w.status,
+    createdAt: w.createdAt,
   };
 }
 
@@ -451,6 +480,55 @@ export function createManufacturingRoutes(
     return map;
   }
 
+  const stationDeps = { stations: deps.workStations, now: deps.now };
+
+  /**
+   * Resolves the station and the operator a shop-floor request names. Both ids
+   * come from the client, so both are checked against their own registry here —
+   * the id that reaches the work order is one that exists.
+   */
+  async function resolveAttribution(body: { stationId?: string | null; operatorId?: string | null }): Promise<ShopFloorAttribution> {
+    const stationId = await resolveWorkStation(body.stationId, stationDeps);
+    let operatorId: string | null = null;
+    if (body.operatorId) {
+      if (!deps.operators) throw new InvalidManufacturingDocumentError(["سجل الموظفين غير متاح لتحديد المشغّل."]);
+      const operator = await deps.operators.findById(body.operatorId);
+      if (!operator) throw new InvalidManufacturingDocumentError([`المشغّل "${body.operatorId}" غير موجود.`]);
+      operatorId = operator.id;
+    }
+    return { stationId, operatorId };
+  }
+
+  app.get("/work-stations", gate("manufacturing.wo.view"), async (c) => {
+    return c.json((await deps.workStations.list()).map(serializeWorkStation));
+  });
+
+  app.post("/work-stations", gate("manufacturing.bom.manage"), async (c) => {
+    const parsed = createWorkStationSchema.safeParse(await c.req.json());
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      return c.json(serializeWorkStation(await createWorkStation(parsed.data, stationDeps)), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/work-stations/:id/deactivate", gate("manufacturing.bom.manage"), async (c) => {
+    try {
+      return c.json(serializeWorkStation(await setWorkStationStatus(c.req.param("id"), "inactive", stationDeps)));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/work-stations/:id/activate", gate("manufacturing.bom.manage"), async (c) => {
+    try {
+      return c.json(serializeWorkStation(await setWorkStationStatus(c.req.param("id"), "active", stationDeps)));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
   app.get("/work-orders", gate("manufacturing.wo.view"), async (c) => {
     const onHand = await onHandByPosition();
     return c.json((await deps.workOrders.list()).map((order) => serializeWorkOrder(order, onHand)));
@@ -482,9 +560,34 @@ export function createManufacturingRoutes(
     // insensitively so a receipt is not silently filed as a material movement.
     const isReceipt = (m: WorkOrderMovementView) =>
       m.itemId === order.productItemId && m.direction.toUpperCase() === "IN";
+
+    /**
+     * A shop-floor entry is stamped with the same `occurredAt` as the stock
+     * post it produced, so the station and the operator join onto the movement
+     * by that timestamp — there is no second copy of either fact.
+     */
+    const attributionAt = new Map(order.shopFloorLog.map((e) => [e.at, e]));
+    const stations = new Map((await deps.workStations.list()).map((w) => [w.id, w]));
+    const withAttribution = async (m: WorkOrderMovementView) => {
+      const entry = attributionAt.get(m.occurredAt) ?? null;
+      const operator = entry?.operatorId && deps.operators ? await deps.operators.findById(entry.operatorId) : null;
+      return {
+        ...m,
+        stationId: entry?.stationId ?? null,
+        stationName: entry?.stationId ? (stations.get(entry.stationId)?.nameAr ?? entry.stationId) : null,
+        operatorId: entry?.operatorId ?? null,
+        operatorName: operator?.fullName ?? entry?.operatorId ?? null,
+      };
+    };
+    const decorated = await Promise.all(movements.map(withAttribution));
+
     return c.json({
-      movements: movements.filter((m) => !isReceipt(m)),
-      receipts: movements.filter(isReceipt),
+      movements: decorated.filter((m) => !isReceipt(m)),
+      receipts: decorated.filter(isReceipt),
+      shopFloorLog: order.shopFloorLog.map((e) => ({
+        ...e,
+        stationName: e.stationId ? (stations.get(e.stationId)?.nameAr ?? e.stationId) : null,
+      })),
       journalEntries: deps.journalEntriesOfDocument ? await deps.journalEntriesOfDocument(order.id) : [],
       auditEvents: deps.auditOfDocument ? await deps.auditOfDocument(order.id) : [],
     });
@@ -526,8 +629,11 @@ export function createManufacturingRoutes(
   });
 
   app.post("/work-orders/:id/issue", gate("manufacturing.wo.execute"), async (c) => {
+    const parsed = issueMaterialsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), stockDeps())));
+      const attribution = await resolveAttribution(parsed.data);
+      return c.json(serializeWorkOrder(await issueWorkOrderMaterials(c.req.param("id"), stockDeps(), attribution)));
     } catch (err) {
       return handleDomainError(c, err);
     }
@@ -541,6 +647,7 @@ export function createManufacturingRoutes(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
         stockDeps(),
+        await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
     } catch (err) {
@@ -556,6 +663,7 @@ export function createManufacturingRoutes(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
         stockDeps(),
+        await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
     } catch (err) {
@@ -571,6 +679,7 @@ export function createManufacturingRoutes(
         c.req.param("id"),
         parsed.data.lines.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty), notes: l.notes })),
         { workOrders: deps.workOrders, now: deps.now },
+        await resolveAttribution(parsed.data),
       );
       return c.json(serializeWorkOrder(order));
     } catch (err) {
@@ -597,7 +706,12 @@ export function createManufacturingRoutes(
     const parsed = receiveProductSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     try {
-      const order = await receiveWorkOrderProduct(c.req.param("id"), Qty.fromMajor(parsed.data.producedQty), stockDeps());
+      const order = await receiveWorkOrderProduct(
+        c.req.param("id"),
+        Qty.fromMajor(parsed.data.producedQty),
+        stockDeps(),
+        await resolveAttribution(parsed.data),
+      );
       return c.json(serializeWorkOrder(order));
     } catch (err) {
       return handleDomainError(c, err);

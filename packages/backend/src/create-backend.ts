@@ -1445,6 +1445,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       workOrders: manufacturing.workOrders,
       configurableProducts: manufacturing.configurableProducts,
       configInstances: manufacturing.configInstances,
+      workStations: manufacturing.workStations,
+      /** المشغّل on a shop-floor action is an employee id, resolved against the HR register. */
+      operators: {
+        findById: async (id: string) => {
+          const employee = await hrEmployees.findById(id);
+          if (!employee) return null;
+          const arabic = [employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ").trim();
+          return { id: employee.id, fullName: arabic || `${employee.firstName} ${employee.lastName}`.trim() };
+        },
+      },
       numbering: ledger.numbering,
       stock: stockService,
       /** Feeds the materials tab's available/shortage columns (R9.2). */

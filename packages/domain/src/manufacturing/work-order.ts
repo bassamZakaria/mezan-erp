@@ -71,6 +71,19 @@ export interface WorkOrderCostLogEntry {
   readonly at: string;
 }
 
+/**
+ * One shop-floor action, stamped with the محطة العمل it happened at and the
+ * المشغّل who performed it (R9.1). `at` matches the stock movement the action
+ * produced, which is how the movements tab shows a station and an operator per
+ * row without a second store of the same fact.
+ */
+export interface WorkOrderShopFloorEntry {
+  readonly kind: "issue" | "extra_issue" | "return" | "waste" | "receive";
+  readonly stationId: string | null;
+  readonly operatorId: string | null;
+  readonly at: string;
+}
+
 export interface WorkOrderWasteEntry {
   readonly itemId: string;
   readonly qty: Qty;
@@ -105,6 +118,7 @@ export interface WorkOrder {
   readonly extraCost: Money;
   readonly costLog: readonly WorkOrderCostLogEntry[];
   readonly wasteLog: readonly WorkOrderWasteEntry[];
+  readonly shopFloorLog: readonly WorkOrderShopFloorEntry[];
   readonly configInstanceId: string | null;
   readonly glPosted: boolean;
   readonly createdBy: string;
@@ -231,6 +245,7 @@ export async function createWorkOrder(
     extraCost: Money.zero(),
     costLog: [],
     wasteLog: [],
+    shopFloorLog: [],
     configInstanceId: command.configInstanceId ?? null,
     glPosted: false,
     createdBy: command.createdBy ?? "system",
@@ -271,6 +286,35 @@ export interface WorkOrderStockDeps {
 }
 
 /**
+ * Who did it and where (R9.1). The station and the operator are ids the caller
+ * supplies; the API resolves both against their own registries before handing
+ * them here, so a shop-floor entry can never name a station that does not
+ * exist.
+ */
+export interface ShopFloorAttribution {
+  readonly stationId?: string | null;
+  readonly operatorId?: string | null;
+}
+
+/**
+ * A shop-floor entry is stamped with the SAME `occurredAt` the stock post
+ * carried, which is what lets the activity feed put a station and an operator
+ * beside the movement each action produced.
+ */
+function shopFloorEntry(
+  kind: WorkOrderShopFloorEntry["kind"],
+  attribution: ShopFloorAttribution | undefined,
+  at: string,
+): WorkOrderShopFloorEntry {
+  return {
+    kind,
+    stationId: attribution?.stationId ?? null,
+    operatorId: attribution?.operatorId ?? null,
+    at,
+  };
+}
+
+/**
  * صرف المواد (Issue materials): stage started → materials_issued. Posts stock
  * OUT for every non-optional material at its required quantity (stock-only —
  * no GL), captures the moving-average cost as the material WIP, and records the
@@ -279,6 +323,7 @@ export interface WorkOrderStockDeps {
 export async function issueWorkOrderMaterials(
   id: string,
   deps: WorkOrderStockDeps,
+  attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "started") throw new WorkOrderStageError("issue", order.stage);
@@ -315,6 +360,7 @@ export async function issueWorkOrderMaterials(
     materials,
     materialCost: order.materialCost.add(result.totalCost),
     issuedAt: occurredAt,
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("issue", attribution, occurredAt)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -333,6 +379,7 @@ export async function extraIssueWorkOrderMaterials(
   id: string,
   lines: readonly IssueMoreLine[],
   deps: WorkOrderStockDeps,
+  attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("extra-issue", order.stage);
@@ -361,6 +408,7 @@ export async function extraIssueWorkOrderMaterials(
     ...order,
     materials,
     materialCost: order.materialCost.add(result.totalCost),
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("extra_issue", attribution, occurredAt)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -404,6 +452,7 @@ export async function returnWorkOrderMaterials(
   id: string,
   lines: readonly IssueMoreLine[],
   deps: WorkOrderStockDeps,
+  attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("return", order.stage);
@@ -447,6 +496,7 @@ export async function returnWorkOrderMaterials(
     ...order,
     materials,
     materialCost: order.materialCost.add(returnedValue.negate()),
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("return", attribution, occurredAt)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -457,6 +507,7 @@ export async function logWorkOrderWaste(
   id: string,
   entries: readonly { itemId: string; qty: Qty; notes?: string | null }[],
   deps: { workOrders: WorkOrderRepository; now?: () => string },
+  attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued" && order.stage !== "product_received") {
@@ -467,7 +518,11 @@ export async function logWorkOrderWaste(
     ...order.wasteLog,
     ...entries.map((e) => ({ itemId: e.itemId, qty: e.qty, notes: e.notes ?? null, at })),
   ];
-  const updated: WorkOrder = { ...order, wasteLog };
+  const updated: WorkOrder = {
+    ...order,
+    wasteLog,
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("waste", attribution, at)],
+  };
   await deps.workOrders.update(updated);
   return updated;
 }
@@ -510,6 +565,7 @@ export async function receiveWorkOrderProduct(
   id: string,
   producedQty: Qty,
   deps: WorkOrderStockDeps,
+  attribution?: ShopFloorAttribution,
 ): Promise<WorkOrder> {
   const order = await load(id, deps);
   if (order.stage !== "materials_issued") throw new WorkOrderStageError("receive", order.stage);
@@ -535,6 +591,7 @@ export async function receiveWorkOrderProduct(
     stage: "product_received",
     producedQty,
     receivedAt: occurredAt,
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("receive", attribution, occurredAt)],
   };
   await deps.workOrders.update(updated);
   return updated;

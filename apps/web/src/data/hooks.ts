@@ -161,6 +161,9 @@ import type {
   PurchaseRfqDTO,
   ReceiveProductDTO,
   WorkOrderLineActionDTO,
+  WorkStationDTO,
+  CreateWorkStationDTO,
+  IssueMaterialsDTO,
   LogWasteDTO,
   LogCostDTO,
   ReconciliationReportDTO,
@@ -2761,9 +2764,25 @@ export function useWorkOrders(): UseQueryResult<WorkOrderRecord[], ApiError> {
   });
 }
 
+/** A ledger movement a work order produced, with the محطة العمل and المشغّل behind it (R9.1). */
+export interface WorkOrderMovementRecord {
+  readonly id: string;
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly direction: string;
+  readonly qty: string;
+  readonly unitCost: string;
+  readonly occurredAt: string;
+  readonly stationId: string | null;
+  readonly stationName: string | null;
+  readonly operatorId: string | null;
+  readonly operatorName: string | null;
+}
+
 export interface WorkOrderActivity {
-  readonly movements: readonly { id: string; itemId: string; warehouseId: string; direction: string; qty: string; unitCost: string; occurredAt: string }[];
-  readonly receipts: readonly { id: string; itemId: string; warehouseId: string; direction: string; qty: string; unitCost: string; occurredAt: string }[];
+  readonly movements: readonly WorkOrderMovementRecord[];
+  readonly receipts: readonly WorkOrderMovementRecord[];
+  readonly shopFloorLog: readonly { kind: string; stationId: string | null; stationName: string | null; operatorId: string | null; at: string }[];
   readonly journalEntries: readonly { id: string; entryNo: string | null; date: string; memo: string | null; status: string; totalDebit: string; totalCredit: string }[];
   readonly auditEvents: readonly { action: string; actor: string; timestamp: string; severity: string }[];
 }
@@ -2809,6 +2828,54 @@ function useWorkOrderAction(action: "start" | "complete" | "cancel", fallbackMes
   });
 }
 
+/**
+ * محطات العمل (R9.1) — the shop-floor stations a work order's issues and
+ * receipts are recorded at. A real registry, so what a movement names is an id
+ * and not a typed-in label.
+ */
+export function useWorkStations(): UseQueryResult<WorkStationDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<WorkStationDTO[], ApiError>({
+    queryKey: ["work-stations"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/manufacturing/work-stations");
+      if (!res.ok) throw new ApiError(res.status, t("api.workStationsCouldNotBe"));
+      return res.json<WorkStationDTO[]>();
+    },
+  });
+}
+
+export function useCreateWorkStation() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkStationDTO, ApiError, CreateWorkStationDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/manufacturing/work-stations", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot")));
+      return res.json<WorkStationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-stations"] }),
+  });
+}
+
+export function useSetWorkStationStatus() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkStationDTO, ApiError, { id: string; status: "active" | "inactive" }>({
+    mutationFn: async ({ id, status }) => {
+      const action = status === "active" ? "activate" : "deactivate";
+      const res = await request(`/manufacturing/work-stations/${id}/${action}`, { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theWorkStationCouldNot")));
+      return res.json<WorkStationDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-stations"] }),
+  });
+}
+
 /** بدء العمل (not_started → started). */
 export function useStartWorkOrder() {
   const { t } = useAppTranslation();
@@ -2830,13 +2897,16 @@ export function useIssueWorkOrderMaterials() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<WorkOrderRecord, ApiError, string>({
-    mutationFn: async (id) => {
-      const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST" });
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body?: IssueMaterialsDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST", body: JSON.stringify(body ?? {}) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 
@@ -2856,7 +2926,10 @@ export function useExtraIssueWorkOrderMaterials() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 
@@ -2870,7 +2943,10 @@ export function useReturnWorkOrderMaterials() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 
@@ -2884,7 +2960,10 @@ export function useLogWorkOrderWaste() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 
@@ -2898,7 +2977,10 @@ export function useLogWorkOrderCost() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 
@@ -2913,7 +2995,10 @@ export function useReceiveWorkOrderProduct() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+    onSuccess: (_data, { id }) => {
+      queryClient.invalidateQueries({ queryKey: ["work-orders"] });
+      queryClient.invalidateQueries({ queryKey: ["work-order-activity", id] });
+    },
   });
 }
 

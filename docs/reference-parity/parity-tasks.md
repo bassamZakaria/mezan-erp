@@ -54,8 +54,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] charts themselves
 - [x] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة) — on every report that has a date range
 - [x] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date — and fix the UTC day-shift in every `toISOString()` "today" across 21 screens
-- [ ] **A6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson
-- [ ] **A7** GL-reconciliation tile on sales-by-item and purchases-by-item
+- [x] **A6 / R21.6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson — rendered as an inline bar, not a bare number
+- [x] **A7** GL-reconciliation tile on sales-by-item and purchases-by-item — both tie to the cent
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
 - [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)

@@ -65,7 +65,7 @@ export function createTopProductsReport(
       { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr },
       { key: "qty", header: "إجمالي الكمية المباعة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "revenue", header: "الإيرادات", format: "money", align: "end", total: true, value: (row) => row.revenue },
-      { key: "contributionPercent", header: "نسبة المساهمة", format: "percent", align: "end", value: (row) => row.contributionPercent },
+      { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);

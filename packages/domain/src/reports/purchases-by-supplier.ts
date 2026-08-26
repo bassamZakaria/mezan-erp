@@ -55,7 +55,7 @@ export function createPurchasesBySupplierReport(
       { key: "count", header: "عدد الفواتير", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
-      { key: "contributionPercent", header: "نسبة المساهمة", format: "percent", align: "end", value: (row) => row.contributionPercent },
+      { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));

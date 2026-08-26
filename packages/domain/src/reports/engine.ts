@@ -88,11 +88,12 @@ export function computeReconciliation<TParams, Row, Ctx>(
   definition: Pick<ReportDefinition<TParams, Row, Ctx>, "reconciliation">,
   rows: readonly Row[],
   ctx: Ctx,
+  params: TParams,
 ): ReportReconciliationResult | null {
   if (!definition.reconciliation) return null;
   const { labelAr, computeReportTotal, computeReferenceTotal, toleranceMoney = 0 } = definition.reconciliation;
   const reportTotal = computeReportTotal(rows);
-  const referenceTotal = computeReferenceTotal(rows, ctx);
+  const referenceTotal = computeReferenceTotal(rows, ctx, params);
   const diff = reportTotal - referenceTotal;
   return { labelAr, reportTotal, referenceTotal, diff, withinTolerance: Math.abs(diff) <= toleranceMoney };
 }
@@ -158,7 +159,7 @@ export function runReport<TParams, Row, Ctx>(
 
   const rows = definition.run(validated.params, ctx);
   const { groups, grandTotals } = computeReportGroups(definition, rows);
-  const reconciliation = computeReconciliation(definition, rows, ctx);
+  const reconciliation = computeReconciliation(definition, rows, ctx, validated.params);
 
   const kpis = computeReportKpis(definition, validated.params, rows, grandTotals);
 

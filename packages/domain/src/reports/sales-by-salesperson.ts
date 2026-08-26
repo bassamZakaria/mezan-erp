@@ -80,7 +80,7 @@ export function createSalesBySalespersonReport(
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
       { key: "promotionDiscount", header: "خصم العروض", format: "money", align: "end", total: true, value: (row) => row.promotionDiscount },
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
-      { key: "contributionPercent", header: "نسبة المساهمة", format: "percent", align: "end", value: (row) => row.contributionPercent },
+      { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
     run: (params, ctx) => {
       const byRep = new Map<

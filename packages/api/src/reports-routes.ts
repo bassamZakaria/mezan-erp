@@ -104,6 +104,15 @@ export interface ReportsRoutesDeps {
   readonly today?: () => string;
 }
 
+/**
+ * The control accounts each by-item report ties back to. Kept here rather than
+ * read from the account-routing table because a reconciliation must compare
+ * against where the postings ACTUALLY went, not where a tenant has since
+ * decided they should go.
+ */
+const REVENUE_ACCOUNT_IDS = ["4100"] as const;
+const INVENTORY_ACCOUNT_IDS = ["1200"] as const;
+
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
   // Local calendar day, not `toISOString()`: that is UTC, so it hands back
@@ -132,6 +141,47 @@ async function loadGlContext(deps: ReportsRoutesDeps): Promise<GlReportContext> 
     deps.ledger.list({ status: "posted" }),
   ]);
   return { accounts, journalEntries };
+}
+
+/**
+ * What a set of GL accounts took in on its NATURAL side over a date range —
+ * the ledger half of a report's reconciliation (A7).
+ *
+ * Gross, not net, and that distinction is the whole point. Both by-item
+ * reports sum what documents recorded: every sale, every purchase. The
+ * matching ledger figure is therefore every credit to revenue and every debit
+ * to inventory — NOT their net movement, which has had returns and cost of
+ * goods sold taken back out of it and would report a difference on a set of
+ * books that agree perfectly.
+ */
+async function postedGross(
+  deps: ReportsRoutesDeps,
+  accountIds: readonly string[],
+  range: { dateFrom: string; dateTo: string },
+  side: "debit" | "credit",
+  /**
+   * Restricts the ledger side to entries a given document type produced.
+   * Inventory is debited by goods receipts, landed costs and opening balances
+   * as well as purchase invoices, so a purchases report compared against ALL
+   * inventory debits reports a difference on books that agree — the figures
+   * are simply not the same question. Available because journal entries carry
+   * the document that made them (R6.3).
+   */
+  sourceDocType?: string,
+): Promise<number> {
+  const entries = await deps.ledger.list({ status: "posted" });
+  const allowed = new Set(accountIds);
+  let total = 0;
+  for (const entry of entries) {
+    if (entry.date < range.dateFrom || entry.date > range.dateTo) continue;
+    if (sourceDocType && entry.sourceDocType !== sourceDocType) continue;
+    for (const line of entry.lines) {
+      if (!allowed.has(line.accountId)) continue;
+      const amount = side === "debit" ? line.debit : line.credit;
+      total += amount.toScaledNumber() / 1_000_000;
+    }
+  }
+  return total;
 }
 
 function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Response {
@@ -202,10 +252,9 @@ export function createReportsRoutes(
     const definition = createSalesByItemReport(firstOfMonth(today), today);
     const invoices = await deps.salesInvoices.list();
     const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
-    return respond(
-      c,
-      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, allocatedByInvoiceId }),
-    );
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", "SALES_INVOICE");
+    return respond(c, runReport(definition, params, { invoices, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
@@ -253,7 +302,9 @@ export function createReportsRoutes(
     const today = todayIso(deps);
     const definition = createPurchasesByItemReport(firstOfMonth(today), today);
     const [invoices, items] = await Promise.all([deps.purchaseInvoices.list(), deps.items.list()]);
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items }));
+    const params = { ...definition.defaultParams, ...queryParams(c) };
+    const postedInventory = await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", "PURCHASE_INVOICE");
+    return respond(c, runReport(definition, params, { invoices, items, postedInventory: () => postedInventory }));
   });
 
   // --- المخزون -------------------------------------------------------

@@ -14,6 +14,12 @@ import { withinDateRange } from "./period-bucket.js";
 export interface PurchasesByItemContext {
   readonly invoices: readonly PurchaseInvoice[];
   readonly items: readonly Item[];
+  /**
+   * What the same period posted to inventory in the GL (A7). Optional: absent,
+   * the report runs without claiming to tie to the ledger, which is more
+   * honest than comparing a figure to itself.
+   */
+  readonly postedInventory?: (params: { dateFrom: string; dateTo: string }) => number;
 }
 
 export interface PurchasesByItemParams {
@@ -50,8 +56,19 @@ export function createPurchasesByItemReport(
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
       { key: "qty", header: "الكمية المشتراة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "cost", header: "التكلفة", format: "money", align: "end", total: true, value: (row) => row.cost },
-      { key: "costPercent", header: "نسبة التكلفة", format: "percent", align: "end", value: (row) => row.costPercent },
+      { key: "costPercent", header: "نسبة التكلفة", format: "share", align: "end", value: (row) => row.costPercent },
     ],
+    /**
+     * The report sums invoice lines; the GL holds what those invoices posted
+     * to inventory. Two independent paths to one number — a difference means
+     * one of them is wrong.
+     */
+    reconciliation: {
+      labelAr: "تكلفة التقرير مقابل المرحَّل للمخزون في دفتر الأستاذ",
+      computeReportTotal: (rows) => rows.reduce((sum, row) => sum + row.cost, 0),
+      computeReferenceTotal: (_rows, ctx, params) => ctx.postedInventory?.(params) ?? 0,
+      toleranceMoney: 0.01,
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const byItem = new Map<string, { qty: Qty; cost: Money }>();

@@ -11,7 +11,12 @@ import type { z } from "zod";
  */
 
 /** How a column's raw value is rendered — routed through `useFormat()` on the UI side. */
-export type ReportColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance";
+/**
+ * `share` is a percentage rendered as an inline bar beside its number (R21.6).
+ * A contribution column is read by comparing rows, and a column of bare
+ * numbers makes the reader do that comparison in their head.
+ */
+export type ReportColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share";
 
 export interface ReportColumn<Row> {
   readonly key: string;
@@ -51,10 +56,15 @@ export type ReportParamField =
  * cross-check their own total against a reference — most simply the general
  * ledger itself, e.g. ميزان المراجعة's "إجمالي المدين = إجمالي الدائن").
  */
-export interface ReportReconciliationSpec<Row, Ctx> {
+export interface ReportReconciliationSpec<Row, Ctx, TParams = unknown> {
   readonly labelAr: string;
   readonly computeReportTotal: (rows: readonly Row[]) => number;
-  readonly computeReferenceTotal: (rows: readonly Row[], ctx: Ctx) => number;
+  /**
+   * `params` are the ones the report actually RAN with, not its defaults —
+   * a reference total computed over the default period would silently stop
+   * matching the moment the user changed the date range.
+   */
+  readonly computeReferenceTotal: (rows: readonly Row[], ctx: Ctx, params: TParams) => number;
   /** Absolute-difference tolerance before the banner flags a mismatch. Defaults to 0. */
   readonly toleranceMoney?: number;
 }
@@ -77,7 +87,7 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
   readonly columns: readonly ReportColumn<Row>[];
   readonly rowKey: (row: Row) => string;
   readonly group?: ReportGroupSpec<Row>;
-  readonly reconciliation?: ReportReconciliationSpec<Row, Ctx>;
+  readonly reconciliation?: ReportReconciliationSpec<Row, Ctx, TParams>;
   /**
    * Whether the grand-total row is meaningful for this report. The balance
    * sheet sets this false — summing the assets section against the

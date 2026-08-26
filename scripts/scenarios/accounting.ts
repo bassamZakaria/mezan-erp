@@ -21,6 +21,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await accountRoutingDecidesWherePostingsLand_R61(ctx);
   await everyJournalEntryNamesItsModule_R63(ctx);
   await taxGroupsKeepTheirMembersSeparate_R64(ctx);
+  await byItemReportsTieToTheLedger_A7(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -793,5 +794,47 @@ export async function taxGroupsKeepTheirMembersSeparate_R64(ctx: Ctx): Promise<v
       ],
     });
     ctx.checkEq("the same rate twice in one group is refused", dupe.status, 422);
+  });
+}
+
+/**
+ * A7 — the by-item reports must tie to the ledger exactly, and the difference
+ * being zero is the only version of that claim worth making. A reconciliation
+ * panel that always reports a difference trains people to ignore it.
+ */
+export async function byItemReportsTieToTheLedger_A7(ctx: Ctx): Promise<void> {
+  await ctx.scenario("the by-item reports reconcile to the GL to the cent (A7)", async () => {
+    for (const [path, label] of [
+      ["/reports/sales/by-item", "sales"],
+      ["/reports/purchases/by-item", "purchases"],
+    ] as const) {
+      const res = await ctx.req("GET", `${path}?dateFrom=2026-01-01&dateTo=2026-12-31`);
+      ctx.check(`${label} by-item runs`, res.status === 200, `status ${res.status}`);
+      const recon = res.body?.reconciliation as
+        | { reportTotal: number; referenceTotal: number; diff: number; withinTolerance: boolean }
+        | null
+        | undefined;
+      ctx.check(`${label} by-item carries a reconciliation at all`, recon != null, JSON.stringify(res.body).slice(0, 160));
+      if (!recon) continue;
+      ctx.check(`${label} by-item has something to reconcile`, recon.reportTotal > 0, `${recon.reportTotal}`);
+      // Two independent paths to one number: the documents the report sums,
+      // and what those documents posted. A difference means one is wrong.
+      ctx.checkEq(`${label} by-item ties to the ledger exactly`, recon.reportTotal, recon.referenceTotal);
+      ctx.check(`${label} by-item reports itself as reconciled`, recon.withinTolerance, JSON.stringify(recon));
+    }
+
+    // The reference must follow the PARAMS, not the report's defaults — a
+    // reference frozen on the default period stops matching the moment the
+    // user changes the range.
+    const narrow = await ctx.req("GET", "/reports/sales/by-item?dateFrom=2026-08-01&dateTo=2026-08-31");
+    const wide = await ctx.req("GET", "/reports/sales/by-item?dateFrom=2026-01-01&dateTo=2026-12-31");
+    const narrowRef = (narrow.body?.reconciliation as { referenceTotal: number }).referenceTotal;
+    const wideRef = (wide.body?.reconciliation as { referenceTotal: number }).referenceTotal;
+    ctx.check("the ledger side narrows with the date range", narrowRef <= wideRef, `narrow=${narrowRef} wide=${wideRef}`);
+    ctx.checkEq(
+      "and the narrowed report still ties",
+      (narrow.body?.reconciliation as { reportTotal: number }).reportTotal,
+      narrowRef,
+    );
   });
 }

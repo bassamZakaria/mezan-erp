@@ -22,7 +22,7 @@ import { useUiTranslation } from "../i18n";
  * upstream and handed this component render-ready `result`.
  */
 
-export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance";
+export type ReportRunnerColumnFormat = "text" | "money" | "qty" | "date" | "percent" | "variance" | "share";
 
 export interface ReportRunnerColumn<Row> {
   readonly key: string;
@@ -208,6 +208,19 @@ function formatCell(value: string | number | null, format: ReportRunnerColumnFor
   if (format === "money" && typeof value === "number") return <Money value={value} currencyLabel={fmt.currencyLabel} />;
   if (format === "qty" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}</span>;
   if (format === "percent" && typeof value === "number") return <span className="mz-num">{fmt.number(value)}%</span>;
+  if (format === "share" && typeof value === "number") {
+    // Clamped, because a contribution over 100% is a data problem and a bar
+    // wider than its track just looks like a rendering fault.
+    const width = Math.max(0, Math.min(100, value));
+    return (
+      <span className="inline-flex w-full items-center justify-end gap-[8px]">
+        <span aria-hidden className="h-[6px] min-w-[48px] flex-1 overflow-hidden rounded-full bg-surface-2">
+          <span className="block h-full rounded-full bg-brand" style={{ inlineSize: `${width}%` }} />
+        </span>
+        <span className="mz-num shrink-0">{fmt.number(value)}%</span>
+      </span>
+    );
+  }
   if (format === "variance" && typeof value === "number")
     return (
       <VarianceBeam value={value}>

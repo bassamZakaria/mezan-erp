@@ -11,6 +11,13 @@ import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 export interface SalesByItemContext {
   readonly invoices: readonly SalesInvoice[];
+  /**
+   * Revenue posted to the GL over the same period (A7). Optional: without it
+   * the report still runs, it simply cannot claim to tie to the ledger —
+   * which is more honest than a reconciliation panel comparing a figure to
+   * itself.
+   */
+  readonly postedRevenue?: (params: { dateFrom: string; dateTo: string }) => number;
 }
 
 export interface SalesByItemParams {
@@ -47,8 +54,20 @@ export function createSalesByItemReport(
       { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
       { key: "qty", header: "إجمالي الكمية المباعة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "revenue", header: "الإيرادات", format: "money", align: "end", total: true, value: (row) => row.revenue },
-      { key: "contributionPercent", header: "نسبة المساهمة", format: "percent", align: "end", value: (row) => row.contributionPercent },
+      { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
+    /**
+     * The report sums invoice lines; the GL holds what those invoices posted
+     * to revenue. They are two independent paths to the same number, so a
+     * difference means one of them is wrong — which is the only reason to
+     * show a reconciliation at all.
+     */
+    reconciliation: {
+      labelAr: "إيرادات التقرير مقابل المرحَّل في دفتر الأستاذ",
+      computeReportTotal: (rows) => rows.reduce((sum, row) => sum + row.revenue, 0),
+      computeReferenceTotal: (_rows, ctx, params) => ctx.postedRevenue?.(params) ?? 0,
+      toleranceMoney: 0.01,
+    },
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
       const totalRevenue = aggregates.reduce((sum, a) => sum + a.revenue, 0);

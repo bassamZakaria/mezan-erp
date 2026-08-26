@@ -15,3 +15,8 @@ export function employeeDisplayName(employee: NameFields, locale: Locale): strin
   const en = [employee.firstName, employee.lastName].filter(Boolean).join(" ").trim();
   return locale === "ar" ? ar || en : en || ar;
 }
+
+/** A department or job title in the reading language, falling back to the other script. */
+export function bilingualName(row: { name: string; nameAr: string | null }, locale: Locale): string {
+  return locale === "ar" ? (row.nameAr ?? row.name) : (row.name || (row.nameAr ?? ""));
+}

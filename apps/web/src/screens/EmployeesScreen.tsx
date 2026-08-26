@@ -35,7 +35,7 @@ import {
 import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hooks";
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { employeeDisplayName } from "./hr-employee-name";
+import { bilingualName, employeeDisplayName } from "./hr-employee-name";
 
 /** الموظفون (Employees) — docs/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -207,13 +207,13 @@ export function EmployeesScreen() {
   function departmentName(id: string | null): string {
     if (!id) return "—";
     const d = departments.find((row) => row.id === id);
-    return d ? (d.nameAr ?? d.name) : id;
+    return d ? bilingualName(d, locale) : id;
   }
 
   function jobTitleName(id: string | null): string {
     if (!id) return "—";
     const j = jobTitles.find((row) => row.id === id);
-    return j ? (j.nameAr ?? j.name) : id;
+    return j ? bilingualName(j, locale) : id;
   }
 
   function branchName(id: string): string {
@@ -332,8 +332,8 @@ export function EmployeesScreen() {
     }
   }
 
-  const departmentOptions: EntityPickerOption[] = departments.map((d) => ({ id: d.id, label: d.nameAr ?? d.name }));
-  const jobTitleOptions: EntityPickerOption[] = departmentJobTitles.map((j) => ({ id: j.id, label: j.nameAr ?? j.name }));
+  const departmentOptions: EntityPickerOption[] = departments.map((d) => ({ id: d.id, label: bilingualName(d, locale) }));
+  const jobTitleOptions: EntityPickerOption[] = departmentJobTitles.map((j) => ({ id: j.id, label: bilingualName(j, locale) }));
   const managerOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: employeeName(e) }));
   const branchOptions: EntityPickerOption[] = branches.map((b) => ({ id: b.id, label: b.name }));
 
@@ -759,7 +759,7 @@ export function EmployeesScreen() {
             label={t("employees.department")}
             value={departmentFilter}
             onChange={setDepartmentFilter}
-            options={[{ value: "all", label: t("employees.allDepartments") }, ...departments.map((d) => ({ value: d.id, label: d.nameAr ?? d.name }))]}
+            options={[{ value: "all", label: t("employees.allDepartments") }, ...departments.map((d) => ({ value: d.id, label: bilingualName(d, locale) }))]}
           />
         }
       />

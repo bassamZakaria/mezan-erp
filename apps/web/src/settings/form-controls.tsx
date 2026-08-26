@@ -36,7 +36,7 @@ export interface TextFieldProps {
   placeholder?: string;
   hint?: string;
   disabled?: boolean;
-  type?: "text" | "email" | "tel" | "date";
+  type?: "text" | "email" | "tel" | "date" | "password";
 }
 
 export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text" }: TextFieldProps) {

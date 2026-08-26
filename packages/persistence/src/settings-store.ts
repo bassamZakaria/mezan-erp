@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
+import { DEFAULT_SETTINGS } from "@mezan/domain";
 import type { SettingsRepository, TenantSettings } from "@mezan/domain";
 
 /**
@@ -39,7 +40,10 @@ class SqliteSettingsStore implements SettingsRepository {
   async get(): Promise<TenantSettings | null> {
     const row = this.select.get(ROW_ID) as { data: string } | undefined;
     if (!row) return null;
-    return JSON.parse(row.data) as TenantSettings;
+    // A row written before a field existed would otherwise hand the domain an
+    // `undefined` that validation reads as invalid, so the stored bag is always
+    // layered on top of the current defaults.
+    return { ...DEFAULT_SETTINGS, ...(JSON.parse(row.data) as Partial<TenantSettings>) } as TenantSettings;
   }
 
   async save(settings: TenantSettings): Promise<void> {

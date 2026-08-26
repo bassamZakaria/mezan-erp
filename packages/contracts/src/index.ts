@@ -1299,3 +1299,12 @@ export {
   type SubmitApprovalRequestDTO,
   type DecideApprovalRequestDTO,
 } from "./workflow.js";
+
+export {
+  sendTestEmailSchema,
+  testEmailResultSchema,
+  allowedCurrenciesSchema,
+  type SendTestEmailDTO,
+  type TestEmailResultDTO,
+  type AllowedCurrenciesDTO,
+} from "./settings.js";

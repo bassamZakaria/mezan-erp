@@ -140,6 +140,7 @@ const READ_PATHS = [
   "/data-migration/status",
   "/inventory/writedown-runs",
   "/workflow/requests",
+  "/settings/currencies",
 ];
 
 interface Failure {

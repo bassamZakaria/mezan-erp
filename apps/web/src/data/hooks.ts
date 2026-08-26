@@ -182,6 +182,8 @@ import type {
   UpdateSupplierDTO,
   UpdateTaxRateDTO,
   UpdateTenantSettingsDTO,
+  TestEmailResultDTO,
+  AllowedCurrenciesDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
   UpdateWarehouseDTO,
@@ -5111,6 +5113,39 @@ export function useDecideLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: ["hr-leave-request-counts"] });
       queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] });
       queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الإعدادات — البريد الإلكتروني (R11.6)                                   */
+/* -------------------------------------------------------------------- */
+
+/** Sends a REAL test message through the configured SMTP server and reports what it said. */
+export function useSendTestEmail() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<TestEmailResultDTO, ApiError, { to: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/settings/email/test", { method: "POST", body: JSON.stringify(body) });
+      const payload = await res.json<TestEmailResultDTO>();
+      if (payload?.message === undefined) throw new ApiError(res.status, t("api.settingsCouldNotBeSaved"));
+      return payload;
+    },
+  });
+}
+
+/** The currencies a document is allowed to carry — the read side of تفعيل تعدد العملات. */
+export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<AllowedCurrenciesDTO, ApiError>({
+    queryKey: ["settings", "currencies"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/currencies");
+      if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
+      return res.json<AllowedCurrenciesDTO>();
     },
   });
 }

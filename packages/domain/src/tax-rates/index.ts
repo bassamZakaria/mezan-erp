@@ -10,3 +10,16 @@ export { ETA_VAT_SUBTYPES, ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel } 
 export { DuplicateTaxCodeError, TaxRateNotFoundError, InvalidTaxRateError } from "./errors.js";
 export { validateNewTaxRate, createTaxRate, type CreateTaxRateCommand } from "./create-tax-rate.js";
 export { updateTaxRate, type UpdateTaxRateCommand } from "./update-tax-rate.js";
+
+export {
+  collectTaxGroupErrors,
+  validateTaxGroup,
+  taxGroupBreakdown,
+  type TaxGroup,
+  type TaxGroupMember,
+  type TaxGroupRepository,
+  type TaxGroupBreakdown,
+  type TaxGroupComponent,
+  type TaxGroupRateView,
+} from "./tax-group.js";
+export { InvalidTaxGroupError, TaxGroupNotFoundError } from "./errors.js";

@@ -286,3 +286,5 @@ export {
 } from "./hr-time-leave-store.js";
 
 export { createSqliteAccountRoutingStore } from "./account-routing-store.js";
+
+export { createSqliteTaxGroupStore } from "./tax-group-store.js";

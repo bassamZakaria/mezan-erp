@@ -24,3 +24,21 @@ export class InvalidTaxRateError extends Error {
     this.name = "InvalidTaxRateError";
   }
 }
+
+/** Raised when a tax group is structurally invalid (R6.4). */
+export class InvalidTaxGroupError extends Error {
+  readonly code = "INVALID_TAX_GROUP";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidTaxGroupError";
+  }
+}
+
+/** Raised when an operation references a tax group id that does not exist. */
+export class TaxGroupNotFoundError extends Error {
+  readonly code = "TAX_GROUP_NOT_FOUND";
+  constructor(readonly taxGroupId: string) {
+    super(`Tax group "${taxGroupId}" was not found.`);
+    this.name = "TaxGroupNotFoundError";
+  }
+}

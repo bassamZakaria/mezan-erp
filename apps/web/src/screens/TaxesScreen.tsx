@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType } from "@mezan/domain";
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
-import { useCreateTaxRate, useTaxRates, useUpdateTaxRate } from "../data/hooks";
+import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpdateTaxRate } from "../data/hooks";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -74,6 +74,159 @@ function validateDraft(draft: TaxDraft, existing: TaxRateDTO[], editingId: strin
   return null;
 }
 
+/**
+ * مجموعات الضرائب (R6.4) — more than one tax on the same line.
+ *
+ * The table shows each component separately rather than one combined
+ * percentage, because the parts are owed to different authorities: a VAT
+ * return cannot be produced from a figure with two taxes melted into it. A
+ * compounding member charges on the running total, which is why VAT 14 plus a
+ * compounding table tax of 5 comes to 19.7%, not 19%.
+ */
+function TaxGroupsTab() {
+  const { t, locale } = useAppTranslation();
+  const groupsQuery = useTaxGroups();
+  const createGroup = useCreateTaxGroup();
+  const rates = useTaxRates().data ?? [];
+  const [formOpen, setFormOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({ code: "", nameAr: "", nameEn: "" });
+  const [picked, setPicked] = useState<{ taxRateId: string; compounding: boolean }[]>([]);
+
+  const groups = groupsQuery.data ?? [];
+  const rateName = (id: string) => rates.find((rate) => rate.id === id)?.name ?? id;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (picked.length === 0) {
+      setError(t("taxGroups.pickAtLeastOne"));
+      return;
+    }
+    try {
+      await createGroup.mutateAsync({
+        id: crypto.randomUUID(),
+        code: draft.code.trim(),
+        nameAr: draft.nameAr.trim(),
+        nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
+        members: picked,
+      });
+      setFormOpen(false);
+      setDraft({ code: "", nameAr: "", nameEn: "" });
+      setPicked([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("taxes.taxesCouldNotBeLoaded"));
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-[14px]">
+      <div className="flex flex-wrap items-start justify-between gap-[12px]">
+        <p className="max-w-[74ch] text-[12.5px] text-ink-muted">{t("taxGroups.description")}</p>
+        <Button variant="primary" onClick={() => setFormOpen(true)}>
+          {t("taxGroups.add")}
+        </Button>
+      </div>
+
+      {groups.length === 0 ? (
+        <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">
+          {t("taxGroups.empty")}
+        </div>
+      ) : (
+        groups.map((group) => (
+          <Card key={group.id} className="overflow-hidden">
+            <div className="flex flex-wrap items-center justify-between gap-[8px] border-b border-border bg-surface-2 px-[16px] py-[9px]">
+              <span className="text-[12.5px] font-bold text-ink">
+                <span className="mz-num">{group.code}</span> · {locale === "en" ? (group.nameEn ?? group.nameAr) : group.nameAr}
+              </span>
+              <span className="text-[12px] text-ink-muted">
+                {t("taxGroups.effective")} <span className="mz-num font-semibold text-ink">{group.effectivePercent}%</span>
+              </span>
+            </div>
+            <table className="w-full border-collapse text-[12.5px]">
+              <thead className="text-[11px] font-semibold text-ink-faint">
+                <tr>
+                  <th className="px-[15px] py-[8px] text-start">{t("taxGroups.members")}</th>
+                  <th className="px-[15px] py-[8px] text-end">{t("taxes.taxRate")}</th>
+                  <th className="px-[15px] py-[8px] text-start">{t("taxGroups.compounding")}</th>
+                  <th className="px-[15px] py-[8px] text-end">{t("taxGroups.effective")}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {group.components.map((component) => (
+                  <tr key={component.taxRateId} className="border-t border-border">
+                    <td className="px-[15px] py-[9px] text-ink">{rateName(component.taxRateId)}</td>
+                    <td className="mz-num px-[15px] py-[9px] text-end">{component.ratePercent}%</td>
+                    <td className="px-[15px] py-[9px] text-ink-muted">
+                      {component.compounding ? t("taxGroups.compounding") : t("taxGroups.onBase")}
+                    </td>
+                    <td className="mz-num px-[15px] py-[9px] text-end font-semibold">{component.effectivePercent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Card>
+        ))
+      )}
+
+      <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("taxGroups.newGroup")}>
+        <form className="flex flex-col gap-[12px]" onSubmit={submit}>
+          {error ? (
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+              {error}
+            </div>
+          ) : null}
+          <TextField label={t("taxGroups.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} />
+          <TextField label={t("taxGroups.name")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
+          <TextField label={t("taxGroups.nameEn")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+
+          <div className="flex flex-col gap-[6px]">
+            <span className="text-[12px] font-semibold text-ink">{t("taxGroups.members")}</span>
+            {rates.map((rate) => {
+              const member = picked.find((m) => m.taxRateId === rate.id);
+              return (
+                <div key={rate.id} className="flex items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[8px]">
+                  <ToggleField
+                    label={`${rate.name} · ${rate.rate}%`}
+                    checked={member !== undefined}
+                    onChange={(checked) =>
+                      setPicked((prev) =>
+                        checked
+                          ? [...prev, { taxRateId: rate.id, compounding: false }]
+                          : prev.filter((m) => m.taxRateId !== rate.id),
+                      )
+                    }
+                  />
+                  {member ? (
+                    <ToggleField
+                      label={t("taxGroups.compounding")}
+                      checked={member.compounding}
+                      onChange={(checked) =>
+                        setPicked((prev) =>
+                          prev.map((m) => (m.taxRateId === rate.id ? { ...m, compounding: checked } : m)),
+                        )
+                      }
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-[6px] flex justify-end gap-[9px]">
+            <Button type="button" onClick={() => setFormOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button type="submit" variant="primary">
+              {t("common.add")}
+            </Button>
+          </div>
+        </form>
+      </SidePanel>
+    </div>
+  );
+}
+
 export function TaxesScreen() {
   const { t } = useAppTranslation();
   const query = useTaxRates();
@@ -82,6 +235,7 @@ export function TaxesScreen() {
   const taxes = query.data ?? [];
 
   const [search, setSearch] = useState("");
+  const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");
   const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
 
   const [formOpen, setFormOpen] = useState(false);
@@ -190,6 +344,25 @@ export function TaxesScreen() {
 
   return (
     <div className="w-full">
+      <div className="mb-[14px] flex gap-[6px] border-b border-border">
+        {(["rates", "groups"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            aria-current={activeTab === tab ? "page" : undefined}
+            className={`-mb-px border-b-2 px-[14px] py-[8px] text-[12.5px] font-semibold transition-colors ${
+              activeTab === tab ? "border-brand text-brand" : "border-transparent text-ink-muted hover:text-ink"
+            }`}
+          >
+            {tab === "rates" ? t("taxes.tab.rates") : t("taxes.tab.groups")}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "groups" ? <TaxGroupsTab /> : null}
+      {activeTab === "rates" ? (
+      <>
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">
           <p className="text-[13px] font-semibold text-danger-ink">{t("taxes.taxesCouldNotBeLoaded")}</p>
@@ -321,6 +494,8 @@ export function TaxesScreen() {
           </div>
         </form>
       </SidePanel>
+      </>
+      ) : null}
     </div>
   );
 }

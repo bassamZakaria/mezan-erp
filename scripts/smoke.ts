@@ -42,6 +42,7 @@ const READ_PATHS = [
   "/accounts",
   "/accounting/account-routing",
   "/tax-rates",
+  "/tax-groups",
   "/cost-centers",
   "/cost-center-pl",
   "/treasury-accounts",

@@ -163,6 +163,8 @@ import type {
   PurchaseInvoiceStatsDTO,
   ListCountsDTO,
   AccountRoutingDTO,
+  TaxGroupDTO,
+  UpsertTaxGroupDTO,
   UpdateAccountRoutingDTO,
   SalesReturnDocumentDTO,
   SessionDTO,
@@ -5423,6 +5425,37 @@ export function useUpdateAccountRouting() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["account-routing"] });
+    },
+  });
+}
+
+/** مجموعات الضرائب (R6.4) — carries the per-member breakdown, never one melted total. */
+export function useTaxGroups(): UseQueryResult<TaxGroupDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<TaxGroupDTO[], ApiError>({
+    queryKey: ["tax-groups"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/tax-groups");
+      if (!res.ok) throw new ApiError(res.status, t("api.taxesCouldNotBeLoaded"));
+      return res.json<TaxGroupDTO[]>();
+    },
+  });
+}
+
+export function useCreateTaxGroup() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<TaxGroupDTO, ApiError, UpsertTaxGroupDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/tax-groups", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.taxesCouldNotBeLoaded")));
+      return res.json<TaxGroupDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["tax-groups"] });
     },
   });
 }

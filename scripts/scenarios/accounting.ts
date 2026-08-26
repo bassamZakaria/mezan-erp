@@ -20,6 +20,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await voucherQueuesAreAServerConcern_R82_R83(ctx);
   await accountRoutingDecidesWherePostingsLand_R61(ctx);
   await everyJournalEntryNamesItsModule_R63(ctx);
+  await taxGroupsKeepTheirMembersSeparate_R64(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -731,5 +732,66 @@ export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<voi
       ctx.checkEq(`the ${module} filter returns exactly that module's entries`, filtered.length, expected);
       ctx.check(`and nothing else leaks into it`, filtered.every((e) => e.sourceModule === module), module);
     }
+  });
+}
+
+/**
+ * R6.4 — a tax group keeps its members separate. The arithmetic that matters
+ * is compounding: a table tax charged on the running total costs more than its
+ * own rate, and a group that reported one combined percentage would hide both
+ * that and which authority is owed what.
+ */
+export async function taxGroupsKeepTheirMembersSeparate_R64(ctx: Ctx): Promise<void> {
+  await ctx.scenario("a tax group reports its members separately, and compounds correctly (R6.4)", async () => {
+    const groups = ((await ctx.req("GET", "/tax-groups")).body ?? []) as Array<{
+      code: string;
+      effectivePercent: number;
+      components: Array<{ taxRateId: string; ratePercent: number; compounding: boolean; effectivePercent: number }>;
+    }>;
+    ctx.check("the seed has a tax group to check", groups.length > 0, `${groups.length}`);
+
+    const group = groups.find((g) => g.code === "VAT-TABLE");
+    ctx.check("the compounding demo group exists", group !== undefined, JSON.stringify(groups.map((g) => g.code)));
+    if (!group) return;
+
+    ctx.checkEq("it has two components, not one melted total", group.components.length, 2);
+    const vat = group.components.find((c) => c.taxRateId === "VAT14");
+    const table = group.components.find((c) => c.taxRateId === "TABLE5");
+    ctx.checkEq("VAT charges on the base, so its effective rate is its own", vat?.effectivePercent, 14);
+    // 5% of (100 + 14) = 5.7 — the whole point of the compounding flag.
+    ctx.checkEq("the compounding member charges on the running total", table?.effectivePercent, 5.7);
+    ctx.checkEq("and the group's effective rate is the sum, not 19", group.effectivePercent, 19.7);
+
+    // A group with no members would apply no tax at all to every line that
+    // chose it, silently.
+    const empty = await ctx.req("POST", "/tax-groups", {
+      id: "SCN-TXG-EMPTY",
+      code: "SCN-EMPTY",
+      nameAr: "مجموعة فارغة",
+      members: [],
+    });
+    ctx.check("an empty group is refused", empty.status >= 400, `status ${empty.status}`);
+
+    // A member pointing at a rate that does not exist charges less than the
+    // group claims to.
+    const ghost = await ctx.req("POST", "/tax-groups", {
+      id: "SCN-TXG-GHOST",
+      code: "SCN-GHOST",
+      nameAr: "مجموعة بضريبة وهمية",
+      members: [{ taxRateId: "NO-SUCH-RATE", compounding: false }],
+    });
+    ctx.checkEq("a member pointing at a non-existent rate is refused", ghost.status, 422);
+
+    // The same rate twice would double-charge it with nothing explaining why.
+    const dupe = await ctx.req("POST", "/tax-groups", {
+      id: "SCN-TXG-DUPE",
+      code: "SCN-DUPE",
+      nameAr: "مجموعة مكررة",
+      members: [
+        { taxRateId: "VAT14", compounding: false },
+        { taxRateId: "VAT14", compounding: false },
+      ],
+    });
+    ctx.checkEq("the same rate twice in one group is refused", dupe.status, 422);
   });
 }

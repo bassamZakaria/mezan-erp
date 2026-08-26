@@ -351,6 +351,34 @@ export async function seedDemoTenant(app: App): Promise<void> {
       inventoryAccountId: ACCOUNTS.inventory,
     });
   }
+  /**
+   * مجموعات الضرائب (R6.4) — a second rate and a compounding group, so the
+   * screen has a group whose parts are genuinely owed to different
+   * authorities. A group of one would demonstrate nothing.
+   */
+  await step(app, "POST", "/tax-rates", {
+    id: "TABLE5",
+    code: "TABLE5",
+    name: "ضريبة الجدول",
+    rate: 5,
+    calculationType: "exclusive",
+    isDefault: false,
+    etaSubType: "auto",
+    status: "active",
+  });
+  await step(app, "POST", "/tax-groups", {
+    id: "TXG-DEMO-1",
+    code: "VAT-TABLE",
+    nameAr: "قيمة مضافة + ضريبة جدول",
+    nameEn: "VAT plus table tax",
+    members: [
+      { taxRateId: "VAT14", compounding: false },
+      // Charged on the base PLUS the VAT above it, which is why the group's
+      // effective rate is 19.7%, not 19%.
+      { taxRateId: "TABLE5", compounding: true },
+    ],
+  });
+
   for (const item of TYPED_ITEMS) {
     const tracksStock = item.type !== "service" && item.type !== "recipe";
     await step(app, "POST", "/items", {

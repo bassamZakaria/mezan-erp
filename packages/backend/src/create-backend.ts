@@ -97,6 +97,7 @@ import {
   createSqliteInventoryOpsStore,
   createSqliteItemCatalogStores,
   createSqliteAccountRoutingStore,
+  createSqliteTaxGroupStore,
   createSqliteItemSpecificationRepository,
   createSqliteDepartmentRepository,
   createSqliteJobTitleRepository,
@@ -452,6 +453,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const items = createSqliteItemStore(sqlite);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
   const accountRouting = createSqliteAccountRoutingStore(sqlite);
+  const taxGroups = createSqliteTaxGroupStore(sqlite);
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
@@ -849,6 +851,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
     accountRouting: { repo: accountRouting },
+    taxGroupRepo: taxGroups,
     itemCatalog: {
       units: itemCatalog.units,
       categories: itemCatalog.categories,

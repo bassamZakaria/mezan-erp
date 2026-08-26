@@ -62,3 +62,44 @@ export type EtaVatSubTypeDTO = z.infer<typeof etaVatSubTypeSchema>;
 export type TaxRateDTO = z.infer<typeof taxRateSchema>;
 export type CreateTaxRateDTO = z.infer<typeof createTaxRateSchema>;
 export type UpdateTaxRateDTO = z.infer<typeof updateTaxRateSchema>;
+
+// --- مجموعات الضرائب (R6.4) ----------------------------------------------
+
+export const taxGroupMemberSchema = z.object({
+  taxRateId: z.string().min(1),
+  /** Charge on the base plus everything before it, not on the base alone. */
+  compounding: z.boolean().default(false),
+});
+
+export const upsertTaxGroupSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullish(),
+  members: z.array(taxGroupMemberSchema).min(1),
+  status: z.enum(["active", "inactive"]).optional(),
+});
+
+export const taxGroupComponentSchema = z.object({
+  taxRateId: z.string(),
+  ratePercent: z.number(),
+  compounding: z.boolean(),
+  effectivePercent: z.number(),
+});
+
+export const taxGroupSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  members: z.array(taxGroupMemberSchema),
+  status: z.enum(["active", "inactive"]),
+  /** What the group actually charges, member by member — never one melted total. */
+  components: z.array(taxGroupComponentSchema),
+  effectivePercent: z.number(),
+});
+
+export type TaxGroupMemberDTO = z.infer<typeof taxGroupMemberSchema>;
+export type UpsertTaxGroupDTO = z.infer<typeof upsertTaxGroupSchema>;
+export type TaxGroupComponentDTO = z.infer<typeof taxGroupComponentSchema>;
+export type TaxGroupDTO = z.infer<typeof taxGroupSchema>;

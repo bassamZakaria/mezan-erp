@@ -18,6 +18,7 @@ import {
   type ItemUnitRepository,
   type ItemCategoryRepository,
   type AccountRoutingRepository,
+  type TaxGroupRepository,
   type ItemBrandRepository,
   type ItemSeasonRepository,
   type ItemSpecificationRepository,
@@ -118,6 +119,7 @@ import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
+import { createTaxGroupsRoutes } from "./tax-groups-routes.js";
 import { createCostCentersRoutes } from "./cost-centers-routes.js";
 import { createTreasuryAccountsRoutes } from "./treasury-accounts-routes.js";
 import { createFiscalPeriodsRoutes } from "./fiscal-periods-routes.js";
@@ -334,6 +336,8 @@ export interface CreateAppOptions {
   readonly customerStore?: CustomerRepository;
   /** Mounts `/suppliers` (docs/catalog/02 "الموردون") when present — omit it for no `/suppliers` route. */
   readonly supplierStore?: SupplierRepository;
+  /** مجموعات الضرائب (R6.4) — mounts `/tax-groups` when present. */
+  readonly taxGroupRepo?: TaxGroupRepository;
   /** Mounts `/tax-rates` (docs/catalog/04 "الضرائب") when present — omit it for no `/tax-rates` route. */
   readonly taxRateRepo?: TaxRateRepository;
   /** Mounts `/cost-centers` (docs/catalog/04 "مراكز التكلفة") when present — omit it for no `/cost-centers` route. */
@@ -746,6 +750,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.taxRateRepo) {
     app.route("/tax-rates", createTaxRatesRoutes(options.taxRateRepo, options.resolveAuthContext));
+    if (options.taxGroupRepo) {
+      app.route("/tax-groups", createTaxGroupsRoutes(options.taxGroupRepo, options.taxRateRepo, options.resolveAuthContext));
+    }
   }
   if (options.costCenterRepo) {
     app.route("/cost-centers", createCostCentersRoutes(options.costCenterRepo, options.resolveAuthContext));

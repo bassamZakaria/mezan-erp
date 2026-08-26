@@ -15,6 +15,7 @@ import {
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { TextField } from "../settings/form-controls";
 
 const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
@@ -36,8 +37,19 @@ export function ExchangeRatesScreen() {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
   const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
-  const filtered = statusFilter === "all" ? rates : rates.filter((r) => r.status === statusFilter);
+  const filtered = rates.filter((r) => {
+    if (statusFilter !== "all" && r.status !== statusFilter) return false;
+    // The effective date is what a rate is looked up by, so it is the one a
+    // date range has to narrow.
+    if (fromDate && r.effectiveDate < fromDate) return false;
+    if (toDate && r.effectiveDate > toDate) return false;
+    const term = search.trim().toUpperCase();
+    return term === "" || r.currency.toUpperCase().includes(term);
+  });
 
   async function approve(id: string) {
     try {
@@ -127,11 +139,20 @@ export function ExchangeRatesScreen() {
 
       <DocumentList<ExchangeRateDTO>
         title=""
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("fxRates.searchPlaceholder")}
         filterBarExtra={
-          <div className="flex flex-wrap gap-[8px]">
-            {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
-              <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</Chip>
-            ))}
+          <div className="flex w-full flex-col gap-[10px]">
+            <div className="flex flex-wrap gap-[8px]">
+              {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
+                <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</Chip>
+              ))}
+            </div>
+            <div className="grid w-full gap-2 sm:grid-cols-2">
+              <TextField label={t("fxRates.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+              <TextField label={t("fxRates.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+            </div>
           </div>
         }
         columns={columns}

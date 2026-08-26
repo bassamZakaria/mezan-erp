@@ -1894,6 +1894,10 @@ const webAr = {
   "purchaseOrders.empty": "لا توجد أوامر شراء مطابقة",
 
   // purchases — invoices
+  "purchaseInvoices.status.overdue": "متأخرة",
+  "purchaseInvoices.status.dueSoon": "تستحق قريباً",
+  "purchaseInvoices.status.partiallyPaid": "مدفوعة جزئياً",
+  "purchaseInvoices.status.paid": "مدفوعة",
   "purchaseInvoices.status.draft": "مسودة",
   "purchaseInvoices.status.confirmed": "مؤكد",
   "purchaseInvoices.status.cancelled": "ملغي",
@@ -1946,6 +1950,8 @@ const webAr = {
   "purchaseInvoices.new": "فاتورة مشتريات جديدة",
   "purchaseInvoices.stat.total": "إجمالي الفواتير",
   "purchaseInvoices.stat.confirmed": "مؤكدة",
+  "purchaseInvoices.stat.paidToSuppliers": "المدفوع للموردين",
+  "purchaseInvoices.stat.unpaidBalance": "رصيد الفواتير غير المدفوعة",
   "purchaseInvoices.stat.purchases": "إجمالي المشتريات",
   "purchaseInvoices.stat.draft": "مسودة",
   "purchaseInvoices.searchPlaceholder": "بحث برقم الفاتورة أو اسم المورد…",
@@ -7581,6 +7587,10 @@ const webEn: Record<WebTranslationKey, string> = {
   "purchaseOrders.empty": "No matching purchase orders",
 
   // purchases — invoices
+  "purchaseInvoices.status.overdue": "Overdue",
+  "purchaseInvoices.status.dueSoon": "Due soon",
+  "purchaseInvoices.status.partiallyPaid": "Partially paid",
+  "purchaseInvoices.status.paid": "Paid",
   "purchaseInvoices.status.draft": "Draft",
   "purchaseInvoices.status.confirmed": "Confirmed",
   "purchaseInvoices.status.cancelled": "Cancelled",
@@ -7633,6 +7643,8 @@ const webEn: Record<WebTranslationKey, string> = {
   "purchaseInvoices.new": "New purchase invoice",
   "purchaseInvoices.stat.total": "Total invoices",
   "purchaseInvoices.stat.confirmed": "Confirmed",
+  "purchaseInvoices.stat.paidToSuppliers": "Paid to suppliers",
+  "purchaseInvoices.stat.unpaidBalance": "Unpaid balance",
   "purchaseInvoices.stat.purchases": "Total purchases",
   "purchaseInvoices.stat.draft": "Draft",
   "purchaseInvoices.searchPlaceholder": "Search by invoice number or supplier name…",

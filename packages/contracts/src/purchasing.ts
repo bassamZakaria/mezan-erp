@@ -148,6 +148,9 @@ export const purchaseInvoiceSchema = z.object({
   subtotal: decimalString,
   tax: decimalString,
   total: decimalString,
+  /** Settled from the treasury allocation sub-ledger; the invoice itself holds no payment counter. */
+  amountPaid: decimalString,
+  remainingBalance: decimalString,
   createdBy: z.string(),
   createdAt: z.string(),
 });

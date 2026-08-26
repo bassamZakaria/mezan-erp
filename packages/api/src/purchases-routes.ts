@@ -157,7 +157,15 @@ function serializeReceipt(r: GoodsReceipt) {
   };
 }
 
-function serializeInvoice(inv: PurchaseInvoice) {
+function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero()) {
+  /**
+   * What supplier-payment vouchers have applied against this invoice, read
+   * from the allocation sub-ledger. The purchase invoice carried no payment
+   * fields at all, so the list could show what was bought but never what was
+   * settled — no مدفوع / مدفوع جزئياً / متأخر state was derivable (R4.1).
+   */
+  const total = purchaseInvoiceTotal(inv);
+  const remaining = Money.fromScaled(total.scaled - allocated.scaled);
   return {
     id: inv.id,
     number: inv.number,
@@ -183,7 +191,9 @@ function serializeInvoice(inv: PurchaseInvoice) {
     status: inv.status,
     subtotal: purchaseInvoiceSubtotal(inv).toString(),
     tax: purchaseInvoiceTax(inv).toString(),
-    total: purchaseInvoiceTotal(inv).toString(),
+    total: total.toString(),
+    amountPaid: allocated.toString(),
+    remainingBalance: remaining.toString(),
     createdBy: inv.createdBy,
     createdAt: inv.createdAt,
   };
@@ -401,14 +411,25 @@ export function createPurchasesRoutes(
 
   // --- Purchase Invoices ---------------------------------------------------
 
+  /** Allocated-against-invoice amounts from the treasury sub-ledger, keyed by invoice id. */
+  async function allocatedByInvoice(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    const out = new Map<string, Money>();
+    if (!deps.allocatable) return out;
+    const rows = await Promise.all(ids.map((id) => deps.allocatable!.findById(id)));
+    for (const row of rows) if (row) out.set(row.id, row.allocated);
+    return out;
+  }
+
   app.get("/invoices", gate("purchases.invoice.view"), async (c) => {
-    return c.json(withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId).map(serializeInvoice));
+    const invoices = withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId);
+    const allocations = await allocatedByInvoice(invoices.map((i) => i.id));
+    return c.json(invoices.map((inv) => serializeInvoice(inv, allocations.get(inv.id))));
   });
 
   app.get("/invoices/:id", gate("purchases.invoice.view"), async (c) => {
     const invoice = await deps.invoices.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serializeInvoice(invoice));
+    return c.json(serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)));
   });
 
   app.post("/invoices", gate("purchases.invoice.create"), async (c) => {

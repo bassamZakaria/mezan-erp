@@ -35,6 +35,8 @@ function purchaseInvoice(overrides: Partial<PurchaseInvoiceDTO> = {}): PurchaseI
     subtotal: "1700.000000",
     tax: "238.000000",
     total: "1938.000000",
+    amountPaid: "0.000000",
+    remainingBalance: "1938.000000",
     createdBy: "محمد الشهابي",
     createdAt: "2026-08-20T09:30:00.000Z",
     ...overrides,

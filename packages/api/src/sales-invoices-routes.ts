@@ -139,12 +139,28 @@ function serializeTotals(totals: SalesInvoiceTotals) {
   };
 }
 
-function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCredit: Money = Money.zero()) {
+function serialize(
+  invoice: SalesInvoice,
+  totals: SalesInvoiceTotals,
+  returnedCredit: Money = Money.zero(),
+  allocated: Money = Money.zero(),
+) {
+  /**
+   * Two payment paths exist and neither knew about the other: `POST
+   * /:id/payments` moves the invoice's own `amountPaid` counter, while a
+   * treasury voucher records an allocation in the sub-ledger and leaves the
+   * counter alone (D1). Reading only the counter meant a collected invoice
+   * still read as unpaid in full.
+   *
+   * Adding them is exact today because the two paths are disjoint: the direct
+   * route never writes an allocation and the voucher never writes the counter.
+   */
+  const paid = invoice.amountPaid.add(allocated);
   // A confirmed return credits the customer's receivable in the GL, so it has
   // to come off what the invoice still says is owed — otherwise the invoice
   // screen and the AR sub-ledger disagree with the ledger by the returned
   // amount, and a fully-returned invoice still reads as unpaid in full.
-  const remaining = totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
+  const remaining = totals.grandTotal.add(paid.negate()).add(returnedCredit.negate());
   return {
     id: invoice.id,
     docType: invoice.docType,
@@ -167,7 +183,7 @@ function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCr
     discount: serializeDiscount(invoice.discount),
     arAccountId: invoice.arAccountId,
     taxAccountId: invoice.taxAccountId,
-    amountPaid: invoice.amountPaid.toString(),
+    amountPaid: paid.toString(),
     returnedCredit: returnedCredit.toString(),
     remainingBalance: remaining.toString(),
     journalEntryId: invoice.journalEntryId,
@@ -275,6 +291,19 @@ export function createSalesInvoicesRoutes(
     return (await returnCredits()).get(invoiceId) ?? Money.zero();
   }
 
+  /**
+   * What treasury vouchers have allocated against each invoice, read from the
+   * allocation sub-ledger — the record `allocate()` maintains. Empty when the
+   * app mounts no treasury module.
+   */
+  async function allocatedByInvoice(ids: readonly string[]): Promise<ReadonlyMap<string, Money>> {
+    const out = new Map<string, Money>();
+    if (!deps.allocatable) return out;
+    const rows = await Promise.all(ids.map((id) => deps.allocatable!.findById(id)));
+    for (const row of rows) if (row) out.set(row.id, row.allocated);
+    return out;
+  }
+
   function service(c: Context): SalesInvoiceService {
     const svcDeps: SalesInvoiceServiceDeps = {
       repo: deps.repo,
@@ -357,14 +386,16 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     const invoices = withinScope(await svc.list(parsed.data), branchScopeOf(c), (inv) => inv.branchId);
     const credits = await returnCredits();
-    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id))));
+    const allocations = await allocatedByInvoice(invoices.map((inv) => inv.id));
+    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), allocations.get(inv.id))));
   });
 
   app.get("/:id", gate("sales.invoice.view"), async (c) => {
     const svc = service(c);
     const invoice = await svc.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
+    const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id);
+    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), allocated));
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
@@ -414,7 +445,8 @@ export function createSalesInvoicesRoutes(
     const svc = service(c);
     try {
       const invoice = await svc.recordPayment(c.req.param("id"), Money.fromMajor(parsed.data.amount));
-      return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id)));
+      const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id);
+    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), allocated));
     } catch (err) {
       return handleDomainError(c, err);
     }

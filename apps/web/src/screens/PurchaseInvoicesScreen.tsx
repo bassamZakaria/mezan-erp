@@ -32,6 +32,9 @@ import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
+/** Document states plus the payment states derived from the allocation sub-ledger. */
+type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
+
 const STATUS_KEY: Record<PurchaseInvoiceStatusDTO, AppTranslationKey> = {
   draft: "purchaseInvoices.status.draft",
   confirmed: "purchaseInvoices.status.confirmed",
@@ -199,7 +202,7 @@ export function PurchaseInvoicesScreen() {
   const [toDate, setToDate] = useState("");
   const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
 
-  const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatusDTO | "all">("all");
+  const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
   const [search, setSearch] = useState("");
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -223,9 +226,36 @@ export function PurchaseInvoicesScreen() {
     return receipt.lines.map((l) => ({ itemId: l.itemId, qty: Number(l.qty), unitCost: Number(l.unitCost), taxRatePercent: 0 }));
   }, [pickedReceipt, confirmedReceipts]);
 
+  /**
+   * The list had a document-state dimension only (draft / confirmed /
+   * cancelled) and no payment one at all, so there was no way to ask "what do
+   * we still owe, and what is late?" — the question the screen exists for
+   * (R4.1). Payment state is derived from the allocation sub-ledger, which is
+   * the only place a supplier payment is recorded.
+   */
+  const payment = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const settled = (inv: PurchaseInvoiceDTO) => num(inv.remainingBalance) <= 0;
+    const live = (inv: PurchaseInvoiceDTO) => inv.status === "confirmed";
+    return {
+      overdue: (inv: PurchaseInvoiceDTO) => live(inv) && !settled(inv) && inv.dueDate !== null && inv.dueDate < today,
+      dueSoon: (inv: PurchaseInvoiceDTO) => {
+        if (!live(inv) || settled(inv) || inv.dueDate === null) return false;
+        const horizon = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+        return inv.dueDate >= today && inv.dueDate <= horizon;
+      },
+      partiallyPaid: (inv: PurchaseInvoiceDTO) => live(inv) && num(inv.amountPaid) > 0 && !settled(inv),
+      paid: (inv: PurchaseInvoiceDTO) => live(inv) && settled(inv),
+    };
+  }, []);
+
   const filtered = useMemo(() => {
     let rows = invoices;
-    if (statusFilter !== "all") rows = rows.filter((inv) => inv.status === statusFilter);
+    if (statusFilter === "overdue") rows = rows.filter(payment.overdue);
+    else if (statusFilter === "due_soon") rows = rows.filter(payment.dueSoon);
+    else if (statusFilter === "partially_paid") rows = rows.filter(payment.partiallyPaid);
+    else if (statusFilter === "paid") rows = rows.filter(payment.paid);
+    else if (statusFilter !== "all") rows = rows.filter((inv) => inv.status === statusFilter);
     if (branchFilter) rows = rows.filter((inv) => inv.branchId === branchFilter);
     if (warehouseFilter) rows = rows.filter((inv) => inv.warehouseId === warehouseFilter);
     if (supplierFilter) rows = rows.filter((inv) => inv.supplierId === supplierFilter);
@@ -236,15 +266,32 @@ export function PurchaseInvoicesScreen() {
       rows = rows.filter((inv) => inv.number.toLowerCase().includes(q) || supplierName(inv.supplierId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [invoices, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
+  }, [invoices, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate, payment]);
+
+  const money = useMemo(() => {
+    let purchases = 0;
+    let paid = 0;
+    let unpaid = 0;
+    for (const inv of invoices) {
+      if (inv.status !== "confirmed") continue;
+      purchases += num(inv.total);
+      paid += num(inv.amountPaid);
+      unpaid += Math.max(0, num(inv.remainingBalance));
+    }
+    return { purchases, paid, unpaid };
+  }, [invoices]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: invoices.length },
+    { key: "overdue", label: t("purchaseInvoices.status.overdue"), count: invoices.filter(payment.overdue).length },
+    { key: "due_soon", label: t("purchaseInvoices.status.dueSoon"), count: invoices.filter(payment.dueSoon).length },
     ...(Object.keys(STATUS_KEY) as PurchaseInvoiceStatusDTO[]).map((s) => ({
       key: s,
       label: t(STATUS_KEY[s]),
       count: invoices.filter((inv) => inv.status === s).length,
     })),
+    { key: "partially_paid", label: t("purchaseInvoices.status.partiallyPaid"), count: invoices.filter(payment.partiallyPaid).length },
+    { key: "paid", label: t("purchaseInvoices.status.paid"), count: invoices.filter(payment.paid).length },
   ];
 
   const columns: DocumentListColumn<PurchaseInvoiceDTO>[] = [
@@ -471,10 +518,12 @@ export function PurchaseInvoicesScreen() {
           </Button>
         }
         stats={[
+          // Money, not document counts: what was bought, what has been paid and
+          // what is still owed, so the strip answers the cash question (R4.1).
+          { label: t("purchaseInvoices.stat.purchases"), value: <MoneyValue value={money.purchases} showUnit={false} /> },
+          { label: t("purchaseInvoices.stat.paidToSuppliers"), value: <MoneyValue value={money.paid} showUnit={false} /> },
+          { label: t("purchaseInvoices.stat.unpaidBalance"), value: <MoneyValue value={money.unpaid} showUnit={false} />, valueTone: money.unpaid > 0 ? "danger" : "default" },
           { label: t("purchaseInvoices.stat.total"), value: <span className="mz-num">{invoices.length}</span> },
-          { label: t("purchaseInvoices.stat.confirmed"), value: <span className="mz-num">{invoices.filter((inv) => inv.status === "confirmed").length}</span> },
-          { label: t("purchaseInvoices.stat.purchases"), value: <MoneyValue value={invoices.reduce((sum, inv) => sum + num(inv.total), 0)} showUnit={false} /> },
-          { label: t("purchaseInvoices.stat.draft"), value: <span className="mz-num">{invoices.filter((inv) => inv.status === "draft").length}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}

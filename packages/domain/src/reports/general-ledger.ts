@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countDistinct } from "./kpi.js";
 
 /**
  * دفتر الأستاذ العام — General Ledger (docs/catalog/08-reports.md). Every
@@ -58,9 +59,22 @@ export function createGeneralLedgerReport(
     },
     reconciliation: {
       labelAr: "إجمالي المدين = إجمالي الدائن",
-      computeReportTotal: (rows) => rows.reduce((s, r) => s + r.debit, 0),
-      computeReferenceTotal: (rows) => rows.reduce((s, r) => s + r.credit, 0),
+      computeReportTotal: (rows) => sumRows(rows, (r) => r.debit),
+      computeReferenceTotal: (rows) => sumRows(rows, (r) => r.credit),
       toleranceMoney: 0.01,
+    },
+    kpis: [
+      { key: "debit", labelAr: "إجمالي المدين", format: "money", value: (rows) => sumRows(rows, (r) => r.debit) },
+      { key: "credit", labelAr: "إجمالي الدائن", format: "money", value: (rows) => sumRows(rows, (r) => r.credit) },
+      { key: "lineCount", labelAr: "عدد البنود", format: "qty", value: (rows) => rows.length },
+      { key: "accountCount", labelAr: "عدد الحسابات", format: "qty", value: (rows) => countDistinct(rows, (r) => r.accountKey) },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "accountLabel",
+      valueColumn: "debit",
+      maxPoints: 8,
+      captionAr: "الحسابات مرتبة حسب ما تحرك عليها مديناً في الفترة.",
     },
     run: (params, ctx) => {
       const nameById = new Map(ctx.accounts.map((a) => [a.id, a] as const));

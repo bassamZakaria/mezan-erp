@@ -7,6 +7,7 @@ import type {
   RunReportOutcome,
   ReportKpiResult,
 } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /** Validates raw (untyped, e.g. straight off a form) params against a report's zod schema. */
 export function validateReportParams<TParams>(
@@ -27,23 +28,21 @@ export function validateReportParams<TParams>(
 }
 
 /**
- * Sums a column in SCALED INTEGERS, not floats.
+ * Sums a column in SCALED INTEGERS, not floats — through the SAME `sumRows`
+ * every report's money KPI calls, so a strip figure and the grand total under
+ * it cannot disagree.
  *
  * Report rows carry plain numbers, but a money column's values are exact to the
  * piastre, and adding a few hundred of them as IEEE-754 doubles compounds the
  * representation error: a trial balance whose debits and credits are equal to
  * the piastre came out as 681,214.3999999999 against 681,214.4, so
- * "debit = credit" read FALSE on books that balance. Accumulating at 1e-6 and
- * converting once at the end keeps the total exact for any figure this product
- * will ever report.
+ * "debit = credit" read FALSE on books that balance.
  */
 function sumColumn<Row>(rows: readonly Row[], column: ReportColumn<Row>): number {
-  let scaled = 0n;
-  for (const row of rows) {
+  return sumRows(rows, (row) => {
     const raw = column.value(row);
-    if (typeof raw === "number" && Number.isFinite(raw)) scaled += BigInt(Math.round(raw * 1e6));
-  }
-  return Number(scaled) / 1e6;
+    return typeof raw === "number" ? raw : null;
+  });
 }
 
 function computeTotals<Row>(rows: readonly Row[], totalColumns: readonly ReportColumn<Row>[]): Record<string, number> {

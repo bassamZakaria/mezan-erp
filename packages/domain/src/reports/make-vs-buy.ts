@@ -5,6 +5,7 @@ import { bomCostEstimate, type Bom } from "../manufacturing/index.js";
 import type { Item } from "../items/item.js";
 import { purchaseInvoiceLineBase, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
@@ -117,13 +118,25 @@ export function createMakeVsBuyReport(): ReportDefinition<MakeVsBuyParams, MakeV
     paramFields: [{ kind: "text", key: "search", label: "بحث", placeholder: "بحث بالاسم أو الكود" }],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "bomNumber", header: "قائمة المواد", format: "text", value: (row) => row.bomNumber },
       { key: "makeCost", header: "تكلفة التصنيع", format: "money", align: "end", value: (row) => row.makeCost },
       { key: "buyCost", header: "تكلفة الشراء", format: "money", align: "end", value: (row) => row.buyCost },
       { key: "diff", header: "الفرق (الشراء − التصنيع)", format: "money", align: "end", value: (row) => row.diff },
       { key: "verdictLabel", header: "الأرخص", format: "text", value: (row) => row.verdictLabel },
     ],
+    kpis: [
+      { key: "makeCheaper", labelAr: "التصنيع أرخص", format: "qty", value: (rows) => countRows(rows, (r) => r.verdict === "make"), tone: () => "success" },
+      { key: "buyCheaper", labelAr: "الشراء أرخص", format: "qty", value: (rows) => countRows(rows, (r) => r.verdict === "buy") },
+      { key: "potentialSaving", labelAr: "الوفر المحتمل", hintAr: "مجموع الفروق حيث التصنيع أرخص", format: "money", value: (rows) => sumRows(rows, (r) => (r.verdict === "make" ? r.diff : 0)) },
+      { key: "comparable", labelAr: "أصناف قابلة للمقارنة", hintAr: "الأصناف التي لها تكلفة تصنيع وتكلفة شراء فعليتان", format: "qty", value: (rows) => countRows(rows, (r) => r.verdict !== "unknown") },
+    ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "diff",
+      maxPoints: 8,
+      captionAr: "الفرق بين تكلفة الشراء وتكلفة التصنيع لكل صنف — الموجب يعني أن التصنيع أرخص.",
+    },
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const purchaseCosts = weightedAveragePurchaseCosts(ctx.purchaseInvoices);

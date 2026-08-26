@@ -4,6 +4,7 @@ import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countRows, maxOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
@@ -86,7 +87,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
     ],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "onHand", header: "المخزون الحالي", format: "qty", align: "end", total: true, value: (row) => row.onHand },
       { key: "value", header: "قيمة المخزون", format: "money", align: "end", total: true, value: (row) => row.value },
       { key: "daysSinceLastSale", header: "أيام منذ آخر بيع", format: "qty", align: "end", value: (row) => row.daysSinceLastSale },
@@ -99,6 +100,12 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       maxPoints: 8,
       captionAr: "الأصناف الراكدة مرتبة حسب الكمية المتبقية.",
     },
+    kpis: [
+      { key: "value", labelAr: "رأس المال المجمد", format: "money", value: (rows) => sumRows(rows, (r) => r.value), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "itemCount", labelAr: "عدد الأصناف الراكدة", format: "qty", value: (rows) => rows.length },
+      { key: "criticalCount", labelAr: "أصناف حرجة", format: "qty", value: (rows) => countRows(rows, (r) => r.severityLabel === SEVERITY_LABELS.critical), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "maxDays", labelAr: "أطول فترة بلا بيع (يوم)", format: "qty", value: (rows) => maxOf(rows, (r) => r.daysSinceLastSale) },
+    ],
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);

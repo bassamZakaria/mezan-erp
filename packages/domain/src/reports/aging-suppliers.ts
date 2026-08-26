@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, percentOf } from "./kpi.js";
 
 /**
  * أعمار ديون الموردين — Supplier Debt Aging (docs/catalog/08-reports.md): the
@@ -79,7 +80,7 @@ export function createAgingSuppliersReport(
     paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
     rowKey: (row) => row.supplierId,
     columns: [
-      { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr },
+      { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },
       { key: "current", header: "جاري", format: "money", align: "end", total: true, value: (row) => row.current },
       { key: "d31to60", header: "31-60 يوم", format: "money", align: "end", total: true, value: (row) => row.d31to60 },
       { key: "d61to90", header: "61-90 يوم", format: "money", align: "end", total: true, value: (row) => row.d61to90 },
@@ -93,6 +94,12 @@ export function createAgingSuppliersReport(
       maxPoints: 8,
       captionAr: "الموردون مرتبون حسب إجمالي المستحق لهم.",
     },
+    kpis: [
+      { key: "total", labelAr: "إجمالي المستحق", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
+      { key: "over60", labelAr: "متأخر أكثر من 60 يوم", format: "money", value: (rows) => sumRows(rows, (r) => r.d61to90 + r.d91to120 + r.over120), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "over60Percent", labelAr: "نسبة المتأخر", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => r.d61to90 + r.d91to120 + r.over120), sumRows(rows, (r) => r.total)) },
+      { key: "supplierCount", labelAr: "عدد الموردين", format: "qty", value: (rows) => rows.length },
+    ],
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const byBucketTotals = new Map<string, AgingBucketTotals>();

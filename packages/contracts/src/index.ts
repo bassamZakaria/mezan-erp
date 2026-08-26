@@ -1397,3 +1397,16 @@ export {
   type CreateAttachmentDTO,
   type AttachmentContentDTO,
 } from "./attachments.js";
+
+export {
+  reportDrillDownKindSchema,
+  reportDrillDownDocTypeSchema,
+  reportDrillDownFactSchema,
+  reportDrillDownDocumentSchema,
+  reportDrillDownSchema,
+  type ReportDrillDownKindDTO,
+  type ReportDrillDownDocTypeDTO,
+  type ReportDrillDownFactDTO,
+  type ReportDrillDownDocumentDTO,
+  type ReportDrillDownDTO,
+} from "./report-drill-down.js";

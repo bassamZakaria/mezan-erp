@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import type { InstallmentLine, InstallmentPlanDocument } from "../installments/index.js";
 import type { Customer } from "../customers/customer.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, percentOf } from "./kpi.js";
 
 /**
  * نظرة عامة على الأقساط — Installments Overview (docs/catalog/08-reports.md):
@@ -26,6 +27,7 @@ export type InstallmentsOverviewParams = Record<string, never>;
 export interface InstallmentsOverviewRow {
   readonly planId: string;
   readonly planNo: string;
+  readonly customerId: string;
   readonly customerNameAr: string;
   readonly totalAmount: number;
   readonly percentPaid: number;
@@ -64,7 +66,7 @@ export function createInstallmentsOverviewReport(
     rowKey: (row) => row.planId,
     columns: [
       { key: "planNo", header: "رقم الخطة", format: "text", value: (row) => row.planNo },
-      { key: "customerNameAr", header: "العميل", format: "text", value: (row) => row.customerNameAr },
+      { key: "customerNameAr", header: "العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
       { key: "totalAmount", header: "المبلغ الكلي", format: "money", align: "end", total: true, value: (row) => row.totalAmount },
       { key: "percentPaid", header: "نسبة السداد", format: "percent", align: "end", value: (row) => row.percentPaid },
       { key: "remaining", header: "المبلغ المتبقي", format: "money", align: "end", total: true, value: (row) => row.remaining },
@@ -78,6 +80,12 @@ export function createInstallmentsOverviewReport(
       maxPoints: 8,
       captionAr: "الخطط مرتبة حسب المتبقي على العميل.",
     },
+    kpis: [
+      { key: "totalAmount", labelAr: "إجمالي المحفظة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalAmount) },
+      { key: "remaining", labelAr: "المتبقي على العملاء", format: "money", value: (rows) => sumRows(rows, (r) => r.remaining) },
+      { key: "collectedPercent", labelAr: "نسبة التحصيل", hintAr: "(الإجمالي − المتبقي) ÷ الإجمالي", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => r.totalAmount - r.remaining), sumRows(rows, (r) => r.totalAmount)) },
+      { key: "planCount", labelAr: "عدد الخطط", format: "qty", value: (rows) => rows.length },
+    ],
     run: (_params, ctx) => {
       const customerNames = new Map(ctx.customers.map((c) => [c.id, c.nameAr]));
       return ctx.plans
@@ -88,6 +96,7 @@ export function createInstallmentsOverviewReport(
           return {
             planId: plan.id,
             planNo: plan.docNo ?? plan.id,
+            customerId,
             customerNameAr: customerNames.get(customerId) ?? customerId,
             totalAmount: Number(grandTotal.toString()),
             percentPaid: grandTotal.scaled === 0n ? 0 : (Number(paid.scaled) / Number(grandTotal.scaled)) * 100,

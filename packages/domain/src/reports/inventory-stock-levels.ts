@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countRows } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
@@ -66,7 +67,7 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
     ],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "sku", header: "الكود", format: "text", value: (row) => row.sku },
       { key: "warehouseCount", header: "عدد المستودعات", format: "qty", align: "end", value: (row) => row.warehouseCount },
       { key: "onHand", header: "إجمالي المخزون", format: "qty", align: "end", total: true, value: (row) => row.onHand },
@@ -74,6 +75,18 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
       { key: "value", header: "قيمة المخزون", format: "money", align: "end", total: true, value: (row) => row.value },
       { key: "status", header: "الحالة", format: "text", value: (row) => STATUS_LABEL[row.status] },
     ],
+    kpis: [
+      { key: "value", labelAr: "إجمالي قيمة المخزون", format: "money", value: (rows) => sumRows(rows, (r) => r.value) },
+      { key: "onHand", labelAr: "إجمالي الكميات", format: "qty", value: (rows) => sumRows(rows, (r) => r.onHand) },
+      { key: "itemCount", labelAr: "عدد الأصناف", format: "qty", value: (rows) => rows.length },
+      { key: "needsAttention", labelAr: "أصناف تحت حد الطلب", format: "qty", value: (rows) => countRows(rows, (r) => r.status !== "normal"), tone: (value) => (value > 0 ? "danger" : "success") },
+    ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "value",
+      maxPoints: 8,
+      captionAr: "الأصناف الأعلى قيمة مخزونية — أين يقف رأس المال.",
+    },
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const rows: InventoryStockLevelsRow[] = [];

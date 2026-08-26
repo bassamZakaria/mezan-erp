@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import { fullNameAr, type Employee } from "../hr/employee.js";
 import { getVanTripStatusLabel, type VanTrip, type VanTripStatus } from "../field-sales/van-trip.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
@@ -97,6 +98,19 @@ export function createVanSalesReport(
       { key: "countedCash", header: "النقدية المستلمة", format: "money", align: "end", total: true, value: (row) => row.countedCash },
       { key: "cashVariance", header: "فرق النقدية", format: "money", align: "end", total: true, value: (row) => row.cashVariance },
     ],
+    kpis: [
+      { key: "salesCash", labelAr: "مبيعات نقدية", format: "money", value: (rows) => sumRows(rows, (r) => r.salesCash) },
+      { key: "collectionsCash", labelAr: "تحصيلات", format: "money", value: (rows) => sumRows(rows, (r) => r.collectionsCash) },
+      { key: "cashVariance", labelAr: "فرق النقدية", hintAr: "المستلم عند التسوية ناقص المتوقع", format: "money", value: (rows) => sumRows(rows, (r) => r.cashVariance), tone: (value) => (value === 0 ? "success" : "danger") },
+      { key: "tripCount", labelAr: "عدد الرحلات", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      labelColumn: "crewAr",
+      valueColumn: "salesCash",
+      aggregate: true,
+      maxPoints: 8,
+      captionAr: "المبيعات النقدية لكل طاقم في الفترة.",
+    },
     run: (params, ctx) => {
       const employeeNames = new Map(ctx.employees.map((e) => [e.id, fullNameAr(e)]));
       const rows: VanSalesRow[] = [];

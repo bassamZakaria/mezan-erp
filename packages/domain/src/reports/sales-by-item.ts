@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 /**
@@ -51,7 +52,7 @@ export function createSalesByItemReport(
     paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "qty", header: "إجمالي الكمية المباعة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "revenue", header: "الإيرادات", format: "money", align: "end", total: true, value: (row) => row.revenue },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
@@ -64,7 +65,7 @@ export function createSalesByItemReport(
      */
     reconciliation: {
       labelAr: "إيرادات التقرير مقابل المرحَّل في دفتر الأستاذ",
-      computeReportTotal: (rows) => rows.reduce((sum, row) => sum + row.revenue, 0),
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.revenue),
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedRevenue?.(params) ?? 0,
       toleranceMoney: 0.01,
     },
@@ -74,9 +75,15 @@ export function createSalesByItemReport(
       maxPoints: 8,
       captionAr: "الأصناف مرتبة من الأعلى إيراداً — طول العمود هو حصة الصنف من أعلى صنف، لا من الإجمالي.",
     },
+    kpis: [
+      { key: "revenue", labelAr: "إجمالي الإيرادات", format: "money", value: (rows) => sumRows(rows, (r) => r.revenue) },
+      { key: "qty", labelAr: "الكمية المباعة", format: "qty", value: (rows) => sumRows(rows, (r) => r.qty) },
+      { key: "itemCount", labelAr: "عدد الأصناف", format: "qty", value: (rows) => rows.length },
+      { key: "topShare", labelAr: "حصة أعلى صنف", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
+    ],
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
-      const totalRevenue = aggregates.reduce((sum, a) => sum + a.revenue, 0);
+      const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       return aggregates
         .map((a) => ({ ...a, contributionPercent: totalRevenue > 0 ? (a.revenue / totalRevenue) * 100 : 0 }))
         .sort((a, b) => b.revenue - a.revenue);

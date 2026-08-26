@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * إقرار ضريبة الخصم والتحصيل — Withholding Tax (docs/catalog/08-reports.md).
@@ -36,6 +37,7 @@ export interface WithholdingTaxParams {
 
 export interface WithholdingTaxRow {
   readonly voucherId: string;
+  readonly partyId: string | null;
   readonly voucherNo: string;
   readonly date: string;
   readonly partyNameAr: string;
@@ -68,12 +70,25 @@ export function createWithholdingTaxReport(
     columns: [
       { key: "voucherNo", header: "رقم السند", format: "text", value: (row) => row.voucherNo },
       { key: "date", header: "التاريخ", format: "date", value: (row) => row.date },
-      { key: "partyNameAr", header: "المورد", format: "text", value: (row) => row.partyNameAr },
+      { key: "partyNameAr", header: "المورد", format: "text", value: (row) => row.partyNameAr, entity: { kind: "supplier", id: (row) => row.partyId } },
       { key: "grossAmount", header: "المبلغ الإجمالي", format: "money", align: "end", total: true, value: (row) => row.grossAmount },
       { key: "ratePercent", header: "النسبة %", format: "percent", align: "end", value: (row) => row.ratePercent },
       { key: "withheldAmount", header: "الضريبة المستقطعة", format: "money", align: "end", total: true, value: (row) => row.withheldAmount },
       { key: "netPaidAmount", header: "الصافي المدفوع", format: "money", align: "end", total: true, value: (row) => row.netPaidAmount },
     ],
+    kpis: [
+      { key: "withheldAmount", labelAr: "إجمالي المستقطع", format: "money", value: (rows) => sumRows(rows, (r) => r.withheldAmount) },
+      { key: "grossAmount", labelAr: "إجمالي المدفوعات", format: "money", value: (rows) => sumRows(rows, (r) => r.grossAmount) },
+      { key: "netPaidAmount", labelAr: "الصافي المدفوع", format: "money", value: (rows) => sumRows(rows, (r) => r.netPaidAmount) },
+      { key: "voucherCount", labelAr: "عدد السندات", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      labelColumn: "partyNameAr",
+      valueColumn: "withheldAmount",
+      aggregate: true,
+      maxPoints: 8,
+      captionAr: "الموردون مرتبون حسب ما استُقطع من مدفوعاتهم.",
+    },
     run: (params, ctx) =>
       ctx.rows
         .filter((r) => r.date >= params.fromDate && r.date <= params.toDate)
@@ -81,6 +96,7 @@ export function createWithholdingTaxReport(
         .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
         .map((r) => ({
           voucherId: r.voucherId,
+          partyId: r.partyId,
           voucherNo: r.voucherNo ?? r.voucherId,
           date: r.date,
           partyNameAr: r.partyNameAr,

@@ -11,6 +11,7 @@ import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./co
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * التدفقات النقدية — Cash Flow Statement, indirect method
@@ -86,7 +87,7 @@ const ACTIVITY_ORDER: CashFlowActivity[] = ["operating", "investing", "financing
 
 /** Sum of every activity row — the net change in cash. */
 export function cashFlowNetChange(rows: readonly CashFlowRow[]): number {
-  return rows.reduce((sum, row) => sum + row.amount, 0);
+  return sumRows(rows, (row) => row.amount);
 }
 
 type CashFlowRowCore = Omit<CashFlowRow, "priorAmount" | "variance">;
@@ -186,6 +187,18 @@ export function createCashFlowReport(
       computeReportTotal: (rows) => (rows[0]?.openingCash ?? 0) + cashFlowNetChange(rows),
       computeReferenceTotal: (rows) => rows[0]?.closingCash ?? 0,
       toleranceMoney: 0.01,
+    },
+    kpis: [
+      { key: "openingCash", labelAr: "الرصيد الافتتاحي", format: "money", value: (rows) => rows[0]?.openingCash ?? 0 },
+      { key: "netChange", labelAr: "صافي التغيّر", format: "money", value: (rows) => cashFlowNetChange(rows), tone: (value) => (value >= 0 ? "success" : "danger") },
+      { key: "closingCash", labelAr: "الرصيد الختامي", format: "money", value: (rows) => rows[0]?.closingCash ?? 0 },
+      { key: "operating", labelAr: "التدفق التشغيلي", format: "money", value: (rows) => sumRows(rows, (r) => (r.activity === "operating" ? r.amount : 0)), tone: (value) => (value >= 0 ? "success" : "danger") },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "activityLabel",
+      valueColumn: "amount",
+      captionAr: "صافي التدفق النقدي في كل نشاط — تشغيلي واستثماري وتمويلي.",
     },
     run: (params, ctx) => {
       const current = cashFlowRows({ from: params.periodFrom, to: params.periodTo }, ctx);

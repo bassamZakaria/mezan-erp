@@ -3,6 +3,7 @@ import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import { signedQty, type StockMovement } from "../inventory/movement.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countDistinct } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
@@ -69,6 +70,19 @@ export function createInventoryLedgerReport(): ReportDefinition<
       { key: "unitCost", header: "التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
       { key: "balance", header: "الرصيد", format: "qty", align: "end", value: (row) => row.balance },
     ],
+    kpis: [
+      { key: "movementCount", labelAr: "عدد الحركات", format: "qty", value: (rows) => rows.length },
+      { key: "inQty", labelAr: "الوارد", format: "qty", value: (rows) => sumRows(rows, (r) => (r.movementQty > 0 ? r.movementQty : 0)) },
+      { key: "outQty", labelAr: "الصادر", format: "qty", value: (rows) => sumRows(rows, (r) => (r.movementQty < 0 ? -r.movementQty : 0)) },
+      { key: "positionCount", labelAr: "عدد المواضع", format: "qty", value: (rows) => countDistinct(rows, (r) => `${r.itemNameAr}·${r.warehouseName}`) },
+    ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "movementQty",
+      aggregate: true,
+      maxPoints: 8,
+      captionAr: "صافي الحركة لكل صنف في السجل المعروض — الموجب دخول، والسالب خروج.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));

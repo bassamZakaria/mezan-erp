@@ -8,6 +8,7 @@ import {
 import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./comparative-period.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * قائمة الدخل — Income Statement (docs/catalog/08-reports.md), a period P&L.
@@ -61,7 +62,7 @@ const SECTIONS: Record<string, string> = {
 
 /** Sum of a section's row amounts — the report's own "net income" primitive, reused by reconciliation-free callers. */
 export function incomeStatementNetIncome(rows: readonly IncomeStatementRow[]): number {
-  return rows.reduce((sum, row) => sum + row.amount, 0);
+  return sumRows(rows, (row) => row.amount);
 }
 
 export function createIncomeStatementReport(
@@ -88,7 +89,7 @@ export function createIncomeStatementReport(
     rowKey: (row) => row.accountId,
     columns: [
       { key: "code", header: "رقم الحساب", format: "text", value: (row) => row.code },
-      { key: "nameAr", header: "البند", format: "text", value: (row) => row.nameAr },
+      { key: "nameAr", header: "البند", format: "text", value: (row) => row.nameAr, entity: { kind: "account", id: (row) => row.accountId } },
       { key: "amount", header: "الفترة الحالية", format: "money", align: "end", total: true, value: (row) => row.amount },
       { key: "priorAmount", header: "فترة المقارنة", format: "money", align: "end", total: true, value: (row) => row.priorAmount },
       { key: "variance", header: "التغيّر", format: "variance", align: "end", total: true, value: (row) => row.variance },
@@ -96,6 +97,18 @@ export function createIncomeStatementReport(
     group: {
       key: (row) => row.sectionKey,
       label: (row) => row.sectionLabel,
+    },
+    kpis: [
+      { key: "revenue", labelAr: "الإيرادات", format: "money", value: (rows) => sumRows(rows, (r) => (r.sectionKey === "revenue" ? r.amount : 0)) },
+      { key: "expenses", labelAr: "المصروفات", format: "money", value: (rows) => -sumRows(rows, (r) => (r.sectionKey === "revenue" ? 0 : r.amount)) },
+      { key: "netIncome", labelAr: "صافي الدخل", format: "money", value: (rows) => incomeStatementNetIncome(rows), tone: (value) => (value >= 0 ? "success" : "danger") },
+      { key: "variance", labelAr: "التغيّر عن فترة المقارنة", format: "money", value: (rows) => sumRows(rows, (r) => r.variance), tone: (value) => (value >= 0 ? "success" : "danger") },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "sectionLabel",
+      valueColumn: "amount",
+      captionAr: "الإيرادات والمصروفات في الفترة حسب القسم — المصروفات سالبة لأنها تُطرح من صافي الدخل.",
     },
     run: (params, ctx) => {
       const prior = comparativeRange({ from: params.periodFrom, to: params.periodTo }, params.compareTo);

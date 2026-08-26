@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type GlReportContext, accountNet, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * دفتر حساب — Account Ledger / statement (docs/catalog/08-reports.md). All
@@ -93,6 +94,19 @@ export function createAccountLedgerReport(
         return accountNet(ctx.journalEntries, first.accountId, { to: first.periodTo });
       },
       toleranceMoney: 0.01,
+    },
+    kpis: [
+      { key: "openingBalance", labelAr: "الرصيد الافتتاحي", format: "money", value: (rows) => rows.find((r) => r.isOpening)?.balance ?? 0 },
+      { key: "debit", labelAr: "إجمالي المدين", format: "money", value: (rows) => sumRows(rows, (r) => r.debit) },
+      { key: "credit", labelAr: "إجمالي الدائن", format: "money", value: (rows) => sumRows(rows, (r) => r.credit) },
+      { key: "closingBalance", labelAr: "الرصيد الختامي", hintAr: "الرصيد بعد آخر حركة في الفترة", format: "money", value: (rows) => rows[rows.length - 1]?.balance ?? 0 },
+    ],
+    chart: {
+      labelColumn: "date",
+      valueColumn: "balance",
+      slice: "last",
+      maxPoints: 12,
+      captionAr: "الرصيد الجاري بعد كل حركة من آخر اثنتي عشرة حركة في الفترة.",
     },
     run: (params, ctx) => {
       const opening = accountNet(ctx.journalEntries, params.accountId, { to: dayBefore(params.periodFrom) });

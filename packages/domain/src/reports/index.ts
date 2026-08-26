@@ -1,6 +1,8 @@
 export type {
   ReportColumn,
   ReportColumnFormat,
+  ReportEntityKind,
+  ReportEntityRef,
   ReportDefinition,
   ReportGroupResult,
   ReportGroupSpec,
@@ -25,6 +27,7 @@ export { sampleReportAccounts, sampleReportJournalEntries } from "./sample-gl-da
 // --- Shared helpers ----------------------------------------------------
 
 export { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
+export { averageOf, countDistinct, countRows, maxOf, percentOf, sumRows } from "./kpi.js";
 export { aggregateItemSales, type ItemSalesAggregate } from "./sales-item-aggregation.js";
 export { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 

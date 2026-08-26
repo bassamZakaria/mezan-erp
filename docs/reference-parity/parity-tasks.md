@@ -75,8 +75,12 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 - [~] **R3.6** Customer 360: statement already existed; action bar done; installments/returns/attachments/audit tabs still open
 - [ ] **R4.5** Supplier 360: supplier statement and the purchase-side action bar
-- [ ] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
-- [ ] **R5.6** Reserved stock per warehouse
+- [~] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
+  - [x] stock by warehouse with available / reserved / total
+  - [x] cost layers (remaining qty, unit cost, source, date)
+  - [ ] specifications, price lists, attachments, audit log tabs
+  - [ ] header actions: adjust stock, transfer, raise purchase request, movement ledger
+- [x] **R5.6** Reserved stock per warehouse — derived from open documents, never stored
 - [ ] **R10.2** Employee 360 tabs and the re-hire action
 - [ ] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
 - [ ] **R3.7** Loyalty points — decide in or out for v1; if in, build it as a sub-ledger
@@ -84,9 +88,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
 ## P5 — missing features
 
 - [ ] **R8.1** Voucher types 4 → 11, card grid with explanations, correct GL routing for partner capital, drawings and tax payments
-- [ ] **R5.1** Item types 2 → 6, with the behavioural rules per type
+- [x] **R5.1** Item types 2 → 6, with the behavioural rules per type — capability table in the domain; pickers and reports ask the capability, never `type === "stock"`
 - [ ] **R4.2** Purchase-invoice line types (stock / expense / freight)
-- [ ] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
+- [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
 - [ ] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
 - [ ] **R6.1** **Account routing screen** — the whole GL-mapping configuration (tax, leave, contracting, sales-discount contra, per-reason inventory adjustments, payroll components, per-item-type revenue/COGS/inventory)
 - [ ] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
@@ -114,7 +118,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 One task per row of the per-screen tables in `gap-inventory.md` §B–D2. Start with
 the money-bearing ones: purchase-invoice payment dimension (**R4.1**), items stock
-column (**R5.2**), stock-balance filters (**R5.7**), sales-returns filter bar,
+sales-returns filter bar,
 journal date filter and source-module column (**R6.3**), tax groups (**R6.4**),
 exchange-rate filters (**R6.5**), branch price-list column, CRM KPIs and board view,
 HR dashboard charts (**R10.1**), asset status chips.

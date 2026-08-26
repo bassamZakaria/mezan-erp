@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  Chip,
+  DocumentList,
+  FulcrumRule,
+  StatusPill,
+  TextInput,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { EtaSubmissionDTO, EtaSubmissionStatusDTO } from "@mezan/contracts";
 import { getEtaStatusLabel, getEtaDocumentTypeLabel } from "@mezan/domain";
 import { useEtaConfig, useEtaSubmissions, useExcludeEtaSubmission, useSubmitAllReadyEta, useSubmitEtaSubmission } from "../data/hooks";
@@ -122,7 +132,7 @@ export function EtaScreen() {
         <div className="mb-[14px] rounded-lg border border-border bg-surface p-[14px_16px]">
           <div className="mb-[8px] text-[12.5px] font-semibold text-ink">{t("eta.reasonForExclusionRequired")}</div>
           <div className="flex flex-wrap items-center gap-[8px]">
-            <input aria-label={t("eta.reasonForExclusion")} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("eta.giveTheReasonForExcluding")} className="min-w-[260px] flex-1 rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+            <TextInput size="sm" className="min-w-[260px] flex-1" aria-label={t("eta.reasonForExclusion")} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("eta.giveTheReasonForExcluding")} />
             <Button variant="primary" onClick={confirmExclude}>{t("eta.confirmExclusion")}</Button>
             <Button onClick={() => setExcludingId(null)}>{t("common.cancel")}</Button>
           </div>

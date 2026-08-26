@@ -222,9 +222,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const invoiceAfter = (await req("GET", "/sales-invoices/SCN-X-INV-1")).body;
     check(
-      "D1 — the invoice's own amountPaid stays 0 even though the allocated collection cleared its AR in the GL " +
-        "(docs/defects.md D1); the sub-ledger and the ledger disagree about the same payment",
-      n(invoiceAfter?.amountPaid) === 0,
+      "the invoice's own amountPaid follows the allocated collection that cleared its AR in the GL " +
+        "(docs/defects.md D1 — the regression guard: the document and the sub-ledger are one fact)",
+      n(invoiceAfter?.amountPaid) === 1140 && invoiceAfter?.status === "paid",
       `amountPaid=${invoiceAfter?.amountPaid} status=${invoiceAfter?.status}`,
     );
   });
@@ -992,12 +992,12 @@ export async function run(ctx: Ctx): Promise<void> {
       const raw = n((await req("GET", `/gl/accounts/${a.id}/ledger?asOf=${TODAY}`)).body?.balance?.balance);
       const natural = a.naturalBalance === "credit" ? -raw : raw;
       if (a.type === "asset" && code.startsWith("13")) cashSum += natural;
-      if (a.type === "asset" && code.startsWith("11")) receivableSum += natural;
+      if (a.type === "asset" && (code === "1105" || code === "1110")) receivableSum += natural;
       if (a.type === "liability" && code !== OUTPUT_TAX) payableSum += natural;
     }
 
     checkEq("dashboard cash equals the sum of every 13xx cash/bank account, this file's movements included", n(glBlock?.cash), cashSum);
-    checkEq("dashboard receivables equals the sum of every 11xx asset account", n(glBlock?.receivables), receivableSum);
+    checkEq("dashboard receivables equals trade plus instalment customer receivables — not the whole 11xx subtree (docs/defects.md D37)", n(glBlock?.receivables), receivableSum);
     checkEq("dashboard payables equals the sum of every liability account except output VAT", n(glBlock?.payables), payableSum);
   });
 
@@ -1168,12 +1168,13 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("a roadside sale is recorded on the trip", movement.status === 200 || movement.status === 201, `status ${movement.status} ${JSON.stringify(movement.body).slice(0, 250)}`);
 
-    // The settlement transfers the counted cash out of the van's treasury, so it
-    // can only be counted up to what that account actually holds — see the defect
-    // named below for why those two figures are not the same thing.
+    // The roadside sale posts into the van's own treasury, so what the account
+    // holds and what the trip expects are the same figure; the count comes in
+    // 50 short of both, which settlement has to write off.
     const vanHoldsNow = await gl("1300-2");
-    const countedCash = Math.min(500 + roadsideSale - 50, vanHoldsNow);
     const expectedCash = 500 + roadsideSale;
+    checkEq("the roadside sale reaches the van's treasury, not just the trip document", vanHoldsNow - vanCashBefore, expectedCash);
+    const countedCash = expectedCash - 50;
 
     const settled = await req("POST", `/field/van-trips/${tripId}/settle`, {
       countedCash: countedCash.toFixed(2),
@@ -1191,9 +1192,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const vanCashAfter = await gl("1300-2");
     checkEq("settling hands the counted cash back to the branch خزنة, net of the float it lent out", branchCashAfter - branchCashBefore, countedCash - 500);
     checkEq(
-      "NEW DEFECT — the van's treasury account is left short by the roadside takings: POST /field/van-trips/:id/cash-movements only mutates the trip document " +
-        "(packages/api/src/field-sales-routes.ts) and posts nothing to the van treasury, yet settling transfers the FULL counted cash — float plus those unposted sales — out of it. " +
-        "Every completed trip drives the van's cash account down by exactly the cash its sales brought in.",
+      "the van's treasury ends exactly where it started: the float and the takings went in, the counted cash went back, " +
+        "and the 50.00 shortfall was written off to عجز الصندوق rather than left on the van's books (docs/defects.md D22 — the regression guard)",
       vanCashAfter,
       vanCashBefore,
     );
@@ -1459,14 +1459,14 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X36 — a second branch makes branch scope measurable
   // ---------------------------------------------------------------------------
-  await scenario("x36 · with a real second branch, does branch scope actually narrow anything? (D7 made measurable)", async () => {
-    const branch = await req("POST", "/branches", { id: "BR-SCN-2", code: "SCN2", name: "فرع الاختبار الثاني" });
+  await scenario("x36 · with a real second branch, branch scope narrows every branch-owned list (D7 made measurable)", async () => {
+    const branch = await req("POST", "/branches", { id: "BR-SCN-X-2", code: "SCNX2", name: "فرع الاختبار الثاني" });
     check("a second branch is created", branch.status === 201, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
-    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-2" });
+    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-X-2", code: "WH-SCNX2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-X-2" });
     check("with its own warehouse", warehouse.status === 201, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
 
     const itemId = "SCN-X-ITEM-1";
-    await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-2");
+    await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-X-2");
 
     const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
     await req("POST", "/sales-invoices", {
@@ -1475,8 +1475,8 @@ export async function run(ctx: Ctx): Promise<void> {
       dueDate: "2026-09-23",
       customerId: CUSTOMER,
       customerNameAr: customer?.nameAr ?? "عميل",
-      warehouseId: "WH-SCN-2",
-      branchId: "BR-SCN-2",
+      warehouseId: "WH-SCN-X-2",
+      branchId: "BR-SCN-X-2",
       arAccountId: AR,
       taxAccountId: OUTPUT_TAX,
       lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: VAT, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
@@ -1486,22 +1486,22 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
     const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
-    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-X-2" })).body);
     check(
-      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: x-branch-scope narrows nothing — every scope returns the identical row count",
-      mainOnly.length === all && secondOnly.length === all,
-      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-2=${secondOnly.length}`,
+      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: each scope returns strictly fewer rows than the unscoped call (docs/defects.md F32 — the regression guard)",
+      mainOnly.length < all && secondOnly.length < all && secondOnly.length > 0,
+      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-X-2=${secondOnly.length}`,
     );
     check(
-      "concretely: a caller scoped to the first branch can read the second branch's invoice (docs/defects.md D7 — do not re-file)",
-      mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
-      "SCN-X-INV-BR2 not visible under BR-MAIN — D7 may have been fixed; re-check the register",
+      "concretely: a caller scoped to the first branch cannot read the second branch's invoice",
+      !mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2") && secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
+      `BR-MAIN sees it: ${mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2")}, BR-SCN-X-2 sees it: ${secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2")}`,
     );
 
-    // Warehouse scope, by contrast, IS wired (F8) — proving the two are independent mechanisms.
+    // Warehouse scope is the same mechanism on a different axis (F8) — proven here so the two stay independent.
     const stockAll = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "*" })).body).length;
-    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-2" })).body).length;
-    check("warehouse scope, unlike branch scope, genuinely narrows the stock balances", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-2=${stockScoped}`);
+    const stockScoped = ctx.rows((await req("GET", "/inventory/stock-balance", undefined, { "x-warehouse-scope": "WH-SCN-X-2" })).body).length;
+    check("warehouse scope narrows the stock balances the same way", stockScoped > 0 && stockScoped < stockAll, `all=${stockAll} WH-SCN-X-2=${stockScoped}`);
   });
 
   // ---------------------------------------------------------------------------

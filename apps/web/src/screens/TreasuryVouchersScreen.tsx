@@ -32,6 +32,7 @@ import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherS
 import {
   useAccounts,
   useBranches,
+  useCostCenters,
   useConfirmVoucher,
   useCreateAllocation,
   useCreateVoucher,
@@ -47,7 +48,7 @@ import {
   type VoucherRowDTO,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
-import { SelectField, TextField } from "../settings/form-controls";
+import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -118,6 +119,7 @@ function toVoucherLine(d: {
   customerId: string | null;
   supplierId: string | null;
   referenceNo: string | null;
+  costCenterId: string | null;
 }): VoucherLine {
   return { ...d, amount: Money.fromMajor(d.amount) };
 }
@@ -611,6 +613,25 @@ function VoucherDetailView({
 /* Create view                                                          */
 /* -------------------------------------------------------------------- */
 
+/**
+ * Egypt withholds tax on most local B2B payments (docs/defects.md D27): the
+ * supplier is settled in FULL for `amount`, and the withheld slice goes to the
+ * authority instead of to them. Only a payment can withhold.
+ */
+const WITHHOLDING_GL_ACCOUNT = "2210";
+
+function withholdingOf(amount: Money, ratePercent: number | null, direction: string) {
+  if (direction !== "payment" || !ratePercent || ratePercent <= 0) {
+    return { withholdingAmount: null, withholdingRatePercent: null, withholdingGlAccountId: null };
+  }
+  const withheld = Money.fromScaled((amount.scaled * BigInt(Math.round(ratePercent * 100))) / 10_000n);
+  return {
+    withholdingAmount: withheld,
+    withholdingRatePercent: ratePercent,
+    withholdingGlAccountId: WITHHOLDING_GL_ACCOUNT,
+  };
+}
+
 interface CreateDraft {
   amount: number | null;
   paymentMethod: VoucherPaymentMethod;
@@ -620,6 +641,8 @@ interface CreateDraft {
   partyId: string;
   date: string;
   referenceNo: string;
+  costCenterId: string;
+  withholdingRatePercent: number | null;
   memo: string;
 }
 
@@ -640,6 +663,7 @@ function CreateVoucherView({
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const branchesQuery = useBranches();
+  const costCentersQuery = useCostCenters();
 
   const [type, setType] = useState<VoucherType | null>(null);
   const [draft, setDraft] = useState<CreateDraft>({
@@ -651,6 +675,8 @@ function CreateVoucherView({
     partyId: "",
     date: new Date().toISOString().slice(0, 10),
     referenceNo: "",
+    costCenterId: "",
+    withholdingRatePercent: null,
     memo: "",
   });
   const [error, setError] = useState<string | null>(null);
@@ -665,6 +691,10 @@ function CreateVoucherView({
     : def?.requiresSupplier
       ? suppliers.map((s) => ({ id: s.id, label: s.nameAr }))
       : [];
+  const costCenterOptions = [
+    { value: "", label: t("vouchers.costCenterUnassigned") },
+    ...(costCentersQuery.data ?? []).map((cc) => ({ value: cc.id, label: `${cc.code} — ${cc.nameAr}` })),
+  ];
   const revenueOrExpenseOptions =
     type === "other_income"
       ? accounts.filter((a) => a.type === "revenue").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
@@ -701,6 +731,8 @@ function CreateVoucherView({
       customerId: def.requiresCustomer ? draft.partyId || null : null,
       supplierId: def.requiresSupplier ? draft.partyId || null : null,
       referenceNo: draft.referenceNo || null,
+      costCenterId: draft.costCenterId || null,
+      ...withholdingOf(amount, draft.withholdingRatePercent, def.direction),
     };
   }
 
@@ -739,6 +771,10 @@ function CreateVoucherView({
         customerId: line.customerId,
         supplierId: line.supplierId,
         referenceNo: line.referenceNo,
+        costCenterId: line.costCenterId ?? null,
+        withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
+        withholdingRatePercent: line.withholdingRatePercent ?? null,
+        withholdingGlAccountId: line.withholdingGlAccountId ?? null,
       });
       await confirmVoucher.mutateAsync({ id: created.id });
       onDone();
@@ -861,6 +897,20 @@ function CreateVoucherView({
 
           <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
+          {def.direction === "payment" ? (
+            <NumberField
+              label={t("vouchers.withholdingRate")}
+              value={draft.withholdingRatePercent ?? 0}
+              onChange={(v) => setDraft((d) => ({ ...d, withholdingRatePercent: v }))}
+              hint={t("vouchers.withholdingHint")}
+            />
+          ) : null}
+          <SelectField
+            label={t("vouchers.costCenter")}
+            value={draft.costCenterId}
+            onChange={(v) => setDraft((d) => ({ ...d, costCenterId: v }))}
+            options={costCenterOptions}
+          />
           <TextField label={t("common.notes")} value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={def.labelAr} />
         </Card>
 

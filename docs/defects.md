@@ -34,179 +34,38 @@ through as "oh, that's the known one".
 
 ## Open
 
+The 24 defects D1–D37 carried are closed — they are in the Fixed table below,
+and `pnpm scenarios` passes with all four invariants at exactly zero on the
+seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105.
+
+Four remain open: two found on `main` while that sweep was running, and two more
+from the posting-trail pass that drove the sales and purchase chains through the
+screens' own routes (the other two findings of that pass — the suppliers list's
+payable column and the invoice-level collection that posted nothing — were fixed
+by that same sweep, F39–D39 and the D1 rework, before this branch merged):
+
 | # | Area | Defect | Measured evidence | Severity |
 |---|---|---|---|---|
-| D1 | Treasury / AR | A confirmed collection voucher never moves the invoice's `amountPaid` | `VCH-DEMO-1` collects **6,279.12** and credits AR in the GL; every invoice still reports `amountPaid: 0`. AP is the same defect on the other side: the sub-ledger counts every confirmed purchase invoice in full and ignores supplier payments, so it stands **35,554.00** above GL 2100 | High |
-| D2 | Inventory / GL | A `PHYSICAL_COUNT` adjustment moves stock with **no journal entry** | Single-sided count leaves inventory off by exactly **122.00** | High |
-| D3 | Manufacturing / GL | `completeWorkOrder` never touches GL 1200 | BOM-DEMO-1 at qty 10 leaves inventory off by exactly **80.00** | High |
-| D13 | Fixed assets | No disposal action exists — the status value and permission exist, the route and button do not | | Medium |
-| D18 | Treasury / AP reconciliation | The AP sub-ledger ignores every payment: paying or refunding a supplier moves GL 2100 and leaves the sub-ledger figure where it was | `SCN-X-PAY-1` pays **2,280** → GL 2100 falls 2,280, AP sub-ledger unchanged; the reconciliation diff goes 35,554 → **37,834**. `resolveReconciliationControls()` sums confirmed invoice totals − returns + landed costs and never subtracts allocations | High |
-| D19 | Settings / Treasury | `preventNegativeCashBalance` and `allowNegativeTreasury` are dead switches — the guard never reads them | With the setting persisted `false` (verified by re-read), the same voucher is still refused `CASH_BALANCE_NEGATIVE`. `create-backend.ts`'s `vouchers:` options never pass `settings`, so `VoucherService.cashPolicy()` returns a hardcoded `true` | Medium |
-| D20 | Purchases / fiscal periods | Confirming a purchase invoice into a **closed** period answers `500 Internal Server Error` | Sales confirm, voucher confirm and journal post all return 422 `PERIOD_NOT_OPEN_FOR_POSTING`; `purchases-routes.ts`'s confirm handler does not map `PeriodNotOpenForPostingError` thrown by the GL port | Medium |
-| D21 | Purchases / atomicity | That same crash is not atomic: the stock IN is applied before the GL refuses, and never rolled back | One blocked line at qty 1 × 50 leaves the inventory sub-ledger exactly **50.00** ahead of GL 1200, with no document that explains it | High |
-| D22 | Field sales / Treasury | A trip's roadside cash never reaches the van treasury, but settling transfers the full counted cash out of it | Float 500 in, 700 of recorded sales, 1,150 counted: the van's GL 1300-2 ends **650** below where it started. `POST /field/van-trips/:id/cash-movements` only mutates the trip document | High |
-| D23 | Go-live import / GL | A historical import records **no opening AR or AP at all** — a migrated business owes and is owed nothing in its ledger | Importing an outstanding supplier invoice (250 remaining) and customer invoice (300 remaining) moves GL 2100 and 1105 by **0.00**. The domain posts the opening entry only `if (!archive.settled && deps.gl && deps.accounts)`; `create-backend.ts` wires `historicalImport` / `salesHistoricalImport` with `archives` only | High |
-| D24 | Multi-currency | A document's currency is a label, not a currency — no rate is ever applied and no GL line is tagged | `SCN-S-PI-USD` at `currency: "USD"`, 1,000 USD: GL 2100 credited **1,000.00 EGP**, both lines `currency: null, fxRate: null`. `buildInvoicePosting` (`purchase-invoice.ts`) never consults `ExchangeRateRepository`, so the payable is understated by the rate and the debt is invisible to revaluation | High |
-| D25 | Exchange rates | A **locked** rate can be silently rewritten, and its status reset, by re-POSTing its id | `SCN-S-FX-EUR-31` locked at 60.00; `POST /exchange-rates` with the same id → 201, stored rate **99.00**, status back to `pending`. The route calls `repo.create`, and the SQLite repository upserts `ON CONFLICT(id) DO UPDATE` | High |
-| D26 | Cost centres | A treasury voucher cannot be attributed to a cost centre, so the report is blind to almost all real spending | 400.00 paid by voucher with `costCenterId` supplied lands in غير مخصص; `createVoucherSchema` has no such field. Only hand-written journal entries can be tagged | Medium |
-| D27 | Tax / withholding | No withholding-tax concept exists anywhere: no account, no document field, no report | CoA has no WHT-payable account (2190 is payroll withholdings); `withholdingAmount`/`grossAmount` are dropped at the wire; `GET /reports/tax/withholding` → 404. Egypt withholds on most local B2B payments | High |
-| D28 | Tax reporting | The VAT return re-derives **one blended rate per journal entry** instead of reporting the rates charged | A 14% / 5% / zero-rated invoice (tax 190.00 on base 3,000) is reported as a single ~6.3% bucket. `createVatReturnReport` computes rate = tax ÷ base per entry; no rate metadata reaches the GL | High |
-| D29 | Tax compliance | Nothing records that a VAT period was filed, so a backdated document silently restates a submitted return | July output tax moves by exactly **140.00** after a backdated entry, with no amendment, warning or trace. Fiscal-period close is the only lock, and reopening needs no reason and leaves no tax-side record | High |
-| D30 | Audit | Rows written by an all-branches caller carry `branchId: null`, so the branch filter can never find them again | The voucher names `BR-MAIN`; every audit row it produced has `branchId: null`. `branchScopedAuditSink` takes the branch from the caller's `x-branch-scope`, never from the document | Medium |
-| D31 | Permissions | The visibility tiers the catalog defines are enforced by no route | `sales.invoice.confirm` (which implies `view_own`) → **403** on `GET /sales-invoices`, because every read route gates `.view`; a plain `.view` holder reads every colleague's invoice **and** `unitCost` without the ⚠ `view_cost` permission; `hr.contract.view` alone returns `monthlySalary` | High |
-| D32 | Search | There is no server-side search, and the client filter cannot forgive Arabic | `?q=` is not a parameter of any list route (full table returned unchanged); the screens' own `toLowerCase().includes(q)` gives **0 matches** for احمد against أحمد, فاطمه against فاطمة, ليلي against ليلى | Medium |
-| D33 | Numbering | Numbering is tenant-global with no branch dimension | Two branches selling the same day take consecutive numbers off one counter (`INV-…`), and `sequenceDefinitionSchema` has code/prefix/padLength/annualReset only | Low |
-| D34 | Year-end | There is no year-end close: no route, no closing entry, and retained earnings is never posted to | After generating FY2027, GL 4100 still carries 2026's revenue in full and GL 3900 movement is **0.00**. The balance sheet balances only because the report derives retained earnings from the P&L accounts itself | Medium |
-| D35 | Pricing | A customer's price list is never consulted server-side | The customer is assigned a list quoting 80.00; an invoice line at **5.00** for the same item is accepted without warning. The ordering price list → promotion → credit limit holds only in the UI | Medium |
-| D36 | Inventory reporting | A landed cost writes **no stock movement**, so it cannot be replayed | `applyLandedCostRevaluation` bumps the snapshot and rewrites cost layers directly. `GET /inventory/drift` therefore reports `cacheDrift` on a healthy tenant: ITEM-DEMO-1 cached **146.827936** vs recomputed **140.000000** — and the field's own docstring says a nonzero value "means the cache is CORRUPTED" | Medium |
-| D37 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by **5,486.12** | The tile sums EVERY code-11xx asset account (trade AR 1105, installment AR 1110, retention 1150, employee advances 1160, and the credit-natural provision 1190 sign-flipped positive); aging covers sales-invoice trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic | Medium |
 | D38 | Sales / contracts | A quote or invoice line accepts **any** `itemId` string — no route checks it against the item catalogue | `createSalesQuoteLineSchema` and the sales-invoice line schema validate `itemId: z.string().min(1)` only; neither route holds an item repository. Until F34 the quotes screen exploited this by sending invented ids (`ITEM-1`, `ITEM-2`), and the convert step then hardcoded `isStock: false`, so a stock item converted into an invoice line that moves no stock and posts no COGS | Medium |
-| D39 | Sales / UI | A **draft sales invoice cannot be confirmed from any screen** — the only confirm path is the "save and confirm" checkbox on the create form | `SalesInvoicesScreen.tsx`'s `InvoiceDetailView` renders `actions={<Button>رجوع</Button>}` and the list has no row action, so an invoice produced by «تحويل عرض السعر إلى فاتورة» (or saved as a draft) is stranded: `POST /sales-invoices/:id/confirm` works, nothing calls it. Goods receipts and purchase invoices both carry a تأكيد button on their detail page | High |
-| D40 | Sales / GL | The invoice's own **«تحصيل دفعة» posts no journal entry**: it marks the invoice paid and moves no money | `SCN-X-INV-TRAIL` at 342.00 → `POST /sales-invoices/:id/payments` returns `status: "paid"`, GL 1105 still carries the full **342.00**, cash 1300-1 and bank 1310 both move **0.00**, and no JE is written. `SalesInvoiceService.recordPayment` writes `amountPaid`/`status` and never calls the GL hook; the form names no treasury account and offers none. The aging report (sub-ledger) drops the customer while GL 1105 keeps them — the exact mirror of D1 | High |
-| D41 | Purchases / UI | The suppliers list shows **`openingBalance` under a column headed «المستحق للمورد»**, so every supplier reads 0.00 while owing six figures | Seeded tenant: the screen's column and its «المستحق للموردين» tile both read **0.00**; `/reports/aging/suppliers` reports **62,073.00** and **59,040.60** for the same two suppliers. `SuppliersScreen.tsx` renders `s.openingBalance` for `suppliers.col.payable`; `/suppliers` returns no outstanding balance at all, so there is nothing truer to render | Medium |
-| D42 | Purchases / Tax | A purchase invoice created **«من إيصال استلام» always carries 0% VAT**, and no screen can change it | `POST /purchases/invoices` with `receiptId` and no `lines` → every line comes back `taxRatePercent: 0`, total **1,400.00** on goods a 14% supplier billed at 1,596.00; GL 1400 (input VAT) moves **0.00**. `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port, `purchases-routes.ts` defaults it to `() => 0`, and `create-backend.ts` never passes one. Every existing test of this route supplies its own `lines`, which is why it survived: the UI is the only caller that omits them | High |
+| D42 | Purchases / AP | A landed cost credits the AP control account with **no supplier dimension**, so the payable exists in the ledger and on no supplier's account | `JE-000024` ("تكاليف توريد إذن الاستلام GR-000001") credits 2100 by **2,500.00**; `landedCostSchema` carries cost type, description, amount and targets — no supplier. Measured: the supplier sub-ledger now ties to GL 2100 to within exactly that 2,500.00 (112,076.00 vs 114,576.00) | Medium |
+| D43 | Sales / UI | A **draft sales invoice cannot be confirmed from any screen** — the only confirm path is the "save and confirm" checkbox on the create form | `SalesInvoicesScreen.tsx`'s `InvoiceDetailView` renders `actions={<Button>رجوع</Button>}` and the list has no row action, so an invoice produced by «تحويل عرض السعر إلى فاتورة» (or saved as a draft) is stranded: `POST /sales-invoices/:id/confirm` works, nothing calls it. Goods receipts and purchase invoices both carry a تأكيد button on their detail page | High |
+| D44 | Purchases / Tax | A purchase invoice created **«من إيصال استلام» always carries 0% VAT**, and no screen can change it | `POST /purchases/invoices` with `receiptId` and no `lines` → every line comes back `taxRatePercent: 0`, total **1,400.00** on goods a 14% supplier billed at 1,596.00; GL 1400 (input VAT) moves **0.00**. `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port, `purchases-routes.ts` defaults it to `() => 0`, and `create-backend.ts` never passes one. Every existing test of this route supplies its own `lines`, which is why it survived: the UI is the only caller that omits them | High |
 
-Every other row that stood here has moved to FIXED below. **D18 and D19 below are
-origin's; the two findings from the local fix pass that had also been numbered D18/D19
-are D36 and D37.**
+And a closed register is not the same as a clean product: it means the ones
+found and written down are closed. The next one gets found the way these were —
+by driving a seeded app and comparing two numbers that must agree. Two things
+are open by DECISION rather than by patch, and stay listed so nobody re-files
+them:
 
-### D24 / D28 / D29 — the three that will fail an audit
+- workflow `minAmount` is configurable but never enforced (`DocumentWorkflowInput`
+  carries no amount to compare)
+- email and WhatsApp notification channels are modelled but unimplemented
 
-These are grouped because they share a shape: the product records something the
-law cares about, in a form the law cannot use.
-
-**D24** — a purchase invoice takes `currency: "USD"` and posts its numbers
-straight into the ledger. No rate is fetched, no line is tagged, so USD 1,000
-becomes EGP 1,000 and the FX revaluation engine (which is correct, and proven in
-`x23`) has nothing to find. Multi-currency is presented and unimplemented.
-
-**D28** — the VAT return derives a rate per journal entry by dividing tax by
-base. An invoice mixing 14%, 5% and zero-rated lines therefore files under a rate
-that exists nowhere in law. The rates ARE charged correctly per line (`x33`,
-`x46`); it is only the return that loses them. The fix is rate metadata on the
-posted line, not a change to the tax engine.
-
-**D29** — nothing in the product knows a period has been filed. A backdated entry
-moved an already-"filed" July return by 140.00 in `x47`, silently. Fiscal-period
-close does block it — the mechanism exists and works — but nothing ties the tax
-filing to that lock, and reopening a period needs no reason and leaves no trace.
-
-### D31 — the permission catalog promises three tiers and the routes implement one
-
-`resolvePermissions` expands the dependency graph correctly server-side: granting
-`sales.invoice.confirm` really does grant `sales.invoice.view_own`. But no read
-route gates on `view_own`, and none filters by owner, so:
-
-- a user who may confirm invoices gets **403** trying to list them;
-- a plain `.view` holder sees every colleague's document;
-- `sales.invoice.view_cost` and `hr.employee.view_salary` — both flagged ⚠
-  sensitive — are checked nowhere, and cost and salary come back to anyone with
-  the plain view permission.
-
-The requirement is that costs are *hidden*, not that the page errors. Today they
-are neither.
-
-### D23 — go-live import archives history and posts none of it
-
-The documented go-live rule is right and the domain implements it: archive
-settled documents with no journal entry, post **only** the outstanding balance
-against the opening-balance account. The wiring drops the second half.
-`packages/backend/src/create-backend.ts` passes `historicalImport: { archives }`
-and `salesHistoricalImport: { archives }` — no `gl`, no `accounts` — so
-`if (!archive.settled && deps.gl && deps.accounts)` is never true and the opening
-entry is never posted.
-
-The visible effect at a customer's go-live: every migrated invoice appears in the
-archive, the AR and AP aging reports have rows, and the trial balance says the
-business is owed nothing and owes nothing. Third instance of the same failure
-shape as D19 — an options object assembled without the dependencies the service
-needs to do its real job.
-
-### D18 — the AP sub-ledger never hears about a payment
-
-`resolveReconciliationControls()` (`create-backend.ts`) builds the AP figure from
-confirmed purchase invoices, minus confirmed purchase returns, plus landed costs.
-Treasury allocations are not in that sum, so **every supplier payment de-reconciles
-AP by its own amount** — the exact twin of D1 on the other side of the books.
-
-It stayed invisible because no scenario had ever paid a supplier: the module
-suites confirm invoices, and the treasury suite posts vouchers that are not
-allocated to purchase invoices. It takes the cross-module trail (buy → pay) to
-see it.
-
-### D19 — the cash guard ignores its own setting
-
-`VoucherService.cashPolicy()` returns `true` whenever `deps.settings` is absent,
-and `create-backend.ts` never passes `settings` into the `vouchers:` options
-object. The Settings screen's منع الرصيد السالب للحسابات النقدية toggle therefore
-changes nothing, in either direction. Same shape as the missing
-`resolveGateConfig` on the same options object (see the treasury approval-gate
-finding in `scripts/scenarios/accounting.ts`) — one under-wired dependency,
-two dead features.
-
-### D20 / D21 — a closed period crashes the purchase confirm, and the crash leaks stock
-
-Two defects from one call. The route does not map the domain's period error, so
-the caller sees a 500 instead of the 422 every sibling route returns (D20). Worse,
-`confirmPurchaseInvoice` moves stock **before** posting the journal entry, and
-nothing unwinds the stock movement when the post throws (D21) — the sub-ledger is
-left ahead of GL 1200 by the invoice's own value with no document behind it. D21
-is the one that corrupts data; D20 is only how it is reported.
-
-### D22 — van trip cash: recorded in one place, transferred from another
-
-`POST /field/van-trips/:id/cash-movements` records a roadside sale on the trip
-document and posts nothing to the van's treasury account. `settleVanTrip` then
-transfers the whole counted cash — float plus those unposted sales — out of that
-treasury. The van's cash account ends every trip short by exactly what the trip
-sold, and the shortfall compounds trip after trip.
-
-### D1 — collection voucher does not move `amountPaid`
-
-The AR sub-ledger derives from `grandTotal − amountPaid`, so it overstates by the
-full amount of every collection ever recorded. This is the
-`recordPayment`-vs-allocations split — **two stores of the same fact** — and it
-is the reason `مطابقة الأرصدة` shows an AR mismatch on seeded data.
-
-Converging `recordPayment` onto the allocation sub-ledger removes the second
-store entirely. That is a decision about a shared contract, not a patch.
-
-### D2 — `PHYSICAL_COUNT` posts no journal entry
-
-`adjustmentGlAccountsForReason` (`create-backend.ts`) maps only `INITIAL_STOCK`.
-Every other reason moves stock and posts nothing, so the sub-ledger changes and
-the control account does not.
-
-**The demo seed steers around this**: its two physical counts are the same item
-and quantity in opposite directions so they net to zero. That means **the demo
-data is not evidence this path is sound** — it is evidence it was avoided.
-
-### D3 — `completeWorkOrder` never touches GL 1200
-
-It posts to 1220 and to 1210 / 5110 / 5210. `accountBalance` is per-account with
-no subtree rollup, so the inventory control account never sees the movement.
-
-**No work order in the seed is completed**, for this reason. Same caveat as D2:
-the path is unproven, not proven.
-
-### D36 — a landed cost is invisible to the movement ledger
-
-`applyLandedCostRevaluation` raises the position's value by mutating the WAC
-snapshot and deleting + re-adding cost layers at a higher unit cost. It appends
-nothing to the movement ledger, and `StockMovement` has no value-only shape to
-append, so `replay()` — which sums IN/OUT movements — can never reproduce the
-snapshot on any position a landed cost has touched.
-
-The snapshots themselves are correct, and reconciliation against GL 1200 is
-exact. What is wrong is the **diagnostic**: `cacheDrift` is documented as
-"nonzero means the cache is CORRUPTED and needs a rebuild", and it is nonzero on
-a perfectly healthy tenant. Fixing it needs a value-carrying movement kind —
-a change to the ledger's shape, not a patch.
-
-This was found while fixing D4, and is the residue of what D4's original
-evidence (`valueDiff 2400`) was reading.
-
----
+D1's last residue is closed too: the invoice screen's collect action creates and
+confirms a REAL collection voucher and allocates it, which is what the reference
+product does (its "Collect" requires a treasury account and applies against
+invoices). There is no longer any path that records a payment the ledger never
+hears about.
 
 ## Fixed
 
@@ -248,7 +107,37 @@ evidence (`valueDiff 2400`) was reading.
 | F35 | **The quotes screen was a fraction of the reference screen** — no branch, currency, notes, internal notes, header discount, price list, per-line tax or discount, no search, no filters, no expiry bucket, count-based KPIs instead of value, and a side panel where the reference has a full create form and a document detail with lifecycle, effects and audit. Rebuilt from a LIVE enumeration of the reference product (2026-08-25, `docs/reference-parity/01-sales-quotes.md`) rather than from the label snapshot in `docs/catalog/`. Measured after: a draft for مؤسسة النور stores `price_list_id=PL-DEMO-2`, unit price 168.00 off that customer's wholesale list (not the item's 180.00 default), VAT 14% → 191.52, branch `BR-MAIN`; sending it stamps QT-000004 | this commit |
 | F36 | **Every create form and document detail was a side drawer with no address** — the shell had no routing at all, so no screen, create form or document could be linked, bookmarked, reloaded into or reached with the browser's Back button. Added hash routing (`apps/web/src/routing.ts` + `useSubPage()`; the hash, not the path, because the desktop edition loads from `file://`): every screen is now `#/<module>/<screen>`, and document screens carry `…/new` and `…/<docNo>` sub-pages, matching the reference product, which uses pages for documents and a modal only for short master-data forms. Converted: sales quotes, sales invoices, sales returns, purchase orders, goods receipts, purchase invoices, purchase returns, RFQs. Measured: `#/sales/quotes/QT-000001` survives a full reload and Back returns to the list | this commit |
 | F37 | **No page had a path back except the browser's Back button, and two screens had defects only a full sweep would find.** Added a shell breadcrumb (`apps/web/src/Breadcrumbs.tsx`): لوحة التحكم · module · screen · sub-page, every crumb but the last a real control — the module opens its hub (or its first screen, for groups without one) and the screen name drops the sub-page. The 75 duplicated `eyebrow` props and 32 `mz-eyebrow` divs that repeated the same trail as dead text are gone. Stock adjustments, transfers and physical counts moved from local `mode` state to addressed sub-pages (`#/inventory/stock-adjustments/new`), so تسوية جديدة is a place. Swept all 100 nav screens in the browser: 0 HTTP 4xx/5xx, and the two defects found are fixed — the audit log gave 9 duplicate-React-key errors (bulk writes share a millisecond, an actor and an action, so `rowKey` now takes the row index) and the print-templates screen had two `<h1>`s (the company name inside the print PREVIEW was a heading) | this commit |
+| F38 | **The sales-invoice screens were a fraction of the reference's** — no branch, currency, notes, internal notes, price list or creation-method on the form; no Open/Overdue buckets, filters, follow-up banner, returns or collected figures, rows-per-page on the list; no branch, cost, profit, margin, returns deduction, returns/ETA/audit tabs on the document. Rebuilt from a LIVE enumeration of the reference (2026-08-25, `docs/reference-parity/02-sales-invoices.md`), which also captured its row expander, its quick-preview panel and all eight of its tabs. Measured after: INV-000001 reports cost 9,320.00, profit 2,920.00, margin 23.9%, returns −1,197.00, net 12,756.60 — all from figures already on the wire (`unitCost`, `returnedCredit`) that nothing rendered; a draft for شركة الأمل auto-dated its due date to 2026-09-24 from the customer's 30-day terms and persisted `branch_id=BR-MAIN`, `currency=EGP` and its notes | this commit |
+| F39–D41 | every treasury balance is read from that account's own GL account. Measured: cash 2,379.12, bank 141,396.00, van 1,550.00 — each equal to GL 1300-1 / 1310 / 1300-2 to the piastre. Deriving it from vouchers instead was wrong by 248,900.00 on the bank, because cheques and settlements post there too | this commit |
+| F39–D40 | remaining customer credit is now measured against what the customer owes today, not their opening balance | this commit |
+| F39–D39 | the suppliers list now reports the live payable — opening balance plus confirmed invoices, less voucher payments, confirmed returns and issued cheques. Measured: 112,076.00 against GL 2100's 114,576.00, the 2,500.00 difference being D42's supplier-less landed cost | this commit |
 | F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
+| F34 | **A confirmed collection never moved the invoice's `amountPaid`, and the AP sub-ledger ignored payments entirely** (D1, D18). The reconciliation now follows the vouchers and cheques that actually move 1105/2100, and an allocation writes back to the invoice it settles. AP 35,554.00 → **0.00**, AR 13,529.12 → **0.00** | this commit |
+| F35 | **A `PHYSICAL_COUNT` adjustment moved stock with no journal entry** (D2) — only `INITIAL_STOCK` had a GL mapping. Every reason now posts, against a new 5070 shrinkage leaf | this commit |
+| F36 | **`completeWorkOrder` never touched GL 1200** (D3): it posted to 1210/1220, and `accountBalance` has no subtree rollup, so the sub-ledger rose by labour + overhead while the control account stayed flat. Both inventory legs now post to 1200 | this commit |
+| F37 | **Fixed-asset disposal existed as a status value and a permission, with no route and no button** (D13). Disposal clears cost and accumulated depreciation, takes the proceeds, and books the gain (4500) or loss (5450); a second disposal is refused | this commit |
+| F38 | **Both سياسة الخزينة switches were dead** (D19) — `create-backend.ts` never passed `settings` to the voucher options, so the guard read a hardcoded default. Bank accounts now honour their own switch too | this commit |
+| F39 | **Confirming a purchase invoice into a closed period answered 500** (D20) and **left the stock IN applied** (D21). The route maps the GL port's errors, and the GL posts before the stock moves, so a refusal leaves nothing behind | this commit |
+| F40 | **A van trip's roadside cash never reached the van treasury** while settlement transferred the full counted cash out of it (D22). Takings post in; the counted-versus-expected difference is written off to عجز/فائض الصندوق | this commit |
+| F41 | **A historical import recorded no opening AR or AP at all** (D23) — the domain posted the entry only when given `gl`/`accounts`, and it was wired with `archives` only. Opening balances now post against a new 3200 opening-balance equity leaf | this commit |
+| F42 | **A document's currency was a label, not a currency** (D24): no rate was applied and no GL line tagged. A foreign invoice now converts at the approved rate of its own date and keeps currency + rate on the payable line, so revaluation can find it; a currency with no rate is refused rather than posted 1:1 | this commit |
+| F43 | **A locked exchange rate could be silently rewritten** by re-POSTing its id (D25) — `repo.create` upserts. Create refuses an existing id, and approve refuses a locked rate: locked is terminal | this commit |
+| F44 | **A treasury voucher had no cost-centre dimension** (D26), so the wire schema dropped it and every voucher-paid expense landed in غير مخصص. The dimension travels contract → document → GL line, and the voucher form has a picker | this commit |
+| F45 | **Withholding tax had nowhere to live** (D27): no account, no field, no report. A payment carries a withheld amount against a new 2210 leaf, the supplier is discharged in full, and `GET /reports/tax/withholding` files it | this commit |
+| F46 | **Nothing recorded that a VAT period was filed** (D29), so a backdated document silently restated a submitted return. A filing locks its window; restating it means amending the filing, and an amendment requires a reason | this commit |
+| F47 | **Audit rows took their branch from the caller's scope** (D30), and the default scope is all-branches, so rows came out with `branchId: null` the branch filter could never find. The document's own branch is stamped instead | this commit |
+| F48 | **The visibility tiers the catalog defines were enforced by no route** (D31): a `.confirm` holder was 403 on the list, `view_own` narrowed nothing, and `view_cost` / `hr.employee.view_salary` were checked nowhere. Reads gate on the weakest tier and narrow; the sensitive fields are omitted without their permission | this commit |
+| F49 | **There was no server-side search, and no Arabic normalisation anywhere** (D32) — احمد never found أحمد. One shared helper folds the spelling variance; customers, suppliers and items take `?q=`, and ten screens use the same helper | this commit |
+| F50 | **Numbering was tenant-global with no branch dimension** (D33). A sequence can be marked branch-scoped from settings: each branch then keeps its own counter and carries its code in the number | this commit |
+| F51 | **There was no year-end close** (D34): the P&L accounts never reset and GL 3900 was never posted to. `POST /gl/year-end-close` rolls the result into retained earnings, dated the last day of the year closed | this commit |
+| F52 | **A customer's price list was consulted by no route** (D35) — an invoice line at 5.00 against an 80.00 list price was accepted silently. Confirm reports the lines charged under the list, warning rather than refusing | this commit |
+| F53 | **A landed cost wrote no stock movement** (D36), so `replay()` could not reproduce a position it had touched and the drift report read `cacheDrift` nonzero on a healthy tenant. The ledger gained a value-only movement, and replay values an issue at the cost the ledger recorded | this commit |
+| F54 | **The dashboard's receivables tile and the aging report meant different things** (D37). The tile means customer receivables; the ladder nets returns and unapplied credits. Both read the same figure as GL 1105 | this commit |
+| F55 | **A purchase return credited inventory at the price on the return** while stock left at the moving average — found while fixing D36, and it left the sub-ledger 68.28 adrift from GL 1200. The stock hook reports what moved, and the difference books to a new 5080 cost-variance leaf | this commit |
+| F56 | **D1's last store closed against the reference product.** Collecting on an invoice created no voucher and posted nothing; the reference's own invoice-level "Collect" requires a treasury account and applies against invoices, so Mezan's now creates and confirms a real collection voucher and allocates it. Verified in the browser: the button produced CV-000014, AR moved 37,839.28 -> 37,339.28, and all three sub-ledgers still reconciled exactly | this commit |
+| F57 | **The cash-guard refusal reached the Arabic UI in English** — found by clicking, not by any gate. Now Arabic, and it names cash vs bank | this commit |
+| F58 | **The disposal proceeds picker showed a header account as though it were selected** while its value was empty, so the user chose an account and got "الحساب مطلوب" — and every header account it listed could never be posted to anyway. Explicit placeholder, headers excluded | this commit |
+| F59 | **Report grand totals summed money as IEEE-754 doubles**, so a trial balance equal to the piastre reported 681,214.3999999999 against 681,214.4 and "debit = credit" read FALSE on books that balance. Totals accumulate in scaled integers | this commit |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.

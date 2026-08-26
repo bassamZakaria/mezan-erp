@@ -22,7 +22,11 @@ import type { GateableActionType } from "../workflow/index.js";
  * the SQLite `NextNumberService` slots straight in.
  */
 export interface DocumentNumberingHook {
-  next(): Promise<{ readonly value: number; readonly formatted: string }>;
+  /**
+   * `branchId` lets a branch-scoped sequence keep its own counter (D33). A hook
+   * bound to a tenant-global sequence ignores it, so passing it always is safe.
+   */
+  next(opts?: { readonly branchId?: string | null }): Promise<{ readonly value: number; readonly formatted: string }>;
 }
 
 /* --- GL-posting hook (via the GL posting engine) ------------------------- */
@@ -32,6 +36,11 @@ export interface DocumentGlPostingLine {
   readonly debit: Money;
   readonly credit: Money;
   readonly memo?: string | null;
+  /**
+   * Cost-centre dimension. A posting that drops it is invisible to the
+   * cost-centre P&L forever, and the report cannot recover it later (D26).
+   */
+  readonly costCenterId?: string | null;
 }
 
 /**
@@ -103,8 +112,21 @@ export interface DocumentStockPlan {
   readonly date?: string;
 }
 
+/**
+ * What the stock engine actually did, handed back so the document's GL posting
+ * can credit inventory by the value that really left rather than by the price
+ * on the document. Stock leaves at the moving average, so the two differ
+ * whenever the position has been re-costed since — after a landed cost, for
+ * instance — and a posting that ignores it puts the sub-ledger out of step with
+ * GL 1200 by exactly that difference.
+ */
+export interface DocumentStockResult {
+  /** Signed: positive when value entered stock, negative when it left. */
+  readonly netValue: Money;
+}
+
 export interface DocumentStockHook {
-  apply(plan: DocumentStockPlan): Promise<void>;
+  apply(plan: DocumentStockPlan): Promise<DocumentStockResult | void>;
 }
 
 /* --- Workflow-gate hook (via the workflow engine) ------------------------ */

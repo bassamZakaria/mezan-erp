@@ -99,6 +99,7 @@ export {
   purchaseInvoiceFreightBase,
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   type PurchaseInvoice,
   type PurchaseInvoiceLine,
   type PurchaseInvoiceLineKind,

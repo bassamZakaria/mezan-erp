@@ -23,9 +23,12 @@ import {
   useItems,
   usePurchaseInvoices,
   useSuppliers,
+  useUsers,
+  useBranches,
+  useWarehouses,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
-import { TextField, NumberField } from "../settings/form-controls";
+import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -186,6 +189,16 @@ export function PurchaseInvoicesScreen() {
     sublabel: r.date,
   }));
 
+  const users = useUsers().data ?? [];
+  const filterBranches = useBranches().data ?? [];
+  const filterWarehouses = useWarehouses().data ?? [];
+  const [branchFilter, setBranchFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
@@ -213,12 +226,17 @@ export function PurchaseInvoicesScreen() {
   const filtered = useMemo(() => {
     let rows = invoices;
     if (statusFilter !== "all") rows = rows.filter((inv) => inv.status === statusFilter);
+    if (branchFilter) rows = rows.filter((inv) => inv.branchId === branchFilter);
+    if (warehouseFilter) rows = rows.filter((inv) => inv.warehouseId === warehouseFilter);
+    if (supplierFilter) rows = rows.filter((inv) => inv.supplierId === supplierFilter);
+    if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
+    if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((inv) => inv.number.toLowerCase().includes(q) || supplierName(inv.supplierId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [invoices, statusFilter, search, supplierName]);
+  }, [invoices, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: invoices.length },
@@ -234,7 +252,13 @@ export function PurchaseInvoicesScreen() {
     { key: "supplier", header: t("common.supplier"), render: (inv) => supplierName(inv.supplierId) },
     { key: "date", header: t("common.date"), render: (inv) => <span className="mz-num">{inv.date.split("-").reverse().join("/")}</span> },
     { key: "total", header: t("common.total"), align: "end", render: (inv) => <MoneyValue value={num(inv.total)} /> },
+    {
+      key: "dueDate",
+      header: t("salesInvoices.col.dueDate"),
+      render: (inv) => <span className="mz-num">{inv.dueDate ? inv.dueDate.split("-").reverse().join("/") : "—"}</span>,
+    },
     { key: "status", header: t("common.status"), render: (inv) => <StatusPill label={t(STATUS_KEY[inv.status])} tone={STATUS_TONE[inv.status]} /> },
+    { key: "createdBy", header: t("common.createdBy"), render: (inv) => <span className="text-ink-muted">{userName(inv.createdBy)}</span> },
   ];
 
   function openCreate() {
@@ -458,6 +482,30 @@ export function PurchaseInvoicesScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("purchaseInvoices.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SelectField
+              label={t("common.branch")}
+              value={branchFilter}
+              onChange={setBranchFilter}
+              options={[{ value: "", label: t("common.allBranches") }, ...filterBranches.map((b) => ({ value: b.id, label: b.name }))]}
+            />
+            <SelectField
+              label={t("common.warehouse")}
+              value={warehouseFilter}
+              onChange={setWarehouseFilter}
+              options={[{ value: "", label: t("common.allWarehouses") }, ...filterWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
+            />
+            <SelectField
+              label={t("common.supplier")}
+              value={supplierFilter}
+              onChange={setSupplierFilter}
+              options={[{ value: "", label: t("common.allSuppliers") }, ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr }))]}
+            />
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(inv) => inv.id}

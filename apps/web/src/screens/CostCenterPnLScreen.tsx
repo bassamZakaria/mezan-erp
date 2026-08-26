@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatCard, Card, Button, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  FulcrumRule,
+  StatCard,
+  TextInput,
+  formatNumber,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -43,9 +52,9 @@ export function CostCenterPnLScreen() {
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <label className="text-[12px] text-ink-muted">{t("common.of")}</label>
-          <input type="date" aria-label={t("costCenterPnl.from")} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("costCenterPnl.from")} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           <label className="text-[12px] text-ink-muted">{t("costCenterPnl.to")}</label>
-          <input type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>
       </div>
       <FulcrumRule />

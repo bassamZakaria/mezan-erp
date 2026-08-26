@@ -11,7 +11,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
-import { SelectField, NumberField } from "../settings/form-controls";
+import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
   useConfirmPurchaseReturn,
@@ -110,6 +110,11 @@ export function PurchaseReturnsScreen() {
     [selectedInvoice],
   );
 
+  const [search, setSearch] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0, cancelled: 0 };
     for (const d of documents) {
@@ -120,7 +125,17 @@ export function PurchaseReturnsScreen() {
     return c;
   }, [documents]);
 
-  const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+  const filtered = useMemo(() => {
+    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+    if (supplierFilter) rows = rows.filter((d) => d.lines.some((l) => l.supplierId === supplierFilter));
+    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
+    if (toDate) rows = rows.filter((d) => d.date <= toDate);
+    if (search.trim() !== "") {
+      const q = search.trim().toLowerCase();
+      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || (d.lines[0] ? supplierName(d.lines[0].supplierId).includes(search.trim()) : false));
+    }
+    return rows;
+  }, [documents, statusFilter, supplierFilter, fromDate, toDate, search, supplierName]);
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
       ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
@@ -378,6 +393,21 @@ export function PurchaseReturnsScreen() {
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("purchaseReturns.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-3">
+            <SelectField
+              label={t("common.supplier")}
+              value={supplierFilter}
+              onChange={setSupplierFilter}
+              options={[{ value: "", label: t("common.allSuppliers") }, ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr }))]}
+            />
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => subPage.open(d.docNo ?? d.id)}

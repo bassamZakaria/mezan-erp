@@ -21,7 +21,7 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "1110", code: "1110", nameAr: "ذمم أقساط مدينة", nameEn: "Installment Receivables", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1150", code: "1150", nameAr: "محتجزات ضمان مدينة", nameEn: "Retention Receivable", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
   { id: "1160", code: "1160", nameAr: "سلف الموظفين", nameEn: "Employee Advances", type: "asset", naturalBalance: "debit", parentId: "1100", isHeader: false },
-  { id: "1190", code: "1190", nameAr: "مخصص هبوط المخزون", nameEn: "Inventory Provision", type: "asset", naturalBalance: "credit", parentId: "1100", isHeader: false },
+  { id: "1190", code: "1190", nameAr: "مخصص هبوط المخزون", nameEn: "Inventory Provision", type: "asset", naturalBalance: "credit", parentId: "1000", isHeader: false },
   { id: "1200", code: "1200", nameAr: "المخزون", nameEn: "Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1210", code: "1210", nameAr: "مخزون المواد الخام", nameEn: "Raw Materials Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
   { id: "1220", code: "1220", nameAr: "مخزون المنتجات التامة", nameEn: "Finished Goods Inventory", type: "asset", naturalBalance: "debit", parentId: "1000", isHeader: false },
@@ -55,11 +55,20 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "2170", code: "2170", nameAr: "رواتب مستحقة", nameEn: "Salaries Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2180", code: "2180", nameAr: "التزام إجازات مستحقة", nameEn: "Accrued Leave Liability", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2190", code: "2190", nameAr: "استقطاعات ومستحقات رواتب", nameEn: "Payroll Withholdings Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
+  // Egypt withholds tax on most local B2B payments: the supplier is settled in
+  // full, the withheld slice is owed to the authority instead of to them. 2190
+  // is payroll-only and must not be reused for it.
+  { id: "2210", code: "2210", nameAr: "ضريبة خصم وتحصيل مستحقة", nameEn: "Withholding Tax Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
 
   // --- 3000 حقوق الملكية (Equity) ---
   { id: "3000", code: "3000", nameAr: "حقوق الملكية", nameEn: "Equity", type: "equity", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "3100", code: "3100", nameAr: "رأس المال", nameEn: "Capital", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
   { id: "3900", code: "3900", nameAr: "الأرباح المرحلة", nameEn: "Retained Earnings", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
+  // The go-live suspense: every opening balance a migration brings in posts its
+  // contra side here (Dr for opening AR, Cr for opening AP), so the account nets
+  // to zero once the whole opening trial balance is entered — a nonzero residue
+  // is the migration's own error, not the ledger's.
+  { id: "3200", code: "3200", nameAr: "أرصدة افتتاحية", nameEn: "Opening Balance Equity", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
 
   // --- 4000 الإيرادات (Revenue) ---
   { id: "4000", code: "4000", nameAr: "الإيرادات", nameEn: "Revenue", type: "revenue", naturalBalance: "credit", parentId: null, isHeader: true },
@@ -73,6 +82,15 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // debits this expense account and credits the 1190 contra-asset provision
   // — the write-down never touches the item's recorded WAC/cost layers.
   { id: "5060", code: "5060", nameAr: "مصروف هبوط قيمة المخزون", nameEn: "Inventory Write-down Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // The counterpart every stock adjustment that is not an opening balance posts
+  // against, so no adjustment reason can move stock silently. A stock GAIN
+  // credits it (a negative expense), which is the standard treatment.
+  { id: "5070", code: "5070", nameAr: "مصروف عجز وتلف المخزون", nameEn: "Inventory Shrinkage & Damage Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // A purchase return credits inventory at the stock's MOVING AVERAGE, which
+  // is not the price on the return once the position has been re-costed. The
+  // difference is a real cost variance and lands here rather than being
+  // silently absorbed, which would take GL 1200 away from the sub-ledger.
+  { id: "5080", code: "5080", nameAr: "فروق تكلفة المخزون", nameEn: "Inventory Cost Variance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.

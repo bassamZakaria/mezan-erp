@@ -57,6 +57,35 @@ export function createPermissionGate(resolveAuthContext: AuthContextResolver) {
   };
 }
 
+/**
+ * A gate that passes when the caller holds ANY of the listed permissions.
+ *
+ * The catalog grants visibility in tiers — `.confirm` implies `.view_own`,
+ * `.view_all` implies `.view` — and gating a read route on `.view` alone locked
+ * out everyone whose grant was a different tier of the same permission: a user
+ * who could confirm invoices could not open the list to find one (D31). The
+ * route gates on the weakest tier that should see anything, then NARROWS.
+ */
+export function createAnyPermissionGate(resolveAuthContext: AuthContextResolver) {
+  return function gateAny(...permissions: string[]): MiddlewareHandler {
+    return async function anyPermissionGate(c, next) {
+      const ctx = await resolveAuthContext(c);
+      if (!permissions.some((permission) => can(ctx, permission))) {
+        return c.json(
+          {
+            error: "PERMISSION_DENIED",
+            permission: permissions[0],
+            message: `Missing any of '${permissions.join("', '")}'.`,
+          },
+          403,
+        );
+      }
+      c.set(AUTH_CONTEXT_KEY, ctx);
+      await next();
+    };
+  };
+}
+
 /** Reads the {@link AuthContext} a `createPermissionGate` middleware stashed on the request. */
 export function getAuthContext(c: Context): AuthContext | undefined {
   return c.get(AUTH_CONTEXT_KEY) as AuthContext | undefined;

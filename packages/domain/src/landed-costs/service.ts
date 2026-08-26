@@ -18,6 +18,7 @@
 
 import type { DocumentService, ConfirmOptions, ConfirmResult } from "../documents/service.js";
 import type { StockLedgerService } from "../inventory/stock-ledger-service.js";
+import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import type { LandedCostLine } from "./landed-cost-document.js";
 
 export class LandedCostService {
@@ -36,6 +37,9 @@ export class LandedCostService {
         warehouseId: line.warehouseId,
         sourceDocId: line.sourceInvoiceId,
         valueDelta: line.allocatedAmount,
+        landedCostDocId: result.document.id,
+        landedCostDocNumber: result.document.docNo,
+        occurredAt: occurredAtFromDocumentDate(result.document.date),
       });
     }
     return result;

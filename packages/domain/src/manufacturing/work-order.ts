@@ -552,8 +552,15 @@ export interface CompleteWorkOrderResult {
 
 /**
  * Build the balanced WIP-capitalisation posting for a received work order
- * (docs/catalog/07 — FG receipt / raw / labour / overhead). Credit lines are
- * merged by account so mapping several roles to one account stays valid.
+ * (docs/catalog/07 — FG receipt / raw / labour / overhead).
+ *
+ * Lines are NETTED by account, not merely merged by side. The finished-goods
+ * and raw-materials roles usually resolve to the SAME inventory control
+ * account, because that is the only account the stock ledger moves value
+ * through, and a Dr and a Cr against one account in one entry is both untidy
+ * and, worse, invisible: `accountBalance` has no subtree rollup, so posting the
+ * two legs to 1210/1220 instead left GL 1200 flat while the stock sub-ledger
+ * moved by labour plus overhead — the 80.00 gap D3 measured.
  */
 export function buildWorkOrderGlPosting(
   order: WorkOrder,
@@ -564,20 +571,25 @@ export function buildWorkOrderGlPosting(
   if (wip.scaled === 0n) return null;
 
   const overheadTotal = order.overheadCost.add(order.extraCost);
-  const creditByAccount = new Map<string, Money>();
-  const addCredit = (accountId: string, amount: Money) => {
-    if (amount.scaled === 0n) return;
-    creditByAccount.set(accountId, (creditByAccount.get(accountId) ?? Money.zero()).add(amount));
+  // Signed by account: positive is a net debit, negative a net credit.
+  const netByAccount = new Map<string, bigint>();
+  const add = (accountId: string, scaled: bigint) => {
+    if (scaled === 0n) return;
+    netByAccount.set(accountId, (netByAccount.get(accountId) ?? 0n) + scaled);
   };
-  addCredit(accounts.rawInventoryAccountId, order.materialCost);
-  addCredit(accounts.laborAppliedAccountId, order.laborCost);
-  addCredit(accounts.overheadAppliedAccountId, overheadTotal);
+  add(accounts.finishedGoodsAccountId, wip.scaled);
+  add(accounts.rawInventoryAccountId, -order.materialCost.scaled);
+  add(accounts.laborAppliedAccountId, -order.laborCost.scaled);
+  add(accounts.overheadAppliedAccountId, -overheadTotal.scaled);
 
-  const lines: ManufacturingGlPostingLine[] = [
-    { accountId: accounts.finishedGoodsAccountId, debit: wip, credit: Money.zero() },
-  ];
-  for (const [accountId, amount] of creditByAccount) {
-    lines.push({ accountId, debit: Money.zero(), credit: amount });
+  const lines: ManufacturingGlPostingLine[] = [];
+  for (const [accountId, net] of netByAccount) {
+    if (net === 0n) continue;
+    lines.push(
+      net > 0n
+        ? { accountId, debit: Money.fromScaled(net), credit: Money.zero() }
+        : { accountId, debit: Money.zero(), credit: Money.fromScaled(-net) },
+    );
   }
   if (lines.length < 2) return null;
 

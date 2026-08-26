@@ -11,6 +11,21 @@ export type { Asset, AssetRepository, AssetScope, AssetStatus } from "./asset.js
 export type { CreateAssetCommand, CreateAssetDeps } from "./create-asset.js";
 export { createAsset } from "./create-asset.js";
 
+export type {
+  DisposeAssetCommand,
+  DisposeAssetDeps,
+  DisposeAssetGlAccounts,
+  DisposeAssetGlPort,
+  DisposeAssetPosting,
+  DisposeAssetPostingLine,
+  DisposeAssetResult,
+} from "./dispose-asset.js";
+export {
+  disposeAsset,
+  AssetAlreadyDisposedError,
+  InvalidAssetDisposalError,
+} from "./dispose-asset.js";
+
 export type { DepreciationPeriod, MonthlyDepreciationResult } from "./depreciation.js";
 export {
   periodBounds,

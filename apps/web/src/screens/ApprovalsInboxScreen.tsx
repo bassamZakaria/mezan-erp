@@ -1,5 +1,11 @@
 import { useMemo, useState } from "react";
-import { Button, Card, DocumentList, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  TextInput,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { useDecideApproval, usePendingApprovals } from "../data/hooks";
@@ -81,12 +87,13 @@ export function ApprovalsInboxScreen() {
       align: "end",
       render: (r) => (
         <div className="flex items-center justify-end gap-[6px]" onClick={(e) => e.stopPropagation()}>
-          <input
+          <TextInput
+            size="sm"
+            className="min-h-0 w-[140px] px-[8px] py-[5px] text-[11.5px]"
             value={commentDraft[r.id] ?? ""}
             onChange={(e) => setCommentDraft((prev) => ({ ...prev, [r.id]: e.target.value }))}
             placeholder={t("approvals.noteOptional")}
             aria-label={t("approvals.noteLabel", { request: r.entityLabel ?? r.id })}
-            className="w-[140px] rounded-md border border-border bg-surface px-[8px] py-[5px] text-[11.5px] text-ink outline-none transition-colors focus:border-brand"
           />
           <Button size="sm" variant="primary" disabled={pendingId === r.id} onClick={() => void act(r, "approve")}>
             {t("approvals.approve")}

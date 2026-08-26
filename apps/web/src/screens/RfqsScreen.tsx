@@ -26,6 +26,7 @@ import {
   useSendRfq,
   useSuppliers,
   type RfqComparisonRecord,
+  useUsers,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
@@ -413,15 +414,22 @@ export function RfqsScreen() {
   const selectedQuotes = quotesQuery.data ?? [];
   const comparisonQuery = useRfqComparison(selectedId);
 
+  const users = useUsers().data ?? [];
+  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
   const filtered = useMemo(() => {
     let rows = rfqs;
     if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
+    if (fromDate) rows = rows.filter((r) => r.date >= fromDate);
+    if (toDate) rows = rows.filter((r) => r.date <= toDate);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((r) => r.number.toLowerCase().includes(q));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [rfqs, statusFilter, search]);
+  }, [rfqs, statusFilter, search, fromDate, toDate]);
 
   const counts = useMemo(() => {
     const c: Record<"all" | PurchaseRfqStatusDTO, number> = { all: rfqs.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
@@ -443,6 +451,7 @@ export function RfqsScreen() {
     { key: "lines", header: t("rfqs.col.lines"), align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
     { key: "po", header: t("rfqs.col.po"), render: (r) => r.purchaseOrderId ?? "—" },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
+    { key: "createdBy", header: t("common.createdBy"), render: (r) => <span className="text-ink-muted">{userName(r.createdBy)}</span> },
   ];
 
   function openCreate() {
@@ -580,6 +589,12 @@ export function RfqsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("rfqs.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2">
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(r) => r.id}

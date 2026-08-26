@@ -38,6 +38,12 @@ export function createExchangeRatesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    // The repository upserts by id, so without this check re-POSTing an
+    // existing id rewrote the rate and reset its status — an approved or even
+    // LOCKED rate could be silently replaced through the create route (D25).
+    if (await repo.findById(parsed.data.id)) {
+      return c.json({ error: "ALREADY_EXISTS", message: "سعر صرف بهذا المعرّف موجود بالفعل." }, 409);
+    }
     const rate: ExchangeRate = {
       id: parsed.data.id,
       currency: parsed.data.currency,
@@ -54,6 +60,11 @@ export function createExchangeRatesRoutes(
   app.post("/:id/approve", gate("accounting.exchange_rate.approve"), async (c) => {
     const rate = await repo.findById(c.req.param("id"));
     if (!rate) return c.json({ error: "NOT_FOUND" }, 404);
+    // Locked is terminal, the same way a locked fiscal period is: approving
+    // back down from it would undo the lock (D25).
+    if (rate.status === "locked") {
+      return c.json({ error: "RATE_LOCKED", message: "سعر الصرف مقفل ولا يمكن تعديل حالته." }, 409);
+    }
     const next: ExchangeRate = { ...rate, status: "approved" };
     await repo.update(next);
     return c.json(serialize(next));

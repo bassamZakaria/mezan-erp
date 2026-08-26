@@ -117,6 +117,17 @@ export type AssetCategoryDTO = z.infer<typeof assetCategorySchema>;
 export type CreateAssetCategoryDTO = z.infer<typeof createAssetCategorySchema>;
 export type AssetDTO = z.infer<typeof assetSchema>;
 export type CreateAssetDTO = z.infer<typeof createAssetSchema>;
+
+/** التخلص من أصل — retire an asset, recognising the gain or loss against any proceeds. */
+export const disposeAssetSchema = z.object({
+  date: z.string().min(1),
+  /** Sale price; omit or zero for a scrapped asset. */
+  proceeds: z.string().optional(),
+  /** Where the proceeds land — required when there are any. */
+  proceedsAccountId: z.string().nullish(),
+  notes: z.string().nullish(),
+});
+export type DisposeAssetDTO = z.infer<typeof disposeAssetSchema>;
 export type DepreciationRunStatusDTO = z.infer<typeof depreciationRunStatusSchema>;
 export type DepreciationRunLineDTO = z.infer<typeof depreciationRunLineSchema>;
 export type DepreciationRunDTO = z.infer<typeof depreciationRunSchema>;

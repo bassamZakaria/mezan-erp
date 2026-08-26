@@ -30,6 +30,7 @@ import {
   createBalanceSheetReport,
   createCashFlowReport,
   createVatReturnReport,
+  createWithholdingTaxReport,
   createGeneralLedgerReport,
   createAccountLedgerReport,
   OUTPUT_VAT_ACCOUNT_ID,
@@ -52,6 +53,12 @@ import {
   type VanTripRepository,
   type EmployeeRepository,
   type RunReportOutcome,
+  salesReturnGrandTotal,
+  sumActive,
+  type SalesReturnDocument,
+  type ChequeRepository,
+  type AllocationRepository,
+  type VoucherLine,
 } from "@mezan/domain";
 import { createPermissionGate, headerAuthContextResolver, warehouseScopeOf, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
@@ -68,6 +75,14 @@ export interface ReportsRoutesDeps {
   readonly salesInvoices: SalesInvoiceRepository;
   /** Allocation sub-ledger — lets the aging reports deduct what has actually been settled. */
   readonly allocatable?: AllocatableInvoiceRepository;
+  /** Confirmed sales returns, so the customer aging ladder nets the credits the GL already posted. */
+  readonly salesReturnDocs?: { list(): Promise<readonly SalesReturnDocument[]> };
+  /** Cheques, whose creation already reclassified a customer's receivable. */
+  readonly cheques?: Pick<ChequeRepository, "list">;
+  /** Confirmed vouchers, for collections that named no invoice. */
+  readonly voucherDocuments?: Pick<DocumentRepository<VoucherLine>, "list">;
+  /** Allocations, to tell an applied collection from an on-account one. */
+  readonly allocations?: Pick<AllocationRepository, "listByVoucher">;
   readonly purchaseInvoices: PurchaseInvoiceRepository;
   readonly customers: CustomerRepository;
   readonly suppliers: SupplierRepository;
@@ -154,6 +169,48 @@ async function loadAllLayers(deps: ReportsRoutesDeps) {
   const positions = await deps.stockLedger.listPositions();
   const lists = await Promise.all(positions.map((p) => deps.costLayers.listByPosition(p.itemId, p.warehouseId)));
   return lists.flat();
+}
+
+/**
+ * Customer credits that no invoice claims: an incoming cheque (which credited AR
+ * the moment it was written) and the unallocated remainder of a confirmed
+ * collection. Without them the aging ladder reports debt the ledger has already
+ * cleared, and the dashboard's receivables tile and this report disagree (D37).
+ */
+async function unappliedCustomerCredits(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const out = new Map<string, bigint>();
+  const add = (partyId: string | null | undefined, scaled: bigint) => {
+    if (!partyId || scaled <= 0n) return;
+    out.set(partyId, (out.get(partyId) ?? 0n) + scaled);
+  };
+
+  for (const cheque of (await deps.cheques?.list()) ?? []) {
+    if (cheque.direction !== "incoming") continue;
+    if (cheque.counterpartyGlAccountId !== "1105") continue;
+    add(cheque.partyId, cheque.amount.scaled);
+  }
+
+  for (const doc of (await deps.voucherDocuments?.list({ status: "confirmed" })) ?? []) {
+    const line = doc.lines[0];
+    if (!line || line.direction !== "receipt") continue;
+    if (line.counterpartyGlAccountId !== "1105") continue;
+    const allocated = deps.allocations ? sumActive(await deps.allocations.listByVoucher(doc.id)).scaled : 0n;
+    add(line.customerId, line.amount.scaled - allocated);
+  }
+
+  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
+}
+
+/** Confirmed sales-return credit per source invoice. */
+async function returnsByInvoiceId(deps: ReportsRoutesDeps): Promise<ReadonlyMap<string, Money>> {
+  const out = new Map<string, bigint>();
+  for (const doc of (await deps.salesReturnDocs?.list()) ?? []) {
+    if (doc.status !== "confirmed") continue;
+    const invoiceId = doc.lines[0]?.sourceInvoiceId;
+    if (!invoiceId) continue;
+    out.set(invoiceId, (out.get(invoiceId) ?? 0n) + salesReturnGrandTotal(doc).scaled);
+  }
+  return new Map([...out].map(([id, scaled]) => [id, Money.fromScaled(scaled)]));
 }
 
 async function settledByInvoiceId(
@@ -326,8 +383,21 @@ export function createReportsRoutes(
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
-    const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const [invoices, allocatedByInvoiceId, returns, credits] = await Promise.all([
+      deps.salesInvoices.list(),
+      settledByInvoiceId(deps, "sales"),
+      returnsByInvoiceId(deps),
+      unappliedCustomerCredits(deps),
+    ]);
+    return respond(
+      c,
+      runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
+        invoices,
+        allocatedByInvoiceId,
+        returnsByInvoiceId: returns,
+        unappliedCreditsByCustomerId: credits,
+      }),
+    );
   });
 
   app.get("/aging/suppliers", gate("purchases.invoice.view"), async (c) => {
@@ -411,6 +481,32 @@ export function createReportsRoutes(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { ...ctx, outputVatAccountId, inputVatAccountId }),
     );
+  });
+
+  app.get("/tax/withholding", gate("accounting.reports.view"), async (c) => {
+    const today = todayIso(deps);
+    const definition = createWithholdingTaxReport(firstOfYear(today), today);
+    const [vouchers, suppliers] = await Promise.all([
+      deps.voucherDocuments?.list({ status: "confirmed" }) ?? Promise.resolve([]),
+      deps.suppliers.findAll(),
+    ]);
+    const supplierName = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+    const rows = vouchers.flatMap((doc) => {
+      const line = doc.lines[0];
+      const withheld = line?.withholdingAmount;
+      if (!line || !withheld || withheld.scaled <= 0n) return [];
+      return [{
+        voucherId: doc.id,
+        voucherNo: doc.docNo,
+        date: doc.date,
+        partyId: line.supplierId,
+        partyNameAr: (line.supplierId && supplierName.get(line.supplierId)) || "—",
+        grossAmount: line.amount,
+        ratePercent: line.withholdingRatePercent ?? null,
+        withheldAmount: withheld,
+      }];
+    });
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { rows }));
   });
 
   app.get("/accounting/general-ledger", gate("accounting.reports.view"), async (c) => {

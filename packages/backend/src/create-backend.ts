@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { createApp, type App } from "@mezan/api";
 import {
   StockLedgerService,
+  applyAllocatedSettlement,
+  InvalidSalesInvoicePaymentError,
+  postJournalEntry,
+  resolvePrice,
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
   createTreasuryLedgerReader,
@@ -25,6 +29,7 @@ import {
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
   purchaseInvoiceTotal,
+  purchaseInvoiceBaseTotal,
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
@@ -48,6 +53,7 @@ import {
   createSqliteUnitOfWork,
   createSqliteAccountRepository,
   createSqliteSettingsStore,
+  createSqliteVatFilingStore,
   createSqliteBranchStore,
   createSqliteWarehouseStore,
   createSqliteCustomerRepository,
@@ -156,6 +162,13 @@ const PURCHASE_GL_ACCOUNTS = {
 const FIXED_ASSETS_GL_ACCOUNTS = {
   depreciationExpenseAccountId: "5400",
   accumulatedDepreciationAccountId: "1590",
+  // Disposal clears the asset's cost and its accumulated depreciation, and the
+  // difference against the proceeds is a gain or a loss (D13). 1510 is only the
+  // last-resort fallback: every seeded category names its own asset account,
+  // and 1500 itself is a header, so nothing may post to it.
+  assetAccountId: "1510",
+  disposalGainAccountId: "4500",
+  disposalLossAccountId: "5450",
 };
 
 /**
@@ -177,8 +190,13 @@ const INVENTORY_WRITEDOWN_GL_ACCOUNTS = {
  * finished goods (1220), labor applied (5110), overhead applied (5210).
  */
 const MANUFACTURING_GL_ACCOUNTS = {
-  finishedGoodsAccountId: "1220",
-  rawInventoryAccountId: "1210",
+  // Both inventory legs post to the ONE control account the stock ledger moves
+  // value through. 1210/1220 are presentational sub-classifications the stock
+  // engine does not distinguish, and posting to them left GL 1200 flat while
+  // the sub-ledger moved by labour plus overhead (D3) — `accountBalance` has no
+  // subtree rollup, so a control account only ever sees what was posted to it.
+  finishedGoodsAccountId: "1200",
+  rawInventoryAccountId: "1200",
   laborAppliedAccountId: "5110",
   overheadAppliedAccountId: "5210",
 };
@@ -202,20 +220,26 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
   accountsPayableId: "2100",
   inputTaxPayableId: "1400",
   inventoryAccountId: "1200",
+  costVarianceAccountId: "5080",
 };
 
 /**
  * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
- * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
- * stock funded by owner's capital — mirroring
- * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
- * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
- * move quantity/value through the stock ledger only: no dedicated inventory
- * shrinkage/write-off leaf exists yet in the standard COA template
- * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ * المخزون). EVERY reason posts a balancing journal entry: an adjustment that
+ * moves the stock ledger and posts nothing puts the sub-ledger permanently out
+ * of step with GL 1200 (D2 — a physical count left inventory off by 122.00).
+ *
+ * Opening stock is funded by owner's capital; every other reason is a shrinkage
+ * or a gain against 5070. SUPPLIER_RETURN here is the stock-only correction —
+ * the payable side belongs to a purchase-return document, which owns both
+ * halves; posting AP from an adjustment would move GL 2100 with no document
+ * behind it and break the AP reconciliation.
  */
-function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
-  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } {
+  return {
+    inventoryAccountId: "1200",
+    counterpartAccountId: reason === "INITIAL_STOCK" ? "3100" : "5070",
+  };
 }
 
 /**
@@ -427,6 +451,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const uow = createSqliteUnitOfWork(sqlite);
   const settings = createSqliteSettingsStore(sqlite);
+  const vatFilings = createSqliteVatFilingStore(sqlite);
   const branches = createSqliteBranchStore(sqlite);
   const warehouses = createSqliteWarehouseStore(sqlite);
   const accounts = createSqliteAccountRepository(sqlite);
@@ -582,7 +607,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const workflowConfigs = createSqliteWorkflowConfigStore(sqlite);
   const approvalRequests = createSqliteApprovalRequestStore(sqlite);
 
-  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering };
+  // vatFilings rides along so a DOCUMENT confirm is gated by a filed return
+  // exactly as a hand-written journal entry is (D29).
+  const salesInvoiceGl = { ledger, accounts, periods: fiscalPeriods, numbering: ledger.numbering, vatFilings };
   const stockService = new StockLedgerService({
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
@@ -590,8 +617,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     policy: { allowNegativeStock: false },
     transaction: stockLedger.transaction,
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
-    // posts only when BOTH are present) — today that's just stock-adjustments'
-    // INITIAL_STOCK reason (createInventoryOpsStockHook below); every other stock
+    // posts only when BOTH are present) — today that's every stock-adjustment
+    // reason (createInventoryOpsStockHook below); every other stock
     // hook (sales invoices, purchases, manufacturing, transfers) posts its own GL
     // through a separate path and never passes `command.gl`, so this is additive.
     gl: createInventoryGlPostingHook(salesInvoiceGl),
@@ -637,7 +664,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
     repo: salesReturnStore,
-    numbering: { next: () => ledger.numbering.next("SALES_RETURN") },
+    numbering: { next: (opts) => ledger.numbering.next("SALES_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
@@ -645,7 +672,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const purchaseReturns = new DocumentService(createPurchaseReturnDocumentType(PURCHASE_RETURN_GL_ACCOUNTS), {
     repo: purchaseReturnStore,
-    numbering: { next: () => ledger.numbering.next("PURCHASE_RETURN") },
+    numbering: { next: (opts) => ledger.numbering.next("PURCHASE_RETURN", { branchId: opts?.branchId }) },
     gl: documentGl,
     stock: createInventoryStockHook(stockService),
     workflow: documentWorkflowGate,
@@ -653,14 +680,14 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   });
   const landedCostDocuments = new DocumentService(createLandedCostDocumentType(LANDED_COST_GL_ACCOUNTS), {
     repo: landedCostStore,
-    numbering: { next: () => ledger.numbering.next("LANDED_COST") },
+    numbering: { next: (opts) => ledger.numbering.next("LANDED_COST", { branchId: opts?.branchId }) },
     gl: documentGl,
     workflow: documentWorkflowGate,
   });
   const landedCosts = new LandedCostService(landedCostDocuments, stockService);
   const installmentPlanDocuments = new DocumentService(installmentPlanDocumentType, {
     repo: installmentPlans,
-    numbering: { next: () => ledger.numbering.next("INSTALLMENT_PLAN") },
+    numbering: { next: (opts) => ledger.numbering.next("INSTALLMENT_PLAN", { branchId: opts?.branchId }) },
     workflow: documentWorkflowGate,
   });
 
@@ -672,12 +699,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
-    numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
+    numbering: { next: (opts) => ledger.numbering.next("STOCK_ADJUSTMENT", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
   });
   const stockTransfers = new DocumentService<StockTransferDocLine>(stockTransferDocumentType, {
     repo: inventoryOps.stockTransfers,
-    numbering: { next: () => ledger.numbering.next("STOCK_TRANSFER") },
+    numbering: { next: (opts) => ledger.numbering.next("STOCK_TRANSFER", { branchId: opts?.branchId }) },
     stock: inventoryOpsStockHook,
   });
   const physicalCounts = new PhysicalCountService({
@@ -693,29 +720,82 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * cost postings above already use (1105 trade receivables, 2100 trade
    * payables, 1200 inventory). AR/inventory sub-ledger totals are recomputed
    * independently of the GL (never read the ledger itself, or a mismatch could
-   * never surface) — AR from live sales invoices' outstanding balance (the
-   * SAME grandTotal-minus-amountPaid math credit-control exposure uses),
-   * inventory from the stock-ledger's own WAC snapshots. Purchase invoices
-   * don't track payments yet (purchasing/purchase-invoice.ts), so every
-   * confirmed invoice's full total is outstanding AP — matching
-   * reports/aging-suppliers.ts's own documented assumption.
+   * never surface) — inventory from the stock-ledger's own WAC snapshots, AR
+   * and AP from the documents minus what the ALLOCATION sub-ledger records as
+   * settled.
+   *
+   * Allocations are the single store of "how much of this invoice is paid"
+   * (D1/D18). Reading the invoice's own `amountPaid` counted collections that
+   * had never moved cash, and ignoring allocations entirely on the AP side left
+   * every supplier payment moving GL 2100 while the sub-ledger stood still.
+   * Historical-import archives carry opening balances that post to the same two
+   * control accounts (D23), so their remaining balances belong here too.
    */
   async function resolveReconciliationControls() {
-    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs] = await Promise.all([
+    const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs, purchaseArchives, salesArchives] = await Promise.all([
       salesInvoices.list(),
       purchaseInvoices.list(),
       stockLedger.snapshots.list(),
       salesReturns.list(),
       purchaseReturns.list(),
       landedCostDocuments.list(),
+      historicalImportArchives.list(),
+      salesHistoricalImportArchives.list(),
     ]);
+    /**
+     * Every confirmed voucher that names a control account as its counterparty
+     * moves that account the moment it confirms — a collection, a supplier
+     * payment, a refund either way. Whether the money was applied to a specific
+     * invoice is a DISTRIBUTION question, not a second movement: an allocation
+     * says which invoice the cash belongs to, it does not move the GL again. So
+     * the sub-ledger follows the voucher, not the allocation.
+     *
+     * A receipt credits its counterparty (money in settles a receivable, or
+     * un-settles a payable when a supplier refunds); a payment debits it.
+     */
+    const voucherEffect = { receivable: 0n, payable: 0n };
+    for (const doc of await vouchers.documents.list({ status: "confirmed" })) {
+      const line = doc.lines[0];
+      if (!line || line.direction === "transfer") continue;
+      const credited = line.direction === "receipt";
+      if (line.counterpartyGlAccountId === "1105") {
+        voucherEffect.receivable += credited ? -line.amount.scaled : line.amount.scaled;
+      }
+      if (line.counterpartyGlAccountId === "2100") {
+        voucherEffect.payable += credited ? line.amount.scaled : -line.amount.scaled;
+      }
+    }
+
+    /**
+     * A cheque reclassifies a receivable/payable the moment it is written: an
+     * incoming cheque credits AR into cheques-under-collection, an outgoing one
+     * debits AP into cheques-payable. Both move the control account, so the
+     * sub-ledger has to follow them or it reads permanently high. Only an
+     * OUTGOING bounce credits the counterparty back — an incoming bounce moves
+     * under-collection to the bounced account and leaves AR where it is.
+     */
+    const chequeEffect = { receivable: 0n, payable: 0n };
+    for (const cheque of await cheques.list()) {
+      const restored = cheque.direction === "outgoing" && cheque.status === "bounced";
+      const net = restored ? 0n : -cheque.amount.scaled;
+      if (cheque.counterpartyGlAccountId === "1105") chequeEffect.receivable += net;
+      if (cheque.counterpartyGlAccountId === "2100") chequeEffect.payable += net;
+    }
 
     let arScaled = 0n;
     for (const inv of invoices) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
       const totals = salesInvoiceTotals(inv);
-      arScaled += totals.grandTotal.scaled - inv.amountPaid.scaled;
+      arScaled += totals.grandTotal.scaled;
     }
+    for (const archive of salesArchives) {
+      if (archive.settled) continue;
+      arScaled += archive.docType === "SALES_RETURN"
+        ? -archive.remainingBalance.scaled
+        : archive.remainingBalance.scaled;
+    }
+    arScaled += voucherEffect.receivable;
+    arScaled += chequeEffect.receivable;
     // A confirmed sales return credits AR in the GL. Omitting it here left the
     // control account moving while the sub-ledger stood still, so every tenant
     // that ever posted a return saw a false mismatch.
@@ -727,8 +807,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     let apScaled = 0n;
     for (const inv of purchInvoices) {
       if (inv.status !== "confirmed") continue;
-      apScaled += purchaseInvoiceTotal(inv).scaled;
+      // The BASE-currency figure, which is what the control account holds.
+      apScaled += purchaseInvoiceBaseTotal(inv).scaled;
     }
+    for (const archive of purchaseArchives) {
+      if (archive.settled) continue;
+      apScaled += archive.docType === "PURCHASE_RETURN"
+        ? -archive.remainingBalance.scaled
+        : archive.remainingBalance.scaled;
+    }
+    apScaled += voucherEffect.payable;
+    apScaled += chequeEffect.payable;
     // A purchase return debits AP; a landed cost credits it (the freight and
     // customs owed to a third party accrue to the same control account).
     for (const doc of purchaseReturnDocs) {
@@ -820,6 +909,72 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     await vanTripVoucherService.confirmVoucher(id);
   }
 
+  /**
+   * Roadside takings, posted into the van's own treasury as a receipt voucher
+   * (D22). A sale is revenue; a collection is a customer advance until someone
+   * applies it to an invoice — crediting AR here instead would move GL 1105
+   * with no allocation behind it and break the AR reconciliation, because the
+   * movement carries no customer to allocate against.
+   */
+  async function recordVanCashTaking(input: {
+    tripId: string;
+    movementId: string;
+    kind: "sale" | "collection";
+    amount: Money;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+  }): Promise<void> {
+    if (input.amount.scaled <= 0n) return;
+    const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
+    const id = `VAN-CASH:${input.movementId}`;
+    await vanTripVoucherService.createVoucher({
+      id,
+      date: input.date,
+      memo: `${input.kind === "sale" ? "بيع" : "تحصيل"} ميداني — رحلة ${input.tripId}`,
+      voucherType: "other_income",
+      amount: input.amount,
+      branchId: input.branchId,
+      paymentMethod: "cash",
+      treasuryAccountId: input.vanTreasuryAccountId,
+      treasuryGlAccountId: van?.glAccountId ?? "1010",
+      counterpartyGlAccountId: input.kind === "sale" ? "4100" : "2160",
+    });
+    await vanTripVoucherService.confirmVoucher(id);
+  }
+
+  /**
+   * The settlement's counted-versus-expected difference, written off the van's
+   * treasury to عجز/فائض الصندوق. The transfer only hands back what was
+   * counted, so without this the difference stays on the van's books as cash
+   * nobody holds and the next trip inherits it.
+   */
+  async function recordVanCashVariance(input: {
+    tripId: string;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+    variance: Money;
+  }): Promise<void> {
+    if (input.variance.scaled === 0n) return;
+    const shortage = input.variance.scaled < 0n;
+    const van = await treasuryAccounts.findById(input.vanTreasuryAccountId);
+    const id = `VAN-VAR:${input.tripId}`;
+    await vanTripVoucherService.createVoucher({
+      id,
+      date: input.date,
+      memo: `${shortage ? "عجز" : "فائض"} تسوية رحلة ${input.tripId}`,
+      voucherType: shortage ? "other_expense" : "other_income",
+      amount: Money.fromScaled(shortage ? -input.variance.scaled : input.variance.scaled),
+      branchId: input.branchId,
+      paymentMethod: "cash",
+      treasuryAccountId: input.vanTreasuryAccountId,
+      treasuryGlAccountId: van?.glAccountId ?? "1010",
+      counterpartyGlAccountId: shortage ? "5900" : "4900",
+    });
+    await vanTripVoucherService.confirmVoucher(id);
+  }
+
   const app = createApp(uow, {
     settingsStore: settings,
     branchStore: branches,
@@ -852,6 +1007,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       audit: auditSink,
+      vatFilings,
     },
     vouchers: {
       audit: auditSink,
@@ -868,6 +1024,19 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       periods: fiscalPeriods,
       numbering: ledger.numbering,
       treasuryAccounts,
+      // Without this the treasury guard reads its own hardcoded default and both
+      // سياسة الخزينة switches on the settings screen do nothing (D19).
+      settings,
+      // Allocating a collection has to reach the invoice document, or the GL
+      // credits AR while the invoice still reports amountPaid 0 forever (D1).
+      // Purchase invoices carry no paid field; their settled figure lives in the
+      // allocation sub-ledger, which the reconciliation above now reads.
+      settlement: {
+        applySettled: async ({ invoiceId, kind, settled }) => {
+          if (kind !== "sales") return;
+          await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+        },
+      },
     },
     purchases: {
       orders: purchaseOrders,
@@ -878,6 +1047,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gl: salesInvoiceGl,
       accounts: PURCHASE_GL_ACCOUNTS,
       allocatable: vouchers.invoices,
+      // Without these a foreign-currency invoice posted its foreign figures as
+      // though they were EGP, and the debt was invisible to revaluation (D24).
+      exchangeRates,
+      baseCurrency: "EGP",
       audit: auditSink,
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
@@ -886,7 +1059,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesInvoices: {
       repo: salesInvoices,
-      numbering: { next: () => ledger.numbering.next("SALES_INVOICE") },
+      numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       stock: createSalesInvoiceStockHook(stockService),
       // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
@@ -895,6 +1068,75 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       audit: auditSink,
       events: salesInvoiceEvents,
       allocatable: vouchers.invoices,
+      // The customer's own price list, consulted SERVER-side. The engine
+      // (resolvePrice) always existed and no route called it, so the whole
+      // pricing order held only in the browser (D35).
+      /**
+       * تحصيل من عميل — the invoice screen's collect action. It creates and
+       * CONFIRMS a real collection voucher and allocates it to the invoice, so
+       * the money lands in a treasury account, AR is credited in the ledger,
+       * and the invoice's amountPaid follows from the allocation. It used to
+       * increment amountPaid and post nothing (D1).
+       */
+      collect: async (input) => {
+        const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
+        if (!treasury?.glAccountId) {
+          throw new InvalidSalesInvoicePaymentError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+        }
+        const voucherId = `COLL:${input.invoiceId}:${randomUUID()}`;
+        const service = new VoucherService({
+          documents: vouchers.documents,
+          ledger,
+          accounts,
+          periods: fiscalPeriods,
+          numbering: ledger.numbering,
+          treasuryAccounts,
+          allocations: vouchers.allocations,
+          invoices: vouchers.invoices,
+          settings,
+          settlement: {
+            applySettled: async ({ invoiceId, kind, settled }) => {
+              if (kind !== "sales") return;
+              await applyAllocatedSettlement(salesInvoices, invoiceId, settled);
+            },
+          },
+          audit: auditSink,
+          actor: input.actor,
+        });
+        await service.createVoucher({
+          id: voucherId,
+          date: input.date,
+          memo: input.memo ?? undefined,
+          voucherType: "customer_collection",
+          amount: input.amount,
+          branchId: input.branchId,
+          paymentMethod: input.paymentMethod,
+          treasuryAccountId: input.treasuryAccountId,
+          treasuryGlAccountId: treasury.glAccountId,
+          counterpartyGlAccountId: "1105",
+          customerId: input.customerId,
+          referenceNo: input.referenceNo ?? null,
+        });
+        await service.confirmVoucher(voucherId);
+        await service.allocate(voucherId, {
+          allocationId: `${voucherId}:A1`,
+          invoiceId: input.invoiceId,
+          amount: input.amount,
+        });
+        return { voucherId };
+      },
+      pricing: {
+        listPriceFor: async (customerId: string, itemId: string) => {
+          const customer = await customers.findById(customerId);
+          if (!customer?.priceListId) return null;
+          const list = await priceLists.findById(customer.priceListId);
+          if (!list) return null;
+          const item = await items.findById(itemId);
+          const fallback = item?.salePrice ?? Money.zero();
+          const resolved = resolvePrice(list, itemId, fallback);
+          return resolved.scaled === 0n ? null : resolved;
+        },
+      },
     },
     cheques: {
       cheques,
@@ -909,7 +1151,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     promotionRepo: promotions,
     salesQuotes: {
       repo: salesQuotes,
-      numbering: { next: () => ledger.numbering.next("SALES_QUOTE") },
+      numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
     },
     // --- phase9/accounting-depth ---
     exchangeRateRepo: exchangeRates,
@@ -990,6 +1232,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       trips: vanTrips,
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
+      recordCashTaking: recordVanCashTaking,
+      recordCashVariance: recordVanCashVariance,
     },
     manufacturing: {
       boms: manufacturing.boms,
@@ -1011,10 +1255,25 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       orders: purchaseOrders,
       numbering: ledger.numbering,
     },
-    // gl/accounts omitted — no historical-import GL adapter yet; archives
-    // import without posting a remaining-balance journal entry.
     historicalImport: {
       archives: historicalImportArchives,
+      // Without these the domain's opening-balance branch never runs and a
+      // migrated business owes its suppliers nothing in the ledger (D23).
+      gl: {
+        post: async (posting) => {
+          await postJournalEntry(
+            {
+              id: `HIST-PI-JE:${posting.sourceDocId}`,
+              date: posting.date,
+              memo: posting.memo,
+              source: "system",
+              lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+            },
+            salesInvoiceGl,
+          );
+        },
+      },
+      accounts: { openingBalanceAccountId: "3200", payableAccountId: "2100" },
     },
     printTemplateConfig: {
       repo: printTemplateConfig,
@@ -1045,10 +1304,23 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         };
       },
     },
-    // gl/accounts omitted — no historical-import GL adapter yet; archives
-    // import without posting a remaining-balance journal entry.
     salesHistoricalImport: {
       archives: salesHistoricalImportArchives,
+      gl: {
+        post: async (posting) => {
+          await postJournalEntry(
+            {
+              id: `HIST-SI-JE:${posting.sourceDocId}`,
+              date: posting.date,
+              memo: posting.memo,
+              source: "system",
+              lines: posting.lines.map((l) => ({ accountId: l.accountId, debit: l.debit, credit: l.credit })),
+            },
+            salesInvoiceGl,
+          );
+        },
+      },
+      accounts: { openingBalanceAccountId: "3200", receivableAccountId: "1105" },
     },
     salesReturns: {
       service: salesReturns,
@@ -1132,6 +1404,13 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     installments: { plans: installmentPlanDocuments, plansRepo: installmentPlans, followUps },
     reports: {
       allocatable: vouchers.invoices,
+      // The customer aging ladder has to net every credit the GL already
+      // posted against 1105, or it and the dashboard tile report two
+      // different receivables (D37).
+      salesReturnDocs: salesReturns,
+      cheques,
+      voucherDocuments: vouchers.documents,
+      allocations: vouchers.allocations,
       salesInvoices,
       purchaseInvoices,
       customers,

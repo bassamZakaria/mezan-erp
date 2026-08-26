@@ -1,15 +1,18 @@
 import type { ReactNode } from "react";
-import { cn, Chip } from "@mezan/ui";
+import {
+  Chip,
+  Field as UiField,
+  Select,
+  Switch,
+  TextArea,
+  TextInput,
+} from "@mezan/ui";
 
 /**
- * Small local form primitives for the Settings tabs. @mezan/ui does not yet
- * ship generic text/select/toggle inputs (only the domain-specific
- * MoneyInput/QtyInput/EntityPicker), so these compose its `cn` + `Chip` and
- * match the input styling already used by DocumentList's search box.
+ * Thin Settings-tab wrappers over the @mezan/ui form primitives: they only
+ * bind the tabs' `(value) => void` change shape to the primitives' native
+ * event signature.
  */
-
-const controlClass =
-  "w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none transition-colors focus:border-brand disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-ink-faint";
 
 export interface FieldProps {
   label: string;
@@ -20,11 +23,9 @@ export interface FieldProps {
 
 export function Field({ label, hint, className, children }: FieldProps) {
   return (
-    <label className={cn("flex flex-col gap-[6px]", className)}>
-      <span className="text-[12.5px] font-semibold text-ink">{label}</span>
+    <UiField label={label} hint={hint} className={className}>
       {children}
-      {hint ? <span className="text-[11.5px] text-ink-faint">{hint}</span> : null}
-    </label>
+    </UiField>
   );
 }
 
@@ -41,13 +42,12 @@ export interface TextFieldProps {
 export function TextField({ label, value, onChange, placeholder, hint, disabled, type = "text" }: TextFieldProps) {
   return (
     <Field label={label} hint={hint}>
-      <input
+      <TextInput
         type={type}
         value={value}
         placeholder={placeholder}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className={controlClass}
       />
     </Field>
   );
@@ -67,15 +67,15 @@ export interface NumberFieldProps {
 export function NumberField({ label, value, onChange, hint, min, max, step, disabled }: NumberFieldProps) {
   return (
     <Field label={label} hint={hint}>
-      <input
+      <TextInput
         type="number"
+        numeric
         value={Number.isNaN(value) ? "" : value}
         min={min}
         max={max}
         step={step}
         disabled={disabled}
         onChange={(e) => onChange(e.target.valueAsNumber)}
-        className={cn(controlClass, "mz-num")}
       />
     </Field>
   );
@@ -94,13 +94,12 @@ export interface TextAreaFieldProps {
 export function TextAreaField({ label, value, onChange, placeholder, hint, disabled, rows = 3 }: TextAreaFieldProps) {
   return (
     <Field label={label} hint={hint}>
-      <textarea
+      <TextArea
         value={value}
         placeholder={placeholder}
         disabled={disabled}
         rows={rows}
         onChange={(e) => onChange(e.target.value)}
-        className={cn(controlClass, "resize-y")}
       />
     </Field>
   );
@@ -123,13 +122,7 @@ export interface SelectFieldProps {
 export function SelectField({ label, value, onChange, options, hint, disabled }: SelectFieldProps) {
   return (
     <Field label={label} hint={hint}>
-      <select value={value} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={controlClass}>
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <Select value={value} onChange={onChange} options={options} disabled={disabled} aria-label={label} />
     </Field>
   );
 }
@@ -150,27 +143,7 @@ export function ToggleField({ label, checked, onChange, hint, disabled }: Toggle
         <div className="text-[13px] font-semibold text-ink">{label}</div>
         {hint ? <div className="mt-[3px] max-w-[52ch] text-[11.5px] text-ink-muted">{hint}</div> : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative h-[22px] w-[38px] flex-none rounded-pill border transition-colors",
-          checked ? "border-brand bg-brand" : "border-border bg-surface-3",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            "absolute top-[2px] h-[16px] w-[16px] rounded-full bg-surface shadow-1 transition-[inset-inline-start]",
-            checked ? "start-[18px]" : "start-[2px]",
-          )}
-        />
-      </button>
+      <Switch checked={checked} onChange={onChange} label={label} disabled={disabled} />
     </div>
   );
 }

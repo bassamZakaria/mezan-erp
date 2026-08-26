@@ -27,6 +27,13 @@ export interface SequenceDefinition {
   readonly padLength: number;
   /** Whether the counter resets to 1 at the start of each calendar year. */
   readonly annualReset: boolean;
+  /**
+   * Whether each branch keeps its OWN counter, and carries its code in the
+   * number. Off, the counter is tenant-global: two branches selling on the same
+   * day take consecutive numbers off one sequence, so neither branch's numbers
+   * run 1, 2, 3 and an auditor cannot read a branch's books in isolation (D33).
+   */
+  readonly branchScoped?: boolean;
 }
 
 export const SEQUENCE_DEFINITIONS = [
@@ -78,7 +85,7 @@ export type SequenceCode = (typeof SEQUENCE_DEFINITIONS)[number]["code"];
  * guarded separately (see `NextNumberService`'s doc comment).
  */
 export type SequenceOverride = Partial<
-  Pick<SequenceDefinition, "prefix" | "padLength" | "annualReset">
+  Pick<SequenceDefinition, "prefix" | "padLength" | "annualReset" | "branchScoped">
 >;
 
 /** Merge an admin override onto a base definition — override fields win. */
@@ -92,6 +99,7 @@ export function applySequenceOverride(
     ...(override.prefix !== undefined ? { prefix: override.prefix } : {}),
     ...(override.padLength !== undefined ? { padLength: override.padLength } : {}),
     ...(override.annualReset !== undefined ? { annualReset: override.annualReset } : {}),
+    ...(override.branchScoped !== undefined ? { branchScoped: override.branchScoped } : {}),
   };
 }
 
@@ -114,6 +122,10 @@ export function getSequenceDefinition(code: string): SequenceDefinition {
 export function formatSequenceNumber(
   def: SequenceDefinition,
   value: number,
+  branchCode?: string | null,
 ): string {
-  return `${def.prefix}${String(value).padStart(def.padLength, "0")}${def.suffix ?? ""}`;
+  // A branch-scoped number carries its branch, or two branches' number 1 would
+  // be indistinguishable on the page (D33).
+  const branch = def.branchScoped && branchCode ? `${branchCode}-` : "";
+  return `${def.prefix}${branch}${String(value).padStart(def.padLength, "0")}${def.suffix ?? ""}`;
 }

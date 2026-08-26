@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { useTranslation } from "../i18n";
 import { Card } from "./atoms";
+import { Checkbox, SearchInput } from "./form";
 
 /**
  * PermissionMatrix — the grouped checkbox matrix behind the role editor
@@ -102,20 +103,13 @@ export function PermissionMatrix({
   return (
     <div className={cn("w-full", className)}>
       {onSearchChange ? (
-        <div className="mb-[14px] flex min-w-[240px] items-center gap-[9px] rounded-md border border-border bg-surface px-[13px] py-[9px] focus-within:border-brand">
-          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px] flex-none text-ink-faint">
-            <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-            <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => onSearchChange(e.target.value)}
-            placeholder={searchPlaceholder ?? t("permissions.searchPlaceholder")}
-            aria-label={searchPlaceholder ?? t("permissions.searchPlaceholder")}
-            className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
-          />
-        </div>
+        <SearchInput
+          className="mb-[14px] min-w-[240px]"
+          value={query}
+          onValueChange={onSearchChange}
+          placeholder={searchPlaceholder ?? t("permissions.searchPlaceholder")}
+          aria-label={searchPlaceholder ?? t("permissions.searchPlaceholder")}
+        />
       ) : null}
 
       <div className="flex flex-col gap-[12px]">
@@ -130,15 +124,11 @@ export function PermissionMatrix({
             <Card key={mod.key} className="overflow-hidden">
               <div className="flex items-center gap-[10px] border-b border-border bg-surface-2 px-[15px] py-[11px]">
                 {onToggleModule ? (
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     aria-label={t("permissions.selectAllIn", { module: mod.label })}
                     checked={allSelected}
-                    ref={(el) => {
-                      if (el) el.indeterminate = someSelected;
-                    }}
+                    indeterminate={someSelected}
                     onChange={() => onToggleModule(mod.key, moduleCodes(mod), !allSelected)}
-                    className="h-[15px] w-[15px] flex-none accent-brand"
                   />
                 ) : null}
                 <button
@@ -210,12 +200,11 @@ function PermissionCard({ item, onToggle }: { item: PermissionMatrixItem; onTogg
       )}
       title={item.disabled ? item.disabledReason : undefined}
     >
-      <input
-        type="checkbox"
+      <Checkbox
         checked={item.selected}
         disabled={item.disabled}
         onChange={() => onToggle(item.code)}
-        className="mt-[2px] h-[15px] w-[15px] flex-none accent-brand"
+        className="mt-[2px] flex-none"
       />
       <span className="flex min-w-0 flex-1 flex-col gap-[2px]">
         <span className="flex flex-wrap items-center gap-[6px]">

@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
-import { FulcrumRule, DocumentList, DocumentDetail, StatusPill, VarianceBeam, Card, Button, trimMoneyString, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  FulcrumRule,
+  StatusPill,
+  TextInput,
+  VarianceBeam,
+  trimMoneyString,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
   useCancelPhysicalCount,
@@ -406,15 +418,17 @@ function CountEntryView({
                       <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.systemQty)}</td>
                     )}
                     <td className="px-[15px] py-[8px] text-end">
-                      <input
+                      <TextInput
                         type="number"
+                        size="sm"
+                        numeric
+                        className="w-[110px] text-end"
                         aria-label={t("counts.countedQtyFor", { item: itemLabel(l.itemId) })}
                         value={value}
                         min={0}
                         step="any"
                         disabled={!isInProgress}
                         onChange={(e) => setCounted((prev) => ({ ...prev, [l.itemId]: e.target.value }))}
-                        className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand disabled:bg-surface-3"
                       />
                     </td>
                     {blindOpen ? null : (

@@ -1,5 +1,17 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Card, Button, formatNumber, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  Chip,
+  DocumentList,
+  FulcrumRule,
+  Select,
+  StatusPill,
+  TextInput,
+  formatNumber,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -91,16 +103,21 @@ export function ExchangeRatesScreen() {
       {adding ? (
         <div className="mb-[16px] rounded-lg border border-border bg-surface p-[16px_18px]">
           <div className="flex flex-wrap items-end gap-[12px]">
-            <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
-              <select aria-label={t("fxRates.foreignCurrency")} value={draft.currency} onChange={(e) => setDraft((d) => ({ ...d, currency: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink">
-                {CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </label>
+            <div className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
+              <Select
+                size="sm"
+                className="w-[130px]"
+                aria-label={t("fxRates.foreignCurrency")}
+                value={draft.currency}
+                onChange={(value) => setDraft((d) => ({ ...d, currency: value }))}
+                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+              />
+            </div>
             <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.rate")}
-              <input aria-label={t("fxRates.rate")} inputMode="decimal" value={draft.rate} onChange={(e) => setDraft((d) => ({ ...d, rate: e.target.value }))} placeholder="50.2500" className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+              <TextInput size="sm" numeric aria-label={t("fxRates.rate")} inputMode="decimal" value={draft.rate} onChange={(e) => setDraft((d) => ({ ...d, rate: e.target.value }))} placeholder="50.2500" />
             </label>
             <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.effectiveFrom")}
-              <input type="date" aria-label={t("fxRates.effectiveFrom")} value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+              <TextInput size="sm" type="date" aria-label={t("fxRates.effectiveFrom")} value={draft.effectiveDate} onChange={(e) => setDraft((d) => ({ ...d, effectiveDate: e.target.value }))} />
             </label>
             <Button variant="primary" onClick={submitAdd}>{t("common.save")}</Button>
             <Button onClick={() => setAdding(false)}>{t("common.cancel")}</Button>

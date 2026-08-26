@@ -24,6 +24,19 @@ export interface AgingCustomersContext {
    * summing them would double-count an invoice settled through both paths.
    */
   readonly allocatedByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
+   * Confirmed sales returns per SOURCE invoice. A return credits AR in the GL,
+   * so an aging ladder that ignores it reports a debt the ledger has already
+   * cancelled.
+   */
+  readonly returnsByInvoiceId?: ReadonlyMap<string, Money>;
+  /**
+   * Customer credits that name no invoice — an incoming cheque, a collection
+   * nobody allocated. They credit AR in the GL the moment they are recorded, so
+   * the ladder has to absorb them; applied oldest-bucket-first, because that is
+   * the order a collector would actually clear a customer's debt in.
+   */
+  readonly unappliedCreditsByCustomerId?: ReadonlyMap<string, Money>;
 }
 
 export interface AgingCustomersParams {
@@ -71,6 +84,24 @@ function addToBucket(totals: AgingBucketTotals, days: number, amount: Money): Ag
   return { ...totals, over120: totals.over120.add(amount) };
 }
 
+/** Oldest bucket first — the order a collector clears a customer's debt in. */
+const BUCKETS = ["over120", "d91to120", "d61to90", "d31to60", "current"] as const;
+
+/** Draw an unallocated customer credit down the ladder, oldest debt first. */
+function applyCredit(totals: AgingBucketTotals, credit: Money): AgingBucketTotals {
+  let remaining = credit.scaled;
+  let next = totals;
+  for (const bucket of BUCKETS) {
+    if (remaining <= 0n) break;
+    const held = next[bucket].scaled;
+    if (held <= 0n) continue;
+    const taken = held < remaining ? held : remaining;
+    next = { ...next, [bucket]: Money.fromScaled(held - taken) };
+    remaining -= taken;
+  }
+  return next;
+}
+
 export function createAgingCustomersReport(
   defaultAsOfDate: string,
 ): ReportDefinition<AgingCustomersParams, AgingCustomersRow, AgingCustomersContext> {
@@ -99,11 +130,17 @@ export function createAgingCustomersReport(
         const totals = salesInvoiceTotals(invoice);
         const allocated = ctx.allocatedByInvoiceId?.get(invoice.id) ?? Money.zero();
         const settled = allocated.scaled > invoice.amountPaid.scaled ? allocated : invoice.amountPaid;
-        const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled);
+        const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
+        const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled - returned.scaled);
         if (balance.scaled <= 0n) continue;
         const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr);
         const days = daysPastDue(invoice.dueDate, params.asOfDate);
         byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
+      }
+      for (const [customerId, credit] of ctx.unappliedCreditsByCustomerId ?? []) {
+        const existing = byCustomer.get(customerId);
+        if (!existing || credit.scaled <= 0n) continue;
+        byCustomer.set(customerId, applyCredit(existing, credit));
       }
       return [...byCustomer.entries()].map(([customerId, agg]) => ({
         customerId,

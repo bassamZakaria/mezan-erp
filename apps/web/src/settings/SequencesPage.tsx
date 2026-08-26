@@ -1,5 +1,14 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  Checkbox,
+  DocumentList,
+  SidePanel,
+  StatusPill,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { SequenceListItemDTO } from "@mezan/contracts";
 import { useSequences, useUpdateSequence, useResetSequenceCounter } from "../data/platform-hooks";
 import { ApiError } from "../data/hooks";
@@ -244,10 +253,7 @@ function CounterAdjustPanel({
           {t("sequences.belowCurrent", { current: sequence.currentValue })}
         </p>
       ) : null}
-      <label className="flex items-start gap-[8px] text-[12px] text-ink">
-        <input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} className="mt-[2px]" />
-        <span>{t("sequences.counterConfirm")}</span>
-      </label>
+      <Checkbox checked={ack} onChange={(e) => setAck(e.target.checked)} label={t("sequences.counterConfirm")} />
       <div className="flex justify-end gap-[9px]">
         <Button size="sm" onClick={onCancel}>
           {t("sequences.cancel")}

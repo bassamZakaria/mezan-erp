@@ -166,6 +166,26 @@ async function seedVouchers(app: App): Promise<void> {
     supplierId: "SUPP-DEMO-2",
   });
 
+  // A payment that withholds: Egypt withholds on most local B2B payments, so
+  // the withholding report and GL 2210 need a real row to show (D27).
+  await step(app, "POST", "/vouchers", {
+    id: "VCH-DEMO-WHT",
+    date: "2026-08-19",
+    memo: "سداد لمورد خدمات بعد خصم ضريبة الخصم والتحصيل 3%",
+    voucherType: "supplier_payment",
+    amount: "2000.00",
+    branchId: BRANCH_ID,
+    paymentMethod: "bank",
+    treasuryAccountId: BANK_TREASURY_ID,
+    treasuryGlAccountId: ACCOUNTS.bank,
+    counterpartyGlAccountId: ACCOUNTS.payable,
+    supplierId: "SUPP-DEMO-2",
+    withholdingRatePercent: 3,
+    withholdingAmount: "60.00",
+    withholdingGlAccountId: "2210",
+  });
+  await step(app, "POST", "/vouchers/VCH-DEMO-WHT/confirm", {});
+
   await step(app, "POST", "/vouchers", {
     id: "VCH-DEMO-5",
     date: "2026-08-13",
@@ -377,6 +397,21 @@ async function seedFieldSales(app: App): Promise<void> {
   });
 }
 
+/**
+ * One VAT return already submitted, for a window nothing else in the seed or
+ * the scenarios posts into (D29). It makes the filings surface real without
+ * locking a period the rest of the demo data still writes to.
+ */
+async function seedVatFiling(app: App): Promise<void> {
+  await step(app, "POST", "/gl/vat-filings", {
+    id: "VATF-DEMO-2026-05",
+    periodFrom: "2026-05-01",
+    periodTo: "2026-05-31",
+    netAmount: "4180.00",
+    referenceNo: "ETA-VAT-2026-05-004180",
+  });
+}
+
 export async function seedTreasury(app: App): Promise<void> {
   await seedGlAccounts(app);
   await seedTreasuryAccountAndWarehouse(app);
@@ -385,4 +420,5 @@ export async function seedTreasury(app: App): Promise<void> {
   await seedExchangeRates(app);
   await seedInstallmentPlan(app);
   await seedFieldSales(app);
+  await seedVatFiling(app);
 }

@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { Button, DocumentList, StatusPill, SidePanel, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  DocumentList,
+  SidePanel,
+  StatusPill,
+  TextArea,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import type { PriceListDTO } from "@mezan/contracts";
 import { Field, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePriceList, usePriceLists } from "../data/hooks";
@@ -102,12 +109,7 @@ export function PriceListsScreen() {
           <TextField label={t("priceLists.field.name")} value={nameAr} onChange={setNameAr} placeholder={t("priceLists.field.namePlaceholder")} />
           <TextField label={t("priceLists.field.code")} value={code} onChange={setCode} placeholder="PL-001" />
           <Field label={t("priceLists.field.description")}>
-            <textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              rows={3}
-              className="w-full rounded-md border border-border bg-surface px-[13px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
-            />
+            <TextArea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} />
           </Field>
           <ToggleField label={t("priceLists.field.isBase")} checked={isBase} onChange={setIsBase} hint={t("priceLists.field.isBaseHint")} />
 

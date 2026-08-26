@@ -7,6 +7,7 @@ import {
   createIncomeStatementReport,
   createTrialBalanceReport,
   createVatReturnReport,
+  createWithholdingTaxReport,
   vatNetPayable,
   type Account,
   type VatReturnRow,
@@ -35,6 +36,7 @@ const incomeStatement = createIncomeStatementReport({ periodFrom: YEAR_START, pe
 const balanceSheet = createBalanceSheetReport(TODAY);
 const cashFlow = createCashFlowReport({ periodFrom: YEAR_START, periodTo: TODAY });
 const vatReturn = createVatReturnReport({ periodFrom: YEAR_START, periodTo: TODAY });
+const withholdingTax = createWithholdingTaxReport(YEAR_START, TODAY);
 const generalLedger = createGeneralLedgerReport({ periodFrom: YEAR_START, periodTo: TODAY });
 
 function VatNetSummary({ rows }: { rows: readonly VatReturnRow[] }) {
@@ -116,6 +118,11 @@ const TABS: readonly TabDef[] = [
         renderSummary={(rows) => <VatNetSummary rows={rows} />}
       />
     ),
+  },
+  {
+    id: "withholding-tax",
+    labelKey: "finReports.withholdingTax",
+    render: () => <ReportScreen definition={withholdingTax} apiPath="/tax/withholding" />,
   },
   {
     id: "general-ledger",

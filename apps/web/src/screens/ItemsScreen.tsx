@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -8,8 +9,10 @@ import {
   IconButton,
   Money,
   MoneyInput,
+  Select,
   SidePanel,
   StatusPill,
+  TextInput,
   type DocumentDetailTab,
   type DocumentListColumn,
   type DocumentListSort,
@@ -247,7 +250,7 @@ export function ItemsScreen() {
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter(
-        (i) => i.nameAr.toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || (i.nameEn ?? "").toLowerCase().includes(q),
+        (i) => matchesSearch(search, i.nameAr, i.code, i.nameEn),
       );
     }
     const sorted = [...rows].sort((a, b) => {
@@ -431,29 +434,33 @@ export function ItemsScreen() {
           <div className="flex flex-col gap-[8px]">
             {draft.alternateUnits.map((unit, index) => (
               <div key={index} className="flex items-end gap-[6px]">
-                <input
+                <TextInput
+                  size="sm"
+                  className="w-[70px]"
                   aria-label={t("items.unitCode")}
                   dir="ltr"
                   value={unit.code}
                   onChange={(e) => updateAlternateUnit(index, { code: e.target.value })}
                   placeholder="CTN"
-                  className="w-[70px] rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
-                <input
+                <TextInput
+                  size="sm"
+                  className="flex-1"
                   aria-label={t("items.unitName")}
                   value={unit.name}
                   onChange={(e) => updateAlternateUnit(index, { name: e.target.value })}
                   placeholder={t("items.carton")}
-                  className="flex-1 rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
-                <input
+                <TextInput
+                  size="sm"
+                  numeric
+                  className="w-[64px]"
                   aria-label={t("items.conversionFactor")}
                   type="number"
                   dir="ltr"
                   min={0}
                   value={unit.factor}
                   onChange={(e) => updateAlternateUnit(index, { factor: Number(e.target.value) })}
-                  className="mz-num w-[64px] rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <IconButton
                   aria-label={t("items.removeUnit")}
@@ -480,12 +487,14 @@ export function ItemsScreen() {
           <div className="flex flex-col gap-[8px]">
             {draft.barcodes.map((barcode, index) => (
               <div key={index} className="flex items-center gap-[6px]">
-                <input
+                <TextInput
+                  size="sm"
+                  numeric
+                  className="flex-1"
                   aria-label={t("items.barcode")}
                   dir="ltr"
                   value={barcode}
                   onChange={(e) => updateBarcode(index, e.target.value)}
-                  className="mz-num flex-1 rounded-md border border-border bg-surface px-[8px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
                 />
                 <IconButton
                   aria-label={t("items.removeBarcode")}
@@ -830,38 +839,34 @@ export function ItemsScreen() {
         searchPlaceholder={t("items.searchByNameOrCode")}
         filterBarExtra={
           <>
-            <select
+            <Select
+              size="sm"
+              className="w-[180px]"
               aria-label={t("items.filterByCategory")}
               value={categoryFilter}
-              onChange={(e) => {
-                setCategoryFilter(e.target.value);
+              onChange={(value) => {
+                setCategoryFilter(value);
                 setPage(1);
               }}
-              className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-            >
-              <option value="all">{t("items.allCategories")}</option>
-              {itemCategories.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nameAr}
-                </option>
-              ))}
-            </select>
-            <select
+              options={[
+                { value: "all", label: t("items.allCategories") },
+                ...itemCategories.map((c) => ({ value: c.id, label: c.nameAr })),
+              ]}
+            />
+            <Select
+              size="sm"
+              className="w-[160px]"
               aria-label={t("items.filterByUnit")}
               value={unitFilter}
-              onChange={(e) => {
-                setUnitFilter(e.target.value);
+              onChange={(value) => {
+                setUnitFilter(value);
                 setPage(1);
               }}
-              className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-            >
-              <option value="all">{t("items.allUnits")}</option>
-              {itemUnits.map((u) => (
-                <option key={u.code} value={u.code}>
-                  {u.nameAr}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "all", label: t("items.allUnits") },
+                ...itemUnits.map((u) => ({ value: u.code, label: u.nameAr })),
+              ]}
+            />
           </>
         }
         columns={columns}

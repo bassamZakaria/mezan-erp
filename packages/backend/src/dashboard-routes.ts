@@ -14,6 +14,14 @@ import {
   type AuthContextResolver,
 } from "@mezan/api";
 
+/**
+ * The accounts the dashboard's ذمم مدينة tile means: trade and instalment
+ * receivables owed by CUSTOMERS. Retention (1150) and employee advances (1160)
+ * are receivables of a different kind and belong on the balance sheet, not in a
+ * collections KPI.
+ */
+const CUSTOMER_RECEIVABLE_ACCOUNTS = new Set(["1105", "1110"]);
+
 export interface DashboardDeps {
   readonly accounts: Pick<AccountRepository, "list">;
   readonly ledger: Pick<LedgerRepository, "accountBalance" | "list">;
@@ -95,7 +103,10 @@ export function createDashboardRoutes(
     const { revenue, expenses } = periodPnl(inRange, typeById);
     const netProfit = revenue.add(expenses.negate());
     const cash = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("13"));
-    const receivables = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("11"));
+    // Customer receivables only — what the aging report means by the word.
+    // Summing the whole 11xx subtree swept in employee advances and an
+    // inventory provision, so the tile and the report never agreed (D37).
+    const receivables = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => CUSTOMER_RECEIVABLE_ACCOUNTS.has(a.code));
     const inventoryValue = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "asset" && a.code.startsWith("12"));
     const payables = await sumBalanceWhere(deps.ledger, accounts, toDate, (a) => a.type === "liability" && a.code !== "2200");
 

@@ -15,15 +15,28 @@ CREATE TABLE IF NOT EXISTS sequence_config (
   code         TEXT PRIMARY KEY,
   prefix       TEXT,
   pad_length   INTEGER,
-  annual_reset INTEGER
+  annual_reset INTEGER,
+  branch_scoped INTEGER
 );
 `;
+
+/**
+ * `branch_scoped` arrived after the table shipped; CREATE TABLE IF NOT EXISTS
+ * will not widen an existing database, so add it in place.
+ */
+function addMissingColumns(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(sequence_config)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "branch_scoped")) {
+    sqlite.exec(`ALTER TABLE sequence_config ADD COLUMN branch_scoped INTEGER`);
+  }
+}
 
 interface ConfigRow {
   code: string;
   prefix: string | null;
   pad_length: number | null;
   annual_reset: number | null;
+  branch_scoped: number | null;
 }
 
 function rowToOverride(row: ConfigRow): SequenceOverride {
@@ -31,6 +44,7 @@ function rowToOverride(row: ConfigRow): SequenceOverride {
   if (row.prefix !== null) override.prefix = row.prefix;
   if (row.pad_length !== null) override.padLength = row.pad_length;
   if (row.annual_reset !== null) override.annualReset = row.annual_reset === 1;
+  if (row.branch_scoped !== null) override.branchScoped = row.branch_scoped === 1;
   return override;
 }
 
@@ -41,16 +55,17 @@ class SqliteSequenceConfigStore implements SequenceConfigStore {
 
   constructor(private readonly sqlite: Database.Database) {
     this.selectOne = sqlite.prepare(
-      `SELECT code, prefix, pad_length, annual_reset FROM sequence_config WHERE code = ?`,
+      `SELECT code, prefix, pad_length, annual_reset, branch_scoped FROM sequence_config WHERE code = ?`,
     );
-    this.selectAll = sqlite.prepare(`SELECT code, prefix, pad_length, annual_reset FROM sequence_config`);
+    this.selectAll = sqlite.prepare(`SELECT code, prefix, pad_length, annual_reset, branch_scoped FROM sequence_config`);
     this.upsert = sqlite.prepare(`
-      INSERT INTO sequence_config (code, prefix, pad_length, annual_reset)
-      VALUES (@code, @prefix, @padLength, @annualReset)
+      INSERT INTO sequence_config (code, prefix, pad_length, annual_reset, branch_scoped)
+      VALUES (@code, @prefix, @padLength, @annualReset, @branchScoped)
       ON CONFLICT(code) DO UPDATE SET
         prefix = COALESCE(@prefix, prefix),
         pad_length = COALESCE(@padLength, pad_length),
-        annual_reset = COALESCE(@annualReset, annual_reset)
+        annual_reset = COALESCE(@annualReset, annual_reset),
+        branch_scoped = COALESCE(@branchScoped, branch_scoped)
     `);
   }
 
@@ -70,6 +85,7 @@ class SqliteSequenceConfigStore implements SequenceConfigStore {
       prefix: patch.prefix ?? null,
       padLength: patch.padLength ?? null,
       annualReset: patch.annualReset === undefined ? null : patch.annualReset ? 1 : 0,
+      branchScoped: patch.branchScoped === undefined ? null : patch.branchScoped ? 1 : 0,
     });
   }
 }
@@ -86,6 +102,7 @@ export function createSqliteSequenceConfigStore(
 ): SqliteSequenceConfigStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addMissingColumns(sqlite);
   const store = new SqliteSequenceConfigStore(sqlite);
   return Object.assign(store, {
     close: () => {

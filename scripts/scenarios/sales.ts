@@ -121,10 +121,29 @@ export async function run(ctx: Ctx): Promise<void> {
     const arLine = (glEntry?.lines ?? []).find((l: any) => l.accountId === AR_ACCOUNT);
     checkEq("the journal entry debits AR for exactly the grand total", n(arLine?.debit), expectedGrand);
 
-    const payment = await req("POST", "/sales-invoices/SCN-INV-1/payments", { amount: "300" });
-    check("a partial payment is recorded", payment.status === 200 && payment.body?.status === "partially_paid", JSON.stringify(payment.body));
-    checkEq("amountPaid reflects the payment (unaffected by D1 — this is the invoice's own recordPayment path)", n(payment.body?.amountPaid), 300);
-    checkEq("remainingBalance drops by exactly the payment amount", n(payment.body?.remainingBalance), expectedGrand - 300);
+    // Collecting on the invoice is a real receipt voucher, allocated — the same
+    // shape the reference product's "Collect" uses. It used to increment
+    // amountPaid and post nothing (docs/defects.md D1).
+    const noTreasury = await req("POST", "/sales-invoices/SCN-INV-1/payments", { amount: "300" });
+    checkEq("a collection with no treasury account to land in is refused", noTreasury.status, 400);
+
+    const arBeforeCollection = n((await arBalance()).balance);
+    const payment = await req("POST", "/sales-invoices/SCN-INV-1/payments", {
+      amount: "300",
+      treasuryAccountId: "TR-DEMO-CASH",
+      paymentMethod: "cash",
+    });
+    check("a partial collection is recorded", payment.status === 200 && payment.body?.status === "partially_paid", JSON.stringify(payment.body).slice(0, 250));
+    checkEq("amountPaid follows the allocation the voucher made", n(payment.body?.amountPaid), 300);
+    checkEq("remainingBalance drops by exactly the collected amount", n(payment.body?.remainingBalance), expectedGrand - 300);
+    check("and it names the voucher it created", typeof payment.body?.voucherId === "string", String(payment.body?.voucherId));
+
+    const voucher = (await req("GET", `/vouchers/${payment.body?.voucherId}`)).body;
+    check("that voucher is a confirmed customer collection", voucher?.status === "confirmed" && voucher?.voucherType === "customer_collection", JSON.stringify(voucher).slice(0, 250));
+    checkEq("for exactly the amount collected", n(voucher?.amount), 300);
+    check("allocated to this invoice", (voucher?.allocations ?? []).some((a: any) => a.invoiceId === "SCN-INV-1"), JSON.stringify(voucher?.allocations ?? []).slice(0, 200));
+    const arAfterCollection = n((await arBalance()).balance);
+    checkEq("and the LEDGER moved: AR is credited by the collection, not just the invoice screen", arBeforeCollection - arAfterCollection, 300);
 
     const reloaded = await req("GET", "/sales-invoices/SCN-INV-1");
     check(
@@ -506,9 +525,9 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 13. D1 + D9 on the real seeded example, read live rather than assumed ---
 
-  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns; the voucher collection is still D1", async () => {
+  await scenario("D1 + D9 — INV-DEMO-1's remainingBalance nets its confirmed returns AND its voucher collection", async () => {
     const invoice = (await req("GET", "/sales-invoices/INV-DEMO-1")).body;
-    check("D1: amountPaid never reflects VCH-DEMO-1's Treasury-voucher collection", n(invoice.amountPaid) === 0, JSON.stringify(invoice.amountPaid));
+    check("amountPaid reflects VCH-DEMO-1's Treasury-voucher collection (docs/defects.md D1 — the regression guard)", n(invoice.amountPaid) > 0, JSON.stringify(invoice.amountPaid));
 
     const allReturns = rows((await req("GET", "/sales-returns")).body);
     const against = allReturns.filter((r: any) => r.status === "confirmed" && r.lines?.[0]?.sourceInvoiceId === "INV-DEMO-1");

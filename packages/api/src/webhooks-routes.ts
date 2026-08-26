@@ -126,6 +126,7 @@ export function createWebhooksRoutes(
         await recordSensitiveEvent(audit, {
           module: "webhooks",
           entityType: "WEBHOOK",
+          entityId: webhook.id,
           action: "REGISTERED",
           actor,
           branchId: branchOf(c),
@@ -151,6 +152,7 @@ export function createWebhooksRoutes(
         await recordSensitiveEvent(audit, {
           module: "webhooks",
           entityType: "WEBHOOK",
+          entityId: webhook.id,
           action: "UPDATED",
           actor,
           branchId: branchOf(c),

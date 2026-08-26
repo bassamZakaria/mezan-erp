@@ -56,6 +56,7 @@ export const auditEvent = sqliteTable("audit_event", {
   stream: text("stream").notNull(),
   module: text("module").notNull(),
   entityType: text("entity_type").notNull(),
+  entityId: text("entity_id"),
   action: text("action").notNull(),
   actor: text("actor").notNull(),
   timestamp: text("timestamp").notNull(),

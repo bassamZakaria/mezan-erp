@@ -306,6 +306,7 @@ async function emitPosted(
     await recordSensitiveEvent(deps.audit, {
       module: "accounting",
       entityType: "JOURNAL_ENTRY",
+      entityId: entry.id,
       action: "POST",
       actor: deps.actor ?? "system",
       severity: "INFO",

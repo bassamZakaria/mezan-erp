@@ -23,11 +23,13 @@ export async function recordPurchaseAudit(
   entityType: PurchaseAuditEntityType,
   action: PurchaseAuditAction,
   details: Readonly<Record<string, unknown>>,
+  entityId?: string,
 ): Promise<void> {
   if (!deps.audit) return;
   await recordSensitiveEvent(deps.audit, {
     module: "purchases",
     entityType,
+    entityId: entityId ?? null,
     action,
     actor: deps.actor ?? "system",
     severity: action === "CANCEL" ? "WARNING" : "INFO",

@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS audit_event (
   stream      TEXT NOT NULL,
   module      TEXT NOT NULL,
   entity_type TEXT NOT NULL,
+  entity_id   TEXT,
   action      TEXT NOT NULL,
   actor       TEXT NOT NULL,
   branch_id   TEXT,
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS audit_event (
   details     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_stream ON audit_event(stream, id);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id);
 CREATE TRIGGER IF NOT EXISTS audit_event_no_update
   BEFORE UPDATE ON audit_event
   BEGIN SELECT RAISE(ABORT, 'audit_event is append-only'); END;
@@ -44,6 +46,7 @@ interface AuditRow {
   stream: string;
   module: string;
   entity_type: string;
+  entity_id: string | null;
   action: string;
   actor: string;
   branch_id: string | null;
@@ -57,6 +60,7 @@ function rowToEvent(r: AuditRow): AuditEvent {
     stream: r.stream as AuditStream,
     module: r.module,
     entityType: r.entity_type,
+    entityId: r.entity_id,
     action: r.action,
     actor: r.actor,
     branchId: r.branch_id,
@@ -74,6 +78,7 @@ const FILTER_COLUMNS: Record<string, string> = {
   actor: "actor",
   branchId: "branch_id",
   entityType: "entity_type",
+  entityId: "entity_id",
   severity: "severity",
 };
 
@@ -84,11 +89,11 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
   constructor(private readonly sqlite: Database.Database) {
     this.insert = sqlite.prepare(
       `INSERT INTO audit_event
-         (stream, module, entity_type, action, actor, branch_id, timestamp, severity, details)
-       VALUES (@stream, @module, @entityType, @action, @actor, @branchId, @timestamp, @severity, @details)`,
+         (stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details)
+       VALUES (@stream, @module, @entityType, @entityId, @action, @actor, @branchId, @timestamp, @severity, @details)`,
     );
     this.select = sqlite.prepare(
-      `SELECT stream, module, entity_type, action, actor, branch_id, timestamp, severity, details
+      `SELECT stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details
          FROM audit_event WHERE stream = ? ORDER BY id DESC LIMIT ?`,
     );
   }
@@ -98,6 +103,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
       stream: event.stream,
       module: event.module,
       entityType: event.entityType,
+      entityId: event.entityId,
       action: event.action,
       actor: event.actor,
       branchId: event.branchId,
@@ -144,7 +150,7 @@ class SqliteAuditSink implements AuditSink, AuditQueryPort {
     ).c;
     const rows = this.sqlite
       .prepare(
-        `SELECT stream, module, entity_type, action, actor, branch_id, timestamp, severity, details
+        `SELECT stream, module, entity_type, entity_id, action, actor, branch_id, timestamp, severity, details
            FROM audit_event ${where} ORDER BY id DESC LIMIT @limit OFFSET @offset`,
       )
       .all({ ...params, limit, offset }) as AuditRow[];
@@ -169,6 +175,11 @@ function addBranchColumnIfMissing(sqlite: Database.Database): void {
   if (!columns.some((c) => c.name === "branch_id")) {
     sqlite.exec(`ALTER TABLE audit_event ADD COLUMN branch_id TEXT`);
   }
+  // Same reasoning as branch_id: cannot be back-filled on an append-only table,
+  // and ALTER does not fire the UPDATE trigger.
+  if (!columns.some((c) => c.name === "entity_id")) {
+    sqlite.exec(`ALTER TABLE audit_event ADD COLUMN entity_id TEXT`);
+  }
 }
 
 /** Open a SQLite-backed AuditSink. ":memory:" for tests, a path for real. */
@@ -177,6 +188,7 @@ export function createSqliteAuditSink(path: SqliteConnectionInput = ":memory:"):
   sqlite.exec(CREATE_TABLE);
   addBranchColumnIfMissing(sqlite);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_branch ON audit_event(branch_id, id)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_event(entity_type, entity_id, id)`);
   const sink = new SqliteAuditSink(sqlite);
   return Object.assign(sink, {
     close: () => { if (owned) sqlite.close(); },

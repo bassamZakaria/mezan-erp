@@ -113,6 +113,7 @@ export function createSequencesRoutes(
       await recordSensitiveEvent(deps.audit, {
         module: "admin",
         entityType: "SEQUENCE",
+        entityId: code,
         action: "SEQUENCE_CONFIG_UPDATED",
         actor: actorOf(c),
         severity: "WARNING",
@@ -163,6 +164,7 @@ export function createSequencesRoutes(
       await recordSensitiveEvent(deps.audit, {
         module: "admin",
         entityType: "SEQUENCE",
+        entityId: code,
         action: "SEQUENCE_COUNTER_ADJUSTED",
         actor: actorOf(c),
         severity: "CRITICAL",

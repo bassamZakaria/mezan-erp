@@ -14,6 +14,7 @@ export const auditEventSchema = z.object({
   stream: auditStreamSchema,
   module: z.string().min(1),
   entityType: z.string().min(1),
+  entityId: z.string().nullable(),
   action: z.string().min(1),
   actor: z.string().min(1),
   /** The branch the action happened in; null for rows written before the field existed, or for a request not narrowed to one branch. */
@@ -35,6 +36,7 @@ export const auditQuerySchema = z.object({
   action: z.string().min(1).optional(),
   actor: z.string().min(1).optional(),
   entityType: z.string().min(1).optional(),
+  entityId: z.string().min(1).optional(),
   severity: auditSeveritySchema.optional(),
   from: z.string().min(1).optional(),
   to: z.string().min(1).optional(),

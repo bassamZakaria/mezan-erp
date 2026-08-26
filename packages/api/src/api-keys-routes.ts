@@ -95,6 +95,7 @@ export function createApiKeysRoutes(
         await recordSensitiveEvent(audit, {
           module: "api-keys",
           entityType: "API_KEY",
+          entityId: key.id,
           action: "CREATED",
           actor,
           severity: "WARNING",
@@ -115,6 +116,7 @@ export function createApiKeysRoutes(
         await recordSensitiveEvent(audit, {
           module: "api-keys",
           entityType: "API_KEY",
+          entityId: key.id,
           action: "REVOKED",
           actor,
           severity: "WARNING",

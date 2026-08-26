@@ -339,6 +339,7 @@ export class DocumentService<Line> {
     await recordSensitiveEvent(this.deps.audit, {
       module: this.deps.auditModule ?? "documents",
       entityType: this.def.code,
+      entityId: doc.id,
       action,
       actor: this.deps.actor ?? "system",
       severity,

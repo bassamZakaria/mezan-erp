@@ -43,6 +43,17 @@ export interface AuditEvent {
   readonly stream: AuditStream;
   readonly module: string; // e.g. "auth", "hr"
   readonly entityType: string; // e.g. "AUTH_USER", "CONTRACT"
+  /**
+   * WHICH entity of that type — the id, so an entity's own trail can be
+   * selected. Nullable, and stays nullable: rows written before the column
+   * existed have none, and a few events (a sequence counter, a password change)
+   * are about a subject the rest of the system does not address by id.
+   *
+   * Without this the only way to find an employee's or a document's history was
+   * to scan every string in `details`, where each module had chosen its own key
+   * — `docId`, `invoiceId`, `entryId`, `id`.
+   */
+  readonly entityId: string | null;
   readonly action: string; // e.g. "ACCOUNT_LOCKED", "CREATE"
   readonly actor: string; // user id / name
   readonly branchId: string | null;
@@ -56,6 +67,7 @@ export interface AuditEventInput {
   readonly stream: AuditStream;
   readonly module: string;
   readonly entityType: string;
+  readonly entityId?: string | null;
   readonly action: string;
   readonly actor: string;
   readonly branchId?: string | null;
@@ -86,6 +98,7 @@ export interface AuditQueryFilter {
   readonly action?: string;
   readonly actor?: string;
   readonly entityType?: string;
+  readonly entityId?: string;
   readonly severity?: AuditSeverity;
   readonly from?: string;
   readonly to?: string;
@@ -114,6 +127,7 @@ export function createAuditEvent(input: AuditEventInput): AuditEvent {
     stream: input.stream,
     module: input.module,
     entityType: input.entityType,
+    entityId: input.entityId ?? null,
     action: input.action,
     actor: input.actor,
     branchId: input.branchId ?? null,

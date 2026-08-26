@@ -29,6 +29,7 @@ export function createAuditRoutes(
       action: c.req.query("action"),
       actor: c.req.query("actor"),
       entityType: c.req.query("entityType"),
+      entityId: c.req.query("entityId"),
       severity: c.req.query("severity"),
       from: c.req.query("from"),
       to: c.req.query("to"),

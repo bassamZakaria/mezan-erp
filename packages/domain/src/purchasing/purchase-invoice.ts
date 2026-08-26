@@ -435,7 +435,7 @@ export async function confirmPurchaseInvoice(
     receiptId: confirmed.receiptId,
     status: confirmed.status,
     total: purchaseInvoiceTotal(confirmed).toString(),
-  });
+  }, confirmed.id);
 
   return { invoice: confirmed, posting };
 }
@@ -505,6 +505,6 @@ export async function cancelPurchaseInvoice(
     status: cancelled.status,
     previousStatus: invoice.status,
     total: purchaseInvoiceTotal(cancelled).toString(),
-  });
+  }, cancelled.id);
   return cancelled;
 }

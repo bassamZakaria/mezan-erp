@@ -117,6 +117,7 @@ export function createProfileRoutes(
         await recordSecurityEvent(audit, {
           module: "profile",
           entityType: "USER",
+          entityId: callerId,
           action: "PASSWORD_CHANGED",
           actor: callerId,
           severity: "WARNING",
@@ -140,6 +141,7 @@ export function createProfileRoutes(
         await recordSecurityEvent(audit, {
           module: "profile",
           entityType: "USER",
+          entityId: callerId,
           action: pinChangeAction(parsed.data.newPin),
           actor: callerId,
           severity: "WARNING",

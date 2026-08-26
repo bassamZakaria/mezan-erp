@@ -507,6 +507,7 @@ export class SalesInvoiceService {
     await recordSensitiveEvent(this.deps.audit, {
       module: "sales",
       entityType: "SALES_INVOICE",
+      entityId: invoice.id,
       action,
       actor: this.deps.actor ?? "system",
       severity,

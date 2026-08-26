@@ -207,7 +207,7 @@ export async function confirmPurchaseOrder(
     supplierId: sent.supplierId,
     status: sent.status,
     total: purchaseOrderTotal(sent).toString(),
-  });
+  }, sent.id);
   return sent;
 }
 
@@ -231,7 +231,7 @@ export async function cancelPurchaseOrder(
     supplierId: cancelled.supplierId,
     status: cancelled.status,
     previousStatus: order.status,
-  });
+  }, cancelled.id);
   return cancelled;
 }
 

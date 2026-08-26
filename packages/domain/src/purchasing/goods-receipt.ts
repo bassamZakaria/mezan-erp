@@ -344,7 +344,7 @@ export async function confirmGoodsReceipt(
     warehouseId: confirmed.warehouseId,
     status: confirmed.status,
     totalCost: goodsReceiptTotalCost(confirmed).toString(),
-  });
+  }, confirmed.id);
   return confirmed;
 }
 
@@ -409,7 +409,7 @@ export async function cancelGoodsReceipt(
     warehouseId: cancelled.warehouseId,
     status: cancelled.status,
     previousStatus: receipt.status,
-  });
+  }, cancelled.id);
   return cancelled;
 }
 

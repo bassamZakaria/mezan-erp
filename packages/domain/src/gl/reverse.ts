@@ -100,6 +100,7 @@ export async function reverseJournalEntry(
     await recordSensitiveEvent(deps.audit, {
       module: "accounting",
       entityType: "JOURNAL_ENTRY",
+      entityId: original.id,
       action: "REVERSE",
       actor: deps.actor ?? "system",
       severity: "WARNING",

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AppShell, type NavGroup } from "@mezan/ui";
+import { AppShell, navGroupItems, type NavGroup, type NavItem } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
 import { DashboardScreen } from "./dashboard/DashboardScreen";
@@ -438,24 +438,28 @@ export function App() {
     return map;
   }, [users]);
 
-  const groups: NavGroup[] = useMemo(
-    () =>
-      buildNavGroups(t).map((group) => ({
-        ...group,
-        items: group.items.map((item) => {
-          const key = item.key;
-          // الموافقات carries a global pending-count badge (docs/catalog/09
-          // §الموافقات inbox nav item) — a real count off /workflow/requests/
-          // pending-count, not a placeholder.
-          const tag = key === "approvals" && pendingApprovalCount > 0 ? { label: String(pendingApprovalCount), tone: "pattern" as const } : item.tag;
-          if (isRoutable(key) || key === "users" || key === "roles") {
-            return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
-          }
-          return { ...item, tag };
-        }),
-      })),
-    [navigate, pendingApprovalCount, t],
-  );
+  const groups: NavGroup[] = useMemo(() => {
+    // Section items must be wired too, not just the ones hanging off the group:
+    // التقارير keeps all 22 of its screens in sections, so wiring `items` alone
+    // leaves every report row inert.
+    const wire = (items: NavItem[]): NavItem[] =>
+      items.map((item) => {
+        const key = item.key;
+        // الموافقات carries a global pending-count badge (docs/catalog/09
+        // §الموافقات inbox nav item) — a real count off /workflow/requests/
+        // pending-count, not a placeholder.
+        const tag = key === "approvals" && pendingApprovalCount > 0 ? { label: String(pendingApprovalCount), tone: "pattern" as const } : item.tag;
+        if (isRoutable(key) || key === "users" || key === "roles") {
+          return { ...item, tag, onClick: () => navigate(key as ScreenKey) };
+        }
+        return { ...item, tag };
+      });
+    return buildNavGroups(t).map((group) => ({
+      ...group,
+      items: wire(group.items),
+      sections: group.sections?.map((section) => ({ ...section, items: wire(section.items) })),
+    }));
+  }, [navigate, pendingApprovalCount, t]);
 
   // Settings and system live in the topbar's gear menu and approvals sits
   // pinned at the top of the rail rather than inside a group; the `g`-chord
@@ -469,7 +473,9 @@ export function App() {
       groups
         .filter((group) => !UTILITY_GROUP_KEYS.has(group.key))
         .map((group) => ({ ...group, items: group.items.filter((item) => !PINNED_NAV_ITEM_KEYS.includes(item.key)) }))
-        .filter((group) => group.items.length > 0),
+        // A group may carry all of its screens in sections and none directly —
+        // التقارير does — so an empty `items` is not an empty group.
+        .filter((group) => navGroupItems(group).length > 0),
     [groups],
   );
   const utilityGroups = useMemo(() => groups.filter((group) => UTILITY_GROUP_KEYS.has(group.key)), [groups]);

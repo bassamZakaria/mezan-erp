@@ -662,3 +662,39 @@ The first five concrete tasks, in order.
 | Tenant settings payload, dashboard, global UX, users/roles/permission matrix, branches, warehouses, numbering, print, barcode, audit, notification rules, workflow/approvals config | `catalog/09-settings-dashboard-ux.md` |
 
 **Nothing in this plan describes a feature that does not appear in those files, except:** the POS selling screen (explicitly absent from the source application's web app and required by Mezan), the desktop backup/restore subsystem, the licensing subsystem, and export-on-all-reports — each called out as a deliberate addition where it appears.
+
+---
+
+## Reference parity — supersedes the earlier phasing for UI/feature scope
+
+**Added 2026-08-26.** A three-round live audit of the reference product replaced the
+prose catalog as the source of truth for what a screen must do. The requirements
+register is `docs/reference-parity/audit/REQUIREMENTS.md` (~90 numbered
+requirements, R1.1 … R12.2, each observed in a running screen); the ordered work
+list is `docs/reference-parity/parity-tasks.md`; the scenarios that verify it are
+`docs/scenarios/10-reference-parity.md`.
+
+Where this plan and the requirements register disagree about the scope of a screen,
+**the register wins** — it was read from the running product, this plan was written
+from prose.
+
+Four things change the shape of the remaining work:
+
+1. **List endpoints are a triple, not a single.** Rows, `…/counts` and `…/stats`.
+   Chip counts and KPI money must be server-computed over the whole filtered set.
+   This touches every list in the product and is P0 (R1.1).
+2. **Settings is where behaviour is configured, not just recorded.** Ten policy tabs,
+   each toggle changing what a document may do — credit-control mode, backorders,
+   negative stock, require-PO-before-GRN, require-GRN-before-invoice, negative-cash
+   block, tax-inclusive pricing, missing-exchange-rate policy (R11.1–R11.8).
+3. **Account routing is a screen, not a constant.** Every posting's GL account is
+   configured: tax, leave (IAS-19), contracting (retention, advances, late
+   penalties), sales-discount contra, per-reason inventory adjustments, payroll
+   earning and deduction components, per-item-type revenue/COGS/inventory (R6.1).
+4. **ETA is five surfaces, not one queue** — readiness meter, general settings,
+   credentials with test-connection, item mapping, unit mapping, submissions
+   (R7.1–R7.6).
+
+Scope explicitly unchanged: POS stays descoped, statutory payroll stays descoped and
+visibly flagged, and Mezan keeps its own visual design. Functional completeness is
+the target; visual fidelity is not.

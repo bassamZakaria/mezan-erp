@@ -17,23 +17,47 @@ and what is broken), `defects.md` (the defect register) and `decisions.md`
 
 ## Reference parity — the current head of work
 
-A two-round live diff against the reference product was run on 2026-08-26:
-round 1 swept **101 reference routes against 116 Mezan routes** at list level;
-round 2 opened every create form, entity detail panel, tab and row menu.
+A three-round live audit against the reference product, 2026-08-26. Round 1 swept
+**101 reference routes against 116 Mezan routes** at list level; round 2 opened every
+create form, entity detail panel, tab and row menu; round 3 applied the
+`site-feature-audit` method by hand — every non-destructive control clicked, every
+dropdown enumerated, every row menu opened, the network instrumented, and every
+screen captured.
 
-- **`docs/reference-parity/gap-inventory.md`** — the findings: what Mezan is missing,
-  where the reference is wrong and should not be copied, and what is out of scope.
-- **`docs/reference-parity/parity-tasks.md`** — the ordered work list (P0 defects →
-  P1 shell → P2 reports → P3 document detail → P4 entity 360 → P5 features → P6 lists).
-- **`docs/scenarios/10-reference-parity.md`** — the scenarios that verify each phase.
+The skill's deterministic crawler was **not** used: the reference serves
+`robots.txt: Disallow: /`, and the skill's operating rules put a disallowed path out
+of scope. The audit was therefore run manually through the UI, read-only — no write
+was ever performed, and only `GET` traffic was observed.
 
-Headline: the sidebar is two levels where the reference is three; all 22 operational
-reports are one table component with no KPI strip and no charts; treasury exposes 4 of
-11 voucher types; items have 2 of 6 types; customer/supplier statements, attachments,
-cost-layer and reserved-stock views, and the entity action bars do not exist yet.
-Three new defects were filed: **D43** (four shipped "(المرحلة الثانية)" placeholders on
-surfaces whose data already exists), **D44** (cost-centre columns), **D45** (three empty
-list surfaces).
+| Document | What it holds |
+|---|---|
+| `docs/reference-parity/audit/REQUIREMENTS.md` | **The requirements register** — ~90 numbered requirements (R1.1 … R12.2) with priorities, plus 8 reference defects not to reproduce |
+| `docs/reference-parity/audit/API-SURFACE.md` | 201 GET endpoints with their query contracts, grouped by domain |
+| `docs/reference-parity/audit/ACTIONS.md` | Every control, its effect, and the modal or menu it opens |
+| `docs/reference-parity/audit/COVERAGE.md` | What was **not** seen — read this before planning a sprint |
+| `docs/reference-parity/audit/screenshots/` | 28 captured screens |
+| `docs/reference-parity/gap-inventory.md` | The screen-by-screen diff |
+| `docs/reference-parity/parity-tasks.md` | The ordered work list, P0 → P6 |
+| `docs/scenarios/10-reference-parity.md` | The scenarios that verify each phase |
+
+**The single most consequential finding:** every list resource on the reference is
+served by *three* endpoints — rows, `…/counts`, `…/stats`. Chip counts and KPI money
+are computed server-side across the whole filtered set. Mezan derives both from the
+page of rows it happens to hold, so both are wrong past page 1. That is a correctness
+defect, not a performance one, and it is P0.
+
+Other headlines: the sidebar is two levels where the reference is three; all 22
+operational reports are one table component with no KPI strip and no charts; treasury
+exposes 4 of 11 voucher types; items have 2 of 6 types; settings has 4 of 10 policy
+tabs and none of the toggles that change document behaviour (credit-control mode,
+backorders, negative stock, require-PO-before-GRN, negative-cash block); the whole
+**account-routing** screen and the **four non-queue ETA tabs** do not exist;
+customer/supplier statements, attachments, cost-layer and reserved-stock views, and
+the entity action bars are all absent.
+
+Three defects were filed: **D43** (four shipped "(المرحلة الثانية)" placeholders on
+surfaces whose data already exists), **D44** (cost-centre columns), **D45** (three
+empty list surfaces).
 
 ## Current state
 

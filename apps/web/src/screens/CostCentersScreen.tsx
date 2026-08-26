@@ -97,7 +97,10 @@ function validateDraft(draft: CostCenterDraft, existing: CostCenterDTO[], editin
 }
 
 export function CostCentersScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
+  /** The record stores both names; rendering `nameAr` unconditionally is what puts Arabic in the English UI (D49). */
+  const nameOf = (cc: Pick<CostCenterDTO, "nameAr" | "nameEn">) =>
+    locale === "en" && cc.nameEn ? cc.nameEn : cc.nameAr;
   const query = useCostCenters();
   const createCostCenter = useCreateCostCenter();
   const updateCostCenter = useUpdateCostCenter();
@@ -150,8 +153,8 @@ export function CostCentersScreen() {
   const allExpanded = allIds.length > 0 && allIds.every((id) => expandedIds.has(id));
 
   const parentOptions: EntityPickerOption[] = useMemo(
-    () => [{ id: ROOT_PARENT_ID, label: t("costCentres.rootParent") }, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${c.nameAr}` }))],
-    [costCenters, editingId, t],
+    () => [{ id: ROOT_PARENT_ID, label: t("costCentres.rootParent") }, ...costCenters.filter((c) => c.id !== editingId).map((c) => ({ id: c.id, label: `${c.code} — ${locale === "en" && c.nameEn ? c.nameEn : c.nameAr}` }))],
+    [costCenters, editingId, locale, t],
   );
 
   const selected = selectedId ? costCenters.find((c) => c.id === selectedId) ?? null : null;
@@ -347,7 +350,7 @@ export function CostCentersScreen() {
                         ) : (
                           <span aria-hidden className="inline-block h-[18px] w-[18px] flex-none" />
                         )}
-                        <span className="font-semibold text-ink">{row.nameAr}</span>
+                        <span className="font-semibold text-ink">{nameOf(row)}</span>
                       </div>
                     </td>
                     <td className="px-[15px] py-[10px] align-middle">
@@ -359,14 +362,14 @@ export function CostCentersScreen() {
                       {costCenterIsLinked(row) ? t("costCentres.linked") : t("costCentres.standalone")}
                     </td>
                     <td className="px-[15px] py-[10px] align-middle text-ink-muted">
-                      {parent ? `${parent.code} — ${parent.nameAr}` : t("costCentres.noParentCentre")}
+                      {parent ? `${parent.code} — ${nameOf(parent)}` : t("costCentres.noParentCentre")}
                     </td>
                     <td className="px-[15px] py-[10px] align-middle">
                       <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />
                     </td>
                     <td className="px-[15px] py-[10px] align-middle text-end">
                       <IconButton
-                        aria-label={t("costCentres.editLabel", { name: row.nameAr })}
+                        aria-label={t("costCentres.editLabel", { name: nameOf(row) })}
                         onClick={(event) => {
                           event.stopPropagation();
                           openEditForm(row);
@@ -402,7 +405,7 @@ export function CostCentersScreen() {
       <SidePanel
         open={selected !== null}
         onClose={() => setSelectedId(null)}
-        title={selected ? `${selected.code} — ${selected.nameAr}` : ""}
+        title={selected ? `${selected.code} — ${nameOf(selected)}` : ""}
         description={selected ? t(TYPE_KEY[selected.type]) : undefined}
       >
         {selected ? (
@@ -446,7 +449,7 @@ export function CostCentersScreen() {
                       onClick={() => setSelectedId(child.id)}
                       className="rounded-md border border-border px-[12px] py-[8px] text-start text-[12.5px] text-ink hover:border-brand"
                     >
-                      {child.code} — {child.nameAr}
+                      {child.code} — {nameOf(child)}
                     </button>
                   ))}
                 </div>
@@ -551,7 +554,7 @@ export function CostCentersScreen() {
                           return next;
                         })
                       }
-                      label={`${department.code} — ${department.nameAr ?? department.name}`}
+                      label={`${department.code} — ${locale === "en" ? department.name : department.nameAr ?? department.name}`}
                     />
                     <span className="mz-num text-[11.5px] text-ink-faint">
                       {department.codeInUse ? t("costCentres.import.codeInUse") : department.suggestedCode}

@@ -20,9 +20,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [x] chart-of-accounts detail → account movements from the GL
   - [x] treasury account detail → movements from the voucher postings
   - [x] the stale comment claiming the movements table was a stub
-- [~] **D44 / R6.7** Cost centres get their own columns + "create from departments"
-      - [x] Own column headers — the tree was rendering chart-of-accounts labels over cost-centre data
-      - [ ] "Create from departments" (the reference has `accounting/cost-centers/importable-departments`; we have no such endpoint)
+- [x] **D44 / R6.7** Cost centres get their own columns + "create from departments"
+      - [x] Own six columns — الكود · الاسم · النوع · مرتبط بـ · المركز الرئيسي · الحالة, rendered by the screen itself rather than by the chart-of-accounts tree, with type labels and names resolved per locale
+      - [x] "Create from departments" — `GET /cost-centers/importable-departments` + `POST /cost-centers/from-departments`; each new centre is linked to its department, so a second import adds nothing
 - [x] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
 - [~] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
       - [x] Sales invoices — `/sales-invoices/counts` + `/stats`, derived `open`/`overdue` chips resolved server-side, `branchId`/`warehouseId`/`search` added to the list query
@@ -144,7 +144,11 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R5.8** Transfer import from Excel
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
 - [ ] **R10.5** Leave-request create action
-- [ ] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
+- [~] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
+      - [x] The eleven-currency registry (`packages/domain/src/currency/`), the demo tenant's allowed list, the exchange-rate and revaluation screens
+      - [x] A foreign SALES invoice converts at the approved rate of its own date, tags its receivable line, stamps the rate, and stores the BASE total in the sub-ledger (D24's remaining half)
+      - [x] `GET /gl/balances-by-currency` — per-currency, per-party AR/AP in both the transaction and the base currency, shown on the revaluation screen
+      - [ ] The document screens still print every amount with the tenant's base-currency label (D52); the sales-invoice form offers only EGP + the customer's own currency rather than the eleven
 
 ## P6 — list-surface parity
 

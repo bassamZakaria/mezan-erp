@@ -4688,7 +4688,7 @@ const webAr = {
 
   // costCentres
   "costCentres.noParentCentre": "بدون مركز رئيسي",
-  "costCentres.col.name": "مركز التكلفة",
+  "costCentres.col.name": "الاسم",
   "costCentres.col.type": "النوع",
   "costCentres.col.linkedTo": "مرتبط بـ",
   "costCentres.linked": "مرتبط",
@@ -10957,7 +10957,7 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // costCentres
   "costCentres.noParentCentre": "No parent centre",
-  "costCentres.col.name": "Cost centre",
+  "costCentres.col.name": "Name",
   "costCentres.col.type": "Type",
   "costCentres.col.linkedTo": "Linked to",
   "costCentres.linked": "Linked",

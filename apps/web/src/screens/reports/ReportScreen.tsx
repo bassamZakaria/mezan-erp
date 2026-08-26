@@ -1,9 +1,11 @@
 import { useState, type ReactNode } from "react";
-import { ReportChart, ReportRunner } from "@mezan/ui";
+import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
 import { localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
+import { reportChartPoints } from "./chart-points";
+import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
 
 /**
  * The generic operational-report screen (docs/catalog/08-reports.md): every
@@ -54,6 +56,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
   // On-demand reports (heavy ledger dumps) don't fetch until the user clicks عرض التقرير.
   const [hasRun, setHasRun] = useState<boolean>(!onDemand);
+  const [drillEntity, setDrillEntity] = useState<ReportRunnerEntityRef | null>(null);
 
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun });
 
@@ -70,21 +73,11 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
    * exported.
    */
   /**
-   * The chart's points are read off the SAME rows the table renders, through
-   * the columns the definition names — so the chart cannot drift from the
-   * figures beneath it.
+   * The chart's points are read off the SAME rows (or the SAME group subtotals)
+   * the table renders, through the columns the definition names — so the chart
+   * cannot drift from the figures beneath it.
    */
-  const chartSpec = definition.chart;
-  const labelColumn = chartSpec ? definition.columns.find((c) => c.key === chartSpec.labelColumn) : undefined;
-  const valueColumn = chartSpec ? definition.columns.find((c) => c.key === chartSpec.valueColumn) : undefined;
-  const chartPoints =
-    raw && chartSpec && labelColumn && valueColumn
-      ? raw.rows.slice(0, chartSpec.maxPoints ?? 8).map((row, index) => ({
-          key: `${definition.rowKey(row)}-${index}`,
-          label: String(labelColumn.value(row) ?? ""),
-          value: Number(valueColumn.value(row) ?? 0),
-        }))
-      : null;
+  const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, raw);
 
   const result = raw === null
     ? null
@@ -99,7 +92,9 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
                   value: kpi.value,
                   format: kpi.format,
                   tone: kpi.tone,
-                  hint: kpi.hintAr,
+                  hint: kpi.hintAr
+                    ? tryReportLabel(`report.${definition.id}.kpiHint.${kpi.key}`, kpi.hintAr, t)
+                    : undefined,
                 })),
               }
             : null,
@@ -134,6 +129,8 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       }
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
+      onEntityClick={setDrillEntity}
+      footer={<ReportDrillDownPanel entity={drillEntity} onClose={() => setDrillEntity(null)} />}
     />
   );
 }

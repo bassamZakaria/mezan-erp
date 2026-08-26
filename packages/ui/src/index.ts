@@ -183,6 +183,7 @@ export {
   type ReportRunnerGroup,
   type ReportRunnerReconciliation,
   type ReportRunnerResult,
+  type ReportRunnerEntityRef,
 } from "./primitives/ReportRunner";
 
 export {

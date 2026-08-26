@@ -7,6 +7,7 @@ import {
   EntityPicker,
   IconButton,
   Money,
+  Qty,
   MoneyInput,
   Select,
   SidePanel,
@@ -355,11 +356,15 @@ export function ItemsScreen() {
   // Counted by capability, not by the literal type "stock": raw materials,
   // finished goods and consumables all hold stock too (R5.1).
   const stockTrackedCount = items.filter((i) => itemTypeTracksStock(i.type)).length;
+  const lowStockCount = items.filter((i) => i.stockState === "low").length;
+  const outOfStockCount = items.filter((i) => i.stockState === "out").length;
 
   const filtered = useMemo(() => {
     let rows = items;
     if (statusChipKey === "active" || statusChipKey === "inactive") rows = rows.filter((i) => i.status === statusChipKey);
     if (ITEM_TYPES.includes(statusChipKey as ItemTypeDTO)) rows = rows.filter((i) => i.type === statusChipKey);
+    if (statusChipKey === "low_stock") rows = rows.filter((i) => i.stockState === "low");
+    if (statusChipKey === "out_of_stock") rows = rows.filter((i) => i.stockState === "out");
     if (categoryFilter !== "all") rows = rows.filter((i) => i.categoryId === categoryFilter);
     if (unitFilter !== "all") rows = rows.filter((i) => i.baseUnitCode === unitFilter);
     if (search.trim() !== "") {
@@ -460,6 +465,23 @@ export function ItemsScreen() {
       ),
     },
     { key: "unit", header: t("items.unit"), render: (row) => unitLabel(row.baseUnitCode, itemUnits) },
+    {
+      key: "stock",
+      header: t("items.col.stock"),
+      align: "end",
+      render: (row) =>
+        // Null, not zero, for an item that holds no stock — a service has no
+        // balance to be low on.
+        row.onHand === null || row.onHand === undefined ? (
+          <span className="text-ink-faint">—</span>
+        ) : (
+          <div className="flex items-center justify-end gap-[8px]">
+            <Qty value={row.onHand} />
+            {row.stockState === "out" ? <StatusPill label={t("items.stockState.out")} tone="danger" /> : null}
+            {row.stockState === "low" ? <StatusPill label={t("items.stockState.low")} tone="warning" /> : null}
+          </div>
+        ),
+    },
     { key: "salePrice", header: t("items.salePrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.salePrice ?? 0)} /> },
     { key: "costPrice", header: t("items.costPrice"), align: "end", sortable: true, render: (row) => <Money value={Number(row.costPrice ?? 0)} /> },
     { key: "status", header: t("common.status"), render: (row) => <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} /> },
@@ -488,6 +510,8 @@ export function ItemsScreen() {
     { key: "active", label: t("common.active"), count: activeCount },
     { key: "inactive", label: t("common.inactive"), count: totalCount - activeCount },
     ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: typeCounts.get(type) ?? 0 })),
+    { key: "low_stock", label: t("items.chip.lowStock"), count: lowStockCount },
+    { key: "out_of_stock", label: t("items.chip.outOfStock"), count: outOfStockCount },
   ];
 
   const formPanel = (

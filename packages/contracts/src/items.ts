@@ -51,6 +51,14 @@ export const itemSchema = z.object({
   etaItemCode: z.string().nullable(),
   gpcCode: z.string().nullable(),
   status: itemStatusSchema,
+  /**
+   * On-hand quantity across every warehouse, and where it sits against the
+   * reorder point (R5.2). Both are null for an item that does not hold stock:
+   * reporting zero would file a service under "out of stock". Present on the
+   * list; the detail carries the fuller `stock` block.
+   */
+  onHand: z.string().nullable().optional(),
+  stockState: z.enum(["out", "low", "ok"]).nullable().optional(),
 });
 
 export const createItemSchema = z.object({

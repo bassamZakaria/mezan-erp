@@ -47,6 +47,16 @@ function serialize(item: Item) {
   };
 }
 
+/**
+ * Where an item sits against its reorder point. `low` needs a reorder point to
+ * mean anything: with none set, stock on hand is simply `ok`.
+ */
+function stockStateOf(onHand: Qty, reorderPoint: number | null): "out" | "low" | "ok" {
+  if (onHand.scaled <= 0n) return "out";
+  if (reorderPoint !== null && onHand.scaled <= Qty.fromMajor(String(reorderPoint)).scaled) return "low";
+  return "ok";
+}
+
 function toMoney(value: string | null | undefined): Money | null | undefined {
   if (value === undefined) return undefined;
   return value === null ? null : Money.fromMajor(value);
@@ -86,9 +96,31 @@ export function createItemsRouter(
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
 
+  /**
+   * The list carries each item's on-hand quantity and its stock state (R5.2).
+   * Without it the list could not answer the question it exists for — what is
+   * low, what has run out — and every screen that wanted a quantity had to
+   * fetch the whole position table for itself.
+   *
+   * Computed from one `snapshots.list()` rather than a lookup per item: the
+   * per-item version is an N+1 that gets slower with the catalogue.
+   */
   app.get("/", gate("inventory.item.view"), async (c) => {
     const items = await repo.list();
-    return c.json(items.map(serialize));
+    if (!snapshots) return c.json(items.map((item) => ({ ...serialize(item), onHand: null, stockState: null })));
+    const onHandByItem = new Map<string, Qty>();
+    for (const position of await snapshots.list()) {
+      onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
+    }
+    return c.json(
+      items.map((item) => {
+        // An item that does not hold stock has no quantity — reporting zero
+        // would put a service in the "out of stock" chip.
+        if (!item.trackInventory) return { ...serialize(item), onHand: null, stockState: null };
+        const onHand = onHandByItem.get(item.id) ?? Qty.zero();
+        return { ...serialize(item), onHand: onHand.toString(), stockState: stockStateOf(onHand, item.reorderPoint) };
+      }),
+    );
   });
 
   app.get("/:id", gate("inventory.item.view"), async (c) => {

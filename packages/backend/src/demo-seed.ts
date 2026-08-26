@@ -84,9 +84,11 @@ const ITEMS = [
   { id: "ITEM-DEMO-1", code: "IT-0001", nameAr: "أرز أبيض ٥ كجم", nameEn: "White Rice 5kg", salePrice: "180", costPrice: "140" },
   { id: "ITEM-DEMO-2", code: "IT-0002", nameAr: "زيت عباد الشمس ١ لتر", nameEn: "Sunflower Oil 1L", salePrice: "95", costPrice: "72" },
   { id: "ITEM-DEMO-3", code: "IT-0003", nameAr: "سكر أبيض ١ كجم", nameEn: "White Sugar 1kg", salePrice: "42", costPrice: "31" },
-  { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205" },
+  // Reorder points, so the items list's مخزون منخفض chip has something to
+  // filter to — a low-stock state is only derivable where one is set.
+  { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205", reorderPoint: 60, reorderQty: 100 },
   { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "خليط شاي بالسكر ١ كجم", nameEn: "Sweetened Tea Blend 1kg", salePrice: "150", costPrice: "108.60" },
-  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع ١ كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00" },
+  { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع ١ كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00", reorderPoint: 50, reorderQty: 80 },
   { id: "ITEM-DEMO-9", code: "IT-0009", nameAr: "علبة شاي هدايا حسب الطلب", nameEn: "Custom Gift Tea Box", salePrice: "0", costPrice: "0" },
 ];
 

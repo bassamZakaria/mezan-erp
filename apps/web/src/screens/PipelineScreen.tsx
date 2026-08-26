@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { FulcrumRule, Button, Card, Money as MoneyDisplay, SidePanel, StatCard } from "@mezan/ui";
 import type { OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
-import { SelectField } from "../settings/form-controls";
+import { NumberField, SelectField } from "../settings/form-controls";
 import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
 import { useAppTranslation } from "../i18n";
-import { sumMajor } from "../lib/money";
+import { majorOf, sumMajor } from "../lib/money";
 
 /**
  * خط المبيعات (Sales Pipeline) — docs/catalog/06 §"خط المبيعات". A kanban
@@ -25,7 +25,7 @@ export function PipelineScreen() {
     () => [...(stagesQuery.data ?? [])].filter((s) => s.active).sort((a, b) => a.order - b.order),
     [stagesQuery.data],
   );
-  const opportunities = opportunitiesQuery.data ?? [];
+  const allOpportunities = opportunitiesQuery.data ?? [];
 
   const customerName = useMemo(() => {
     const map = new Map<string, string>();
@@ -33,9 +33,26 @@ export function PipelineScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [customersQuery.data]);
 
+  const [view, setView] = useState<"board" | "list">("board");
+  const [customerFilter, setCustomerFilter] = useState("");
+  const [valueFrom, setValueFrom] = useState(Number.NaN);
+  const [valueTo, setValueTo] = useState(Number.NaN);
   const [formOpen, setFormOpen] = useState(false);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+
+  /**
+   * The stat strip and the columns read the SAME filtered set — a board whose
+   * columns narrow while the totals above them do not is the defect this
+   * codebase keeps finding on lists.
+   */
+  const opportunities = allOpportunities.filter((opportunity) => {
+    if (customerFilter && opportunity.customerId !== customerFilter) return false;
+    const value = majorOf(opportunity.expectedValue);
+    if (!Number.isNaN(valueFrom) && value < valueFrom) return false;
+    if (!Number.isNaN(valueTo) && value > valueTo) return false;
+    return true;
+  });
 
   const totalCount = opportunities.length;
   const totalExpectedValue = sumMajor(opportunities.map((o) => o.expectedValue));
@@ -97,6 +114,79 @@ export function PipelineScreen() {
         </div>
       ) : null}
 
+      <Card className="mb-[16px] flex flex-wrap items-end gap-[12px] p-[12px_14px]">
+        <div className="flex gap-[4px]">
+          {(["board", "list"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              aria-pressed={view === option}
+              onClick={() => setView(option)}
+              className={`rounded-md border px-[11px] py-[4px] text-[11.5px] font-semibold transition-colors ${
+                view === option
+                  ? "border-brand bg-brand-soft text-brand"
+                  : "border-border bg-surface text-ink-muted hover:border-brand hover:text-brand"
+              }`}
+            >
+              {option === "board" ? t("pipeline.view.board") : t("pipeline.view.list")}
+            </button>
+          ))}
+        </div>
+        <div className="grid flex-1 gap-2 sm:grid-cols-3">
+          <SelectField
+            label={t("pipeline.filter.customer")}
+            value={customerFilter}
+            onChange={setCustomerFilter}
+            options={[
+              { value: "", label: t("pipeline.filter.allCustomers") },
+              ...(customersQuery.data ?? []).map((customer) => ({ value: customer.id, label: customer.nameAr })),
+            ]}
+          />
+          <NumberField label={t("pipeline.filter.valueFrom")} value={valueFrom} onChange={setValueFrom} />
+          <NumberField label={t("pipeline.filter.valueTo")} value={valueTo} onChange={setValueTo} />
+        </div>
+      </Card>
+
+      {view === "list" ? (
+        <Card className="overflow-hidden">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+              <tr>
+                <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.stage")}</th>
+                <th className="px-[15px] py-[9px] text-start">{t("pipeline.col.title")}</th>
+                <th className="px-[15px] py-[9px] text-start">{t("common.customer")}</th>
+                <th className="px-[15px] py-[9px] text-end">{t("pipeline.expectedValue")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {opportunities.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="p-[18px] text-center text-ink-muted">{t("pipeline.noMatching")}</td>
+                </tr>
+              ) : (
+                opportunities.map((opportunity) => {
+                  const stage = stages.find((s) => s.id === opportunity.stageId);
+                  return (
+                    <tr key={opportunity.id} className="border-t border-border">
+                      <td className="px-[15px] py-[9px]">
+                        <span className="inline-flex items-center gap-[7px] text-ink">
+                          <span aria-hidden className="h-[8px] w-[8px] rounded-full" style={{ background: stage?.color ?? "var(--ink-faint)" }} />
+                          {stage?.name ?? opportunity.stageId}
+                        </span>
+                      </td>
+                      <td className="px-[15px] py-[9px] text-ink">{opportunity.title}</td>
+                      <td className="px-[15px] py-[9px] text-ink-muted">{customerName(opportunity.customerId)}</td>
+                      <td className="px-[15px] py-[9px] text-end">
+                        <MoneyDisplay value={majorOf(opportunity.expectedValue)} />
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </Card>
+      ) : (
       <div className="flex gap-[14px] overflow-x-auto pb-[8px]">
         {stages.map((stage) => (
           <PipelineColumn
@@ -110,6 +200,7 @@ export function PipelineScreen() {
           />
         ))}
       </div>
+      )}
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("pipeline.addOpportunity")} description={t("pipeline.opportunityDetails")}>
         <CreateOpportunityForm onDone={() => setFormOpen(false)} onCancel={() => setFormOpen(false)} />
@@ -133,7 +224,11 @@ function PipelineColumn({ stage, stages, opportunities, customerName, movingId, 
     <div className="w-[280px] flex-none">
       <Card className="flex h-full flex-col p-[14px]">
         <div className="mb-[10px] flex items-center justify-between gap-[8px]">
-          <h2 className="font-display text-[13.5px] font-bold text-ink">{stage.name}</h2>
+          <h2 className="flex items-center gap-[7px] font-display text-[13.5px] font-bold text-ink">
+            {/* The stage's own colour, which the board defined and never showed. */}
+            <span aria-hidden className="h-[9px] w-[9px] shrink-0 rounded-full" style={{ background: stage.color }} />
+            {stage.name}
+          </h2>
           <span className="mz-num rounded-pill bg-surface-3 px-[9px] py-[2px] text-[11px] font-bold text-ink-muted">{opportunities.length}</span>
         </div>
         <div className="flex flex-col gap-[10px]">

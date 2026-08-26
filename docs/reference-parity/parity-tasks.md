@@ -61,6 +61,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R21.1** Every report subtitle is the question that report answers, in both languages (29 rewritten)
 - [x] **R21.10** The trial balance states that it balances, as a banner above the table
 - [x] **R7.1–R7.6** ETA e-invoicing: readiness meter, general + credentials tabs, item and unit mapping, submissions queue — and the payload now carries the registered codes instead of a hardcoded VAT sub-type
+- [~] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer and value-range filters — branch filter not built, opportunities carry no branch
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
 - [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)

@@ -72,7 +72,6 @@ describe("ChartOfAccountsScreen", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("حركات الحساب")).toBeInTheDocument();
     expect(within(dialog).getByText("مدين")).toBeInTheDocument();
-    // Stubbed movements note (Phase 2), not a real movements table.
   });
 
   it("opens the add-account form and creates a new detail account under a header parent", async () => {

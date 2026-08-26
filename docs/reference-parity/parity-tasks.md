@@ -14,15 +14,21 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 ## P0 — correctness (blocks everything else)
 
-- [ ] **D43** Remove the four "(المرحلة الثانية)" placeholders and wire the real data
-  - [ ] item detail → stock by warehouse (same source as the stock-levels report)
-  - [ ] item detail → cost, from the WAC layers
-  - [ ] chart-of-accounts detail → account movements from the GL
-  - [ ] treasury account detail → movements from the voucher postings
-  - [ ] delete the two tests that assert the placeholder is present
-- [ ] **D44 / R6.7** Cost centres get their own columns + "create from departments"
+- [x] **D43** Remove the four "(المرحلة الثانية)" placeholders and wire the real data
+  - [x] item detail → stock by warehouse (`GET /inventory/items/:id/stock`, warehouse-scoped)
+  - [x] item detail → cost, from the WAC layers
+  - [x] chart-of-accounts detail → account movements from the GL
+  - [x] treasury account detail → movements from the voucher postings
+  - [x] the stale comment claiming the movements table was a stub
+- [~] **D44 / R6.7** Cost centres get their own columns + "create from departments"
+      - [x] Own column headers — the tree was rendering chart-of-accounts labels over cost-centre data
+      - [ ] "Create from departments" (the reference has `accounting/cost-centers/importable-departments`; we have no such endpoint)
 - [x] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
-- [ ] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
+- [~] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
+      - [x] Sales invoices — `/sales-invoices/counts` + `/stats`, derived `open`/`overdue` chips resolved server-side, `branchId`/`warehouseId`/`search` added to the list query
+      - [x] Purchase invoices — `/purchases/invoices/counts` + `/stats`, payment states (`overdue`/`due_soon`/`partially_paid`/`paid`) resolved server-side
+      - [x] The float defect underneath it: 22 money sums across 14 screens moved to bigint (`apps/web/src/lib/money.ts`)
+      - [ ] The remaining list resources — picked up per area as the sidebar sweep reaches them
 - [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 
 ## P1 — shell and navigation

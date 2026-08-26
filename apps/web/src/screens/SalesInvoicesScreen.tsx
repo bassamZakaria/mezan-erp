@@ -1592,6 +1592,23 @@ export function SalesInvoicesScreen() {
   });
 
   const today = todayIso();
+  const listConfirm = useConfirmSalesInvoice();
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  async function confirmRow(id: string): Promise<void> {
+    if (confirmingId) return;
+    setRowError(null);
+    setConfirmingId(id);
+    try {
+      await listConfirm.mutateAsync(id);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConfirmingId(null);
+    }
+  }
+
   const [firstSegment] = subPage.segments;
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
@@ -1704,6 +1721,11 @@ export function SalesInvoicesScreen() {
         <InvoiceDetailView invoice={selected} today={today} onBack={subPage.close} />
       ) : (
         <div className="w-full">
+          {rowError ? (
+            <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+              {rowError}
+            </div>
+          ) : null}
           {query.isError ? (
             <Card className="mb-[18px] p-[18px_20px]">
               <p className="text-[13px] font-semibold text-danger-ink">{t("salesInvoices.loadFailed")}</p>
@@ -1807,6 +1829,16 @@ export function SalesInvoicesScreen() {
               // a return nor a plan, a settled one offers no collection (R1.3).
               const menuItems: RowMenuItem[] = [
                 { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.docNo ?? inv.id) },
+                ...(inv.status === "draft"
+                  ? [
+                      {
+                        key: "confirm",
+                        label: t("salesInvoices.confirm"),
+                        disabled: confirmingId === inv.id,
+                        onSelect: () => void confirmRow(inv.id),
+                      },
+                    ]
+                  : []),
                 ...(posted
                   ? [
                       {

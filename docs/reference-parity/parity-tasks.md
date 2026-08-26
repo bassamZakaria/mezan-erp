@@ -44,7 +44,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R1.9** Attention banners on lists (overdue, out of stock, drafts) that apply the filter when clicked
 - [~] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
   - [x] The shared primitives — `EmptyState` (with CTA), `DocumentList`'s `statsCollapsible`/`listKey` (collapse persists across reload) and `filterBarCollapsible`/`activeFilterCount` (a "تصفية النتائج N" badge) — built and driven live end-to-end on the new notifications screen, ar+en, both themes
-  - [ ] Rollout onto the ~63 document-list screens — each is an opt-in, back-compat prop; left to each screen's own owner rather than touched here
+  - [~] Rollout onto the ~63 document-list screens — each is an opt-in, back-compat prop; left to each screen's own owner. Done on customers, sales returns, price lists, promotions and van trips (R3.8/R3.9/R3.11/R3.12/R3.13)
 - [x] **R1.7 / R1.8** System-status indicator and support entry point — a header pill off the real health check (never a fabricated "all systems operational"), and a headset menu (keyboard shortcuts, system status) — both live, real features, not invented contact info
 
 ## P2 — reports engine
@@ -80,7 +80,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R2.7** Totals block: subtotal and tax lines added, return-adjusted net kept
 - [x] **R2.8** Three-card "effects of this document" explainer including "no automatic collection" — on the create form and the invoice detail
 - [~] **R1.4** Attachments across documents and entities — resource built (domain, SQLite store, `/attachments` routes gated by the host entity's own permissions, reusable `AttachmentsTab`); wired on the item detail, the customer 360, the purchase-invoice detail and the work-order detail; the other screens adopt the tab in their own tasks
-- [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices, and on the five purchase lists + work orders + BOMs — roll out to the rest)
+- [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices, customers, sales returns, price lists, promotions, van trips, the five purchase lists, work orders and BOMs — roll out to the rest)
 - [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
 - [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open
 - [x] **R4.4** Purchase-invoice detail: landed-costs tab, consumed/received/still-in-stock per line (read from the cost layers the funding document created), an inline «تسجيل السداد» that posts a real سند صرف, and the attachments tab
@@ -134,10 +134,10 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] email SMTP + test send + template
   - [ ] multi-currency enable, allowed currencies, missing-rate policy, numeral system, fiscal-year start
 - [x] **R12.1** Approvals: inbox / my requests / my actions, with the document-type filter (R14.1)
-- [ ] **R3.8** Customer form advanced options (logo, registrations, tax-exempt, entity type, contact)
-- [ ] **R3.9** Sales return: per-line reason, awaiting-refund state, refund action
-- [ ] **R3.11 / R3.12** Price-list min-quantity tiers; promotion types, caps, priority, bundles
-- [ ] **R3.13** Van trip crew roles and van→warehouse→treasury cascade
+- [x] **R3.8** Customer form advanced options — the form splits into everyday fields and «خيارات متقدمة» (tax + commercial registration, tax-exempt, entity type, contact person, address, logo). The logo is chosen from the customer's own attachments, so the bytes live in the attachments resource and the record holds only the id. `priceListId` was a free TEXT field storing whatever was typed; it is now a picker over `/price-lists`, and the routes refuse an id that names no list
+- [x] **R3.9** Sales return: a reason PER LINE, a derived awaiting-refund state, and «استرداد للعميل» that creates and confirms a real رد مبلغ لعميل voucher (Dr AR 1105 / Cr the till, one balanced entry). What may still be refunded is recomputed server-side from the posted return and the vouchers already posted against it; `awaitingRefund` is derived from those vouchers rather than stored, so reversing one restores the ledger AND the awaiting state in a single act. `POST /sales-returns/from-invoice` existed in the domain and was mounted nowhere — it is now the shape the screen sends
+- [x] **R3.11 / R3.12** Price-list minimum-quantity tiers (an item quoted once per volume threshold, resolved server-side by `resolvePriceTier` and threaded into the sales-invoice pricing check as the line's base quantity); promotion minimum quantity and maximum discount cap, the cap re-allocated by largest remainder so the parts still sum exactly. Both screens now edit every field the reference has, including bundle components over the real item endpoint
+- [x] **R3.13** المركبات — a van registry owning each vehicle's warehouse, till and branch. `POST /field/van-trips` takes `vanId` alone and derives the rest, refusing a body that names a van and a different warehouse or till; the crew binds to real employees. The three cascaded fields are read-only and stay empty until a van is chosen
 - [x] **R4.6** GRN from PO only — the create form is a creation-method STEP whose «استلام مباشر» card is offered only when the tenant's «إلزام أمر الشراء قبل الاستلام» setting is off. The screen READS that setting; the server gate was already live and now refuses in Arabic
 - [x] **R4.7** Landed-cost allocation basis and typed cost lines — a third basis (حسب الوزن) beside value and quantity, the shipped weight carried on the persisted line so a confirmed document still states its basis, and the entered cost broken down by نوع التكلفة on both the form and the document
 - [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications

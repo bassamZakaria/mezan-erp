@@ -271,3 +271,90 @@ Read off the customer-aging report, which is the clearest example:
 |---|---|
 | X9 | The **purchase-invoice row menu offers "إنشاء مرتجع مبيعات"** — a *sales* return action on a purchase document. |
 | X10 | On the reference's own tenant, **14 of 24 work orders are overdue** and 693 of 713 stock rows read "out of stock", so both attention banners are permanently red and carry no signal. |
+
+---
+
+# Round 5 — reports, CRM, assets, HR, platform
+
+Read-only throughout; still zero writes to the application. 58 screens captured.
+
+## 21. Report design — the full pattern
+
+Every one of the 22 operational reports follows the same shape. This is the
+single largest block of work in `parity-tasks.md` P2, and these are its rules.
+
+| # | Requirement | Pri |
+|---|---|---|
+| R21.1 | **The subtitle is the question the report answers**, in the user's words. Observed verbatim shapes: "كيف كانت حركة المبيعات يوماً بيوم في الفترة المحددة؟" · "أين خطر التحصيل؟ العملاء المتأخرون 90 يوماً أو أكثر يحتاجون تدخلاً فورياً" · "ما الذي تجمد رأس مالك فيه؟" · "أين ضغط السداد؟ الموردون المتأخرون أكثر من 60 يوماً يستحقون أولوية التسديد" · "تصنع أم تشتري؟". Never a description of the columns. | **P1** |
+| R21.2 | **A collapsible one-line summary strip** that expands into **KPI cards with icons**. The one-liner stays visible when collapsed. | **P1** |
+| R21.3 | **Every chart carries a caption telling you how to read it** — e.g. the waterfall: "ابدأ بالإجمالي، اطرح الخصم (أحمر)، أضف الضريبة (أخضر)، فتصل إلى الصافي"; the Pareto: "الأصناف مرتبة من الأعلى للأدنى، والخط يوضح النسبة التراكمية (الخط المتقطع = 80%)"; the aging bars: "مستحقات كل عميل موزعة حسب عمر الدين (أخضر = حالي، أحمر = متأخر جداً)". | **P1** |
+| R21.4 | **Charts have view toggles** — hide / pie / bar / table — on the chart card itself. | **P2** |
+| R21.5 | **KPI tiles can be filters.** Tiles on the expiring-soon report carry a filter icon and apply their own segment when clicked. | **P2** |
+| R21.6 | **Contribution % renders as an inline bar inside the table cell**, not just a number. | **P2** |
+| R21.7 | **Item rows in reports show the item thumbnail** and SKU beneath the name. | **P3** |
+| R21.8 | **A reconciliation panel where a report can be tied to the ledger**, stating the two figures, the difference, and what to do: "المحسوب من المخزون × التكلفة … / الفرق … / هذا الفرق يعني أن قيمة المخزون المحسوبة تختلف عن السجلات المحاسبية. السجلات المحاسبية هي المرجع — راجع قيود الجرد أو رصيد المخزون." Sales-by-item carries the GL version: "مطابق لإيراد المبيعات في دفتر الأستاذ". | **P1** |
+| R21.9 | **A methodology footnote where the basis is not obvious.** Cost-centre P&L states: values derive from posted entries only, in base currency, and labour/overhead capitalised into WIP appears later as COGS, not when recorded. | **P1** |
+| R21.10 | **The trial balance states that it balances** — total debit = total credit with a green check, as a banner above the table. | **P1** |
+
+### Chart counts observed per report
+
+sales/by-period **10** · purchases/by-period **10** · inventory/movement **8** ·
+aging/customers **7** · aging/suppliers **7** · sales/by-item **4** ·
+sales/by-customer **4** · sales/top-products **4** · purchases/by-supplier **4** ·
+purchases/by-item **4** · inventory/stock-levels **4** · inventory/ledger **4** ·
+inventory/aging **1** · inventory/slow-moving **1** · valuation, drift,
+by-salesperson, van, make-vs-buy, installments overview/overdue **0**.
+
+### Report inventory with its question and KPI set
+
+| Report | KPIs |
+|---|---|
+| المبيعات حسب الفترة | الصافي · الإجمالي · متوسط قيمة الفاتورة · نسبة الخصم · عدد المبيعات |
+| المبيعات حسب الصنف | عدد الأصناف · إجمالي الإيرادات · **مطابقة دفتر الأستاذ** |
+| المبيعات حسب العميل | عدد العملاء · إجمالي الإيرادات · المستحق |
+| أفضل المنتجات | إجمالي الإيرادات (كل الأصناف) |
+| المبيعات حسب البائع | عدد البائعين · إجمالي عدد المبيعات · إجمالي المبيعات |
+| مبيعات الڤان | عدد الرحلات · عدد الفواتير · صافي المبيعات · المحصل · مجمل الربح · **فرق النقدية** |
+| المشتريات حسب الفترة | الصافي · الإجمالي · متوسط قيمة الفاتورة · معدل الضريبة · عدد الفواتير |
+| المشتريات حسب المورد | عدد الموردين · الإجمالي · المستحق |
+| المشتريات حسب الصنف | عدد الأصناف · إجمالي التكلفة |
+| مستويات المخزون | نافد · إجمالي الأصناف · أقل من حد إعادة الطلب · إجمالي تقييم المخزون |
+| حركة المخزون | عدد العمليات · الصافي |
+| سجل المخزون | إجمالي الحركات · الوارد · الصادر · صافي التغيير |
+| تقييم المخزون | قيمة المخزون الحالية · إجمالي الأصناف |
+| أعمار المخزون | إجمالي القيمة (+ "الشريحة العمرية" و"آخر استلام" per row) |
+| قرب انتهاء الصلاحية | قيمة المخزون خلال المدة · منتهية الصلاحية · قرب الانتهاء — explicitly **FEFO** |
+| أصناف بطيئة الحركة | أصناف بطيئة · رأس المال المجمد · أصناف حرجة · حرج (365+ يوم أو بلا مبيعات) |
+| انحراف تقييم المخزون | أصناف بها انحراف · إجمالي قيمة الانحراف · أعلى نسبة انحراف (cols: الطبقات، المتوسط المحسوب، متوسط الكاش، فارق القيمة) |
+| التصنيع مقابل الشراء | أصناف قابلة للمقارنة · أصناف مصنعة فقط (cols: هامش التصنيع، هامش الشراء، التوفير بالتصنيع) |
+| أعمار ديون العملاء | عدد العملاء · إجمالي المديونية · عملاء لديهم تأخر · متأخر +90 يوم |
+| أعمار ديون الموردين | عدد الموردين · إجمالي المستحق · المدفوعات المتأخرة · موردون لديهم تأخر |
+| نظرة عامة على الأقساط | الخطط النشطة · إجمالي المستحق · عدد المتأخرات · مبلغ المتأخرات · المحصل هذا الشهر |
+| الأقساط المتأخرة | أقساط متأخرة · إجمالي المتأخر · متأخر +N يوم |
+
+## 22. Financial statements
+
+| # | Requirement | Pri |
+|---|---|---|
+| R22.1 | Seven tabs on one page: ميزان المراجعة / قائمة الدخل / الميزانية العمومية / التدفقات النقدية / إقرار ضريبة القيمة المضافة / دفتر الأستاذ العام / دفتر حساب, with a single export. | **P1** |
+| R22.2 | **VAT return shows output and input tax as separate blocks**, each with rate / taxable base / tax amount columns, and nets them. | **P1** |
+| R22.3 | General ledger takes a date range plus an account search; account ledger takes a date range plus an account picker. | **P1** |
+
+## 23. CRM, assets, HR, platform
+
+| # | Requirement | Pri |
+|---|---|---|
+| R23.1 | **Pipeline board view**: one column per stage with a count and a colour dot, horizontally scrollable, toggled against a stage list view. Filters: branch, customer, value range. | **P2** |
+| R23.2 | Leads list columns: الرقم / الاسم / الشركة / المصدر / التصنيف / الحالة / القيمة المتوقعة / بواسطة / تاريخ الإنشاء, with 7 status chips and a category filter. | **P2** |
+| R23.3 | **Asset rows carry a % depreciated under the book value**; the row menu is تعديل / **التخلص من الأصل**; filters by category and branch. | **P2** |
+| R23.4 | **Attendance month grid has a 9-state legend**: حاضر · غائب · نصف يوم · في إجازة · إجازة رسمية · إجازة أسبوعية · تأخير · عمل إضافي · **غياب محتمل (بدون تسجيل)**, with a month navigator, a department filter and a per-employee chart. | **P2** |
+| R23.5 | Employee row menu is state-dependent: عرض on a terminated employee; عرض / تعديل / **إنهاء الخدمة** on an active one. | **P2** |
+| R23.6 | Users list shows role badge, **available branches**, last login ("لم يسجل بعد" when never). | **P2** |
+| R23.7 | Installment plan columns: المبلغ الكلي / المبلغ المدفوع / المبلغ المتبقي / التكرار, with a **معالجة المتأخرات** batch action. | **P1** |
+
+## Reference defects — additions
+
+| # | Finding |
+|---|---|
+| X11 | **Inventory valuation reports a negative total (−207,706.31 ج.م)** on their own tenant, and the slow-moving report's own reconciliation panel shows a −197,674.00 difference against the ledger. Their inventory valuation does not tie to their books. |
+| X12 | `/reports/sales/by-salesperson` renders "لا توجد مبيعات منسوبة لبائع في هذه الفترة" permanently, because only POS sales are attributed and none are tagged. |

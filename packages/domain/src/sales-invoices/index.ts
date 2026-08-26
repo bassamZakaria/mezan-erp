@@ -72,6 +72,7 @@ export {
 export {
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  type CrossWarehouseSourceResolver,
   createSalesInvoiceCustomerExposureHook,
 } from "./adapters.js";
 

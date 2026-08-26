@@ -175,6 +175,12 @@ export interface ReverseReceiptCommand {
 export interface IssueLine {
   readonly itemId: string;
   readonly qty: Qty;
+  /**
+   * Sources this ONE line from a warehouse other than the document's — the
+   * "sell from another warehouse" rule. The movement, and therefore every
+   * balance and report, records the warehouse the goods actually left.
+   */
+  readonly warehouseId?: string;
 }
 
 /**
@@ -201,6 +207,8 @@ export interface PostIssueCommand {
 export interface IssueLineCost {
   readonly itemId: string;
   readonly qty: Qty;
+  /** The warehouse the goods actually left — the document's, unless the line named another. */
+  readonly warehouseId: string;
   readonly unitCost: Money;
   /** qty × unitCost — the cost of goods issued for this line (a positive magnitude). */
   readonly cost: Money;
@@ -452,10 +460,11 @@ export class StockLedgerService {
 
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as IssueLine;
+        const warehouseId = line.warehouseId ?? command.warehouseId;
         const { signedValue, unitCost } = await this.applyMovement({
           movementId: `${command.issueId}:${i}`,
           itemId: line.itemId,
-          warehouseId: command.warehouseId,
+          warehouseId,
           direction: "OUT",
           qty: line.qty,
           sourceDocType: command.sourceDocType,
@@ -467,7 +476,7 @@ export class StockLedgerService {
         // OUT signedValue is negative COGS; the reported cost is its magnitude.
         const cost = signedValue.negate();
         totalCost = totalCost.add(cost);
-        lineCosts.push({ itemId: line.itemId, qty: line.qty, unitCost, cost });
+        lineCosts.push({ itemId: line.itemId, qty: line.qty, warehouseId, unitCost, cost });
       }
 
       if (command.gl && this.deps.gl && totalCost.scaled !== 0n) {

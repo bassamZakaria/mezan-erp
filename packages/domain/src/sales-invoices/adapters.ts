@@ -12,7 +12,7 @@
 import { postJournalEntry, reverseJournalEntry, type JournalPostingDeps } from "../gl/index.js";
 import type { DocumentGlHook } from "../documents/hooks.js";
 import type { StockLedgerService } from "../inventory/index.js";
-import { Money } from "../money/index.js";
+import { Money, type Qty } from "../money/index.js";
 import { salesInvoiceTotals } from "./totals.js";
 import type { SalesInvoiceRepository, SalesInvoiceStockHook, SalesInvoiceCustomerExposureHook } from "./ports.js";
 
@@ -48,10 +48,33 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
   };
 }
 
+/**
+ * Settings §"سياسة المخزون" → `allowCrossWarehouseSales`. Asked once per line
+ * whose item the document's warehouse holds NONE of, it names another warehouse
+ * that can cover the whole line, or null to leave the line where it was. Whole
+ * lines only: splitting one line across warehouses would give it two costs, and
+ * an invoice line records exactly one.
+ */
+export type CrossWarehouseSourceResolver = (input: {
+  itemId: string;
+  qty: Qty;
+  warehouseId: string;
+}) => Promise<string | null>;
+
 /** Bind the stock-ledger engine's `postIssue` behind the sales-invoice stock hook. */
-export function createSalesInvoiceStockHook(service: StockLedgerService): SalesInvoiceStockHook {
+export function createSalesInvoiceStockHook(
+  service: StockLedgerService,
+  resolveCrossWarehouseSource?: CrossWarehouseSourceResolver,
+): SalesInvoiceStockHook {
   return {
     async issue(plan) {
+      const lines: { itemId: string; qty: Qty; warehouseId?: string }[] = [];
+      for (const l of plan.lines) {
+        const source = resolveCrossWarehouseSource
+          ? await resolveCrossWarehouseSource({ itemId: l.itemId, qty: l.qty, warehouseId: plan.warehouseId })
+          : null;
+        lines.push(source ? { itemId: l.itemId, qty: l.qty, warehouseId: source } : { itemId: l.itemId, qty: l.qty });
+      }
       const result = await service.postIssue({
         issueId: plan.issueId,
         sourceDocType: "SALES_INVOICE",
@@ -59,7 +82,7 @@ export function createSalesInvoiceStockHook(service: StockLedgerService): SalesI
         sourceDocNumber: plan.sourceDocNumber,
         warehouseId: plan.warehouseId,
         occurredAt: plan.occurredAt,
-        lines: plan.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
+        lines,
       });
       return {
         totalCost: result.totalCost,

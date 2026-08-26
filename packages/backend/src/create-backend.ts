@@ -1071,7 +1071,21 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       repo: salesInvoices,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
-      stock: createSalesInvoiceStockHook(stockService),
+      // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
+      // NONE of the item, and only when one other warehouse can cover the whole
+      // line — a line split across two warehouses would have two costs, and an
+      // invoice line records exactly one.
+      stock: createSalesInvoiceStockHook(stockService, async ({ itemId, qty, warehouseId }) => {
+        const tenant = (await settings.get()) ?? createDefaultSettings();
+        if (!tenant.allowCrossWarehouseSales) return null;
+        const positions = await stockLedger.snapshots.list();
+        const here = positions.find((p) => p.itemId === itemId && p.warehouseId === warehouseId);
+        if (here && !here.onHand.isZero()) return null;
+        const elsewhere = positions
+          .filter((p) => p.itemId === itemId && p.warehouseId !== warehouseId && p.onHand.compare(qty) >= 0)
+          .sort((a, b) => b.onHand.compare(a.onHand));
+        return elsewhere[0]?.warehouseId ?? null;
+      }),
       // Without this a configured SALES_INVOICE_CONFIRM chain had zero effect —
       // SalesInvoiceService.confirm skips its gate entirely when absent.
       workflow: documentWorkflowGate,

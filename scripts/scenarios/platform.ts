@@ -613,6 +613,90 @@ async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
     checkEq("and the position is still level", await onHand(), 0);
   });
 
+  await scenario("settings / سياسة المخزون — السماح بالبيع من مستودع آخر sources a line the document's warehouse cannot cover", async () => {
+    const original = await settings();
+    const item = "SCN-SET-XW";
+    const other = "WH-DEMO-2";
+    const created = await req("POST", "/items", {
+      id: item,
+      code: "SCN-SET-XW",
+      nameAr: "صنف اختبار البيع من مستودع آخر",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a stock item exists", created.status === 201, `${created.status}: ${JSON.stringify(created.body).slice(0, 160)}`);
+
+    await req("POST", "/inventory/stock-adjustments/draft", {
+      id: "SCN-SET-XW-ADJ",
+      date: "2026-08-24",
+      lines: [{ itemId: item, warehouseId: other, reason: "INITIAL_STOCK", direction: "IN", qty: "20", unitCost: "50" }],
+    });
+    const opened = await req("POST", "/inventory/stock-adjustments/SCN-SET-XW-ADJ/confirm", {});
+    check("20 units are opened in the OTHER warehouse only", opened.status === 200, JSON.stringify(opened.body).slice(0, 160));
+
+    async function onHandAt(wh: string): Promise<number> {
+      return ctx.n((await req("GET", `/inventory/balance?itemId=${item}&warehouseId=${wh}`)).body?.onHand);
+    }
+    checkEq("the document's warehouse holds none of it", await onHandAt(WAREHOUSE), 0);
+
+    function sell(id: string) {
+      return req("POST", "/sales-invoices", {
+        id,
+        date: "2026-08-24",
+        dueDate: "2026-09-23",
+        customerId: "CUST-DEMO-1",
+        customerNameAr: "شركة الأمل للتجارة",
+        warehouseId: WAREHOUSE,
+        branchId: "BR-MAIN",
+        currency: "EGP",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [
+          {
+            lineId: "L1",
+            itemId: item,
+            itemNameAr: "صنف اختبار البيع من مستودع آخر",
+            isStock: true,
+            qty: "5",
+            unitPrice: "90",
+            taxRatePercent: 14,
+            revenueAccountId: "4100",
+            cogsAccountId: "5100",
+            inventoryAccountId: "1200",
+          },
+        ],
+      });
+    }
+
+    const off = await setPolicy({ allowCrossWarehouseSales: false, allowNegativeStock: false, allowBackorder: false });
+    check("selling from another warehouse is off", off.status === 200 && off.body?.allowCrossWarehouseSales === false, `status ${off.status}`);
+    await sell("SCN-SET-XW-INV-1");
+    const refused = await req("POST", "/sales-invoices/SCN-SET-XW-INV-1/confirm", {});
+    check("the sale is refused — the named warehouse is empty and nothing licenses looking elsewhere", refused.status !== 200, `status ${refused.status} ${JSON.stringify(refused.body).slice(0, 200)}`);
+
+    const on = await setPolicy({ allowCrossWarehouseSales: true });
+    check("the tenant allows selling from another warehouse", on.status === 200 && on.body?.allowCrossWarehouseSales === true, `status ${on.status}`);
+    const posted = await req("POST", "/sales-invoices/SCN-SET-XW-INV-1/confirm", {});
+    check("the same sale now confirms", posted.status === 200 && posted.body?.status === "confirmed", `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 200)}`);
+    checkEq("the goods left the warehouse that actually had them", await onHandAt(other), 15);
+    checkEq("and the empty warehouse was NOT driven negative behind the user's back", await onHandAt(WAREHOUSE), 0);
+
+    const restore = await setPolicy({
+      allowCrossWarehouseSales: original?.allowCrossWarehouseSales,
+      allowNegativeStock: original?.allowNegativeStock,
+      allowBackorder: original?.allowBackorder,
+    });
+    check(
+      "the three switches are left exactly where the tenant had them",
+      restore.status === 200 && restore.body?.allowCrossWarehouseSales === original?.allowCrossWarehouseSales,
+      `status ${restore.status}`,
+    );
+  });
+
   await scenario("settings / سياسة المخزون — عرض المخزون في المستودعات الأخرى decides what a line's availability lookup may say", async () => {
     const path = "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN";
     const on = await setPolicy({ showOtherWarehouseStock: true });

@@ -81,7 +81,12 @@ function SettingsForm({ initial }: { initial: TenantSettingsDTO }) {
   }
 
   const currencyOptions = DOCUMENT_CURRENCIES.filter((c) => c !== draft.currency).map((c) => ({ value: c, label: c }));
-  const weekdayOptions = WEEKDAY_KEYS.map(({ value, key }) => ({ value, label: t(key) }));
+  // The weekday chips run from the tenant's own first day, so the Egyptian
+  // week reads Saturday-first rather than starting on a Sunday nobody uses.
+  const weekdayOptions = WEEKDAY_KEYS.map((_, i) => {
+    const day = WEEKDAY_KEYS[(draft.weekStartDay + i) % 7] as (typeof WEEKDAY_KEYS)[number];
+    return { value: day.value, label: t(day.key) };
+  });
 
   return (
     <DocumentDetail

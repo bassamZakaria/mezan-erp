@@ -5,7 +5,7 @@ import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
 import { CommandBar } from "./CommandBar";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import { TopbarMenu } from "./TopbarMenu";
-import type { CommandItem, NavGroup, ShellUser, UserMenuItem } from "./types";
+import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 /**
  * A notification row as the shell renders it. Kept here (rather than in the
@@ -27,6 +27,8 @@ export interface TopbarScopeOption {
 
 interface ChromeIconButtonProps {
   "aria-label": string;
+  title?: string;
+  "aria-current"?: "page";
   onClick?: () => void;
   children: ReactNode;
   className?: string;
@@ -82,6 +84,11 @@ export interface TopbarProps {
   onSelectWarehouse?: (warehouseId: string | null) => void;
   allBranchesLabel?: string;
   allWarehousesLabel?: string;
+  /**
+   * Nav items promoted out of the rail into the header as icon buttons — the
+   * approvals inbox. A `tag` on the item renders as a count badge.
+   */
+  headerNavItems?: readonly NavItem[];
   utilityGroups?: readonly NavGroup[];
   /** Highlights the matching utility item, mirroring the rail's active row. */
   activeNavKey?: string;
@@ -136,6 +143,27 @@ function ThemeToggle({ theme, onToggleTheme }: { theme?: ThemePreference; onTogg
           />
         </svg>
       )}
+    </ChromeIconButton>
+  );
+}
+
+/** A nav item promoted to the header — icon trigger, with its tag as a count badge. */
+function HeaderNavButton({ item, active }: { item: NavItem; active: boolean }) {
+  const badge = item.tag?.label;
+  return (
+    <ChromeIconButton
+      aria-label={badge ? `${item.label} (${badge})` : item.label}
+      title={item.label}
+      aria-current={active ? "page" : undefined}
+      onClick={item.onClick}
+      className={cn("relative", active && "border-chrome-accent bg-chrome-hover text-chrome-ink")}
+    >
+      <span className="flex h-[18px] w-[18px] items-center justify-center">{item.icon}</span>
+      {badge ? (
+        <span className="mz-lat absolute -top-[5px] -end-[5px] min-w-[17px] rounded-pill border border-chrome bg-accent px-[3px] text-center text-[9.5px] font-bold leading-[15px] text-[color:var(--chrome-2)]">
+          {badge}
+        </span>
+      ) : null}
     </ChromeIconButton>
   );
 }
@@ -217,6 +245,7 @@ export function Topbar({
   onSelectWarehouse,
   allBranchesLabel,
   allWarehousesLabel,
+  headerNavItems = [],
   utilityGroups = [],
   activeNavKey,
   notificationCount = 0,
@@ -275,6 +304,10 @@ export function Topbar({
         ) : null}
 
         <CommandBar items={commandItems} placeholder={searchPlaceholder} className="w-full max-w-[520px] flex-1" />
+
+        {headerNavItems.map((item) => (
+          <HeaderNavButton key={item.key} item={item} active={item.key === activeNavKey} />
+        ))}
 
         {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
 

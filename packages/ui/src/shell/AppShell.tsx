@@ -11,6 +11,8 @@ export interface AppShellProps {
   navGroups: NavGroup[];
   /** Groups that belong in the header's gear menu rather than the rail — settings and system. */
   utilityGroups?: NavGroup[];
+  /** Items promoted out of the rail into the header as icon buttons — the approvals inbox. */
+  headerNavItems?: NavItem[];
   user: ShellUser;
   commandItems?: CommandItem[];
   tenantName?: string;
@@ -43,6 +45,7 @@ export function AppShell({
   topNavItem,
   navGroups,
   utilityGroups,
+  headerNavItems,
   user,
   commandItems = [],
   tenantName,
@@ -86,6 +89,7 @@ export function AppShell({
           theme={theme}
           onToggleTheme={toggleTheme}
           utilityGroups={utilityGroups}
+          headerNavItems={headerNavItems}
           activeNavKey={activeNavKey}
           branchOptions={branchOptions}
           warehouseOptions={warehouseOptions}

@@ -124,13 +124,14 @@ import { AssetsHubScreen } from "./screens/hubs/AssetsHubScreen";
 import { ManufacturingHubScreen } from "./screens/hubs/ManufacturingHubScreen";
 import { ProductionDashboardScreen } from "./screens/hubs/ProductionDashboardScreen";
 import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
-import { useScopeSelector } from "./data/hub-hooks";
+import { NotificationsScreen } from "./screens/NotificationsScreen";
+import { useScopeSelector, useSystemStatus } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
 import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, UTILITY_GROUP_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
-import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
+import type { CommandItem, ShellUser, UserMenuItem, TopbarSystemStatus, TopbarSupportItem } from "@mezan/ui";
 import {
   useBranches,
   useCreateRole,
@@ -169,6 +170,7 @@ const ROUTABLE_SCREENS = {
   "manufacturing-hub": ManufacturingHubScreen,
   "production-dashboard": ProductionDashboardScreen,
   status: SystemStatusScreen,
+  notifications: NotificationsScreen,
   "sales-invoices": SalesInvoicesScreen,
   quotes: SalesQuotesScreen,
   "price-lists": PriceListsScreen,
@@ -401,8 +403,29 @@ export function App() {
   const createRole = useCreateRole();
   const updateRole = useUpdateRole();
   const deleteRoleMutation = useDeleteRole();
-  const notificationsBell = useNotificationsBell();
+  const notificationsBell = useNotificationsBell(() => setActiveScreen("notifications"));
   const { branchOptions, warehouseOptions, selection, setBranch, setWarehouse } = useScopeSelector();
+
+  // Header chrome (R1.7/R1.8): a real health check, never a fabricated "all
+  // systems operational", and a support entry point over genuinely live app
+  // features rather than an invented contact address.
+  const systemStatusQuery = useSystemStatus();
+  const systemStatusServices = systemStatusQuery.data?.services ?? [];
+  const systemStatusHasIssue =
+    systemStatusQuery.isError || (systemStatusServices.length > 0 && systemStatusServices.some((s) => s.state !== "operational"));
+  const systemStatus: TopbarSystemStatus = {
+    tone: systemStatusQuery.isLoading ? "neutral" : systemStatusHasIssue ? "danger" : "success",
+    label: systemStatusQuery.isLoading
+      ? t("shell.systemStatus.checking")
+      : systemStatusHasIssue
+        ? t("shell.systemStatus.issue")
+        : t("shell.systemStatus.ok"),
+    onClick: () => setActiveScreen("status"),
+  };
+  const supportItems: TopbarSupportItem[] = [
+    { key: "shortcuts", label: t("shell.support.shortcuts"), onSelect: () => setShortcutsOpen(true) },
+    { key: "status", label: t("shell.support.status"), onSelect: () => setActiveScreen("status") },
+  ];
 
   const allBranchIds = branches.map((b) => b.id);
   const allWarehouseIds = warehouses.map((w) => w.id);
@@ -598,6 +621,8 @@ export function App() {
       commandItems={routedCommandItems}
       tenantName={session.tenantName}
       scopeLabel={scopeLabel}
+      systemStatus={systemStatus}
+      supportItems={supportItems}
       userMenuItems={userMenuItems}
       notificationCount={notificationsBell.unreadCount}
       onToggleNotifications={notificationsBell.onToggle}

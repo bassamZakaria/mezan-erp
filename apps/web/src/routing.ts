@@ -33,7 +33,7 @@ for (const group of navGroupSpecs) {
   }
 }
 // Screens the nav tree does not list: they address as their own bare key.
-for (const key of ["users", "roles", "role-editor", "dashboard"]) {
+for (const key of ["users", "roles", "role-editor", "dashboard", "notifications"]) {
   if (!PATH_BY_SCREEN.has(key)) {
     PATH_BY_SCREEN.set(key, key);
     SCREEN_BY_PATH.set(key, key);

@@ -36,6 +36,7 @@ import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hoo
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** الموظفون (Employees) — docs/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -651,6 +652,11 @@ export function EmployeesScreen() {
                 </tbody>
               </table>
             ),
+        },
+        {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="employee" entityId={selected.id} />,
         },
       ]
     : [];

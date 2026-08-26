@@ -12,7 +12,13 @@ export const ATTACHMENT_ENTITY_TYPES = [
   "supplier",
   "employee",
   "sales-invoice",
+  "sales-quote",
+  "sales-return",
   "purchase-invoice",
+  "purchase-order",
+  "goods-receipt",
+  "stock-adjustment",
+  "stock-transfer",
   "work-order",
   "voucher",
 ] as const;

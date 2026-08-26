@@ -64,6 +64,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
 import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -674,6 +675,11 @@ function VoucherDetailView({
           )}
         </Card>
       ),
+    },
+    {
+      key: "attachments",
+      label: t("attachments.tab"),
+      content: <AttachmentsTab entityType="voucher" entityId={doc.id} />,
     },
   ];
 

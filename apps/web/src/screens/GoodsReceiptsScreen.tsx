@@ -30,6 +30,7 @@ import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -143,6 +144,11 @@ function ReceiptDetail({
               </table>
             </div>
           ),
+        },
+        {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="goods-receipt" entityId={receipt.id} />,
         },
       ]}
     />

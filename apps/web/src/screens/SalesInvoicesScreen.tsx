@@ -66,6 +66,7 @@ import { majorOf, sumMajor } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
 import { SelectField, NumberField, TextAreaField, TextField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
@@ -1506,6 +1507,11 @@ function InvoiceDetailView({
               )}
             </Card>
           ),
+        },
+        {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="sales-invoice" entityId={invoice.id} />,
         },
         {
           key: "audit",

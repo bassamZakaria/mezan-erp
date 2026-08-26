@@ -25,6 +25,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -205,6 +206,11 @@ export function StockTransfersScreen() {
                   </div>
                 </Card>
               ),
+            },
+            {
+              key: "attachments",
+              label: t("attachments.tab"),
+              content: <AttachmentsTab entityType="stock-transfer" entityId={selected.id} />,
             },
           ]}
         />

@@ -25,10 +25,22 @@ export const ATTACHMENT_ENTITY_PERMISSIONS: Record<AttachmentEntityType, Attachm
     viewAny: ["sales.invoice.view", "sales.invoice.view_own", "sales.invoice.view_all"],
     manage: "sales.invoice.edit",
   },
+  "sales-quote": {
+    viewAny: ["sales.quote.view", "sales.quote.view_own"],
+    manage: "sales.quote.edit",
+  },
+  "sales-return": {
+    viewAny: ["sales.return.view", "sales.return.view_own"],
+    manage: "sales.return.create",
+  },
   "purchase-invoice": {
     viewAny: ["purchases.invoice.view", "purchases.invoice.view_own", "purchases.invoice.view_all"],
     manage: "purchases.invoice.edit",
   },
+  "purchase-order": { viewAny: ["purchases.order.view"], manage: "purchases.order.edit" },
+  "goods-receipt": { viewAny: ["purchases.receipt.view"], manage: "purchases.receipt.create" },
+  "stock-adjustment": { viewAny: ["inventory.adjustment.view"], manage: "inventory.adjustment.create" },
+  "stock-transfer": { viewAny: ["inventory.transfer.view"], manage: "inventory.transfer.create" },
   "work-order": { viewAny: ["manufacturing.wo.view"], manage: "manufacturing.wo.create" },
   voucher: { viewAny: ["treasury.cash_voucher.view"], manage: "treasury.cash_voucher.create" },
 };

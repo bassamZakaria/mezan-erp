@@ -1,5 +1,13 @@
-import { Hono } from "hono";
-import { Money, Qty, type DocumentService, type FrameworkDocument, type PurchaseInvoiceLookupPort, type PurchaseReturnLine } from "@mezan/domain";
+import { Hono, type Context } from "hono";
+import {
+  Money,
+  Qty,
+  purchaseReturnGrandTotal,
+  type DocumentService,
+  type FrameworkDocument,
+  type PurchaseInvoiceLookupPort,
+  type PurchaseReturnLine,
+} from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -66,19 +74,104 @@ export function createPurchaseReturnsRoutes(
     return line.qty.subtract(line.alreadyReturnedQty);
   }
 
-  app.get("/", gate("purchases.return.view"), async (c) => {
+  interface PurchaseReturnListFilter {
+    readonly status?: string;
+    readonly supplierId?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly search?: string;
+  }
+
+  function parseListQuery(c: Context): PurchaseReturnListFilter {
     const status = c.req.query("status");
-    const fromDate = c.req.query("fromDate");
-    const toDate = c.req.query("toDate");
-    const list = await service.list({ status: status as never, fromDate: fromDate ?? undefined, toDate: toDate ?? undefined });
+    return {
+      status: status && status !== "all" ? status : undefined,
+      supplierId: c.req.query("supplierId") || undefined,
+      fromDate: c.req.query("fromDate") || undefined,
+      toDate: c.req.query("toDate") || undefined,
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1). `supplierId` and `search` are presentation filters over an
+   * already-scoped set — `warehouseScopeOf` still decides what this user may
+   * see at all, and no query parameter widens it.
+   */
+  async function listFilteredReturns(
+    c: Context,
+    filter: PurchaseReturnListFilter,
+  ): Promise<readonly FrameworkDocument<PurchaseReturnLine>[]> {
+    const list = await service.list({
+      status: filter.status as never,
+      fromDate: filter.fromDate,
+      toDate: filter.toDate,
+    });
     // A return takes stock out of a warehouse, so the header's warehouse scope
     // has to narrow it (R1.14).
     // The warehouse is on the LINES, not the header, so a document is in
     // scope when any of its lines is — the same rule the stock-document
     // routes already apply.
     const scope = warehouseScopeOf(c);
-    const scoped = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
-    return c.json(scoped.map(serialize));
+    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    if (filter.supplierId) {
+      rows = rows.filter((doc) => doc.lines.some((line) => line.supplierId === filter.supplierId));
+    }
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (doc) =>
+          (doc.docNo ?? "").toLowerCase().includes(term) ||
+          doc.lines.some(
+            (line) =>
+              (line.sourceInvoiceNumber ?? "").toLowerCase().includes(term) ||
+              line.supplierId.toLowerCase().includes(term),
+          ),
+      );
+    }
+    return rows;
+  }
+
+  app.get("/", gate("purchases.return.view"), async (c) => {
+    return c.json((await listFilteredReturns(c, parseListQuery(c))).map(serialize));
+  });
+
+  /**
+   * The status chips. Deliberately ignores its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero. Every other filter applies.
+   */
+  app.get("/counts", gate("purchases.return.view"), async (c) => {
+    const { status: _status, ...withoutStatus } = parseListQuery(c);
+    const rows = await listFilteredReturns(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      pending: 0,
+      confirmed: 0,
+      cancelled: 0,
+      reversed: 0,
+    };
+    for (const doc of rows) counts[doc.status] = (counts[doc.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip, summed in `Money` over the whole filtered set. Only a
+   * confirmed return has taken anything off the supplier payable, so a draft's
+   * value is not returned money.
+   */
+  app.get("/stats", gate("purchases.return.view"), async (c) => {
+    const rows = await listFilteredReturns(c, parseListQuery(c));
+    let confirmed = 0;
+    let returnedTotal = Money.zero();
+    for (const doc of rows) {
+      if (doc.status !== "confirmed") continue;
+      confirmed += 1;
+      returnedTotal = returnedTotal.add(purchaseReturnGrandTotal(doc));
+    }
+    return c.json({ count: rows.length, confirmed, returnedTotal: returnedTotal.toString() });
   });
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {

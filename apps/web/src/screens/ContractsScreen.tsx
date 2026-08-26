@@ -1,19 +1,18 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type {
   ContractDTO,
@@ -44,6 +43,7 @@ const PAY_FREQUENCY_KEY: Record<PayFrequencyDTO, AppTranslationKey> = { monthly:
 const STATUS_KEY: Record<ContractStatusDTO, AppTranslationKey> = { active: "contracts.status.active", terminated: "contracts.status.terminated" };
 const STATUS_TONE: Record<ContractStatusDTO, PillTone> = { active: "success", terminated: "neutral" };
 const CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface ContractDraft {
   employeeId: string;
@@ -95,6 +95,8 @@ export function ContractsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ContractDraft>(blankDraft());
@@ -102,7 +104,7 @@ export function ContractsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState(false);
 
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
@@ -120,6 +122,12 @@ export function ContractsScreen() {
     }
     return rows;
   }, [contracts, statusFilter, search, employees]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selected = selectedId ? (contracts.find((c) => c.id === selectedId) ?? null) : null;
 
@@ -189,16 +197,16 @@ export function ContractsScreen() {
     }
   }
 
-  async function runTerminate(contract: ContractDTO) {
-    if (pendingId) return;
-    setPendingId(contract.id);
+  async function runTerminate() {
+    if (!selected || pendingAction) return;
+    setPendingAction(true);
     setDetailError(null);
     try {
-      await terminateContract.mutateAsync(contract.id);
+      await terminateContract.mutateAsync(selected.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe2"));
     } finally {
-      setPendingId(null);
+      setPendingAction(false);
     }
   }
 
@@ -266,39 +274,52 @@ export function ContractsScreen() {
             label: t("contracts.contractsEndingWithin30", { count: expiringSoonCount }),
             count: expiringSoonCount,
             tone: "warning",
-            onApply: () => setStatusFilter("expiring_soon"),
+            onApply: () => {
+              setStatusFilter("expiring_soon");
+              setPage(1);
+            },
           },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon")}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("contracts.searchByContractNumberOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
         onRowClick={(c) => {
           setDetailError(null);
           setSelectedId(c.id);
         }}
-        rowAction={(c) => {
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(c.id); } },
-            ...(c.status === "active"
-              ? [{ key: "terminate", label: t("contracts.endContract"), tone: "danger" as const, disabled: pendingId === c.id, onSelect: () => void runTerminate(c) }]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.number })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{contracts.length}</span> {t("contracts.contracts2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{contracts.length}</span> {t("contracts.contracts2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("contracts.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("contracts.nothingToShow")}
+            description={t("contracts.emptyBody")}
+            action={{ label: t("contracts.addContract"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>
@@ -396,7 +417,7 @@ export function ContractsScreen() {
             ) : null}
 
             {selected.status === "active" ? (
-              <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => runTerminate(selected)}>
+              <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
                 {t("contracts.endContract")}
               </Button>
             ) : null}

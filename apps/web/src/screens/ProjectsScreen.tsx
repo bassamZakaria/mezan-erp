@@ -1,11 +1,11 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
   StatusPill,
   Card,
   Button,
-  RowMenu,
   SidePanel,
   MoneyInput,
   EntityPicker,
@@ -13,7 +13,6 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import { canTransitionProject, matchesSearch } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
@@ -50,6 +49,8 @@ function statusOptionsFrom(current: ProjectStatusDTO, t: (key: AppTranslationKey
     .filter((value) => canTransitionProject(current, value))
     .map((value) => ({ value, label: t(STATUS_KEY[value]) }));
 }
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const NO_CUSTOMER_ID = "__none__";
 const NO_MANAGER_ID = "__none__";
@@ -108,6 +109,8 @@ export function ProjectsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(blankDraft());
@@ -116,8 +119,6 @@ export function ProjectsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusDraft, setStatusDraft] = useState<ProjectStatusDTO>("planned");
   const [statusError, setStatusError] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
 
   function customerName(customerId: string | null): string {
     if (customerId === null) return t("projects.noCustomer");
@@ -138,6 +139,10 @@ export function ProjectsScreen() {
     }
     return rows;
   }, [projects, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const totalCount = projects.length;
   const activeCount = projects.filter((p) => p.status === "active").length;
@@ -203,19 +208,6 @@ export function ProjectsScreen() {
     }
   }
 
-  async function changeStatusFromRow(project: ProjectDTO, status: ProjectStatusDTO) {
-    if (pendingId) return;
-    setPendingId(project.id);
-    setActionError(null);
-    try {
-      await updateProject.mutateAsync({ id: project.id, patch: { status } });
-    } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : t("projects.theProjectSStatusCould"));
-    } finally {
-      setPendingId(null);
-    }
-  }
-
   const columns: DocumentListColumn<ProjectDTO>[] = [
     { key: "code", header: t("projects.projectCode"), render: (p) => <span className="mz-num font-semibold text-ink">{p.code}</span> },
     { key: "nameAr", header: t("projects.projectName"), render: (p) => <span className="font-semibold text-ink">{p.nameAr}</span> },
@@ -244,11 +236,6 @@ export function ProjectsScreen() {
           </Button>
         </Card>
       ) : null}
-      {actionError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {actionError}
-        </div>
-      ) : null}
       <DocumentList<ProjectDTO>
         title={t("projects.projectsAndContracting")}
         description={t("projects.trackingEachProjectSCost")}
@@ -267,40 +254,40 @@ export function ProjectsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={setStatusFilter}
+        onStatusChange={(k) => {
+          setStatusFilter(k);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("projects.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(p) => p.id}
         onRowClick={openDetail}
-        rowAction={(p) => {
-          const items: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => openDetail(p) },
-            ...statusOptionsFrom(p.status, t)
-              .filter((option) => option.value !== p.status)
-              .map((option) => ({
-                key: option.value,
-                label: option.label,
-                tone: option.value === "cancelled" ? ("danger" as const) : ("default" as const),
-                disabled: pendingId === p.id,
-                onSelect: () => void changeStatusFromRow(p, option.value),
-              })),
-          ];
-          return <RowMenu items={items} label={t("common.rowActionsFor", { name: p.nameAr })} />;
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("projects.projects")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("projects.projects")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {t("projects.noProjectsCreateTheFirst")}
-          </div>
+          <EmptyState
+            title={t("projects.noProjectsCreateTheFirst")}
+            description={t("projects.emptyBody")}
+            action={{ label: t("projects.newProject"), onClick: openCreateForm }}
+          />
         }
       />
 

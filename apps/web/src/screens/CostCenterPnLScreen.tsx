@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   FulcrumRule,
   StatCard,
   TextInput,
@@ -25,12 +26,23 @@ function fmt(value: string): string {
  * on the real `GET /cost-center-pl` route (packages/api/src/cost-center-pl-routes.ts),
  * which runs the SAME `computeCostCenterPnL` domain function server-side.
  */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function CostCenterPnLScreen() {
   const { t } = useAppTranslation();
   const [fromDate, setFromDate] = useState(monthStartIso());
   const [toDate, setToDate] = useState(monthEndIso());
   const query = useCostCenterPnL(fromDate, toDate);
   const report = query.data ?? null;
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  const rows = report?.rows ?? [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const columns: DocumentListColumn<CostCenterPnLRowDTO>[] = [
     { key: "code", header: t("common.code"), render: (r) => <span className="mz-num text-ink-muted">{r.code}</span> },
@@ -78,12 +90,19 @@ export function CostCenterPnLScreen() {
       <DocumentList<CostCenterPnLRowDTO>
         title=""
         columns={columns}
-        rows={report?.rows ?? []}
+        rows={pageRows}
         rowKey={(r) => r.costCenterId ?? "unassigned"}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{report?.rows.length ?? 0}</span> {t("costCenterPnl.costCentre2")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("costCenterPnl.noMovementInThisPeriod")}</div>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("costCenterPnl.costCentre2")}</>}
+        emptyState={<EmptyState title={t("costCenterPnl.noMovementInThisPeriod")} description={t("costCenterPnl.emptyBody")} />}
       />
     </div>
   );

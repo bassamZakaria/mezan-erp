@@ -49,6 +49,7 @@ import {
  *   POST /:id/cancel           → cancelled                  (purchases.rfq.create)
  *   GET  /[/:id]               list / get one               (purchases.rfq.view)
  *   GET  /counts                status counts                (purchases.rfq.view)
+ *   GET  /stats                 pipeline KPI strip            (purchases.rfq.view)
  *   GET  /:id/quotes            list quotes                  (purchases.rfq.view)
  *   POST /:id/quotes            record a supplier quote      (purchases.rfq.create)
  *   GET  /:id/comparison        per-item/per-supplier grid    (purchases.rfq.view)
@@ -123,19 +124,80 @@ export function createRfqRoutes(
   const gate = createPermissionGate(resolveAuthContext);
   const actor = (c: Context) => getAuthContext(c)?.userId ?? "system";
 
+  interface RfqListFilter {
+    readonly status?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly branchId?: string;
+    readonly warehouseId?: string;
+    readonly search?: string;
+  }
+
+  function parseRfqListQuery(c: Context): RfqListFilter {
+    const status = c.req.query("status");
+    return {
+      status: status && status !== "all" ? status : undefined,
+      fromDate: c.req.query("fromDate") || undefined,
+      toDate: c.req.query("toDate") || undefined,
+      branchId: c.req.query("branchId") || undefined,
+      warehouseId: c.req.query("warehouseId") || undefined,
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1). `/counts` used to read `deps.rfqs.list()` directly, so it
+   * reported figures over the whole tenant while the rows beneath it were
+   * branch-scoped and filtered — the chips and the table disagreed by
+   * construction. `branchId`/`warehouseId`/`search` narrow an already-scoped
+   * set; no query parameter widens `branchScopeOf`.
+   */
+  async function listFilteredRfqs(c: Context, filter: RfqListFilter): Promise<readonly PurchaseRfq[]> {
+    let rows = withinScope(await deps.rfqs.list(), branchScopeOf(c), (r) => r.branchId);
+    if (filter.status) rows = rows.filter((r) => r.status === filter.status);
+    if (filter.fromDate) rows = rows.filter((r) => r.date >= filter.fromDate!);
+    if (filter.toDate) rows = rows.filter((r) => r.date <= filter.toDate!);
+    if (filter.branchId) rows = rows.filter((r) => r.branchId === filter.branchId);
+    if (filter.warehouseId) rows = rows.filter((r) => r.warehouseId === filter.warehouseId);
+    const term = filter.search?.trim().toLowerCase();
+    if (term) rows = rows.filter((r) => r.number.toLowerCase().includes(term));
+    return rows;
+  }
+
   app.get("/", gate("purchases.rfq.view"), async (c) => {
-    return c.json(withinScope(await deps.rfqs.list(), branchScopeOf(c), (r) => r.branchId).map(serializeRfq));
+    return c.json((await listFilteredRfqs(c, parseRfqListQuery(c))).map(serializeRfq));
   });
 
+  /**
+   * The status chips. Deliberately ignores its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero. Every other filter applies.
+   */
   app.get("/counts", gate("purchases.rfq.view"), async (c) => {
-    const all = await deps.rfqs.list();
-    return c.json({
-      all: all.length,
-      draft: all.filter((r) => r.status === "draft").length,
-      sent: all.filter((r) => r.status === "sent").length,
-      closed: all.filter((r) => r.status === "closed").length,
-      cancelled: all.filter((r) => r.status === "cancelled").length,
-    });
+    const { status: _status, ...withoutStatus } = parseRfqListQuery(c);
+    const rows = await listFilteredRfqs(c, withoutStatus);
+    const counts: Record<string, number> = { all: rows.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
+    for (const rfq of rows) counts[rfq.status] = (counts[rfq.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip over the whole filtered set. An RFQ carries no money of its
+   * own — the prices live on the supplier quotes recorded against it — so the
+   * strip is a pipeline count, not a total.
+   */
+  app.get("/stats", gate("purchases.rfq.view"), async (c) => {
+    const rows = await listFilteredRfqs(c, parseRfqListQuery(c));
+    let draft = 0;
+    let sent = 0;
+    let closed = 0;
+    for (const rfq of rows) {
+      if (rfq.status === "draft") draft += 1;
+      if (rfq.status === "sent") sent += 1;
+      if (rfq.status === "closed") closed += 1;
+    }
+    return c.json({ count: rows.length, draft, sent, closed });
   });
 
   app.get("/:id", gate("purchases.rfq.view"), async (c) => {

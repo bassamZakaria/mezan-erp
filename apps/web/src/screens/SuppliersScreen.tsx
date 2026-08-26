@@ -5,14 +5,13 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   Money as MoneyValue,
-  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
 import {
@@ -22,6 +21,9 @@ import {
   usePurchaseInvoices,
   usePurchaseReturns,
   useSuppliers,
+  useSupplierCounts,
+  useSupplierStats,
+  type SupplierListFilter,
   useUpdateSupplier,
   useVouchers,
 } from "../data/hooks";
@@ -38,9 +40,9 @@ import {
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 import { supplierPayableById } from "../lib/partner-balances";
+import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
@@ -54,6 +56,9 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
  * debit split over the invoices it was allocated onto — and reconciles the
  * closing figure against both `GET /open-invoices?kind=purchase` and
  * `GET /reports/aging/suppliers`.
+ *
+ * There is no attachments tab: this build has no file-storage subsystem of any
+ * kind, so the tab would be a navigational dead end rather than an empty list.
  */
 
 const PURCHASE_STATUS_KEY: Record<PurchaseInvoiceStatusDTO, AppTranslationKey> = {
@@ -511,6 +516,8 @@ const BLANK_DRAFT: SupplierDraft = {
   active: true,
 };
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
   return {
     code: supplier.code,
@@ -598,7 +605,6 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
         },
         { key: "invoices", label: t("suppliers.tab.invoices"), content: <SupplierInvoicesTab supplierId={supplier.id} /> },
         { key: "statement", label: t("suppliers.tab.statement"), content: <SupplierStatementTab supplier={supplier} /> },
-        { key: "attachments", label: t("attachments.tab"), content: <AttachmentsTab entityType="supplier" entityId={supplier.id} /> },
       ]}
     />
   );
@@ -606,14 +612,40 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();
-  const { navigate } = useNavigation();
-  const query = useSuppliers();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<SupplierDraft>(BLANK_DRAFT);
+  const [error, setError] = useState<string | null>(null);
+
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1). The payable
+   * tile used to be a float sum over every supplier the server had sent, so a
+   * status chip moved the table and left the header on the whole book.
+   */
+  const filter = useMemo<SupplierListFilter>(
+    () => ({ status: statusFilter, q: search.trim() || undefined }),
+    [statusFilter, search],
+  );
+
+  const query = useSuppliers(filter);
   const suppliers = query.data ?? [];
-  // The payable a supplier list must answer is the LIVE one: opening balance plus
+  const filtered = suppliers;
+  const counts = useSupplierCounts(filter).data ?? {};
+  const stats = useSupplierStats(filter).data ?? {};
+
+  // The payable a supplier ROW must answer is the LIVE one: opening balance plus
   // confirmed invoices, less payments and returns. Reporting the opening figure
-  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39).
+  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39). The
+  // strip's total comes off `/suppliers/stats`, which derives the same figure
+  // server-side in `Money`.
   const purchaseInvoices = usePurchaseInvoices().data ?? [];
   const vouchers = useVouchers().data ?? [];
   const purchaseReturns = usePurchaseReturns().data ?? [];
@@ -624,32 +656,16 @@ export function SuppliersScreen() {
   );
   const payableOf = (id: string) => payableById.get(id) ?? 0;
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [draft, setDraft] = useState<SupplierDraft>(BLANK_DRAFT);
-  const [error, setError] = useState<string | null>(null);
-
   const selected = suppliers.find((s) => s.id === selectedId) ?? null;
 
-  const filtered = useMemo(() => {
-    let rows = suppliers;
-    if (statusFilter !== "all") rows = rows.filter((s) => (statusFilter === "active" ? s.active : !s.active));
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (s) => matchesSearch(search, s.nameAr, s.nameEn, s.code, s.phone),
-      );
-    }
-    return rows;
-  }, [suppliers, statusFilter, search]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: suppliers.length },
-    { key: "active", label: t("common.active"), count: suppliers.filter((s) => s.active).length },
-    { key: "inactive", label: t("common.inactive"), count: suppliers.filter((s) => !s.active).length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "active", label: t("common.active"), count: counts.active ?? 0 },
+    { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
   ];
 
   const columns: DocumentListColumn<SupplierDTO>[] = [
@@ -802,58 +818,50 @@ export function SuppliersScreen() {
           </Button>
         }
         stats={[
-          { label: t("suppliers.stat.total"), value: <span className="mz-num">{suppliers.length}</span> },
-          { label: t("common.active"), value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
+          { label: t("suppliers.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
           {
             label: t("suppliers.stat.payable"),
-            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + payableOf(s.id), 0)} showUnit={false} />,
+            value: <MoneyValue value={majorOf(String(stats.payable ?? "0"))} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as typeof statusFilter)}
+        onStatusChange={(key) => {
+          setStatusFilter(key as typeof statusFilter);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("suppliers.searchPlaceholder")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(s) => s.id}
         onRowClick={(s) => setSelectedId(s.id)}
-        rowAction={(s) => {
-          // An archived supplier can still be opened and read, but nothing new may be raised against it.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(s.id) },
-            ...(s.active
-              ? [
-                  {
-                    key: "invoice",
-                    label: t("suppliers.action.newInvoice"),
-                    onSelect: () => navigate("purchase-invoices", { kind: "create", prefill: { supplierId: s.id } }),
-                  },
-                  {
-                    key: "payment",
-                    label: t("suppliers.action.payment"),
-                    onSelect: () => navigate("treasury-vouchers", { kind: "create", prefill: { supplierId: s.id } }),
-                  },
-                  {
-                    key: "order",
-                    label: t("suppliers.action.newOrder"),
-                    onSelect: () => navigate("purchase-orders", { kind: "create", prefill: { supplierId: s.id } }),
-                  },
-                  { key: "edit", label: t("common.edit"), onSelect: () => openEditForm(s) },
-                ]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: s.nameAr })} />;
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{suppliers.length}</span> {t("suppliers.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("suppliers.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("suppliers.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("suppliers.empty")}
+            description={t("suppliers.emptyBody")}
+            action={{ label: t("suppliers.addSupplier"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? t("suppliers.editSupplier") : t("suppliers.addSupplier")} description={t("suppliers.panel.description")}>

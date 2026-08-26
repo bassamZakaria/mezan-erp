@@ -1,16 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   Chip,
   DocumentList,
+  EmptyState,
   FulcrumRule,
-  RowMenu,
   Select,
   StatusPill,
   type DocumentListColumn,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
@@ -61,6 +60,8 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
   return TODAY >= period.startDate && TODAY <= period.endDate;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function FiscalPeriodsScreen() {
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
@@ -73,7 +74,8 @@ export function FiscalPeriodsScreen() {
   const [year, setYear] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
   const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort((a, b) => a - b), [periods]);
   const selectedYear = year ?? years[years.length - 1] ?? new Date().getUTCFullYear();
@@ -86,6 +88,14 @@ export function FiscalPeriodsScreen() {
     [periodsInYear, statusFilter],
   );
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
+
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
 
@@ -93,41 +103,29 @@ export function FiscalPeriodsScreen() {
   // machine server-side — an invalid transition surfaces the server's own
   // error message rather than one guessed on the client.
   async function closePeriod(period: FiscalPeriodDTO) {
-    if (pendingId) return;
-    setPendingId(period.id);
     setActionError(null);
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
-    } finally {
-      setPendingId(null);
     }
   }
 
   async function lockPeriod(period: FiscalPeriodDTO) {
-    if (pendingId) return;
-    setPendingId(period.id);
     setActionError(null);
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
-    } finally {
-      setPendingId(null);
     }
   }
 
   async function reopenPeriod(period: FiscalPeriodDTO) {
-    if (pendingId) return;
-    setPendingId(period.id);
     setActionError(null);
     try {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
-    } finally {
-      setPendingId(null);
     }
   }
 
@@ -158,6 +156,29 @@ export function FiscalPeriodsScreen() {
     { key: "range", header: t("fiscalPeriods.fromTo"), render: (p) => <span className="mz-num">{p.startDate} — {p.endDate}</span> },
     { key: "posting", header: t("fiscalPeriods.posting"), render: (p) => <StatusPill label={p.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={p.status === "open" ? "success" : "danger"} /> },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
+    {
+      key: "actions",
+      header: "",
+      render: (p) => (
+        <div className="flex justify-end gap-[6px]">
+          {p.status === "open" ? (
+            <Button size="sm" onClick={() => closePeriod(p)}>
+              {t("fiscalPeriods.close")}
+            </Button>
+          ) : null}
+          {p.status === "closed" ? (
+            <>
+              <Button size="sm" onClick={() => reopenPeriod(p)}>
+                {t("fiscalPeriods.reopen")}
+              </Button>
+              <Button size="sm" onClick={() => lockPeriod(p)}>
+                {t("fiscalPeriods.lock")}
+              </Button>
+            </>
+          ) : null}
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -235,6 +256,8 @@ export function FiscalPeriodsScreen() {
 
       <DocumentList<FiscalPeriodDTO>
         title=""
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {(
@@ -245,35 +268,43 @@ export function FiscalPeriodsScreen() {
                 ["locked", t("fiscalPeriods.filterLocked", { count: String(periodsInYear.filter((p) => p.status === "locked").length) })],
               ] as const
             ).map(([value, label]) => (
-              <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>
+              <Chip
+                key={value}
+                active={statusFilter === value}
+                onClick={() => {
+                  setStatusFilter(value);
+                  setPage(1);
+                }}
+              >
                 {label}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(p) => p.id}
-        rowAction={(p) => {
-          const menuItems: RowMenuItem[] =
-            p.status === "open"
-              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => void closePeriod(p) }]
-              : p.status === "closed"
-                ? [
-                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => void reopenPeriod(p) },
-                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
-                  ]
-                : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${monthLabel(p.periodNumber, t)} ${p.year}` })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{periodsInYear.length}</span> {t("fiscalPeriods.periods")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{periodsInYear.length}</span> {t("fiscalPeriods.periods")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fiscalPeriods.noMatchingPeriods")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("fiscalPeriods.noMatchingPeriods")}
+            description={t("fiscalPeriods.emptyBody")}
+            action={{ label: t("fiscalPeriods.createNextYear"), onClick: generateNextYear }}
+          />
+        }
       />
     </div>
   );

@@ -5,6 +5,7 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   IconButton,
   RowMenu,
@@ -33,6 +34,9 @@ import {
   useItemStock,
   useItemUnits,
   useItems,
+  useItemCounts,
+  useItemStats,
+  type ItemListFilter,
   useUpdateItem,
   usePriceLists,
   useSuppliers,
@@ -77,7 +81,7 @@ const NO_CATEGORY_ID = "__none__";
 const NO_CATEGORY_KEY = "common.uncategorized" as const;
 const DEFAULT_GL_ID = "__default__";
 const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
-const PAGE_SIZE = 5;
+const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
 interface ItemDraft {
@@ -653,13 +657,11 @@ export function ItemsScreen() {
   const specifications = useItemSpecifications().data ?? [];
   const brandName = (id: string | null | undefined) => (id ? (brands.find((b) => b.id === id)?.nameAr ?? id) : "—");
   const seasonName = (id: string | null | undefined) => (id ? (seasons.find((x) => x.id === id)?.nameAr ?? id) : "—");
-  const query = useItems();
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
   const unitsQuery = useItemUnits();
   const categoriesQuery = useItemCategories();
-  const items = query.data ?? [];
   const glAccounts = accountsQuery.data ?? [];
   const itemUnits = unitsQuery.data ?? [];
   const itemCategories = categoriesQuery.data ?? [];
@@ -682,6 +684,7 @@ export function ItemsScreen() {
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [sort, setSort] = useState<DocumentListSort>({ key: "code", direction: "asc" });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(5);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -689,47 +692,36 @@ export function ItemsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   /**
-   * Everything the user narrowed by EXCEPT the chip row. The chips and the KPI
-   * strip both count over this set: a chip states how many rows it would show,
-   * so it has to follow the brand/season/category/unit/search filters — but
-   * not the chip currently selected, which would zero every other chip.
+   * One filter for the rows, the chips and the KPI strip (R1.1). All three
+   * used to be derived in the browser from `baseRows` — everything narrowed
+   * EXCEPT the chip — which is right for a chip and wrong for the strip: the
+   * tiles went on reporting the whole catalogue while a chip narrowed the
+   * table beneath them.
    */
-  const baseRows = useMemo(() => {
-    let rows = items;
-    if (categoryFilter !== "all") rows = rows.filter((i) => i.categoryId === categoryFilter);
-    if (brandFilter) rows = rows.filter((i) => i.brandId === brandFilter);
-    if (seasonFilter) rows = rows.filter((i) => i.seasonId === seasonFilter);
-    if (unitFilter !== "all") rows = rows.filter((i) => i.baseUnitCode === unitFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (i) => matchesSearch(search, i.nameAr, i.code, i.nameEn),
-      );
-    }
-    return rows;
-  }, [items, categoryFilter, brandFilter, seasonFilter, unitFilter, search]);
+  const filter = useMemo<ItemListFilter>(
+    () => ({
+      status: statusChipKey,
+      categoryId: categoryFilter,
+      brandId: brandFilter || undefined,
+      seasonId: seasonFilter || undefined,
+      unitCode: unitFilter,
+      search: search.trim() || undefined,
+    }),
+    [statusChipKey, categoryFilter, brandFilter, seasonFilter, unitFilter, search],
+  );
 
-  const totalCount = baseRows.length;
-  const activeCount = baseRows.filter((i) => i.status === "active").length;
-  const typeCounts = useMemo(() => {
-    const counts = new Map<ItemTypeDTO, number>();
-    for (const item of baseRows) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
-    return counts;
-  }, [baseRows]);
+  const query = useItems(filter);
+  const items = query.data ?? [];
+  const counts = useItemCounts(filter).data ?? {};
+  const stats = useItemStats(filter).data ?? {};
 
-  // Counted by capability, not by the literal type "stock": raw materials,
-  // finished goods and consumables all hold stock too (R5.1).
-  const stockTrackedCount = baseRows.filter((i) => itemTypeTracksStock(i.type)).length;
-  const lowStockCount = baseRows.filter((i) => i.stockState === "low").length;
-  const outOfStockCount = baseRows.filter((i) => i.stockState === "out").length;
+  const totalCount = counts.all ?? 0;
+  const activeCount = counts.active ?? 0;
+  const lowStockCount = counts.low_stock ?? 0;
+  const outOfStockCount = counts.out_of_stock ?? 0;
 
   const filtered = useMemo(() => {
-    let rows = baseRows;
-    if (statusChipKey === "active" || statusChipKey === "inactive") rows = rows.filter((i) => i.status === statusChipKey);
-    if (ITEM_TYPES.includes(statusChipKey as ItemTypeDTO)) rows = rows.filter((i) => i.type === statusChipKey);
-    if (statusChipKey === "low_stock") rows = rows.filter((i) => i.stockState === "low");
-    if (statusChipKey === "out_of_stock") rows = rows.filter((i) => i.stockState === "out");
-    const sorted = [...rows].sort((a, b) => {
+    const sorted = [...items].sort((a, b) => {
       const dir = sort.direction === "asc" ? 1 : -1;
       if (sort.key === "salePrice") return (Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0)) * dir;
       if (sort.key === "costPrice") return (Number(a.costPrice ?? 0) - Number(b.costPrice ?? 0)) * dir;
@@ -737,10 +729,17 @@ export function ItemsScreen() {
       return a.code.localeCompare(b.code) * dir;
     });
     return sorted;
-  }, [baseRows, statusChipKey, sort]);
+  }, [items, sort]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const activeFilterCount =
+    (statusChipKey !== "all" ? 1 : 0) +
+    (categoryFilter !== "all" ? 1 : 0) +
+    (brandFilter !== "" ? 1 : 0) +
+    (seasonFilter !== "" ? 1 : 0) +
+    (unitFilter !== "all" ? 1 : 0);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
     () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
@@ -884,8 +883,10 @@ export function ItemsScreen() {
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: totalCount },
     { key: "active", label: t("common.active"), count: activeCount },
-    { key: "inactive", label: t("common.inactive"), count: totalCount - activeCount },
-    ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: typeCounts.get(type) ?? 0 })),
+    { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
+    // The type axis shares one `status` parameter with the state axis, so the
+    // route answers for it under a `type:` prefix.
+    ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: counts[`type:${type}`] ?? 0 })),
     { key: "low_stock", label: t("items.chip.lowStock"), count: lowStockCount },
     { key: "out_of_stock", label: t("items.chip.outOfStock"), count: outOfStockCount },
   ];
@@ -1438,10 +1439,10 @@ export function ItemsScreen() {
         listKey="items"
         statsCollapsible
         stats={[
-          { label: t("items.totalItems"), value: <span className="mz-num">{totalCount}</span> },
-          { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
-          { label: t("items.stockItems"), value: <span className="mz-num">{stockTrackedCount}</span> },
-          { label: t("items.nonStockItems"), value: <span className="mz-num">{totalCount - stockTrackedCount}</span> },
+          { label: t("items.totalItems"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
+          { label: t("items.stockItems"), value: <span className="mz-num">{stats.stockTracked ?? 0}</span> },
+          { label: t("items.nonStockItems"), value: <span className="mz-num">{stats.nonStock ?? 0}</span> },
         ]}
         attentionBanners={[
           {
@@ -1477,6 +1478,8 @@ export function ItemsScreen() {
           setPage(1);
         }}
         searchPlaceholder={t("items.searchByNameOrCode")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <>
             <Select
@@ -1546,13 +1549,25 @@ export function ItemsScreen() {
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}</span> {t("common.of")}{" "}
+            {t("common.show")} <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)}</span> {t("common.of")}{" "}
             <span className="mz-num">{filtered.length}</span> {t("items.items2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("items.noMatchingItems")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("items.noMatchingItems")}
+            description={t("items.emptyBody")}
+            action={{ label: t("items.addItem"), onClick: openCreateForm }}
+          />
+        }
       />
       {formPanel}
     </div>

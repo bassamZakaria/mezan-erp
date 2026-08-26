@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { LeaveAccrualFrequencyDTO, LeavePolicyDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import {
@@ -69,6 +69,8 @@ function EditIcon() {
   );
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function LeavePoliciesScreen() {
   const { t } = useAppTranslation();
   const query = useLeavePolicies();
@@ -89,6 +91,14 @@ export function LeavePoliciesScreen() {
   const [rowError, setRowError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  const pageCount = Math.max(1, Math.ceil(policies.length / pageSize));
+  const pageRows = policies.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openCreate() {
     setEditingId(null);
@@ -270,19 +280,28 @@ export function LeavePoliciesScreen() {
           { label: t("leavePolicies.canCarryOver"), value: <span className="mz-num">{policies.filter((p) => p.carryOver).length}</span> },
         ]}
         columns={columns}
-        rows={policies}
+        rows={pageRows}
         rowKey={(p) => p.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{policies.length}</span> {t("leavePolicies.policies2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{policies.length}</span> {t("leavePolicies.policies2")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {t("leavePolicies.noLeavePoliciesAreSet")}
-          </div>
+          <EmptyState
+            title={t("leavePolicies.noLeavePoliciesAreSet")}
+            description={t("leavePolicies.emptyBody")}
+            action={{ label: t("leavePolicies.addPolicy"), onClick: openCreate }}
+          />
         }
       />
 

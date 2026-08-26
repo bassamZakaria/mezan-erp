@@ -1,12 +1,12 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentDetailTab,
@@ -14,7 +14,6 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { ContractDTO, ContractTypeDTO, EmployeeDTO, EmployeeStatusDTO, GenderDTO, MaritalStatusDTO, OvertimeEligibilityDTO, WorkerCategoryDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -38,7 +37,6 @@ import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hoo
 import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { bilingualName, employeeDisplayName } from "./hr-employee-name";
-import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** الموظفون (Employees) — docs/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -70,6 +68,8 @@ const MARITAL_KEY: Record<MaritalStatusDTO, AppTranslationKey> = {
   divorced: "employees.divorced",
   widowed: "employees.widowed",
 };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 const WORKER_CATEGORY_KEY: Record<WorkerCategoryDTO, AppTranslationKey> = { staff: "employees.employee", worker: "employees.worker" };
 const OVERTIME_KEY: Record<OvertimeEligibilityDTO, AppTranslationKey> = {
   inherit_department: "employees.byDepartment",
@@ -180,6 +180,8 @@ export function EmployeesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<EmployeeDraft>(blankDraft());
@@ -187,7 +189,7 @@ export function EmployeesScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState(false);
 
   const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
   const contractsQuery = useEmployeeContracts(selectedId);
@@ -243,6 +245,14 @@ export function EmployeesScreen() {
     }
     return rows;
   }, [employees, statusFilter, departmentFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (departmentFilter === "all" ? 0 : 1);
 
   const departmentJobTitles = jobTitles.filter((j) => j.departmentId === draft.departmentId);
 
@@ -309,29 +319,29 @@ export function EmployeesScreen() {
     }
   }
 
-  async function runTransition(employee: EmployeeDTO, status: EmployeeStatusDTO) {
-    if (pendingId) return;
-    setPendingId(employee.id);
+  async function runTransition(status: EmployeeStatusDTO) {
+    if (!selected || pendingAction) return;
+    setPendingAction(true);
     setDetailError(null);
     try {
-      await transitionEmployee.mutateAsync({ id: employee.id, body: { status } });
+      await transitionEmployee.mutateAsync({ id: selected.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTUpdateTheEmployee"));
     } finally {
-      setPendingId(null);
+      setPendingAction(false);
     }
   }
 
-  async function runTerminate(employee: EmployeeDTO) {
-    if (pendingId) return;
-    setPendingId(employee.id);
+  async function runTerminate() {
+    if (!selected || pendingAction) return;
+    setPendingAction(true);
     setDetailError(null);
     try {
-      await terminateEmployee.mutateAsync(employee.id);
+      await terminateEmployee.mutateAsync(selected.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTTerminateTheEmployee"));
     } finally {
-      setPendingId(null);
+      setPendingAction(false);
     }
   }
 
@@ -347,22 +357,22 @@ export function EmployeesScreen() {
 
   const employeeAdvances = (advancesQuery.data ?? []).filter((a) => a.employeeId === selectedId);
 
-  async function runRehire(employee: EmployeeDTO) {
-    if (pendingId) return;
+  async function runRehire() {
+    if (!selected || pendingAction) return;
     if (rehireDate.trim() === "") {
       setDetailError(t("employees.aRehireDateIsRequired"));
       return;
     }
-    setPendingId(employee.id);
+    setPendingAction(true);
     setDetailError(null);
     try {
-      await rehireEmployee.mutateAsync({ id: employee.id, hireDate: rehireDate.trim() });
+      await rehireEmployee.mutateAsync({ id: selected.id, hireDate: rehireDate.trim() });
       setRehireOpen(false);
       setRehireDate("");
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.theEmployeeCouldNotBe"));
     } finally {
-      setPendingId(null);
+      setPendingAction(false);
     }
   }
 
@@ -407,7 +417,7 @@ export function EmployeesScreen() {
           <Button type="button" onClick={() => setRehireOpen(false)}>
             {t("common.cancel")}
           </Button>
-          <Button type="button" variant="primary" disabled={selected !== null && pendingId === selected.id} onClick={() => selected && runRehire(selected)}>
+          <Button type="button" variant="primary" disabled={pendingAction} onClick={runRehire}>
             {t("employees.rehire")}
           </Button>
         </div>
@@ -655,11 +665,6 @@ export function EmployeesScreen() {
               </table>
             ),
         },
-        {
-          key: "attachments",
-          label: t("attachments.tab"),
-          content: <AttachmentsTab entityType="employee" entityId={selected.id} />,
-        },
       ]
     : [];
 
@@ -675,17 +680,17 @@ export function EmployeesScreen() {
             <>
               <Button onClick={() => setSelectedId(null)}>{t("employees.backToTheList")}</Button>
               {selected.status === "terminated" ? (
-                <Button variant="primary" disabled={pendingId === selected.id} onClick={() => setRehireOpen(true)}>
+                <Button variant="primary" disabled={pendingAction} onClick={() => setRehireOpen(true)}>
                   {t("employees.rehire")}
                 </Button>
               ) : (
                 <>
                   {validTransitions(selected.status).map((status) => (
-                    <Button key={status} disabled={pendingId === selected.id} onClick={() => runTransition(selected, status)}>
+                    <Button key={status} disabled={pendingAction} onClick={() => runTransition(status)}>
                       {t(STATUS_KEY[status])}
                     </Button>
                   ))}
-                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => runTerminate(selected)}>
+                  <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
                     {t("employees.terminate")}
                   </Button>
                 </>
@@ -745,58 +750,54 @@ export function EmployeesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | EmployeeStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | EmployeeStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("employees.searchByNameOrNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(e) => e.id}
         onRowClick={(e) => {
           setDetailError(null);
           setSelectedId(e.id);
         }}
-        rowAction={(e) => {
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(e.id); } },
-            ...(e.status === "terminated"
-              ? [
-                  {
-                    key: "rehire",
-                    label: t("employees.rehire"),
-                    disabled: pendingId === e.id,
-                    onSelect: () => {
-                      setDetailError(null);
-                      setSelectedId(e.id);
-                      setRehireOpen(true);
-                    },
-                  },
-                ]
-              : [
-                  ...validTransitions(e.status).map((status) => ({
-                    key: `transition-${status}`,
-                    label: t(STATUS_KEY[status]),
-                    disabled: pendingId === e.id,
-                    onSelect: () => void runTransition(e, status),
-                  })),
-                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => void runTerminate(e) },
-                ]),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: e.code })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{employees.length}</span> {t("employees.employee")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{employees.length}</span> {t("employees.employee")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("employees.noData")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("employees.noData")}
+            description={t("employees.emptyBody")}
+            action={{ label: t("employees.addEmployee"), onClick: openCreateForm }}
+          />
+        }
         filterBarExtra={
           <SelectField
             label={t("employees.department")}
             value={departmentFilter}
-            onChange={setDepartmentFilter}
+            onChange={(v) => {
+              setDepartmentFilter(v);
+              setPage(1);
+            }}
             options={[{ value: "all", label: t("employees.allDepartments") }, ...departments.map((d) => ({ value: d.id, label: bilingualName(d, locale) }))]}
           />
         }

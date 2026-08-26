@@ -1,20 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FulcrumRule,
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import { CHEQUE_STATUS_DEFINITIONS, getChequeDirectionLabel, getChequeStatusLabel } from "@mezan/domain";
 import type { ChequeDTO, ChequeDirectionDTO, ChequeStatusDTO } from "@mezan/contracts";
@@ -23,6 +22,8 @@ import {
   useBounceCheque,
   useBranches,
   useCheques,
+  useChequeCounts,
+  useChequeStats,
   useCollectCheque,
   useCreateCheque,
   useCustomers,
@@ -30,9 +31,11 @@ import {
   useReplaceCheque,
   useSuppliers,
   useTreasuryAccounts,
+  type ChequeListFilters,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { majorOf } from "../lib/money";
 
 /**
  * سجل الشيكات — Cheque Register (docs/catalog/04, route `/financial-papers/cheques`
@@ -99,6 +102,8 @@ const ACTION_KEY = {
   replace: "cheques.action.replace",
 } as const;
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ChequesScreen() {
   const { t } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
@@ -107,20 +112,31 @@ export function ChequesScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  // Direction + date range go to the server as query params. The status tabs
-  // then partition THAT result set on `effectiveStatus`, which the server
-  // derives per row against its own "as of" date — the client never recomputes
-  // it, and one request keeps every tab's count real rather than unknown.
-  const query = useCheques({
-    direction: directionFilter === "all" ? undefined : directionFilter,
-    fromDate: fromDate === "" ? undefined : fromDate,
-    toDate: toDate === "" ? undefined : toDate,
-  });
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to partition an unfiltered fetch on the client and sum
+  // `Number(c.amount)` over it, so the KPI strip stayed at the grand total no
+  // matter which status tab was active. The 7-state status is derived
+  // server-side against its own "as of" date, never recomputed here.
+  const filter = useMemo<ChequeListFilters>(
+    () => ({
+      direction: directionFilter === "all" ? undefined : directionFilter,
+      status: statusFilter === "all" ? undefined : statusFilter,
+      fromDate: fromDate === "" ? undefined : fromDate,
+      toDate: toDate === "" ? undefined : toDate,
+      search: search.trim() || undefined,
+    }),
+    [directionFilter, statusFilter, fromDate, toDate, search],
+  );
+  const query = useCheques(filter);
   const cheques = useMemo(() => query.data ?? [], [query.data]);
+  const counts = useChequeCounts(filter).data ?? {};
+  const stats = useChequeStats(filter).data ?? {};
 
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
@@ -143,39 +159,14 @@ export function ChequesScreen() {
     [treasuryQuery.data],
   );
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<ChequeStatusDTO, number> = {
-      pending: 0,
-      under_collection: 0,
-      due_today: 0,
-      deposited: 0,
-      collected: 0,
-      bounced: 0,
-      replaced: 0,
-    };
-    for (const c of cheques) counts[c.effectiveStatus] += 1;
-    return counts;
-  }, [cheques]);
+  const pageCount = Math.max(1, Math.ceil(cheques.length / pageSize));
+  const pageRows = cheques.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return cheques
-      .filter((c) => (statusFilter === "all" ? true : c.effectiveStatus === statusFilter))
-      .filter((c) => (q === "" ? true : c.chequeNumber.toLowerCase().includes(q)));
-  }, [cheques, search, statusFilter]);
-
-  const totals = useMemo(() => {
-    let value = 0;
-    let pendingValue = 0;
-    let depositedValue = 0;
-    for (const c of cheques) {
-      const amount = Number(c.amount);
-      value += amount;
-      if (c.status === "pending") pendingValue += amount;
-      if (c.status === "deposited") depositedValue += amount;
-    }
-    return { count: cheques.length, value, pendingValue, depositedValue };
-  }, [cheques]);
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (directionFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const selected = selectedId ? (cheques.find((c) => c.id === selectedId) ?? null) : null;
 
@@ -223,8 +214,8 @@ export function ChequesScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: cheques.length },
-    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: statusCounts[d.code] })),
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] ?? 0 })),
   ];
 
   const columns: DocumentListColumn<ChequeDTO>[] = [
@@ -248,15 +239,24 @@ export function ChequesScreen() {
       header: t("cheques.by"),
       render: (c) => <span className="mz-num text-[11px] text-ink-faint">{c.createdAt.slice(0, 10)}</span>,
     },
+    {
+      key: "actions",
+      header: "",
+      align: "end",
+      render: (c) => {
+        const actions = legalActions(c);
+        if (actions.length === 0) return <span className="text-ink-faint">—</span>;
+        return (
+          <Button size="sm" variant="ghost" onClick={() => { setActionError(null); setSelectedId(c.id); }}>
+            {t("cheques.actions")}
+          </Button>
+        );
+      },
+    },
   ];
 
   return (
     <div className="w-full">
-      {actionError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {actionError}
-        </div>
-      ) : null}
       <DocumentList<ChequeDTO>
         title={t("cheques.chequeRegister")}
         description={t("cheques.trackingChequesInFromCustomers")}
@@ -268,24 +268,35 @@ export function ChequesScreen() {
         listKey="cheques"
         statsCollapsible
         stats={[
-          { label: t("cheques.totalCheques"), value: <span className="mz-num">{totals.count}</span> },
-          { label: t("cheques.totalValue"), value: <MoneyDisplay value={totals.value} /> },
-          { label: t("cheques.pending"), value: <MoneyDisplay value={totals.pendingValue} /> },
-          { label: t("cheques.deposited"), value: <MoneyDisplay value={totals.depositedValue} /> },
+          { label: t("cheques.totalCheques"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("cheques.totalValue"), value: <MoneyDisplay value={majorOf(String(stats.value ?? "0"))} /> },
+          { label: t("cheques.pending"), value: <MoneyDisplay value={majorOf(String(stats.pending ?? "0"))} /> },
+          { label: t("cheques.deposited"), value: <MoneyDisplay value={majorOf(String(stats.deposited ?? "0"))} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ChequeStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | ChequeStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("cheques.searchByChequeNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[150px]">
               <SelectField
                 label={t("cheques.direction")}
                 value={directionFilter}
-                onChange={(v) => setDirectionFilter(v as "all" | ChequeDirectionDTO)}
+                onChange={(v) => {
+                  setDirectionFilter(v as "all" | ChequeDirectionDTO);
+                  setPage(1);
+                }}
                 options={[
                   { value: "all", label: t("cheques.allDirections") },
                   { value: "incoming", label: t("cheques.incoming") },
@@ -294,41 +305,58 @@ export function ChequesScreen() {
               />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("cheques.from")} value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("cheques.from")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("cheques.to")} value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("cheques.to")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={rows}
+        rows={pageRows}
         rowKey={(c) => c.id}
-        rowAction={(c) => {
-          const actions = legalActions(c);
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setActionError(null); setSelectedId(c.id); } },
-            ...actions.map((action) => ({
-              key: action,
-              label: t(ACTION_KEY[action]),
-              tone: action === "bounce" ? ("danger" as const) : ("default" as const),
-              disabled: pendingId === c.id,
-              onSelect: () => void runAction(c, action),
-            })),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.chequeNumber ?? c.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totals.count}</span> {t("cheques.cheques")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{Number(stats.count ?? 0)}</span> {t("cheques.cheques")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : query.isError ? (query.error?.message ?? t("cheques.chequesCouldNotBeLoaded")) : t("cheques.noCheques")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{query.error?.message ?? t("cheques.chequesCouldNotBeLoaded")}</div>
+          ) : (
+            <EmptyState
+              title={t("cheques.noCheques")}
+              description={t("cheques.emptyBody")}
+              action={{ label: t("cheques.newCheque"), onClick: () => setMode("create") }}
+            />
+          )
         }
       />
 

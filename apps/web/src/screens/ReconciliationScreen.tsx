@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useState } from "react";
+import { FulcrumRule, DocumentList, EmptyState, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -16,11 +16,31 @@ function fmt(value: string): string {
  * which runs the SAME `computeBalanceReconciliation` / `findUnlinkedControlLines`
  * domain functions server-side.
  */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ReconciliationScreen() {
   const { t } = useAppTranslation();
   const query = useReconciliation();
   const [tab, setTab] = useState<"summary" | "unlinked">("summary");
   const report = query.data ?? null;
+  const [summaryPage, setSummaryPage] = useState(1);
+  const [summaryPageSize, setSummaryPageSize] = useState<number>(25);
+  const [unlinkedPage, setUnlinkedPage] = useState(1);
+  const [unlinkedPageSize, setUnlinkedPageSize] = useState<number>(25);
+
+  const summaryRows = report?.rows ?? [];
+  const summaryPageCount = Math.max(1, Math.ceil(summaryRows.length / summaryPageSize));
+  const summaryPageRows = summaryRows.slice((summaryPage - 1) * summaryPageSize, summaryPage * summaryPageSize);
+  useEffect(() => {
+    if (summaryPage > summaryPageCount) setSummaryPage(1);
+  }, [summaryPage, summaryPageCount]);
+
+  const unlinkedRows = report?.unlinked ?? [];
+  const unlinkedPageCount = Math.max(1, Math.ceil(unlinkedRows.length / unlinkedPageSize));
+  const unlinkedPageRows = unlinkedRows.slice((unlinkedPage - 1) * unlinkedPageSize, unlinkedPage * unlinkedPageSize);
+  useEffect(() => {
+    if (unlinkedPage > unlinkedPageCount) setUnlinkedPage(1);
+  }, [unlinkedPage, unlinkedPageCount]);
 
   const summaryColumns: DocumentListColumn<ReconciliationRowDTO>[] = [
     { key: "label", header: t("reconciliation.reconciliation"), render: (r) => <span className="font-semibold text-ink">{r.label}</span> },
@@ -74,12 +94,19 @@ export function ReconciliationScreen() {
         <DocumentList<ReconciliationRowDTO>
           title=""
           columns={summaryColumns}
-          rows={report?.rows ?? []}
+          rows={summaryPageRows}
           rowKey={(r) => r.key}
-          page={1}
-          pageCount={1}
-          pageSummary={<>{t("common.show")} <span className="mz-num">{report?.rows.length ?? 0}</span> {t("reconciliation.reconciliations")}</>}
-          emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("reconciliation.noControlAccounts")}</div>}
+          page={summaryPage}
+          pageCount={summaryPageCount}
+          onPageChange={setSummaryPage}
+          pageSize={summaryPageSize}
+          pageSizeOptions={PAGE_SIZES}
+          onPageSizeChange={(size) => {
+            setSummaryPageSize(size);
+            setSummaryPage(1);
+          }}
+          pageSummary={<>{t("common.show")} <span className="mz-num">{summaryPageRows.length}</span> {t("reconciliation.reconciliations")}</>}
+          emptyState={<EmptyState title={t("reconciliation.noControlAccounts")} description={t("reconciliation.emptyBody")} />}
         />
       ) : (
         <>
@@ -89,12 +116,19 @@ export function ReconciliationScreen() {
             <DocumentList<UnlinkedEntryLineDTO>
               title=""
               columns={unlinkedColumns}
-              rows={report?.unlinked ?? []}
+              rows={unlinkedPageRows}
               rowKey={(u) => `${u.entryId}-${u.accountId}`}
-              page={1}
-              pageCount={1}
-              pageSummary={<>{t("common.show")} <span className="mz-num">{report?.unlinked.length ?? 0}</span> {t("reconciliation.unlinkedLines")}</>}
-              emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("reconciliation.noLines")}</div>}
+              page={unlinkedPage}
+              pageCount={unlinkedPageCount}
+              onPageChange={setUnlinkedPage}
+              pageSize={unlinkedPageSize}
+              pageSizeOptions={PAGE_SIZES}
+              onPageSizeChange={(size) => {
+                setUnlinkedPageSize(size);
+                setUnlinkedPage(1);
+              }}
+              pageSummary={<>{t("common.show")} <span className="mz-num">{unlinkedPageRows.length}</span> {t("reconciliation.unlinkedLines")}</>}
+              emptyState={<EmptyState title={t("reconciliation.noLines")} />}
             />
           )}
         </>

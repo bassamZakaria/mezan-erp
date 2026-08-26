@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   IconButton,
   SidePanel,
   StatusPill,
@@ -32,6 +33,7 @@ const TYPE_KEY: Record<ItemSpecificationTypeDTO, AppTranslationKey> = {
 };
 
 const TYPE_VALUES = Object.keys(TYPE_KEY) as ItemSpecificationTypeDTO[];
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface Draft {
   code: string;
@@ -119,6 +121,8 @@ export function ItemSpecificationsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deletingCode, setDeletingCode] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const filtered = useMemo(() => {
     let rows = specifications;
@@ -129,6 +133,12 @@ export function ItemSpecificationsScreen() {
     }
     return rows;
   }, [specifications, typeFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openCreate() {
     setEditingCode(null);
@@ -299,25 +309,44 @@ export function ItemSpecificationsScreen() {
           { key: "text", label: t(TYPE_KEY.text), count: specifications.filter((s) => s.type === "text").length },
         ]}
         activeStatusKey={typeFilter}
-        onStatusChange={(key) => setTypeFilter(key as ItemSpecificationTypeDTO | "all")}
+        onStatusChange={(key) => {
+          setTypeFilter(key as ItemSpecificationTypeDTO | "all");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("specs.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(s) => s.code}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")}{" "}
-            <span className="mz-num">{specifications.length}</span> {t("specs.specifications2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
+            <span className="mz-num">{filtered.length}</span> {t("specs.specifications2")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("specs.noSpecificationsYetAddOne")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("specs.noSpecificationsYetAddOne")}
+              description={t("specs.emptyBody")}
+              action={{ label: t("specs.newSpecification"), onClick: openCreate }}
+            />
+          )
         }
       />
 

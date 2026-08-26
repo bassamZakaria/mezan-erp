@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { AttendanceEntryDTO, AttendanceStatusDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import {
@@ -44,6 +44,8 @@ interface AttendanceDraft {
   notes: string;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 function blankDraft(employeeId: string, date: string): AttendanceDraft {
   return { employeeId, date, checkIn: "", checkOut: "", halfDay: false, expectedCheckIn: "", status: "", notes: "" };
 }
@@ -61,6 +63,8 @@ export function AttendanceScreen() {
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const { from, to } = useMemo(() => monthBounds(month), [month]);
   const employeesQuery = useEmployees();
@@ -76,6 +80,12 @@ export function AttendanceScreen() {
   const [formError, setFormError] = useState<string | null>(null);
 
   const entries = query.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(entries.length / pageSize));
+  const pageRows = entries.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+  const activeFilterCount = (employeeId !== "" ? 1 : 0) + (status !== "" ? 1 : 0);
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
     if (!employee) return id;
@@ -189,35 +199,69 @@ export function AttendanceScreen() {
           { label: t("attendance.daysAbsent"), value: <span className="mz-num">{summary?.daysAbsent ?? 0}</span> },
           { label: t("attendance.attendanceRate"), value: <span className="mz-num">{summary?.attendanceRatePercent ?? 0}%</span> },
         ]}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="min-w-[150px]">
-              <TextField label={t("attendance.month")} value={month} onChange={setMonth} placeholder="YYYY-MM" />
+              <TextField
+                label={t("attendance.month")}
+                value={month}
+                onChange={(v) => {
+                  setMonth(v);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM"
+              />
             </div>
             <div className="min-w-[190px]">
               <SelectField
                 label={t("attendance.employee")}
                 value={employeeId}
-                onChange={setEmployeeId}
+                onChange={(v) => {
+                  setEmployeeId(v);
+                  setPage(1);
+                }}
                 options={[{ value: "", label: t("attendance.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
               />
             </div>
             <div className="min-w-[160px]">
-              <SelectField label={t("common.status")} value={status} onChange={setStatus} options={statusOptions(t)} />
+              <SelectField
+                label={t("common.status")}
+                value={status}
+                onChange={(v) => {
+                  setStatus(v);
+                  setPage(1);
+                }}
+                options={statusOptions(t)}
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={entries}
+        rows={pageRows}
         rowKey={(e) => e.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{entries.length}</span> {t("attendance.records")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{entries.length}</span> {t("attendance.records")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("attendance.noAttendanceRecordsForThis")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("attendance.noAttendanceRecordsForThis")}
+            description={t("attendance.emptyBody")}
+            action={{ label: t("attendance.recordAttendance"), onClick: openCreate }}
+          />
+        }
       />
 
       {employeeId !== "" && summary ? (

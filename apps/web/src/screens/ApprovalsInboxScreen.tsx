@@ -1,15 +1,14 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentList,
-  RowMenu,
+  EmptyState,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
@@ -34,6 +33,7 @@ type TabKey = "inbox" | "mine" | "acted";
 type DecisionAction = "approve" | "reject" | "request_modification";
 
 const ANY_TYPE = "__all__";
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ApprovalsInboxScreen() {
   const { t } = useAppTranslation();
@@ -50,6 +50,8 @@ export function ApprovalsInboxScreen() {
   const [search, setSearch] = useState("");
   const [actionTypeFilter, setActionTypeFilter] = useState<string>(ANY_TYPE);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const actionTypeLabel = useMemo(() => {
     const byCode = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, domainLabel(a)]));
@@ -67,6 +69,14 @@ export function ApprovalsInboxScreen() {
       return actionTypeLabel(row.actionType).includes(q) || (row.entityLabel ?? "").includes(q);
     });
   }, [rows, search, actionTypeFilter, actionTypeLabel]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = actionTypeFilter === ANY_TYPE ? 0 : 1;
 
   async function act(request: ApprovalRequestDTO, decision: DecisionAction) {
     if (pendingId) return;
@@ -120,12 +130,12 @@ export function ApprovalsInboxScreen() {
     render: (r) => <span className="mz-num">{r.createdAt.slice(0, 10)}</span>,
   };
 
-  const noteColumn: DocumentListColumn<ApprovalRequestDTO> = {
-    key: "note",
+  const decideColumn: DocumentListColumn<ApprovalRequestDTO> = {
+    key: "actions",
     header: "",
     align: "end",
     render: (r) => (
-      <div onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-end gap-[6px]" onClick={(e) => e.stopPropagation()}>
         <TextInput
           size="sm"
           className="min-h-0 w-[140px] px-[8px] py-[5px] text-[11.5px]"
@@ -134,6 +144,15 @@ export function ApprovalsInboxScreen() {
           placeholder={t("approvals.noteOptional")}
           aria-label={t("approvals.noteLabel", { request: r.entityLabel ?? r.id })}
         />
+        <Button size="sm" variant="primary" disabled={pendingId === r.id} onClick={() => void act(r, "approve")}>
+          {t("approvals.approve")}
+        </Button>
+        <Button size="sm" variant="ghost" disabled={pendingId === r.id} onClick={() => void act(r, "request_modification")}>
+          {t("approvals.askForAChange")}
+        </Button>
+        <Button size="sm" variant="danger-outline" disabled={pendingId === r.id} onClick={() => void act(r, "reject")}>
+          {t("approvals.reject")}
+        </Button>
       </div>
     ),
   };
@@ -145,7 +164,7 @@ export function ApprovalsInboxScreen() {
           progressColumn,
           { key: "role", header: t("approvals.roleRequired"), render: (r) => r.steps[r.currentStep]?.role ?? "—" },
           { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => <span className="mz-lat">{r.submittedBy}</span> },
-          noteColumn,
+          decideColumn,
         ]
       : [documentColumn, statusColumn, progressColumn, submittedColumn];
 
@@ -173,17 +192,28 @@ export function ApprovalsInboxScreen() {
         { key: "acted", label: t("approvals.tab.acted"), count: acted.data?.length ?? 0 },
       ]}
       activeStatusKey={tab}
-      onStatusChange={(key) => setTab(key as TabKey)}
+      onStatusChange={(key) => {
+        setTab(key as TabKey);
+        setPage(1);
+      }}
       searchValue={search}
-      onSearchChange={setSearch}
+      onSearchChange={(value) => {
+        setSearch(value);
+        setPage(1);
+      }}
       searchPlaceholder={t("approvals.searchByActionTypeOr")}
+      filterBarCollapsible
+      activeFilterCount={activeFilterCount}
       filterBarExtra={
         <div className="flex flex-wrap items-center gap-[10px]">
           <Select
             size="sm"
             aria-label={t("approvals.filterByDocumentType")}
             value={actionTypeFilter}
-            onChange={setActionTypeFilter}
+            onChange={(v) => {
+              setActionTypeFilter(v);
+              setPage(1);
+            }}
             className="w-[220px]"
             options={[
               { value: ANY_TYPE, label: t("approvals.allDocumentTypes") },
@@ -196,33 +226,23 @@ export function ApprovalsInboxScreen() {
         </div>
       }
       columns={columns}
-      rows={filtered}
+      rows={pageRows}
       rowKey={(r) => r.id}
-      rowAction={
-        tab === "inbox"
-          ? (r) => {
-              const menuItems: RowMenuItem[] = [
-                { key: "approve", label: t("approvals.approve"), disabled: pendingId === r.id, onSelect: () => void act(r, "approve") },
-                {
-                  key: "request_modification",
-                  label: t("approvals.askForAChange"),
-                  disabled: pendingId === r.id,
-                  onSelect: () => void act(r, "request_modification"),
-                },
-                { key: "reject", label: t("approvals.reject"), tone: "danger", disabled: pendingId === r.id, onSelect: () => void act(r, "reject") },
-              ];
-              return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.entityLabel ?? r.id })} />;
-            }
-          : undefined
-      }
-      page={1}
-      pageCount={1}
+      page={page}
+      pageCount={pageCount}
+      onPageChange={setPage}
+      pageSize={pageSize}
+      pageSizeOptions={PAGE_SIZES}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
       pageSummary={
         <>
-          {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{rows.length}</span>
+          {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{rows.length}</span>
         </>
       }
-      emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t(emptyKeyFor(tab))}</div>}
+      emptyState={<EmptyState title={t(emptyKeyFor(tab))} description={t("approvals.emptyBody")} />}
     />
   );
 }

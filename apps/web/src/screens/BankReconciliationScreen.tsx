@@ -3,16 +3,15 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import { BANK_STATEMENT_STATUS_DEFINITIONS, getBankStatementStatusLabel, parseCsv } from "@mezan/domain";
 import type { BankStatementDTO, BankStatementStatusDTO, StatementDateFormatDTO, StatementLineDTO } from "@mezan/contracts";
@@ -54,6 +53,8 @@ function formatPercent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function BankReconciliationScreen() {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useState<"all" | BankStatementStatusDTO>("all");
@@ -61,6 +62,8 @@ export function BankReconciliationScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [importOpen, setImportOpen] = useState(false);
   const [openStatementId, setOpenStatementId] = useState<string | null>(null);
 
@@ -94,6 +97,15 @@ export function BankReconciliationScreen() {
         `${s.periodStart} ${s.periodEnd}`.includes(q),
     );
   }, [statements, search, accountName]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (treasuryAccountId ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const counts = useMemo(() => {
     const c = { all: statements.length, imported: 0, in_progress: 0, completed: 0 };
@@ -145,6 +157,16 @@ export function BankReconciliationScreen() {
       ),
     },
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
+    {
+      key: "actions",
+      header: "",
+      align: "end",
+      render: (s) => (
+        <Button size="sm" variant="ghost" onClick={() => setOpenStatementId(s.id)}>
+          {t("bankRec.openReconciliation")}
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -167,51 +189,87 @@ export function BankReconciliationScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | BankStatementStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | BankStatementStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("bankRec.searchByAccountReferenceOr")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[220px]">
               <EntityPicker
                 label={t("bankRec.treasuryAccount")}
                 value={bankAccounts.map((a) => ({ id: a.id, label: a.name })).find((o) => o.id === treasuryAccountId) ?? null}
-                onChange={(o) => setTreasuryAccountId(o?.id ?? "")}
+                onChange={(o) => {
+                  setTreasuryAccountId(o?.id ?? "");
+                  setPage(1);
+                }}
                 options={bankAccounts.map((a) => ({ id: a.id, label: a.name }))}
                 placeholder={t("bankRec.allAccounts")}
                 emptyMessage={t("bankRec.noBankAccounts")}
               />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("common.of")} value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("common.of")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("bankRec.to")} value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("bankRec.to")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={rows}
+        rows={pageRows}
         rowKey={(s) => s.id}
         onRowClick={(s) => setOpenStatementId(s.id)}
-        rowAction={(s) => {
-          const menuItems: RowMenuItem[] = [
-            { key: "open", label: t("bankRec.openReconciliation"), onSelect: () => setOpenStatementId(s.id) },
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: s.statementNumber ?? s.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("bankRec.statements")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("bankRec.statements")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : query.isError ? (query.error?.message ?? t("bankRec.bankStatementsCouldNotBe")) : t("bankRec.noBankStatementsYet")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{query.error?.message ?? t("bankRec.bankStatementsCouldNotBe")}</div>
+          ) : (
+            <EmptyState
+              title={t("bankRec.noBankStatementsYet")}
+              description={t("bankRec.emptyBody")}
+              action={{ label: t("bankRec.importAStatement"), onClick: () => setImportOpen(true) }}
+            />
+          )
         }
       />
 

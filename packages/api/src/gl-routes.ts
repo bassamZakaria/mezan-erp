@@ -39,6 +39,7 @@ import {
   VatFilingNotFoundError,
   type VatFiling,
   type VatFilingRepository,
+  matchesSearch,
   summarizePartyBalancesByCurrency,
   type OpenPartyDocument,
   type CurrencyBalanceGroup,
@@ -47,6 +48,7 @@ import {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
+  type GlJournalListQueryDTO,
   closeFiscalYearSchema,
   recordVatFilingSchema,
   amendVatFilingSchema,
@@ -429,21 +431,105 @@ export function createGlRoutes(
     }
   });
 
-  app.get("/journal-entries", gate("accounting.journal.view"), async (c) => {
+  interface JournalListFilter {
+    readonly status?: GlJournalListQueryDTO["status"];
+    readonly source?: GlJournalListQueryDTO["source"];
+    readonly sourceModule?: GlJournalListQueryDTO["sourceModule"];
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly search?: string;
+  }
+
+  function parseJournalListQuery(
+    c: Context,
+  ): { ok: true; filter: JournalListFilter } | { ok: false; details: unknown } {
+    const status = c.req.query("status");
     const parsed = glJournalListQuerySchema.safeParse({
-      status: c.req.query("status"),
+      // `all` is the chip key for "no status filter", not a stored status —
+      // forwarding it to the ledger would match nothing.
+      status: status && status !== "all" ? status : undefined,
       source: c.req.query("source"),
       sourceModule: c.req.query("sourceModule"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
-    }
-    const { sourceModule, ...ledgerFilter } = parsed.data;
+    if (!parsed.success) return { ok: false, details: parsed.error.flatten() };
+    return { ok: true, filter: { ...parsed.data, search: c.req.query("search") || undefined } };
+  }
+
+  /**
+   * The one filter the rows, the chip counts and the KPI strip all go through
+   * (R1.1). Nothing else selects journal rows, so the register, its chips and
+   * its debit/credit totals cannot disagree.
+   */
+  async function listFilteredJournalEntries(filter: JournalListFilter): Promise<readonly JournalEntry[]> {
+    const { sourceModule, search, ...ledgerFilter } = filter;
     let entries = await deps.ledger.list(ledgerFilter);
     if (sourceModule) entries = entries.filter((e) => journalSourceModule(e.sourceDocType, e.source) === sourceModule);
-    return c.json(entries.map(serialize));
+    if (search) entries = entries.filter((e) => matchesSearch(search, e.entryNo, e.memo, e.sourceDocNumber));
+    return entries;
+  }
+
+  app.get("/journal-entries", gate("accounting.journal.view"), async (c) => {
+    const parsed = parseJournalListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
+    }
+    return c.json((await listFilteredJournalEntries(parsed.filter)).map(serialize));
+  });
+
+  /**
+   * The status chips. Deliberately drops its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero. The module, source, date
+   * and search filters still apply.
+   */
+  app.get("/journal-entries/counts", gate("accounting.journal.view"), async (c) => {
+    const parsed = parseJournalListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
+    }
+    const { status: _ignored, ...withoutStatus } = parsed.filter;
+    const entries = await listFilteredJournalEntries(withoutStatus);
+    const counts: Record<string, number> = {
+      all: entries.length,
+      draft: 0,
+      pending: 0,
+      posted: 0,
+      reversed: 0,
+    };
+    for (const entry of entries) counts[entry.status] = (counts[entry.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip. Unlike `/counts` this DOES honour the status filter. Debit
+   * and credit are summed in `Money` (bigint, scale 1e-6) and must tie to the
+   * cent — a register whose two headline totals disagree is reporting an
+   * unbalanced book, which double entry does not permit.
+   */
+  app.get("/journal-entries/stats", gate("accounting.journal.view"), async (c) => {
+    const parsed = parseJournalListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
+    }
+    const entries = await listFilteredJournalEntries(parsed.filter);
+    let totalDebit = Money.zero();
+    let totalCredit = Money.zero();
+    for (const entry of entries) {
+      for (const line of entry.lines) {
+        totalDebit = totalDebit.add(line.debit);
+        totalCredit = totalCredit.add(line.credit);
+      }
+    }
+    return c.json({
+      count: entries.length,
+      draft: entries.filter((e) => e.status === "draft").length,
+      posted: entries.filter((e) => e.status === "posted").length,
+      reversed: entries.filter((e) => e.status === "reversed").length,
+      totalDebit: totalDebit.toString(),
+      totalCredit: totalCredit.toString(),
+    });
   });
 
   app.get("/journal-entries/:id", gate("accounting.journal.view"), async (c) => {

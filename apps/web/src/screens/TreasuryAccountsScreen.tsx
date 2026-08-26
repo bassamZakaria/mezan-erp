@@ -1,9 +1,11 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
-import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
+import { ApiError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
 } from "../data/hooks";
+import { useApi } from "../data/ApiContext";
 import { treasuryBalanceById } from "../lib/partner-balances";
 import { useFinancialReport } from "../data/financial-reports-hooks";
 import type { TrialBalanceRow } from "@mezan/domain";
@@ -13,12 +15,37 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
 /**
+ * Chip counts (R1.1). Not in `data/hooks.ts` yet — the /treasury-accounts/counts
+ * endpoint already exists (its own `status` axis withheld, same as every other
+ * list resource), but this pass wires only the chips, so the hook is kept
+ * screen-local rather than exported.
+ */
+function useTreasuryAccountCounts(search: string): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["treasury-accounts", "counts", search],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      const qs = params.toString();
+      const res = await request(`/treasury-accounts/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("treasuryAcc.treasuryAccountsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/**
  * أرصدة افتتاحية — the equity account an opening balance is funded from. NOT
  * 3200, which is Partner Drawings and carries the opposite natural balance;
  * posting an opening balance there would be wrong in a way the trial balance
  * would still show as balanced.
  */
 const OPENING_BALANCE_EQUITY_ACCOUNT = "3210";
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
@@ -93,7 +120,13 @@ export function TreasuryAccountsScreen() {
   const accounts = query.data ?? [];
   const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
+  // The chips (R1.1): /treasury-accounts/counts drops its own status/type axis, so
+  // every chip reports how many rows it would show under the search term alone,
+  // not the count of whatever chip happens to be active.
+  const accountCounts = useTreasuryAccountCounts(search).data ?? {};
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openingFor, setOpeningFor] = useState<TreasuryAccountDTO | null>(null);
@@ -118,6 +151,14 @@ export function TreasuryAccountsScreen() {
     }
     return rows;
   }, [accounts, filter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = filter === "all" ? 0 : 1;
 
   // A treasury account's balance IS its GL account's balance. Reporting the
   // opening figure under "الرصيد" left the screen at 0.00 with ten confirmed
@@ -249,8 +290,13 @@ export function TreasuryAccountsScreen() {
           { label: t("treasuryAcc.bankBalance"), value: <MoneyDisplay value={bankBalance} /> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("treasuryAcc.searchByName")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {(
@@ -262,24 +308,45 @@ export function TreasuryAccountsScreen() {
                 ["inactive", t("common.inactive")],
               ] as const
             ).map(([value, label]) => (
-              <Chip key={value} active={filter === value} onClick={() => setFilter(value)}>
+              <Chip
+                key={value}
+                active={filter === value}
+                count={accountCounts[value] ?? 0}
+                onClick={() => {
+                  setFilter(value);
+                  setPage(1);
+                }}
+              >
                 {label}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{accounts.length}</span> {t("treasuryAcc.accounts")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{accounts.length}</span> {t("treasuryAcc.accounts")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("treasuryAcc.noMatchingTreasuryAccounts")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("treasuryAcc.noMatchingTreasuryAccounts")}
+            description={t("treasuryAcc.emptyBody")}
+            action={{ label: t("treasuryAcc.addAccount"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel
@@ -299,7 +366,15 @@ export function TreasuryAccountsScreen() {
             {t("treasuryAcc.balance")}
             <MoneyInput value={openingAmount} onChange={(value) => setOpeningAmount(value ?? 0)} aria-label={t("treasuryAcc.balance")} />
           </label>
-          <TextField label={t("common.date")} value={openingDate} onChange={setOpeningDate} type="date" />
+          <label className="flex flex-col gap-[5px] text-[12.5px] font-semibold text-ink">
+            {t("common.date")}
+            <TextInput
+              type="date"
+              value={openingDate}
+              onChange={(event) => setOpeningDate(event.target.value)}
+              aria-label={t("common.date")}
+            />
+          </label>
           {openingError ? <p className="text-[12.5px] font-semibold text-danger-ink">{openingError}</p> : null}
           <Button
             variant="primary"

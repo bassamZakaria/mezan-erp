@@ -4,16 +4,15 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   EntityPicker,
   Money as MoneyValue,
-  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import {
   useCancelConfigInstance,
@@ -48,6 +47,7 @@ const STATUS_TONE: Record<Status, PillTone> = {
   cancelled: "danger",
 };
 const num = (v: string) => Number(v);
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 const today = () => todayIso();
 
 function specLabel(spec: Record<string, string>): string {
@@ -204,6 +204,8 @@ export function ConfigInstancesScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [panelOpen, setPanelOpen] = useState(false);
 
   const [product, setProduct] = useState<EntityPickerOption | null>(null);
@@ -218,7 +220,6 @@ export function ConfigInstancesScreen() {
   const [scheduledEndDate, setScheduledEndDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selectedProduct = products.find((p) => p.id === product?.id) ?? null;
 
@@ -245,6 +246,12 @@ export function ConfigInstancesScreen() {
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
   }, [instances, statusFilter, search, productName, customerName]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: instances.length },
@@ -331,17 +338,6 @@ export function ConfigInstancesScreen() {
       await cancelInstance.mutateAsync(id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2"));
-    }
-  }
-
-  async function runRowAction(id: string, action: "close" | "cancel") {
-    if (pendingId) return;
-    setPendingId(id);
-    try {
-      if (action === "close") await doClose(id);
-      else await doCancel(id);
-    } finally {
-      setPendingId(null);
     }
   }
 
@@ -482,11 +478,6 @@ export function ConfigInstancesScreen() {
           </Button>
         </Card>
       ) : null}
-      {actionError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {actionError}
-        </div>
-      ) : null}
       <DocumentList<ConfigInstanceRecord>
         title={t("customOrders.customManufacturing")}
         description={t("customOrders.madeToOrderManufacturingOf")}
@@ -508,45 +499,40 @@ export function ConfigInstancesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as Status | "all")}
+        onStatusChange={(key) => {
+          setStatusFilter(key as Status | "all");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("customOrders.searchByOrderNumberProduct")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(i) => i.id}
         onRowClick={(i) => setSelectedId(i.id)}
-        rowAction={(i) => {
-          const canAct = i.status !== "closed" && i.status !== "cancelled";
-          const items: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(i.id) },
-          ];
-          if (canAct) {
-            items.push(
-              {
-                key: "close",
-                label: t("customOrders.closeOrder"),
-                disabled: pendingId === i.id,
-                onSelect: () => void runRowAction(i.id, "close"),
-              },
-              {
-                key: "cancel",
-                label: t("common.cancel"),
-                tone: "danger",
-                disabled: pendingId === i.id,
-                onSelect: () => void runRowAction(i.id, "cancel"),
-              },
-            );
-          }
-          return <RowMenu items={items} label={t("common.rowActionsFor", { name: i.number })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{instances.length}</span> {t("customOrders.orders")}</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("customOrders.orders")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("customOrders.noCustomOrdersYetCreate")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("customOrders.noCustomOrdersYetCreate")}
+              description={t("customOrders.emptyBody")}
+              action={{ label: t("customOrders.newCustomOrder"), onClick: openCreate }}
+            />
+          )
         }
       />
       {panel}

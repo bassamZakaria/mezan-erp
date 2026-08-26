@@ -3,15 +3,14 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
   MoneyInput,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -47,6 +46,8 @@ const SOURCE_KEY: Record<LeadSourceDTO, AppTranslationKey> = {
 };
 
 const LEAD_STATUSES: LeadStatusDTO[] = ["new", "contacted", "qualified", "converted", "lost", "unqualified"];
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** The lifecycle transitions legal from a lead's CURRENT status (docs/catalog/06 state machine). */
 function validTransitions(status: LeadStatusDTO): LeadStatusDTO[] {
@@ -123,12 +124,12 @@ export function LeadsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | LeadStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<LeadStatusDTO | null>(null);
-  const [pendingRowId, setPendingRowId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeadDraft>(blankDraft());
@@ -148,6 +149,10 @@ export function LeadsScreen() {
     }
     return rows;
   }, [leads, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const selected = selectedId ? (leads.find((l) => l.id === selectedId) ?? null) : null;
 
@@ -193,19 +198,6 @@ export function LeadsScreen() {
       setDetailError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
     } finally {
       setPendingStatus(null);
-    }
-  }
-
-  async function runRowTransition(lead: LeadDTO, status: LeadStatusDTO) {
-    if (pendingRowId) return;
-    setPendingRowId(lead.id);
-    setRowError(null);
-    try {
-      await transitionLead.mutateAsync({ id: lead.id, body: { status } });
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
-    } finally {
-      setPendingRowId(null);
     }
   }
 
@@ -285,11 +277,6 @@ export function LeadsScreen() {
           </Button>
         </Card>
       ) : null}
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<LeadDTO>
         title={t("leads.leads")}
         description={t("leads.captureAndQualifyLeadsBefore")}
@@ -300,51 +287,44 @@ export function LeadsScreen() {
         }
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | LeadStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | LeadStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("leads.searchByNameOrCompany")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(l) => l.id}
         onRowClick={(l) => {
           setDetailError(null);
           setSelectedId(l.id);
         }}
-        rowAction={(l) => {
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(l.id); } },
-            ...validTransitions(l.status).map((status) => ({
-              key: `transition-${status}`,
-              label: t(STATUS_KEY[status]),
-              tone: status === "lost" || status === "unqualified" ? ("danger" as const) : undefined,
-              disabled: pendingRowId === l.id,
-              onSelect: () => void runRowTransition(l, status),
-            })),
-            ...(l.status === "qualified"
-              ? [
-                  {
-                    key: "convert",
-                    label: t("leads.convert"),
-                    disabled: pendingRowId === l.id,
-                    onSelect: () => {
-                      setSelectedId(l.id);
-                      openConvertForm(l);
-                    },
-                  },
-                ]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: l.name })} />;
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{leads.length}</span> {t("leads.lead")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("leads.lead")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leads.noData")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("leads.noData")}
+            description={t("leads.emptyBody")}
+            action={{ label: t("leads.newLead"), onClick: openCreateForm }}
+          />
+        }
       />
 
       {/* -------- Lead detail panel -------- */}

@@ -1,36 +1,42 @@
-import { useMemo, useRef, useState } from "react";
-import { parseDelimited, normalizeNumeral } from "../lib/delimited";
-import { readXlsxFirstSheet } from "../lib/xlsx";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
-  RowMenu,
-  SidePanel,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
-import { useConfirmStockTransfer, useCreateStockTransfer, useItems, useStockTransfers, useWarehouses } from "../data/hooks";
+import {
+  useConfirmStockTransfer,
+  useCreateStockTransfer,
+  useItems,
+  useStockTransfers,
+  useStockTransferCounts,
+  useStockTransferStats,
+  useWarehouses,
+  type StockDocumentListFilter,
+} from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
-import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** Keys, not copy — the stepper's labels are built with the translator at render. */
 const STEPPER_KEYS = [
@@ -80,10 +86,8 @@ function blankLine(): LineDraft {
 
 export function StockTransfersScreen() {
   const { t } = useAppTranslation();
-  const query = useStockTransfers();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
-  const documents = query.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
 
@@ -95,10 +99,6 @@ export function StockTransfersScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
-  const listConfirm = useConfirmStockTransfer();
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
-
   // `#/inventory/stock-transfers` · `…/new` · `…/new/<itemId>` · `…/<docNo>`
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -107,25 +107,31 @@ export function StockTransfersScreen() {
   const routedItemId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "confirmed") c.confirmed += 1;
-    }
-    return c;
-  }, [documents]);
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
+   * and the totals used to be derived in the browser from every document the
+   * server had sent, so the KPI strip ignored the active status chip.
+   */
+  const filter = useMemo<StockDocumentListFilter>(
+    () => ({ status: statusFilter, search: search.trim() || undefined }),
+    [statusFilter, search],
+  );
 
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
+  const query = useStockTransfers(filter);
+  const documents = query.data ?? [];
+  const counts = useStockTransferCounts(filter).data ?? {};
+  const stats = useStockTransferStats(filter).data ?? {};
+
+  const filtered = documents;
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
@@ -157,19 +163,6 @@ export function StockTransfersScreen() {
   function openDetail(id: string) {
     const doc = documents.find((d) => d.id === id);
     subPage.open(doc?.docNo ?? id);
-  }
-
-  async function confirmRow(id: string): Promise<void> {
-    if (rowPendingId) return;
-    setRowError(null);
-    setRowPendingId(id);
-    try {
-      await listConfirm.mutateAsync(id);
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRowPendingId(null);
-    }
   }
 
   if (firstSegment === "new") {
@@ -226,11 +219,6 @@ export function StockTransfersScreen() {
                 </Card>
               ),
             },
-            {
-              key: "attachments",
-              label: t("attachments.tab"),
-              content: <AttachmentsTab entityType="stock-transfer" entityId={selected.id} />,
-            },
           ]}
         />
         {selected.status === "confirmed" ? (
@@ -255,11 +243,6 @@ export function StockTransfersScreen() {
 
   return (
     <div className="w-full">
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<StockTransferDocumentDTO>
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
@@ -271,42 +254,51 @@ export function StockTransfersScreen() {
         listKey="stock-transfers"
         statsCollapsible
         stats={[
-          { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
-          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | DocumentStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("stockXfer.searchByTransferNumber")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        rowAction={(d) => {
-          // A confirmed transfer is irreversible; the counter-move is a new transfer, so it offers no confirm and no cancel.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
-            ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockXfer.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockXfer.transfers")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("stockXfer.transfers")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockXfer.noMatchingTransfers")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("stockXfer.noMatchingTransfers")}
+            description={t("stockXfer.emptyBody")}
+            action={{ label: t("stockXfer.newTransfer"), onClick: () => subPage.open("new") }}
+          />
+        }
       />
     </div>
   );
@@ -315,153 +307,6 @@ export function StockTransfersScreen() {
 /* -------------------------------------------------------------------- */
 /* Create view                                                          */
 /* -------------------------------------------------------------------- */
-
-interface ImportedLine {
-  readonly rowNumber: number;
-  readonly raw: string;
-  readonly itemId: string | null;
-  readonly qty: number;
-  readonly error: string | null;
-}
-
-/**
- * Turns pasted or uploaded rows into transfer lines (R5.8).
- *
- * Every row is resolved against the REAL item catalogue by code or barcode and
- * keeps that item's own id. An import is precisely where invented ids get in —
- * a spreadsheet column is free text, and a row that cannot be matched is
- * REJECTED with its reason rather than carried through as a plausible-looking
- * string. A service item is rejected too: it holds no stock, so it cannot be
- * transferred between warehouses.
- */
-function ImportLinesPanel({
-  open,
-  onClose,
-  items,
-  onApply,
-}: {
-  open: boolean;
-  onClose: () => void;
-  items: readonly { id: string; code: string; nameAr: string; type: string; barcodes?: readonly string[] | null }[];
-  onApply: (lines: readonly { itemId: string; qty: number }[]) => void;
-}) {
-  const { t } = useAppTranslation();
-  const [text, setText] = useState("");
-  // Rows read straight out of a workbook, which never go through the delimiter
-  // parser — a spreadsheet already has its cells separated.
-  const [sheetRows, setSheetRows] = useState<string[][] | null>(null);
-  const [readError, setReadError] = useState<string | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  const parsed = useMemo<ImportedLine[]>(() => {
-    const rows = sheetRows ?? parseDelimited(text);
-    if (rows.length === 0) return [];
-    // A header line is detected, not configured: if the second cell of the
-    // first row is not a number, that row names columns.
-    const first = rows[0] as string[];
-    const hasHeader = rows.length > 1 && Number.isNaN(Number(normalizeNumeral(first[1] ?? "")));
-    const body = hasHeader ? rows.slice(1) : rows;
-
-    return body.map((cells, index) => {
-      const rowNumber = index + 1 + (hasHeader ? 1 : 0);
-      const code = (cells[0] ?? "").trim();
-      const qty = Number(normalizeNumeral(cells[1] ?? ""));
-      const match = items.find(
-        (i) => i.code.toLowerCase() === code.toLowerCase() || (i.barcodes ?? []).some((b) => b === code),
-      );
-      let error: string | null = null;
-      if (!match) error = t("stockXfer.import.unknownItem");
-      else if (match.type === "service") error = t("stockXfer.import.notStocked");
-      else if (!Number.isFinite(qty) || qty <= 0) error = t("stockXfer.import.badQty");
-      return { rowNumber, raw: code, itemId: match?.id ?? null, qty, error };
-    });
-  }, [text, sheetRows, items, t]);
-
-  const ready = parsed.filter((r) => r.error === null);
-  const rejected = parsed.filter((r) => r.error !== null);
-
-  return (
-    <SidePanel open={open} onClose={onClose} title={t("stockXfer.import.title")}>
-      <div className="flex flex-col gap-[12px]">
-        <p className="text-[12.5px] text-ink-muted">{t("stockXfer.import.hint")}</p>
-        <input
-          ref={fileInput}
-          type="file"
-          accept=".csv,.tsv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-          className="hidden"
-          onChange={async (event) => {
-            const file = event.target.files?.[0];
-            event.target.value = "";
-            if (!file) return;
-            setReadError(null);
-            try {
-              if (file.name.toLowerCase().endsWith(".xlsx")) {
-                const rows = await readXlsxFirstSheet(await file.arrayBuffer());
-                setSheetRows(rows);
-                // Shown so the reader can see what was understood before
-                // committing it — a workbook that parsed to nothing must look
-                // different from one nobody chose.
-                setText(rows.map((r) => r.join("\t")).join("\n"));
-              } else {
-                setSheetRows(null);
-                setText(await file.text());
-              }
-            } catch {
-              setReadError(t("stockXfer.import.unreadableFile"));
-            }
-          }}
-        />
-        <Button onClick={() => fileInput.current?.click()}>{t("stockXfer.import.chooseFile")}</Button>
-        {readError ? <p className="text-[12.5px] font-semibold text-danger-ink">{readError}</p> : null}
-        <textarea
-          value={text}
-          onChange={(event) => {
-            setSheetRows(null);
-            setText(event.target.value);
-          }}
-          placeholder={t("stockXfer.import.paste")}
-          rows={7}
-          className="w-full rounded-md border border-border bg-surface p-[9px] font-mono text-[12px] text-ink"
-        />
-
-        {parsed.length > 0 ? (
-          <>
-            <div className="flex gap-[12px] text-[12.5px]">
-              <span className="font-semibold text-success-ink">{t("stockXfer.import.readyCount", { count: ready.length })}</span>
-              {rejected.length > 0 ? (
-                <span className="font-semibold text-danger-ink">{t("stockXfer.import.rejectedCount", { count: rejected.length })}</span>
-              ) : null}
-            </div>
-            {rejected.length > 0 ? (
-              <ul className="flex flex-col gap-[3px] text-[12px] text-danger-ink">
-                {rejected.map((r) => (
-                  <li key={r.rowNumber}>
-                    {t("stockXfer.import.row", { n: r.rowNumber })} · {r.raw || "—"} · {r.error}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-          </>
-        ) : text.trim() !== "" ? (
-          <p className="text-[12.5px] text-ink-muted">{t("stockXfer.import.nothingParsed")}</p>
-        ) : null}
-
-        <Button
-          variant="primary"
-          disabled={ready.length === 0}
-          onClick={() => {
-            onApply(ready.map((r) => ({ itemId: r.itemId as string, qty: r.qty })));
-            setText("");
-            setSheetRows(null);
-            onClose();
-          }}
-        >
-          {t("stockXfer.import.apply")}
-        </Button>
-      </div>
-    </SidePanel>
-  );
-}
 
 function CreateTransferView({
   warehouses,
@@ -502,8 +347,6 @@ function CreateTransferView({
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
-  const [importOpen, setImportOpen] = useState(false);
-
   function addLine() {
     setLines((prev) => [...prev, blankLine()]);
   }
@@ -613,30 +456,12 @@ function CreateTransferView({
                 </tbody>
               </table>
             </div>
-            <div className="flex gap-[8px] border-t border-border p-[12px]">
+            <div className="border-t border-border p-[12px]">
               <Button size="sm" onClick={addLine}>
                 {t("stockXfer.addLine")}
               </Button>
-              <Button size="sm" onClick={() => setImportOpen(true)}>
-                {t("stockXfer.import.title")}
-              </Button>
             </div>
           </Card>
-
-          <ImportLinesPanel
-            open={importOpen}
-            onClose={() => setImportOpen(false)}
-            items={itemList}
-            onApply={(imported) =>
-              setLines((prev) => {
-                // An import ADDS to what is already drafted; it replaces only a
-                // single untouched blank first row, which is the row the form
-                // opens with.
-                const existing = prev.length === 1 && prev[0]?.itemId === "" && prev[0]?.qty === 0 ? [] : prev;
-                return [...existing, ...imported.map((line) => ({ ...blankLine(), itemId: line.itemId, qty: line.qty }))];
-              })
-            }
-          />
         </div>
 
         <div

@@ -23,17 +23,20 @@ import {
   useConfirmPurchaseOrder,
   useCreatePurchaseOrder,
   useItems,
+  usePurchaseOrderCounts,
   usePurchaseOrders,
+  usePurchaseOrderStats,
   useSuppliers,
   useUsers,
   useWarehouses,
+  type PurchaseOrderListFilter,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { sumMajor } from "../lib/money";
+import { majorOf } from "../lib/money";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
@@ -151,13 +154,11 @@ function OrderDetail({
 
 export function PurchaseOrdersScreen() {
   const { t } = useAppTranslation();
-  const query = usePurchaseOrders();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
   const createOrder = useCreatePurchaseOrder();
   const confirmOrder = useConfirmPurchaseOrder();
 
-  const orders = query.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
   const items = itemsQuery.data ?? [];
 
@@ -190,6 +191,28 @@ export function PurchaseOrdersScreen() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the branch,
+   * warehouse, supplier and date narrowing used to happen in the browser while
+   * the header stats summed every order the server had sent, so applying a
+   * filter moved the table and left the stats strip alone.
+   */
+  const filter = useMemo<PurchaseOrderListFilter>(
+    () => ({
+      status: statusFilter,
+      branchId: branchFilter || undefined,
+      warehouseId: warehouseFilter || undefined,
+      supplierId: supplierFilter || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate, search],
+  );
+  const query = usePurchaseOrders(filter);
+  const counts = usePurchaseOrderCounts(filter).data ?? {};
+  const stats = usePurchaseOrderStats(filter).data ?? {};
   const { navigate } = useNavigation();
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
@@ -210,22 +233,10 @@ export function PurchaseOrdersScreen() {
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const orders = query.data ?? [];
   const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
 
-  const filtered = useMemo(() => {
-    let rows = orders;
-    if (statusFilter !== "all") rows = rows.filter((o) => o.status === statusFilter);
-    if (branchFilter) rows = rows.filter((o) => o.branchId === branchFilter);
-    if (warehouseFilter) rows = rows.filter((o) => o.warehouseId === warehouseFilter);
-    if (supplierFilter) rows = rows.filter((o) => o.supplierId === supplierFilter);
-    if (fromDate) rows = rows.filter((o) => o.date >= fromDate);
-    if (toDate) rows = rows.filter((o) => o.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((o) => o.number.toLowerCase().includes(q) || supplierName(o.supplierId).includes(search.trim()));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [orders, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
+  const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);
 
   const activeFilterCount = [branchFilter, warehouseFilter, supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -233,11 +244,11 @@ export function PurchaseOrdersScreen() {
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: orders.length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
     ...(Object.keys(STATUS_KEY) as PurchaseOrderStatusDTO[]).map((s) => ({
       key: s,
       label: t(STATUS_KEY[s]),
-      count: orders.filter((o) => o.status === s).length,
+      count: counts[s] ?? 0,
     })),
   ];
 
@@ -396,10 +407,10 @@ export function PurchaseOrdersScreen() {
           </Button>
         }
         stats={[
-          { label: t("purchaseOrders.stat.total"), value: <span className="mz-num">{orders.length}</span> },
-          { label: t("purchaseOrders.stat.sent"), value: <span className="mz-num">{orders.filter((o) => o.status === "sent").length}</span> },
-          { label: t("purchaseOrders.stat.value"), value: <MoneyValue value={sumMajor(orders.map((o) => o.subtotal))} showUnit={false} /> },
-          { label: t("purchaseOrders.stat.received"), value: <span className="mz-num">{orders.filter((o) => o.status === "fully_received").length}</span> },
+          { label: t("purchaseOrders.stat.total"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("purchaseOrders.stat.sent"), value: <span className="mz-num">{Number(stats.sent ?? 0)}</span> },
+          { label: t("purchaseOrders.stat.value"), value: <MoneyValue value={majorOf(String(stats.value ?? "0"))} showUnit={false} /> },
+          { label: t("purchaseOrders.stat.received"), value: <span className="mz-num">{Number(stats.received ?? 0)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}

@@ -3,21 +3,20 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
-import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 
@@ -25,6 +24,8 @@ import { sumMajor } from "../lib/money";
 
 const STATUS_KEY: Record<OpportunityStatusDTO, AppTranslationKey> = { open: "opportunities.status.open", won: "opportunities.status.won", lost: "opportunities.status.lost" };
 const STATUS_TONE: Record<OpportunityStatusDTO, PillTone> = { open: "info", won: "success", lost: "danger" };
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface OpportunityDraft {
   title: string;
@@ -153,7 +154,6 @@ export function OpportunitiesScreen() {
   const query = useOpportunities();
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
-  const moveStage = useMoveOpportunityStage();
   const opportunities = query.data ?? [];
 
   const customerName = useMemo(() => {
@@ -171,24 +171,8 @@ export function OpportunitiesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OpportunityStatusDTO>("all");
   const [formOpen, setFormOpen] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
-
-  const winStage = (stagesQuery.data ?? []).find((s) => s.isWinStage);
-  const lossStage = (stagesQuery.data ?? []).find((s) => s.isLossStage);
-
-  async function runMoveStage(opportunity: OpportunityDTO, stageId: string) {
-    if (pendingId) return;
-    setPendingId(opportunity.id);
-    setRowError(null);
-    try {
-      await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : t("common.failed"));
-    } finally {
-      setPendingId(null);
-    }
-  }
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const filtered = useMemo(() => {
     let rows = opportunities;
@@ -199,6 +183,10 @@ export function OpportunitiesScreen() {
     }
     return rows;
   }, [opportunities, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const openCount = opportunities.filter((o) => o.status === "open").length;
   const wonCount = opportunities.filter((o) => o.status === "won").length;
@@ -231,11 +219,6 @@ export function OpportunitiesScreen() {
           </Button>
         </Card>
       ) : null}
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<OpportunityDTO>
         title={t("opportunities.opportunities")}
         description={t("opportunities.trackingLiveDealsAgainstA")}
@@ -254,43 +237,40 @@ export function OpportunitiesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | OpportunityStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | OpportunityStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("opportunities.searchByTitle")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(o) => o.id}
-        rowAction={(o) => {
-          const menuItems: RowMenuItem[] =
-            o.status === "open"
-              ? [
-                  ...(winStage
-                    ? [{ key: "won", label: t("opportunities.won"), disabled: pendingId === o.id, onSelect: () => void runMoveStage(o, winStage.id) }]
-                    : []),
-                  ...(lossStage
-                    ? [
-                        {
-                          key: "lost",
-                          label: t("opportunities.lost"),
-                          tone: "danger" as const,
-                          disabled: pendingId === o.id,
-                          onSelect: () => void runMoveStage(o, lossStage.id),
-                        },
-                      ]
-                    : []),
-                ]
-              : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: o.title })} />;
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{opportunities.length}</span> {t("opportunities.opportunities2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("opportunities.opportunities2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("opportunities.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("opportunities.nothingToShow")}
+            description={t("opportunities.emptyBody")}
+            action={{ label: t("opportunities.newOpportunity"), onClick: () => setFormOpen(true) }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("opportunities.newOpportunity")} description={t("opportunities.opportunityDetails")}>

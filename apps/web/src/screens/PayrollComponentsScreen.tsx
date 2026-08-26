@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   SidePanel,
   StatusPill,
@@ -42,6 +43,8 @@ function blankDraft(): ComponentDraft {
   return { code: "", nameAr: "", nameEn: "", kind: "earning", glAccountId: "", active: true };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 function draftOf(component: PayrollComponentDTO): ComponentDraft {
   return {
     code: component.code,
@@ -65,6 +68,8 @@ export function PayrollComponentsScreen() {
 
   const [kindFilter, setKindFilter] = useState<"all" | PayrollComponentKindDTO>("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<ComponentDraft>(blankDraft());
@@ -95,6 +100,12 @@ export function PayrollComponentsScreen() {
     }
     return rows;
   }, [components, kindFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openCreate() {
     setEditingId(null);
@@ -190,22 +201,41 @@ export function PayrollComponentsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={kindFilter}
-        onStatusChange={(key) => setKindFilter(key as "all" | PayrollComponentKindDTO)}
+        onStatusChange={(key) => {
+          setKindFilter(key as "all" | PayrollComponentKindDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("payrollComponents.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(row) => row.id}
         onRowClick={openEdit}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{components.length}</span>
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{components.length}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("payrollComponents.noComponentsYet")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("payrollComponents.noComponentsYet")}
+            description={t("payrollComponents.emptyBody")}
+            action={{ label: t("payrollComponents.addComponent"), onClick: openCreate }}
+          />
+        }
       />
 
       <SidePanel

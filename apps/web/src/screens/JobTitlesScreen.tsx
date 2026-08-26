@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type EntityPickerOption, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Button, Card, DocumentList, EmptyState, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type EntityPickerOption, type PillTone } from "@mezan/ui";
 import type { JobTitleDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles, useUpdateJobTitle } from "../data/hooks";
@@ -7,6 +7,8 @@ import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 
 /** المسميات الوظيفية (Job Titles) — docs/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface JobTitleDraft {
   departmentId: string;
@@ -31,6 +33,8 @@ export function JobTitlesScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<JobTitleDraft>(blankDraft());
@@ -67,6 +71,12 @@ export function JobTitlesScreen() {
     }
     return rows;
   }, [jobTitles, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selected = selectedId ? (jobTitles.find((j) => j.id === selectedId) ?? null) : null;
 
@@ -165,22 +175,41 @@ export function JobTitlesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | "active" | "inactive")}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | "active" | "inactive");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("jobTitles.searchByName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(j) => j.id}
         onRowClick={openEdit}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{jobTitles.length}</span> {t("jobTitles.jobTitles2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{jobTitles.length}</span> {t("jobTitles.jobTitles2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("jobTitles.noJobTitlesAddThe")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("jobTitles.noJobTitlesAddThe")}
+            description={t("jobTitles.emptyBody")}
+            action={{ label: t("jobTitles.addJobTitle"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("jobTitles.editJobTitle") : ""}>

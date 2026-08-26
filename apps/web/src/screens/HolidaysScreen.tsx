@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, Chip, DocumentList, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Button, Card, Chip, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { HolidayDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateHoliday, useDeleteHoliday, useHolidays, useUpdateHoliday } from "../data/hooks";
@@ -16,6 +16,8 @@ interface HolidayDraft {
   nameAr: string;
   recurringAnnual: boolean;
 }
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function blankDraft(year: number): HolidayDraft {
   return { date: `${year}-01-01`, nameEn: "", nameAr: "", recurringAnnual: false };
@@ -52,6 +54,8 @@ function EditIcon() {
 export function HolidaysScreen() {
   const { t } = useAppTranslation();
   const [year, setYear] = useState(CURRENT_YEAR);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const query = useHolidays(year);
   const createHoliday = useCreateHoliday();
   const updateHoliday = useUpdateHoliday();
@@ -69,6 +73,12 @@ export function HolidaysScreen() {
   const editing = editingId ? (holidays.find((h) => h.id === editingId) ?? null) : null;
 
   const recurringCount = useMemo(() => holidays.filter((h) => h.recurringAnnual).length, [holidays]);
+
+  const pageCount = Math.max(1, Math.ceil(holidays.length / pageSize));
+  const pageRows = holidays.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openCreateForm() {
     setDraft(blankDraft(year));
@@ -164,7 +174,15 @@ export function HolidaysScreen() {
 
       <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("holidays.year")}>
         {YEAR_OPTIONS.map((y) => (
-          <Chip key={y} type="button" active={year === y} onClick={() => setYear(y)}>
+          <Chip
+            key={y}
+            type="button"
+            active={year === y}
+            onClick={() => {
+              setYear(y);
+              setPage(1);
+            }}
+          >
             <span className="mz-num">{y}</span>
           </Chip>
         ))}
@@ -186,16 +204,30 @@ export function HolidaysScreen() {
           { label: t("holidays.oneOff"), value: <span className="mz-num">{holidays.length - recurringCount}</span> },
         ]}
         columns={columns}
-        rows={holidays}
+        rows={pageRows}
         rowKey={(h) => h.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{holidays.length}</span> {t("holidays.holidaysIn")} <span className="mz-num">{year}</span>
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{holidays.length}</span> {t("holidays.holidaysIn")}{" "}
+            <span className="mz-num">{year}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("holidays.noPublicHolidaysForThis")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("holidays.noPublicHolidaysForThis")}
+            description={t("holidays.emptyBody")}
+            action={{ label: t("holidays.addHoliday"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel

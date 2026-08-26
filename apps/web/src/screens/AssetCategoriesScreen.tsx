@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { DocumentList, EmptyState, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { AssetCategoryDTO, CreateAssetCategoryDTO } from "@mezan/contracts";
 import { ApiError, useAssetCategories, useCreateAssetCategory } from "../data/hooks";
 import { NumberField, TextField } from "../settings/form-controls";
@@ -10,6 +10,7 @@ import { matchesSearch } from "@mezan/domain";
 
 const DEPRECIATION_METHOD_KEY = "assetCategories.straightLine" as const;
 const STATUS_TONE: Record<"active" | "inactive", PillTone> = { active: "success", inactive: "neutral" };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface AssetCategoryDraft {
   code: string;
@@ -62,6 +63,8 @@ export function AssetCategoriesScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<AssetCategoryDraft>(blankDraft());
@@ -74,6 +77,12 @@ export function AssetCategoriesScreen() {
     const q = search.trim().toLowerCase();
     return matchesSearch(search, c.code, c.nameAr);
   });
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openCreateForm() {
     setDraft(blankDraft());
@@ -145,21 +154,40 @@ export function AssetCategoriesScreen() {
           { key: "inactive", label: t("common.inactive"), count: categories.filter((c) => !c.active).length },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as "all" | "active" | "inactive")}
+        onStatusChange={(key) => {
+          setStatusFilter(key as "all" | "active" | "inactive");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("assetCategories.searchByCategoryCodeOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{categories.length}</span> {t("assetCategories.categories")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{categories.length}</span> {t("assetCategories.categories")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("assetCategories.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("assetCategories.nothingToShow")}
+            description={t("assetCategories.emptyBody")}
+            action={{ label: t("assetCategories.addCategory"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("assetCategories.addCategory")} description={t("assetCategories.theCategorySCoreDetails")}>

@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { DocumentList, Money as MoneyDisplay, Qty, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useMemo, useState } from "react";
+import { DocumentList, EmptyState, Money as MoneyDisplay, Qty, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useItems, useStockBalance, useWarehouses } from "../data/hooks";
 import { SelectField, NumberField } from "../settings/form-controls";
@@ -13,6 +13,7 @@ import { majorOf } from "../lib/money";
  * `rollupStockBalance` domain function server-side.
  */
 type StatusFilter = "all" | "in_stock" | "low" | "out";
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function StockBalanceScreen() {
   const { t } = useAppTranslation();
@@ -23,6 +24,8 @@ export function StockBalanceScreen() {
   const [qtyTo, setQtyTo] = useState(Number.NaN);
   const [search, setSearch] = useState("");
   const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const balanceQuery = useStockBalance(warehouseFilter ? { warehouseId: warehouseFilter } : {});
   const itemsQuery = useItems();
@@ -82,6 +85,18 @@ export function StockBalanceScreen() {
     () => (statusFilter === "all" ? baseRows : baseRows.filter((r) => statusOf(r) === statusFilter)),
     [baseRows, items, statusFilter],
   );
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (warehouseFilter ? 1 : 0) +
+    (statusFilter === "all" ? 0 : 1) +
+    (Number.isNaN(qtyFrom) ? 0 : 1) +
+    (Number.isNaN(qtyTo) ? 0 : 1);
 
   const columns: DocumentListColumn<StockBalanceRowDTO>[] = [
     {
@@ -170,14 +185,22 @@ export function StockBalanceScreen() {
           { label: t("stockBalance.stat.outOfStock"), value: <span className="mz-num">{counts.outOfStock}</span> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("stockBalance.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <SelectField
               label={t("stockBalance.filter.warehouse")}
               value={warehouseFilter}
-              onChange={setWarehouseFilter}
+              onChange={(v) => {
+                setWarehouseFilter(v);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("stockBalance.filter.allWarehouses") },
                 ...warehouses.map((w) => ({ value: w.id, label: w.name })),
@@ -186,7 +209,10 @@ export function StockBalanceScreen() {
             <SelectField
               label={t("stockBalance.filter.status")}
               value={statusFilter}
-              onChange={(v) => setStatusFilter(v as StatusFilter)}
+              onChange={(v) => {
+                setStatusFilter(v as StatusFilter);
+                setPage(1);
+              }}
               options={[
                 { value: "all", label: t("stockBalance.filter.allStatuses") },
                 { value: "in_stock", label: t("stockBalance.filter.inStock") },
@@ -194,12 +220,26 @@ export function StockBalanceScreen() {
                 { value: "out", label: t("items.stockState.out") },
               ]}
             />
-            <NumberField label={t("stockBalance.filter.qtyFrom")} value={qtyFrom} onChange={setQtyFrom} />
-            <NumberField label={t("stockBalance.filter.qtyTo")} value={qtyTo} onChange={setQtyTo} />
+            <NumberField
+              label={t("stockBalance.filter.qtyFrom")}
+              value={qtyFrom}
+              onChange={(v) => {
+                setQtyFrom(v);
+                setPage(1);
+              }}
+            />
+            <NumberField
+              label={t("stockBalance.filter.qtyTo")}
+              value={qtyTo}
+              onChange={(v) => {
+                setQtyTo(v);
+                setPage(1);
+              }}
+            />
           </div>
         }
         columns={columns}
-        rows={[...filtered]}
+        rows={[...pageRows]}
         rowKey={(r) => r.itemId}
         expandedKeys={expandedKeys}
         renderExpandedRow={(r) =>
@@ -258,15 +298,22 @@ export function StockBalanceScreen() {
             </button>
           )
         }
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")}{" "}
-            <span className="mz-num">{counts.total}</span> {t("stockBalance.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
+            <span className="mz-num">{filtered.length}</span> {t("stockBalance.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockBalance.empty")}</div>}
+        emptyState={<EmptyState title={t("stockBalance.empty")} description={t("stockBalance.emptyBody")} />}
       />
     </div>
   );

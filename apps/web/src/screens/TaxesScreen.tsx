@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Button, Card, RowMenu, SidePanel, type DocumentListColumn, type PillTone, type RowMenuItem } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType } from "@mezan/domain";
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
 import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpdateTaxRate } from "../data/hooks";
@@ -227,6 +227,8 @@ function TaxGroupsTab() {
   );
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function TaxesScreen() {
   const { t } = useAppTranslation();
   const query = useTaxRates();
@@ -237,13 +239,13 @@ export function TaxesScreen() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");
   const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TaxDraft>(BLANK_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let rows = taxes;
@@ -254,6 +256,14 @@ export function TaxesScreen() {
     }
     return rows;
   }, [taxes, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
 
   function openCreateForm() {
     setEditingId(null);
@@ -267,19 +277,6 @@ export function TaxesScreen() {
     setDraft(draftFromTax(tax));
     setFormError(null);
     setFormOpen(true);
-  }
-
-  async function deactivateTax(tax: TaxRateDTO) {
-    if (pendingId) return;
-    setPendingId(tax.id);
-    setActionError(null);
-    try {
-      await updateTaxRate.mutateAsync({ id: tax.id, patch: { status: "inactive" } });
-    } catch (err) {
-      setActionError(err instanceof Error ? err.message : t("taxes.theTaxCouldNotBe"));
-    } finally {
-      setPendingId(null);
-    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -346,6 +343,15 @@ export function TaxesScreen() {
     { key: "rate", header: t("taxes.taxRate"), render: (tax) => <span className="mz-num">{tax.rate.toFixed(2)}%</span> },
     { key: "type", header: t("common.type"), render: (tax) => t(CALC_TYPE_KEY[tax.calculationType]) },
     { key: "status", header: t("common.status"), render: (tax) => <StatusPill label={t(STATUS_KEY[tax.status])} tone={STATUS_TONE[tax.status]} /> },
+    {
+      key: "actions",
+      header: "",
+      render: (tax) => (
+        <Button size="sm" onClick={() => openEditForm(tax)}>
+          {t("common.edit")}
+        </Button>
+      ),
+    },
   ];
 
   return (
@@ -377,11 +383,6 @@ export function TaxesScreen() {
           </Button>
         </Card>
       ) : null}
-      {actionError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {actionError}
-        </div>
-      ) : null}
       <DocumentList<TaxRateDTO>
         title={t("taxes.taxes")}
         description={t("taxes.theseTaxesApplyWhenInvoices")}
@@ -398,13 +399,21 @@ export function TaxesScreen() {
           { label: t("common.inactive"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "inactive").length}</span> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("taxes.search")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <SelectField
             label=""
             value={statusFilter}
-            onChange={(v) => setStatusFilter(v as TaxRateStatusDTO | "all")}
+            onChange={(v) => {
+              setStatusFilter(v as TaxRateStatusDTO | "all");
+              setPage(1);
+            }}
             options={[
               { value: "all", label: t("taxes.allStatuses") },
               { value: "active", label: t("common.active") },
@@ -413,31 +422,29 @@ export function TaxesScreen() {
           />
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(tax) => tax.id}
-        rowAction={(tax) => {
-          const items: RowMenuItem[] = [
-            { key: "edit", label: t("common.edit"), onSelect: () => openEditForm(tax) },
-          ];
-          if (tax.status === "active") {
-            items.push({
-              key: "deactivate",
-              label: t("taxes.deactivate"),
-              tone: "danger",
-              disabled: pendingId === tax.id,
-              onSelect: () => void deactivateTax(tax),
-            });
-          }
-          return <RowMenu items={items} label={t("common.rowActionsFor", { name: tax.name })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{taxes.length}</span> {t("taxes.taxes2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{taxes.length}</span> {t("taxes.taxes2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("taxes.noMatchingTaxes")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("taxes.noMatchingTaxes")}
+            description={t("taxes.emptyBody")}
+            action={{ label: t("taxes.addTax"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel

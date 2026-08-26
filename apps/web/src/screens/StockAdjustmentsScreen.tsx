@@ -1,21 +1,20 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
-  RowMenu,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { AccountDTO, DocumentStatusDTO, StockAdjustmentDocumentDTO } from "@mezan/contracts";
 import {
@@ -36,7 +35,10 @@ import {
   useItems,
   useJournalEntry,
   useStockAdjustments,
+  useStockAdjustmentCounts,
+  useStockAdjustmentStats,
   useWarehouses,
+  type StockAdjustmentFilter,
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
@@ -44,10 +46,11 @@ import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
-import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** Keys, not copy — the stepper's labels are built with the translator at render. */
 const STEPPER_KEYS = [
@@ -118,10 +121,25 @@ export function StockAdjustmentsScreen() {
   const { label: domainLabel } = useDomainLabels();
   const [reasonFilter, setReasonFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
-  const query = useStockAdjustments({
-    ...(reasonFilter ? { reason: reasonFilter } : {}),
-    ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
-  });
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+
+  /**
+   * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip
+   * used to sum every adjustment regardless of the active status chip.
+   */
+  const filter = useMemo<StockAdjustmentFilter>(
+    () => ({
+      status: statusFilter,
+      reason: reasonFilter || undefined,
+      warehouseId: warehouseFilter || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, reasonFilter, warehouseFilter, search],
+  );
+  const query = useStockAdjustments(filter);
+  const counts = useStockAdjustmentCounts(filter).data ?? {};
+  const stats = useStockAdjustmentStats(filter).data ?? {};
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
   const documents = query.data ?? [];
@@ -135,10 +153,6 @@ export function StockAdjustmentsScreen() {
     const item = items.find((i) => i.id === id);
     return item ? `${item.nameAr} (${item.code})` : id;
   }
-
-  const listConfirm = useConfirmStockAdjustment();
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
 
   // `#/inventory/stock-adjustments` · `…/new` (reason picker, then the form) · `…/<docNo>`
   const subPage = useSubPage();
@@ -164,27 +178,16 @@ export function StockAdjustmentsScreen() {
     (routedReason && isAdjustmentReason(routedReason) ? getAdjustmentReasonDefinition(routedReason) : null);
   const setSelectedReason = setReasonChoice;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "confirmed") c.confirmed += 1;
-    }
-    return c;
-  }, [documents]);
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
+  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (reasonFilter ? 1 : 0) + (warehouseFilter ? 1 : 0);
 
   const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
 
@@ -215,19 +218,6 @@ export function StockAdjustmentsScreen() {
   function openDetail(id: string) {
     const doc = documents.find((d) => d.id === id);
     subPage.open(doc?.docNo ?? id);
-  }
-
-  async function confirmRow(id: string): Promise<void> {
-    if (rowPendingId) return;
-    setRowError(null);
-    setRowPendingId(id);
-    try {
-      await listConfirm.mutateAsync(id);
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRowPendingId(null);
-    }
   }
 
   if (firstSegment === "new" && selectedReason === null) {
@@ -311,11 +301,6 @@ export function StockAdjustmentsScreen() {
               label: t("stockAdj.accounting"),
               content: <AdjustmentGlTab docId={selected.id} />,
             },
-            {
-              key: "attachments",
-              label: t("attachments.tab"),
-              content: <AttachmentsTab entityType="stock-adjustment" entityId={selected.id} />,
-            },
           ]}
         />
       </div>
@@ -335,11 +320,6 @@ export function StockAdjustmentsScreen() {
 
   return (
     <div className="w-full">
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<StockAdjustmentDocumentDTO>
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
@@ -351,26 +331,37 @@ export function StockAdjustmentsScreen() {
         listKey="stock-adjustments"
         statsCollapsible
         stats={[
-          { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
-          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | DocumentStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("stockAdj.searchByAdjustmentNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2">
             <SelectField
               label={t("stockAdj.filter.reason")}
               value={reasonFilter}
-              onChange={setReasonFilter}
+              onChange={(v) => {
+                setReasonFilter(v);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("stockAdj.filter.allReasons") },
                 ...ADJUSTMENT_REASON_DEFINITIONS.map((def) => ({ value: def.code, label: domainLabel(def) })),
@@ -379,7 +370,10 @@ export function StockAdjustmentsScreen() {
             <SelectField
               label={t("stockAdj.filter.warehouse")}
               value={warehouseFilter}
-              onChange={setWarehouseFilter}
+              onChange={(v) => {
+                setWarehouseFilter(v);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("stockAdj.filter.allWarehouses") },
                 ...warehouses.map((w) => ({ value: w.id, label: w.name })),
@@ -388,27 +382,30 @@ export function StockAdjustmentsScreen() {
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        rowAction={(d) => {
-          // A confirmed adjustment has already moved stock and posted; it is corrected by a new adjustment, never re-confirmed.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
-            ...(d.status === "draft"
-              ? [{ key: "confirm", label: t("stockAdj.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockAdj.adjustments")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("stockAdj.adjustments")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockAdj.noMatchingAdjustments")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("stockAdj.noMatchingAdjustments")}
+            description={t("stockAdj.emptyBody")}
+            action={{ label: t("stockAdj.newAdjustment"), onClick: () => { setSelectedReason(null); subPage.open("new"); } }}
+          />
+        }
       />
     </div>
   );

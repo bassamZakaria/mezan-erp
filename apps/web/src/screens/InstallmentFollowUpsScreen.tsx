@@ -3,18 +3,26 @@ import {
   Button,
   Card,
   DocumentList,
-  RowMenu,
+  EmptyState,
   SidePanel,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
-import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
+import {
+  useCancelFollowUp,
+  useCompleteFollowUp,
+  useCreateFollowUp,
+  useCustomers,
+  useFollowUps,
+  useFollowUpCounts,
+  useFollowUpStats,
+  type FollowUpListFilters,
+} from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
@@ -28,15 +36,15 @@ function today(): string {
   return todayIso();
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function InstallmentFollowUpsScreen() {
   const { t } = useAppTranslation();
-  const query = useFollowUps();
   const customersQuery = useCustomers();
   const createFollowUp = useCreateFollowUp();
   const completeFollowUp = useCompleteFollowUp();
   const cancelFollowUp = useCancelFollowUp();
 
-  const followUps = query.data ?? [];
   const customers = customersQuery.data ?? [];
 
   const customerName = useMemo(() => {
@@ -45,8 +53,17 @@ export function InstallmentFollowUpsScreen() {
   }, [customers]);
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to derive all three from one client-side fetch, so the header
+  // numbers stayed at the grand total no matter which status tab was active.
+  const filter = useMemo<FollowUpListFilters>(() => ({ status: statusFilter }), [statusFilter]);
+  const query = useFollowUps(filter);
+  const followUps = query.data ?? [];
+  const counts = useFollowUpCounts(filter).data ?? {};
+  const stats = useFollowUpStats(filter).data ?? {};
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [customerId, setCustomerId] = useState("");
   const [type, setType] = useState<FollowUpTypeDTO>("CALL");
   const [followUpDate, setFollowUpDate] = useState(today());
@@ -54,17 +71,9 @@ export function InstallmentFollowUpsScreen() {
   const [outcome, setOutcome] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const counts = useMemo(() => {
-    const c = { all: followUps.length, pending: 0, completed: 0, cancelled: 0 };
-    for (const f of followUps) {
-      if (f.status === "pending") c.pending += 1;
-      if (f.status === "completed") c.completed += 1;
-      if (f.status === "cancelled") c.cancelled += 1;
-    }
-    return c;
-  }, [followUps]);
-
-  const filtered = statusFilter === "all" ? followUps : followUps.filter((f) => f.status === statusFilter);
+  const pageCount = Math.max(1, Math.ceil(followUps.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = followUps.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (followUps.find((f) => f.id === panel.id) ?? null) : null;
 
   // Defaults the create form's customer picker once the customers query resolves —
@@ -117,24 +126,20 @@ export function InstallmentFollowUpsScreen() {
   }
 
   async function cancel(f: CollectionFollowUpDTO) {
-    if (rowPendingId) return;
     setError(null);
-    setRowPendingId(f.id);
     try {
       await cancelFollowUp.mutateAsync(f.id);
       setPanel("none");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRowPendingId(null);
     }
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "pending", label: t("followUps.pending"), count: counts.pending },
-    { key: "completed", label: t("followUps.completed"), count: counts.completed },
-    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "pending", label: t("followUps.pending"), count: counts.pending ?? 0 },
+    { key: "completed", label: t("followUps.completed"), count: counts.completed ?? 0 },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<CollectionFollowUpDTO>[] = [
@@ -167,44 +172,41 @@ export function InstallmentFollowUpsScreen() {
         listKey="installment-follow-ups"
         statsCollapsible
         stats={[
-          { label: t("followUps.totalFollowUps"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("followUps.pending2"), value: <span className="mz-num">{counts.pending}</span> },
-          { label: t("followUps.completed2"), value: <span className="mz-num">{counts.completed}</span> },
+          { label: t("followUps.totalFollowUps"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("followUps.pending2"), value: <span className="mz-num">{Number(stats.pending ?? 0)}</span> },
+          { label: t("followUps.completed2"), value: <span className="mz-num">{Number(stats.completed ?? 0)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | FollowUpStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | FollowUpStatusDTO);
+          setPage(1);
+        }}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(f) => f.id}
         onRowClick={(f) => setPanel({ id: f.id })}
-        rowAction={(f) => {
-          // Completing records an outcome, so it opens the panel that asks for one instead of writing a blank result.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: f.id }) },
-            ...(f.status === "pending"
-              ? [
-                  { key: "complete", label: t("followUps.completeFollowUp"), onSelect: () => setPanel({ id: f.id }) },
-                  {
-                    key: "cancel",
-                    label: t("followUps.cancelFollowUp"),
-                    tone: "danger" as const,
-                    disabled: rowPendingId === f.id,
-                    onSelect: () => void cancel(f),
-                  },
-                ]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: customerName(f.customerId) })} />;
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("followUps.followUps")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{followUps.length}</span> {t("followUps.followUps")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("followUps.noFollowUpsCreatedYet")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("followUps.noFollowUpsCreatedYet")}
+            description={t("followUps.emptyBody")}
+            action={{ label: t("followUps.newFollowUp"), onClick: openCreate }}
+          />
+        }
       />
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("followUps.newFollowUp")}>

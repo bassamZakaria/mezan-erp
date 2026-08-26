@@ -1958,4 +1958,232 @@ export async function run(ctx: Ctx): Promise<void> {
       sum(searched.filter((r) => r.status !== "draft" && r.status !== "cancelled"), (r) => r.totals?.grandTotal),
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // x20 · R1.1 rolled across the remaining list resources
+  //
+  // Same contract as x19, applied to every list that grew a `/counts` and a
+  // `/stats` in this pass. Three properties, per resource:
+  //   1. a chip states how many rows IT would show — so its count has to equal
+  //      the row count when that chip's own filter is applied;
+  //   2. `/counts` ignores its own axis, or every chip but the active one reads
+  //      zero the moment a chip is clicked;
+  //   3. the rows and the KPI strip move together — the original defect was a
+  //      filter that narrowed the table and left the totals on the whole book.
+  //
+  // Sales and purchase invoices are deliberately absent: x19 covers them, and
+  // their `/stats` excludes drafts, so `stats.count` there is NOT the row count.
+  // ---------------------------------------------------------------------------
+  interface ListAggregateCase {
+    readonly label: string;
+    readonly list: string;
+    /** Chip keys the `status` query parameter resolves. */
+    readonly statusChips: readonly string[];
+    /** Chip keys on a SECOND axis, each with the query that shows exactly those rows. */
+    readonly otherChips?: readonly (readonly [countKey: string, query: string])[];
+    /** A filter that must narrow the rows AND the KPI strip together. */
+    readonly narrowing: string;
+  }
+
+  const LIST_AGGREGATES: readonly ListAggregateCase[] = [
+    {
+      label: "sales quotes",
+      list: "/sales-quotes",
+      statusChips: ["draft", "sent", "accepted", "rejected", "converted", "cancelled", "expired"],
+      narrowing: "?status=converted",
+    },
+    {
+      label: "sales returns",
+      list: "/sales-returns",
+      statusChips: ["draft", "pending", "confirmed", "cancelled", "reversed"],
+      otherChips: [["awaitingRefund", "/sales-returns?awaitingRefund=true"]],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "purchase returns",
+      list: "/purchase-returns",
+      statusChips: ["draft", "pending", "confirmed", "cancelled", "reversed"],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "purchase orders",
+      list: "/purchases/orders",
+      statusChips: ["draft", "sent", "partially_received", "fully_received", "cancelled"],
+      narrowing: "?status=fully_received",
+    },
+    {
+      label: "goods receipts",
+      list: "/purchases/receipts",
+      statusChips: ["draft", "confirmed", "cancelled"],
+      otherChips: [
+        ["invoiced", "/purchases/receipts?invoiced=true"],
+        ["uninvoiced", "/purchases/receipts?invoiced=false"],
+      ],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "rfqs",
+      list: "/rfqs",
+      statusChips: ["draft", "sent", "closed", "cancelled"],
+      narrowing: "?status=sent",
+    },
+    {
+      label: "treasury vouchers",
+      list: "/vouchers",
+      statusChips: ["draft", "confirmed", "pending", "cancelled"],
+      otherChips: [
+        ["needs_allocation", "/vouchers?needsAllocation=any"],
+        ["needs_allocation_receipt", "/vouchers?needsAllocation=receipt"],
+        ["needs_allocation_payment", "/vouchers?needsAllocation=payment"],
+        ["type:customer_collection", "/vouchers?type=customer_collection"],
+        ["type:supplier_payment", "/vouchers?type=supplier_payment"],
+        ["type:inter_treasury_transfer", "/vouchers?type=inter_treasury_transfer"],
+      ],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "cheques",
+      list: "/cheques",
+      statusChips: ["pending", "under_collection", "due_today", "deposited", "collected", "bounced", "replaced"],
+      narrowing: "?status=collected",
+    },
+    {
+      label: "instalment plans",
+      list: "/installments/plans",
+      statusChips: ["draft", "pending", "confirmed", "posted", "cancelled", "reversed", "overdue"],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "collection follow-ups",
+      list: "/installments/follow-ups",
+      statusChips: ["pending", "completed", "cancelled"],
+      narrowing: "?status=pending",
+    },
+    {
+      label: "treasury accounts",
+      list: "/treasury-accounts",
+      statusChips: ["active", "inactive", "cash", "bank"],
+      narrowing: "?status=cash",
+    },
+    {
+      label: "items",
+      list: "/items",
+      statusChips: ["active", "inactive", "low_stock", "out_of_stock"],
+      otherChips: [
+        ["type:stock", "/items?status=type:stock"],
+        ["type:service", "/items?status=type:service"],
+        ["type:raw_material", "/items?status=type:raw_material"],
+      ],
+      narrowing: "?status=out_of_stock",
+    },
+    {
+      label: "stock adjustments",
+      list: "/inventory/stock-adjustments",
+      statusChips: ["draft", "pending", "confirmed", "posted", "cancelled", "reversed"],
+      narrowing: "?status=confirmed",
+    },
+    {
+      label: "stock transfers",
+      list: "/inventory/stock-transfers",
+      statusChips: ["draft", "pending", "confirmed", "posted", "cancelled", "reversed"],
+      narrowing: "?status=draft",
+    },
+    {
+      label: "physical counts",
+      list: "/inventory/physical-counts",
+      statusChips: ["IN_PROGRESS", "COMPLETED", "ADJUSTMENT_GENERATED", "CANCELLED"],
+      narrowing: "?status=ADJUSTMENT_GENERATED",
+    },
+    {
+      label: "journal entries",
+      list: "/gl/journal-entries",
+      statusChips: ["draft", "pending", "posted", "reversed"],
+      narrowing: "?fromDate=2026-08-01",
+    },
+    {
+      label: "customers",
+      list: "/customers",
+      statusChips: ["active", "inactive"],
+      narrowing: "?q=" + encodeURIComponent("مؤسسة"),
+    },
+    {
+      label: "suppliers",
+      list: "/suppliers",
+      statusChips: ["active", "inactive"],
+      narrowing: "?status=active",
+    },
+    {
+      label: "work orders",
+      list: "/manufacturing/work-orders",
+      statusChips: ["planned", "in_progress", "completed", "cancelled"],
+      narrowing: "?status=planned",
+    },
+    {
+      label: "asset register",
+      list: "/assets",
+      statusChips: ["active", "under_maintenance", "fully_depreciated", "disposed"],
+      narrowing: "?status=active",
+    },
+  ];
+
+  await scenario("x20 · every remaining list's rows, chip counts and KPI strip agree (R1.1)", async () => {
+    const rowsOf = async (path: string): Promise<any[]> => {
+      const res = await req("GET", path);
+      check(`${path} answers 2xx`, res.ok, `status ${res.status}`);
+      return Array.isArray(res.body) ? res.body : [];
+    };
+
+    for (const c of LIST_AGGREGATES) {
+      const all = await rowsOf(c.list);
+      const counts = ((await req("GET", `${c.list}/counts`)).body ?? {}) as Record<string, number>;
+      const stats = ((await req("GET", `${c.list}/stats`)).body ?? {}) as Record<string, unknown>;
+
+      checkEq(`${c.label}: counts.all is the whole unfiltered list`, n(counts.all), all.length);
+      // Every one of these resources counts the rows it returns, so the strip's
+      // own count is the cheapest proof it was computed over the same set.
+      checkEq(`${c.label}: stats.count is the whole unfiltered list`, n(stats.count), all.length);
+
+      for (const chip of c.statusChips) {
+        const rows = await rowsOf(`${c.list}?status=${encodeURIComponent(chip)}`);
+        checkEq(`${c.label}: chip "${chip}" counts exactly the rows that chip shows`, n(counts[chip]), rows.length);
+      }
+      for (const [key, query] of c.otherChips ?? []) {
+        const rows = await rowsOf(query);
+        checkEq(`${c.label}: chip "${key}" counts exactly the rows that chip shows`, n(counts[key]), rows.length);
+      }
+
+      // The chips must not collapse the moment one of them is clicked.
+      const active = c.statusChips.find((chip) => n(counts[chip]) > 0) ?? c.statusChips[0]!;
+      const underFilter = ((await req("GET", `${c.list}/counts?status=${encodeURIComponent(active)}`)).body ??
+        {}) as Record<string, number>;
+      checkEq(`${c.label}: /counts ignores its own axis — "all" survives a chip`, n(underFilter.all), n(counts.all));
+      for (const chip of c.statusChips) {
+        checkEq(`${c.label}: chip "${chip}" is unchanged while "${active}" is active`, n(underFilter[chip]), n(counts[chip]));
+      }
+
+      // …and the strip has to follow the filter the rows follow.
+      //
+      // The filter is chosen from the LIVE counts rather than hardcoded: this
+      // suite runs last, after the trails above have posted documents, so which
+      // status splits the set is not knowable when the case is written. A chip
+      // that holds some but not all of the rows is preferred; the declared
+      // filter is the fallback for a resource whose rows all share one status.
+      const splitting = c.statusChips.find((chip) => n(counts[chip]) > 0 && n(counts[chip]) < all.length);
+      const narrowing = splitting ? `?status=${encodeURIComponent(splitting)}` : c.narrowing;
+      const narrowedRows = await rowsOf(`${c.list}${narrowing}`);
+      const narrowedStats = ((await req("GET", `${c.list}/stats${narrowing}`)).body ?? {}) as Record<string, unknown>;
+      if (splitting) {
+        check(
+          `${c.label}: ${narrowing} genuinely narrows the rows`,
+          narrowedRows.length < all.length,
+          `${narrowedRows.length} of ${all.length} rows`,
+        );
+      }
+      checkEq(
+        `${c.label}: the KPI strip follows ${narrowing} rather than reporting the whole book`,
+        n(narrowedStats.count),
+        narrowedRows.length,
+      );
+    }
+  });
 }

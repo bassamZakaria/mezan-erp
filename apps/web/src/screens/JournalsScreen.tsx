@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -6,21 +6,29 @@ import {
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
-  RowMenu,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
 import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
-import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
+import {
+  useAccounts,
+  useCreateJournalEntry,
+  useJournalEntries,
+  useJournalEntryCounts,
+  useJournalEntryStats,
+  useReverseJournalEntry,
+  type JournalEntryDTO,
+  type JournalEntryListFilter,
+} from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
@@ -92,6 +100,8 @@ function blankLine(): LineDraft {
   return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0 };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function JournalsScreen() {
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
@@ -106,14 +116,25 @@ export function JournalsScreen() {
   const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
-  const query = useJournalEntries({
-    ...(moduleFilter ? { sourceModule: moduleFilter } : {}),
-    ...(fromDate ? { fromDate } : {}),
-    ...(toDate ? { toDate } : {}),
-  });
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to derive all three from one client-side fetch, so the header
+  // numbers stayed at the grand total no matter which status tab was active.
+  const filter = useMemo<JournalEntryListFilter>(
+    () => ({
+      status: statusFilter,
+      sourceModule: moduleFilter || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, moduleFilter, fromDate, toDate, search],
+  );
+  const query = useJournalEntries(filter);
+  const counts = useJournalEntryCounts(filter).data ?? {};
+  const stats = useJournalEntryStats(filter).data ?? {};
 
   const accountLabel = useMemo(() => {
     const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
@@ -122,26 +143,14 @@ export function JournalsScreen() {
 
   const documents = query.data ?? [];
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, pending: 0, posted: 0, reversed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "pending") c.pending += 1;
-      else if (d.status === "posted") c.posted += 1;
-      else if (d.status === "reversed") c.reversed += 1;
-    }
-    return c;
-  }, [documents]);
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
+  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.entryNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (moduleFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
 
@@ -171,19 +180,6 @@ export function JournalsScreen() {
   function openDetail(id: string) {
     setSelectedId(id);
     setMode("detail");
-  }
-
-  async function reverseEntry(doc: JournalDoc) {
-    if (pendingId) return;
-    setPendingId(doc.id);
-    setRowError(null);
-    try {
-      await reverseJournalEntry.mutateAsync({ id: doc.id });
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setPendingId(null);
-    }
   }
 
   if (mode === "create") {
@@ -286,11 +282,6 @@ export function JournalsScreen() {
           </Button>
         </Card>
       ) : null}
-      {rowError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<JournalDoc>
         title={t("journals.journalEntries")}
         description={t("journals.theJournalRegisterDraftAwaiting")}
@@ -305,28 +296,39 @@ export function JournalsScreen() {
         listKey="journals"
         statsCollapsible
         stats={[
-          { label: t("journals.totalEntries"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.posted"), value: <span className="mz-num">{counts.posted}</span> },
-          { label: t("docStatus.reversed"), value: <span className="mz-num">{counts.reversed}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("journals.totalEntries"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("docStatus.posted"), value: <span className="mz-num">{Number(stats.posted ?? 0)}</span> },
+          { label: t("docStatus.reversed"), value: <span className="mz-num">{Number(stats.reversed ?? 0)}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{Number(stats.draft ?? 0)}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "posted", label: t("docStatus.posted"), count: counts.posted },
-          { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "posted", label: t("docStatus.posted"), count: counts.posted ?? 0 },
+          { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | JournalEntryStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | JournalEntryStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("journals.searchByEntryNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-3">
             <SelectField
               label={t("journals.filter.module")}
               value={moduleFilter}
-              onChange={(value) => setModuleFilter(value as "" | JournalSourceModuleDTO)}
+              onChange={(value) => {
+                setModuleFilter(value as "" | JournalSourceModuleDTO);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("journals.filter.allModules") },
                 ...(Object.keys(MODULE_KEY) as JournalSourceModuleDTO[]).map((key) => ({
@@ -335,31 +337,51 @@ export function JournalsScreen() {
                 })),
               ]}
             />
-            <TextField label={t("journals.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-            <TextField label={t("journals.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+            <TextField
+              label={t("journals.filter.fromDate")}
+              value={fromDate}
+              onChange={(value) => {
+                setFromDate(value);
+                setPage(1);
+              }}
+              type="date"
+            />
+            <TextField
+              label={t("journals.filter.toDate")}
+              value={toDate}
+              onChange={(value) => {
+                setToDate(value);
+                setPage(1);
+              }}
+              type="date"
+            />
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        rowAction={(d) => {
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
-            ...(d.status === "posted"
-              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d) }]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.entryNo ?? d.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("journals.entries")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("journals.entries")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("journals.noMatchingEntries")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("journals.noMatchingEntries")}
+            description={t("journals.emptyBody")}
+            action={{ label: t("journals.newEntry"), onClick: () => setMode("create") }}
+          />
+        }
       />
     </div>
   );

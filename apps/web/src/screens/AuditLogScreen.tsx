@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
+import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
 import { useAuditLog } from "../data/platform-hooks";
 import { useBranches } from "../data/hooks";
@@ -15,7 +15,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  * evidence, not editable state.
  */
 
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const STREAM_KEY: Record<AuditStreamDTO, AppTranslationKey> = {
   security: "audit.securityEvents",
@@ -83,6 +83,7 @@ export function AuditLogScreen() {
   const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const [filters, setFilters] = useState<Filters>(BLANK_FILTERS);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
 
   function updateFilters(patch: Partial<Filters>) {
@@ -100,8 +101,8 @@ export function AuditLogScreen() {
     branchId: filters.branchId || undefined,
     from: filters.from.trim() || undefined,
     to: filters.to.trim() || undefined,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
   });
 
   // Cheap independent lookups purely to feed the stream chip/stat counts —
@@ -113,7 +114,17 @@ export function AuditLogScreen() {
 
   const events = listQuery.data?.events ?? [];
   const total = listQuery.data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  const activeFilterCount =
+    (filters.stream === "all" ? 0 : 1) +
+    (filters.module.trim() === "" ? 0 : 1) +
+    (filters.action.trim() === "" ? 0 : 1) +
+    (filters.entityType.trim() === "" ? 0 : 1) +
+    (filters.severity === "" ? 0 : 1) +
+    (filters.branchId === "" ? 0 : 1) +
+    (filters.from.trim() === "" ? 0 : 1) +
+    (filters.to.trim() === "" ? 0 : 1);
 
   const columns: DocumentListColumn<AuditEventDTO>[] = useMemo(
     () => [
@@ -178,6 +189,8 @@ export function AuditLogScreen() {
         searchValue={filters.actor}
         onSearchChange={(v) => updateFilters({ actor: v })}
         searchPlaceholder={t("audit.searchByUser")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[150px]">
@@ -227,12 +240,24 @@ export function AuditLogScreen() {
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
             {t("common.show")} <span className="mz-num">{events.length}</span> {t("common.of")} <span className="mz-num">{total}</span> {t("audit.event")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("audit.noMatchingEvents")}</div>}
+        emptyState={
+          listQuery.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState title={t("audit.noMatchingEvents")} description={t("audit.emptyBody")} />
+          )
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelected(null)} title={t("audit.eventDetails")} description={t("audit.auditLogReadOnly")}>

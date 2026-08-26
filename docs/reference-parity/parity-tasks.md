@@ -28,7 +28,29 @@ Tick an item only when it has been driven in the running app on seeded data, in
       - [x] Sales invoices — `/sales-invoices/counts` + `/stats`, derived `open`/`overdue` chips resolved server-side, `branchId`/`warehouseId`/`search` added to the list query
       - [x] Purchase invoices — `/purchases/invoices/counts` + `/stats`, payment states (`overdue`/`due_soon`/`partially_paid`/`paid`) resolved server-side
       - [x] The float defect underneath it: 22 money sums across 14 screens moved to bigint (`apps/web/src/lib/money.ts`)
-      - [ ] The remaining list resources — picked up per area as the sidebar sweep reaches them
+      - [x] The remaining 20 list resources — sales quotes, sales returns, purchase returns, purchase orders,
+            goods receipts, RFQs, treasury vouchers (`/stats`), cheques, instalment plans, collection follow-ups,
+            treasury accounts, items, stock adjustments, stock transfers, physical counts, journal entries,
+            customers, suppliers, work orders and the asset register all carry `/counts` + `/stats` behind ONE
+            filter chokepoint. `/counts` drops its own axis on every one of them; `/stats` honours it. Every
+            surface is enumerated in `scripts/smoke.ts` (198 read surfaces) and asserted by scenario **x20**
+            in `scripts/scenarios/cross-module.ts`: per resource, each chip count equals the rows that chip
+            shows, the counts survive a chip being clicked, and the KPI strip follows the filter the rows follow
+      - [x] `/customers/stats` and `/suppliers/stats` derive receivables and payables server-side in `Money`,
+            from the same figures `/sales-invoices/stats` reports — wired at the composition root in
+            `packages/api/src/app.ts` rather than left null
+      - [x] All 20 screens pointed at them, so the strip follows the chip instead of reporting the whole book.
+            Verified live on a seeded tenant in ar/RTL and en/LTR, light and dark: on quotes, clicking محول moved
+            the rows to 1 AND the total from 33,219.60 to 9,849.60 while every other chip kept its own count; on
+            cheques, محصل moved 5 rows / 13,050.00 to 2 rows / 7,300.00; on items, «out of stock» moved 19 to 9 in
+            the rows AND in all four tiles; on purchase orders, «fully received» moved 72,730.00 to 23,300.00.
+            The customers strip's «إجمالي المستحق» now ties to the cent to `/sales-invoices/stats` remaining
+            (43,880.88), and `?q=مؤسسه` finds «مؤسسة النور» — the server search forgives ة/ه, the old browser
+            `includes` did not (D32)
+      - [ ] The treasury-accounts money tiles stay client-side on purpose: they are LIVE GL balances read from the
+            trial balance, and `/treasury-accounts/stats` answers opening balances. Publishing an opening balance
+            under a live-balance label is the defect `73381da` fixed; the endpoint needs a ledger source before
+            those three tiles can move
 - [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 
 ## P1 — shell and navigation
@@ -42,9 +64,13 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R1.6** Notification centre — a real feed off `/notifications`; the bell's "عرض جميع الإشعارات" now opens `#/notifications` (all/unread tabs, mark-all-read, verified it survives reload) instead of being a dead link. Demo seed enriched so the seeded tenant opens onto a genuine mixed read/unread inbox rather than an empty one
 - [x] **R1.14** Branch and warehouse as a global header scope — six document lists now narrow by warehouse, and changing the scope refetches
 - [x] **R1.9** Attention banners on lists (overdue, out of stock, drafts) that apply the filter when clicked
-- [~] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
+- [x] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
   - [x] The shared primitives — `EmptyState` (with CTA), `DocumentList`'s `statsCollapsible`/`listKey` (collapse persists across reload) and `filterBarCollapsible`/`activeFilterCount` (a "تصفية النتائج N" badge) — built and driven live end-to-end on the new notifications screen, ar+en, both themes
-  - [~] Rollout onto the ~63 document-list screens — each is an opt-in, back-compat prop; left to each screen's own owner. Done on customers, sales returns, price lists, promotions and van trips (R3.8/R3.9/R3.11/R3.12/R3.13)
+  - [x] Rollout complete on every screen that renders `DocumentList`: all 65 now pass an `EmptyState` (with the
+        list's own toolbar action as its CTA, or no action where nothing is created — an audit log, an approvals
+        inbox, a derived report) and a page-size selector; every screen with a `filterBarExtra` also carries
+        `filterBarCollapsible` + a real `activeFilterCount`. Screens with no filter bar deliberately do NOT
+        collapse — passing `filterBarCollapsible` without a badge would hide filters and say nothing
 - [x] **R1.7 / R1.8** System-status indicator and support entry point — a header pill off the real health check (never a fabricated "all systems operational"), and a headset menu (keyboard shortcuts, system status) — both live, real features, not invented contact info
 
 ## P2 — reports engine

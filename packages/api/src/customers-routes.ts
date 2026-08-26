@@ -18,6 +18,24 @@ export interface CustomerPriceListLookup {
   findById(id: string): Promise<unknown | null>;
 }
 
+/**
+ * What each customer still owes on their LIVE sales invoices — the receivable
+ * net of collections and of confirmed returns, drafts and cancelled invoices
+ * excluded. It is the same figure `/sales-invoices` reports as an invoice's
+ * `remainingBalance`, rolled up per customer, and the composition root MUST
+ * bind it to that same derivation: a second opinion here would put the
+ * customers list and the AR sub-ledger at odds.
+ *
+ * Optional because this module owns customer master data only and has no
+ * access to invoices. Without it `GET /stats` reports `toCollect: null` and
+ * `?overLimit=true` is refused, rather than either quietly reporting the
+ * opening balance as the debt (D39) or passing an over-limit filter it cannot
+ * evaluate.
+ */
+export interface CustomerReceivablesSource {
+  outstandingByCustomer(): Promise<ReadonlyMap<string, Money>>;
+}
+
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
   return {
@@ -64,6 +82,7 @@ export function createCustomersRouter(
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
   audit?: AuditSink,
   priceLists?: CustomerPriceListLookup,
+  receivables?: CustomerReceivablesSource,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -103,16 +122,120 @@ export function createCustomersRouter(
     });
   }
 
-  app.get("/", gate("sales.customer.view"), async (c) => {
-    const customers = await repo.findAll();
-    // `?q=` is Arabic-forgiving: احمد finds أحمد, فاطمه finds فاطمة. Before this
-    // the parameter was not read by any list route at all, so every screen
-    // filtered in the browser with a raw `includes` that forgave nothing (D32).
-    const q = c.req.query("q");
-    const matched = customers.filter((customer) =>
-      matchesSearch(q, customer.nameAr, customer.nameEn, customer.code, customer.phone, customer.email),
+  interface CustomerListFilter {
+    readonly status?: string;
+    readonly q?: string;
+    readonly priceListId?: string;
+    readonly overLimit?: boolean;
+  }
+
+  function parseCustomerListQuery(c: Context): CustomerListFilter {
+    return {
+      status: c.req.query("status") || undefined,
+      q: c.req.query("q") || undefined,
+      priceListId: c.req.query("priceListId") || undefined,
+      overLimit: c.req.query("overLimit") === "true",
+    };
+  }
+
+  async function outstandingByCustomer(): Promise<ReadonlyMap<string, Money>> {
+    return (await receivables?.outstandingByCustomer()) ?? new Map<string, Money>();
+  }
+
+  /** Opening balance plus what is left on every live invoice — one definition, used by both the filter and the KPI. */
+  function owedBy(customer: Customer, outstanding: ReadonlyMap<string, Money>): Money {
+    return customer.openingBalance.add(outstanding.get(customer.id) ?? Money.zero());
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through. The screen used to narrow by status, price list, credit limit and
+   * free text in the browser while its four tiles were totalled over every
+   * customer the server had sent, so applying a filter moved the rows and left
+   * the header alone.
+   *
+   * `?q=` is Arabic-forgiving: احمد finds أحمد, فاطمه finds فاطمة. Before this
+   * the parameter was not read by any list route at all, so every screen
+   * filtered in the browser with a raw `includes` that forgave nothing (D32).
+   */
+  async function listFilteredCustomers(filter: CustomerListFilter): Promise<readonly Customer[]> {
+    let rows: readonly Customer[] = await repo.findAll();
+    if (filter.status === "active") rows = rows.filter((customer) => customer.active);
+    else if (filter.status === "inactive") rows = rows.filter((customer) => !customer.active);
+    if (filter.priceListId) rows = rows.filter((customer) => customer.priceListId === filter.priceListId);
+    if (filter.overLimit) {
+      const outstanding = await outstandingByCustomer();
+      rows = rows.filter(
+        (customer) =>
+          customer.creditLimit.scaled > 0n && owedBy(customer, outstanding).scaled > customer.creditLimit.scaled,
+      );
+    }
+    if (filter.q) {
+      rows = rows.filter((customer) =>
+        matchesSearch(filter.q, customer.nameAr, customer.nameEn, customer.code, customer.phone, customer.email),
+      );
+    }
+    return rows;
+  }
+
+  /** An over-limit filter with no receivables source would silently pass every customer through. */
+  function receivablesMissing(c: Context, filter: CustomerListFilter): Response | null {
+    if (!filter.overLimit || receivables) return null;
+    return c.json(
+      { error: "RECEIVABLES_NOT_CONFIGURED", message: "تصفية العملاء المتجاوزين لحد الائتمان غير مُفعّلة على هذا الخادم." },
+      501,
     );
-    return c.json(matched.map(serialize));
+  }
+
+  app.get("/", gate("sales.customer.view"), async (c) => {
+    const filter = parseCustomerListQuery(c);
+    const unavailable = receivablesMissing(c, filter);
+    if (unavailable) return unavailable;
+    return c.json((await listFilteredCustomers(filter)).map(serialize));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   * Every other filter still applies.
+   */
+  app.get("/counts", gate("sales.customer.view"), async (c) => {
+    const filter = parseCustomerListQuery(c);
+    const unavailable = receivablesMissing(c, filter);
+    if (unavailable) return unavailable;
+    const { status: _ignored, ...withoutStatus } = filter;
+    const customers = await listFilteredCustomers(withoutStatus);
+    let active = 0;
+    for (const customer of customers) if (customer.active) active += 1;
+    return c.json({ all: customers.length, active, inactive: customers.length - active });
+  });
+
+  /**
+   * The KPI strip. Money is summed here, in `Money`, over the whole filtered
+   * set — the screen used to add JS numbers across the rows it happened to
+   * hold, which both drifted and ignored the filters the user had applied.
+   */
+  app.get("/stats", gate("sales.customer.view"), async (c) => {
+    const filter = parseCustomerListQuery(c);
+    const unavailable = receivablesMissing(c, filter);
+    if (unavailable) return unavailable;
+    const customers = await listFilteredCustomers(filter);
+    const outstanding = await outstandingByCustomer();
+    let active = 0;
+    let creditLimits = Money.zero();
+    let toCollect = Money.zero();
+    for (const customer of customers) {
+      if (customer.active) active += 1;
+      creditLimits = creditLimits.add(customer.creditLimit);
+      toCollect = toCollect.add(owedBy(customer, outstanding));
+    }
+    return c.json({
+      count: customers.length,
+      active,
+      creditLimits: creditLimits.toString(),
+      toCollect: receivables ? toCollect.toString() : null,
+    });
   });
 
   app.get("/:id", gate("sales.customer.view"), async (c) => {

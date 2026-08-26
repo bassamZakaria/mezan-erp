@@ -1,16 +1,15 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
-  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
 import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
@@ -58,6 +57,8 @@ const LINE_KIND_KEY = {
   employer_contribution: "payroll.lineKind.employer_contribution",
 } as const;
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 const UNIVERSAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
 const SITUATIONAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
 
@@ -90,6 +91,8 @@ export function PayrollRunsScreen() {
   const now = new Date();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | PayrollRunStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [year, setYear] = useState(now.getUTCFullYear());
@@ -118,6 +121,12 @@ export function PayrollRunsScreen() {
     }
     return rows;
   }, [runs, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -205,11 +214,6 @@ export function PayrollRunsScreen() {
           </Button>
         </Card>
       ) : null}
-      {detailError ? (
-        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {detailError}
-        </div>
-      ) : null}
 
       <DocumentList<PayrollRunDTO>
         title={t("payroll.payroll")}
@@ -229,62 +233,44 @@ export function PayrollRunsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PayrollRunStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | PayrollRunStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("payroll.searchByRunNumberOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => {
           setDetailError(null);
           setSelectedId(r.id);
         }}
-        rowAction={(r) => {
-          const openRow = () => {
-            setDetailError(null);
-            setSelectedId(r.id);
-          };
-          const items: RowMenuItem[] = [{ key: "view", label: t("common.view"), onSelect: openRow }];
-          if (r.status === "draft" || r.status === "calculated") {
-            items.push({
-              key: "calculate",
-              label: t("payroll.calculatePayroll"),
-              disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "calculate"),
-            });
-          }
-          if (r.status === "calculated") {
-            items.push({
-              key: "approve",
-              label: t("payroll.approveAndPostTheEntry"),
-              disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "approve"),
-            });
-          }
-          if (r.status === "draft" || r.status === "calculated") {
-            items.push({
-              key: "cancel",
-              label: t("payroll.cancelRun"),
-              tone: "danger",
-              disabled: pendingId === r.id,
-              onSelect: () => void runAction(r, "cancel"),
-            });
-          }
-          // Disbursing needs a treasury account and a branch the row cannot supply — the menu opens the panel that collects them.
-          if (r.status === "approved") {
-            items.push({ key: "disburse", label: t("payroll.payOut"), onSelect: openRow });
-          }
-          return <RowMenu items={items} label={t("common.rowActionsFor", { name: r.number })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{runs.length}</span> {t("payroll.runs")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{runs.length}</span> {t("payroll.runs")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("payroll.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("payroll.nothingToShow")}
+            description={t("payroll.emptyBody")}
+            action={{ label: t("payroll.newPayrollRun"), onClick: () => setFormOpen(true) }}
+          />
+        }
       />
 
       <SidePanel open={selectedId !== null} onClose={() => setSelectedId(null)} title={detail ? detail.number : ""}>

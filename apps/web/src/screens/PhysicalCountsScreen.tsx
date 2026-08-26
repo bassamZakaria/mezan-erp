@@ -1,30 +1,36 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   FulcrumRule,
-  RowMenu,
   StatusPill,
   TextInput,
   VarianceBeam,
   trimMoneyString,
   type DocumentListColumn,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
   useCancelPhysicalCount,
   useCompletePhysicalCount,
   useGenerateAdjustmentFromCount,
-  usePhysicalCounts,
   useRecordPhysicalCounts,
   useStartPhysicalCount,
   useStockBalance,
 } from "../data/inventory-ops-hooks";
-import { useItems, useWarehouses, ApiError } from "../data/hooks";
+import {
+  useItems,
+  useWarehouses,
+  usePhysicalCounts,
+  usePhysicalCountCounts,
+  usePhysicalCountStats,
+  ApiError,
+  type PhysicalCountFilter,
+} from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -66,6 +72,7 @@ function qtyDisplay(value: string | null, digits = 2): string {
 }
 
 const QTY_SCALE = 1_000_000n;
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** Exact decimal string → scaled bigint (1e-6), the wire scale. Null when unparseable. */
 function toScaled(value: string): bigint | null {
@@ -84,7 +91,6 @@ function fromScaled(value: bigint): string {
 
 export function PhysicalCountsScreen() {
   const { t } = useAppTranslation();
-  const query = usePhysicalCounts();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
 
@@ -93,11 +99,23 @@ export function PhysicalCountsScreen() {
   const [firstSegment, secondSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
-  const cancelCount = useCancelPhysicalCount();
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => query.data ?? [], [query.data]);
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
+   * and the totals used to be counted in the browser over every count the
+   * server had sent, so the KPI strip ignored the active status chip.
+   */
+  const filter = useMemo<PhysicalCountFilter>(
+    () => ({ status: statusFilter, search: search.trim() || undefined }),
+    [statusFilter, search],
+  );
+
+  const query = usePhysicalCounts(filter);
+  const counts = query.data ?? [];
+  const countsByStatus = usePhysicalCountCounts(filter).data ?? {};
+  const stats = usePhysicalCountStats(filter).data ?? {};
   const warehouses = warehousesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
 
@@ -110,21 +128,13 @@ export function PhysicalCountsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
 
-  const stats = useMemo(() => {
-    const c = { all: counts.length, IN_PROGRESS: 0, COMPLETED: 0, ADJUSTMENT_GENERATED: 0, CANCELLED: 0 };
-    for (const item of counts) c[item.status] += 1;
-    return c;
-  }, [counts]);
+  const filtered = counts;
 
-  const filtered = useMemo(() => {
-    let rows = counts;
-    if (statusFilter !== "all") rows = rows.filter((c) => c.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((c) => (c.countNo ?? "").toLowerCase().includes(q));
-    }
-    return rows;
-  }, [counts, statusFilter, search]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
@@ -153,19 +163,6 @@ export function PhysicalCountsScreen() {
 
   function openDetail(id: string) {
     subPage.open(id);
-  }
-
-  async function cancelRow(id: string): Promise<void> {
-    if (rowPendingId) return;
-    setRowError(null);
-    setRowPendingId(id);
-    try {
-      await cancelCount.mutateAsync(id);
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRowPendingId(null);
-    }
   }
 
   if (firstSegment === "new") {
@@ -203,11 +200,6 @@ export function PhysicalCountsScreen() {
 
   return (
     <div className="w-full">
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<PhysicalCountDTO>
         title={t("counts.physicalCounts")}
         description={t("counts.inProgressCompletedAdjustmentCreated")}
@@ -219,64 +211,59 @@ export function PhysicalCountsScreen() {
         listKey="physical-counts"
         statsCollapsible
         stats={[
-          { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.all}</span> },
-          { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS}</span> },
-          { label: t("counts.completed"), value: <span className="mz-num">{stats.COMPLETED}</span> },
-          { label: t("counts.adjustmentCreated"), value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED}</span> },
+          { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS ?? 0}</span> },
+          { label: t("counts.completed"), value: <span className="mz-num">{stats.COMPLETED ?? 0}</span> },
+          { label: t("counts.adjustmentCreated"), value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: stats.all },
-          { key: "IN_PROGRESS", label: t("counts.inProgress"), count: stats.IN_PROGRESS },
-          { key: "COMPLETED", label: t("counts.completed"), count: stats.COMPLETED },
-          { key: "ADJUSTMENT_GENERATED", label: t("counts.adjustmentCreated"), count: stats.ADJUSTMENT_GENERATED },
-          { key: "CANCELLED", label: t("docStatus.cancelled"), count: stats.CANCELLED },
+          { key: "all", label: t("common.all"), count: countsByStatus.all ?? 0 },
+          { key: "IN_PROGRESS", label: t("counts.inProgress"), count: countsByStatus.IN_PROGRESS ?? 0 },
+          { key: "COMPLETED", label: t("counts.completed"), count: countsByStatus.COMPLETED ?? 0 },
+          { key: "ADJUSTMENT_GENERATED", label: t("counts.adjustmentCreated"), count: countsByStatus.ADJUSTMENT_GENERATED ?? 0 },
+          { key: "CANCELLED", label: t("docStatus.cancelled"), count: countsByStatus.CANCELLED ?? 0 },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | PhysicalCountStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("counts.searchByCountNumber")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
         onRowClick={(c) => openDetail(c.id)}
-        rowAction={(c) => {
-          // Only a completed count can raise the adjustment, and only a live one can still be abandoned.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => openDetail(c.id) },
-            ...(c.status === "IN_PROGRESS"
-              ? [
-                  { key: "resume", label: t("counts.continueCount"), onSelect: () => subPage.open(c.id, "count") },
-                  {
-                    key: "cancel",
-                    label: t("common.cancel"),
-                    tone: "danger" as const,
-                    disabled: rowPendingId === c.id,
-                    onSelect: () => void cancelRow(c.id),
-                  },
-                ]
-              : []),
-            ...(c.status === "COMPLETED"
-              ? [{ key: "generate", label: t("counts.generateAdjustment"), onSelect: () => openDetail(c.id) }]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.countNo ?? c.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{stats.all}</span> {t("counts.counts")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("counts.counts")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading
-              ? t("common.loading")
-              : query.isError
-                ? (query.error?.message ?? t("counts.physicalCountsCouldNotBe"))
-                : t("counts.noCountsYetStartOne")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{query.error?.message ?? t("counts.physicalCountsCouldNotBe")}</div>
+          ) : (
+            <EmptyState
+              title={t("counts.noCountsYetStartOne")}
+              description={t("counts.emptyBody")}
+              action={{ label: t("counts.newCount"), onClick: () => subPage.open("new") }}
+            />
+          )
         }
       />
     </div>

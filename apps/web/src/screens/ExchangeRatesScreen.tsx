@@ -1,18 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
   Chip,
   DocumentList,
+  EmptyState,
   FulcrumRule,
-  RowMenu,
   Select,
   StatusPill,
   TextInput,
   formatNumber,
   type DocumentListColumn,
   type PillTone,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { foreignCurrencies } from "@mezan/domain";
@@ -29,6 +28,8 @@ const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning
  * revaluation, with the بانتظار الاعتماد → معتمد → مقفل approval lifecycle.
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ExchangeRatesScreen() {
   const { t, locale } = useAppTranslation();
   const query = useExchangeRates();
@@ -50,7 +51,8 @@ export function ExchangeRatesScreen() {
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const filtered = rates.filter((r) => {
     if (statusFilter !== "all" && r.status !== statusFilter) return false;
@@ -62,16 +64,19 @@ export function ExchangeRatesScreen() {
     return term === "" || r.currency.toUpperCase().includes(term);
   });
 
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
+
   async function approve(id: string) {
-    if (pendingId) return;
-    setPendingId(id);
-    setError(null);
     try {
       await approveExchangeRate.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot"));
-    } finally {
-      setPendingId(null);
     }
   }
 
@@ -101,6 +106,7 @@ export function ExchangeRatesScreen() {
     { key: "date", header: t("fxRates.effectiveFrom"), render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
     { key: "source", header: t("fxRates.source"), render: (r) => <span className="text-ink-muted">{r.source === "manual" ? t("fxRates.manual") : t("fxRates.automatic")}</span> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
+    { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>{t("fxRates.approve")}</Button></div> : null) },
   ];
 
   if (query.isError) {
@@ -155,35 +161,71 @@ export function ExchangeRatesScreen() {
       <DocumentList<ExchangeRateDTO>
         title=""
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("fxRates.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex w-full flex-col gap-[10px]">
             <div className="flex flex-wrap gap-[8px]">
               {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
-                <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</Chip>
+                <Chip
+                  key={value}
+                  active={statusFilter === value}
+                  onClick={() => {
+                    setStatusFilter(value);
+                    setPage(1);
+                  }}
+                >
+                  {label}
+                </Chip>
               ))}
             </div>
             <div className="grid w-full gap-2 sm:grid-cols-2">
-              <TextField label={t("fxRates.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-              <TextField label={t("fxRates.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+              <TextField
+                label={t("fxRates.filter.fromDate")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
+              <TextField
+                label={t("fxRates.filter.toDate")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
-        rowAction={(r) => {
-          const menuItems: RowMenuItem[] =
-            r.status === "pending"
-              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => void approve(r.id) }]
-              : [];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.currency })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("fxRates.rates")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fxRates.noExchangeRates")}</div>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("fxRates.rates")}</>}
+        emptyState={
+          <EmptyState
+            title={t("fxRates.noExchangeRates")}
+            description={t("fxRates.emptyBody")}
+            action={{ label: t("fxRates.addRate"), onClick: () => setAdding((v) => !v) }}
+          />
+        }
       />
     </div>
   );

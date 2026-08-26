@@ -333,15 +333,99 @@ export function createPurchasesRoutes(
 
   // --- Purchase Orders -----------------------------------------------------
 
-  app.get("/orders", gate("purchases.order.view"), async (c) => {
+  interface OrderListFilter {
+    readonly status?: string;
+    readonly supplierId?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly branchId?: string;
+    readonly warehouseId?: string;
+    readonly search?: string;
+  }
+
+  function parseOrderListQuery(c: Context): OrderListFilter {
+    const status = c.req.query("status");
+    return {
+      status: status && status !== "all" ? status : undefined,
+      supplierId: c.req.query("supplierId") || undefined,
+      fromDate: c.req.query("fromDate") || undefined,
+      toDate: c.req.query("toDate") || undefined,
+      branchId: c.req.query("branchId") || undefined,
+      warehouseId: c.req.query("warehouseId") || undefined,
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the order rows, the chip counts and the KPI strip all go
+   * through (R1.1). The screen narrowed by branch, warehouse, supplier, date
+   * and free text in the browser while its four tiles were computed over every
+   * order the server had sent, so applying a filter moved the rows and left the
+   * header alone.
+   *
+   * `branchId`/`warehouseId`/`supplierId`/`search` are presentation filters over
+   * an already-scoped set — the scopes below still decide what this user may see
+   * at all, and no query parameter widens them.
+   */
+  async function listFilteredOrders(c: Context, filter: OrderListFilter): Promise<readonly PurchaseOrder[]> {
     // Branch AND warehouse (R1.14): a purchase order receives into a
     // warehouse, so the header's warehouse selector has to narrow it.
-    const orders = withinScope(
+    let rows = withinScope(
       withinScope(await deps.orders.list(), branchScopeOf(c), (o) => o.branchId),
       warehouseScopeOf(c),
       (o) => o.warehouseId,
     );
-    return c.json(orders.map(serializeOrder));
+    if (filter.status) rows = rows.filter((o) => o.status === filter.status);
+    if (filter.supplierId) rows = rows.filter((o) => o.supplierId === filter.supplierId);
+    if (filter.fromDate) rows = rows.filter((o) => o.date >= filter.fromDate!);
+    if (filter.toDate) rows = rows.filter((o) => o.date <= filter.toDate!);
+    if (filter.branchId) rows = rows.filter((o) => o.branchId === filter.branchId);
+    if (filter.warehouseId) rows = rows.filter((o) => o.warehouseId === filter.warehouseId);
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter((o) => o.number.toLowerCase().includes(term) || o.supplierId.toLowerCase().includes(term));
+    }
+    return rows;
+  }
+
+  app.get("/orders", gate("purchases.order.view"), async (c) => {
+    return c.json((await listFilteredOrders(c, parseOrderListQuery(c))).map(serializeOrder));
+  });
+
+  /**
+   * The status chips. Deliberately ignores its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero. Every other filter applies.
+   */
+  app.get("/orders/counts", gate("purchases.order.view"), async (c) => {
+    const { status: _status, ...withoutStatus } = parseOrderListQuery(c);
+    const rows = await listFilteredOrders(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      sent: 0,
+      partially_received: 0,
+      fully_received: 0,
+      cancelled: 0,
+    };
+    for (const order of rows) counts[order.status] = (counts[order.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip, summed in `Money` over the whole filtered set (R1.1). */
+  app.get("/orders/stats", gate("purchases.order.view"), async (c) => {
+    const rows = await listFilteredOrders(c, parseOrderListQuery(c));
+    let sent = 0;
+    let received = 0;
+    let value = Money.zero();
+    for (const order of rows) {
+      if (order.status === "sent") sent += 1;
+      if (order.status === "fully_received") received += 1;
+      // A cancelled order commits nothing, so it must not inflate the value of
+      // the order book the strip reports.
+      if (order.status !== "cancelled") value = value.add(purchaseOrderSubtotal(order));
+    }
+    return c.json({ count: rows.length, sent, received, value: value.toString() });
   });
 
   app.get("/orders/:id", gate("purchases.order.view"), async (c) => {
@@ -405,11 +489,95 @@ export function createPurchasesRoutes(
 
   // --- Goods Receipts ------------------------------------------------------
 
+  interface ReceiptListFilter {
+    readonly status?: string;
+    readonly supplierId?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly warehouseId?: string;
+    readonly invoiced?: boolean;
+    readonly search?: string;
+  }
+
+  function parseReceiptListQuery(c: Context): ReceiptListFilter {
+    const status = c.req.query("status");
+    const invoiced = c.req.query("invoiced");
+    return {
+      status: status && status !== "all" ? status : undefined,
+      supplierId: c.req.query("supplierId") || undefined,
+      fromDate: c.req.query("fromDate") || undefined,
+      toDate: c.req.query("toDate") || undefined,
+      warehouseId: c.req.query("warehouseId") || undefined,
+      invoiced: invoiced === undefined || invoiced === "" ? undefined : invoiced === "true",
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the receipt rows, the chip counts and the KPI strip all
+   * go through (R1.1). A goods receipt carries no branch of its own — the
+   * warehouse is what it is attributable to, which is why the screen's branch
+   * selector must reach here as a `warehouseId`.
+   */
+  async function listFilteredReceipts(c: Context, filter: ReceiptListFilter): Promise<readonly GoodsReceipt[]> {
+    let rows = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
+    if (filter.status) rows = rows.filter((r) => r.status === filter.status);
+    if (filter.supplierId) rows = rows.filter((r) => r.supplierId === filter.supplierId);
+    if (filter.fromDate) rows = rows.filter((r) => r.date >= filter.fromDate!);
+    if (filter.toDate) rows = rows.filter((r) => r.date <= filter.toDate!);
+    if (filter.warehouseId) rows = rows.filter((r) => r.warehouseId === filter.warehouseId);
+    if (filter.invoiced !== undefined) rows = rows.filter((r) => r.invoiced === filter.invoiced);
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter((r) => r.number.toLowerCase().includes(term) || r.supplierId.toLowerCase().includes(term));
+    }
+    return rows;
+  }
+
   app.get("/receipts", gate("purchases.receipt.view"), async (c) => {
-    // A goods receipt carries no branch of its own — the warehouse is what it
-    // is attributable to.
-    const receipts = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
-    return c.json(receipts.map(serializeReceipt));
+    return c.json((await listFilteredReceipts(c, parseReceiptListQuery(c))).map(serializeReceipt));
+  });
+
+  /**
+   * The status chips. Deliberately ignores its own `status` axis — and the
+   * invoiced/not-invoiced axis beside it — because a chip states how many rows
+   * it WOULD show; counting the already-filtered set renders every chip but the
+   * active one as zero. Every other filter still applies.
+   */
+  app.get("/receipts/counts", gate("purchases.receipt.view"), async (c) => {
+    const { status: _status, invoiced: _invoiced, ...withoutStatus } = parseReceiptListQuery(c);
+    const rows = await listFilteredReceipts(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      confirmed: 0,
+      cancelled: 0,
+      invoiced: 0,
+      uninvoiced: 0,
+    };
+    for (const receipt of rows) {
+      counts[receipt.status] = (counts[receipt.status] ?? 0) + 1;
+      if (receipt.invoiced) counts.invoiced! += 1;
+      else counts.uninvoiced! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /** The KPI strip, summed in `Money` over the whole filtered set (R1.1). */
+  app.get("/receipts/stats", gate("purchases.receipt.view"), async (c) => {
+    const rows = await listFilteredReceipts(c, parseReceiptListQuery(c));
+    let confirmed = 0;
+    let uninvoiced = 0;
+    let value = Money.zero();
+    for (const receipt of rows) {
+      if (!receipt.invoiced) uninvoiced += 1;
+      // Only a confirmed receipt has taken stock in, so a draft's or a
+      // cancelled receipt's cost is not value received.
+      if (receipt.status !== "confirmed") continue;
+      confirmed += 1;
+      value = value.add(goodsReceiptTotalCost(receipt));
+    }
+    return c.json({ count: rows.length, confirmed, uninvoiced, value: value.toString() });
   });
 
   app.get("/receipts/:id", gate("purchases.receipt.view"), async (c) => {

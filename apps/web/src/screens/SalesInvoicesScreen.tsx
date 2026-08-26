@@ -4,6 +4,7 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   IconButton,
   Money as MoneyDisplay,
@@ -1649,6 +1650,14 @@ export function SalesInvoicesScreen() {
 
   const filtered = invoices;
 
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) +
+    (branchFilter ? 1 : 0) +
+    (warehouseFilter ? 1 : 0) +
+    (customerFilter ? 1 : 0) +
+    (fromDate ? 1 : 0) +
+    (toDate ? 1 : 0);
+
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -1805,6 +1814,8 @@ export function SalesInvoicesScreen() {
               setPage(1);
             }}
             searchPlaceholder={t("salesInvoices.searchPlaceholder")}
+            filterBarCollapsible
+            activeFilterCount={activeFilterCount}
             filterBarExtra={
               <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 <SelectField
@@ -1915,7 +1926,13 @@ export function SalesInvoicesScreen() {
               setPageSize(size);
               setPage(1);
             }}
-            emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesInvoices.empty")}</div>}
+            emptyState={
+              <EmptyState
+                title={t("salesInvoices.empty")}
+                description={t("salesInvoices.emptyBody")}
+                action={{ label: t("salesInvoices.new"), onClick: () => subPage.open("new") }}
+              />
+            }
           />
         </div>
       )}

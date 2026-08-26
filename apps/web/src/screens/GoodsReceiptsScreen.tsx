@@ -18,17 +18,18 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { GoodsReceiptDTO, GoodsReceiptStatusDTO } from "@mezan/contracts";
-import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceipts, useItems, usePurchaseOrders, useSettings, useSuppliers,
+import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceiptCounts, useGoodsReceipts, useGoodsReceiptStats, useItems, usePurchaseOrders, useSettings, useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
+  type GoodsReceiptListFilter,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { sumMajor } from "../lib/money";
+import { majorOf } from "../lib/money";
 import { todayIso } from "../lib/dates";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
@@ -157,14 +158,12 @@ function ReceiptDetail({
 
 export function GoodsReceiptsScreen() {
   const { t } = useAppTranslation();
-  const query = useGoodsReceipts();
   const ordersQuery = usePurchaseOrders();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
   const createReceipt = useCreateGoodsReceipt();
   const confirmReceipt = useConfirmGoodsReceipt();
 
-  const receipts = query.data ?? [];
   const orders = ordersQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
   const items = itemsQuery.data ?? [];
@@ -198,6 +197,9 @@ export function GoodsReceiptsScreen() {
   const [toDate, setToDate] = useState("");
   const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
 
+  /** A receipt has no branch of its own — the branch picker only narrows which warehouses are offered below it. */
+  const branchWarehouses = branchFilter ? filterWarehouses.filter((w) => w.branchId === branchFilter) : filterWarehouses;
+
   const [statusFilter, setStatusFilter] = useState<GoodsReceiptStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
   const { navigate } = useNavigation();
@@ -211,6 +213,27 @@ export function GoodsReceiptsScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
+
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the receipt
+   * has no branchId of its own, so only `warehouseId` reaches the server; the
+   * status/supplier/date narrowing used to happen in the browser while the
+   * header stats summed every receipt the server had sent.
+   */
+  const filter = useMemo<GoodsReceiptListFilter>(
+    () => ({
+      status: statusFilter,
+      warehouseId: warehouseFilter || undefined,
+      supplierId: supplierFilter || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, warehouseFilter, supplierFilter, fromDate, toDate, search],
+  );
+  const query = useGoodsReceipts(filter);
+  const counts = useGoodsReceiptCounts(filter).data ?? {};
+  const stats = useGoodsReceiptStats(filter).data ?? {};
 
   /**
    * إلزام أمر الشراء قبل الاستلام (R4.6). The gate is the server's — the domain
@@ -232,6 +255,7 @@ export function GoodsReceiptsScreen() {
   const supplierOptions: EntityPickerOption[] = suppliers.map((sup) => ({ id: sup.id, label: sup.nameAr, sublabel: sup.code }));
   const itemOptions: EntityPickerOption[] = items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr }));
 
+  const receipts = query.data ?? [];
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
 
   // create-from-PO preview only — the server auto-fills the real lines from the PO's outstanding qty on save.
@@ -243,23 +267,7 @@ export function GoodsReceiptsScreen() {
       .filter((l) => l.qty > 0);
   }, [pickedOrder, orders]);
 
-  const filtered = useMemo(() => {
-    let rows = receipts;
-    if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
-    if (branchFilter) {
-      const inBranch = new Set(filterWarehouses.filter((w) => w.branchId === branchFilter).map((w) => w.id));
-      rows = rows.filter((r) => inBranch.has(r.warehouseId));
-    }
-    if (warehouseFilter) rows = rows.filter((r) => r.warehouseId === warehouseFilter);
-    if (supplierFilter) rows = rows.filter((r) => r.supplierId === supplierFilter);
-    if (fromDate) rows = rows.filter((r) => r.date >= fromDate);
-    if (toDate) rows = rows.filter((r) => r.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((r) => r.number.toLowerCase().includes(q) || supplierName(r.supplierId).includes(search.trim()));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [receipts, statusFilter, search, supplierName, filterWarehouses, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
+  const filtered = useMemo(() => [...receipts].sort((a, b) => b.number.localeCompare(a.number)), [receipts]);
 
   const activeFilterCount = [branchFilter, warehouseFilter, supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -267,11 +275,11 @@ export function GoodsReceiptsScreen() {
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: receipts.length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
     ...(Object.keys(STATUS_KEY) as GoodsReceiptStatusDTO[]).map((s) => ({
       key: s,
       label: t(STATUS_KEY[s]),
-      count: receipts.filter((r) => r.status === s).length,
+      count: counts[s] ?? 0,
     })),
   ];
 
@@ -530,10 +538,10 @@ export function GoodsReceiptsScreen() {
           </Button>
         }
         stats={[
-          { label: t("goodsReceipts.stat.total"), value: <span className="mz-num">{receipts.length}</span> },
-          { label: t("goodsReceipts.stat.confirmed"), value: <span className="mz-num">{receipts.filter((r) => r.status === "confirmed").length}</span> },
-          { label: t("goodsReceipts.stat.value"), value: <MoneyValue value={sumMajor(receipts.map((r) => r.totalCost))} showUnit={false} /> },
-          { label: t("goodsReceipts.stat.uninvoiced"), value: <span className="mz-num">{receipts.filter((r) => !r.invoiced).length}</span> },
+          { label: t("goodsReceipts.stat.total"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("goodsReceipts.stat.confirmed"), value: <span className="mz-num">{Number(stats.confirmed ?? 0)}</span> },
+          { label: t("goodsReceipts.stat.value"), value: <MoneyValue value={majorOf(String(stats.value ?? "0"))} showUnit={false} /> },
+          { label: t("goodsReceipts.stat.uninvoiced"), value: <span className="mz-num">{Number(stats.uninvoiced ?? 0)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -546,14 +554,17 @@ export function GoodsReceiptsScreen() {
             <SelectField
               label={t("common.branch")}
               value={branchFilter}
-              onChange={setBranchFilter}
+              onChange={(v) => {
+                setBranchFilter(v);
+                setWarehouseFilter("");
+              }}
               options={[{ value: "", label: t("common.allBranches") }, ...filterBranches.map((b) => ({ value: b.id, label: b.name }))]}
             />
             <SelectField
               label={t("common.warehouse")}
               value={warehouseFilter}
               onChange={setWarehouseFilter}
-              options={[{ value: "", label: t("common.allWarehouses") }, ...filterWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
+              options={[{ value: "", label: t("common.allWarehouses") }, ...branchWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
             />
             <SelectField
               label={t("common.supplier")}

@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   Money as MoneyValue,
-  RowMenu,
   StatusPill,
   SidePanel,
   EntityPicker,
@@ -12,7 +12,6 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
-  type RowMenuItem,
 } from "@mezan/ui";
 import type { ItemDTO, PurchaseRfqDTO, PurchaseRfqStatusDTO, RfqQuoteDTO, SupplierDTO } from "@mezan/contracts";
 import {
@@ -23,11 +22,14 @@ import {
   useCreateRfqQuote,
   useItems,
   useRfqComparison,
+  useRfqCounts,
   useRfqQuotes,
   useRfqs,
+  useRfqStats,
   useSendRfq,
   useSuppliers,
   type RfqComparisonRecord,
+  type RfqListFilter,
   useUsers,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -61,6 +63,8 @@ const STATUS_TONE: Record<PurchaseRfqStatusDTO, PillTone> = {
   closed: "success",
   cancelled: "danger",
 };
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface DraftLine {
   itemId: string;
@@ -378,8 +382,6 @@ function RfqDetail({
 export function RfqsScreen() {
   const { t } = useAppTranslation();
   const workingLocation = useWorkingLocation();
-  const rfqsQuery = useRfqs();
-  const rfqs = rfqsQuery.data ?? [];
   const suppliersQuery = useSuppliers();
   const suppliers = suppliersQuery.data ?? [];
   const itemsQuery = useItems();
@@ -394,22 +396,10 @@ export function RfqsScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
-  const [rowError, setRowError] = useState<string | null>(null);
-
-  async function runRowAction(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<void> {
-    if (rowPendingId) return;
-    setRowError(null);
-    setRowPendingId(id);
-    try {
-      await transition.mutateAsync(id);
-    } catch (err) {
-      setRowError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setRowPendingId(null);
-    }
-  }
-
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -425,6 +415,24 @@ export function RfqsScreen() {
     [items],
   );
 
+  /**
+   * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip
+   * used to count every RFQ regardless of the active status chip.
+   */
+  const filter = useMemo<RfqListFilter>(
+    () => ({
+      status: statusFilter,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, fromDate, toDate, search],
+  );
+  const rfqsQuery = useRfqs(filter);
+  const rfqs = rfqsQuery.data ?? [];
+  const counts = useRfqCounts(filter).data ?? {};
+  const stats = useRfqStats(filter).data ?? {};
+
   const selected = selectedId === null ? null : (rfqs.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
   const quotesQuery = useRfqQuotes(selectedId);
   const selectedQuotes = quotesQuery.data ?? [];
@@ -432,33 +440,24 @@ export function RfqsScreen() {
 
   const users = useUsers().data ?? [];
   const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
 
-  const filtered = useMemo(() => {
-    let rows = rfqs;
-    if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
-    if (fromDate) rows = rows.filter((r) => r.date >= fromDate);
-    if (toDate) rows = rows.filter((r) => r.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((r) => r.number.toLowerCase().includes(q));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [rfqs, statusFilter, search, fromDate, toDate]);
+  // Sorting stays client-side over the server-filtered set.
+  const filtered = useMemo(() => [...rfqs].sort((a, b) => b.number.localeCompare(a.number)), [rfqs]);
 
-  const counts = useMemo(() => {
-    const c: Record<"all" | PurchaseRfqStatusDTO, number> = { all: rfqs.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
-    for (const r of rfqs) c[r.status] += 1;
-    return c;
-  }, [rfqs]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "draft", label: t(STATUS_KEY.draft), count: counts.draft },
-    { key: "sent", label: t(STATUS_KEY.sent), count: counts.sent },
-    { key: "closed", label: t(STATUS_KEY.closed), count: counts.closed },
-    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "draft", label: t(STATUS_KEY.draft), count: counts.draft ?? 0 },
+    { key: "sent", label: t(STATUS_KEY.sent), count: counts.sent ?? 0 },
+    { key: "closed", label: t(STATUS_KEY.closed), count: counts.closed ?? 0 },
+    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<PurchaseRfqDTO>[] = [
@@ -585,11 +584,6 @@ export function RfqsScreen() {
 
   return (
     <>
-      {rowError ? (
-        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-          {rowError}
-        </div>
-      ) : null}
       <DocumentList<PurchaseRfqDTO>
         title={t("rfqs.title")}
         description={t("rfqs.description")}
@@ -601,61 +595,71 @@ export function RfqsScreen() {
         listKey="rfqs"
         statsCollapsible
         stats={[
-          { label: t("rfqs.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("rfqs.stat.sent"), value: <span className="mz-num">{counts.sent}</span> },
-          { label: t("rfqs.stat.closed"), value: <span className="mz-num">{counts.closed}</span> },
-          { label: t("rfqs.stat.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("rfqs.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("rfqs.stat.sent"), value: <span className="mz-num">{stats.sent ?? 0}</span> },
+          { label: t("rfqs.stat.closed"), value: <span className="mz-num">{stats.closed ?? 0}</span> },
+          { label: t("rfqs.stat.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as PurchaseRfqStatusDTO | "all")}
+        onStatusChange={(key) => {
+          setStatusFilter(key as PurchaseRfqStatusDTO | "all");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("rfqs.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2">
-            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+            <TextField
+              label={t("common.fromDate")}
+              value={fromDate}
+              onChange={(v) => {
+                setFromDate(v);
+                setPage(1);
+              }}
+              type="date"
+            />
+            <TextField
+              label={t("common.toDate")}
+              value={toDate}
+              onChange={(v) => {
+                setToDate(v);
+                setPage(1);
+              }}
+              type="date"
+            />
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => subPage.open(r.number ?? r.id)}
-        rowAction={(r) => {
-          // Converting picks a winning supplier quote, so it opens the comparison rather than firing from the row.
-          const menuItems: RowMenuItem[] = [
-            { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
-            ...(r.status === "draft"
-              ? [{ key: "send", label: t("rfqs.send"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, sendRfq) }]
-              : []),
-            ...(r.status === "sent"
-              ? [
-                  { key: "convert", label: t("rfqs.convertToOrder"), onSelect: () => subPage.open(r.number ?? r.id) },
-                  { key: "close", label: t("rfqs.closeWithout"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, closeRfq) },
-                ]
-              : []),
-            ...(r.status === "draft" || r.status === "sent"
-              ? [
-                  {
-                    key: "cancel",
-                    label: t("rfqs.cancel"),
-                    tone: "danger" as const,
-                    disabled: rowPendingId === r.id,
-                    onSelect: () => void runRowAction(r.id, cancelRfq),
-                  },
-                ]
-              : []),
-          ];
-          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.number ?? r.id })} />;
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
         }}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("rfqs.showingSuffix")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {rfqsQuery.isLoading ? t("common.loading") : t("rfqs.empty")}
-          </div>
+          rfqsQuery.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("rfqs.empty")}
+              description={t("rfqs.emptyBody")}
+              action={{ label: t("rfqs.new"), onClick: openCreate }}
+            />
+          )
         }
       />
     </>

@@ -13,6 +13,8 @@ import {
   type VanTripStatus,
   type VanTripStockCountLine,
   type VanTripStockLine,
+  type Van,
+  type VanRepository,
 } from "@mezan/domain";
 
 /**
@@ -47,13 +49,33 @@ CREATE TABLE IF NOT EXISTS van_trip (
   settlement                 TEXT,
   notes                      TEXT
 );
+CREATE TABLE IF NOT EXISTS van (
+  id                    TEXT PRIMARY KEY,
+  code                  TEXT NOT NULL UNIQUE,
+  name_ar               TEXT NOT NULL,
+  name_en               TEXT,
+  plate_number          TEXT,
+  branch_id             TEXT NOT NULL,
+  warehouse_id          TEXT NOT NULL,
+  treasury_account_id   TEXT NOT NULL,
+  active                INTEGER NOT NULL
+);
 `;
+
+/** `van_id` arrived with the van registry (R3.13) — a trip opened before it keeps null. */
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(van_trip)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  if (!existing.has("van_id")) sqlite.exec(`ALTER TABLE van_trip ADD COLUMN van_id TEXT`);
+}
 
 interface VanTripRow {
   id: string;
   trip_no: string | null;
   date: string;
   branch_id: string;
+  van_id: string | null;
   van_warehouse_id: string;
   van_treasury_account_id: string;
   source_warehouse_id: string;
@@ -182,6 +204,7 @@ function toDomain(row: VanTripRow): VanTrip {
     tripNo: row.trip_no,
     date: row.date,
     branchId: row.branch_id,
+    vanId: row.van_id ?? null,
     vanWarehouseId: row.van_warehouse_id,
     vanTreasuryAccountId: row.van_treasury_account_id,
     sourceWarehouseId: row.source_warehouse_id,
@@ -206,12 +229,12 @@ class SqliteVanTripRepository implements VanTripRepository {
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
       INSERT INTO van_trip (
-        id, trip_no, date, branch_id, van_warehouse_id, van_treasury_account_id,
+        id, trip_no, date, branch_id, van_id, van_warehouse_id, van_treasury_account_id,
         source_warehouse_id, source_treasury_account_id, opening_cash_float,
         crew, loaded_stock, cash_movements, status, opened_at, settled_at, settlement, notes
       )
       VALUES (
-        @id, @trip_no, @date, @branch_id, @van_warehouse_id, @van_treasury_account_id,
+        @id, @trip_no, @date, @branch_id, @van_id, @van_warehouse_id, @van_treasury_account_id,
         @source_warehouse_id, @source_treasury_account_id, @opening_cash_float,
         @crew, @loaded_stock, @cash_movements, @status, @opened_at, @settled_at, @settlement, @notes
       )
@@ -219,6 +242,7 @@ class SqliteVanTripRepository implements VanTripRepository {
         trip_no = excluded.trip_no,
         date = excluded.date,
         branch_id = excluded.branch_id,
+        van_id = excluded.van_id,
         van_warehouse_id = excluded.van_warehouse_id,
         van_treasury_account_id = excluded.van_treasury_account_id,
         source_warehouse_id = excluded.source_warehouse_id,
@@ -260,6 +284,7 @@ class SqliteVanTripRepository implements VanTripRepository {
       trip_no: trip.tripNo,
       date: trip.date,
       branch_id: trip.branchId,
+      van_id: trip.vanId,
       van_warehouse_id: trip.vanWarehouseId,
       van_treasury_account_id: trip.vanTreasuryAccountId,
       source_warehouse_id: trip.sourceWarehouseId,
@@ -277,7 +302,82 @@ class SqliteVanTripRepository implements VanTripRepository {
   }
 }
 
+interface VanRow {
+  id: string;
+  code: string;
+  name_ar: string;
+  name_en: string | null;
+  plate_number: string | null;
+  branch_id: string;
+  warehouse_id: string;
+  treasury_account_id: string;
+  active: number;
+}
+
+function vanToDomain(row: VanRow): Van {
+  return {
+    id: row.id,
+    code: row.code,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
+    plateNumber: row.plate_number,
+    branchId: row.branch_id,
+    warehouseId: row.warehouse_id,
+    treasuryAccountId: row.treasury_account_id,
+    active: row.active === 1,
+  };
+}
+
+class SqliteVanRepository implements VanRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectById: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO van (id, code, name_ar, name_en, plate_number, branch_id, warehouse_id, treasury_account_id, active)
+      VALUES (@id, @code, @name_ar, @name_en, @plate_number, @branch_id, @warehouse_id, @treasury_account_id, @active)
+      ON CONFLICT(id) DO UPDATE SET
+        code = excluded.code,
+        name_ar = excluded.name_ar,
+        name_en = excluded.name_en,
+        plate_number = excluded.plate_number,
+        branch_id = excluded.branch_id,
+        warehouse_id = excluded.warehouse_id,
+        treasury_account_id = excluded.treasury_account_id,
+        active = excluded.active
+    `);
+    this.selectById = sqlite.prepare(`SELECT * FROM van WHERE id = ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM van ORDER BY code`);
+  }
+
+  async findById(id: string): Promise<Van | null> {
+    const row = this.selectById.get(id) as VanRow | undefined;
+    return row ? vanToDomain(row) : null;
+  }
+
+  async list(): Promise<readonly Van[]> {
+    return (this.selectAll.all() as VanRow[]).map(vanToDomain);
+  }
+
+  async save(van: Van): Promise<void> {
+    this.upsert.run({
+      id: van.id,
+      code: van.code,
+      name_ar: van.nameAr,
+      name_en: van.nameEn,
+      plate_number: van.plateNumber,
+      branch_id: van.branchId,
+      warehouse_id: van.warehouseId,
+      treasury_account_id: van.treasuryAccountId,
+      active: van.active ? 1 : 0,
+    });
+  }
+}
+
 export interface SqliteVanTripRepositoryHandle extends VanTripRepository {
+  /** The van registry lives in the same database file as the trips that reference it. */
+  readonly vans: VanRepository;
   close(): void;
 }
 
@@ -285,6 +385,10 @@ export interface SqliteVanTripRepositoryHandle extends VanTripRepository {
 export function createSqliteVanTripRepository(path: SqliteConnectionInput = ":memory:"): SqliteVanTripRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addMissingColumns(sqlite);
   const repo = new SqliteVanTripRepository(sqlite);
-  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteVanTripRepositoryHandle;
+  return Object.assign(repo, {
+    vans: new SqliteVanRepository(sqlite),
+    close: () => { if (owned) sqlite.close(); },
+  }) as SqliteVanTripRepositoryHandle;
 }

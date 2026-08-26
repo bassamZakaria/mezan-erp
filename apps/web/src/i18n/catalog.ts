@@ -6723,6 +6723,15 @@ const webAr = {
   "salesReturns.refund.postedHeading": "سندات الاسترداد",
   "salesReturns.refund.voucher": "السند",
   "api.theRefundCouldNotBe": "تعذّر تنفيذ الاسترداد.",
+
+  // R3.13 — رحلات المندوبين: سجل المركبات والتسلسل
+  "api.vansCouldNotBeLoaded": "تعذّر تحميل المركبات.",
+  "vanTrips.vanCascadeHint": "اختيار المركبة يحدّد مستودعها وخزينتها وفرعها — فلا يمكن خلط مخزون مركبة بخزينة أخرى.",
+  "vanTrips.vanWarehouse": "مستودع المركبة",
+  "vanTrips.chooseAnEmployee2": "اختر موظفاً",
+  "vanTrips.emptyBody": "الرحلة تنقل بضاعة ونقدية من المستودع الرئيسي إلى المركبة، وتُسوّى عند عودتها بجرد النقدية والمخزون.",
+  "vanTrips.row.view": "عرض الرحلة",
+  "vanTrips.row.actionsFor": "إجراءات {trip}",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -13451,6 +13460,15 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesReturns.refund.postedHeading": "Refund vouchers",
   "salesReturns.refund.voucher": "Voucher",
   "api.theRefundCouldNotBe": "The refund could not be made.",
+
+  // R3.13 — van trips: the van registry and its cascade
+  "api.vansCouldNotBeLoaded": "Vans could not be loaded.",
+  "vanTrips.vanCascadeHint": "Choosing the van sets its warehouse, its till and its branch — one van's stock can never be paired with another's cash.",
+  "vanTrips.vanWarehouse": "Van warehouse",
+  "vanTrips.chooseAnEmployee2": "Choose an employee",
+  "vanTrips.emptyBody": "A trip moves goods and cash from the main warehouse onto a van, and is settled on its return by counting both.",
+  "vanTrips.row.view": "Open trip",
+  "vanTrips.row.actionsFor": "Actions for {trip}",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -162,7 +162,7 @@ import { createCrmRoutes, type CrmRoutesDeps } from "./crm-routes.js";
 import { createHrRoutes, type HrRoutesDeps } from "./hr-routes.js";
 import { createProjectsRoutes, type ProjectsRoutesDeps } from "./projects-routes.js";
 import { createFixedAssetsRoutes, type FixedAssetsRoutesDeps } from "./fixed-assets-routes.js";
-import { createFieldSalesRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
+import { createFieldSalesRoutes, createVansRoutes, type FieldSalesRoutesDeps } from "./field-sales-routes.js";
 import {
   createStockAdjustmentsRoutes,
   createStockTransfersRoutes,
@@ -860,6 +860,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   }
   if (options.fieldSales) {
     app.route("/field/van-trips", createFieldSalesRoutes(options.fieldSales, options.resolveAuthContext));
+    // Mounted from the SAME deps, so a composition that supplies a registry
+    // gets both the list the trip form picks from and the cascade the trip
+    // route enforces — never one without the other.
+    if (options.fieldSales.vans) {
+      app.route("/field/vans", createVansRoutes(options.fieldSales.vans, options.resolveAuthContext));
+    }
   }
   if (options.salesInvoices) {
     const salesInvoices = options.salesInvoices;

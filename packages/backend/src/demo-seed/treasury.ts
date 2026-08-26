@@ -425,13 +425,24 @@ async function seedCollectionFollowUps(app: App): Promise<void> {
  * off the response instead of assuming the id it sent.
  */
 async function seedFieldSales(app: App): Promise<void> {
+  // The van registry (R3.13): the vehicle owns its warehouse and its till, so
+  // a trip names the van and the server derives both.
+  await step(app, "POST", "/field/vans", {
+    id: "VAN-DEMO-1",
+    code: "VAN-01",
+    nameAr: "مركبة التوزيع الأولى",
+    nameEn: "Distribution van 1",
+    plateNumber: "أ ب ج ١٢٣٤",
+    branchId: BRANCH_ID,
+    warehouseId: VAN_WAREHOUSE_ID,
+    treasuryAccountId: VAN_TREASURY_ID,
+  });
+
   const tripA = (await step(app, "POST", "/field/van-trips", {
     id: "seed-van-trip-a",
     tripNo: "TRIP-DEMO-1",
     date: "2026-08-12",
-    branchId: BRANCH_ID,
-    vanWarehouseId: VAN_WAREHOUSE_ID,
-    vanTreasuryAccountId: VAN_TREASURY_ID,
+    vanId: "VAN-DEMO-1",
     sourceWarehouseId: WAREHOUSE_ID,
     sourceTreasuryAccountId: CASH_TREASURY_ID,
     openingCashFloat: "1000.00",
@@ -466,9 +477,7 @@ async function seedFieldSales(app: App): Promise<void> {
     id: "seed-van-trip-b",
     tripNo: "TRIP-DEMO-2",
     date: today(),
-    branchId: BRANCH_ID,
-    vanWarehouseId: VAN_WAREHOUSE_ID,
-    vanTreasuryAccountId: VAN_TREASURY_ID,
+    vanId: "VAN-DEMO-1",
     sourceWarehouseId: WAREHOUSE_ID,
     sourceTreasuryAccountId: CASH_TREASURY_ID,
     openingCashFloat: "1500.00",

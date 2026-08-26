@@ -8,6 +8,7 @@ export interface OpenVanTripCommand {
   readonly tripNo?: string | null;
   readonly date: string;
   readonly branchId: string;
+  readonly vanId?: string | null;
   readonly vanWarehouseId: string;
   readonly vanTreasuryAccountId: string;
   readonly sourceWarehouseId: string;
@@ -29,6 +30,12 @@ export interface TreasuryTransferInput {
 
 export interface OpenVanTripDeps {
   readonly trips: VanTripRepository;
+  /**
+   * Confirms every crew member is a real employee. The form used to take a
+   * typed employee id, so a trip could name a driver who does not work here —
+   * the field-binding defect this closes (R3.13).
+   */
+  readonly employeeExists?: (employeeId: string) => Promise<boolean>;
   /** Reuses the REAL costing/stock-ledger engine: loading stock onto the van is a valuation-neutral warehouse transfer. */
   readonly stock: Pick<import("../inventory/stock-ledger-service.js").StockLedgerService, "postTransfer">;
   /**
@@ -45,6 +52,13 @@ export interface OpenVanTripDeps {
 export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps): Promise<VanTrip> {
   const reasons: string[] = [];
   if (cmd.crew.length === 0) reasons.push("يجب إضافة عضو واحد على الأقل للطاقم");
+  if (deps.employeeExists) {
+    for (const member of cmd.crew) {
+      if (!(await deps.employeeExists(member.employeeId))) {
+        reasons.push(`عضو الطاقم "${member.employeeId}" ليس موظفاً مسجلاً`);
+      }
+    }
+  }
   if (reasons.length > 0) throw new InvalidVanTripError(reasons);
 
   if (cmd.sourceWarehouseId === cmd.vanWarehouseId) {
@@ -78,6 +92,7 @@ export async function openVanTrip(cmd: OpenVanTripCommand, deps: OpenVanTripDeps
     tripNo: cmd.tripNo ?? null,
     date: cmd.date,
     branchId: cmd.branchId,
+    vanId: cmd.vanId ?? null,
     vanWarehouseId: cmd.vanWarehouseId,
     vanTreasuryAccountId: cmd.vanTreasuryAccountId,
     sourceWarehouseId: cmd.sourceWarehouseId,

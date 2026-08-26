@@ -50,11 +50,37 @@ export const vanTripSettlementSchema = z.object({
   settledAt: z.string().min(1),
 });
 
+/** المركبات — the van registry (R3.13): a vehicle owns its warehouse and its till. */
+export const vanSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
+  plateNumber: z.string().nullable(),
+  branchId: z.string().min(1),
+  warehouseId: z.string().min(1),
+  treasuryAccountId: z.string().min(1),
+  active: z.boolean(),
+});
+
+export const createVanSchema = z.object({
+  id: z.string().min(1).optional(),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullish(),
+  plateNumber: z.string().nullish(),
+  branchId: z.string().min(1),
+  warehouseId: z.string().min(1),
+  treasuryAccountId: z.string().min(1),
+  active: z.boolean().optional(),
+});
+
 export const vanTripSchema = z.object({
   id: z.string().min(1),
   tripNo: z.string().nullable(),
   date: z.string().min(1),
   branchId: z.string().min(1),
+  vanId: z.string().nullable(),
   vanWarehouseId: z.string().min(1),
   vanTreasuryAccountId: z.string().min(1),
   sourceWarehouseId: z.string().min(1),
@@ -74,9 +100,15 @@ export const openVanTripSchema = z.object({
   id: z.string().min(1),
   tripNo: z.string().nullable().optional(),
   date: z.string().min(1),
-  branchId: z.string().min(1),
-  vanWarehouseId: z.string().min(1),
-  vanTreasuryAccountId: z.string().min(1),
+  branchId: z.string().min(1).optional(),
+  /**
+   * Naming the van is enough: the server fills the warehouse and the till in
+   * from the registry, and REFUSES a body that names both a van and a
+   * different warehouse or till (R3.13).
+   */
+  vanId: z.string().min(1).optional(),
+  vanWarehouseId: z.string().min(1).optional(),
+  vanTreasuryAccountId: z.string().min(1).optional(),
   sourceWarehouseId: z.string().min(1),
   sourceTreasuryAccountId: z.string().min(1),
   openingCashFloat: decimalString.optional(),
@@ -103,6 +135,8 @@ export const settleVanTripSchema = z.object({
   ),
 });
 
+export type VanDTO = z.infer<typeof vanSchema>;
+export type CreateVanDTO = z.infer<typeof createVanSchema>;
 export type VanTripStatusDTO = z.infer<typeof vanTripStatusSchema>;
 export type VanTripCrewRoleDTO = z.infer<typeof vanTripCrewRoleSchema>;
 export type VanTripCashMovementKindDTO = z.infer<typeof vanTripCashMovementKindSchema>;

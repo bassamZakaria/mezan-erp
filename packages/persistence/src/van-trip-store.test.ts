@@ -8,6 +8,7 @@ function ongoingTrip(overrides: Partial<VanTrip> = {}): VanTrip {
     tripNo: "VT-000001",
     date: "2026-08-21",
     branchId: "MAIN",
+    vanId: null,
     vanWarehouseId: "VAN-WH",
     vanTreasuryAccountId: "VAN-TREAS",
     sourceWarehouseId: "MAIN-WH",

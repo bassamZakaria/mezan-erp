@@ -15,6 +15,7 @@ import {
   type DocumentStatusStep,
   type PillTone,
   type EntityPickerOption,
+  RowMenu,
 } from "@mezan/ui";
 import {
   Money,
@@ -28,7 +29,14 @@ import {
   type VoucherPaymentMethod,
   type VoucherType,
 } from "@mezan/domain";
-import type { AccountDTO, CustomerDTO, SupplierDTO, TreasuryAccountDTO, VoucherStatusDTO } from "@mezan/contracts";
+import type {
+  AccountDTO,
+  CustomerDTO,
+  SupplierDTO,
+  TreasuryAccountDTO,
+  VoucherListQueryDTO,
+  VoucherStatusDTO,
+} from "@mezan/contracts";
 import {
   useAccounts,
   useBranches,
@@ -43,6 +51,8 @@ import {
   useTreasuryAccounts,
   useVoucherDetail,
   useVouchers,
+  useVoucherCounts,
+  useCancelVoucher,
   type VoucherDetailDTO,
   type VoucherRowDTO,
 } from "../data/hooks";
@@ -51,6 +61,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
+import { useDebounced } from "../lib/use-debounced";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -144,7 +155,6 @@ function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo
 export function TreasuryVouchersScreen() {
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
-  const query = useVouchers();
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
   const treasuryQuery = useTreasuryAccounts();
@@ -166,8 +176,43 @@ export function TreasuryVouchersScreen() {
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useState<
+    "all" | "needs_allocation" | "needs_allocation_receipt" | "needs_allocation_payment" | VoucherStatusDTO
+  >("all");
   const [typeFilter, setTypeFilter] = useState<"all" | VoucherType>("all");
+  const [branchFilter, setBranchFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const debouncedSearch = useDebounced(search);
+  /**
+   * One filter object for the rows and the chip counts, including the
+   * needs-allocation queues — which are a server concern (R8.3): a work queue
+   * has to be right over every voucher, not over the page the client holds.
+   */
+  const listFilter: VoucherListQueryDTO = useMemo(
+    () => ({
+      ...(typeFilter === "all" ? {} : { type: typeFilter }),
+      ...(statusFilter === "needs_allocation"
+        ? { needsAllocation: "any" as const }
+        : statusFilter === "needs_allocation_receipt"
+          ? { needsAllocation: "receipt" as const }
+          : statusFilter === "needs_allocation_payment"
+            ? { needsAllocation: "payment" as const }
+            : statusFilter === "all"
+              ? {}
+              : { status: statusFilter }),
+      ...(branchFilter ? { branchId: branchFilter } : {}),
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+      ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+    }),
+    [typeFilter, statusFilter, branchFilter, fromDate, toDate, debouncedSearch],
+  );
+  const query = useVouchers(listFilter);
+  const voucherCounts = useVoucherCounts(listFilter).data ?? {};
+  const branches = useBranches().data ?? [];
+  const cancelVoucher = useCancelVoucher();
 
   const documents = query.data ?? [];
   const customers = customersQuery.data ?? [];
@@ -187,44 +232,26 @@ export function TreasuryVouchersScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [treasuryAccounts]);
 
-  const counts = useMemo(() => {
-    let confirmed = 0;
-    let draft = 0;
-    let needsAllocation = 0;
-    for (const d of documents) {
-      if (d.status === "confirmed") confirmed += 1;
-      if (d.status === "draft") draft += 1;
-      if (d.status === "confirmed" && d.allocatable && d.allocationSummary.needsAllocation) needsAllocation += 1;
-    }
-    return { all: documents.length, confirmed, draft, needsAllocation };
-  }, [documents]);
+  const counts = {
+    all: voucherCounts.all ?? 0,
+    confirmed: voucherCounts.confirmed ?? 0,
+    draft: voucherCounts.draft ?? 0,
+    needsAllocation: voucherCounts.needs_allocation ?? 0,
+    needsAllocationReceipt: voucherCounts.needs_allocation_receipt ?? 0,
+    needsAllocationPayment: voucherCounts.needs_allocation_payment ?? 0,
+    cancelled: voucherCounts.cancelled ?? 0,
+  };
 
-  const typeBreakdown = useMemo(() => {
-    const map = new Map<VoucherType, number>();
-    for (const d of documents) map.set(d.voucherType, (map.get(d.voucherType) ?? 0) + 1);
-    return [...map.entries()];
-  }, [documents]);
+  /**
+   * EVERY type, not just the ones already used. A type filter that lists only
+   * types with vouchers cannot be used to discover that a type has none, which
+   * is the question a treasurer actually asks (R8.2).
+   */
+  const typeBreakdown = VOUCHER_TYPE_DEFINITIONS.map(
+    (def) => [def.code, voucherCounts[`type:${def.code}`] ?? 0] as const,
+  );
 
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (typeFilter !== "all") rows = rows.filter((d) => d.voucherType === typeFilter);
-    if (statusFilter === "needs_allocation") {
-      rows = rows.filter((d) => d.status === "confirmed" && d.allocatable && d.allocationSummary.needsAllocation);
-    } else if (statusFilter !== "all") {
-      rows = rows.filter((d) => d.status === statusFilter);
-    }
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => {
-        return (
-          (d.docNo ?? "").toLowerCase().includes(q) ||
-          partyName(d.customerId ?? d.supplierId).toLowerCase().includes(q) ||
-          (d.referenceNo ?? "").toLowerCase().includes(q)
-        );
-      });
-    }
-    return rows;
-  }, [documents, typeFilter, statusFilter, search, partyName]);
+  const filtered = documents;
 
   const columns: DocumentListColumn<VoucherRowDTO>[] = [
     {
@@ -326,8 +353,11 @@ export function TreasuryVouchersScreen() {
         statusChips={[
           { key: "all", label: t("common.all"), count: counts.all },
           { key: "needs_allocation", label: t("vouchers.needsAllocation"), count: counts.needsAllocation },
+          { key: "needs_allocation_receipt", label: t("vouchers.needsAllocationReceipts"), count: counts.needsAllocationReceipt },
+          { key: "needs_allocation_payment", label: t("vouchers.needsAllocationPayments"), count: counts.needsAllocationPayment },
           { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
           { key: "draft", label: t("docStatus.draft"), count: counts.draft },
+          { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as typeof statusFilter)}
@@ -335,6 +365,20 @@ export function TreasuryVouchersScreen() {
         onSearchChange={setSearch}
         searchPlaceholder={t("vouchers.searchByVoucherNumberReference")}
         filterBarExtra={
+          <div className="flex w-full flex-col gap-[10px]">
+            <div className="grid w-full gap-2 sm:grid-cols-3">
+              <SelectField
+                label={t("vouchers.filter.branch")}
+                value={branchFilter}
+                onChange={setBranchFilter}
+                options={[
+                  { value: "", label: t("vouchers.filter.allBranches") },
+                  ...branches.map((b) => ({ value: b.id, label: b.name })),
+                ]}
+              />
+              <TextField label={t("vouchers.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+              <TextField label={t("vouchers.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+            </div>
           <div className="flex flex-wrap gap-[8px]">
             <Chip active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
               {t("vouchers.allTypes")}
@@ -345,11 +389,37 @@ export function TreasuryVouchersScreen() {
               </Chip>
             ))}
           </div>
+          </div>
         }
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
+        rowAction={(d) => (
+          <RowMenu
+            label={t("vouchers.action.view") + " " + (d.docNo ?? d.id)}
+            items={[
+              { key: "view", label: t("vouchers.action.view"), onSelect: () => openDetail(d.id) },
+              { key: "print", label: t("vouchers.action.print"), onSelect: () => window.print() },
+              // A confirmed voucher is REVERSED, never cancelled — the entry
+              // it posted is immutable. Only a draft can be voided outright.
+              ...(d.status === "draft"
+                ? [
+                    {
+                      key: "cancel",
+                      label: t("vouchers.action.cancel"),
+                      tone: "danger" as const,
+                      disabled: cancelVoucher.isPending,
+                      onSelect: () => {
+                        if (cancelVoucher.isPending) return;
+                        cancelVoucher.mutate(d.id);
+                      },
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        )}
         page={1}
         pageCount={1}
         pageSummary={

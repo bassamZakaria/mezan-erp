@@ -780,7 +780,6 @@ export async function run(ctx: Ctx): Promise<void> {
   // X61 — every movement of money leaves a trace
   // ---------------------------------------------------------------------------
   await scenario("x61 · each money-moving action writes an audit row naming who did it, where, and to what", async () => {
-    const before = (await auditRows("limit=200")).length;
 
     const voucherRes = await req("POST", "/vouchers", {
       id: "SCN-S-VCH-AUDIT", date: TODAY, memo: "سند لتتبع سجل التدقيق", voucherType: "other_expense",
@@ -795,8 +794,29 @@ export async function run(ctx: Ctx): Promise<void> {
     const sale = await serviceInvoice("SCN-S-INV-AUDIT", [{ qty: "1", unitPrice: "100" }]);
     check("and a sale is confirmed", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
 
+    /**
+     * Asserted on the SPECIFIC documents this scenario moved, not on a total
+     * row count: `limit=200` saturates once the tenant has enough history, and
+     * a saturated page reports the same length before and after however much
+     * the trail grew.
+     */
+    // The trail is newest-first and the endpoint caps `limit` at 200, so the
+    // rows this scenario just wrote are on the first page by construction.
     const after = await auditRows("limit=200");
-    check("the audit trail grew — a money movement that leaves no trace is unauditable on a desktop install", after.length > before, `before=${before} after=${after.length}`);
+    /**
+     * Which key carries the document id varies by module — `docId` in
+     * treasury, `invoiceId` in sales, `id` in master data — so the check reads
+     * every string value in `details` rather than guessing one.
+     */
+    const traced = new Set(
+      after.flatMap((row: any) => Object.values(row.details ?? {}).filter((v): v is string => typeof v === "string")),
+    );
+    check(
+      "the audit trail names the voucher this scenario moved — a money movement that leaves no trace is unauditable on a desktop install",
+      traced.has("SCN-S-VCH-AUDIT"),
+      `voucher absent from ${after.length} audit rows`,
+    );
+    check("and the sale it confirmed", traced.has("SCN-S-INV-AUDIT"), `invoice absent from ${after.length} audit rows`);
     const actors = new Set(after.map((row: any) => row.actor));
     check("every new row names an actor, never 'system' alone", !(actors.size === 1 && actors.has("system")), `actors=${[...actors].slice(0, 5).join(",")}`);
 

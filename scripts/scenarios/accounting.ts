@@ -17,6 +17,7 @@ async function accountBalance(ctx: Ctx, accountId: string, asOf?: string): Promi
 /** Executable checks for the accounting module — see docs/scenarios/04-accounting-treasury.md. */
 export async function run(ctx: Ctx): Promise<void> {
   await voucherTypesRouteToTheirOwnAccounts_R81(ctx);
+  await voucherQueuesAreAServerConcern_R82_R83(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -563,6 +564,62 @@ export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise
         entry.lines.reduce((sum, l) => sum + ctx.n(l.debit), 0),
         entry.lines.reduce((sum, l) => sum + ctx.n(l.credit), 0),
       );
+    }
+  });
+}
+
+/**
+ * R8.2 / R8.3 — the voucher list's chip counts and its needs-allocation queues
+ * are computed server-side over every voucher, and each chip counts exactly
+ * the rows it would show. The queues are split by intent because collecting
+ * from customers and paying suppliers are two different people's work.
+ */
+export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<void> {
+  await ctx.scenario("voucher chip counts and needs-allocation queues agree with the rows (R8.2, R8.3)", async () => {
+    const counts = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
+    const all = ((await ctx.req("GET", "/vouchers")).body ?? []) as Array<{ status: string; voucherType: string }>;
+    ctx.checkEq("counts.all matches the unfiltered row count", counts.all, all.length);
+
+    for (const status of ["draft", "confirmed", "cancelled"]) {
+      const rows = ((await ctx.req("GET", `/vouchers?status=${status}`)).body ?? []) as unknown[];
+      ctx.checkEq(`chip "${status}" counts exactly the rows it shows`, counts[status] ?? 0, rows.length);
+    }
+
+    // EVERY type is counted, including the ones with no vouchers — a type
+    // filter that lists only used types cannot answer "does this type have
+    // any?", which is the question a treasurer asks.
+    const typeKeys = Object.keys(counts).filter((k) => k.startsWith("type:"));
+    ctx.checkEq("all 11 voucher types are counted, used or not", typeKeys.length, 11);
+    ctx.check("and some of them are legitimately zero", typeKeys.some((k) => counts[k] === 0), JSON.stringify(counts));
+    for (const key of typeKeys) {
+      const type = key.slice("type:".length);
+      const rows = ((await ctx.req("GET", `/vouchers?type=${type}`)).body ?? []) as unknown[];
+      ctx.checkEq(`type chip "${type}" counts exactly the rows it shows`, counts[key] ?? 0, rows.length);
+    }
+
+    // The queues, split by intent.
+    const receipts = ((await ctx.req("GET", "/vouchers?needsAllocation=receipt")).body ?? []) as Array<{
+      voucherType: string;
+      status: string;
+      allocationSummary: { needsAllocation: boolean };
+    }>;
+    const payments = ((await ctx.req("GET", "/vouchers?needsAllocation=payment")).body ?? []) as Array<{
+      voucherType: string;
+    }>;
+    const any = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
+
+    ctx.check("the receipt queue is not empty — an empty queue proves nothing", receipts.length > 0, `${receipts.length}`);
+    ctx.check("the payment queue is not empty", payments.length > 0, `${payments.length}`);
+    ctx.checkEq("counts.needs_allocation_receipt matches its queue", counts.needs_allocation_receipt ?? 0, receipts.length);
+    ctx.checkEq("counts.needs_allocation_payment matches its queue", counts.needs_allocation_payment ?? 0, payments.length);
+    ctx.checkEq("and the two intents partition the combined queue", receipts.length + payments.length, any.length);
+
+    for (const row of receipts) {
+      ctx.check("every receipt in the queue is confirmed and still unapplied", row.status === "confirmed" && row.allocationSummary.needsAllocation, JSON.stringify(row));
+      ctx.check("and it is a money-IN type", row.voucherType === "customer_collection", row.voucherType);
+    }
+    for (const row of payments) {
+      ctx.check("every payment in the queue is a money-OUT type", row.voucherType === "supplier_payment", row.voucherType);
     }
   });
 }

@@ -1403,6 +1403,39 @@ export interface VoucherRowDTO extends VoucherDTO {
 }
 
 /** السندات النقدية (docs/catalog/04) — list, create, confirm, reverse, allocate. */
+/** The one place the voucher list's filters become a query string (R8.2). */
+function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.type) params.set("type", filter.type);
+  if (filter.status) params.set("status", filter.status);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.search) params.set("search", filter.search);
+  if (filter.needsAllocation) params.set("needsAllocation", filter.needsAllocation);
+  return params;
+}
+
+/**
+ * Chip counts over every voucher, computed server-side. The status and
+ * needs-allocation filters are withheld so each chip reports its own total.
+ */
+export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, needsAllocation: _needs, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["vouchers", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = voucherParams(rest).toString();
+      const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
 export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1410,10 +1443,7 @@ export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<Vo
     queryKey: ["vouchers", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter.type) params.set("type", filter.type);
-      if (filter.status) params.set("status", filter.status);
-      const qs = params.toString();
+      const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
       return res.json<VoucherRowDTO[]>();
@@ -1468,6 +1498,21 @@ export function useConfirmVoucher() {
       const res = await request(`/vouchers/${id}/confirm`, { method: "POST", body: JSON.stringify(body ?? {}) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3")));
       return res.json<VoucherDTO & { held: boolean }>();
+    },
+    onSuccess: () => invalidateVouchers(queryClient),
+  });
+}
+
+/** إلغاء السند — voids a DRAFT voucher (a confirmed one is reversed, not cancelled). */
+export function useCancelVoucher() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<VoucherDTO, ApiError, string>({
+    mutationFn: async (id) => {
+      const res = await request(`/vouchers/${id}/cancel`, { method: "POST", body: JSON.stringify({}) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theVoucherCouldNotBe3")));
+      return res.json<VoucherDTO>();
     },
     onSuccess: () => invalidateVouchers(queryClient),
   });

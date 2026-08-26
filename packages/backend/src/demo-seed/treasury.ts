@@ -152,6 +152,41 @@ async function seedVouchers(app: App): Promise<void> {
   await step(app, "POST", "/vouchers/VCH-DEMO-3/confirm", {});
   await step(app, "POST", "/vouchers/VCH-DEMO-3/allocations", { invoiceId: "PI-DEMO-1", amount: paymentAmount });
 
+  /**
+   * محتاج تخصيص — one confirmed voucher of each intent with money still
+   * unapplied, so the needs-allocation queues (R8.3) are not empty. An empty
+   * work queue proves nothing about the screen that shows it.
+   */
+  await step(app, "POST", "/vouchers", {
+    id: "VCH-DEMO-UNALLOC-IN",
+    date: "2026-08-23",
+    memo: "تحصيل من مجموعة الفجر التجارية بانتظار التخصيص",
+    voucherType: "customer_collection",
+    amount: "2500.00",
+    branchId: BRANCH_ID,
+    paymentMethod: "cash",
+    treasuryAccountId: CASH_TREASURY_ID,
+    treasuryGlAccountId: ACCOUNTS.cash,
+    counterpartyGlAccountId: ACCOUNTS.receivable,
+    customerId: "CUST-DEMO-3",
+  });
+  await step(app, "POST", "/vouchers/VCH-DEMO-UNALLOC-IN/confirm", {});
+
+  await step(app, "POST", "/vouchers", {
+    id: "VCH-DEMO-UNALLOC-OUT",
+    date: "2026-08-23",
+    memo: "دفعة لشركة سياج للصناعات بانتظار التخصيص",
+    voucherType: "supplier_payment",
+    amount: "1500.00",
+    branchId: BRANCH_ID,
+    paymentMethod: "bank",
+    treasuryAccountId: BANK_TREASURY_ID,
+    treasuryGlAccountId: ACCOUNTS.bank,
+    counterpartyGlAccountId: ACCOUNTS.payable,
+    supplierId: "SUPP-DEMO-2",
+  });
+  await step(app, "POST", "/vouchers/VCH-DEMO-UNALLOC-OUT/confirm", {});
+
   await step(app, "POST", "/vouchers", {
     id: "VCH-DEMO-4",
     date: "2026-08-22",

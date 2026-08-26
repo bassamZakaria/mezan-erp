@@ -126,6 +126,18 @@ export const allocationSummarySchema = z.object({
 export const voucherListQuerySchema = z.object({
   type: voucherTypeSchema.optional(),
   status: voucherStatusSchema.optional(),
+  branchId: z.string().optional(),
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  /** Free text over the voucher number and its external reference. */
+  search: z.string().optional(),
+  /**
+   * محتاج تخصيص — confirmed, allocatable vouchers with money still unapplied
+   * (R8.3). Split by intent: `receipt` is cash taken from customers waiting to
+   * be applied to their invoices, `payment` is cash paid to suppliers waiting
+   * to be applied to theirs. They are two different people's work queues.
+   */
+  needsAllocation: z.enum(["any", "receipt", "payment"]).optional(),
 });
 
 export type VoucherTypeDTO = z.infer<typeof voucherTypeSchema>;

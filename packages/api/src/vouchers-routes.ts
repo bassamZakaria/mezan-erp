@@ -7,6 +7,7 @@ import {
   voucherLine,
   invoiceOutstanding,
   getVoucherTypeDefinition,
+  VOUCHER_TYPE_DEFINITIONS,
   InvalidDocumentError,
   InvalidDocumentTransitionError,
   DocumentNotFoundError,
@@ -39,6 +40,7 @@ import {
   reverseVoucherSchema,
   createAllocationSchema,
   voucherListQuerySchema,
+  type VoucherListQueryDTO,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -202,30 +204,113 @@ export function createVouchersRoutes(
     return new VoucherService({ ...deps, actor, audit });
   }
 
-  app.get("/", gate("treasury.cash_voucher.view"), async (c) => {
-    const parsed = voucherListQuerySchema.safeParse({
+  function parseListQuery(c: Context) {
+    return voucherListQuerySchema.safeParse({
       type: c.req.query("type"),
       status: c.req.query("status"),
+      branchId: c.req.query("branchId"),
+      fromDate: c.req.query("fromDate"),
+      toDate: c.req.query("toDate"),
+      search: c.req.query("search"),
+      needsAllocation: c.req.query("needsAllocation"),
     });
+  }
+
+  /**
+   * One filter for the rows and the chip counts alike (R1.1, R8.2, R8.3). The
+   * needs-allocation queue is computed HERE, not in the browser: it is a work
+   * queue that has to be right over every voucher, not over the page the
+   * client happens to hold.
+   */
+  async function listFilteredVouchers(c: Context, filter: VoucherListQueryDTO) {
+    const svc = serviceFor(c);
+    let docs = await svc.list(filter.status ? { status: filter.status } : undefined);
+    if (filter.type) docs = docs.filter((d) => voucherLine(d).voucherType === filter.type);
+    if (filter.branchId) docs = docs.filter((d) => voucherLine(d).branchId === filter.branchId);
+    if (filter.fromDate) docs = docs.filter((d) => d.date >= filter.fromDate!);
+    if (filter.toDate) docs = docs.filter((d) => d.date <= filter.toDate!);
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      docs = docs.filter(
+        (d) =>
+          (d.docNo ?? "").toLowerCase().includes(term) ||
+          (voucherLine(d).referenceNo ?? "").toLowerCase().includes(term),
+      );
+    }
+    docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
+
+    // Row-level allocation summary so the list's "needs allocation" chip and
+    // filter don't need an N+1 detail fetch per row.
+    let rows = await Promise.all(
+      docs.map(async (doc) => {
+        const line = voucherLine(doc);
+        const def = getVoucherTypeDefinition(line.voucherType);
+        return {
+          ...serialize(doc),
+          allocatable: def.allocatable,
+          allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
+          direction: def.direction,
+        };
+      }),
+    );
+
+    if (filter.needsAllocation) {
+      rows = rows.filter(
+        (row) =>
+          row.status === "confirmed" &&
+          row.allocatable &&
+          row.allocationSummary.needsAllocation &&
+          (filter.needsAllocation === "any" || row.direction === filter.needsAllocation),
+      );
+    }
+    return rows;
+  }
+
+  app.get("/", gate("treasury.cash_voucher.view"), async (c) => {
+    const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const svc = serviceFor(c);
-    let docs = await svc.list(parsed.data.status ? { status: parsed.data.status } : undefined);
-    if (parsed.data.type) {
-      docs = docs.filter((d) => voucherLine(d).voucherType === parsed.data.type);
+    return c.json(await listFilteredVouchers(c, parsed.data));
+  });
+
+  /**
+   * The chip counts (R1.1/R8.2). Ignores `status` and `needsAllocation` for
+   * the same reason every other counts endpoint does: a chip states how many
+   * rows IT would show, not how many the active chip left.
+   */
+  app.get("/counts", gate("treasury.cash_voucher.view"), async (c) => {
+    const parsed = parseListQuery(c);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    docs = [...withinScope(docs, branchScopeOf(c), (d) => voucherLine(d).branchId)];
-    // Row-level allocation summary so the list's "needs allocation" chip/filter
-    // doesn't need an N+1 detail fetch per row (mirrors GET /:id below).
-    const rows = await Promise.all(
-      docs.map(async (doc) => ({
-        ...serialize(doc),
-        allocatable: getVoucherTypeDefinition(voucherLine(doc).voucherType).allocatable,
-        allocationSummary: serializeSummary(await svc.allocationSummary(doc)),
-      })),
-    );
-    return c.json(rows);
+    const { status: _s, needsAllocation: _n, ...rest } = parsed.data;
+    const rows = await listFilteredVouchers(c, rest);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      confirmed: 0,
+      pending: 0,
+      cancelled: 0,
+      needs_allocation: 0,
+      needs_allocation_receipt: 0,
+      needs_allocation_payment: 0,
+    };
+    for (const row of rows) {
+      counts[row.status] = (counts[row.status] ?? 0) + 1;
+      if (row.status === "confirmed" && row.allocatable && row.allocationSummary.needsAllocation) {
+        counts.needs_allocation! += 1;
+        if (row.direction === "receipt") counts.needs_allocation_receipt! += 1;
+        if (row.direction === "payment") counts.needs_allocation_payment! += 1;
+      }
+    }
+    // Every type gets a count, including the ones with no vouchers — a type
+    // filter that only lists types already used cannot be used to find that a
+    // type has none.
+    for (const def of VOUCHER_TYPE_DEFINITIONS) {
+      counts[`type:${def.code}`] = rows.filter((row) => row.voucherType === def.code).length;
+    }
+    return c.json(counts);
   });
 
   app.get("/:id", gate("treasury.cash_voucher.view"), async (c) => {

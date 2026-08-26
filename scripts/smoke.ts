@@ -51,6 +51,7 @@ const READ_PATHS = [
   "/eta/submissions",
   "/cheques",
   "/vouchers",
+  "/vouchers/counts",
   "/price-lists",
   "/promotions",
   "/sales-invoices",

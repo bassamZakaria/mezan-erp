@@ -5,12 +5,14 @@ import {
   DocumentDetail,
   DocumentList,
   FulcrumRule,
+  RowMenu,
   StatusPill,
   TextInput,
   VarianceBeam,
   trimMoneyString,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
@@ -91,6 +93,9 @@ export function PhysicalCountsScreen() {
   const [firstSegment, secondSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
+  const cancelCount = useCancelPhysicalCount();
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const counts = useMemo(() => query.data ?? [], [query.data]);
   const warehouses = warehousesQuery.data ?? [];
@@ -150,6 +155,19 @@ export function PhysicalCountsScreen() {
     subPage.open(id);
   }
 
+  async function cancelRow(id: string): Promise<void> {
+    if (rowPendingId) return;
+    setRowError(null);
+    setRowPendingId(id);
+    try {
+      await cancelCount.mutateAsync(id);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
   if (firstSegment === "new") {
     return (
       <NewCountView
@@ -185,6 +203,11 @@ export function PhysicalCountsScreen() {
 
   return (
     <div className="w-full">
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<PhysicalCountDTO>
         title={t("counts.physicalCounts")}
         description={t("counts.inProgressCompletedAdjustmentCreated")}
@@ -217,6 +240,28 @@ export function PhysicalCountsScreen() {
         rows={filtered}
         rowKey={(c) => c.id}
         onRowClick={(c) => openDetail(c.id)}
+        rowAction={(c) => {
+          // Only a completed count can raise the adjustment, and only a live one can still be abandoned.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => openDetail(c.id) },
+            ...(c.status === "IN_PROGRESS"
+              ? [
+                  { key: "resume", label: t("counts.continueCount"), onSelect: () => subPage.open(c.id, "count") },
+                  {
+                    key: "cancel",
+                    label: t("common.cancel"),
+                    tone: "danger" as const,
+                    disabled: rowPendingId === c.id,
+                    onSelect: () => void cancelRow(c.id),
+                  },
+                ]
+              : []),
+            ...(c.status === "COMPLETED"
+              ? [{ key: "generate", label: t("counts.generateAdjustment"), onSelect: () => openDetail(c.id) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.countNo ?? c.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

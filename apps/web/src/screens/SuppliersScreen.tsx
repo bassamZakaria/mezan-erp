@@ -6,11 +6,13 @@ import {
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
 import {
@@ -52,9 +54,6 @@ import { AttachmentsTab } from "../attachments/AttachmentsTab";
  * debit split over the invoices it was allocated onto — and reconciles the
  * closing figure against both `GET /open-invoices?kind=purchase` and
  * `GET /reports/aging/suppliers`.
- *
- * There is no attachments tab: this build has no file-storage subsystem of any
- * kind, so the tab would be a navigational dead end rather than an empty list.
  */
 
 const PURCHASE_STATUS_KEY: Record<PurchaseInvoiceStatusDTO, AppTranslationKey> = {
@@ -607,6 +606,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();
+  const { navigate } = useNavigation();
   const query = useSuppliers();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
@@ -819,6 +819,33 @@ export function SuppliersScreen() {
         rows={filtered}
         rowKey={(s) => s.id}
         onRowClick={(s) => setSelectedId(s.id)}
+        rowAction={(s) => {
+          // An archived supplier can still be opened and read, but nothing new may be raised against it.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(s.id) },
+            ...(s.active
+              ? [
+                  {
+                    key: "invoice",
+                    label: t("suppliers.action.newInvoice"),
+                    onSelect: () => navigate("purchase-invoices", { kind: "create", prefill: { supplierId: s.id } }),
+                  },
+                  {
+                    key: "payment",
+                    label: t("suppliers.action.payment"),
+                    onSelect: () => navigate("treasury-vouchers", { kind: "create", prefill: { supplierId: s.id } }),
+                  },
+                  {
+                    key: "order",
+                    label: t("suppliers.action.newOrder"),
+                    onSelect: () => navigate("purchase-orders", { kind: "create", prefill: { supplierId: s.id } }),
+                  },
+                  { key: "edit", label: t("common.edit"), onSelect: () => openEditForm(s) },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: s.nameAr })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

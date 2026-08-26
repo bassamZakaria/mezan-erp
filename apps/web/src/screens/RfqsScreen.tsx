@@ -4,6 +4,7 @@ import {
   DocumentList,
   DocumentDetail,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   EntityPicker,
@@ -11,6 +12,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { ItemDTO, PurchaseRfqDTO, PurchaseRfqStatusDTO, RfqQuoteDTO, SupplierDTO } from "@mezan/contracts";
 import {
@@ -392,6 +394,22 @@ export function RfqsScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  async function runRowAction(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<void> {
+    if (rowPendingId) return;
+    setRowError(null);
+    setRowPendingId(id);
+    try {
+      await transition.mutateAsync(id);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -567,6 +585,11 @@ export function RfqsScreen() {
 
   return (
     <>
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<PurchaseRfqDTO>
         title={t("rfqs.title")}
         description={t("rfqs.description")}
@@ -599,6 +622,33 @@ export function RfqsScreen() {
         rows={filtered}
         rowKey={(r) => r.id}
         onRowClick={(r) => subPage.open(r.number ?? r.id)}
+        rowAction={(r) => {
+          // Converting picks a winning supplier quote, so it opens the comparison rather than firing from the row.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(r.number ?? r.id) },
+            ...(r.status === "draft"
+              ? [{ key: "send", label: t("rfqs.send"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, sendRfq) }]
+              : []),
+            ...(r.status === "sent"
+              ? [
+                  { key: "convert", label: t("rfqs.convertToOrder"), onSelect: () => subPage.open(r.number ?? r.id) },
+                  { key: "close", label: t("rfqs.closeWithout"), disabled: rowPendingId === r.id, onSelect: () => void runRowAction(r.id, closeRfq) },
+                ]
+              : []),
+            ...(r.status === "draft" || r.status === "sent"
+              ? [
+                  {
+                    key: "cancel",
+                    label: t("rfqs.cancel"),
+                    tone: "danger" as const,
+                    disabled: rowPendingId === r.id,
+                    onSelect: () => void runRowAction(r.id, cancelRfq),
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.number ?? r.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}

@@ -21,7 +21,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] treasury account detail → movements from the voucher postings
   - [ ] delete the two tests that assert the placeholder is present
 - [ ] **D44 / R6.7** Cost centres get their own columns + "create from departments"
-- [ ] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
+- [x] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
 - [ ] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
 - [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 

@@ -87,6 +87,7 @@ const ITEMS = [
   { id: "ITEM-DEMO-4", code: "IT-0004", nameAr: "شاي أسود ٥٠٠ جم", nameEn: "Black Tea 500g", salePrice: "260", costPrice: "205" },
   { id: "ITEM-DEMO-5", code: "IT-0005", nameAr: "خليط شاي بالسكر ١ كجم", nameEn: "Sweetened Tea Blend 1kg", salePrice: "150", costPrice: "108.60" },
   { id: "ITEM-DEMO-6", code: "IT-0006", nameAr: "خليط شاي بالنعناع ١ كجم", nameEn: "Mint Tea Blend 1kg", salePrice: "170", costPrice: "124.00" },
+  { id: "ITEM-DEMO-9", code: "IT-0009", nameAr: "علبة شاي هدايا حسب الطلب", nameEn: "Custom Gift Tea Box", salePrice: "0", costPrice: "0" },
 ];
 
 /**
@@ -393,6 +394,8 @@ export async function seedDemoTenant(app: App): Promise<void> {
     await step(app, "POST", "/manufacturing/boms", bom);
   }
 
+  await seedConfigurableProduct(app);
+
   for (const invoice of SALES_INVOICES) {
     await step(app, "POST", "/sales-invoices", {
       id: invoice.id,
@@ -430,4 +433,46 @@ export async function seedDemoTenant(app: App): Promise<void> {
   await seedPurchasing(app);
   await seedTreasury(app);
   await seedPlatform(app);
+}
+
+/**
+ * التصنيع حسب الطلب — a made-to-measure product plus one live order for it.
+ * Its materials are the SAME tea and sugar the BOMs above consume, so the
+ * formula's material cost resolves against real purchase history rather than
+ * an invented unit cost, and the preview figure on screen is checkable.
+ */
+async function seedConfigurableProduct(app: App): Promise<void> {
+  await step(app, "POST", "/manufacturing/configurable-products", {
+    id: "CFGP-DEMO-1",
+    code: "CFG-0001",
+    nameAr: "علبة شاي هدايا حسب الطلب",
+    nameEn: "Custom Gift Tea Box",
+    outputItemId: "ITEM-DEMO-9",
+    unit: "PCS",
+    description: "علبة تُجهَّز بوزن الشاي والسكر الذي يطلبه العميل",
+    inputs: [
+      { id: "teaKg", labelAr: "وزن الشاي (كجم)", labelEn: "Tea weight (kg)", type: "number", min: 1, max: 20 },
+      { id: "sugarKg", labelAr: "وزن السكر (كجم)", labelEn: "Sugar weight (kg)", type: "number", min: 0, max: 20 },
+    ],
+    materials: [
+      { itemId: "ITEM-DEMO-4", qtyFormula: "teaKg*2", wastePercent: 2 },
+      { itemId: "ITEM-DEMO-3", qtyFormula: "sugarKg", wastePercent: 1 },
+    ],
+    pricingMethod: "formula",
+    priceFormula: "teaKg*320+sugarKg*70",
+    laborFormula: "teaKg*12",
+    overheadFormula: "teaKg*6",
+  });
+
+  await step(app, "POST", "/manufacturing/config-instances", {
+    id: "CFGI-DEMO-1",
+    configurableProductId: "CFGP-DEMO-1",
+    spec: { teaKg: "3", sugarKg: "5" },
+    qty: "4",
+    customerId: "CUST-DEMO-1",
+    notes: "طلب خاص لمعرض رمضان",
+    sourceWarehouseId: WAREHOUSE_ID,
+    destinationWarehouseId: WAREHOUSE_ID,
+    scheduledStartDate: "2026-08-24",
+  });
 }

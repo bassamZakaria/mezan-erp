@@ -313,6 +313,52 @@ async function seedInstallmentPlan(app: App): Promise<void> {
   });
   await step(app, "POST", "/installments/plans/IPLAN-DEMO-1/confirm", {});
   await step(app, "POST", "/installments/plans/overdue/process", { asOfDate: today() });
+  await seedCollectionFollowUps(app);
+}
+
+/**
+ * متابعة التحصيل — collection follow-ups against the plan seeded above. The
+ * screen has three status chips, so one follow-up is left pending, one is
+ * completed with an outcome and one is cancelled: a list that only ever holds
+ * pending rows cannot demonstrate its own filters.
+ */
+async function seedCollectionFollowUps(app: App): Promise<void> {
+  const followUps = [
+    {
+      id: "FUP-DEMO-1",
+      customerId: "CUST-DEMO-3",
+      installmentPlanId: "IPLAN-DEMO-1",
+      type: "CALL",
+      followUpDate: "2026-08-20",
+      assignedTo: "EMP-DEMO-1",
+      notes: "تذكير بقسط أغسطس",
+    },
+    {
+      id: "FUP-DEMO-2",
+      customerId: "CUST-DEMO-3",
+      installmentPlanId: "IPLAN-DEMO-1",
+      type: "VISIT",
+      followUpDate: "2026-08-24",
+      assignedTo: "EMP-DEMO-2",
+      notes: "زيارة ميدانية لتحصيل المتأخر",
+    },
+    {
+      id: "FUP-DEMO-3",
+      customerId: "CUST-DEMO-2",
+      installmentPlanId: null,
+      type: "SMS",
+      followUpDate: "2026-08-15",
+      assignedTo: "EMP-DEMO-1",
+      notes: "رسالة تذكير برصيد مستحق",
+    },
+  ];
+  for (const followUp of followUps) {
+    await step(app, "POST", "/installments/follow-ups", followUp);
+  }
+  await step(app, "POST", "/installments/follow-ups/FUP-DEMO-2/complete", {
+    outcome: "تم الاتفاق على السداد يوم ٣١ أغسطس",
+  });
+  await step(app, "POST", "/installments/follow-ups/FUP-DEMO-3/cancel", {});
 }
 
 /**

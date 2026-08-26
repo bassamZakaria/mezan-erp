@@ -96,10 +96,19 @@ total is bucketed". This is the AP twin of the sales side and the root of P-1.
 
 ## Cross-cutting, every purchases list
 
-1. **No filter bar** on any of the seven; the reference has branch / warehouse /
-   supplier / date-range on all of them, plus screen-specific ones (cost range,
-   amount range, allocation method).
-2. **No `createdBy`** anywhere — the same backend gap already filed for quotes and
-   sales invoices. One column, seven screens.
-3. **No pagination or rows-per-page** except where the sweep already added it.
-4. Two substantive findings above (P-1, P-2) that are ledger behaviour, not UI.
+1. ~~No filter bar~~ **fixed** — branch / warehouse / supplier / date-range added to
+   orders, receipts and invoices; supplier + dates to returns; warehouse,
+   allocation method and dates to additional costs; dates to RFQs.
+2. `createdBy` **fixed where the data exists** — RFQ, order, receipt and invoice
+   schemas have carried it all along and nothing rendered it. Returns and
+   additional costs still have no such field on the wire.
+3. Columns added to match: **expected delivery date** (orders), **due date**
+   (invoices), **date · warehouse · linked invoices** (additional costs).
+4. Still open: pagination and rows-per-page on these six; the "not invoiced",
+   "awaiting supplier refund", "pending settlement" and "voided" buckets; the
+   supplier-categories screen; "import past returns".
+5. **P-1 fixed** (D39) — the suppliers list now reports the live payable, tying to
+   GL 2100 to within D42's supplier-less landed cost.
+6. **P-2 still open** — purchase invoices have no payment axis (no remaining
+   amount, no partially-paid state, no disbursement action); the due date is now
+   shown because it was already on the wire.

@@ -31,6 +31,7 @@ export interface IncomeStatementRow {
   readonly accountId: string;
   readonly code: string;
   readonly nameAr: string;
+  readonly nameEn: string | null;
   readonly sectionKey: string;
   readonly sectionLabel: string;
   /** Positive for revenue, negative for expenses — sums to net income. */
@@ -133,6 +134,7 @@ export function createIncomeStatementReport(
           accountId: account.id,
           code: account.code,
           nameAr: account.nameAr,
+          nameEn: account.nameEn ?? null,
           sectionKey,
           sectionLabel: SECTIONS[sectionKey] ?? account.nameAr,
           amount,

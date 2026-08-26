@@ -94,7 +94,7 @@ function Panel({ title, hint, step, reduced, children }: PanelProps) {
  * and the collection queue from `/sales-invoices`. Zero is rendered as zero.
  */
 export function DashboardScreen() {
-  const { t, direction } = useAppTranslation();
+  const { t, direction, locale } = useAppTranslation();
   const format = useFormat();
   const { session } = useApi();
   const { navigate } = useNavigation();
@@ -439,7 +439,7 @@ export function DashboardScreen() {
 
         <Panel title={t("dashboard.expenses")} hint={t("dashboard.expenses.sub")} step={6} reduced={reduced}>
           <ExpenseDonut
-            slices={expenseSlices(currentIncome.data)}
+            slices={expenseSlices(currentIncome.data, locale)}
             centreCaption={t("dashboard.expenses.centre")}
             emptyLabel={t("dashboard.expenses.empty")}
           />

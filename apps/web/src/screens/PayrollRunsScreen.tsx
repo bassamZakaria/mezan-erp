@@ -27,6 +27,7 @@ import {
   usePayrollRuns,
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 
@@ -74,6 +75,7 @@ function NetPayQualifierBadge() {
 }
 
 export function PayrollRunsScreen() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = usePayrollRuns();
   const employeesQuery = useEmployees();
@@ -467,7 +469,7 @@ export function PayrollRunsScreen() {
                   label={t("payroll.treasuryAccount")}
                   value={treasuryAccountId}
                   onChange={setTreasuryAccountId}
-                  options={[{ value: "", label: t("payroll.choose") }, ...treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${account.name}` }))]}
+                  options={[{ value: "", label: t("payroll.choose") }, ...treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${nameOf(account)}` }))]}
                 />
                 <SelectField
                   label={t("payroll.branch")}

@@ -281,8 +281,8 @@ const OPENING_BALANCE_DATE = "2026-07-01";
 const OPENING_BANK_BALANCE = "250000";
 
 const TREASURY_ACCOUNTS = [
-  { id: "TR-DEMO-CASH", code: "CASH-001", name: "الخزينة الرئيسية", type: "cash", glAccountId: ACCOUNTS.cash },
-  { id: "TR-DEMO-BANK", code: "BANK-001", name: "البنك الأهلي — جاري", type: "bank", glAccountId: ACCOUNTS.bank },
+  { id: "TR-DEMO-CASH", code: "CASH-001", name: "الخزينة الرئيسية", nameEn: "Main Cash Drawer", type: "cash", glAccountId: ACCOUNTS.cash },
+  { id: "TR-DEMO-BANK", code: "BANK-001", name: "البنك الأهلي — جاري", nameEn: "National Bank — Current", type: "bank", glAccountId: ACCOUNTS.bank },
 ];
 
 /** Purchases run first: sales cannot issue stock the warehouse never received. */

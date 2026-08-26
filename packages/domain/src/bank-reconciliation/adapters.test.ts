@@ -23,7 +23,7 @@ function fakeTreasuryAccounts(accounts: TreasuryAccount[]): Pick<TreasuryAccount
 const BANK_ACCOUNT: TreasuryAccount = {
   id: "ta-bank1",
   code: "BANK-001",
-  name: "بنك",
+  name: "بنك", nameEn: null,
   type: "bank",
   currency: "EGP",
   branchId: "b1",

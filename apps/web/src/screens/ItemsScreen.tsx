@@ -46,6 +46,7 @@ import {
   useUpdatePriceList,
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
+import { entityName, useEntityName } from "../lib/entity-names";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAttachments } from "../data/attachment-hooks";
 import { TextAreaField } from "../settings/form-controls";
@@ -498,11 +499,7 @@ function ItemSpecificationsTab({ item }: { item: ItemDTO }) {
   if (values.length === 0) {
     return <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.specifications.empty")}</p>;
   }
-  const nameOf = (code: string) => {
-    const def = definitions.find((d) => d.code === code);
-    if (!def) return code;
-    return locale === "en" ? (def.nameEn ?? def.nameAr) : def.nameAr;
-  };
+  const nameOf = (code: string) => entityName(definitions.find((d) => d.code === code), locale, code);
   const unitOf = (code: string) => definitions.find((d) => d.code === code)?.unit ?? null;
   return (
     <div className="overflow-x-auto">
@@ -650,13 +647,14 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
 
 export function ItemsScreen() {
   const { t } = useAppTranslation();
+  const nameOf = useEntityName();
   const { openScreenAt } = useNavigation();
   const brands = useItemBrands().data ?? [];
   const suppliers = useSuppliers().data ?? [];
   const seasons = useItemSeasons().data ?? [];
   const specifications = useItemSpecifications().data ?? [];
-  const brandName = (id: string | null | undefined) => (id ? (brands.find((b) => b.id === id)?.nameAr ?? id) : "—");
-  const seasonName = (id: string | null | undefined) => (id ? (seasons.find((x) => x.id === id)?.nameAr ?? id) : "—");
+  const brandName = (id: string | null | undefined) => (id ? nameOf(brands.find((b) => b.id === id), id) : "—");
+  const seasonName = (id: string | null | undefined) => (id ? nameOf(seasons.find((x) => x.id === id), id) : "—");
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
   const accountsQuery = useAccounts();
@@ -669,7 +667,7 @@ export function ItemsScreen() {
   function glAccountLabel(id: string | null): string {
     if (!id) return t("items.defaultForTheItemType");
     const account = glAccounts.find((a) => a.id === id);
-    return account ? `${account.code} — ${account.nameAr}` : id;
+    return account ? `${account.code} — ${nameOf(account)}` : id;
   }
 
   const [view, setView] = useState<"list" | "detail">("list");
@@ -742,11 +740,11 @@ export function ItemsScreen() {
     (unitFilter !== "all" ? 1 : 0);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
-    () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
+    () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: nameOf(c) }))],
     [itemCategories, t],
   );
   const glOptions: EntityPickerOption[] = useMemo(
-    () => [{ id: DEFAULT_GL_ID, label: t(DEFAULT_GL_KEY) }, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` }))],
+    () => [{ id: DEFAULT_GL_ID, label: t(DEFAULT_GL_KEY) }, ...glAccounts.map((a) => ({ id: a.id, label: `${a.code} — ${nameOf(a)}` }))],
     [glAccounts, t],
   );
 
@@ -933,7 +931,7 @@ export function ItemsScreen() {
           required
           value={draft.baseUnitCode}
           onChange={(v) => setDraft((d) => ({ ...d, baseUnitCode: v }))}
-          options={itemUnits.map((u) => ({ value: u.code, label: `${u.nameAr} (${u.code})` }))}
+          options={itemUnits.map((u) => ({ value: u.code, label: `${nameOf(u)} (${u.code})` }))}
         />
 
         <EntityPicker
@@ -953,20 +951,20 @@ export function ItemsScreen() {
           onChange={(v) => setDraft((d) => ({ ...d, defaultSupplierId: v }))}
           options={[
             { value: "", label: t("items.noDefaultSupplier") },
-            ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr })),
+            ...suppliers.map((sup) => ({ value: sup.id, label: nameOf(sup) })),
           ]}
         />
         <SelectField
           label={t("items.brand")}
           value={draft.brandId}
           onChange={(v) => setDraft((d) => ({ ...d, brandId: v }))}
-          options={[{ value: "", label: t("items.noBrand") }, ...brands.map((b) => ({ value: b.id, label: b.nameAr }))]}
+          options={[{ value: "", label: t("items.noBrand") }, ...brands.map((b) => ({ value: b.id, label: nameOf(b) }))]}
         />
         <SelectField
           label={t("items.season")}
           value={draft.seasonId}
           onChange={(v) => setDraft((d) => ({ ...d, seasonId: v }))}
-          options={[{ value: "", label: t("items.noSeason") }, ...seasons.map((x) => ({ value: x.id, label: x.nameAr }))]}
+          options={[{ value: "", label: t("items.noSeason") }, ...seasons.map((x) => ({ value: x.id, label: nameOf(x) }))]}
         />
 
         {/* المواصفات — one control per specification the tenant defined, so
@@ -1513,7 +1511,7 @@ export function ItemsScreen() {
               }}
               options={[
                 { value: "", label: t("items.filter.allBrands") },
-                ...brands.map((b) => ({ value: b.id, label: b.nameAr })),
+                ...brands.map((b) => ({ value: b.id, label: nameOf(b) })),
               ]}
             />
             <Select
@@ -1527,7 +1525,7 @@ export function ItemsScreen() {
               }}
               options={[
                 { value: "", label: t("items.filter.allSeasons") },
-                ...seasons.map((x) => ({ value: x.id, label: x.nameAr })),
+                ...seasons.map((x) => ({ value: x.id, label: nameOf(x) })),
               ]}
             />
             <Select

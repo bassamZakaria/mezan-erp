@@ -32,6 +32,7 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
@@ -111,6 +112,7 @@ function CascadedValue({ label, value }: { label: string; value: string | null }
 }
 
 export function VanTripsScreen() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = useVanTrips();
   const warehousesQuery = useWarehouses();
@@ -141,7 +143,7 @@ export function VanTripsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [branches]);
   const treasuryName = useMemo(() => {
-    const map = new Map(treasuryAccounts.map((a) => [a.id, a.name]));
+    const map = new Map(treasuryAccounts.map((a) => [a.id, nameOf(a)]));
     return (id: string) => map.get(id) ?? id;
   }, [treasuryAccounts]);
   const employeeName = useMemo(() => {
@@ -746,7 +748,7 @@ export function VanTripsScreen() {
             disabled={selectedVan === null}
             options={[
               { value: "", label: t("vanTrips.chooseTheSourceTill") },
-              ...treasuryAccounts.filter((acc) => acc.id !== selectedVan?.treasuryAccountId).map((acc) => ({ value: acc.id, label: acc.name })),
+              ...treasuryAccounts.filter((acc) => acc.id !== selectedVan?.treasuryAccountId).map((acc) => ({ value: acc.id, label: nameOf(acc) })),
             ]}
           />
 

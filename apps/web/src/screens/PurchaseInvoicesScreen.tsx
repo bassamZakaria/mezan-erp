@@ -54,6 +54,7 @@ import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { itemTypeIsPurchasable ,
   findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
@@ -128,6 +129,7 @@ function InvoiceDetail({
   onBack: () => void;
   onConfirm: () => void;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const fulfilmentQuery = usePurchaseInvoiceFulfilment(invoice.id);
   const landedCostsQuery = useLandedCosts();
@@ -396,7 +398,7 @@ function InvoiceDetail({
                       onChange={setPayTreasuryId}
                       options={[
                         { value: "", label: t("purchaseInvoices.pay.treasuryPlaceholder") },
-                        ...treasuryAccounts.map((a) => ({ value: a.id, label: a.name })),
+                        ...treasuryAccounts.map((a) => ({ value: a.id, label: nameOf(a) })),
                       ]}
                     />
                     <SelectField

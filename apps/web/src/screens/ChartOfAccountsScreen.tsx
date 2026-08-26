@@ -39,6 +39,7 @@ import {
 } from "../data/hooks";
 import { SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
   asset: "coa.type.asset",
@@ -152,6 +153,7 @@ function draftFromAccount(account: AccountDTO): AccountDraft {
  * editing the source.
  */
 function AccountRoutingTab() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const routingQuery = useAccountRouting();
   const updateRouting = useUpdateAccountRouting();
@@ -161,7 +163,7 @@ function AccountRoutingTab() {
   const routing = routingQuery.data;
   const accountOptions = accounts
     .filter((account) => !account.isHeader)
-    .map((account) => ({ value: account.id, label: `${account.code} · ${account.nameAr}` }));
+    .map((account) => ({ value: account.id, label: `${account.code} · ${nameOf(account)}` }));
 
   const SECTION_LABEL: Record<AccountRoutingSlotDTO["section"], AppTranslationKey> = {
     tax: "routing.section.tax",
@@ -267,6 +269,7 @@ function AccountRoutingTab() {
 }
 
 export function ChartOfAccountsScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const query = useAccounts();
   const createAccount = useCreateAccount();
@@ -326,7 +329,7 @@ export function ChartOfAccountsScreen() {
       { id: ROOT_PARENT_ID, label: t("coa.rootParent") },
       ...accounts
         .filter((a) => a.isHeader && a.id !== editingId)
-        .map((a) => ({ id: a.id, label: `${a.code} — ${a.nameAr}` })),
+        .map((a) => ({ id: a.id, label: `${a.code} — ${nameOf(a)}` })),
     ],
     [accounts, editingId],
   );
@@ -500,7 +503,7 @@ export function ChartOfAccountsScreen() {
         }}
         rowActions={(row) => (
           <IconButton
-            aria-label={t("coa.editNamed", { name: row.nameAr })}
+            aria-label={t("coa.editNamed", { name: nameOf(row) })}
             onClick={(event) => {
               event.stopPropagation();
               const account = accounts.find((a) => a.id === row.id);
@@ -543,7 +546,7 @@ export function ChartOfAccountsScreen() {
       <SidePanel
         open={selectedAccount !== null}
         onClose={() => setSelectedAccountId(null)}
-        title={selectedAccount ? `${selectedAccount.code} — ${selectedAccount.nameAr}` : ""}
+        title={selectedAccount ? `${selectedAccount.code} — ${nameOf(selectedAccount)}` : ""}
         description={selectedAccount ? t(TYPE_KEY[selectedAccount.type]) : undefined}
       >
         {selectedAccount ? (
@@ -566,7 +569,7 @@ export function ChartOfAccountsScreen() {
               <div className="p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("coa.parentAccount")}</div>
                 <div className="mt-[5px] text-[14px] font-bold text-ink">
-                  {parentOfSelected ? `${parentOfSelected.code} — ${parentOfSelected.nameAr}` : t("coa.noParentRoot")}
+                  {parentOfSelected ? `${parentOfSelected.code} — ${nameOf(parentOfSelected)}` : t("coa.noParentRoot")}
                 </div>
               </div>
             </Card>

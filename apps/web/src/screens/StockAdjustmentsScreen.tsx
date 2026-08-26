@@ -45,6 +45,7 @@ import {
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
@@ -119,6 +120,7 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const { label: domainLabel } = useDomainLabels();
   const [reasonFilter, setReasonFilter] = useState("");
@@ -153,7 +155,7 @@ export function StockAdjustmentsScreen() {
   }
   function itemLabel(id: string): string {
     const item = items.find((i) => i.id === id);
-    return item ? `${item.nameAr} (${item.code})` : id;
+    return item ? `${nameOf(item)} (${item.code})` : id;
   }
 
   // `#/inventory/stock-adjustments` · `…/new` (reason picker, then the form) · `…/<docNo>`
@@ -489,13 +491,14 @@ function AdjustmentLinesTable({ doc, itemLabel }: { doc: StockAdjustmentDocument
 /* GL tab — looks the journal entry up by the adjustment's OWN id        */
 /* -------------------------------------------------------------------- */
 
-function accountLabel(id: string, accounts: readonly AccountDTO[]): string {
+function accountLabel(id: string, accounts: readonly AccountDTO[], nameOf: (a: AccountDTO | undefined) => string): string {
   const account = accounts.find((a) => a.id === id);
-  return account ? account.nameAr : id;
+  return account ? nameOf(account) : id;
 }
 
 function AdjustmentGlTab({ docId }: { docId: string }) {
   const { t } = useAppTranslation();
+  const nameOf = useEntityName();
   const entryQuery = useJournalEntry(docId);
   const accountsQuery = useAccounts();
   const accounts = accountsQuery.data ?? [];
@@ -524,7 +527,7 @@ function AdjustmentGlTab({ docId }: { docId: string }) {
           <tbody>
             {entry.lines.map((l, i) => (
               <tr key={i} className="border-b border-border last:border-b-0">
-                <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId, accounts)}</td>
+                <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId, accounts, nameOf)}</td>
                 <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay value={Number(l.debit)} /> : "—"}</td>
                 <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay value={Number(l.credit)} /> : "—"}</td>
               </tr>
@@ -556,6 +559,7 @@ function CreateAdjustmentView({
   onDone: () => void;
   onBack: () => void;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: reasonLabelOf } = useDomainLabels();
   const reasonLabel = reasonLabelOf(reason);
@@ -578,7 +582,7 @@ function CreateAdjustmentView({
   }
 
   const itemOptions = useMemo(
-    () => [{ value: "", label: t("stockAdj.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: i.nameAr }))],
+    () => [{ value: "", label: t("stockAdj.chooseAnItem") }, ...itemList.filter((i) => i.type !== "service").map((i) => ({ value: i.id, label: nameOf(i) }))],
     [itemList],
   );
   const warehouseOptions = useMemo(() => warehouseList.map((w) => ({ value: w.id, label: w.name })), [warehouseList]);

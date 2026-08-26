@@ -3,6 +3,7 @@ import type { TreasuryAccount, TreasuryAccountRepository, TreasuryAccountStatus,
 import { NegativeCashBalanceError, TreasuryAccountNotFoundError } from "./errors.js";
 
 export interface UpdateTreasuryAccountCommand {
+  readonly nameEn?: string | null;
   readonly name?: string;
   readonly type?: TreasuryAccountType;
   readonly currency?: string;
@@ -36,6 +37,7 @@ export async function updateTreasuryAccount(
   const updated: TreasuryAccount = {
     ...current,
     name: command.name ?? current.name,
+    nameEn: command.nameEn !== undefined ? command.nameEn : current.nameEn,
     type: nextType,
     currency: command.currency ?? current.currency,
     branchId: command.branchId ?? current.branchId,

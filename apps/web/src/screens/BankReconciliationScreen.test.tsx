@@ -10,7 +10,7 @@ import { renderWithProviders, stubTransport, testAdminSession, type StubResult }
 const BANK_ACCOUNT: TreasuryAccountDTO = {
   id: "ta-bank1",
   code: "BANK-001",
-  name: "بنك مصر — الحساب الجاري",
+  name: "بنك مصر — الحساب الجاري", nameEn: null,
   type: "bank",
   currency: "EGP",
   branchId: "BR1",

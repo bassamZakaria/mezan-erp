@@ -29,6 +29,12 @@ export interface TreasuryAccount {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  /**
+   * The English name. Null on records created before the field existed, and on
+   * tenants that never fill it in — every reader falls back to `name`, because
+   * a blank treasury picker is worse than an Arabic one (D51).
+   */
+  readonly nameEn: string | null;
   readonly type: TreasuryAccountType;
   readonly currency: string;
   readonly branchId: string;

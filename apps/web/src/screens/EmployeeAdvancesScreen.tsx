@@ -27,6 +27,7 @@ import {
   useRequestEmployeeAdvance,
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { employeeDisplayName } from "./hr-employee-name";
 
@@ -63,6 +64,7 @@ function blankDraft(): AdvanceDraft {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function EmployeeAdvancesScreen() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
   const balancesQuery = useEmployeeAdvanceBalances();
@@ -398,7 +400,7 @@ export function EmployeeAdvancesScreen() {
                   label={t("advances.treasuryAccount")}
                   value={treasuryAccountId}
                   onChange={setTreasuryAccountId}
-                  options={[{ value: "", label: t("advances.choose") }, ...treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${account.name}` }))]}
+                  options={[{ value: "", label: t("advances.choose") }, ...treasuryAccounts.map((account) => ({ value: account.id, label: `${account.code} — ${nameOf(account)}` }))]}
                 />
                 <SelectField
                   label={t("advances.branch")}

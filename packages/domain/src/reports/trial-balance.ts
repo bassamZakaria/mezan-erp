@@ -28,6 +28,7 @@ export interface TrialBalanceRow {
   readonly accountId: string;
   readonly code: string;
   readonly nameAr: string;
+  readonly nameEn: string | null;
   readonly typeLabel: string;
   readonly debit: number;
   readonly credit: number;
@@ -113,6 +114,7 @@ export function createTrialBalanceReport(
           accountId: account.id,
           code: account.code,
           nameAr: account.nameAr,
+          nameEn: account.nameEn ?? null,
           typeLabel: ACCOUNT_TYPE_LABELS[account.type],
           debit: net > 0 ? net : 0,
           credit: net < 0 ? -net : 0,

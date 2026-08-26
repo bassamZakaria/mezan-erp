@@ -35,7 +35,7 @@ async function newApp() {
   await accounts.create(account("5900", { type: "expense", naturalBalance: "debit" }));
   await accounts.create(account("3100", { type: "equity", naturalBalance: "credit" }));
   await periods.create({ id: "fp-2026-08", year: 2026, periodNumber: 8, startDate: "2026-08-01", endDate: "2026-08-31", status: "open" });
-  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: (await import("@mezan/domain")).Money.zero(), openingBalanceDate: null, status: "active" });
+  await treasury.create({ id: "ta-cash1", code: "CASH-001", name: "صندوق", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: "1300-1", openingBalance: (await import("@mezan/domain")).Money.zero(), openingBalanceDate: null, status: "active" });
   await store.invoices.save({ id: "inv1", invoiceNo: "INV-000001", kind: "sales", partyId: "cust-1", date: "2026-08-10", total: (await import("@mezan/domain")).Money.fromMajor("200"), allocated: (await import("@mezan/domain")).Money.zero() });
 
   idSeq = 0;

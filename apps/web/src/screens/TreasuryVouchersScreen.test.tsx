@@ -21,8 +21,8 @@ const accounts: AccountDTO[] = [
   { id: "4900", code: "4900", nameAr: "إيرادات أخرى", nameEn: null, type: "revenue", naturalBalance: "credit", parentId: null, isHeader: false, status: "active" },
 ];
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي الفرع الرئيسي", type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-1", openingBalance: "50000.000000", openingBalanceDate: "2026-08-01", status: "active" },
-  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الثاني", type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-2", openingBalance: "2000.000000", openingBalanceDate: "2026-08-01", status: "active" },
+  { id: "ta-cash1", code: "CASH-001", name: "صندوق نقدي الفرع الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-1", openingBalance: "50000.000000", openingBalanceDate: "2026-08-01", status: "active" },
+  { id: "ta-cash2", code: "CASH-002", name: "صندوق نقدي الفرع الثاني", nameEn: null, type: "cash", currency: "EGP", branchId: "MAIN", glAccountId: "1300-2", openingBalance: "2000.000000", openingBalanceDate: "2026-08-01", status: "active" },
 ];
 const customers: CustomerDTO[] = [
   {

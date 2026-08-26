@@ -63,6 +63,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { useDomainLabels } from "../lib/domain-labels";
 import { useDebounced } from "../lib/use-debounced";
 import { todayIso } from "../lib/dates";
@@ -161,6 +162,7 @@ function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function TreasuryVouchersScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const customersQuery = useCustomers();
@@ -236,13 +238,13 @@ export function TreasuryVouchersScreen() {
 
   const partyName = useMemo(() => {
     const map = new Map<string, string>();
-    for (const c of customers) map.set(c.id, c.nameAr);
-    for (const s of suppliers) map.set(s.id, s.nameAr);
+    for (const c of customers) map.set(c.id, nameOf(c));
+    for (const s of suppliers) map.set(s.id, nameOf(s));
     return (id: string | null) => (id ? (map.get(id) ?? id) : t("vouchers.noParty"));
   }, [customers, suppliers]);
 
   const treasuryName = useMemo(() => {
-    const map = new Map(treasuryAccounts.map((account) => [account.id, account.name]));
+    const map = new Map(treasuryAccounts.map((account) => [account.id, nameOf(account)]));
     return (id: string) => map.get(id) ?? id;
   }, [treasuryAccounts]);
 
@@ -843,6 +845,7 @@ function CreateVoucherView({
   initialSupplierId?: string | null;
   onDone: () => void;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const createVoucher = useCreateVoucher();
@@ -875,21 +878,21 @@ function CreateVoucherView({
   const def = type ? getVoucherTypeDefinition(type) : null;
 
   const workingLocation = useWorkingLocation();
-  const treasuryOptions = treasuryAccounts.map((account) => ({ value: account.id, label: `${account.name} (${account.code})` }));
+  const treasuryOptions = treasuryAccounts.map((account) => ({ value: account.id, label: `${nameOf(account)} (${account.code})` }));
   const partyOptions: EntityPickerOption[] = def?.requiresCustomer
-    ? customers.map((c) => ({ id: c.id, label: c.nameAr }))
+    ? customers.map((c) => ({ id: c.id, label: nameOf(c) }))
     : def?.requiresSupplier
-      ? suppliers.map((s) => ({ id: s.id, label: s.nameAr }))
+      ? suppliers.map((s) => ({ id: s.id, label: nameOf(s) }))
       : [];
   const costCenterOptions = [
     { value: "", label: t("vouchers.costCenterUnassigned") },
-    ...(costCentersQuery.data ?? []).map((cc) => ({ value: cc.id, label: `${cc.code} — ${cc.nameAr}` })),
+    ...(costCentersQuery.data ?? []).map((cc) => ({ value: cc.id, label: `${cc.code} — ${nameOf(cc)}` })),
   ];
   const revenueOrExpenseOptions =
     type === "other_income"
-      ? accounts.filter((a) => a.type === "revenue").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
+      ? accounts.filter((a) => a.type === "revenue").map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))
       : type === "other_expense"
-        ? accounts.filter((a) => a.type === "expense").map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))
+        ? accounts.filter((a) => a.type === "expense").map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))
         : [];
 
   function treasuryGlOf(id: string): string {

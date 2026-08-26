@@ -12,6 +12,7 @@ export const treasuryAccountSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
   name: z.string().min(1),
+  nameEn: z.string().nullable(),
   type: treasuryAccountTypeSchema,
   currency: z.string().min(1),
   branchId: z.string().min(1),
@@ -25,6 +26,7 @@ export const createTreasuryAccountSchema = z.object({
   id: z.string().min(1),
   code: z.string().min(1),
   name: z.string().min(1),
+  nameEn: z.string().nullable().optional(),
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   branchId: z.string().min(1),
@@ -36,6 +38,7 @@ export const createTreasuryAccountSchema = z.object({
 /** All fields optional — a PATCH applies only what's supplied. Also used for "إضافة رصيد افتتاحي". */
 export const updateTreasuryAccountSchema = z.object({
   name: z.string().min(1).optional(),
+  nameEn: z.string().nullable().optional(),
   type: treasuryAccountTypeSchema.optional(),
   currency: z.string().min(1).optional(),
   branchId: z.string().min(1).optional(),

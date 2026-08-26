@@ -36,6 +36,7 @@ import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 import { majorOf } from "../lib/money";
 
@@ -69,6 +70,7 @@ function blankLine(defaultItemId: string, reason: SalesReturnReasonDTO): LineDra
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function SalesReturnsScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const invoicesQuery = useSalesInvoices();
   const warehousesQuery = useWarehouses();
@@ -506,7 +508,7 @@ export function SalesReturnsScreen() {
                       label={t("salesReturns.refund.treasury")}
                       value={refundTreasuryId}
                       onChange={setRefundTreasuryId}
-                      options={treasuryAccounts.map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }))}
+                      options={treasuryAccounts.map((a) => ({ value: a.id, label: `${nameOf(a)} (${a.code})` }))}
                     />
                   </div>
                   <div className="w-[160px]">

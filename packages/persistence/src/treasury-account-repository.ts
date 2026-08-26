@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS treasury_account (
   id                    TEXT PRIMARY KEY,
   code                  TEXT NOT NULL UNIQUE,
   name                  TEXT NOT NULL,
+  name_en               TEXT,
   type                  TEXT NOT NULL,
   currency              TEXT NOT NULL,
   branch_id             TEXT NOT NULL,
@@ -23,6 +24,7 @@ interface TreasuryAccountRow {
   id: string;
   code: string;
   name: string;
+  name_en: string | null;
   type: string;
   currency: string;
   branch_id: string;
@@ -37,6 +39,7 @@ function toTreasuryAccount(row: TreasuryAccountRow): TreasuryAccount {
     id: row.id,
     code: row.code,
     name: row.name,
+    nameEn: row.name_en,
     type: row.type as TreasuryAccountType,
     currency: row.currency,
     branchId: row.branch_id,
@@ -55,11 +58,12 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO treasury_account (id, code, name, type, currency, branch_id, gl_account_id, opening_balance, opening_balance_date, status)
-      VALUES (@id, @code, @name, @type, @currency, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @status)
+      INSERT INTO treasury_account (id, code, name, name_en, type, currency, branch_id, gl_account_id, opening_balance, opening_balance_date, status)
+      VALUES (@id, @code, @name, @name_en, @type, @currency, @branch_id, @gl_account_id, @opening_balance, @opening_balance_date, @status)
       ON CONFLICT(id) DO UPDATE SET
         code = excluded.code,
         name = excluded.name,
+        name_en = excluded.name_en,
         type = excluded.type,
         currency = excluded.currency,
         branch_id = excluded.branch_id,
@@ -101,6 +105,7 @@ class SqliteTreasuryAccountRepository implements TreasuryAccountRepository {
       id: account.id,
       code: account.code,
       name: account.name,
+      name_en: account.nameEn,
       type: account.type,
       currency: account.currency,
       branch_id: account.branchId,

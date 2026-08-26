@@ -27,6 +27,7 @@ export interface BalanceSheetRow {
   readonly rowId: string;
   readonly code: string;
   readonly nameAr: string;
+  readonly nameEn: string | null;
   readonly sectionKey: string;
   readonly sectionLabel: string;
   /** Natural-balance amount (assets, liabilities and equity all shown positive). */
@@ -123,6 +124,7 @@ export function createBalanceSheetReport(
           rowId: account.id,
           code: account.code,
           nameAr: account.nameAr,
+          nameEn: account.nameEn ?? null,
           sectionKey: section,
           sectionLabel: ACCOUNT_SECTION_LABELS[section],
           amount,
@@ -135,6 +137,7 @@ export function createBalanceSheetReport(
           rowId: "_retained-earnings",
           code: "",
           nameAr: "الأرباح المحتجزة (صافي دخل الفترة)",
+          nameEn: "Retained earnings (net income for the period)",
           sectionKey: "equity",
           sectionLabel: ACCOUNT_SECTION_LABELS.equity,
           amount: retainedEarnings,

@@ -17,6 +17,7 @@ function serialize(account: TreasuryAccount) {
     id: account.id,
     code: account.code,
     name: account.name,
+    nameEn: account.nameEn,
     type: account.type,
     currency: account.currency,
     branchId: account.branchId,
@@ -95,7 +96,7 @@ export function createTreasuryAccountsRoutes(
     else if (status === "cash" || status === "bank") rows = rows.filter((a) => a.type === status);
     const term = search?.trim().toLowerCase();
     if (term) {
-      rows = rows.filter((a) => a.name.toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
+      rows = rows.filter((a) => a.name.toLowerCase().includes(term) || (a.nameEn ?? "").toLowerCase().includes(term) || a.code.toLowerCase().includes(term));
     }
     return rows;
   }

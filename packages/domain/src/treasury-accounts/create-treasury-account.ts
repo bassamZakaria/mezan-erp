@@ -3,6 +3,7 @@ import type { TreasuryAccount, TreasuryAccountRepository, TreasuryAccountType } 
 import { DuplicateTreasuryAccountCodeError, NegativeCashBalanceError } from "./errors.js";
 
 export interface CreateTreasuryAccountCommand {
+  readonly nameEn?: string | null;
   readonly id: string;
   readonly code: string;
   readonly name: string;
@@ -58,6 +59,7 @@ export async function createTreasuryAccount(
     id: command.id,
     code: command.code,
     name: command.name,
+    nameEn: command.nameEn ?? null,
     type,
     currency: command.currency ?? "EGP",
     branchId: command.branchId,

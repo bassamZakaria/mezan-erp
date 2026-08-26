@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { entityName } from "../lib/entity-names";
 import type {
   AgingCustomersRow,
   AgingSuppliersRow,
@@ -102,12 +103,19 @@ export interface ExpenseSlice {
   readonly value: number;
 }
 
-/** Expense accounts (COGS + operating) from the income statement, largest first. Amounts arrive negative. */
-export function expenseSlices(report: FinancialReportResult<IncomeStatementRow> | undefined): ExpenseSlice[] {
+/**
+ * Expense accounts (COGS + operating) from the income statement, largest first.
+ * Amounts arrive negative.
+ *
+ * The label follows the reading language: the row carries the account's own
+ * English name, and rendering `nameAr` unconditionally put Arabic account names
+ * on the English dashboard (D46).
+ */
+export function expenseSlices(report: FinancialReportResult<IncomeStatementRow> | undefined, locale = "ar"): ExpenseSlice[] {
   if (!report) return [];
   return report.rows
     .filter((row) => row.sectionKey !== "revenue")
-    .map((row) => ({ key: row.accountId, label: row.nameAr, value: Math.abs(row.amount) }))
+    .map((row) => ({ key: row.accountId, label: entityName(row, locale, row.code), value: Math.abs(row.amount) }))
     .filter((slice) => slice.value > 0)
     .sort((a, b) => b.value - a.value);
 }

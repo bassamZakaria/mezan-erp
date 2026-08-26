@@ -2,31 +2,45 @@ import { useMemo } from "react";
 import type { ItemCategoryDTO, ItemUnitDTO } from "@mezan/contracts";
 import { useItemCategories, useItemUnits } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { entityName } from "./entity-names";
 
 /**
  * Display labels for the item master-data catalogs (docs/catalog/03). Both
  * units and categories are tenant records served by `/item-units` and
  * `/item-categories`, so a screen that only needs the label resolves it
  * through these hooks instead of holding its own copy of the catalog.
+ *
+ * Both carry `nameEn` and both used to render `nameAr` unconditionally, so the
+ * English UI read "قطعة (PCS)" for a unit whose English name the API was
+ * already serving (D49).
  */
 
-export function unitLabel(code: string, units: readonly ItemUnitDTO[]): string {
-  return units.find((u) => u.code === code)?.nameAr ?? code;
+export function unitLabel(code: string, units: readonly ItemUnitDTO[], locale = "ar"): string {
+  return entityName(units.find((u) => u.code === code), locale, code);
 }
 
-export function categoryLabel(id: string | null, categories: readonly ItemCategoryDTO[], uncategorized: string): string {
+export function categoryLabel(
+  id: string | null,
+  categories: readonly ItemCategoryDTO[],
+  uncategorized: string,
+  locale = "ar",
+): string {
   if (!id) return uncategorized;
-  return categories.find((c) => c.id === id)?.nameAr ?? id;
+  return entityName(categories.find((c) => c.id === id), locale, id);
 }
 
 export function useUnitLabel(): (code: string) => string {
+  const { locale } = useAppTranslation();
   const units = useItemUnits().data ?? [];
-  return useMemo(() => (code: string) => unitLabel(code, units), [units]);
+  return useMemo(() => (code: string) => unitLabel(code, units, locale), [units, locale]);
 }
 
 export function useCategoryLabel(): (id: string | null) => string {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const categories = useItemCategories().data ?? [];
   const uncategorized = t("common.uncategorized");
-  return useMemo(() => (id: string | null) => categoryLabel(id, categories, uncategorized), [categories, uncategorized]);
+  return useMemo(
+    () => (id: string | null) => categoryLabel(id, categories, uncategorized, locale),
+    [categories, uncategorized, locale],
+  );
 }

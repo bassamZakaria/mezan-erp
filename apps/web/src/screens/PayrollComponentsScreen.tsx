@@ -16,6 +16,7 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useAccounts } from "../data/hooks";
 import { useCreatePayrollComponent, usePayrollComponents, useUpdatePayrollComponent } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 
 /**
  * مكوّنات الرواتب (Payroll components) — R10.7. The registry a contract's
@@ -57,6 +58,7 @@ function draftOf(component: PayrollComponentDTO): ComponentDraft {
 }
 
 export function PayrollComponentsScreen() {
+  const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const query = usePayrollComponents();
   const accountsQuery = useAccounts();
@@ -81,7 +83,7 @@ export function PayrollComponentsScreen() {
         .filter((account) => !account.isHeader && account.status === "active")
         .map((account) => ({
           id: account.id,
-          label: `${account.code} — ${locale === "ar" ? account.nameAr : (account.nameEn ?? account.nameAr)}`,
+          label: `${account.code} — ${nameOf(account)}`,
         })),
     [accounts, locale],
   );
@@ -160,7 +162,7 @@ export function PayrollComponentsScreen() {
     {
       key: "name",
       header: t("payrollComponents.componentName"),
-      render: (row) => <span className="font-semibold text-ink">{locale === "ar" ? row.nameAr : (row.nameEn ?? row.nameAr)}</span>,
+      render: (row) => <span className="font-semibold text-ink">{nameOf(row)}</span>,
     },
     { key: "kind", header: t("payrollComponents.kind"), render: (row) => t(KIND_KEY[row.kind]) },
     { key: "account", header: t("payrollComponents.glAccount"), render: (row) => <span className="text-ink">{accountLabel(row.glAccountId)}</span> },

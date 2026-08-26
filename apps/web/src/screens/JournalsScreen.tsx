@@ -33,6 +33,7 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
@@ -105,6 +106,7 @@ function blankLine(): LineDraft {
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function JournalsScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
   const createJournalEntry = useCreateJournalEntry();
@@ -141,7 +143,7 @@ export function JournalsScreen() {
   const stats = useJournalEntryStats(filter).data ?? {};
 
   const accountLabel = useMemo(() => {
-    const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
+    const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${nameOf(a)}`]));
     return (id: string) => map.get(id) ?? id;
   }, [accounts]);
 
@@ -204,7 +206,7 @@ export function JournalsScreen() {
     return (
       <CreateJournalView
         onPost={(body) => createJournalEntry.mutateAsync(body)}
-        accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${a.nameAr}` }))}
+        accountOptions={accounts.map((a) => ({ value: a.id, label: `${a.code} — ${nameOf(a)}` }))}
         onDone={() => setMode("list")}
       />
     );

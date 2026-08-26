@@ -84,6 +84,7 @@ async function seedTreasuryAccountAndWarehouse(app: App): Promise<void> {
     id: VAN_TREASURY_ID,
     code: "CASH-VAN-1",
     name: "عهدة نقدية - عربة التوزيع",
+    nameEn: "Van Cash Custody",
     type: "cash",
     currency: "EGP",
     branchId: BRANCH_ID,

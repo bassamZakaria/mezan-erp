@@ -13,6 +13,7 @@ import type { TrialBalanceRow } from "@mezan/domain";
 import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 
 /**
@@ -60,6 +61,7 @@ function toMajor(scaledDecimalString: string): number {
 interface TreasuryAccountDraft {
   code: string;
   name: string;
+  nameEn: string;
   type: TreasuryAccountTypeDTO;
   currency: string;
   branchId: string;
@@ -73,6 +75,7 @@ function blankDraft(branches: BranchDTO[]): TreasuryAccountDraft {
   return {
     code: "",
     name: "",
+    nameEn: "",
     type: "cash",
     currency: "EGP",
     branchId: branches[0]?.id ?? "",
@@ -87,6 +90,7 @@ function draftFromAccount(account: TreasuryAccountDTO): TreasuryAccountDraft {
   return {
     code: account.code,
     name: account.name,
+    nameEn: account.nameEn ?? "",
     type: account.type,
     currency: account.currency,
     branchId: account.branchId,
@@ -114,6 +118,7 @@ function validateDraft(draft: TreasuryAccountDraft, existing: TreasuryAccountDTO
 
 export function TreasuryAccountsScreen() {
   const { t } = useAppTranslation();
+  const nameOf = useEntityName();
   const query = useTreasuryAccounts();
   const branchesQuery = useBranches();
   const createTreasuryAccount = useCreateTreasuryAccount();
@@ -206,6 +211,7 @@ export function TreasuryAccountsScreen() {
     const fields = {
       code: draft.code.trim(),
       name: draft.name.trim(),
+      nameEn: draft.nameEn.trim() === "" ? null : draft.nameEn.trim(),
       type: draft.type,
       currency: draft.currency,
       branchId: draft.branchId,
@@ -231,7 +237,7 @@ export function TreasuryAccountsScreen() {
       header: t("treasuryAcc.accountName"),
       render: (a) => (
         <div>
-          <div className="font-semibold text-ink">{a.name}</div>
+          <div className="font-semibold text-ink">{nameOf(a)}</div>
           <div className="mz-num mt-[2px] text-[11px] text-ink-faint">
             {a.code} · {branchName(a.branchId, branches)}
           </div>
@@ -465,6 +471,7 @@ export function TreasuryAccountsScreen() {
           ) : null}
 
           <TextField label={t("treasuryAcc.accountName2")} value={draft.name} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+          <TextField label={t("treasuryAcc.accountNameEn")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
           <TextField label={t("treasuryAcc.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} placeholder="CASH-003" />
           <SelectField
             label={t("treasuryAcc.accountType2")}

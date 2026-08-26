@@ -18,8 +18,8 @@ const warehouses: WarehouseDTO[] = [
 ];
 
 const treasuryAccounts: TreasuryAccountDTO[] = [
-  { id: "ta-van1", code: "CASH-VAN1", name: "خزينة الڤان", type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
-  { id: "ta-main1", code: "CASH-001", name: "الصندوق الرئيسي", type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
+  { id: "ta-van1", code: "CASH-VAN1", name: "خزينة الڤان", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
+  { id: "ta-main1", code: "CASH-001", name: "الصندوق الرئيسي", nameEn: null, type: "cash", currency: "EGP", branchId: "b1", glAccountId: null, openingBalance: "0.000000", openingBalanceDate: null, status: "active" },
 ];
 
 const branches: BranchDTO[] = [

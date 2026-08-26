@@ -444,8 +444,17 @@ export async function run(ctx: Ctx): Promise<void> {
     check("/financial-reports/income-statement responds", inc.ok, `status ${inc.status}`);
     if (dash.ok && inc.ok) {
       const incRows = rows(inc.body);
-      const revenue = incRows.filter((r: any) => r.sectionKey === "revenue").reduce((sum: number, r: any) => sum + Math.abs(n(r.amount)), 0);
-      const expenses = incRows.filter((r: any) => r.sectionKey !== "revenue").reduce((sum: number, r: any) => sum + Math.abs(n(r.amount)), 0);
+      /**
+       * Summed SIGNED, then negated for the expense side — not `Math.abs`.
+       * The report renders a debit negative, and an expense account is allowed
+       * to carry a credit balance: 5075 تسويات مخزون أخرى is a variance account
+       * that is debited on a shortfall and CREDITED on an overage, so a stock
+       * gain is a negative expense. Taking magnitudes turned that credit into a
+       * second debit and put the two figures 2× the overage apart, which read
+       * as a dashboard defect and was an arithmetic error in this assertion.
+       */
+      const revenue = incRows.filter((r: any) => r.sectionKey === "revenue").reduce((sum: number, r: any) => sum + n(r.amount), 0);
+      const expenses = -incRows.filter((r: any) => r.sectionKey !== "revenue").reduce((sum: number, r: any) => sum + n(r.amount), 0);
       checkEq("dashboard gl.revenue = income-statement revenue section", n(dash.body?.gl?.revenue), revenue);
       checkEq("dashboard gl.expenses = income-statement non-revenue sections (also DSH-07's expense-donut total)", n(dash.body?.gl?.expenses), expenses);
       checkEq("dashboard gl.netProfit = revenue - expenses", n(dash.body?.gl?.netProfit), revenue - expenses);

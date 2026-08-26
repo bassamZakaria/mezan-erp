@@ -252,6 +252,14 @@ evidence (`valueDiff 2400`) was reading.
 | F39–D40 | remaining customer credit is now measured against what the customer owes today, not their opening balance | this commit |
 | F39–D39 | the suppliers list now reports the live payable — opening balance plus confirmed invoices, less voucher payments, confirmed returns and issued cheques. Measured: 112,076.00 against GL 2100's 114,576.00, the 2,500.00 difference being D42's supplier-less landed cost | this commit |
 | F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
+| F13 | **The new-invoice form wiped everything the user had typed** whenever the branch or warehouse query resolved or refetched — it called `resetForm()` from an effect keyed on both lists. Now seeds only the location fields, and only when they are still empty | `e6f6598` |
+| F14 | **EntityPicker rendered a chosen entity as the input's placeholder**, in faint placeholder ink, so a bound picker read as empty everywhere it is used | `e6f6598` |
+| F15 | **A pending screen intent was delivered to whichever screen was mounted**, not the one it named — the hash change is async — so «تحصيل» on an invoice row fired the invoice screen's own create handler and opened a new invoice instead of a receipt voucher. Intents now carry their target screen | `5c2a364` |
+| F16 | **Sales returns and installment plans silently defaulted to `invoices[0]`** — opening «مرتجع جديد» pointed the return at whichever invoice sorted first, so a user who did not notice returned goods against the wrong document. Both pickers now start empty unless a caller supplied a source | `5c2a364` |
+| F17 | **Voucher types, payment methods and gateable action types had Arabic labels only** and rendered Arabic inside the English UI. All three gain `labelEn`, read through a shared `useDomainLabels()` | `5c2a364`, `a7b8b04` |
+| F18 | **The sales-invoice detail printed a grand total with no subtotal or tax line**, though both were computed and stored — the reader could not see the arithmetic behind the number | `6286a42` |
+| F19 | **The sales-returns list had no filters at all**, and its source-invoice column read a denormalised number that is null on some rows, showing "—" for a return that plainly has a source | `d938354` |
+| F20 | **Invoice lines ignored the customer's price list.** A wholesale customer was quoted their list price and invoiced at the retail one — the quote form applied the list, the invoice form read `item.salePrice`. Measured: أرز أبيض now opens at 168.00 for CUST-DEMO-2, not 180.00 | `5d961f4` |
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.

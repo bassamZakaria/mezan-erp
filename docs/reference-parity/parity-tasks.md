@@ -23,20 +23,20 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **D44 / R6.7** Cost centres get their own columns + "create from departments"
 - [ ] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
 - [ ] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
-- [ ] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
+- [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 
 ## P1 — shell and navigation
 
-- [ ] **A1** Third nav level: extend `NavGroup` in `packages/ui/src/shell/types.ts`, render sub-groups, regroup `nav-config.tsx`
-  - [ ] التقارير → المبيعات / المشتريات / المخزون / التصنيع / الأعمار / الأقساط
-  - [ ] المخزون → المنتجات / الحركات · التصنيع → الإنتاج / التعريفات
-  - [ ] الإعدادات → عام / المستخدمون / الفروع والمستودعات / سير العمل / الطباعة / التكاملات
-  - [ ] المحاسبة → التعريفات / الدورة / التقارير · الموارد البشرية → الموظفون / الحضور والإجازات / الرواتب
+- [x] **A1** Third nav level: extend `NavGroup` in `packages/ui/src/shell/types.ts`, render sub-groups, regroup `nav-config.tsx`
+  - [x] التقارير → المبيعات / المشتريات / المخزون / التصنيع / الأعمار / الأقساط
+  - [x] المخزون → المنتجات / الحركات · التصنيع → الإنتاج / التعريفات
+  - [x] الإعدادات → عام / المستخدمون / الفروع والمستودعات / سير العمل / الطباعة / التكاملات
+  - [x] المحاسبة → التعريفات / الدورة / التقارير · الموارد البشرية → الموظفون / الحضور والإجازات / الرواتب
 - [ ] **R1.5** Ctrl+K command palette: quick actions + go-to
 - [ ] **R1.6** Notification centre (all / unread, mark all read)
 - [ ] **R1.14** Branch and warehouse as a global header scope
 - [ ] **R1.9** Attention banners on lists (overdue, out of stock, drafts) that apply the filter when clicked
-- [ ] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
+- [~] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
 - [ ] **R1.7 / R1.8** System-status indicator and support entry point
 
 ## P2 — reports engine
@@ -56,18 +56,18 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R2.3** Live available-stock and out-of-stock badge per line
 - [ ] **R2.4** Per-line unit of measure with conversion
 - [ ] **R2.5** Per-line and per-document discount type (percentage / fixed)
-- [ ] **R2.7** Totals block: add subtotal and tax lines; keep our return-adjusted net
+- [x] **R2.7** Totals block: subtotal and tax lines added, return-adjusted net kept
 - [ ] **R2.8** Three-card "effects of this document" explainer including "no automatic collection"
 - [ ] **R1.4** Attachments across documents and entities
-- [ ] **R1.3** State-dependent row overflow menus everywhere
-- [ ] **R2.11** Cross-document creation from row menus and detail tabs
-- [ ] **R3.4** Sales-invoice detail: add installments and attachments tabs; add تحصيل, new return, new installment plan, submit-to-ETA actions
+- [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices — roll out to the rest)
+- [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
+- [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open
 - [ ] **R4.4** Purchase-invoice detail: add landed-costs and attachments tabs; consumed/received per line; inline pay action
 - [ ] **R2.6** Coupon codes · **R2.9** quick-preview panel · **R2.10** share document
 
 ## P4 — entity 360
 
-- [ ] **R3.6** Customer 360: statement of account, installments, returns, attachments, audit log, and the create-invoice / collect / new-quote action bar
+- [~] **R3.6** Customer 360: statement already existed; action bar done; installments/returns/attachments/audit tabs still open
 - [ ] **R4.5** Supplier 360: supplier statement and the purchase-side action bar
 - [ ] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
 - [ ] **R5.6** Reserved stock per warehouse
@@ -92,7 +92,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] VAT enable / default rate / inclusive vs exclusive / depreciation in month of acquisition
   - [ ] email SMTP + test send + template
   - [ ] multi-currency enable, allowed currencies, missing-rate policy, numeral system, fiscal-year start
-- [ ] **R12.1** Approvals: inbox / my requests / my actions
+- [x] **R12.1** Approvals: inbox / my requests / my actions, with the document-type filter (R14.1)
 - [ ] **R3.8** Customer form advanced options (logo, registrations, tax-exempt, entity type, contact)
 - [ ] **R3.9** Sales return: per-line reason, awaiting-refund state, refund action
 - [ ] **R3.11 / R3.12** Price-list min-quantity tiers; promotion types, caps, priority, bundles

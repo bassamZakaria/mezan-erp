@@ -6736,6 +6736,8 @@ const webAr = {
   // R1.3 / R2.11 — قوائم الإجراءات على بقية الشاشات
   "quotes.row.view": "فتح العرض",
   "quotes.row.actionsFor": "إجراءات {doc}",
+  "common.rowActionsFor": "إجراءات {name}",
+  "common.markRead": "تعليم كمقروء",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -13477,6 +13479,8 @@ const webEn: Record<WebTranslationKey, string> = {
   // R1.3 / R2.11 — state-dependent row menus on the remaining list screens
   "quotes.row.view": "Open quote",
   "quotes.row.actionsFor": "Actions for {doc}",
+  "common.rowActionsFor": "Actions for {name}",
+  "common.markRead": "Mark as read",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

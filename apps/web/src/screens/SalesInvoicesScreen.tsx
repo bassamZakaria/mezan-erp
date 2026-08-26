@@ -1237,8 +1237,9 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-start text-ink-muted">
                             {unitLabel(l.unitCode ?? "")}
                             {(l.unitFactor ?? 1) !== 1 ? (
-                              <span className="mz-num block text-[11px] text-ink-faint">
-                                = <QtyDisplay value={l.baseQty ?? l.qty} />
+                              <span className="block text-[11px] text-ink-faint">
+                                = <QtyDisplay value={l.baseQty ?? l.qty} />{" "}
+                                {unitLabel(items.find((i) => i.id === l.itemId)?.baseUnitCode ?? "")}
                               </span>
                             ) : null}
                           </td>

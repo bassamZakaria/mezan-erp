@@ -241,3 +241,6 @@ export { normalizeForSearch, matchesSearch } from "./search/arabic.js";
 
 /** Filed VAT returns — the lock that stops a backdated document restating a submitted return. */
 export * from "./tax/vat-filing.js";
+
+/** المرفقات — files attached to a document or an entity (R1.4). */
+export * from "./attachments/index.js";

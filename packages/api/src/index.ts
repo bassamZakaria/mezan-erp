@@ -53,3 +53,4 @@ export { createNotificationsRoutes } from "./notifications-routes.js";
 export { createItemUnitsRoutes, createItemCategoriesRoutes } from "./item-catalog-routes.js";
 export { createItemSpecificationsRoutes, type ItemSpecificationsRoutesDeps } from "./item-specifications-routes.js";
 export { createHrPayrollRoutes, type HrPayrollRoutesDeps } from "./hr-payroll-routes.js";
+export { createAttachmentsRoutes, type AttachmentsRoutesDeps } from "./attachments-routes.js";

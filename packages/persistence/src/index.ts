@@ -292,3 +292,9 @@ export { createSqliteAccountRoutingStore } from "./account-routing-store.js";
 export { createSqliteTaxGroupStore } from "./tax-group-store.js";
 
 export { createSqliteVatFilingStore } from "./vat-filing-store.js";
+
+export {
+  createSqliteAttachmentRepository,
+  createSqliteAttachmentStore,
+  type SqliteAttachmentStoreHandle,
+} from "./attachment-store.js";

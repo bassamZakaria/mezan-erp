@@ -54,6 +54,8 @@ import {
   createPurchaseOrderSchema,
   createGoodsReceiptSchema,
   createPurchaseInvoiceSchema,
+  purchaseInvoiceListQuerySchema,
+  type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
 import {
   createPermissionGate,
@@ -420,10 +422,151 @@ export function createPurchasesRoutes(
     return out;
   }
 
+  function parseInvoiceListQuery(c: Context) {
+    return purchaseInvoiceListQuerySchema.safeParse({
+      status: c.req.query("status"),
+      supplierId: c.req.query("supplierId"),
+      fromDate: c.req.query("fromDate"),
+      toDate: c.req.query("toDate"),
+      branchId: c.req.query("branchId"),
+      warehouseId: c.req.query("warehouseId"),
+      search: c.req.query("search"),
+    });
+  }
+
+  interface FilteredInvoices {
+    readonly rows: readonly PurchaseInvoice[];
+    readonly allocations: ReadonlyMap<string, Money>;
+  }
+
+  /**
+   * The payment states the list filters and counts by. They are derived from
+   * the allocation sub-ledger — the only place a supplier payment is recorded
+   * — rather than stored on the invoice, so they must be computed in exactly
+   * one place or the rows, the chips and the KPI strip will disagree.
+   */
+  function paymentStateOf(inv: PurchaseInvoice, allocated: Money, today: string, horizon: string) {
+    const total = purchaseInvoiceTotal(inv);
+    const remaining = total.scaled - allocated.scaled;
+    const live = inv.status === "confirmed";
+    const settled = remaining <= 0n;
+    return {
+      overdue: live && !settled && inv.dueDate !== null && inv.dueDate < today,
+      dueSoon: live && !settled && inv.dueDate !== null && inv.dueDate >= today && inv.dueDate <= horizon,
+      partiallyPaid: live && allocated.scaled > 0n && !settled,
+      paid: live && settled,
+    };
+  }
+
+  function paymentHorizon(today: string): string {
+    const base = new Date(`${today}T00:00:00.000Z`);
+    return new Date(base.getTime() + 7 * 86_400_000).toISOString().slice(0, 10);
+  }
+
+  async function listFilteredInvoices(c: Context, filter: PurchaseInvoiceListQueryDTO): Promise<FilteredInvoices> {
+    let rows = withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId);
+    const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
+    if (supplierId) rows = rows.filter((inv) => inv.supplierId === supplierId);
+    if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
+    if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
+    if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
+    if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);
+    const term = search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (inv) =>
+          inv.number.toLowerCase().includes(term) || (inv.supplierInvoiceNumber ?? "").toLowerCase().includes(term),
+      );
+    }
+
+    const allocations = await allocatedByInvoice(rows.map((i) => i.id));
+    if (status && status !== "all") {
+      const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+      const horizon = paymentHorizon(today);
+      rows = rows.filter((inv) => {
+        const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), today, horizon);
+        switch (status) {
+          case "overdue":
+            return state.overdue;
+          case "due_soon":
+            return state.dueSoon;
+          case "partially_paid":
+            return state.partiallyPaid;
+          case "paid":
+            return state.paid;
+          default:
+            return inv.status === status;
+        }
+      });
+    }
+    return { rows, allocations };
+  }
+
   app.get("/invoices", gate("purchases.invoice.view"), async (c) => {
-    const invoices = withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId);
-    const allocations = await allocatedByInvoice(invoices.map((i) => i.id));
-    return c.json(invoices.map((inv) => serializeInvoice(inv, allocations.get(inv.id))));
+    const parsed = parseInvoiceListQuery(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
+    return c.json(rows.map((inv) => serializeInvoice(inv, allocations.get(inv.id))));
+  });
+
+  /** Chip counts over the whole filtered set, ignoring the status filter (R1.1). */
+  app.get("/invoices/counts", gate("purchases.invoice.view"), async (c) => {
+    const parsed = parseInvoiceListQuery(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const { status: _ignored, ...withoutStatus } = parsed.data;
+    const { rows, allocations } = await listFilteredInvoices(c, withoutStatus);
+    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    const horizon = paymentHorizon(today);
+
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      confirmed: 0,
+      cancelled: 0,
+      overdue: 0,
+      due_soon: 0,
+      partially_paid: 0,
+      paid: 0,
+    };
+    for (const inv of rows) {
+      counts[inv.status] = (counts[inv.status] ?? 0) + 1;
+      const state = paymentStateOf(inv, allocations.get(inv.id) ?? Money.zero(), today, horizon);
+      if (state.overdue) counts.overdue! += 1;
+      if (state.dueSoon) counts.due_soon! += 1;
+      if (state.partiallyPaid) counts.partially_paid! += 1;
+      if (state.paid) counts.paid! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /** The KPI strip, summed in `Money` over the whole filtered set (R1.1). */
+  app.get("/invoices/stats", gate("purchases.invoice.view"), async (c) => {
+    const parsed = parseInvoiceListQuery(c);
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    const { rows, allocations } = await listFilteredInvoices(c, parsed.data);
+
+    let purchases = Money.zero();
+    let paid = Money.zero();
+    let unpaid = Money.zero();
+    let count = 0;
+    for (const inv of rows) {
+      if (inv.status !== "confirmed") continue;
+      const total = purchaseInvoiceTotal(inv);
+      const allocated = allocations.get(inv.id) ?? Money.zero();
+      count += 1;
+      purchases = purchases.add(total);
+      paid = paid.add(allocated);
+      // A credit balance on one invoice must not cancel what another still
+      // owes — "unpaid" is what is outstanding, not a net position.
+      const remaining = total.scaled - allocated.scaled;
+      if (remaining > 0n) unpaid = unpaid.add(Money.fromScaled(remaining));
+    }
+    return c.json({
+      count,
+      purchases: purchases.toString(),
+      paid: paid.toString(),
+      unpaid: unpaid.toString(),
+    });
   });
 
   app.get("/invoices/:id", gate("purchases.invoice.view"), async (c) => {

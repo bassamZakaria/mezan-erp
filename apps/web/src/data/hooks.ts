@@ -156,6 +156,8 @@ import type {
   PromotionUsageRowDTO,
   SalesInvoiceListQueryDTO,
   SalesInvoiceStatsDTO,
+  PurchaseInvoiceListQueryDTO,
+  PurchaseInvoiceStatsDTO,
   ListCountsDTO,
   SalesReturnDocumentDTO,
   SessionDTO,
@@ -1622,16 +1624,62 @@ export function useConfirmGoodsReceipt() {
 }
 
 /** فواتير المشتريات (docs/catalog/02) — list, create (manual or from a confirmed receipt), confirm. */
-export function usePurchaseInvoices(): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
+/** The one place the purchase-invoice filters become a query string (R1.1). */
+function purchaseInvoiceParams(filter: PurchaseInvoiceListQueryDTO): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status) params.set("status", filter.status);
+  if (filter.supplierId) params.set("supplierId", filter.supplierId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
+export function usePurchaseInvoices(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<PurchaseInvoiceDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseInvoiceDTO[], ApiError>({
-    queryKey: ["purchase-invoices"],
+    queryKey: ["purchase-invoices", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/purchases/invoices");
+      const qs = purchaseInvoiceParams(filter).toString();
+      const res = await request(`/purchases/invoices${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
       return res.json<PurchaseInvoiceDTO[]>();
+    },
+  });
+}
+
+/** Chip counts; the status filter is withheld so every chip reports its own total. */
+export function usePurchaseInvoiceCounts(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["purchase-invoices", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseInvoiceParams(rest).toString();
+      const res = await request(`/purchases/invoices/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+export function usePurchaseInvoiceStats(filter: PurchaseInvoiceListQueryDTO = {}): UseQueryResult<PurchaseInvoiceStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PurchaseInvoiceStatsDTO, ApiError>({
+    queryKey: ["purchase-invoices", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseInvoiceParams(filter).toString();
+      const res = await request(`/purchases/invoices/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      return res.json<PurchaseInvoiceStatsDTO>();
     },
   });
 }

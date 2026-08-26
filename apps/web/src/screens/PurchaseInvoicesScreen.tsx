@@ -15,18 +15,28 @@ import {
   type EntityPickerOption,
   Qty as QtyDisplay,
 } from "@mezan/ui";
-import type { GoodsReceiptDTO, PurchaseInvoiceDTO, PurchaseInvoiceLineDTO, PurchaseInvoiceStatusDTO } from "@mezan/contracts";
+import type {
+  GoodsReceiptDTO,
+  PurchaseInvoiceDTO,
+  PurchaseInvoiceLineDTO,
+  PurchaseInvoiceListQueryDTO,
+  PurchaseInvoiceStatusDTO,
+} from "@mezan/contracts";
 import {
   useConfirmPurchaseInvoice,
   useCreatePurchaseInvoice,
   useGoodsReceipts,
   useItems,
   usePurchaseInvoices,
+  usePurchaseInvoiceCounts,
+  usePurchaseInvoiceStats,
   useSuppliers,
   useUsers,
   useBranches,
   useWarehouses,
 } from "../data/hooks";
+import { majorOf } from "../lib/money";
+import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
@@ -162,14 +172,12 @@ function InvoiceDetail({
 export function PurchaseInvoicesScreen() {
   const { t } = useAppTranslation();
   const workingLocation = useWorkingLocation();
-  const query = usePurchaseInvoices();
   const receiptsQuery = useGoodsReceipts();
   const suppliersQuery = useSuppliers();
   const itemsQuery = useItems();
   const createInvoice = useCreatePurchaseInvoice();
   const confirmInvoice = useConfirmPurchaseInvoice();
 
-  const invoices = query.data ?? [];
   const receipts = receiptsQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
   const items = itemsQuery.data ?? [];
@@ -204,6 +212,30 @@ export function PurchaseInvoicesScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
   const [search, setSearch] = useState("");
+
+  /**
+   * One filter object drives the rows, the chip counts and the KPI strip
+   * (R1.1). They used to be three separate derivations — the KPI memo ran over
+   * every invoice the server had sent while the table was narrowed on the
+   * client, so choosing a supplier or a date range never moved the totals.
+   */
+  const debouncedSearch = useDebounced(search);
+  const listFilter: PurchaseInvoiceListQueryDTO = useMemo(
+    () => ({
+      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...(supplierFilter ? { supplierId: supplierFilter } : {}),
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+      ...(branchFilter ? { branchId: branchFilter } : {}),
+      ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
+      ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+    }),
+    [statusFilter, supplierFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch],
+  );
+  const query = usePurchaseInvoices(listFilter);
+  const counts = usePurchaseInvoiceCounts(listFilter).data ?? {};
+  const stats = usePurchaseInvoiceStats(listFilter).data ?? null;
+  const invoices = query.data ?? [];
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -261,49 +293,25 @@ export function PurchaseInvoicesScreen() {
     };
   }, []);
 
-  const filtered = useMemo(() => {
-    let rows = invoices;
-    if (statusFilter === "overdue") rows = rows.filter(payment.overdue);
-    else if (statusFilter === "due_soon") rows = rows.filter(payment.dueSoon);
-    else if (statusFilter === "partially_paid") rows = rows.filter(payment.partiallyPaid);
-    else if (statusFilter === "paid") rows = rows.filter(payment.paid);
-    else if (statusFilter !== "all") rows = rows.filter((inv) => inv.status === statusFilter);
-    if (branchFilter) rows = rows.filter((inv) => inv.branchId === branchFilter);
-    if (warehouseFilter) rows = rows.filter((inv) => inv.warehouseId === warehouseFilter);
-    if (supplierFilter) rows = rows.filter((inv) => inv.supplierId === supplierFilter);
-    if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
-    if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((inv) => inv.number.toLowerCase().includes(q) || supplierName(inv.supplierId).includes(search.trim()));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [invoices, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate, payment]);
+  const filtered = useMemo(() => [...invoices].sort((a, b) => b.number.localeCompare(a.number)), [invoices]);
 
-  const money = useMemo(() => {
-    let purchases = 0;
-    let paid = 0;
-    let unpaid = 0;
-    for (const inv of invoices) {
-      if (inv.status !== "confirmed") continue;
-      purchases += num(inv.total);
-      paid += num(inv.amountPaid);
-      unpaid += Math.max(0, num(inv.remainingBalance));
-    }
-    return { purchases, paid, unpaid };
-  }, [invoices]);
+  const money = {
+    purchases: majorOf(stats?.purchases),
+    paid: majorOf(stats?.paid),
+    unpaid: majorOf(stats?.unpaid),
+  };
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: invoices.length },
-    { key: "overdue", label: t("purchaseInvoices.status.overdue"), count: invoices.filter(payment.overdue).length },
-    { key: "due_soon", label: t("purchaseInvoices.status.dueSoon"), count: invoices.filter(payment.dueSoon).length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "overdue", label: t("purchaseInvoices.status.overdue"), count: counts.overdue ?? 0 },
+    { key: "due_soon", label: t("purchaseInvoices.status.dueSoon"), count: counts.due_soon ?? 0 },
     ...(Object.keys(STATUS_KEY) as PurchaseInvoiceStatusDTO[]).map((s) => ({
       key: s,
       label: t(STATUS_KEY[s]),
-      count: invoices.filter((inv) => inv.status === s).length,
+      count: counts[s] ?? 0,
     })),
-    { key: "partially_paid", label: t("purchaseInvoices.status.partiallyPaid"), count: invoices.filter(payment.partiallyPaid).length },
-    { key: "paid", label: t("purchaseInvoices.status.paid"), count: invoices.filter(payment.paid).length },
+    { key: "partially_paid", label: t("purchaseInvoices.status.partiallyPaid"), count: counts.partially_paid ?? 0 },
+    { key: "paid", label: t("purchaseInvoices.status.paid"), count: counts.paid ?? 0 },
   ];
 
   const columns: DocumentListColumn<PurchaseInvoiceDTO>[] = [

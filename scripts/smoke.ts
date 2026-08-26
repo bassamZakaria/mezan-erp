@@ -57,6 +57,8 @@ const READ_PATHS = [
   "/sales-quotes",
   "/sales-returns",
   "/purchases/invoices",
+  "/purchases/invoices/counts",
+  "/purchases/invoices/stats",
   "/purchases/orders",
   "/purchases/receipts",
   "/purchase-returns",

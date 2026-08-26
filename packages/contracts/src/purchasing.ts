@@ -280,3 +280,37 @@ export type RfqQuoteLineDTO = z.infer<typeof rfqQuoteLineSchema>;
 export type RfqQuoteDTO = z.infer<typeof rfqQuoteSchema>;
 export type CreateRfqQuoteDTO = z.infer<typeof createRfqQuoteSchema>;
 export type ConvertRfqDTO = z.infer<typeof convertRfqSchema>;
+
+/**
+ * The purchase-invoice list's filter set. `overdue`, `due_soon` and
+ * `partially_paid` are payment states derived from the allocation sub-ledger,
+ * not stored statuses — they are resolved server-side so the rows, the chip
+ * counts and the KPI strip cannot each define them differently (R1.1, R4.1).
+ */
+export const purchaseInvoiceFilterKeySchema = z.union([
+  purchaseInvoiceStatusSchema,
+  z.enum(["all", "overdue", "due_soon", "partially_paid", "paid"]),
+]);
+
+export const purchaseInvoiceListQuerySchema = z.object({
+  status: purchaseInvoiceFilterKeySchema.optional(),
+  supplierId: z.string().optional(),
+  fromDate: z.string().optional(),
+  toDate: z.string().optional(),
+  branchId: z.string().optional(),
+  warehouseId: z.string().optional(),
+  /** Free-text over the document number and the supplier's own invoice number. */
+  search: z.string().optional(),
+});
+
+/** `GET /purchases/invoices/stats` — the KPI strip, summed in `Money`. */
+export const purchaseInvoiceStatsSchema = z.object({
+  count: z.number(),
+  purchases: z.string(),
+  paid: z.string(),
+  unpaid: z.string(),
+});
+
+export type PurchaseInvoiceFilterKeyDTO = z.infer<typeof purchaseInvoiceFilterKeySchema>;
+export type PurchaseInvoiceListQueryDTO = z.infer<typeof purchaseInvoiceListQuerySchema>;
+export type PurchaseInvoiceStatsDTO = z.infer<typeof purchaseInvoiceStatsSchema>;

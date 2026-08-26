@@ -308,6 +308,14 @@ const SALES_INVOICES = [
 
 const VAT_PERCENT = 14;
 
+/** EGS codes registered with the authority for part of the catalogue. */
+const ETA_ITEM_CODES = [
+  { itemId: "ITEM-DEMO-1", etaItemCode: "EG-100200300-1001", gpcCode: "10000159" },
+  { itemId: "ITEM-DEMO-2", etaItemCode: "EG-100200300-1002", gpcCode: "10000165" },
+  { itemId: "ITEM-DEMO-3", etaItemCode: "EG-100200300-1003", gpcCode: "10000172" },
+  { itemId: "ITEM-DEMO-4", etaItemCode: "EG-100200300-1004", gpcCode: "10000184" },
+];
+
 function salespersonNameOf(employeeId: string | null): string | null {
   if (employeeId === null) return null;
   const person = SALESPEOPLE.find((p) => p.id === employeeId);
@@ -451,6 +459,39 @@ export async function seedDemoTenant(app: App): Promise<void> {
   }
 
   await seedConfigurableProduct(app);
+
+  // The tenant's e-invoicing registration, seeded BEFORE the sales invoices
+  // below: a confirm queues its ETA submission there and then, and the payload
+  // it builds carries whatever codes are registered at that moment. Deliberately
+  // partial — four items carry an EGS code and the rest do not, no unit is
+  // mapped yet, and the VAT rate is still on "auto" — so the readiness meter,
+  // the "unmapped" filter and تطبيق الاقتراحات all have something real to act on.
+  await step(app, "PUT", "/eta/config", {
+    environment: "preproduction",
+    taxRegistrationNumber: "100200300",
+    activityCode: "4610",
+    address: {
+      governorate: "القاهرة",
+      city: "مدينة نصر",
+      street: "شارع عباس العقاد",
+      buildingNumber: "27",
+      postalCode: "11765",
+    },
+    buyerDataThreshold: 25000,
+    documentVersion: "1.0",
+    autoSubmitOnConfirm: true,
+    signingMethod: "none",
+    clientId: "mezan-demo-client",
+    clientSecret: "demo-secret-never-returned",
+  });
+  await step(app, "PUT", `/eta/branch-codes/${BRANCH_ID}`, { etaBranchCode: "1" });
+  for (const mapping of ETA_ITEM_CODES) {
+    await step(app, "PUT", `/eta/item-mappings/${mapping.itemId}`, {
+      etaCodeType: "EGS",
+      etaItemCode: mapping.etaItemCode,
+      gpcCode: mapping.gpcCode,
+    });
+  }
 
   for (const invoice of SALES_INVOICES) {
     await step(app, "POST", "/sales-invoices", {

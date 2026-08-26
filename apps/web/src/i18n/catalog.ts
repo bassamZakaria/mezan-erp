@@ -6096,6 +6096,44 @@ const webAr = {
 
   // settingsGeneral
   "settingsGeneral.currency": "العملة",
+
+  // salesInvoices — creation method step (R2.1)
+  "salesInvoices.method.stepHint": "اختر كيف تريد بناء هذه الفاتورة قبل إدخال البيانات.",
+  "salesInvoices.method.continue": "متابعة",
+  "salesInvoices.method.change": "تغيير طريقة الإنشاء",
+  "salesInvoices.method.chosen": "طريقة الإنشاء",
+
+  // salesInvoices — per-line availability (R2.3)
+  "salesInvoices.line.availabilityTitle": "المتاح في المخزن",
+  "salesInvoices.line.inStock": "متوفر",
+  "salesInvoices.line.shortBy": "ناقص {{qty}}",
+  "salesInvoices.line.availabilityLoading": "جارٍ قراءة الرصيد…",
+
+  // salesInvoices — per-line unit of measure (R2.4)
+  "salesInvoices.field.unit": "وحدة البند",
+  "salesInvoices.field.baseUnit": "الوحدة الأساسية",
+  "salesInvoices.line.conversion": "{{qty}} {{unit}} = {{baseQty}} {{baseUnit}}",
+  "salesInvoices.line.movesStock": "يُخصم من المخزون",
+
+  // salesInvoices — per-line discount type (R2.5)
+  "salesInvoices.field.lineDiscountType": "نوع خصم البند",
+  "salesInvoices.field.lineDiscountValue": "قيمة الخصم",
+  "salesInvoices.lineDiscount.percent": "نسبة مئوية",
+  "salesInvoices.lineDiscount.amount": "مبلغ ثابت",
+  "salesInvoices.lineDiscountApplied": "خصم البند",
+
+  // salesInvoices — effects explainer (R2.8)
+  "salesInvoices.effects.title": "تأثيرات هذا المستند",
+  "salesInvoices.effects.stockTitle": "أثر المخزون",
+  "salesInvoices.effects.stockBody": "خصم {{qty}} من مستودع {{warehouse}} وتسجيل تكلفة البضاعة المباعة.",
+  "salesInvoices.effects.stockNone": "لا يتحرك المخزون — كل البنود خدمية.",
+  "salesInvoices.effects.glTitle": "الأثر المحاسبي",
+  "salesInvoices.effects.glBody": "قيد متوازن: مدين المدينون {{total}} / دائن الإيرادات {{net}}{{tax}}.",
+  "salesInvoices.effects.glTaxPart": " وضريبة القيمة المضافة {{tax}}",
+  "salesInvoices.effects.balanceTitle": "أثر رصيد العميل",
+  "salesInvoices.effects.balanceBody": "يرتفع رصيد {{customer}} المدين بمبلغ {{total}}.",
+  "salesInvoices.effects.noAutoCollection": "لا يتم التحصيل تلقائياً — سجّل سند تحصيل لإثبات الدفعة.",
+  "salesInvoices.effects.pendingCustomer": "العميل",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12197,6 +12235,44 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // settingsGeneral
   "settingsGeneral.currency": "Currency",
+
+  // salesInvoices — creation method step (R2.1)
+  "salesInvoices.method.stepHint": "Choose how you want to build this invoice before entering any data.",
+  "salesInvoices.method.continue": "Continue",
+  "salesInvoices.method.change": "Change creation method",
+  "salesInvoices.method.chosen": "Creation method",
+
+  // salesInvoices — per-line availability (R2.3)
+  "salesInvoices.line.availabilityTitle": "Available here",
+  "salesInvoices.line.inStock": "In stock",
+  "salesInvoices.line.shortBy": "Short by {{qty}}",
+  "salesInvoices.line.availabilityLoading": "Reading stock…",
+
+  // salesInvoices — per-line unit of measure (R2.4)
+  "salesInvoices.field.unit": "Line unit",
+  "salesInvoices.field.baseUnit": "Base unit",
+  "salesInvoices.line.conversion": "{{qty}} {{unit}} = {{baseQty}} {{baseUnit}}",
+  "salesInvoices.line.movesStock": "Deducted from stock",
+
+  // salesInvoices — per-line discount type (R2.5)
+  "salesInvoices.field.lineDiscountType": "Line discount type",
+  "salesInvoices.field.lineDiscountValue": "Discount value",
+  "salesInvoices.lineDiscount.percent": "Percentage",
+  "salesInvoices.lineDiscount.amount": "Fixed amount",
+  "salesInvoices.lineDiscountApplied": "Line discount",
+
+  // salesInvoices — effects explainer (R2.8)
+  "salesInvoices.effects.title": "What this document does",
+  "salesInvoices.effects.stockTitle": "Stock effect",
+  "salesInvoices.effects.stockBody": "Issues {{qty}} out of {{warehouse}} and books the cost of goods sold.",
+  "salesInvoices.effects.stockNone": "No stock moves — every line is a service.",
+  "salesInvoices.effects.glTitle": "Accounting effect",
+  "salesInvoices.effects.glBody": "Balanced entry: debit Receivables {{total}} / credit Revenue {{net}}{{tax}}.",
+  "salesInvoices.effects.glTaxPart": " and VAT {{tax}}",
+  "salesInvoices.effects.balanceTitle": "Customer balance effect",
+  "salesInvoices.effects.balanceBody": "{{customer}}'s receivable rises by {{total}}.",
+  "salesInvoices.effects.noAutoCollection": "Nothing is collected automatically — record a collection voucher to register the payment.",
+  "salesInvoices.effects.pendingCustomer": "The customer",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -241,3 +241,6 @@ export { normalizeForSearch, matchesSearch } from "./search/arabic.js";
 
 /** Filed VAT returns — the lock that stops a backdated document restating a submitted return. */
 export * from "./tax/vat-filing.js";
+
+/** Unit-of-measure conversion — an entered alternate unit into the base quantity the stock ledger moves. */
+export * from "./units/index.js";

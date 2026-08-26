@@ -59,6 +59,11 @@ describe("computeQuoteTotals — parity with computeInvoiceTotals", () => {
     const iLines: SalesInvoiceLine[] = qLines.map((l) => ({
       ...l,
       isStock: true,
+      unitCode: "",
+      unitFactor: 1,
+      baseQty: l.qty,
+      discountType: "percent" as const,
+      discountAmount: Money.zero(),
       revenueAccountId: "4000",
       cogsAccountId: null,
       inventoryAccountId: null,

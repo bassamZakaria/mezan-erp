@@ -25,10 +25,13 @@ import {
   Money,
   Qty,
   computeInvoiceTotals,
+  resolveUnitFactor,
+  toBaseQty,
   SALES_INVOICE_STATUS_LABELS_AR,
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
-  type SalesInvoiceDiscountType, itemTypeIsSellable,} from "@mezan/domain";
+  type SalesInvoiceDiscountType,
+  type SalesInvoiceLineDiscountType, itemTypeIsSellable,} from "@mezan/domain";
 import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
@@ -110,14 +113,42 @@ interface InvoiceLineDraft {
   key: string;
   itemId: string;
   qty: number;
+  /** The unit the qty is entered in; "" until an item is picked (then its base unit). */
+  unitCode: string;
   unitPrice: number | null;
+  discountType: SalesInvoiceLineDiscountType;
   discountPercent: number;
+  discountAmount: number;
 }
 
 let lineSeq = 0;
 function blankLine(): InvoiceLineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0 };
+  return {
+    key: `l${lineSeq}`,
+    itemId: "",
+    qty: 1,
+    unitCode: "",
+    unitPrice: null,
+    discountType: "percent",
+    discountPercent: 0,
+    discountAmount: 0,
+  };
+}
+
+/** Base units per one `unitCode` on this item — 1 for the base unit itself. */
+function factorFor(item: ItemUnitSetup | null | undefined, unitCode: string): number {
+  if (!item) return 1;
+  try {
+    return resolveUnitFactor({ baseUnitCode: item.baseUnitCode, alternateUnits: item.alternateUnits }, unitCode);
+  } catch {
+    return 1;
+  }
+}
+
+interface ItemUnitSetup {
+  readonly baseUnitCode: string;
+  readonly alternateUnits: readonly { readonly code: string; readonly name: string; readonly factor: number }[];
 }
 
 /**
@@ -134,24 +165,42 @@ function LineAvailability({
   itemId,
   warehouseId,
   warehouses,
+  /** What this line will actually take out, in BASE units — a carton line asks for pieces. */
+  requiredBaseQty,
+  baseUnitLabel,
 }: {
   itemId: string;
   warehouseId: string;
   warehouses: readonly { id: string; name: string }[];
+  requiredBaseQty: number;
+  baseUnitLabel: string;
 }) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const availability = useItemAvailability(itemId, warehouseId);
-  if (!availability.data) return null;
+  if (!availability.data) {
+    return <div className="text-[11.5px] text-ink-faint">{t("salesInvoices.line.availabilityLoading")}</div>;
+  }
 
   const onHand = Number(availability.data.onHand);
   const others = availability.data.otherWarehouses;
   const nameOf = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+  // Three states, not two: enough, some but not enough for THIS line, and none.
+  // A line that reads "available 40" while asking for 60 pieces is the one the
+  // storekeeper finds out about at picking time.
+  const tone: PillTone = onHand <= 0 ? "danger" : requiredBaseQty > onHand ? "warning" : "success";
+  const label =
+    onHand <= 0
+      ? t("salesInvoices.lineOutOfStock")
+      : requiredBaseQty > onHand
+        ? t("salesInvoices.line.shortBy", { qty: `${format.qty(requiredBaseQty - onHand)} ${baseUnitLabel}` })
+        : t("salesInvoices.line.inStock");
 
   return (
     <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[3px] text-[11.5px]">
-      <span className={onHand > 0 ? "text-ink-muted" : "font-semibold text-danger-ink"}>
-        {onHand > 0 ? `${t("salesInvoices.lineAvailable")} ${format.qty(onHand)}` : t("salesInvoices.lineOutOfStock")}
+      <StatusPill label={label} tone={tone} />
+      <span className="text-ink-muted">
+        {t("salesInvoices.line.availabilityTitle")} <span className="mz-num">{format.qty(onHand)}</span> {baseUnitLabel}
       </span>
       {others.length > 0 ? (
         <span className="text-ink-muted">
@@ -160,6 +209,87 @@ function LineAvailability({
         </span>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * "تأثيرات هذا المستند" — the three cards the reference shows before you commit
+ * a document: what leaves the warehouse, what the journal entry does, and what
+ * happens to the customer's balance. The third card carries the "no automatic
+ * collection" statement, which is the single most common misreading of a
+ * confirmed invoice: confirming books a receivable, it does not take money.
+ *
+ * The stock figure is stated in BASE units, because that is what the ledger
+ * moves — a line entered as 5 cartons says 60 pieces here.
+ */
+function InvoiceEffectCards({
+  stockBaseQty,
+  baseUnitLabel,
+  warehouseName,
+  customerName,
+  grandTotal,
+  taxableTotal,
+  taxTotal,
+}: {
+  stockBaseQty: number;
+  baseUnitLabel: string;
+  warehouseName: string;
+  customerName: string | null;
+  grandTotal: number;
+  taxableTotal: number;
+  taxTotal: number;
+}) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
+  const money = (v: number) => `${format.money(v)} ${format.currencyLabel}`;
+
+  const cards = [
+    {
+      key: "stock",
+      title: t("salesInvoices.effects.stockTitle"),
+      body:
+        stockBaseQty > 0
+          ? t("salesInvoices.effects.stockBody", {
+              qty: `${format.qty(stockBaseQty)} ${baseUnitLabel}`,
+              warehouse: warehouseName,
+            })
+          : t("salesInvoices.effects.stockNone"),
+      note: null as string | null,
+    },
+    {
+      key: "gl",
+      title: t("salesInvoices.effects.glTitle"),
+      body: t("salesInvoices.effects.glBody", {
+        total: money(grandTotal),
+        net: money(taxableTotal),
+        tax: taxTotal !== 0 ? t("salesInvoices.effects.glTaxPart", { tax: money(taxTotal) }) : "",
+      }),
+      note: null as string | null,
+    },
+    {
+      key: "balance",
+      title: t("salesInvoices.effects.balanceTitle"),
+      body: t("salesInvoices.effects.balanceBody", {
+        customer: customerName ?? t("salesInvoices.effects.pendingCustomer"),
+        total: money(grandTotal),
+      }),
+      note: t("salesInvoices.effects.noAutoCollection"),
+    },
+  ];
+
+  return (
+    <section className="rounded-lg border border-border bg-surface-2 p-[14px_16px]">
+      <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.effects.title")}</h3>
+      <div className="grid gap-[10px] sm:grid-cols-3">
+        {cards.map((card) => (
+          <div key={card.key} className="rounded-lg border border-border bg-surface p-[12px]">
+            <div className="text-[11px] font-bold uppercase tracking-[0.06em] text-ink-muted">{card.title}</div>
+            <p className="mt-[6px] text-[12.5px] text-ink">{card.body}</p>
+            {card.note ? <p className="mt-[6px] text-[12px] font-semibold text-warning-ink">{card.note}</p> : null}
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
@@ -215,6 +345,13 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const [dueDateTouched, setDueDateTouched] = useState(false);
   /** "إنشاء فاتورة جديدة" vs "إنشاء من عرض سعر" — the reference's own two creation methods. */
   const [method, setMethod] = useState<"manual" | "fromQuote">("manual");
+  /**
+   * The creation method is a STEP, not a field: the reference asks how you want
+   * to build the document and only then shows the form (R2.1). Two forms behind
+   * one heading is how a user fills the manual lines and then converts a quote
+   * over the top of them.
+   */
+  const [methodChosen, setMethodChosen] = useState(false);
   const [sourceQuoteId, setSourceQuoteId] = useState("");
   const [salesperson, setSalesperson] = useState<EntityPickerOption | null>(null);
   const [couponCode, setCouponCode] = useState("");
@@ -241,6 +378,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     setDiscountType("amount");
     setDiscountValue(0);
     setLines([blankLine()]);
+    setMethodChosen(false);
     setError(null);
   }
 
@@ -351,14 +489,22 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
       const item = items.find((i) => i.id === l.itemId);
       if (!item) continue;
       const isStock = item.type === "stock";
+      const unitCode = l.unitCode || item.baseUnitCode;
+      const unitFactor = factorFor(item, unitCode);
+      const qty = Qty.fromMajor(String(l.qty || 0));
       out.push({
         lineId: l.key,
         itemId: item.id,
         itemNameAr: item.nameAr,
         isStock,
-        qty: Qty.fromMajor(String(l.qty || 0)),
+        qty,
+        unitCode,
+        unitFactor,
+        baseQty: toBaseQty(qty, unitFactor),
         unitPrice: Money.fromMajor(String(l.unitPrice ?? 0)),
-        discountPercent: l.discountPercent || 0,
+        discountType: l.discountType,
+        discountPercent: l.discountType === "percent" ? l.discountPercent || 0 : 0,
+        discountAmount: Money.fromMajor(String(l.discountType === "amount" ? l.discountAmount || 0 : 0)),
         taxRatePercent: item.taxRatePercent,
         revenueAccountId: item.revenueAccountId ?? REVENUE_ACCOUNT_ID,
         cogsAccountId: isStock ? (item.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
@@ -393,6 +539,17 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const totalsByLineId = useMemo(() => new Map(totals.lines.map((l) => [l.lineId, l])), [totals]);
 
   const canSubmit = customer !== null && domainLines.length > 0 && totals.grandTotal.scaled > 0n && !busy;
+
+  /** What confirming will actually take out of the warehouse, in base units (R2.8). */
+  const stockBaseQty = useMemo(
+    () => Number(Qty.sum(domainLines.filter((l) => l.isStock).map((l) => l.baseQty)).toString()),
+    [domainLines],
+  );
+  const stockBaseUnitLabel = useMemo(() => {
+    const first = domainLines.find((l) => l.isStock);
+    const item = first ? items.find((i) => i.id === first.itemId) : null;
+    return item ? unitLabel(item.baseUnitCode) : "";
+  }, [domainLines, items, unitLabel]);
 
   function updateLine(index: number, patch: Partial<InvoiceLineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
@@ -435,8 +592,12 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           itemNameAr: l.itemNameAr,
           isStock: l.isStock,
           qty: l.qty.toString(),
+          unitCode: l.unitCode,
+          unitFactor: l.unitFactor,
           unitPrice: l.unitPrice.toString(),
+          discountType: l.discountType,
           discountPercent: l.discountPercent,
+          discountAmount: l.discountAmount.toString(),
           taxRatePercent: l.taxRatePercent,
           revenueAccountId: l.revenueAccountId,
           cogsAccountId: l.cogsAccountId,
@@ -466,8 +627,10 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
         </Button>
       </div>
       <div className="flex flex-col gap-[16px]">
+        {!methodChosen ? (
         <div className="rounded-lg border border-border p-[14px_16px]">
-          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.method.title")}</h3>
+          <h3 className="mb-[4px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.method.title")}</h3>
+          <p className="mb-[10px] text-[12.5px] text-ink-muted">{t("salesInvoices.method.stepHint")}</p>
           <div className="grid gap-[10px] sm:grid-cols-2">
             {(["manual", "fromQuote"] as const).map((value) => (
               <button
@@ -490,29 +653,54 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
               </button>
             ))}
           </div>
-          {method === "fromQuote" ? (
-            <div className="mt-[12px] flex flex-col gap-[10px]">
-              {acceptedQuotes.length === 0 ? (
-                <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.method.noAcceptedQuotes")}</p>
-              ) : (
-                <>
-                  <SelectField
-                    label={t("salesInvoices.method.chooseQuote")}
-                    value={sourceQuoteId}
-                    onChange={setSourceQuoteId}
-                    options={[
-                      { value: "", label: t("salesInvoices.method.chooseQuote") },
-                      ...acceptedQuotes.map((q) => ({ value: q.id, label: `${q.docNo ?? q.id} — ${q.customerNameAr}` })),
-                    ]}
-                  />
-                  <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy} onClick={convertSelectedQuote}>
-                    {t("salesInvoices.method.convert")}
-                  </Button>
-                </>
-              )}
-            </div>
-          ) : null}
+          <div className="mt-[12px] flex justify-end">
+            <Button variant="primary" onClick={() => setMethodChosen(true)}>
+              {t("salesInvoices.method.continue")}
+            </Button>
+          </div>
         </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-[10px] rounded-lg border border-border p-[10px_16px]">
+            <span className="text-[12.5px] text-ink-muted">
+              {t("salesInvoices.method.chosen")}:{" "}
+              <span className="font-semibold text-ink">
+                {method === "manual" ? t("salesInvoices.method.manual") : t("salesInvoices.method.fromQuote")}
+              </span>
+            </span>
+            <Button size="sm" onClick={() => setMethodChosen(false)}>
+              {t("salesInvoices.method.change")}
+            </Button>
+          </div>
+        )}
+
+        {methodChosen && method === "fromQuote" ? (
+          <div className="flex flex-col gap-[10px] rounded-lg border border-border p-[14px_16px]">
+            {acceptedQuotes.length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.method.noAcceptedQuotes")}</p>
+            ) : (
+              <>
+                <SelectField
+                  label={t("salesInvoices.method.chooseQuote")}
+                  value={sourceQuoteId}
+                  onChange={setSourceQuoteId}
+                  options={[
+                    { value: "", label: t("salesInvoices.method.chooseQuote") },
+                    ...acceptedQuotes.map((q) => ({ value: q.id, label: `${q.docNo ?? q.id} — ${q.customerNameAr}` })),
+                  ]}
+                />
+                <SelectField
+                  label={t("salesInvoices.field.warehouse")}
+                  value={warehouseId}
+                  onChange={setWarehouseId}
+                  options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+                />
+                <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy} onClick={convertSelectedQuote}>
+                  {t("salesInvoices.method.convert")}
+                </Button>
+              </>
+            )}
+          </div>
+        ) : null}
 
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
@@ -520,6 +708,8 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           </div>
         ) : null}
 
+        {methodChosen && method === "manual" ? (
+        <>
         <EntityPicker id="invoice-customer-picker" label={t("salesInvoices.field.customer")} value={customer} onChange={setCustomer} options={customerOptions} placeholder={t("salesInvoices.field.customerPlaceholder")} />
 
         <div className="grid grid-cols-2 gap-[10px]">
@@ -599,6 +789,9 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
             const item = items.find((it) => it.id === line.itemId);
             const selectedOption = item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null;
             const lineTotals = totalsByLineId.get(line.key);
+            const enteredUnit = item ? line.unitCode || item.baseUnitCode : "";
+            const lineFactor = factorFor(item, enteredUnit);
+            const lineBaseQty = item ? Number(toBaseQty(Qty.fromMajor(String(line.qty || 0)), lineFactor).toString()) : 0;
             return (
               <div key={line.key} className="flex flex-col gap-[10px] rounded-lg border border-border p-[12px]">
                 <div className="flex items-start gap-[8px]">
@@ -609,7 +802,14 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                       value={selectedOption}
                       onChange={(opt) => {
                         const picked = opt ? items.find((it) => it.id === opt.id) : null;
-                        updateLine(i, { itemId: opt?.id ?? "", unitPrice: picked ? priceFor(picked) : null });
+                        // The unit belongs to the item, so it resets with it —
+                        // keeping "كرتونة" across a change of item would price
+                        // the new one in a unit it does not define.
+                        updateLine(i, {
+                          itemId: opt?.id ?? "",
+                          unitCode: picked?.baseUnitCode ?? "",
+                          unitPrice: picked ? priceFor(picked) : null,
+                        });
                       }}
                       options={itemOptions}
                       placeholder={t("salesInvoices.field.itemPlaceholder")}
@@ -626,7 +826,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                 </div>
                 {item ? (
                   <>
-                    <div className="grid grid-cols-2 gap-[10px]">
+                    <div className="grid gap-[10px] sm:grid-cols-3">
                       <label className="flex flex-col gap-[6px]">
                         <span className="text-xs font-semibold text-ink-muted">{t("salesInvoices.field.qty")}</span>
                         <QtyInput
@@ -635,27 +835,89 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                           onChange={(v) => updateLine(i, { qty: v })}
                           min={0}
                           step={1}
-                          unit={unitLabel(item.baseUnitCode)}
+                          unit={unitLabel(enteredUnit)}
                         />
                       </label>
+                      <SelectField
+                        label={t("salesInvoices.field.unit")}
+                        value={enteredUnit}
+                        onChange={(v) => updateLine(i, { unitCode: v })}
+                        options={[
+                          { value: item.baseUnitCode, label: `${unitLabel(item.baseUnitCode)} · ${t("salesInvoices.field.baseUnit")}` },
+                          ...item.alternateUnits.map((u) => ({
+                            value: u.code,
+                            label: `${u.name} · ×${u.factor}`,
+                          })),
+                        ]}
+                      />
                       <label className="flex flex-col gap-[6px]">
                         <span className="text-xs font-semibold text-ink-muted">{t("salesInvoices.field.price")}</span>
                         <MoneyInput aria-label={t("salesInvoices.field.linePrice", { number: i + 1 })} value={line.unitPrice} onChange={(v) => updateLine(i, { unitPrice: v })} />
                       </label>
                     </div>
-                    <NumberField
-                      label={t("salesInvoices.field.discountPct")}
-                      value={line.discountPercent}
-                      onChange={(v) => updateLine(i, { discountPercent: v })}
-                      min={0}
-                      max={100}
-                    />
-                    {lineTotals ? (
+                    {lineFactor !== 1 ? (
                       <div className="text-[11.5px] text-ink-muted">
-                        {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
+                        <span className="mz-num">
+                          {t("salesInvoices.line.conversion", {
+                            qty: format.qty(line.qty || 0),
+                            unit: unitLabel(enteredUnit),
+                            baseQty: format.qty(lineBaseQty),
+                            baseUnit: unitLabel(item.baseUnitCode),
+                          })}
+                        </span>
+                        {item.type === "stock" ? ` · ${t("salesInvoices.line.movesStock")}` : ""}
                       </div>
                     ) : null}
-                    <LineAvailability itemId={item.id} warehouseId={warehouseId} warehouses={warehouses} />
+                    <div className="grid gap-[10px] sm:grid-cols-2">
+                      <SelectField
+                        label={t("salesInvoices.field.lineDiscountType")}
+                        value={line.discountType}
+                        onChange={(v) => updateLine(i, { discountType: v as SalesInvoiceLineDiscountType })}
+                        options={[
+                          { value: "percent", label: t("salesInvoices.lineDiscount.percent") },
+                          { value: "amount", label: t("salesInvoices.lineDiscount.amount") },
+                        ]}
+                      />
+                      {line.discountType === "percent" ? (
+                        <NumberField
+                          label={t("salesInvoices.field.discountPct")}
+                          value={line.discountPercent}
+                          onChange={(v) => updateLine(i, { discountPercent: v })}
+                          min={0}
+                          max={100}
+                        />
+                      ) : (
+                        <label className="flex flex-col gap-[6px]">
+                          <span className="text-xs font-semibold text-ink-muted">{t("salesInvoices.field.lineDiscountValue")}</span>
+                          <MoneyInput
+                            aria-label={t("salesInvoices.field.lineDiscountValue")}
+                            value={line.discountAmount}
+                            onChange={(v) => updateLine(i, { discountAmount: v ?? 0 })}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    {lineTotals ? (
+                      <div className="flex flex-wrap gap-x-[14px] text-[11.5px] text-ink-muted">
+                        {lineTotals.lineDiscount.scaled !== 0n ? (
+                          <span>
+                            {t("salesInvoices.lineDiscountApplied")} −<MoneyDisplay value={toMajor(lineTotals.lineDiscount.toString())} />
+                          </span>
+                        ) : null}
+                        <span>
+                          {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
+                        </span>
+                      </div>
+                    ) : null}
+                    {item.type === "stock" ? (
+                      <LineAvailability
+                        itemId={item.id}
+                        warehouseId={warehouseId}
+                        warehouses={warehouses}
+                        requiredBaseQty={lineBaseQty}
+                        baseUnitLabel={unitLabel(item.baseUnitCode)}
+                      />
+                    ) : null}
                   </>
                 ) : null}
               </div>
@@ -726,6 +988,16 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
           </dl>
         </div>
 
+        <InvoiceEffectCards
+          stockBaseQty={stockBaseQty}
+          baseUnitLabel={stockBaseUnitLabel}
+          warehouseName={warehouses.find((w) => w.id === warehouseId)?.name ?? warehouseId}
+          customerName={customer?.label ?? null}
+          grandTotal={toMajor(totals.grandTotal.toString())}
+          taxableTotal={toMajor(totals.taxableTotal.toString())}
+          taxTotal={toMajor(totals.taxTotal.toString())}
+        />
+
         <div className="flex justify-end gap-[9px]">
           <Button onClick={onClose}>{t("common.cancel")}</Button>
           <Button disabled={!canSubmit} onClick={() => handleSave(false)}>
@@ -735,6 +1007,8 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
             {t("salesInvoices.confirm")}
           </Button>
         </div>
+        </>
+        ) : null}
       </div>
     </div>
   );
@@ -757,6 +1031,8 @@ function InvoiceDetailView({
   const format = useFormat();
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
+  const itemsQuery = useItems();
+  const unitLabel = useUnitLabel();
   const journalEntryQuery = useJournalEntry(invoice.journalEntryId);
   const recordPayment = useRecordSalesInvoicePayment();
   const branchesQuery = useBranches();
@@ -768,6 +1044,7 @@ function InvoiceDetailView({
 
   const accounts = accountsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
+  const items = itemsQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
 
   /** Returns raised against THIS invoice — the reference shows them on the invoice itself. */
@@ -819,8 +1096,13 @@ function InvoiceDetailView({
       itemNameAr: l.itemNameAr,
       isStock: l.isStock,
       qty: Qty.fromMajor(l.qty),
+      unitCode: l.unitCode ?? "",
+      unitFactor: l.unitFactor ?? 1,
+      baseQty: Qty.fromMajor(l.baseQty ?? l.qty),
       unitPrice: Money.fromMajor(l.unitPrice),
+      discountType: l.discountType ?? "percent",
       discountPercent: l.discountPercent,
+      discountAmount: Money.fromMajor(l.discountAmount ?? "0"),
       taxRatePercent: l.taxRatePercent,
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
@@ -879,6 +1161,13 @@ function InvoiceDetailView({
     t("salesInvoices.effect.balance", { balance: `${format.money(toMajor(invoice.remainingBalance))} ${format.currencyLabel}` }),
   ];
 
+  // Base units — what actually left (or will leave) the warehouse. A line
+  // written in cartons reports pieces here, like the ledger does.
+  const stockBaseQty = invoice.lines
+    .filter((l) => l.isStock)
+    .reduce((sum, l) => sum + Number(l.baseQty ?? l.qty), 0);
+  const stockBaseUnitLabel = unitLabel(items.find((i) => i.id === invoice.lines.find((l) => l.isStock)?.itemId)?.baseUnitCode ?? "");
+
   return (
     <DocumentDetail
       title={invoice.docNo ?? t("salesInvoices.detailTitle")}
@@ -912,6 +1201,16 @@ function InvoiceDetailView({
           key: "lines",
           label: t("salesInvoices.tab.lines"),
           content: (
+            <div className="flex flex-col gap-[14px]">
+            <InvoiceEffectCards
+              stockBaseQty={stockBaseQty}
+              baseUnitLabel={stockBaseUnitLabel}
+              warehouseName={warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId}
+              customerName={invoice.customerNameAr}
+              grandTotal={toMajor(invoice.totals.grandTotal)}
+              taxableTotal={toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal)}
+              taxTotal={toMajor(invoice.totals.taxTotal)}
+            />
             <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] border-collapse text-[13px]">
@@ -919,8 +1218,9 @@ function InvoiceDetailView({
                     <tr>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("common.item")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.qty")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-start text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.unit")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.price")}</th>
-                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.discountPct")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.lineDiscountApplied")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.tax")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.detail.cost")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.detail.profit")}</th>
@@ -934,8 +1234,18 @@ function InvoiceDetailView({
                         <tr key={l.lineId} className="border-b border-border last:border-b-0">
                           <td className="px-[15px] py-[11px] text-ink">{l.itemNameAr}</td>
                           <td className="px-[15px] py-[11px] text-end"><QtyDisplay value={l.qty} /></td>
+                          <td className="px-[15px] py-[11px] text-start text-ink-muted">
+                            {unitLabel(l.unitCode ?? "")}
+                            {(l.unitFactor ?? 1) !== 1 ? (
+                              <span className="mz-num block text-[11px] text-ink-faint">
+                                = <QtyDisplay value={l.baseQty ?? l.qty} />
+                              </span>
+                            ) : null}
+                          </td>
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(l.unitPrice)} /></td>
-                          <td className="mz-num px-[15px] py-[11px] text-end">{l.discountPercent}</td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            {lt ? <MoneyDisplay value={toMajor(lt.lineDiscount.toString())} /> : "—"}
+                          </td>
                           <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.tax.toString())} /> : "—"}</td>
                           <td className="px-[15px] py-[11px] text-end">
                             {l.unitCost ? <MoneyDisplay value={toMajor(l.unitCost) * Number(l.qty)} /> : "—"}
@@ -956,37 +1266,37 @@ function InvoiceDetailView({
                     {/* Subtotal and tax were computed and stored but never shown, so the
                         grand total appeared without the arithmetic that produced it (R2.7). */}
                     <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.subtotal")}</td>
+                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.subtotal")}</td>
                       <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.subtotal)} /></td>
                     </tr>
                     <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.tax")}</td>
+                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.tax")}</td>
                       <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.taxTotal)} /></td>
                     </tr>
                     <tr className="bg-surface-2 font-bold">
-                      <td className="px-[15px] py-[11px]" colSpan={7}>{t("salesInvoices.grandTotal")}</td>
+                      <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
                     <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.totalCost")}</td>
+                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
                       <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.cost} /></td>
                     </tr>
                     <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.totalProfit")}</td>
+                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
                       <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.profit} /></td>
                     </tr>
                     <tr className="text-ink-muted">
-                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.grossMargin")}</td>
+                      <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
                       <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
                     </tr>
                     {toMajor(invoice.returnedCredit) > 0 ? (
                       <>
                         <tr className="text-danger">
-                          <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.returnsDeduction")}</td>
+                          <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.returnsDeduction")}</td>
                           <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={-toMajor(invoice.returnedCredit)} /></td>
                         </tr>
                         <tr className="bg-surface-2 font-bold">
-                          <td className="px-[15px] py-[11px]" colSpan={7}>{t("salesInvoices.detail.netAfterReturns")}</td>
+                          <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.detail.netAfterReturns")}</td>
                           <td className="px-[15px] py-[11px] text-end">
                             <MoneyDisplay value={toMajor(invoice.totals.grandTotal) - toMajor(invoice.returnedCredit)} />
                           </td>
@@ -997,6 +1307,7 @@ function InvoiceDetailView({
                 </table>
               </div>
             </Card>
+            </div>
           ),
         },
         {

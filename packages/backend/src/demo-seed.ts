@@ -81,7 +81,17 @@ const SUPPLIERS = [
 ];
 
 const ITEMS = [
-  { id: "ITEM-DEMO-1", code: "IT-0001", nameAr: "أرز أبيض ٥ كجم", nameEn: "White Rice 5kg", salePrice: "180", costPrice: "140" },
+  // Sold both loose and by the carton — the tenant that proves per-line units
+  // convert into base units in the stock ledger (R2.4).
+  {
+    id: "ITEM-DEMO-1",
+    code: "IT-0001",
+    nameAr: "أرز أبيض ٥ كجم",
+    nameEn: "White Rice 5kg",
+    salePrice: "180",
+    costPrice: "140",
+    alternateUnits: [{ code: "CTN", name: "كرتونة (١٢ قطعة)", factor: 12 }],
+  },
   { id: "ITEM-DEMO-2", code: "IT-0002", nameAr: "زيت عباد الشمس ١ لتر", nameEn: "Sunflower Oil 1L", salePrice: "95", costPrice: "72" },
   { id: "ITEM-DEMO-3", code: "IT-0003", nameAr: "سكر أبيض ١ كجم", nameEn: "White Sugar 1kg", salePrice: "42", costPrice: "31" },
   // Reorder points, so the items list's مخزون منخفض chip has something to

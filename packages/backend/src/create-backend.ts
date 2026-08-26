@@ -146,6 +146,8 @@ import {
   type CustomerRepository,
   type ItemRepository,
   type TaxRateRepository,
+  extend as extendQtyByPrice,
+  unitCostOf,
 } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
@@ -392,7 +394,10 @@ function createEtaEnqueueBridge(deps: {
           lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
             const lt = lineTotals.get(line.lineId);
             const item = lineItems[index] ?? null;
-            const unitCode = item?.baseUnitCode ?? "";
+            // The unit the LINE was priced in, not the item's base unit: the
+            // quantity and unit price below are both per entered unit, so
+            // filing the base unit code would misstate the quantity sold.
+            const unitCode = line.unitCode !== "" ? line.unitCode : (item?.baseUnitCode ?? "");
             const taxRate = taxRates.find((r) => r.status === "active" && r.rate === line.taxRatePercent);
             return {
               description: line.itemNameAr,
@@ -1526,13 +1531,17 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
             warehouseId: invoice.warehouseId,
             date: invoice.date,
             status: "confirmed" as const,
+            // A return is quoted in BASE units, because that is what it puts
+            // back into the stock ledger. A line sold as 5 cartons of 12 is
+            // returnable as up to 60 pieces at the per-piece price, so the
+            // credit still reconciles to the line and the ledger to the count.
             lines: invoice.lines.map((l) => ({
               itemId: l.itemId,
               itemName: l.itemNameAr,
-              qty: l.qty,
+              qty: l.baseQty,
               alreadyReturnedQty: returnedByItem.get(l.itemId) ?? Qty.zero(),
-              unitPrice: l.unitPrice,
-              unitCost: l.unitPrice,
+              unitPrice: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
+              unitCost: unitCostOf(extendQtyByPrice(l.qty, l.unitPrice), l.baseQty),
               taxAmount: Money.zero(),
             })),
           };

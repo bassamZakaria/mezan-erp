@@ -114,6 +114,22 @@ export interface SalesInvoiceTotals {
   readonly grandTotal: Money;
 }
 
+/**
+ * A line's own discount. A percentage runs through the same
+ * `DISCOUNT_ALLOCATION` rounding as everything else; a fixed amount is
+ * quantised to the minor unit and capped at the line's gross, so a line can
+ * never be discounted into a negative net and the header discount's
+ * largest-remainder split still has whole-piastre weights to work from.
+ */
+function resolveLineDiscount(line: SalesInvoiceLine, gross: Money): Money {
+  if (line.discountType === "amount") {
+    const amount = Money.fromScaled(roundMinor(line.discountAmount.scaled));
+    if (amount.scaled <= 0n) return Money.zero();
+    return amount.scaled > gross.scaled ? gross : amount;
+  }
+  return percentOf(gross, line.discountPercent);
+}
+
 function resolveInvoiceDiscount(discount: SalesInvoiceDiscount, subtotal: Money): Money {
   if (discount.type === "amount") {
     // Quantise to the minor unit (so the largest-remainder split reconciles) and
@@ -147,7 +163,7 @@ export function computeInvoiceTotals(
   }
 
   const gross = lines.map((l) => extendLine(l.qty, l.unitPrice));
-  const lineDiscount = lines.map((l, i) => percentOf(gross[i] as Money, l.discountPercent));
+  const lineDiscount = lines.map((l, i) => resolveLineDiscount(l, gross[i] as Money));
   const afterLineDiscount = lines.map((l, i) => (gross[i] as Money).add((lineDiscount[i] as Money).negate()));
   const promotionDiscount = lines.map((line, i) => {
     const requested = roundMinor(promotionByLineId.get(line.lineId) ?? 0n);

@@ -114,6 +114,7 @@ import type {
   ItemPolicyDTO,
   JournalEntrySourceDTO,
   JournalEntryStatusDTO,
+  JournalSourceModuleDTO,
   LandedCostDocumentDTO,
   LeadDTO,
   LoginRequestDTO,
@@ -836,6 +837,11 @@ export interface JournalEntryDTO {
   readonly postedAt: string | null;
   readonly reversesEntryId: string | null;
   readonly reversedByEntryId: string | null;
+  /** The document this entry came from, and the module derived from it (R6.3). */
+  readonly sourceDocType: string | null;
+  readonly sourceDocId: string | null;
+  readonly sourceDocNumber: string | null;
+  readonly sourceModule: JournalSourceModuleDTO;
   readonly lines: ReadonlyArray<{ accountId: string; debit: string; credit: string; memo: string | null }>;
 }
 
@@ -850,6 +856,7 @@ export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryR
       const params = new URLSearchParams();
       if (filter.status) params.set("status", filter.status);
       if (filter.source) params.set("source", filter.source);
+      if (filter.sourceModule) params.set("sourceModule", filter.sourceModule);
       if (filter.fromDate) params.set("fromDate", filter.fromDate);
       if (filter.toDate) params.set("toDate", filter.toDate);
       const qs = params.toString();
@@ -1419,20 +1426,19 @@ function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
 }
 
 /**
- * Chip counts over every voucher, computed server-side. The status, type and
- * needs-allocation filters are withheld so each chip reports its own total —
- * including the type chips, which otherwise all read zero as soon as one is
- * picked.
+ * Chip counts, computed server-side. The WHOLE filter goes to the route: the
+ * list has two chip axes (status and type) and only the route knows which one
+ * to drop for which count. Withholding both here made the status chips report
+ * the whole book while a type was selected.
  */
 export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { status: _status, needsAllocation: _needs, type: _type, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
-    queryKey: ["vouchers", "counts", rest],
+    queryKey: ["vouchers", "counts", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = voucherParams(rest).toString();
+      const qs = voucherParams(filter).toString();
       const res = await request(`/vouchers/counts${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
       return res.json<ListCountsDTO>();

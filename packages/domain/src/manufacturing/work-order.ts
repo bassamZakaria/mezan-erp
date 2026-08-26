@@ -73,14 +73,19 @@ export interface WorkOrderCostLogEntry {
 
 /**
  * One shop-floor action, stamped with the محطة العمل it happened at and the
- * المشغّل who performed it (R9.1). `at` matches the stock movement the action
- * produced, which is how the movements tab shows a station and an operator per
- * row without a second store of the same fact.
+ * المشغّل who performed it (R9.1).
+ *
+ * `ref` is the issue/receipt id the action handed the stock ledger, and every
+ * movement it produced is `<ref>:<lineIndex>` — that is the join key the
+ * activity feed uses. It is deliberately NOT the timestamp: several actions on
+ * one order can share a millisecond, and keying on `at` silently reported the
+ * last one's station on all of them. `null` for a waste log, which moves no stock.
  */
 export interface WorkOrderShopFloorEntry {
   readonly kind: "issue" | "extra_issue" | "return" | "waste" | "receive";
   readonly stationId: string | null;
   readonly operatorId: string | null;
+  readonly ref: string | null;
   readonly at: string;
 }
 
@@ -296,20 +301,17 @@ export interface ShopFloorAttribution {
   readonly operatorId?: string | null;
 }
 
-/**
- * A shop-floor entry is stamped with the SAME `occurredAt` the stock post
- * carried, which is what lets the activity feed put a station and an operator
- * beside the movement each action produced.
- */
 function shopFloorEntry(
   kind: WorkOrderShopFloorEntry["kind"],
   attribution: ShopFloorAttribution | undefined,
   at: string,
+  ref: string | null,
 ): WorkOrderShopFloorEntry {
   return {
     kind,
     stationId: attribution?.stationId ?? null,
     operatorId: attribution?.operatorId ?? null,
+    ref,
     at,
   };
 }
@@ -332,8 +334,9 @@ export async function issueWorkOrderMaterials(
   if (toIssue.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
 
   const occurredAt = nowIso(deps);
+  const issueId = `WO-ISSUE:${order.id}`;
   const result = await deps.stock.postIssue({
-    issueId: `WO-ISSUE:${order.id}`,
+    issueId,
     sourceDocType: "WORK_ORDER",
     sourceDocId: order.id,
     sourceDocNumber: order.number,
@@ -360,7 +363,7 @@ export async function issueWorkOrderMaterials(
     materials,
     materialCost: order.materialCost.add(result.totalCost),
     issuedAt: occurredAt,
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("issue", attribution, occurredAt)],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("issue", attribution, occurredAt, issueId)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -386,8 +389,9 @@ export async function extraIssueWorkOrderMaterials(
   if (lines.length === 0) throw new InvalidManufacturingDocumentError(["no materials to issue"]);
 
   const occurredAt = nowIso(deps);
+  const issueId = `WO-XISSUE:${order.id}:${occurredAt}`;
   const result = await deps.stock.postIssue({
-    issueId: `WO-XISSUE:${order.id}:${occurredAt}`,
+    issueId,
     sourceDocType: "WORK_ORDER",
     sourceDocId: order.id,
     sourceDocNumber: order.number,
@@ -408,7 +412,7 @@ export async function extraIssueWorkOrderMaterials(
     ...order,
     materials,
     materialCost: order.materialCost.add(result.totalCost),
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("extra_issue", attribution, occurredAt)],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("extra_issue", attribution, occurredAt, issueId)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -472,8 +476,9 @@ export async function returnWorkOrderMaterials(
   });
 
   const occurredAt = nowIso(deps);
+  const receiptId = `WO-RETURN:${order.id}:${occurredAt}`;
   await deps.stock.postReceipt({
-    receiptId: `WO-RETURN:${order.id}:${occurredAt}`,
+    receiptId,
     sourceDocId: order.id,
     receiptNumber: order.number,
     warehouseId: order.sourceWarehouseId,
@@ -496,7 +501,7 @@ export async function returnWorkOrderMaterials(
     ...order,
     materials,
     materialCost: order.materialCost.add(returnedValue.negate()),
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("return", attribution, occurredAt)],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("return", attribution, occurredAt, receiptId)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -521,7 +526,7 @@ export async function logWorkOrderWaste(
   const updated: WorkOrder = {
     ...order,
     wasteLog,
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("waste", attribution, at)],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("waste", attribution, at, null)],
   };
   await deps.workOrders.update(updated);
   return updated;
@@ -576,8 +581,9 @@ export async function receiveWorkOrderProduct(
   const wip = workOrderWipTotal(order);
   const unitCost = unitCostOf(wip, producedQty);
   const occurredAt = nowIso(deps);
+  const receiptId = `WO-RECEIVE:${order.id}`;
   await deps.stock.postReceipt({
-    receiptId: `WO-RECEIVE:${order.id}`,
+    receiptId,
     sourceDocId: order.id,
     receiptNumber: order.number,
     warehouseId: order.destinationWarehouseId,
@@ -591,7 +597,7 @@ export async function receiveWorkOrderProduct(
     stage: "product_received",
     producedQty,
     receivedAt: occurredAt,
-    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("receive", attribution, occurredAt)],
+    shopFloorLog: [...order.shopFloorLog, shopFloorEntry("receive", attribution, occurredAt, receiptId)],
   };
   await deps.workOrders.update(updated);
   return updated;

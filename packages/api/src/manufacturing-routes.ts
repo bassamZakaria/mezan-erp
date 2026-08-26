@@ -246,7 +246,7 @@ function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) 
     progress: workOrderProgress(o),
     costLog: o.costLog.map((c) => ({ kind: c.kind, amount: num(c.amount), notes: c.notes, at: c.at })),
     wasteLog: o.wasteLog.map((w) => ({ itemId: w.itemId, qty: num(w.qty), notes: w.notes, at: w.at })),
-    shopFloorLog: o.shopFloorLog.map((e) => ({ kind: e.kind, stationId: e.stationId, operatorId: e.operatorId, at: e.at })),
+    shopFloorLog: o.shopFloorLog.map((e) => ({ kind: e.kind, stationId: e.stationId, operatorId: e.operatorId, ref: e.ref, at: e.at })),
     configInstanceId: o.configInstanceId,
     glPosted: o.glPosted,
     createdBy: o.createdBy,
@@ -562,14 +562,17 @@ export function createManufacturingRoutes(
       m.itemId === order.productItemId && m.direction.toUpperCase() === "IN";
 
     /**
-     * A shop-floor entry is stamped with the same `occurredAt` as the stock
-     * post it produced, so the station and the operator join onto the movement
-     * by that timestamp — there is no second copy of either fact.
+     * A shop-floor entry carries the issue/receipt id its action handed the
+     * stock ledger, and each movement it produced is `<ref>:<lineIndex>` — so
+     * the station and the operator join onto the movement by that reference.
+     * Joining on the timestamp instead reported one station on every row
+     * whenever two actions landed in the same millisecond.
      */
-    const attributionAt = new Map(order.shopFloorLog.map((e) => [e.at, e]));
+    const attributionOf = (movementId: string) =>
+      order.shopFloorLog.find((e) => e.ref !== null && (movementId === e.ref || movementId.startsWith(`${e.ref}:`))) ?? null;
     const stations = new Map((await deps.workStations.list()).map((w) => [w.id, w]));
     const withAttribution = async (m: WorkOrderMovementView) => {
-      const entry = attributionAt.get(m.occurredAt) ?? null;
+      const entry = attributionOf(m.id);
       const operator = entry?.operatorId && deps.operators ? await deps.operators.findById(entry.operatorId) : null;
       return {
         ...m,

@@ -473,24 +473,22 @@ export function LandedCostsScreen() {
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-bold text-ink-muted">{t("landedCosts.costLinesHeading")}</span>
             {costItems.map((c) => (
-              <div key={c.key} className="flex items-end gap-2 rounded-[10px] border border-border p-2.5">
-                <div className="w-[110px]">
+              <div key={c.key} className="flex flex-col gap-2 rounded-[10px] border border-border p-2.5">
+                <TextField label={t("landedCosts.field.description")} value={c.description} onChange={(v) => setCostItems((prev) => prev.map((x) => (x.key === c.key ? { ...x, description: v } : x)))} />
+                <div className="grid grid-cols-2 gap-2">
                   <SelectField
                     label={t("landedCosts.field.type")}
                     value={c.costType}
                     onChange={(v) => setCostItems((prev) => prev.map((x) => (x.key === c.key ? { ...x, costType: v as LandedCostTypeDTO } : x)))}
                     options={Object.entries(COST_TYPE_KEY).map(([value, key]) => ({ value, label: t(key) }))}
                   />
-                </div>
-                <div className="flex-1">
-                  <TextField label={t("landedCosts.field.description")} value={c.description} onChange={(v) => setCostItems((prev) => prev.map((x) => (x.key === c.key ? { ...x, description: v } : x)))} />
-                </div>
-                <div className="w-[100px]">
                   <NumberField label={t("landedCosts.field.amount")} value={c.amount} onChange={(v) => setCostItems((prev) => prev.map((x) => (x.key === c.key ? { ...x, amount: v } : x)))} min={0} />
                 </div>
-                <Button variant="ghost" onClick={() => setCostItems((prev) => prev.filter((x) => x.key !== c.key))} disabled={costItems.length === 1}>
-                  {t("common.delete")}
-                </Button>
+                <div className="flex justify-end">
+                  <Button variant="ghost" onClick={() => setCostItems((prev) => prev.filter((x) => x.key !== c.key))} disabled={costItems.length === 1}>
+                    {t("common.delete")}
+                  </Button>
+                </div>
               </div>
             ))}
             <Button variant="default" onClick={() => setCostItems((prev) => [...prev, blankCostItem()])}>
@@ -520,29 +518,26 @@ export function LandedCostsScreen() {
               <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-ink-muted">{t("landedCosts.noStockItems")}</div>
             ) : null}
             {targets.map((target) => (
-              <div key={target.key} className="flex items-end gap-2 rounded-[10px] border border-border p-2.5">
-                <div className="flex-1">
-                  <SelectField
-                    label={t("common.item")}
-                    value={target.itemId}
-                    onChange={(v) => changeTargetItem(target.key, v)}
-                    options={invoiceStockLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
-                  />
-                </div>
-                <div className="w-[80px]">
+              <div key={target.key} className="flex flex-col gap-2 rounded-[10px] border border-border p-2.5">
+                <SelectField
+                  label={t("common.item")}
+                  value={target.itemId}
+                  onChange={(v) => changeTargetItem(target.key, v)}
+                  options={invoiceStockLines.map((sl) => ({ value: sl.itemId as string, label: itemName(sl.itemId as string) }))}
+                />
+                {/* A grid, not a fixed-width flex row: the fourth column BY_WEIGHT adds squeezed every number field to ~35px inside the panel. */}
+                <div className="grid grid-cols-2 gap-2">
                   <NumberField label={t("common.qty")} value={target.qty} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, qty: v } : x)))} min={0} />
-                </div>
-                <div className="w-[90px]">
                   <NumberField label={t("landedCosts.field.currentCost")} value={target.unitCost} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, unitCost: v } : x)))} min={0} />
-                </div>
-                {method === "BY_WEIGHT" ? (
-                  <div className="w-[90px]">
+                  {method === "BY_WEIGHT" ? (
                     <NumberField label={t("landedCosts.field.weight")} value={target.weight} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, weight: v } : x)))} min={0} />
-                  </div>
-                ) : null}
-                <Button variant="ghost" onClick={() => setTargets((prev) => prev.filter((x) => x.key !== target.key))} disabled={targets.length === 1}>
-                  {t("common.delete")}
-                </Button>
+                  ) : null}
+                </div>
+                <div className="flex justify-end">
+                  <Button variant="ghost" onClick={() => setTargets((prev) => prev.filter((x) => x.key !== target.key))} disabled={targets.length === 1}>
+                    {t("common.delete")}
+                  </Button>
+                </div>
               </div>
             ))}
             <Button

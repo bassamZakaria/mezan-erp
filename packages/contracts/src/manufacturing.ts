@@ -147,6 +147,8 @@ export const workOrderShopFloorEntrySchema = z.object({
   kind: z.enum(["issue", "extra_issue", "return", "waste", "receive"]),
   stationId: z.string().nullable(),
   operatorId: z.string().nullable(),
+  /** The issue/receipt id whose movements this action produced; null for a waste log. */
+  ref: z.string().nullable(),
   at: z.string(),
 });
 

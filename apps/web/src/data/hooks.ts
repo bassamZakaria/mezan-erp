@@ -1417,13 +1417,15 @@ function voucherParams(filter: VoucherListQueryDTO): URLSearchParams {
 }
 
 /**
- * Chip counts over every voucher, computed server-side. The status and
- * needs-allocation filters are withheld so each chip reports its own total.
+ * Chip counts over every voucher, computed server-side. The status, type and
+ * needs-allocation filters are withheld so each chip reports its own total —
+ * including the type chips, which otherwise all read zero as soon as one is
+ * picked.
  */
 export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
-  const { status: _status, needsAllocation: _needs, ...rest } = filter;
+  const { status: _status, needsAllocation: _needs, type: _type, ...rest } = filter;
   return useQuery<ListCountsDTO, ApiError>({
     queryKey: ["vouchers", "counts", rest],
     enabled: session !== null,

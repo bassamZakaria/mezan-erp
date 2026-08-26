@@ -275,16 +275,17 @@ export function createVouchersRoutes(
   });
 
   /**
-   * The chip counts (R1.1/R8.2). Ignores `status` and `needsAllocation` for
-   * the same reason every other counts endpoint does: a chip states how many
-   * rows IT would show, not how many the active chip left.
+   * The chip counts (R1.1/R8.2). Ignores `status`, `needsAllocation` AND
+   * `type` for the same reason: a chip states how many rows IT would show,
+   * not how many the active one left. Narrowing by the active type made every
+   * other type chip read zero the moment one was picked.
    */
   app.get("/counts", gate("treasury.cash_voucher.view"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const { status: _s, needsAllocation: _n, ...rest } = parsed.data;
+    const { status: _s, needsAllocation: _n, type: _t, ...rest } = parsed.data;
     const rows = await listFilteredVouchers(c, rest);
     const counts: Record<string, number> = {
       all: rows.length,

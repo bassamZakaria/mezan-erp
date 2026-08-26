@@ -20,6 +20,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await catalogFacetsAreEntities_R510(ctx);
   await itemDefaultSupplierIsBound_R54(ctx);
   await attentionBannerCountsMatchTheirFilter_R19(ctx);
+  await attachmentsRoundTripAndAreGated_R14(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -708,5 +709,81 @@ async function attentionBannerCountsMatchTheirFilter_R19(ctx: Ctx): Promise<void
     const vouchers = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
     const unallocated = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
     ctx.checkEq("the needs-allocation banner matches its queue", vouchers.needs_allocation ?? 0, unallocated.length);
+  });
+}
+
+/**
+ * R1.4 — المرفقات. A file uploaded against an entity must come back BYTE FOR
+ * BYTE on a later read (that is the whole product promise), must be invisible
+ * to a caller without the entity's view permission, must refuse an upload from
+ * a caller without its write permission, and must really disappear on delete.
+ *
+ * Ids are prefixed `SCN-ATT-` so they collide with neither the seed nor another
+ * suite, and the scenario removes what it created — an extra attachment left on
+ * a seeded item would change what a later suite counts.
+ */
+async function attachmentsRoundTripAndAreGated_R14(ctx: Ctx): Promise<void> {
+  await ctx.scenario("an attachment round-trips its bytes and is gated by the entity it hangs off (R1.4)", async () => {
+    const itemId = "ITEM-DEMO-2";
+    const text = "تقرير فحص — سطر ١\nline two\n٣";
+    const base64 = Buffer.from(text, "utf8").toString("base64");
+
+    const seeded = await ctx.req("GET", "/attachments?entityType=item&entityId=ITEM-DEMO-1");
+    ctx.check("the demo seed carries item attachments", ctx.rows(seeded.body).length > 0, JSON.stringify(seeded.body).slice(0, 160));
+
+    const before = ctx.rows((await ctx.req("GET", `/attachments?entityType=item&entityId=${itemId}`)).body).length;
+
+    const created = await ctx.req("POST", "/attachments", {
+      id: "SCN-ATT-1",
+      entityType: "item",
+      entityId: itemId,
+      fileName: "تقرير-الفحص.txt",
+      mimeType: "text/plain; charset=utf-8",
+      notes: "من سيناريو المخزون",
+      contentBase64: base64,
+    });
+    ctx.check("upload accepted", created.status === 201, `${created.status}: ${JSON.stringify(created.body)}`);
+    ctx.checkEq("byteSize is the server's own count of the decoded bytes", ctx.n(created.body?.byteSize), Buffer.byteLength(text, "utf8"));
+    ctx.check("uploadedBy is the caller, not anything the client sent", created.body?.uploadedBy === "USER-ADMIN", String(created.body?.uploadedBy));
+
+    const listed = ctx.rows((await ctx.req("GET", `/attachments?entityType=item&entityId=${itemId}`)).body);
+    ctx.checkEq("it appears in the entity's list", listed.length, before + 1);
+
+    const content = await ctx.req("GET", "/attachments/SCN-ATT-1/content");
+    ctx.check("the bytes come back exactly as uploaded", content.body?.contentBase64 === base64, String(content.body?.contentBase64).slice(0, 80));
+
+    const duplicate = await ctx.req("POST", "/attachments", {
+      id: "SCN-ATT-1",
+      entityType: "item",
+      entityId: itemId,
+      fileName: "again.txt",
+      contentBase64: base64,
+    });
+    ctx.check("an attachment is immutable — re-posting its id is refused rather than overwriting (D25's shape)", duplicate.status === 409, `${duplicate.status}`);
+
+    const noView = { "x-user-id": "SCN-ATT-NOBODY", "x-permissions": "sales.customer.view", "x-role-codes": "SCN_NONE" };
+    const hidden = await ctx.req("GET", `/attachments?entityType=item&entityId=${itemId}`, undefined, noView);
+    ctx.check("a caller without inventory.item.view cannot list an item's files", hidden.status === 403, `${hidden.status}`);
+    const hiddenContent = await ctx.req("GET", "/attachments/SCN-ATT-1/content", undefined, noView);
+    ctx.check("nor download them", hiddenContent.status === 403, `${hiddenContent.status}`);
+
+    const readOnly = { "x-user-id": "SCN-ATT-READER", "x-permissions": "inventory.item.view", "x-role-codes": "SCN_NONE" };
+    const readerList = await ctx.req("GET", `/attachments?entityType=item&entityId=${itemId}`, undefined, readOnly);
+    ctx.check("a viewer CAN list them", readerList.status === 200, `${readerList.status}`);
+    const readerUpload = await ctx.req(
+      "POST",
+      "/attachments",
+      { entityType: "item", entityId: itemId, fileName: "nope.txt", contentBase64: base64 },
+      readOnly,
+    );
+    ctx.check("but cannot upload without inventory.item.edit", readerUpload.status === 403, `${readerUpload.status}`);
+    const readerDelete = await ctx.req("DELETE", "/attachments/SCN-ATT-1", undefined, readOnly);
+    ctx.check("and cannot delete", readerDelete.status === 403, `${readerDelete.status}`);
+
+    const removed = await ctx.req("DELETE", "/attachments/SCN-ATT-1");
+    ctx.check("delete succeeds for a caller who may edit the item", removed.status === 204, `${removed.status}`);
+    const after = ctx.rows((await ctx.req("GET", `/attachments?entityType=item&entityId=${itemId}`)).body).length;
+    ctx.checkEq("and it is really gone — a hard delete, not a void", after, before);
+    ctx.check("its content route now 404s", (await ctx.req("GET", "/attachments/SCN-ATT-1/content")).status === 404);
   });
 }

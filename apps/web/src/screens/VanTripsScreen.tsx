@@ -1,7 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
+  RowMenu,
   StatusPill,
   VarianceBeam,
   Chip,
@@ -12,21 +14,25 @@ import {
   QtyInput,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
-import type { VanTripCrewRoleDTO, VanTripDTO, VanTripCashMovementKindDTO, VanTripStatusDTO } from "@mezan/contracts";
+import type { VanDTO, VanTripCrewRoleDTO, VanTripDTO, VanTripCashMovementKindDTO, VanTripStatusDTO } from "@mezan/contracts";
 import {
   ApiError,
   useBranches,
+  useEmployees,
   useItems,
   useOpenVanTrip,
   useRecordVanCashMovement,
   useSettleVanTrip,
   useTreasuryAccounts,
   useVanTrips,
+  useVans,
   useWarehouses,
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
@@ -59,11 +65,10 @@ interface StockDraftRow {
 
 interface OpenTripDraft {
   date: string;
-  vanWarehouseId: string;
+  /** The vehicle. Choosing it decides the van warehouse, the van till and the branch. */
+  vanId: string;
   sourceWarehouseId: string;
-  vanTreasuryAccountId: string;
   sourceTreasuryAccountId: string;
-  branchId: string;
   openingCashFloat: number | null;
   crew: CrewDraftRow[];
   loadedStock: StockDraftRow[];
@@ -73,11 +78,9 @@ interface OpenTripDraft {
 function blankDraft(): OpenTripDraft {
   return {
     date: today(),
-    vanWarehouseId: "",
+    vanId: "",
     sourceWarehouseId: "",
-    vanTreasuryAccountId: "",
     sourceTreasuryAccountId: "",
-    branchId: "",
     openingCashFloat: 0,
     crew: [],
     loadedStock: [],
@@ -85,25 +88,37 @@ function blankDraft(): OpenTripDraft {
   };
 }
 
-function validateDraft(draft: OpenTripDraft): AppTranslationKey | null {
+function validateDraft(draft: OpenTripDraft, van: VanDTO | null): AppTranslationKey | null {
   if (draft.date.trim() === "") return "vanTrips.dateRequired";
-  if (draft.vanWarehouseId === "") return "vanTrips.vanRequired";
+  if (draft.vanId === "" || !van) return "vanTrips.vanRequired";
   if (draft.sourceWarehouseId === "") return "vanTrips.sourceWarehouseRequired";
-  if (draft.vanWarehouseId === draft.sourceWarehouseId) return "vanTrips.sourceWarehouseSameAsVan";
-  if (draft.vanTreasuryAccountId === "") return "vanTrips.vanTillRequired";
+  if (van.warehouseId === draft.sourceWarehouseId) return "vanTrips.sourceWarehouseSameAsVan";
   if (draft.sourceTreasuryAccountId === "") return "vanTrips.sourceTillRequired";
-  if (draft.branchId === "") return "vanTrips.branchRequired";
   if (draft.crew.length === 0) return "vanTrips.crewRequired";
   return null;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+/** A field the van decided. Read-only on purpose: the registry owns the pair, not the form. */
+function CascadedValue({ label, value }: { label: string; value: string | null }) {
+  return (
+    <div className="rounded-lg border border-border bg-surface-2 p-[10px_12px]">
+      <div className="text-[11px] font-semibold text-ink-faint">{label}</div>
+      <div className="mt-[4px] text-[13px] text-ink">{value ?? "—"}</div>
+    </div>
+  );
+}
+
 export function VanTripsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useVanTrips();
   const warehousesQuery = useWarehouses();
   const treasuryQuery = useTreasuryAccounts();
   const branchesQuery = useBranches();
   const itemsQuery = useItems();
+  const vansQuery = useVans();
+  const employeesQuery = useEmployees();
 
   const openVanTrip = useOpenVanTrip();
   const recordCashMovement = useRecordVanCashMovement();
@@ -114,11 +129,8 @@ export function VanTripsScreen() {
   const treasuryAccounts = treasuryQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
-
-  const vanWarehouses = useMemo(() => {
-    const vans = warehouses.filter((w) => w.type === "VAN");
-    return vans.length > 0 ? vans : warehouses;
-  }, [warehouses]);
+  const vans = (vansQuery.data ?? []).filter((v) => v.active);
+  const employees = employeesQuery.data ?? [];
 
   const warehouseName = useMemo(() => {
     const map = new Map(warehouses.map((w) => [w.id, w.name]));
@@ -128,6 +140,18 @@ export function VanTripsScreen() {
     const map = new Map(branches.map((b) => [b.id, b.name]));
     return (id: string) => map.get(id) ?? id;
   }, [branches]);
+  const treasuryName = useMemo(() => {
+    const map = new Map(treasuryAccounts.map((a) => [a.id, a.name]));
+    return (id: string) => map.get(id) ?? id;
+  }, [treasuryAccounts]);
+  const employeeName = useMemo(() => {
+    const map = new Map(employees.map((e) => [e.id, employeeDisplayName(e, locale)]));
+    return (id: string) => map.get(id) ?? id;
+  }, [employees, locale]);
+  const vanName = useMemo(() => {
+    const map = new Map((vansQuery.data ?? []).map((v) => [v.id, v.nameAr]));
+    return (id: string | null) => (id ? (map.get(id) ?? id) : null);
+  }, [vansQuery.data]);
   const itemName = useMemo(() => {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string) => map.get(id) ?? id;
@@ -140,6 +164,8 @@ export function VanTripsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<OpenTripDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [crewEmployeeId, setCrewEmployeeId] = useState("");
   const [crewRole, setCrewRole] = useState<VanTripCrewRoleDTO>("driver");
   const [stockItemId, setStockItemId] = useState("");
@@ -170,6 +196,11 @@ export function VanTripsScreen() {
   const settledCount = trips.filter((trip) => trip.status === "settled").length;
 
   const selected = selectedId ? (trips.find((trip) => trip.id === selectedId) ?? null) : null;
+  const selectedVan = draft.vanId === "" ? null : (vans.find((v) => v.id === draft.vanId) ?? null);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
 
   function openCreateForm() {
     setDraft(blankDraft());
@@ -205,19 +236,20 @@ export function VanTripsScreen() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    const error = validateDraft(draft);
+    const error = validateDraft(draft, selectedVan);
     if (error) {
       setFormError(t(error));
       return;
     }
     setFormError(null);
     try {
+      // Only the van leaves the browser. Its warehouse, its till and its branch
+      // are resolved from the registry SERVER-side — a body that named them
+      // itself would be a second opinion the trip does not need.
       await openVanTrip.mutateAsync({
         id: crypto.randomUUID(),
         date: draft.date.trim(),
-        branchId: draft.branchId,
-        vanWarehouseId: draft.vanWarehouseId,
-        vanTreasuryAccountId: draft.vanTreasuryAccountId,
+        vanId: draft.vanId,
         sourceWarehouseId: draft.sourceWarehouseId,
         sourceTreasuryAccountId: draft.sourceTreasuryAccountId,
         openingCashFloat: (draft.openingCashFloat ?? 0).toFixed(6),
@@ -298,7 +330,27 @@ export function VanTripsScreen() {
         </div>
       ),
     },
-    { key: "van", header: t("vanTrips.van"), render: (trip) => warehouseName(trip.vanWarehouseId) },
+    {
+      key: "van",
+      header: t("vanTrips.van"),
+      render: (trip) => (
+        <div>
+          <div className="text-ink">{vanName(trip.vanId) ?? warehouseName(trip.vanWarehouseId)}</div>
+          <div className="text-[11px] text-ink-faint">{warehouseName(trip.vanWarehouseId)}</div>
+        </div>
+      ),
+    },
+    {
+      key: "crew",
+      header: t("vanTrips.crew"),
+      render: (trip) => (
+        <div className="flex flex-wrap gap-1">
+          {trip.crew.map((c, i) => (
+            <StatusPill key={i} label={`${employeeName(c.employeeId)} · ${t(ROLE_KEY[c.role])}`} tone="neutral" />
+          ))}
+        </div>
+      ),
+    },
     { key: "branch", header: t("common.branch"), render: (trip) => branchName(trip.branchId) },
     { key: "sales", header: t("vanTrips.sales"), render: (trip) => <span className="mz-num">{trip.cashMovements.filter((m) => m.kind === "sale").length}</span> },
     { key: "status", header: t("common.status"), render: (trip) => <StatusPill label={t(STATUS_KEY[trip.status])} tone={STATUS_TONE[trip.status]} /> },
@@ -337,6 +389,8 @@ export function VanTripsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("vanTrips.searchByTripNo")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {(
@@ -347,24 +401,62 @@ export function VanTripsScreen() {
                 ["cancelled", t("vanTrips.cancelled")],
               ] as const
             ).map(([value, label]) => (
-              <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>
+              <Chip
+                key={value}
+                active={statusFilter === value}
+                onClick={() => {
+                  setStatusFilter(value);
+                  setPage(1);
+                }}
+              >
                 {label}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(trip) => trip.id}
         onRowClick={(trip) => setSelectedId(trip.id)}
-        page={1}
-        pageCount={1}
+        rowAction={(trip) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("vanTrips.row.view"), onSelect: () => setSelectedId(trip.id) },
+            ...(trip.status === "ongoing"
+              ? [
+                  {
+                    key: "settle",
+                    label: t("vanTrips.settleTheTrip"),
+                    onSelect: () => {
+                      setSelectedId(trip.id);
+                      openSettleForm(trip);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("vanTrips.row.actionsFor", { trip: trip.tripNo ?? trip.id })} />;
+        }}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("vanTrips.trip")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("vanTrips.trip")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("vanTrips.noMatchingTrips")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("vanTrips.noMatchingTrips")}
+            description={t("vanTrips.emptyBody")}
+            action={{ label: t("vanTrips.openATrip"), onClick: openCreateForm }}
+          />
+        }
       />
 
       {/* -------- Trip detail panel -------- */}
@@ -407,7 +499,7 @@ export function VanTripsScreen() {
               </div>
               <div className="border-t border-border p-[13px_15px]">
                 <div className="text-[11px] font-semibold text-ink-faint">{t("vanTrips.vanTill")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.vanTreasuryAccountId}</div>
+                <div className="mt-[5px] text-[14px] font-bold text-ink">{treasuryName(selected.vanTreasuryAccountId)}</div>
               </div>
             </Card>
 
@@ -416,7 +508,7 @@ export function VanTripsScreen() {
               <div className="flex flex-col gap-[6px]">
                 {selected.crew.map((c, i) => (
                   <div key={i} className="flex items-center justify-between text-[13px] text-ink">
-                    <span>{c.employeeId}</span>
+                    <span>{employeeName(c.employeeId)}</span>
                     <StatusPill label={t(ROLE_KEY[c.role])} tone="neutral" />
                   </div>
                 ))}
@@ -615,35 +707,47 @@ export function VanTripsScreen() {
 
           <TextField label={t("vanTrips.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
 
+          {/* The cascade (R3.13): the van decides its warehouse, its till and
+              its branch, so those three are read-only and stay empty until a
+              van is chosen. Nothing here can pair van A's stock with van B's
+              cash — the registry says which goes with which, and the server
+              resolves the same pair when the trip is opened. */}
           <SelectField
             label={t("vanTrips.van2")}
-            value={draft.vanWarehouseId}
-            onChange={(v) => setDraft((d) => ({ ...d, vanWarehouseId: v }))}
-            options={[{ value: "", label: t("vanTrips.chooseAVan") }, ...vanWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
+            value={draft.vanId}
+            onChange={(v) => setDraft((d) => ({ ...d, vanId: v }))}
+            options={[
+              { value: "", label: t("vanTrips.chooseAVan") },
+              ...vans.map((van) => ({ value: van.id, label: van.plateNumber ? `${van.nameAr} — ${van.plateNumber}` : van.nameAr })),
+            ]}
+            hint={t("vanTrips.vanCascadeHint")}
           />
+
+          <div className="grid grid-cols-1 gap-[10px] sm:grid-cols-3">
+            <CascadedValue label={t("vanTrips.vanWarehouse")} value={selectedVan ? warehouseName(selectedVan.warehouseId) : null} />
+            <CascadedValue label={t("vanTrips.vanTill2")} value={selectedVan ? treasuryName(selectedVan.treasuryAccountId) : null} />
+            <CascadedValue label={t("vanTrips.branch")} value={selectedVan ? branchName(selectedVan.branchId) : null} />
+          </div>
+
           <SelectField
             label={t("vanTrips.loadingWarehouse")}
             value={draft.sourceWarehouseId}
             onChange={(v) => setDraft((d) => ({ ...d, sourceWarehouseId: v }))}
-            options={[{ value: "", label: t("vanTrips.chooseALoadingWarehouse") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
-          />
-          <SelectField
-            label={t("vanTrips.vanTill2")}
-            value={draft.vanTreasuryAccountId}
-            onChange={(v) => setDraft((d) => ({ ...d, vanTreasuryAccountId: v }))}
-            options={[{ value: "", label: t("vanTrips.chooseTheVanTill") }, ...treasuryAccounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
+            disabled={selectedVan === null}
+            options={[
+              { value: "", label: t("vanTrips.chooseALoadingWarehouse") },
+              ...warehouses.filter((w) => w.id !== selectedVan?.warehouseId).map((w) => ({ value: w.id, label: w.name })),
+            ]}
           />
           <SelectField
             label={t("vanTrips.sourceTill")}
             value={draft.sourceTreasuryAccountId}
             onChange={(v) => setDraft((d) => ({ ...d, sourceTreasuryAccountId: v }))}
-            options={[{ value: "", label: t("vanTrips.chooseTheSourceTill") }, ...treasuryAccounts.map((acc) => ({ value: acc.id, label: acc.name }))]}
-          />
-          <SelectField
-            label={t("vanTrips.branch")}
-            value={draft.branchId}
-            onChange={(v) => setDraft((d) => ({ ...d, branchId: v }))}
-            options={[{ value: "", label: t("vanTrips.chooseABranch") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
+            disabled={selectedVan === null}
+            options={[
+              { value: "", label: t("vanTrips.chooseTheSourceTill") },
+              ...treasuryAccounts.filter((acc) => acc.id !== selectedVan?.treasuryAccountId).map((acc) => ({ value: acc.id, label: acc.name })),
+            ]}
           />
 
           <div>
@@ -664,7 +768,7 @@ export function VanTripsScreen() {
               {draft.crew.map((c, i) => (
                 <div key={i} className="flex items-center justify-between rounded-md border border-border px-[10px] py-[7px] text-[12.5px]">
                   <span className="text-ink">
-                    {c.employeeId} — {t(ROLE_KEY[c.role])}
+                    {employeeName(c.employeeId)} — {t(ROLE_KEY[c.role])}
                   </span>
                   <button type="button" onClick={() => removeCrewRow(i)} aria-label={t("vanTrips.remove")} className="text-ink-faint hover:text-danger-ink">
                     ×
@@ -673,13 +777,26 @@ export function VanTripsScreen() {
               ))}
             </div>
             <div className="mt-[10px] flex flex-wrap items-end gap-[8px]">
+              {/* A crew member is an EMPLOYEE, so this picks one over the real
+                  employee endpoint. It was a text field taking a typed id, so a
+                  trip could name a driver who does not work here. */}
               <div className="flex-1">
-                <TextField label={t("vanTrips.chooseAnEmployee")} value={crewEmployeeId} onChange={setCrewEmployeeId} placeholder={t("vanTrips.employeeId")} />
+                <SelectField
+                  label={t("vanTrips.chooseAnEmployee")}
+                  value={crewEmployeeId}
+                  onChange={setCrewEmployeeId}
+                  options={[
+                    { value: "", label: t("vanTrips.chooseAnEmployee2") },
+                    ...employees
+                      .filter((e) => !draft.crew.some((c) => c.employeeId === e.id))
+                      .map((e) => ({ value: e.id, label: `${employeeDisplayName(e, locale)} (${e.code})` })),
+                  ]}
+                />
               </div>
               <div className="w-[130px]">
                 <SelectField label={t("vanTrips.role")} value={crewRole} onChange={(v) => setCrewRole(v as VanTripCrewRoleDTO)} options={ROLE_VALUES.map((value) => ({ value, label: t(ROLE_KEY[value]) }))} />
               </div>
-              <Button type="button" disabled={crewEmployeeId.trim() === ""} onClick={addCrewRow}>
+              <Button type="button" disabled={crewEmployeeId === ""} onClick={addCrewRow}>
                 {t("common.add")}
               </Button>
             </div>

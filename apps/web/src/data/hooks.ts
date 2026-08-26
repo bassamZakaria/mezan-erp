@@ -147,6 +147,7 @@ import type {
   UpdateNotificationRuleDTO,
   OpenInvoiceDTO,
   OpenVanTripDTO,
+  VanDTO,
   OpportunityDTO,
   PhysicalCountDTO,
   PhysicalCountStatusDTO,
@@ -6024,6 +6025,26 @@ export function useRefundSalesReturn() {
       queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/**
+ * المركبات (R3.13) — the van registry. Every van names the warehouse its stock
+ * sits in and the till its cash sits in, which is what the trip form cascades
+ * from; the server resolves the same pair from this registry, so the browser
+ * can never open a trip on a combination the registry does not hold.
+ */
+export function useVans(): UseQueryResult<VanDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<VanDTO[], ApiError>({
+    queryKey: ["field-vans"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/field/vans");
+      if (!res.ok) throw new ApiError(res.status, t("api.vansCouldNotBeLoaded"));
+      return res.json<VanDTO[]>();
     },
   });
 }

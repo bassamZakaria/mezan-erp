@@ -1436,6 +1436,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     fieldSales: {
       trips: vanTrips,
+      // The registry the van→warehouse→treasury cascade resolves against, and
+      // the check that a crew member is a real employee: the trip form took a
+      // TYPED employee id, which is the field-binding defect this closes.
+      vans: vanTrips.vans,
+      employeeExists: async (employeeId: string) => (await hrEmployees.findById(employeeId)) !== null,
       stock: stockService,
       treasuryTransfer: vanTripTreasuryTransfer,
       recordCashTaking: recordVanCashTaking,

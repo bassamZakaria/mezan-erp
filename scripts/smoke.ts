@@ -86,6 +86,7 @@ const READ_PATHS = [
   "/assets",
   "/assets/categories",
   "/field/van-trips",
+  "/field/vans",
   "/manufacturing/work-orders",
   "/manufacturing/boms",
   "/manufacturing/configurable-products",

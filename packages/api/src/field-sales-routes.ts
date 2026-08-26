@@ -3,13 +3,20 @@ import { randomUUID } from "node:crypto";
 import {
   Money,
   Qty,
+  createVan,
   openVanTrip,
   recordVanCashMovement,
+  resolveVanCascade,
   settleVanTrip,
   VanTripNotFoundError,
   InvalidVanTripError,
+  InvalidVanError,
+  VanCascadeMismatchError,
+  VanNotFoundError,
   VanTripNotOngoingError,
   SameWarehouseVanTripError,
+  type Van,
+  type VanRepository,
   type VanTrip,
   type VanTripCashMovementKind,
   type VanTripRepository,
@@ -17,7 +24,7 @@ import {
   type SettleVanTripDeps,
   type TreasuryTransferInput,
 } from "@mezan/domain";
-import { openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
+import { createVanSchema, openVanTripSchema, recordVanCashMovementSchema, settleVanTripSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -27,6 +34,14 @@ import { createPermissionGate, headerAuthContextResolver, type AuthContextResolv
  */
 export interface FieldSalesRoutesDeps {
   readonly trips: VanTripRepository;
+  /**
+   * المركبات — the registry the van→warehouse→treasury cascade resolves
+   * against (R3.13). Without it the three stay independent, which is what let
+   * van A's stock be settled into van B's till.
+   */
+  readonly vans?: VanRepository;
+  /** Confirms a crew member is a real employee — the trip form used to take a typed id. */
+  readonly employeeExists?: (employeeId: string) => Promise<boolean>;
   readonly stock: Pick<StockLedgerService, "postTransfer">;
   readonly treasuryTransfer?: (input: TreasuryTransferInput) => Promise<void>;
   /**
@@ -55,6 +70,7 @@ function serialize(trip: VanTrip) {
     tripNo: trip.tripNo,
     date: trip.date,
     branchId: trip.branchId,
+    vanId: trip.vanId,
     vanWarehouseId: trip.vanWarehouseId,
     vanTreasuryAccountId: trip.vanTreasuryAccountId,
     sourceWarehouseId: trip.sourceWarehouseId,
@@ -90,17 +106,88 @@ function serialize(trip: VanTrip) {
   };
 }
 
+function serializeVan(van: Van) {
+  return {
+    id: van.id,
+    code: van.code,
+    nameAr: van.nameAr,
+    nameEn: van.nameEn,
+    plateNumber: van.plateNumber,
+    branchId: van.branchId,
+    warehouseId: van.warehouseId,
+    treasuryAccountId: van.treasuryAccountId,
+    active: van.active,
+  };
+}
+
 function handleDomainError(c: Context, err: unknown) {
-  if (err instanceof VanTripNotFoundError) {
+  if (err instanceof VanTripNotFoundError || err instanceof VanNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
   }
-  if (err instanceof InvalidVanTripError || err instanceof SameWarehouseVanTripError) {
+  if (
+    err instanceof InvalidVanTripError ||
+    err instanceof SameWarehouseVanTripError ||
+    err instanceof InvalidVanError ||
+    err instanceof VanCascadeMismatchError
+  ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
   if (err instanceof VanTripNotOngoingError) {
     return c.json({ error: err.code, message: err.message }, 409);
   }
   throw err;
+}
+
+/**
+ * المركبات (R3.13) — mounted under `/field/vans`. A van owns the warehouse its
+ * stock sits in and the till its cash sits in, so the trip form picks a van and
+ * the server derives both rather than offering three unrelated dropdowns.
+ */
+export function createVansRoutes(
+  vans: VanRepository,
+  resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+) {
+  const app = new Hono();
+  const gate = createPermissionGate(resolveAuthContext);
+
+  app.get("/", gate("field.van_trip.view"), async (c) => {
+    const all = await vans.list();
+    const activeParam = c.req.query("active");
+    const filtered = activeParam === undefined ? all : all.filter((v) => v.active === (activeParam === "true"));
+    return c.json(filtered.map(serializeVan));
+  });
+
+  app.get("/:id", gate("field.van_trip.view"), async (c) => {
+    const van = await vans.findById(c.req.param("id"));
+    if (!van) return c.json({ error: "VAN_NOT_FOUND" }, 404);
+    return c.json(serializeVan(van));
+  });
+
+  app.post("/", gate("field.van_trip.open"), async (c) => {
+    const parsed = createVanSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const van = createVan({
+        id: parsed.data.id ?? randomUUID(),
+        code: parsed.data.code,
+        nameAr: parsed.data.nameAr,
+        nameEn: parsed.data.nameEn,
+        plateNumber: parsed.data.plateNumber,
+        branchId: parsed.data.branchId,
+        warehouseId: parsed.data.warehouseId,
+        treasuryAccountId: parsed.data.treasuryAccountId,
+        active: parsed.data.active,
+      });
+      await vans.save(van);
+      return c.json(serializeVan(van), 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  return app;
 }
 
 export function createFieldSalesRoutes(
@@ -122,14 +209,47 @@ export function createFieldSalesRoutes(
     }
     const body = parsed.data;
     try {
+      /**
+       * The cascade, resolved from the registry rather than from the body: a
+       * request that names a van gets that van's warehouse, till and branch,
+       * and is REFUSED if it also names a different one. A request with no van
+       * keeps the old three-field shape for editions that run no registry.
+       */
+      let vanId: string | null = null;
+      let vanWarehouseId = body.vanWarehouseId;
+      let vanTreasuryAccountId = body.vanTreasuryAccountId;
+      let branchId = body.branchId;
+      if (body.vanId) {
+        if (!deps.vans) {
+          return c.json({ error: "VAN_REGISTRY_UNAVAILABLE", message: "سجل المركبات غير مفعّل." }, 503);
+        }
+        const van = await deps.vans.findById(body.vanId);
+        if (!van) throw new VanNotFoundError(body.vanId);
+        const cascade = resolveVanCascade(van, {
+          warehouseId: body.vanWarehouseId,
+          treasuryAccountId: body.vanTreasuryAccountId,
+        });
+        vanId = van.id;
+        vanWarehouseId = cascade.warehouseId;
+        vanTreasuryAccountId = cascade.treasuryAccountId;
+        branchId = body.branchId ?? cascade.branchId;
+      }
+      if (!vanWarehouseId || !vanTreasuryAccountId || !branchId) {
+        return c.json(
+          { error: "VAN_REQUIRED", message: "اختر المركبة، أو حدّد المستودع والخزينة والفرع." },
+          422,
+        );
+      }
+
       const trip = await openVanTrip(
         {
           id: randomUUID(),
           tripNo: body.tripNo,
           date: body.date,
-          branchId: body.branchId,
-          vanWarehouseId: body.vanWarehouseId,
-          vanTreasuryAccountId: body.vanTreasuryAccountId,
+          branchId,
+          vanId,
+          vanWarehouseId,
+          vanTreasuryAccountId,
           sourceWarehouseId: body.sourceWarehouseId,
           sourceTreasuryAccountId: body.sourceTreasuryAccountId,
           openingCashFloat: body.openingCashFloat !== undefined ? Money.fromMajor(body.openingCashFloat) : undefined,
@@ -137,7 +257,12 @@ export function createFieldSalesRoutes(
           loadedStock: body.loadedStock?.map((l) => ({ itemId: l.itemId, qty: Qty.fromMajor(l.qty) })),
           notes: body.notes,
         },
-        { trips: deps.trips, stock: deps.stock, treasuryTransfer: deps.treasuryTransfer },
+        {
+          trips: deps.trips,
+          stock: deps.stock,
+          treasuryTransfer: deps.treasuryTransfer,
+          employeeExists: deps.employeeExists,
+        },
       );
       return c.json(serialize(trip), 201);
     } catch (err) {

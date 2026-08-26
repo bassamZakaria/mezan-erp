@@ -67,6 +67,8 @@ export interface VanTrip {
   readonly tripNo: string | null;
   readonly date: string;
   readonly branchId: string;
+  /** The vehicle this trip is driving (R3.13) — null on trips opened before the registry existed. */
+  readonly vanId: string | null;
   readonly vanWarehouseId: string;
   readonly vanTreasuryAccountId: string;
   readonly sourceWarehouseId: string;

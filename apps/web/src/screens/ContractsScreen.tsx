@@ -7,12 +7,14 @@ import {
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type {
   ContractDTO,
@@ -104,7 +106,7 @@ export function ContractsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
@@ -197,16 +199,16 @@ export function ContractsScreen() {
     }
   }
 
-  async function runTerminate() {
-    if (!selected || pendingAction) return;
-    setPendingAction(true);
+  async function runTerminate(contract: ContractDTO) {
+    if (pendingId) return;
+    setPendingId(contract.id);
     setDetailError(null);
     try {
-      await terminateContract.mutateAsync(selected.id);
+      await terminateContract.mutateAsync(contract.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("contracts.theContractCouldNotBe2"));
     } finally {
-      setPendingAction(false);
+      setPendingId(null);
     }
   }
 
@@ -298,6 +300,15 @@ export function ContractsScreen() {
         onRowClick={(c) => {
           setDetailError(null);
           setSelectedId(c.id);
+        }}
+        rowAction={(c) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(c.id); } },
+            ...(c.status === "active"
+              ? [{ key: "terminate", label: t("contracts.endContract"), tone: "danger" as const, disabled: pendingId === c.id, onSelect: () => void runTerminate(c) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.number })} />;
         }}
         page={page}
         pageCount={pageCount}
@@ -417,7 +428,7 @@ export function ContractsScreen() {
             ) : null}
 
             {selected.status === "active" ? (
-              <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
+              <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => void runTerminate(selected)}>
                 {t("contracts.endContract")}
               </Button>
             ) : null}

@@ -6,10 +6,12 @@ import {
   DocumentList,
   EmptyState,
   FulcrumRule,
+  RowMenu,
   Select,
   StatusPill,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
@@ -74,6 +76,7 @@ export function FiscalPeriodsScreen() {
   const [year, setYear] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
@@ -103,29 +106,41 @@ export function FiscalPeriodsScreen() {
   // machine server-side — an invalid transition surfaces the server's own
   // error message rather than one guessed on the client.
   async function closePeriod(period: FiscalPeriodDTO) {
+    if (pendingId) return;
+    setPendingId(period.id);
     setActionError(null);
     try {
       await closePeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.closeFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+    } finally {
+      setPendingId(null);
     }
   }
 
   async function lockPeriod(period: FiscalPeriodDTO) {
+    if (pendingId) return;
+    setPendingId(period.id);
     setActionError(null);
     try {
       await lockPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.lockFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+    } finally {
+      setPendingId(null);
     }
   }
 
   async function reopenPeriod(period: FiscalPeriodDTO) {
+    if (pendingId) return;
+    setPendingId(period.id);
     setActionError(null);
     try {
       await reopenPeriodMutation.mutateAsync(period.id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("fiscalPeriods.reopenFailed", { period: `${monthLabel(period.periodNumber, t)} ${period.year}` }));
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -156,29 +171,6 @@ export function FiscalPeriodsScreen() {
     { key: "range", header: t("fiscalPeriods.fromTo"), render: (p) => <span className="mz-num">{p.startDate} — {p.endDate}</span> },
     { key: "posting", header: t("fiscalPeriods.posting"), render: (p) => <StatusPill label={p.status === "open" ? t("fiscalPeriods.allowed") : t("fiscalPeriods.notAllowed")} tone={p.status === "open" ? "success" : "danger"} /> },
     { key: "status", header: t("common.status"), render: (p) => <StatusPill label={t(STATUS_KEY[p.status])} tone={STATUS_TONE[p.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      render: (p) => (
-        <div className="flex justify-end gap-[6px]">
-          {p.status === "open" ? (
-            <Button size="sm" onClick={() => closePeriod(p)}>
-              {t("fiscalPeriods.close")}
-            </Button>
-          ) : null}
-          {p.status === "closed" ? (
-            <>
-              <Button size="sm" onClick={() => reopenPeriod(p)}>
-                {t("fiscalPeriods.reopen")}
-              </Button>
-              <Button size="sm" onClick={() => lockPeriod(p)}>
-                {t("fiscalPeriods.lock")}
-              </Button>
-            </>
-          ) : null}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -284,6 +276,18 @@ export function FiscalPeriodsScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(p) => p.id}
+        rowAction={(p) => {
+          const menuItems: RowMenuItem[] =
+            p.status === "open"
+              ? [{ key: "close", label: t("fiscalPeriods.close"), disabled: pendingId === p.id, onSelect: () => void closePeriod(p) }]
+              : p.status === "closed"
+                ? [
+                    { key: "reopen", label: t("fiscalPeriods.reopen"), disabled: pendingId === p.id, onSelect: () => void reopenPeriod(p) },
+                    { key: "lock", label: t("fiscalPeriods.lock"), disabled: pendingId === p.id, onSelect: () => void lockPeriod(p) },
+                  ]
+                : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: `${monthLabel(p.periodNumber, t)} ${p.year}` })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

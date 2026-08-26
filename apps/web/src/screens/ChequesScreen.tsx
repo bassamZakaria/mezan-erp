@@ -8,12 +8,14 @@ import {
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { CHEQUE_STATUS_DEFINITIONS, getChequeDirectionLabel, getChequeStatusLabel } from "@mezan/domain";
 import type { ChequeDTO, ChequeDirectionDTO, ChequeStatusDTO } from "@mezan/contracts";
@@ -239,20 +241,6 @@ export function ChequesScreen() {
       header: t("cheques.by"),
       render: (c) => <span className="mz-num text-[11px] text-ink-faint">{c.createdAt.slice(0, 10)}</span>,
     },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (c) => {
-        const actions = legalActions(c);
-        if (actions.length === 0) return <span className="text-ink-faint">—</span>;
-        return (
-          <Button size="sm" variant="ghost" onClick={() => { setActionError(null); setSelectedId(c.id); }}>
-            {t("cheques.actions")}
-          </Button>
-        );
-      },
-    },
   ];
 
   return (
@@ -331,6 +319,20 @@ export function ChequesScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(c) => c.id}
+        rowAction={(c) => {
+          const actions = legalActions(c);
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setActionError(null); setSelectedId(c.id); } },
+            ...actions.map((action) => ({
+              key: action,
+              label: t(ACTION_KEY[action]),
+              tone: action === "bounce" ? ("danger" as const) : ("default" as const),
+              disabled: pendingId === c.id,
+              onSelect: () => void runAction(c, action),
+            })),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: c.chequeNumber ?? c.id })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

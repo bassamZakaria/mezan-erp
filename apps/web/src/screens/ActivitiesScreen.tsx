@@ -1,5 +1,17 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, EmptyState, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  EmptyState,
+  RowMenu,
+  SidePanel,
+  StatusPill,
+  type DocumentListColumn,
+  type DocumentListStatusChip,
+  type PillTone,
+  type RowMenuItem,
+} from "@mezan/ui";
 import type { ActivityDTO, ActivityStatusDTO, ActivityTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
@@ -115,24 +127,6 @@ export function ActivitiesScreen() {
     { key: "type", header: t("common.type"), render: (a) => t(TYPE_KEY[a.type]) },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
     { key: "dueDate", header: t("activities.dueDate"), render: (a) => <span className="mz-num">{a.dueDate ?? "—"}</span> },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (a) =>
-        a.status === "pending" ? (
-          <div className="flex items-center justify-end gap-[6px]">
-            <Button size="sm" variant="primary" disabled={pendingId !== null} onClick={() => runAction(a, "complete")}>
-              {t("activities.complete")}
-            </Button>
-            <Button size="sm" variant="danger-outline" disabled={pendingId !== null} onClick={() => runAction(a, "cancel")}>
-              {t("common.cancel")}
-            </Button>
-          </div>
-        ) : (
-          <span className="text-ink-faint">—</span>
-        ),
-    },
   ];
 
   return (
@@ -181,6 +175,16 @@ export function ActivitiesScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(a) => a.id}
+        rowAction={(a) => {
+          const menuItems: RowMenuItem[] =
+            a.status === "pending"
+              ? [
+                  { key: "complete", label: t("activities.complete"), disabled: pendingId === a.id, onSelect: () => void runAction(a, "complete") },
+                  { key: "cancel", label: t("common.cancel"), tone: "danger", disabled: pendingId === a.id, onSelect: () => void runAction(a, "cancel") },
+                ]
+              : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.subject })} />;
+        }}
         page={currentPage}
         pageCount={pageCount}
         onPageChange={setPage}

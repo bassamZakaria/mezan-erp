@@ -6,6 +6,7 @@ import {
   EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
@@ -157,16 +158,6 @@ export function BankReconciliationScreen() {
       ),
     },
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (s) => (
-        <Button size="sm" variant="ghost" onClick={() => setOpenStatementId(s.id)}>
-          {t("bankRec.openReconciliation")}
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -244,6 +235,12 @@ export function BankReconciliationScreen() {
         rows={pageRows}
         rowKey={(s) => s.id}
         onRowClick={(s) => setOpenStatementId(s.id)}
+        rowAction={(s) => (
+          <RowMenu
+            items={[{ key: "open", label: t("bankRec.openReconciliation"), onSelect: () => setOpenStatementId(s.id) }]}
+            label={t("common.rowActionsFor", { name: s.statementNumber ?? s.id })}
+          />
+        )}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

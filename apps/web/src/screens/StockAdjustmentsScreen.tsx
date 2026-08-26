@@ -35,7 +35,10 @@ import {
   useItems,
   useJournalEntry,
   useStockAdjustments,
+  useStockAdjustmentCounts,
+  useStockAdjustmentStats,
   useWarehouses,
+  type StockAdjustmentFilter,
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
@@ -118,10 +121,25 @@ export function StockAdjustmentsScreen() {
   const { label: domainLabel } = useDomainLabels();
   const [reasonFilter, setReasonFilter] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
-  const query = useStockAdjustments({
-    ...(reasonFilter ? { reason: reasonFilter } : {}),
-    ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
-  });
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+
+  /**
+   * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip
+   * used to sum every adjustment regardless of the active status chip.
+   */
+  const filter = useMemo<StockAdjustmentFilter>(
+    () => ({
+      status: statusFilter,
+      reason: reasonFilter || undefined,
+      warehouseId: warehouseFilter || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, reasonFilter, warehouseFilter, search],
+  );
+  const query = useStockAdjustments(filter);
+  const counts = useStockAdjustmentCounts(filter).data ?? {};
+  const stats = useStockAdjustmentStats(filter).data ?? {};
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
   const documents = query.data ?? [];
@@ -160,32 +178,11 @@ export function StockAdjustmentsScreen() {
     (routedReason && isAdjustmentReason(routedReason) ? getAdjustmentReasonDefinition(routedReason) : null);
   const setSelectedReason = setReasonChoice;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "confirmed") c.confirmed += 1;
-    }
-    return c;
-  }, [documents]);
-
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
+  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount]);
@@ -334,14 +331,14 @@ export function StockAdjustmentsScreen() {
         listKey="stock-adjustments"
         statsCollapsible
         stats={[
-          { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
-          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => {
@@ -399,7 +396,7 @@ export function StockAdjustmentsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("stockAdj.adjustments")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("stockAdj.adjustments")}
           </>
         }
         emptyState={

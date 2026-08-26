@@ -22,11 +22,14 @@ import {
   useCreateRfqQuote,
   useItems,
   useRfqComparison,
+  useRfqCounts,
   useRfqQuotes,
   useRfqs,
+  useRfqStats,
   useSendRfq,
   useSuppliers,
   type RfqComparisonRecord,
+  type RfqListFilter,
   useUsers,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
@@ -379,8 +382,6 @@ function RfqDetail({
 export function RfqsScreen() {
   const { t } = useAppTranslation();
   const workingLocation = useWorkingLocation();
-  const rfqsQuery = useRfqs();
-  const rfqs = rfqsQuery.data ?? [];
   const suppliersQuery = useSuppliers();
   const suppliers = suppliersQuery.data ?? [];
   const itemsQuery = useItems();
@@ -395,6 +396,8 @@ export function RfqsScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
@@ -412,6 +415,24 @@ export function RfqsScreen() {
     [items],
   );
 
+  /**
+   * R1.1: one filter feeds the rows, the chips and the KPI strip — the strip
+   * used to count every RFQ regardless of the active status chip.
+   */
+  const filter = useMemo<RfqListFilter>(
+    () => ({
+      status: statusFilter,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, fromDate, toDate, search],
+  );
+  const rfqsQuery = useRfqs(filter);
+  const rfqs = rfqsQuery.data ?? [];
+  const counts = useRfqCounts(filter).data ?? {};
+  const stats = useRfqStats(filter).data ?? {};
+
   const selected = selectedId === null ? null : (rfqs.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
   const quotesQuery = useRfqQuotes(selectedId);
   const selectedQuotes = quotesQuery.data ?? [];
@@ -419,20 +440,9 @@ export function RfqsScreen() {
 
   const users = useUsers().data ?? [];
   const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
 
-  const filtered = useMemo(() => {
-    let rows = rfqs;
-    if (statusFilter !== "all") rows = rows.filter((r) => r.status === statusFilter);
-    if (fromDate) rows = rows.filter((r) => r.date >= fromDate);
-    if (toDate) rows = rows.filter((r) => r.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((r) => r.number.toLowerCase().includes(q));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [rfqs, statusFilter, search, fromDate, toDate]);
+  // Sorting stays client-side over the server-filtered set.
+  const filtered = useMemo(() => [...rfqs].sort((a, b) => b.number.localeCompare(a.number)), [rfqs]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -442,18 +452,12 @@ export function RfqsScreen() {
 
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
-  const counts = useMemo(() => {
-    const c: Record<"all" | PurchaseRfqStatusDTO, number> = { all: rfqs.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
-    for (const r of rfqs) c[r.status] += 1;
-    return c;
-  }, [rfqs]);
-
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "draft", label: t(STATUS_KEY.draft), count: counts.draft },
-    { key: "sent", label: t(STATUS_KEY.sent), count: counts.sent },
-    { key: "closed", label: t(STATUS_KEY.closed), count: counts.closed },
-    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "draft", label: t(STATUS_KEY.draft), count: counts.draft ?? 0 },
+    { key: "sent", label: t(STATUS_KEY.sent), count: counts.sent ?? 0 },
+    { key: "closed", label: t(STATUS_KEY.closed), count: counts.closed ?? 0 },
+    { key: "cancelled", label: t(STATUS_KEY.cancelled), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<PurchaseRfqDTO>[] = [
@@ -591,10 +595,10 @@ export function RfqsScreen() {
         listKey="rfqs"
         statsCollapsible
         stats={[
-          { label: t("rfqs.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("rfqs.stat.sent"), value: <span className="mz-num">{counts.sent}</span> },
-          { label: t("rfqs.stat.closed"), value: <span className="mz-num">{counts.closed}</span> },
-          { label: t("rfqs.stat.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("rfqs.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("rfqs.stat.sent"), value: <span className="mz-num">{stats.sent ?? 0}</span> },
+          { label: t("rfqs.stat.closed"), value: <span className="mz-num">{stats.closed ?? 0}</span> },
+          { label: t("rfqs.stat.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -645,7 +649,7 @@ export function RfqsScreen() {
           setPageSize(size);
           setPage(1);
         }}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("rfqs.showingSuffix")}</>}
         emptyState={
           rfqsQuery.isLoading ? (
             <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>

@@ -13,7 +13,16 @@ import {
 } from "@mezan/ui";
 import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
-import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
+import {
+  useCancelFollowUp,
+  useCompleteFollowUp,
+  useCreateFollowUp,
+  useCustomers,
+  useFollowUps,
+  useFollowUpCounts,
+  useFollowUpStats,
+  type FollowUpListFilters,
+} from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
@@ -31,13 +40,11 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function InstallmentFollowUpsScreen() {
   const { t } = useAppTranslation();
-  const query = useFollowUps();
   const customersQuery = useCustomers();
   const createFollowUp = useCreateFollowUp();
   const completeFollowUp = useCompleteFollowUp();
   const cancelFollowUp = useCancelFollowUp();
 
-  const followUps = query.data ?? [];
   const customers = customersQuery.data ?? [];
 
   const customerName = useMemo(() => {
@@ -47,6 +54,14 @@ export function InstallmentFollowUpsScreen() {
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to derive all three from one client-side fetch, so the header
+  // numbers stayed at the grand total no matter which status tab was active.
+  const filter = useMemo<FollowUpListFilters>(() => ({ status: statusFilter }), [statusFilter]);
+  const query = useFollowUps(filter);
+  const followUps = query.data ?? [];
+  const counts = useFollowUpCounts(filter).data ?? {};
+  const stats = useFollowUpStats(filter).data ?? {};
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [customerId, setCustomerId] = useState("");
@@ -56,20 +71,9 @@ export function InstallmentFollowUpsScreen() {
   const [outcome, setOutcome] = useState("");
   const [error, setError] = useState<string | null>(null);
 
-  const counts = useMemo(() => {
-    const c = { all: followUps.length, pending: 0, completed: 0, cancelled: 0 };
-    for (const f of followUps) {
-      if (f.status === "pending") c.pending += 1;
-      if (f.status === "completed") c.completed += 1;
-      if (f.status === "cancelled") c.cancelled += 1;
-    }
-    return c;
-  }, [followUps]);
-
-  const filtered = statusFilter === "all" ? followUps : followUps.filter((f) => f.status === statusFilter);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(followUps.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = followUps.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (followUps.find((f) => f.id === panel.id) ?? null) : null;
 
   // Defaults the create form's customer picker once the customers query resolves —
@@ -132,10 +136,10 @@ export function InstallmentFollowUpsScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "pending", label: t("followUps.pending"), count: counts.pending },
-    { key: "completed", label: t("followUps.completed"), count: counts.completed },
-    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "pending", label: t("followUps.pending"), count: counts.pending ?? 0 },
+    { key: "completed", label: t("followUps.completed"), count: counts.completed ?? 0 },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<CollectionFollowUpDTO>[] = [
@@ -168,9 +172,9 @@ export function InstallmentFollowUpsScreen() {
         listKey="installment-follow-ups"
         statsCollapsible
         stats={[
-          { label: t("followUps.totalFollowUps"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("followUps.pending2"), value: <span className="mz-num">{counts.pending}</span> },
-          { label: t("followUps.completed2"), value: <span className="mz-num">{counts.completed}</span> },
+          { label: t("followUps.totalFollowUps"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("followUps.pending2"), value: <span className="mz-num">{Number(stats.pending ?? 0)}</span> },
+          { label: t("followUps.completed2"), value: <span className="mz-num">{Number(stats.completed ?? 0)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -193,7 +197,7 @@ export function InstallmentFollowUpsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("followUps.followUps")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{followUps.length}</span> {t("followUps.followUps")}
           </>
         }
         emptyState={

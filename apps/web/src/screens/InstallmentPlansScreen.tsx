@@ -20,8 +20,11 @@ import {
   useConfirmInstallmentPlan,
   useCreateInstallmentPlan,
   useInstallmentPlans,
+  useInstallmentPlanCounts,
+  useInstallmentPlanStats,
   useProcessOverdueInstallments,
   useSalesInvoices,
+  type InstallmentPlanListFilter,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useScreenIntent } from "../navigation";
@@ -62,14 +65,12 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function InstallmentPlansScreen() {
   const { t } = useAppTranslation();
-  const query = useInstallmentPlans();
   const invoicesQuery = useSalesInvoices();
   const createPlan = useCreateInstallmentPlan();
   const confirmPlan = useConfirmInstallmentPlan();
   const cancelPlan = useCancelInstallmentPlan();
   const processOverdue = useProcessOverdueInstallments();
 
-  const documents = query.data ?? [];
   const invoices = useMemo(
     () => (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled" && Number(i.remainingBalance) > 0),
     [invoicesQuery.data],
@@ -84,6 +85,14 @@ export function InstallmentPlansScreen() {
     setPanel("create");
   });
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to derive all three from one client-side fetch, so the header
+  // numbers stayed at the grand total no matter which status tab was active.
+  const filter = useMemo<InstallmentPlanListFilter>(() => ({ status: statusFilter }), [statusFilter]);
+  const query = useInstallmentPlans(filter);
+  const documents = query.data ?? [];
+  const counts = useInstallmentPlanCounts(filter).data ?? {};
+  const stats = useInstallmentPlanStats(filter).data ?? {};
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
   const [invoiceId, setInvoiceId] = useState("");
@@ -114,21 +123,9 @@ export function InstallmentPlansScreen() {
     }
   }, [selectedInvoice, downPayment, installmentCount, frequency, startDate]);
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, active: 0, overdue: 0 };
-    for (const d of documents) {
-      if (d.status === "confirmed") {
-        c.active += 1;
-        if (d.lines.some((l) => l.status === "overdue")) c.overdue += 1;
-      }
-    }
-    return c;
-  }, [documents]);
-
-  const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = documents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
 
   function openCreate() {
@@ -185,8 +182,8 @@ export function InstallmentPlansScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "confirmed", label: t("common.active"), count: counts.active },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "confirmed", label: t("common.active"), count: counts.confirmed ?? 0 },
   ];
 
   const columns: DocumentListColumn<InstallmentPlanDocumentDTO>[] = [
@@ -247,9 +244,9 @@ export function InstallmentPlansScreen() {
         listKey="installment-plans"
         statsCollapsible
         stats={[
-          { label: t("instalments.totalPlans"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("instalments.activePlans"), value: <span className="mz-num">{counts.active}</span> },
-          { label: t("instalments.overdue2"), value: <span className="mz-num">{counts.overdue}</span> },
+          { label: t("instalments.totalPlans"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("instalments.activePlans"), value: <span className="mz-num">{Number(stats.active ?? 0)}</span> },
+          { label: t("instalments.overdue2"), value: <span className="mz-num">{Number(stats.overdue ?? 0)}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -272,7 +269,7 @@ export function InstallmentPlansScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("instalments.plans")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("instalments.plans")}
           </>
         }
         emptyState={

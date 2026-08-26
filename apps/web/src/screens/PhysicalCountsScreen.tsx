@@ -18,12 +18,19 @@ import {
   useCancelPhysicalCount,
   useCompletePhysicalCount,
   useGenerateAdjustmentFromCount,
-  usePhysicalCounts,
   useRecordPhysicalCounts,
   useStartPhysicalCount,
   useStockBalance,
 } from "../data/inventory-ops-hooks";
-import { useItems, useWarehouses, ApiError } from "../data/hooks";
+import {
+  useItems,
+  useWarehouses,
+  usePhysicalCounts,
+  usePhysicalCountCounts,
+  usePhysicalCountStats,
+  ApiError,
+  type PhysicalCountFilter,
+} from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -84,7 +91,6 @@ function fromScaled(value: bigint): string {
 
 export function PhysicalCountsScreen() {
   const { t } = useAppTranslation();
-  const query = usePhysicalCounts();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
 
@@ -96,7 +102,20 @@ export function PhysicalCountsScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => query.data ?? [], [query.data]);
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
+   * and the totals used to be counted in the browser over every count the
+   * server had sent, so the KPI strip ignored the active status chip.
+   */
+  const filter = useMemo<PhysicalCountFilter>(
+    () => ({ status: statusFilter, search: search.trim() || undefined }),
+    [statusFilter, search],
+  );
+
+  const query = usePhysicalCounts(filter);
+  const counts = query.data ?? [];
+  const countsByStatus = usePhysicalCountCounts(filter).data ?? {};
+  const stats = usePhysicalCountStats(filter).data ?? {};
   const warehouses = warehousesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
 
@@ -109,21 +128,7 @@ export function PhysicalCountsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
 
-  const stats = useMemo(() => {
-    const c = { all: counts.length, IN_PROGRESS: 0, COMPLETED: 0, ADJUSTMENT_GENERATED: 0, CANCELLED: 0 };
-    for (const item of counts) c[item.status] += 1;
-    return c;
-  }, [counts]);
-
-  const filtered = useMemo(() => {
-    let rows = counts;
-    if (statusFilter !== "all") rows = rows.filter((c) => c.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((c) => (c.countNo ?? "").toLowerCase().includes(q));
-    }
-    return rows;
-  }, [counts, statusFilter, search]);
+  const filtered = counts;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -206,17 +211,17 @@ export function PhysicalCountsScreen() {
         listKey="physical-counts"
         statsCollapsible
         stats={[
-          { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.all}</span> },
-          { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS}</span> },
-          { label: t("counts.completed"), value: <span className="mz-num">{stats.COMPLETED}</span> },
-          { label: t("counts.adjustmentCreated"), value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED}</span> },
+          { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS ?? 0}</span> },
+          { label: t("counts.completed"), value: <span className="mz-num">{stats.COMPLETED ?? 0}</span> },
+          { label: t("counts.adjustmentCreated"), value: <span className="mz-num">{stats.ADJUSTMENT_GENERATED ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: stats.all },
-          { key: "IN_PROGRESS", label: t("counts.inProgress"), count: stats.IN_PROGRESS },
-          { key: "COMPLETED", label: t("counts.completed"), count: stats.COMPLETED },
-          { key: "ADJUSTMENT_GENERATED", label: t("counts.adjustmentCreated"), count: stats.ADJUSTMENT_GENERATED },
-          { key: "CANCELLED", label: t("docStatus.cancelled"), count: stats.CANCELLED },
+          { key: "all", label: t("common.all"), count: countsByStatus.all ?? 0 },
+          { key: "IN_PROGRESS", label: t("counts.inProgress"), count: countsByStatus.IN_PROGRESS ?? 0 },
+          { key: "COMPLETED", label: t("counts.completed"), count: countsByStatus.COMPLETED ?? 0 },
+          { key: "ADJUSTMENT_GENERATED", label: t("counts.adjustmentCreated"), count: countsByStatus.ADJUSTMENT_GENERATED ?? 0 },
+          { key: "CANCELLED", label: t("docStatus.cancelled"), count: countsByStatus.CANCELLED ?? 0 },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => {

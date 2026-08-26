@@ -22,6 +22,8 @@ import {
   useBounceCheque,
   useBranches,
   useCheques,
+  useChequeCounts,
+  useChequeStats,
   useCollectCheque,
   useCreateCheque,
   useCustomers,
@@ -29,9 +31,11 @@ import {
   useReplaceCheque,
   useSuppliers,
   useTreasuryAccounts,
+  type ChequeListFilters,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { majorOf } from "../lib/money";
 
 /**
  * سجل الشيكات — Cheque Register (docs/catalog/04, route `/financial-papers/cheques`
@@ -114,16 +118,25 @@ export function ChequesScreen() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
-  // Direction + date range go to the server as query params. The status tabs
-  // then partition THAT result set on `effectiveStatus`, which the server
-  // derives per row against its own "as of" date — the client never recomputes
-  // it, and one request keeps every tab's count real rather than unknown.
-  const query = useCheques({
-    direction: directionFilter === "all" ? undefined : directionFilter,
-    fromDate: fromDate === "" ? undefined : fromDate,
-    toDate: toDate === "" ? undefined : toDate,
-  });
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to partition an unfiltered fetch on the client and sum
+  // `Number(c.amount)` over it, so the KPI strip stayed at the grand total no
+  // matter which status tab was active. The 7-state status is derived
+  // server-side against its own "as of" date, never recomputed here.
+  const filter = useMemo<ChequeListFilters>(
+    () => ({
+      direction: directionFilter === "all" ? undefined : directionFilter,
+      status: statusFilter === "all" ? undefined : statusFilter,
+      fromDate: fromDate === "" ? undefined : fromDate,
+      toDate: toDate === "" ? undefined : toDate,
+      search: search.trim() || undefined,
+    }),
+    [directionFilter, statusFilter, fromDate, toDate, search],
+  );
+  const query = useCheques(filter);
   const cheques = useMemo(() => query.data ?? [], [query.data]);
+  const counts = useChequeCounts(filter).data ?? {};
+  const stats = useChequeStats(filter).data ?? {};
 
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
@@ -146,48 +159,14 @@ export function ChequesScreen() {
     [treasuryQuery.data],
   );
 
-  const statusCounts = useMemo(() => {
-    const counts: Record<ChequeStatusDTO, number> = {
-      pending: 0,
-      under_collection: 0,
-      due_today: 0,
-      deposited: 0,
-      collected: 0,
-      bounced: 0,
-      replaced: 0,
-    };
-    for (const c of cheques) counts[c.effectiveStatus] += 1;
-    return counts;
-  }, [cheques]);
-
-  const rows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return cheques
-      .filter((c) => (statusFilter === "all" ? true : c.effectiveStatus === statusFilter))
-      .filter((c) => (q === "" ? true : c.chequeNumber.toLowerCase().includes(q)));
-  }, [cheques, search, statusFilter]);
-
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
-  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(cheques.length / pageSize));
+  const pageRows = cheques.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount]);
 
   const activeFilterCount =
     (statusFilter === "all" ? 0 : 1) + (directionFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
-
-  const totals = useMemo(() => {
-    let value = 0;
-    let pendingValue = 0;
-    let depositedValue = 0;
-    for (const c of cheques) {
-      const amount = Number(c.amount);
-      value += amount;
-      if (c.status === "pending") pendingValue += amount;
-      if (c.status === "deposited") depositedValue += amount;
-    }
-    return { count: cheques.length, value, pendingValue, depositedValue };
-  }, [cheques]);
 
   const selected = selectedId ? (cheques.find((c) => c.id === selectedId) ?? null) : null;
 
@@ -235,8 +214,8 @@ export function ChequesScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: cheques.length },
-    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: statusCounts[d.code] })),
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    ...CHEQUE_STATUS_DEFINITIONS.map((d) => ({ key: d.code, label: d.labelAr, count: counts[d.code] ?? 0 })),
   ];
 
   const columns: DocumentListColumn<ChequeDTO>[] = [
@@ -289,10 +268,10 @@ export function ChequesScreen() {
         listKey="cheques"
         statsCollapsible
         stats={[
-          { label: t("cheques.totalCheques"), value: <span className="mz-num">{totals.count}</span> },
-          { label: t("cheques.totalValue"), value: <MoneyDisplay value={totals.value} /> },
-          { label: t("cheques.pending"), value: <MoneyDisplay value={totals.pendingValue} /> },
-          { label: t("cheques.deposited"), value: <MoneyDisplay value={totals.depositedValue} /> },
+          { label: t("cheques.totalCheques"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("cheques.totalValue"), value: <MoneyDisplay value={majorOf(String(stats.value ?? "0"))} /> },
+          { label: t("cheques.pending"), value: <MoneyDisplay value={majorOf(String(stats.pending ?? "0"))} /> },
+          { label: t("cheques.deposited"), value: <MoneyDisplay value={majorOf(String(stats.deposited ?? "0"))} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -363,7 +342,7 @@ export function ChequesScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totals.count}</span> {t("cheques.cheques")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{Number(stats.count ?? 0)}</span> {t("cheques.cheques")}
           </>
         }
         emptyState={

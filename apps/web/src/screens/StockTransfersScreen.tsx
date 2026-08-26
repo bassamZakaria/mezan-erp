@@ -17,7 +17,16 @@ import {
 } from "@mezan/ui";
 import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
-import { useConfirmStockTransfer, useCreateStockTransfer, useItems, useStockTransfers, useWarehouses } from "../data/hooks";
+import {
+  useConfirmStockTransfer,
+  useCreateStockTransfer,
+  useItems,
+  useStockTransfers,
+  useStockTransferCounts,
+  useStockTransferStats,
+  useWarehouses,
+  type StockDocumentListFilter,
+} from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
@@ -77,10 +86,8 @@ function blankLine(): LineDraft {
 
 export function StockTransfersScreen() {
   const { t } = useAppTranslation();
-  const query = useStockTransfers();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
-  const documents = query.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
 
@@ -103,24 +110,22 @@ export function StockTransfersScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "confirmed") c.confirmed += 1;
-    }
-    return c;
-  }, [documents]);
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — the chips
+   * and the totals used to be derived in the browser from every document the
+   * server had sent, so the KPI strip ignored the active status chip.
+   */
+  const filter = useMemo<StockDocumentListFilter>(
+    () => ({ status: statusFilter, search: search.trim() || undefined }),
+    [statusFilter, search],
+  );
 
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
+  const query = useStockTransfers(filter);
+  const documents = query.data ?? [];
+  const counts = useStockTransferCounts(filter).data ?? {};
+  const stats = useStockTransferStats(filter).data ?? {};
+
+  const filtered = documents;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -249,14 +254,14 @@ export function StockTransfersScreen() {
         listKey="stock-transfers"
         statsCollapsible
         stats={[
-          { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
-          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{stats.draft ?? 0}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => {

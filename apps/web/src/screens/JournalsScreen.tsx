@@ -19,7 +19,16 @@ import {
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
 import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
-import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
+import {
+  useAccounts,
+  useCreateJournalEntry,
+  useJournalEntries,
+  useJournalEntryCounts,
+  useJournalEntryStats,
+  useReverseJournalEntry,
+  type JournalEntryDTO,
+  type JournalEntryListFilter,
+} from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
@@ -110,11 +119,22 @@ export function JournalsScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const query = useJournalEntries({
-    ...(moduleFilter ? { sourceModule: moduleFilter } : {}),
-    ...(fromDate ? { fromDate } : {}),
-    ...(toDate ? { toDate } : {}),
-  });
+  // One filter for the rows, the status chips and the KPI strip (R1.1): the
+  // screen used to derive all three from one client-side fetch, so the header
+  // numbers stayed at the grand total no matter which status tab was active.
+  const filter = useMemo<JournalEntryListFilter>(
+    () => ({
+      status: statusFilter,
+      sourceModule: moduleFilter || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, moduleFilter, fromDate, toDate, search],
+  );
+  const query = useJournalEntries(filter);
+  const counts = useJournalEntryCounts(filter).data ?? {};
+  const stats = useJournalEntryStats(filter).data ?? {};
 
   const accountLabel = useMemo(() => {
     const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
@@ -123,29 +143,8 @@ export function JournalsScreen() {
 
   const documents = query.data ?? [];
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, pending: 0, posted: 0, reversed: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      else if (d.status === "pending") c.pending += 1;
-      else if (d.status === "posted") c.posted += 1;
-      else if (d.status === "reversed") c.reversed += 1;
-    }
-    return c;
-  }, [documents]);
-
-  const filtered = useMemo(() => {
-    let rows = documents;
-    if (statusFilter !== "all") rows = rows.filter((d) => d.status === statusFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.entryNo ?? "").toLowerCase().includes(q) || d.memo.toLowerCase().includes(q));
-    }
-    return rows;
-  }, [documents, statusFilter, search]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
+  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount]);
@@ -297,16 +296,16 @@ export function JournalsScreen() {
         listKey="journals"
         statsCollapsible
         stats={[
-          { label: t("journals.totalEntries"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.posted"), value: <span className="mz-num">{counts.posted}</span> },
-          { label: t("docStatus.reversed"), value: <span className="mz-num">{counts.reversed}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("journals.totalEntries"), value: <span className="mz-num">{Number(stats.count ?? 0)}</span> },
+          { label: t("docStatus.posted"), value: <span className="mz-num">{Number(stats.posted ?? 0)}</span> },
+          { label: t("docStatus.reversed"), value: <span className="mz-num">{Number(stats.reversed ?? 0)}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{Number(stats.draft ?? 0)}</span> },
         ]}
         statusChips={[
-          { key: "all", label: t("common.all"), count: counts.all },
-          { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-          { key: "posted", label: t("docStatus.posted"), count: counts.posted },
-          { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed },
+          { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+          { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+          { key: "posted", label: t("docStatus.posted"), count: counts.posted ?? 0 },
+          { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed ?? 0 },
         ]}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => {
@@ -373,7 +372,7 @@ export function JournalsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("journals.entries")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("journals.entries")}
           </>
         }
         emptyState={

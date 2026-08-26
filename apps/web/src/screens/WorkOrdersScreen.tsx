@@ -31,9 +31,12 @@ import {
   useStartWorkOrder,
   useWarehouses,
   useWorkOrders,
+  useWorkOrderCounts,
+  useWorkOrderStats,
   useWorkOrderActivity,
   useWorkStations,
   useEmployees,
+  type WorkOrderListFilter,
   type WorkOrderRecord,
   type WorkOrderStageRecord,
   type WorkOrderStatusRecord,
@@ -454,7 +457,6 @@ function WorkOrderDetail({
 
 export function WorkOrdersScreen() {
   const { t } = useAppTranslation();
-  const query = useWorkOrders();
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
@@ -464,7 +466,6 @@ export function WorkOrdersScreen() {
   const receiveOrder = useReceiveWorkOrderProduct();
   const completeOrder = useCompleteWorkOrder();
 
-  const orders = query.data ?? [];
   const activeStations = (useWorkStations().data ?? []).filter((station) => station.status === "active");
   const screenEmployees = useEmployees().data ?? [];
   const boms = (bomsQuery.data ?? []).filter((b) => b.status === "active");
@@ -508,19 +509,28 @@ export function WorkOrdersScreen() {
   const [receiveOperatorId, setReceiveOperatorId] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1) — status,
+   * priority, stage and search used to narrow the browser's own copy of every
+   * order while the chips and the KPI strip kept counting the unfiltered set.
+   */
+  const filter = useMemo<WorkOrderListFilter>(
+    () => ({
+      status: statusFilter,
+      priority: priorityFilter || undefined,
+      stage: stageFilter || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, priorityFilter, stageFilter, search],
+  );
+  const query = useWorkOrders(filter);
+  const orders = query.data ?? [];
+  const counts = useWorkOrderCounts(filter).data ?? {};
+  const stats = useWorkOrderStats(filter).data ?? {};
+
   const selected = orders.find((o) => o.id === selectedId) ?? null;
 
-  const filtered = useMemo(() => {
-    let rows = orders;
-    if (statusFilter !== "all") rows = rows.filter((o) => o.status === statusFilter);
-    if (priorityFilter) rows = rows.filter((o) => o.priority === priorityFilter);
-    if (stageFilter) rows = rows.filter((o) => o.stage === stageFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((o) => o.number.toLowerCase().includes(q) || itemName(o.productItemId).includes(search.trim()));
-    }
-    return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [orders, statusFilter, priorityFilter, stageFilter, search, itemName]);
+  const filtered = useMemo(() => [...orders].sort((a, b) => b.number.localeCompare(a.number)), [orders]);
 
   const activeFilterCount = [priorityFilter, stageFilter].filter((v) => v !== "").length;
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
@@ -528,11 +538,11 @@ export function WorkOrdersScreen() {
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: orders.length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
     ...(Object.keys(STATUS_KEY) as WorkOrderStatusRecord[]).map((s) => ({
       key: s,
       label: t(STATUS_KEY[s]),
-      count: orders.filter((o) => o.status === s).length,
+      count: counts[s] ?? 0,
     })),
   ];
 
@@ -758,10 +768,6 @@ export function WorkOrdersScreen() {
     );
   }
 
-  const overdueCount = orders.filter(
-    (o) => (o.status === "in_progress" || o.status === "planned") && o.scheduledEndDate !== null && o.scheduledEndDate < today(),
-  ).length;
-
   return (
     <>
       {query.isError ? (
@@ -783,10 +789,14 @@ export function WorkOrdersScreen() {
         listKey="work-orders"
         statsCollapsible
         stats={[
-          { label: t("common.total"), value: <span className="mz-num">{orders.length}</span> },
-          { label: t("workOrders.planned"), value: <span className="mz-num">{orders.filter((o) => o.status === "planned").length}</span> },
-          { label: t("workOrders.running"), value: <span className="mz-num">{orders.filter((o) => o.status === "in_progress").length}</span> },
-          { label: t("workOrders.overdue"), value: <span className="mz-num">{overdueCount}</span>, valueTone: overdueCount > 0 ? "danger" : "default" },
+          { label: t("common.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("workOrders.planned"), value: <span className="mz-num">{stats.planned ?? 0}</span> },
+          { label: t("workOrders.running"), value: <span className="mz-num">{stats.in_progress ?? 0}</span> },
+          {
+            label: t("workOrders.overdue"),
+            value: <span className="mz-num">{stats.overdue ?? 0}</span>,
+            valueTone: Number(stats.overdue ?? 0) > 0 ? "danger" : "default",
+          },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}

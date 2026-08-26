@@ -1,10 +1,19 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
-import { ApiError, useAccounts, useAssetCategories, useAssets, useBranches, useCreateAsset, useDisposeAsset } from "../data/hooks";
+import {
+  ApiError,
+  useAccounts,
+  useAssetCategories,
+  useAssets,
+  useAssetStats,
+  useBranches,
+  useCreateAsset,
+  useDisposeAsset,
+  type AssetListFilter,
+} from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { matchesSearch } from "@mezan/domain";
 
 /** سجل الأصول (Asset Register) — docs/catalog/07 §"سجل الأصول". List + detail + register-asset panel. */
 
@@ -82,12 +91,10 @@ function validateDraft(draft: AssetDraft, existing: AssetDTO[]): { key: AppTrans
 
 export function AssetRegisterScreen() {
   const { t } = useAppTranslation();
-  const query = useAssets();
   const categoriesQuery = useAssetCategories();
   const branchesQuery = useBranches();
   const createAsset = useCreateAsset();
 
-  const assets = query.data ?? [];
   const categories = categoriesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
 
@@ -96,6 +103,19 @@ export function AssetRegisterScreen() {
   const [branchFilter, setBranchFilter] = useState("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
+
+  /**
+   * One filter for the rows and the KPI strip (R1.1) — category, branch and
+   * search used to narrow the browser's own unfiltered copy of the register
+   * while the three tiles kept counting every asset regardless.
+   */
+  const filter = useMemo<AssetListFilter>(
+    () => ({ categoryId: categoryFilter, branchId: branchFilter, search: search.trim() || undefined }),
+    [categoryFilter, branchFilter, search],
+  );
+  const query = useAssets(filter);
+  const assets = query.data ?? [];
+  const stats = useAssetStats(filter).data ?? {};
 
   const [formOpen, setFormOpen] = useState(false);
   const disposeAsset = useDisposeAsset();
@@ -127,16 +147,7 @@ export function AssetRegisterScreen() {
     return category ? `${category.code} — ${category.nameAr}` : categoryId;
   }
 
-  const filtered = useMemo(() => {
-    let rows = assets;
-    if (categoryFilter !== "all") rows = rows.filter((a) => a.categoryId === categoryFilter);
-    if (branchFilter !== "all") rows = rows.filter((a) => a.branchId === branchFilter);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((a) => matchesSearch(search, a.nameAr, a.nameEn, a.code));
-    }
-    return rows;
-  }, [assets, categoryFilter, branchFilter, search]);
+  const filtered = assets;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -145,10 +156,6 @@ export function AssetRegisterScreen() {
   }, [page, pageCount]);
 
   const activeFilterCount = (categoryFilter === "all" ? 0 : 1) + (branchFilter === "all" ? 0 : 1);
-
-  const totalCount = assets.length;
-  const activeCount = assets.filter((a) => a.status === "active").length;
-  const fullyDepreciatedCount = assets.filter((a) => a.status === "fully_depreciated").length;
 
   const selected = selectedId ? assets.find((a) => a.id === selectedId) ?? null : null;
 
@@ -219,9 +226,9 @@ export function AssetRegisterScreen() {
         listKey="asset-register"
         statsCollapsible
         stats={[
-          { label: t("asset.totalAssets"), value: <span className="mz-num">{totalCount}</span> },
-          { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
-          { label: t("asset.fullyDepreciated"), value: <span className="mz-num">{fullyDepreciatedCount}</span> },
+          { label: t("asset.totalAssets"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
+          { label: t("asset.fullyDepreciated"), value: <span className="mz-num">{stats.fully_depreciated ?? 0}</span> },
         ]}
         searchValue={search}
         onSearchChange={(value) => {
@@ -272,7 +279,7 @@ export function AssetRegisterScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("asset.asset2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("asset.asset2")}
           </>
         }
         emptyState={

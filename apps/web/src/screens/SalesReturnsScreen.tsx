@@ -26,14 +26,17 @@ import {
   useRefundSalesReturn,
   useSalesInvoices,
   useSalesReturns,
+  useSalesReturnCounts,
+  useSalesReturnStats,
   useTreasuryAccounts,
   useWarehouses,
+  type SalesReturnListFilter,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
-import { sumMajor } from "../lib/money";
+import { majorOf } from "../lib/money";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -66,7 +69,6 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function SalesReturnsScreen() {
   const { t } = useAppTranslation();
-  const query = useSalesReturns();
   const invoicesQuery = useSalesInvoices();
   const warehousesQuery = useWarehouses();
   const customersQuery = useCustomers();
@@ -76,7 +78,6 @@ export function SalesReturnsScreen() {
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
 
-  const documents = query.data ?? [];
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status !== "draft" && i.status !== "cancelled");
   const warehouses = warehousesQuery.data ?? [];
   const customers = customersQuery.data ?? [];
@@ -135,6 +136,28 @@ export function SalesReturnsScreen() {
   const [refundMethod, setRefundMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [refundNotice, setRefundNotice] = useState<string | null>(null);
 
+  /**
+   * One filter for the rows, the chip counts and the KPI strip (R1.1) — the
+   * three used to disagree: the chips and the KPI strip counted every
+   * unfiltered return the server had ever sent, so applying a filter moved
+   * the table and left the header alone.
+   */
+  const filter = useMemo<SalesReturnListFilter>(
+    () => ({
+      status: statusFilter,
+      customerId: customerFilter?.id,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      awaitingRefund: awaitingOnly || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, customerFilter, fromDate, toDate, awaitingOnly, search],
+  );
+  const query = useSalesReturns(filter);
+  const documents = query.data ?? [];
+  const counts = useSalesReturnCounts(filter).data ?? {};
+  const stats = useSalesReturnStats(filter).data ?? {};
+
   const treasuryAccounts = useTreasuryAccounts().data ?? [];
   useEffect(() => {
     if (refundTreasuryId !== "") return;
@@ -170,43 +193,8 @@ export function SalesReturnsScreen() {
     [selectedInvoice],
   );
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0, awaitingRefund: 0, cancelled: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      if (d.status === "confirmed") c.confirmed += 1;
-      if (d.awaitingRefund) c.awaitingRefund += 1;
-      if (d.status === "cancelled") c.cancelled += 1;
-    }
-    return c;
-  }, [documents]);
-
-  /**
-   * The list had no filter bar at all — with more than a screenful of returns
-   * the only way to find one was to read every row. Search covers the return
-   * number and the source invoice number, which is how a user actually looks
-   * one up ("the return against INV-000014").
-   */
-  const filtered = useMemo(() => {
-    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-    if (awaitingOnly) rows = rows.filter((d) => d.awaitingRefund);
-    if (customerFilter) rows = rows.filter((d) => d.lines.some((l) => l.customerId === customerFilter.id));
-    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
-    if (toDate) rows = rows.filter((d) => d.date <= toDate);
-    const q = search.trim().toLowerCase();
-    if (q !== "") {
-      rows = rows.filter(
-        (d) =>
-          (d.docNo ?? "").toLowerCase().includes(q) ||
-          d.lines.some((l) => (sourceInvoiceNo(l) ?? "").toLowerCase().includes(q)) ||
-          (d.lines[0] ? customerName(d.lines[0].customerId).toLowerCase().includes(q) : false),
-      );
-    }
-    return rows;
-  }, [documents, statusFilter, awaitingOnly, customerFilter, fromDate, toDate, search, customerName, sourceInvoiceNo]);
-
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
+  const pageRows = documents.slice((page - 1) * pageSize, page * pageSize);
   useEffect(() => {
     if (page > pageCount) setPage(1);
   }, [page, pageCount]);
@@ -314,10 +302,10 @@ export function SalesReturnsScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
-    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
@@ -603,12 +591,12 @@ export function SalesReturnsScreen() {
         listKey="sales-returns"
         statsCollapsible
         stats={[
-          { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
-          { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{counts.awaitingRefund}</span> },
+          { label: t("salesReturns.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
+          { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{stats.awaitingRefund ?? 0}</span> },
           {
             label: t("salesReturns.stat.refundDue"),
-            value: <MoneyDisplay value={sumMajor(documents.map((d) => d.refundDue))} showUnit={false} />,
+            value: <MoneyDisplay value={majorOf(String(stats.refundDue ?? "0"))} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}
@@ -685,7 +673,7 @@ export function SalesReturnsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("salesReturns.showingSuffix")}
           </>
         }
         emptyState={

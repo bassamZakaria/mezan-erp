@@ -22,8 +22,11 @@ import {
   useItems,
   usePurchaseInvoices,
   usePurchaseReturns,
+  usePurchaseReturnCounts,
+  usePurchaseReturnStats,
   useSuppliers,
   useWarehouses,
+  type PurchaseReturnListFilter,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useScreenIntent, useSubPage } from "../navigation";
@@ -57,7 +60,6 @@ function blankLine(defaultItemId: string): LineDraft {
 
 export function PurchaseReturnsScreen() {
   const { t } = useAppTranslation();
-  const query = usePurchaseReturns();
   const invoicesQuery = usePurchaseInvoices();
   const warehousesQuery = useWarehouses();
   const suppliersQuery = useSuppliers();
@@ -66,7 +68,6 @@ export function PurchaseReturnsScreen() {
   const confirmReturn = useConfirmPurchaseReturn();
   const cancelReturn = useCancelPurchaseReturn();
 
-  const documents = query.data ?? [];
   const invoices = (invoicesQuery.data ?? []).filter((i) => i.status === "confirmed");
   const warehouses = warehousesQuery.data ?? [];
   const suppliers = suppliersQuery.data ?? [];
@@ -121,32 +122,31 @@ export function PurchaseReturnsScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
 
-  const counts = useMemo(() => {
-    const c = { all: documents.length, draft: 0, confirmed: 0, cancelled: 0 };
-    for (const d of documents) {
-      if (d.status === "draft") c.draft += 1;
-      if (d.status === "confirmed") c.confirmed += 1;
-      if (d.status === "cancelled") c.cancelled += 1;
-    }
-    return c;
-  }, [documents]);
-
-  const filtered = useMemo(() => {
-    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-    if (supplierFilter) rows = rows.filter((d) => d.lines.some((l) => l.supplierId === supplierFilter));
-    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
-    if (toDate) rows = rows.filter((d) => d.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || (d.lines[0] ? supplierName(d.lines[0].supplierId).includes(search.trim()) : false));
-    }
-    return rows;
-  }, [documents, statusFilter, supplierFilter, fromDate, toDate, search, supplierName]);
+  /**
+   * One filter for the rows, the chip counts and the KPI strip (R1.1) — the
+   * three used to disagree: the chips and the KPI strip counted every
+   * unfiltered return the server had ever sent, so applying a filter moved
+   * the table and left the header alone.
+   */
+  const filter = useMemo<PurchaseReturnListFilter>(
+    () => ({
+      status: statusFilter,
+      supplierId: supplierFilter || undefined,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, supplierFilter, fromDate, toDate, search],
+  );
+  const query = usePurchaseReturns(filter);
+  const documents = query.data ?? [];
+  const counts = usePurchaseReturnCounts(filter).data ?? {};
+  const stats = usePurchaseReturnStats(filter).data ?? {};
 
   const activeFilterCount = [supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
-  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(documents.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageRows = documents.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
       ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
@@ -234,10 +234,10 @@ export function PurchaseReturnsScreen() {
   }
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "draft", label: t("docStatus.draft"), count: counts.draft },
-    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
-    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "draft", label: t("docStatus.draft"), count: counts.draft ?? 0 },
+    { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed ?? 0 },
+    { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled ?? 0 },
   ];
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
@@ -401,8 +401,8 @@ export function PurchaseReturnsScreen() {
           </Button>
         }
         stats={[
-          { label: t("purchaseReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("purchaseReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("purchaseReturns.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("purchaseReturns.stat.confirmed"), value: <span className="mz-num">{stats.confirmed ?? 0}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -455,7 +455,7 @@ export function PurchaseReturnsScreen() {
         }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("purchaseReturns.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{documents.length}</span> {t("purchaseReturns.showingSuffix")}
           </>
         }
         emptyState={

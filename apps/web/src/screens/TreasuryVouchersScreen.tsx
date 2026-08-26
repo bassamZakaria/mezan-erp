@@ -54,6 +54,7 @@ import {
   useVoucherDetail,
   useVouchers,
   useVoucherCounts,
+  useVoucherStats,
   useCancelVoucher,
   type VoucherDetailDTO,
   type VoucherRowDTO,
@@ -219,6 +220,10 @@ export function TreasuryVouchersScreen() {
   );
   const query = useVouchers(listFilter);
   const voucherCounts = useVoucherCounts(listFilter).data ?? {};
+  // The KPI strip has to honour the active chip (R1.1) — /stats, unlike
+  // /counts, keeps the status filter, so switching to "مسودة" moves the
+  // header numbers instead of leaving them at the grand total.
+  const voucherStats = useVoucherStats(listFilter).data ?? {};
   const branches = useBranches().data ?? [];
   const cancelVoucher = useCancelVoucher();
 
@@ -364,10 +369,10 @@ export function TreasuryVouchersScreen() {
         listKey="treasury-vouchers"
         statsCollapsible
         stats={[
-          { label: t("common.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
-          { label: t("vouchers.needsAllocation"), value: <span className="mz-num">{counts.needsAllocation}</span> },
-          { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
+          { label: t("common.total"), value: <span className="mz-num">{Number(voucherStats.count ?? 0)}</span> },
+          { label: t("docStatus.confirmed"), value: <span className="mz-num">{Number(voucherStats.confirmed ?? 0)}</span> },
+          { label: t("vouchers.needsAllocation"), value: <span className="mz-num">{Number(voucherStats.needsAllocation ?? 0)}</span> },
+          { label: t("docStatus.draft"), value: <span className="mz-num">{Number(voucherStats.draft ?? 0)}</span> },
         ]}
         attentionBanners={[
           {

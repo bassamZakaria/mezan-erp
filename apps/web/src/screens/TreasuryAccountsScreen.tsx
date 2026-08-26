@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
-import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
+import { ApiError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
 } from "../data/hooks";
+import { useApi } from "../data/ApiContext";
 import { treasuryBalanceById } from "../lib/partner-balances";
 import { useFinancialReport } from "../data/financial-reports-hooks";
 import type { TrialBalanceRow } from "@mezan/domain";
@@ -11,6 +13,29 @@ import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+
+/**
+ * Chip counts (R1.1). Not in `data/hooks.ts` yet — the /treasury-accounts/counts
+ * endpoint already exists (its own `status` axis withheld, same as every other
+ * list resource), but this pass wires only the chips, so the hook is kept
+ * screen-local rather than exported.
+ */
+function useTreasuryAccountCounts(search: string): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["treasury-accounts", "counts", search],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set("search", search.trim());
+      const qs = params.toString();
+      const res = await request(`/treasury-accounts/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("treasuryAcc.treasuryAccountsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
 
 /**
  * أرصدة افتتاحية — the equity account an opening balance is funded from. NOT
@@ -95,6 +120,10 @@ export function TreasuryAccountsScreen() {
   const accounts = query.data ?? [];
   const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
+  // The chips (R1.1): /treasury-accounts/counts drops its own status/type axis, so
+  // every chip reports how many rows it would show under the search term alone,
+  // not the count of whatever chip happens to be active.
+  const accountCounts = useTreasuryAccountCounts(search).data ?? {};
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
@@ -282,6 +311,7 @@ export function TreasuryAccountsScreen() {
               <Chip
                 key={value}
                 active={filter === value}
+                count={accountCounts[value] ?? 0}
                 onClick={() => {
                   setFilter(value);
                   setPage(1);

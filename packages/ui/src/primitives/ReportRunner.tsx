@@ -31,6 +31,19 @@ export interface ReportRunnerColumn<Row> {
   readonly align?: "start" | "end";
   readonly value: (row: Row) => string | number | null;
   readonly total?: boolean;
+  /**
+   * Marks the cell as naming a domain entity (A5). The runner renders it as a
+   * button that asks `onEntityClick` to open the drill-down panel; the id is
+   * the entity's REAL id, so the panel can go back to the posted documents.
+   */
+  readonly entity?: { readonly kind: string; readonly id: (row: Row) => string | null };
+}
+
+/** What a drill-down request carries: which entity, and the label the reader clicked. */
+export interface ReportRunnerEntityRef {
+  readonly kind: string;
+  readonly id: string;
+  readonly label: string;
 }
 
 export type ReportRunnerParamField =
@@ -137,6 +150,13 @@ export interface ReportRunnerProps<Row> {
    * Defaults to true.
    */
   showGrandTotal?: boolean;
+  /**
+   * Opens the drill-down panel for an entity cell (A5). Omitted, entity cells
+   * render as plain text — a button that opens nothing is worse than a label.
+   */
+  onEntityClick?: (entity: ReportRunnerEntityRef) => void;
+  /** Rendered after the table — the drill-down panel lives here. */
+  footer?: ReactNode;
   className?: string;
 }
 
@@ -315,6 +335,8 @@ export function ReportRunner<Row>({
   formatOptions,
   exportBaseFilename,
   showGrandTotal = true,
+  onEntityClick,
+  footer,
   className,
 }: ReportRunnerProps<Row>) {
   const { t } = useUiTranslation();
@@ -515,7 +537,7 @@ export function ReportRunner<Row>({
                 </thead>
                 <tbody>
                   {result.groups.map((group) => (
-                    <SectionRows key={group.key} group={group} columns={columns} rowKey={rowKey} totalColumns={totalColumns} fmt={fmt} showHeader={result.groups.length > 1 || group.label !== ""} />
+                    <SectionRows key={group.key} group={group} columns={columns} rowKey={rowKey} totalColumns={totalColumns} fmt={fmt} onEntityClick={onEntityClick} showHeader={result.groups.length > 1 || group.label !== ""} />
                   ))}
                   {showGrandTotal && totalColumns.size > 0 ? (
                     <tr className="font-bold">
@@ -545,6 +567,7 @@ export function ReportRunner<Row>({
           ) : null}
         </>
       )}
+      {footer}
     </div>
   );
 }
@@ -555,6 +578,7 @@ function SectionRows<Row>({
   rowKey,
   totalColumns,
   fmt,
+  onEntityClick,
   showHeader,
 }: {
   group: ReportRunnerGroup<Row>;
@@ -562,6 +586,7 @@ function SectionRows<Row>({
   rowKey: (row: Row) => string;
   totalColumns: Set<string>;
   fmt: ReturnType<typeof useFormat>;
+  onEntityClick?: (entity: ReportRunnerEntityRef) => void;
   showHeader: boolean;
 }) {
   const { t } = useUiTranslation();
@@ -576,17 +601,31 @@ function SectionRows<Row>({
       ) : null}
       {group.rows.map((row) => (
         <tr key={rowKey(row)} className="h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)] hover:bg-surface-2">
-          {columns.map((col) => (
-            <td
-              key={col.key}
-              className={cn(
-                "px-[14px] py-[6px] align-middle",
-                col.align === "end" ? "text-end font-mono tabular-nums" : "text-start",
-              )}
-            >
-              {formatCell(col.value(row), col.format, fmt)}
-            </td>
-          ))}
+          {columns.map((col) => {
+            const entityId = col.entity && onEntityClick ? col.entity.id(row) : null;
+            const raw = col.value(row);
+            return (
+              <td
+                key={col.key}
+                className={cn(
+                  "px-[14px] py-[6px] align-middle",
+                  col.align === "end" ? "text-end font-mono tabular-nums" : "text-start",
+                )}
+              >
+                {entityId && col.entity && onEntityClick ? (
+                  <button
+                    type="button"
+                    onClick={() => onEntityClick({ kind: col.entity!.kind, id: entityId, label: String(raw ?? "") })}
+                    className="rounded-sm text-start text-brand underline decoration-dotted underline-offset-[3px] hover:decoration-solid focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand"
+                  >
+                    {formatCell(raw, col.format, fmt)}
+                  </button>
+                ) : (
+                  formatCell(raw, col.format, fmt)
+                )}
+              </td>
+            );
+          })}
         </tr>
       ))}
       {showHeader && totalColumns.size > 0 ? (

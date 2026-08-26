@@ -1,8 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Select,
   StatusPill,
   TextInput,
@@ -32,6 +33,7 @@ type TabKey = "inbox" | "mine" | "acted";
 type DecisionAction = "approve" | "reject" | "request_modification";
 
 const ANY_TYPE = "__all__";
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function ApprovalsInboxScreen() {
   const { t } = useAppTranslation();
@@ -48,6 +50,8 @@ export function ApprovalsInboxScreen() {
   const [search, setSearch] = useState("");
   const [actionTypeFilter, setActionTypeFilter] = useState<string>(ANY_TYPE);
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const actionTypeLabel = useMemo(() => {
     const byCode = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, domainLabel(a)]));
@@ -65,6 +69,14 @@ export function ApprovalsInboxScreen() {
       return actionTypeLabel(row.actionType).includes(q) || (row.entityLabel ?? "").includes(q);
     });
   }, [rows, search, actionTypeFilter, actionTypeLabel]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = actionTypeFilter === ANY_TYPE ? 0 : 1;
 
   async function act(request: ApprovalRequestDTO, decision: DecisionAction) {
     if (pendingId) return;
@@ -180,17 +192,28 @@ export function ApprovalsInboxScreen() {
         { key: "acted", label: t("approvals.tab.acted"), count: acted.data?.length ?? 0 },
       ]}
       activeStatusKey={tab}
-      onStatusChange={(key) => setTab(key as TabKey)}
+      onStatusChange={(key) => {
+        setTab(key as TabKey);
+        setPage(1);
+      }}
       searchValue={search}
-      onSearchChange={setSearch}
+      onSearchChange={(value) => {
+        setSearch(value);
+        setPage(1);
+      }}
       searchPlaceholder={t("approvals.searchByActionTypeOr")}
+      filterBarCollapsible
+      activeFilterCount={activeFilterCount}
       filterBarExtra={
         <div className="flex flex-wrap items-center gap-[10px]">
           <Select
             size="sm"
             aria-label={t("approvals.filterByDocumentType")}
             value={actionTypeFilter}
-            onChange={setActionTypeFilter}
+            onChange={(v) => {
+              setActionTypeFilter(v);
+              setPage(1);
+            }}
             className="w-[220px]"
             options={[
               { value: ANY_TYPE, label: t("approvals.allDocumentTypes") },
@@ -203,16 +226,23 @@ export function ApprovalsInboxScreen() {
         </div>
       }
       columns={columns}
-      rows={filtered}
+      rows={pageRows}
       rowKey={(r) => r.id}
-      page={1}
-      pageCount={1}
+      page={page}
+      pageCount={pageCount}
+      onPageChange={setPage}
+      pageSize={pageSize}
+      pageSizeOptions={PAGE_SIZES}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
       pageSummary={
         <>
-          {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{rows.length}</span>
+          {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{rows.length}</span>
         </>
       }
-      emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t(emptyKeyFor(tab))}</div>}
+      emptyState={<EmptyState title={t(emptyKeyFor(tab))} description={t("approvals.emptyBody")} />}
     />
   );
 }

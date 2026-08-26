@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -6,6 +6,7 @@ import {
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
@@ -90,6 +91,8 @@ function blankLine(): LineDraft {
   return { key: `l${lineSeq}`, accountId: "", memo: "", debit: 0, credit: 0 };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function JournalsScreen() {
   const { t } = useAppTranslation();
   const accountsQuery = useAccounts();
@@ -104,6 +107,8 @@ export function JournalsScreen() {
   const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const query = useJournalEntries({
     ...(moduleFilter ? { sourceModule: moduleFilter } : {}),
@@ -138,6 +143,15 @@ export function JournalsScreen() {
     }
     return rows;
   }, [documents, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (moduleFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
 
@@ -295,16 +309,27 @@ export function JournalsScreen() {
           { key: "reversed", label: t("docStatus.reversed"), count: counts.reversed },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | JournalEntryStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | JournalEntryStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("journals.searchByEntryNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-3">
             <SelectField
               label={t("journals.filter.module")}
               value={moduleFilter}
-              onChange={(value) => setModuleFilter(value as "" | JournalSourceModuleDTO)}
+              onChange={(value) => {
+                setModuleFilter(value as "" | JournalSourceModuleDTO);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("journals.filter.allModules") },
                 ...(Object.keys(MODULE_KEY) as JournalSourceModuleDTO[]).map((key) => ({
@@ -313,22 +338,51 @@ export function JournalsScreen() {
                 })),
               ]}
             />
-            <TextField label={t("journals.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-            <TextField label={t("journals.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+            <TextField
+              label={t("journals.filter.fromDate")}
+              value={fromDate}
+              onChange={(value) => {
+                setFromDate(value);
+                setPage(1);
+              }}
+              type="date"
+            />
+            <TextField
+              label={t("journals.filter.toDate")}
+              value={toDate}
+              onChange={(value) => {
+                setToDate(value);
+                setPage(1);
+              }}
+              type="date"
+            />
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("journals.entries")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("journals.entries")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("journals.noMatchingEntries")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("journals.noMatchingEntries")}
+            description={t("journals.emptyBody")}
+            action={{ label: t("journals.newEntry"), onClick: () => setMode("create") }}
+          />
+        }
       />
     </div>
   );

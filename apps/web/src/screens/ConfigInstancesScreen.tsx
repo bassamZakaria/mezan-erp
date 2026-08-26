@@ -4,6 +4,7 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   EntityPicker,
   Money as MoneyValue,
   StatusPill,
@@ -46,6 +47,7 @@ const STATUS_TONE: Record<Status, PillTone> = {
   cancelled: "danger",
 };
 const num = (v: string) => Number(v);
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 const today = () => todayIso();
 
 function specLabel(spec: Record<string, string>): string {

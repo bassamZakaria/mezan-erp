@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   EntityPicker,
   StatusPill,
   SidePanel,
@@ -28,6 +29,7 @@ type Status = ConfigurableProductRecord["status"];
 
 const STATUS_KEY: Record<Status, AppTranslationKey> = { active: "configProducts.status.active", inactive: "configProducts.status.inactive" };
 const STATUS_TONE: Record<Status, PillTone> = { active: "success", inactive: "neutral" };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 /** An unknown pricing method shows its own code rather than a humanized key. */
 function pricingLabel(method: string, t: (key: AppTranslationKey) => string): string {
   const key = PRICING_KEY[method];
@@ -182,6 +184,8 @@ export function ConfigurableProductsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [code, setCode] = useState("");
   const [nameAr, setNameAr] = useState("");
@@ -209,6 +213,12 @@ export function ConfigurableProductsScreen() {
     }
     return rows;
   }, [products, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: products.length },
@@ -465,21 +475,40 @@ export function ConfigurableProductsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as Status | "all")}
+        onStatusChange={(key) => {
+          setStatusFilter(key as Status | "all");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("configProducts.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(p) => p.id}
         onRowClick={(p) => setSelectedId(p.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{products.length}</span> {t("configProducts.products")}</>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("configProducts.products")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("configProducts.noMatchingConfigurableProductsAdd")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("configProducts.noMatchingConfigurableProductsAdd")}
+              description={t("configProducts.emptyBody")}
+              action={{ label: t("configProducts.addConfigurableProduct"), onClick: openCreate }}
+            />
+          )
         }
       />
       {panel}

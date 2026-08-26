@@ -101,8 +101,8 @@ export function AuditLogScreen() {
     branchId: filters.branchId || undefined,
     from: filters.from.trim() || undefined,
     to: filters.to.trim() || undefined,
-    limit: PAGE_SIZE,
-    offset: (page - 1) * PAGE_SIZE,
+    limit: pageSize,
+    offset: (page - 1) * pageSize,
   });
 
   // Cheap independent lookups purely to feed the stream chip/stat counts —
@@ -114,7 +114,17 @@ export function AuditLogScreen() {
 
   const events = listQuery.data?.events ?? [];
   const total = listQuery.data?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
+
+  const activeFilterCount =
+    (filters.stream === "all" ? 0 : 1) +
+    (filters.module.trim() === "" ? 0 : 1) +
+    (filters.action.trim() === "" ? 0 : 1) +
+    (filters.entityType.trim() === "" ? 0 : 1) +
+    (filters.severity === "" ? 0 : 1) +
+    (filters.branchId === "" ? 0 : 1) +
+    (filters.from.trim() === "" ? 0 : 1) +
+    (filters.to.trim() === "" ? 0 : 1);
 
   const columns: DocumentListColumn<AuditEventDTO>[] = useMemo(
     () => [
@@ -179,6 +189,8 @@ export function AuditLogScreen() {
         searchValue={filters.actor}
         onSearchChange={(v) => updateFilters({ actor: v })}
         searchPlaceholder={t("audit.searchByUser")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[150px]">
@@ -228,12 +240,24 @@ export function AuditLogScreen() {
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
             {t("common.show")} <span className="mz-num">{events.length}</span> {t("common.of")} <span className="mz-num">{total}</span> {t("audit.event")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("audit.noMatchingEvents")}</div>}
+        emptyState={
+          listQuery.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState title={t("audit.noMatchingEvents")} description={t("audit.emptyBody")} />
+          )
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelected(null)} title={t("audit.eventDetails")} description={t("audit.auditLogReadOnly")}>

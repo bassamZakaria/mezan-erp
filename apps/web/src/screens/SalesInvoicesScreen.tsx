@@ -4,6 +4,7 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   IconButton,
   Money as MoneyDisplay,
@@ -1612,6 +1613,14 @@ export function SalesInvoicesScreen() {
   };
 
   const filtered = invoices;
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) +
+    (branchFilter ? 1 : 0) +
+    (warehouseFilter ? 1 : 0) +
+    (customerFilter ? 1 : 0) +
+    (fromDate ? 1 : 0) +
+    (toDate ? 1 : 0);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);

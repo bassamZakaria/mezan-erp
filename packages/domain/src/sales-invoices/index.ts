@@ -31,6 +31,7 @@ export {
 export {
   computeInvoiceTotals,
   salesInvoiceTotals,
+  salesInvoiceBaseGrandTotal,
   INVOICE_ROUNDING_DECIMALS,
   type SalesInvoiceTotals,
   type SalesInvoiceLineTotals,
@@ -41,6 +42,7 @@ export { describeSalesInvoiceEffects } from "./effects.js";
 export {
   buildSalesInvoiceGlPosting,
   type SalesInvoiceCogsLine,
+  type SalesInvoiceFxContext,
 } from "./gl.js";
 
 export type {

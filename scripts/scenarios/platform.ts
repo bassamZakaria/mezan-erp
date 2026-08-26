@@ -1019,10 +1019,16 @@ async function generalSettingsAreLive(ctx: Ctx): Promise<void> {
     check("the same USD invoice is now accepted", accepted.status === 201, `${accepted.status}: ${JSON.stringify(accepted.body).slice(0, 180)}`);
     check("and really carries USD", accepted.body?.currency === "USD", JSON.stringify(accepted.body?.currency));
 
+    // The demo tenant now lists all ten foreign codes the platform supports
+    // (R1.15), so proving the list is load-bearing means taking one back OUT.
+    const withoutGbp = (base?.secondaryCurrencies ?? []).filter((c: string) => c !== "GBP");
+    const narrowed = await set({ secondaryCurrencies: withoutGbp });
+    check("GBP is taken off the tenant's list", narrowed.status === 200 && !(narrowed.body?.secondaryCurrencies ?? []).includes("GBP"), JSON.stringify(narrowed.body?.secondaryCurrencies));
+
     const notListed = await invoiceIn("SCN-SET-CUR-GBP", "GBP");
     check("a currency the tenant did NOT list is still refused — the list is not decoration", notListed.status === 422 && notListed.body?.error === "CURRENCY_NOT_ALLOWED", `${notListed.status}: ${JSON.stringify(notListed.body).slice(0, 180)}`);
 
-    const withGbp = await set({ secondaryCurrencies: [...(base?.secondaryCurrencies ?? []), "GBP"] });
+    const withGbp = await set({ secondaryCurrencies: [...withoutGbp, "GBP"] });
     check("GBP is added to the list", withGbp.status === 200 && (withGbp.body?.secondaryCurrencies ?? []).includes("GBP"), `status ${withGbp.status}`);
     const gbpNow = await invoiceIn("SCN-SET-CUR-GBP-2", "GBP");
     check("and the same GBP invoice goes through", gbpNow.status === 201, `${gbpNow.status}: ${JSON.stringify(gbpNow.body).slice(0, 180)}`);

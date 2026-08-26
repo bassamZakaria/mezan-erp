@@ -15,6 +15,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import { allocateScaled } from "../money/rounding.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import type { AppliedPromotionLineDiscount, SalesInvoice, SalesInvoiceDiscount, SalesInvoiceLine } from "./sales-invoice.js";
 
 /** Currency minor-unit precision invoice amounts round to (piastres/halalas). */
@@ -236,4 +237,24 @@ export function salesInvoiceTotals(invoice: SalesInvoice): SalesInvoiceTotals {
     promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts,
     taxInclusive: invoice.taxInclusive,
   });
+}
+
+/**
+ * The invoice's total in the BASE currency — what GL 1105 was debited with.
+ * `grandTotal` is the document's own figure, in the currency it was raised in;
+ * for a foreign invoice the two differ by the rate it confirmed at (D24), and
+ * a sub-ledger that compares the wrong one to the control account reads adrift
+ * by the whole exchange rate.
+ *
+ * Converts per line and adds — the same order `buildSalesInvoiceGlPosting`
+ * uses, so the two agree to the last unit rather than to within a rounding
+ * step.
+ */
+export function salesInvoiceBaseGrandTotal(totals: SalesInvoiceTotals, fxRate?: string | null): Money {
+  if (!fxRate) return totals.grandTotal;
+  let sum = convertToBase(totals.taxTotal, fxRate);
+  for (const line of totals.lines) {
+    sum = sum.add(convertToBase(line.taxableBase, fxRate));
+  }
+  return sum;
 }

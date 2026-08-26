@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS sales_invoice (
   promotion_line_discounts_json TEXT,
   promotion_applied_at   TEXT,
   currency               TEXT NOT NULL,
+  fx_rate                TEXT,
   notes                  TEXT,
   internal_notes         TEXT,
   discount_type          TEXT NOT NULL,
@@ -118,6 +119,7 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["promotion_line_discounts_json", "TEXT"],
   ["promotion_applied_at", "TEXT"],
   ["tax_inclusive", "INTEGER"],
+  ["fx_rate", "TEXT"],
 ];
 
 /** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
@@ -168,6 +170,7 @@ interface InvoiceRow {
   promotion_line_discounts_json: string | null;
   promotion_applied_at: string | null;
   currency: string;
+  fx_rate: string | null;
   notes: string | null;
   internal_notes: string | null;
   discount_type: string;
@@ -305,6 +308,7 @@ function invoiceParams(invoice: SalesInvoice) {
       : null,
     promotion_applied_at: promotion?.appliedAt ?? null,
     currency: invoice.currency,
+    fx_rate: invoice.fxRate ?? null,
     notes: invoice.notes,
     internal_notes: invoice.internalNotes,
     discount_type: invoice.discount.type,
@@ -337,7 +341,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         customer_tax_exempt, tax_inclusive, warehouse_id, branch_id, salesperson_id, salesperson_name_ar,
         coupon_code, promotion_id, promotion_code, promotion_name_ar, promotion_coupon_code,
         promotion_discount_total, promotion_line_discounts_json, promotion_applied_at,
-        currency, notes, internal_notes,
+        currency, fx_rate, notes, internal_notes,
         discount_type, discount_percent, discount_amount, ar_account_id, tax_account_id,
         amount_paid, created_at, confirmed_at, journal_entry_id, workflow_request_id,
         reverses_invoice_id, reversed_by_invoice_id
@@ -346,7 +350,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         @customer_tax_exempt, @tax_inclusive, @warehouse_id, @branch_id, @salesperson_id, @salesperson_name_ar,
         @coupon_code, @promotion_id, @promotion_code, @promotion_name_ar, @promotion_coupon_code,
         @promotion_discount_total, @promotion_line_discounts_json, @promotion_applied_at,
-        @currency, @notes, @internal_notes,
+        @currency, @fx_rate, @notes, @internal_notes,
         @discount_type, @discount_percent, @discount_amount, @ar_account_id, @tax_account_id,
         @amount_paid, @created_at, @confirmed_at, @journal_entry_id, @workflow_request_id,
         @reverses_invoice_id, @reversed_by_invoice_id
@@ -376,6 +380,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         promotion_line_discounts_json = @promotion_line_discounts_json,
         promotion_applied_at = @promotion_applied_at,
         currency = @currency,
+        fx_rate = @fx_rate,
         notes = @notes,
         internal_notes = @internal_notes,
         discount_type = @discount_type,
@@ -509,6 +514,7 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
       salespersonId: row.salesperson_id,
       salespersonNameAr: row.salesperson_name_ar,
       currency: row.currency,
+      fxRate: row.fx_rate,
       couponCode: row.coupon_code,
       appliedPromotion: toAppliedPromotion(row),
       notes: row.notes,

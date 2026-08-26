@@ -1,4 +1,5 @@
 import type { App } from "@mezan/api";
+import { SUPPORTED_CURRENCY_CODES } from "@mezan/domain";
 import { assertLocalOrTest } from "./demo-seed/shared.js";
 import { seedHr } from "./demo-seed/hr.js";
 import { seedCrm } from "./demo-seed/crm.js";
@@ -356,7 +357,13 @@ export async function seedDemoTenant(app: App): Promise<void> {
   // tenant that has switched تعدد العملات on. A brand-new tenant still starts
   // single-currency — that is what the setting is for.
   const baseSettings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
-  await step(app, "PUT", "/settings", { ...baseSettings, multiCurrencyEnabled: true });
+  await step(app, "PUT", "/settings", {
+    ...baseSettings,
+    multiCurrencyEnabled: true,
+    // All ten foreign codes the platform supports, so the document currency
+    // picker offers the eleven of R1.15 rather than a shorter historical list.
+    secondaryCurrencies: SUPPORTED_CURRENCY_CODES.filter((c) => c !== baseSettings.currency),
+  });
 
   for (const customer of CUSTOMERS) {
     await step(app, "POST", "/customers", { ...customer, currency: "EGP", active: true });
@@ -364,6 +371,30 @@ export async function seedDemoTenant(app: App): Promise<void> {
   for (const supplier of SUPPLIERS) {
     await step(app, "POST", "/suppliers", { ...supplier, currency: "EGP", active: true });
   }
+  // A partner on each side that trades in USD, so the eleven document
+  // currencies (R1.15) and the per-currency AR/AP balances (R1.16) can be
+  // exercised on real records instead of on a currency nobody deals in.
+  await step(app, "POST", "/customers", {
+    id: "CUST-DEMO-USD",
+    code: "C-0010",
+    nameAr: "شركة دلتا للتصدير",
+    nameEn: "Delta Export Co.",
+    phone: "01555667788",
+    paymentTermsDays: 30,
+    creditLimit: "200000",
+    currency: "USD",
+    active: true,
+  });
+  await step(app, "POST", "/suppliers", {
+    id: "SUPP-DEMO-USD",
+    code: "S-0010",
+    nameAr: "مورد المعدات الدولي",
+    nameEn: "International Equipment Supply",
+    phone: "01555112233",
+    paymentTermsDays: 45,
+    currency: "USD",
+    active: true,
+  });
   for (const item of ITEMS) {
     await step(app, "POST", "/items", {
       ...item,

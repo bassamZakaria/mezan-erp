@@ -14,9 +14,15 @@
  */
 
 import { Money } from "../money/index.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import type { DocumentGlPosting, DocumentGlPostingLine } from "../documents/hooks.js";
 import type { SalesInvoice } from "./sales-invoice.js";
 import type { SalesInvoiceTotals } from "./totals.js";
+
+/** The rate a foreign-currency invoice confirmed at. Absent = a base-currency invoice. */
+export interface SalesInvoiceFxContext {
+  readonly rate: string;
+}
 
 /** COGS contribution of one stock line, resolved after the issue. */
 export interface SalesInvoiceCogsLine {
@@ -33,27 +39,44 @@ export function buildSalesInvoiceGlPosting(
   invoice: SalesInvoice,
   totals: SalesInvoiceTotals,
   cogsLines: readonly SalesInvoiceCogsLine[],
+  fx?: SalesInvoiceFxContext,
 ): DocumentGlPosting {
   const debits: DocumentGlPostingLine[] = [];
   const credits: DocumentGlPostingLine[] = [];
 
-  // --- Revenue side ---
-  debits.push({ accountId: invoice.arAccountId, debit: totals.grandTotal, credit: Money.zero() });
+  // Line prices are entered in the DOCUMENT's currency. A foreign invoice is
+  // converted here, once, at the rate that applied on its own date, and the AR
+  // line keeps the currency and rate so the revaluation can restate the debt
+  // later. Without this a `currency: "USD"` invoice debited 1105 with its USD
+  // figure as though it were EGP, understating the receivable by the whole
+  // rate (D24). The COGS/inventory legs are NOT converted — stock cost already
+  // lives in base currency, whatever the sale was priced in.
+  const convert = (amount: Money): Money => (fx ? convertToBase(amount, fx.rate) : amount);
+  const fxTag = fx ? { currency: invoice.currency, fxRate: fx.rate } : {};
 
+  // --- Revenue side ---
   const revenueByAccount = new Map<string, Money>();
   for (let i = 0; i < invoice.lines.length; i++) {
     const line = invoice.lines[i];
     const lineTotals = totals.lines[i];
     if (!line || !lineTotals) continue;
-    sumInto(revenueByAccount, line.revenueAccountId, lineTotals.taxableBase);
+    sumInto(revenueByAccount, line.revenueAccountId, convert(lineTotals.taxableBase));
   }
+  const taxTotal = convert(totals.taxTotal);
+
+  // AR is the SUM of the converted parts, never the conversion of the sum:
+  // rounding each component once is what keeps Σ debits == Σ credits exactly.
+  let receivable = taxTotal;
+  for (const amount of revenueByAccount.values()) receivable = receivable.add(amount);
+  debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag });
+
   for (const [accountId, amount] of revenueByAccount) {
     if (amount.scaled === 0n) continue;
     credits.push({ accountId, debit: Money.zero(), credit: amount });
   }
 
-  if (totals.taxTotal.scaled !== 0n) {
-    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: totals.taxTotal });
+  if (taxTotal.scaled !== 0n) {
+    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: taxTotal });
   }
 
   // --- COGS side ---

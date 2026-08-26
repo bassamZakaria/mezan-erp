@@ -93,3 +93,35 @@ export type CreateGlJournalEntryDTO = z.infer<typeof createGlJournalEntrySchema>
 export type ReverseGlJournalEntryDTO = z.infer<typeof reverseGlJournalEntrySchema>;
 export type GlJournalListQueryDTO = z.infer<typeof glJournalListQuerySchema>;
 export type JournalSourceModuleDTO = z.infer<typeof journalSourceModuleSchema>;
+
+/** One party's outstanding balance in one currency (R1.16). */
+export const partyCurrencyBalanceSchema = z.object({
+  partyId: z.string(),
+  partyName: z.string(),
+  currency: z.string(),
+  /** What the AR/AP control account holds for this party in this currency. */
+  outstandingBase: z.string(),
+  /** The same balance in the currency the documents were raised in. */
+  outstandingTransaction: z.string(),
+  documentCount: z.number().int(),
+});
+
+export const currencyBalanceGroupSchema = z.object({
+  currency: z.string(),
+  outstandingBase: z.string(),
+  outstandingTransaction: z.string(),
+  parties: z.array(partyCurrencyBalanceSchema),
+});
+
+/** GET /gl/balances-by-currency — customer and supplier balances per currency. */
+export const partyCurrencyBalanceReportSchema = z.object({
+  baseCurrency: z.string(),
+  receivables: z.array(currencyBalanceGroupSchema),
+  payables: z.array(currencyBalanceGroupSchema),
+  receivableTotalBase: z.string(),
+  payableTotalBase: z.string(),
+});
+
+export type PartyCurrencyBalanceDTO = z.infer<typeof partyCurrencyBalanceSchema>;
+export type CurrencyBalanceGroupDTO = z.infer<typeof currencyBalanceGroupSchema>;
+export type PartyCurrencyBalanceReportDTO = z.infer<typeof partyCurrencyBalanceReportSchema>;

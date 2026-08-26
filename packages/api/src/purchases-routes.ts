@@ -227,6 +227,7 @@ function serializeInvoice(inv: PurchaseInvoice, allocated: Money = Money.zero())
     branchId: inv.branchId,
     warehouseId: inv.warehouseId,
     currency: inv.currency,
+    fxRate: inv.fxRate ?? null,
     notes: inv.notes,
     receiptId: inv.receiptId,
     lines: inv.lines.map((l) => ({

@@ -24,3 +24,12 @@ export {
 } from "./hierarchy.js";
 export { validateNewCostCenter, createCostCenter, type CreateCostCenterCommand } from "./create-cost-center.js";
 export { updateCostCenter, type UpdateCostCenterCommand } from "./update-cost-center.js";
+export {
+  importableDepartments,
+  costCenterCodeForDepartment,
+  createCostCentersFromDepartments,
+  type ImportableDepartment,
+  type CreateCostCentersFromDepartmentsCommand,
+  type CreateCostCentersFromDepartmentsDeps,
+  type CreateCostCentersFromDepartmentsResult,
+} from "./from-departments.js";

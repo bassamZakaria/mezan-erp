@@ -144,6 +144,13 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             debit: l.debit,
             credit: l.credit,
             memo: l.memo ?? null,
+            // Dropping these here is how a dimension a document took the
+            // trouble to compute disappears behind a successful post: the
+            // cost-centre P&L and the FX revaluation both read them off the
+            // posted line and can never recover them afterwards (D24, D26).
+            costCenterId: l.costCenterId ?? null,
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
           })),
         },
         deps,

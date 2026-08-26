@@ -46,3 +46,25 @@ export type CostCenterStatusDTO = z.infer<typeof costCenterStatusSchema>;
 export type CostCenterDTO = z.infer<typeof costCenterSchema>;
 export type CreateCostCenterDTO = z.infer<typeof createCostCenterSchema>;
 export type UpdateCostCenterDTO = z.infer<typeof updateCostCenterSchema>;
+
+/** GET /cost-centers/importable-departments — departments with no cost centre yet (R6.7). */
+export const importableDepartmentSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  name: z.string(),
+  nameAr: z.string().nullable(),
+  /** The cost-centre code this department would take. */
+  suggestedCode: z.string().min(1),
+  /** True when that code is already used by an unrelated cost centre. */
+  codeInUse: z.boolean(),
+});
+
+/** POST /cost-centers/from-departments — إنشاء من الأقسام. */
+export const createCostCentersFromDepartmentsSchema = z.object({
+  /** Omit or leave empty to import every department that has no cost centre. */
+  departmentIds: z.array(z.string().min(1)).optional(),
+  parentId: z.string().min(1).nullable().optional(),
+});
+
+export type ImportableDepartmentDTO = z.infer<typeof importableDepartmentSchema>;
+export type CreateCostCentersFromDepartmentsDTO = z.infer<typeof createCostCentersFromDepartmentsSchema>;

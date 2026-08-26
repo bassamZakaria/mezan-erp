@@ -224,8 +224,15 @@ export function purchaseInvoiceBaseTotal(invoice: {
   readonly lines: readonly PurchaseInvoiceLine[];
   readonly fxRate?: string | null;
 }): Money {
-  const total = purchaseInvoiceTotal(invoice);
-  return invoice.fxRate ? convertToBase(total, invoice.fxRate) : total;
+  const rate = invoice.fxRate;
+  if (!rate) return purchaseInvoiceTotal(invoice);
+  // Converted component by component, in the same order `buildInvoicePosting`
+  // uses — converting the sum instead can land a rounding unit away from what
+  // the control account actually holds.
+  return convertToBase(purchaseInvoiceInventoryBase(invoice), rate)
+    .add(convertToBase(purchaseInvoiceFreightBase(invoice), rate))
+    .add(convertToBase(purchaseInvoiceExpenseBase(invoice), rate))
+    .add(convertToBase(purchaseInvoiceTax(invoice), rate));
 }
 
 /** Σ line bases across all lines (the invoice subtotal, before tax). */
@@ -510,7 +517,10 @@ export async function confirmPurchaseInvoice(
       kind: "purchase",
       partyId: confirmed.supplierId,
       date: confirmed.date,
-      total: purchaseInvoiceTotal(confirmed),
+      // BASE currency: a supplier payment settles in base, and GL 2100 holds
+      // base — storing the document's own USD figure made a foreign invoice
+      // look settled by a fraction of what it owes (D24).
+      total: purchaseInvoiceBaseTotal(confirmed),
       allocated: Money.zero(),
     });
   }

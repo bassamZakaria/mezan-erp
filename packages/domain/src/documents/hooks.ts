@@ -41,6 +41,14 @@ export interface DocumentGlPostingLine {
    * cost-centre P&L forever, and the report cannot recover it later (D26).
    */
   readonly costCenterId?: string | null;
+  /**
+   * Transaction currency of a foreign-currency line. `debit`/`credit` are
+   * ALWAYS base-currency; these two say what produced them, and without them
+   * the balance is invisible to the FX revaluation forever (D24).
+   */
+  readonly currency?: string | null;
+  /** Foreign→base rate applied at confirm, as an exact decimal string. */
+  readonly fxRate?: string | null;
 }
 
 /**

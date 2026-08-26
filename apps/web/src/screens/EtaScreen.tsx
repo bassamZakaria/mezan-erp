@@ -8,12 +8,14 @@ import {
   EntityPicker,
   Field,
   FulcrumRule,
+  RowMenu,
   Select,
   StatusPill,
   Switch,
   TextInput,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type {
   EtaBranchCodeRowDTO,
@@ -772,6 +774,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const excludeMutation = useExcludeEtaSubmission();
   const [notice, setNotice] = useState<{ kind: "offline" } | { kind: "queued"; count: number } | null>(null);
   const [excludingId, setExcludingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -791,10 +794,13 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   async function submitOne(id: string) {
     if (pendingId !== null) return;
     setNotice(null);
+    setActionError(null);
     setPendingId(id);
     try {
       const result = await submitOneMutation.mutateAsync(id);
       if (result.queuedOffline) setNotice({ kind: "offline" });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
     } finally {
       setPendingId(null);
     }
@@ -808,9 +814,14 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
 
   async function confirmExclude() {
     if (!excludingId || reason.trim() === "") return;
-    await excludeMutation.mutateAsync({ id: excludingId, body: { reason: reason.trim() } });
-    setExcludingId(null);
-    setReason("");
+    setActionError(null);
+    try {
+      await excludeMutation.mutateAsync({ id: excludingId, body: { reason: reason.trim() } });
+      setExcludingId(null);
+      setReason("");
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.thatActionCouldNotBe"));
+    }
   }
 
   const columns: DocumentListColumn<EtaSubmissionDTO>[] = [
@@ -819,16 +830,6 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={t(statusKeys[s.status])} tone={STATUS_TONE[s.status]} /> },
     { key: "uuid", header: t("eta.authorityId"), render: (s) => <span className="mz-num text-ink-muted">{s.etaUuid ?? "—"}</span> },
     { key: "errors", header: t("eta.errors"), render: (s) => <span className="text-danger-ink">{s.errors.length > 0 ? s.errors.join(t("dataMigration.reasonSeparator")) : "—"}</span> },
-    {
-      key: "actions",
-      header: "",
-      render: (s) => (
-        <div className="flex justify-end gap-[6px]">
-          {actionable(s.status) ? <Button size="sm" onClick={() => submitOne(s.id)} disabled={pendingId === s.id}>{t("eta.submit")}</Button> : null}
-          {actionable(s.status) ? <Button size="sm" onClick={() => { setExcludingId(s.id); setReason(""); }}>{t("eta.exclude")}</Button> : null}
-        </div>
-      ),
-    },
   ];
 
   return (
@@ -840,6 +841,12 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
       {notice ? (
         <div role="status" className="mb-[14px] rounded-md border border-warning bg-warning-soft px-[12px] py-[10px] text-[12.5px] text-warning-ink">
           {notice.kind === "offline" ? t("eta.actualSubmissionNeedsALive") : t("eta.queuedNotice", { count: String(notice.count) })}
+        </div>
+      ) : null}
+
+      {actionError ? (
+        <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
         </div>
       ) : null}
 
@@ -877,6 +884,30 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         columns={columns}
         rows={pageRows}
         rowKey={(s) => s.id}
+        rowAction={(s) => {
+          if (!actionable(s.status)) return null;
+          const items: RowMenuItem[] = [
+            {
+              key: "submit",
+              label: t("eta.submit"),
+              disabled: pendingId === s.id,
+              onSelect: () => void submitOne(s.id),
+            },
+            {
+              key: "exclude",
+              label: t("eta.exclude"),
+              tone: "danger",
+              disabled: pendingId === s.id,
+              // Exclusion needs a reason the row cannot supply — the menu opens the form that collects it.
+              onSelect: () => {
+                setActionError(null);
+                setExcludingId(s.id);
+                setReason("");
+              },
+            },
+          ];
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: s.internalId })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

@@ -73,7 +73,7 @@ export function ContractsScreen() {
   const employees = employeesQuery.data ?? [];
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ContractDraft>(blankDraft());
@@ -92,7 +92,8 @@ export function ContractsScreen() {
 
   const filtered = useMemo(() => {
     let rows = contracts;
-    if (statusFilter !== "all") rows = rows.filter((c) => c.status === statusFilter);
+    if (statusFilter === "expiring_soon") rows = rows.filter((c) => c.expiringSoon);
+    else if (statusFilter !== "all") rows = rows.filter((c) => c.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((c) => c.number.toLowerCase().includes(q) || employeeName(c.employeeId).toLowerCase().includes(q));
@@ -156,10 +157,13 @@ export function ContractsScreen() {
     }
   }
 
+  const expiringSoonCount = contracts.filter((c) => c.expiringSoon).length;
+
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: contracts.length },
     { key: "active", label: t("contracts.active"), count: contracts.filter((c) => c.status === "active").length },
     { key: "terminated", label: t("contracts.terminated"), count: contracts.filter((c) => c.status === "terminated").length },
+    { key: "expiring_soon", label: t("contracts.expiringSoon"), count: expiringSoonCount },
   ];
 
   const columns: DocumentListColumn<ContractDTO>[] = [
@@ -167,7 +171,16 @@ export function ContractsScreen() {
     { key: "employee", header: t("contracts.employee"), render: (c) => employeeName(c.employeeId) },
     { key: "type", header: t("contracts.contractType"), render: (c) => t(TYPE_KEY[c.type]) },
     { key: "startDate", header: t("contracts.startDate"), render: (c) => <span className="mz-num">{c.startDate}</span> },
-    { key: "endDate", header: t("contracts.endDate"), render: (c) => <span className="mz-num">{c.endDate ?? "—"}</span> },
+    {
+      key: "endDate",
+      header: t("contracts.endDate"),
+      render: (c) => (
+        <span className="flex items-center gap-[6px]">
+          <span className="mz-num">{c.endDate ?? "—"}</span>
+          {c.expiringSoon ? <StatusPill label={t("contracts.expiringSoon")} tone="warning" /> : null}
+        </span>
+      ),
+    },
     { key: "salary", header: t("contracts.basicSalary"), align: "end", render: (c) => <MoneyDisplay value={Number(c.monthlySalary)} /> },
     { key: "status", header: t("common.status"), render: (c) => <StatusPill label={t(STATUS_KEY[c.status])} tone={STATUS_TONE[c.status]} /> },
   ];
@@ -194,10 +207,24 @@ export function ContractsScreen() {
         stats={[
           { label: t("contracts.totalContracts"), value: <span className="mz-num">{contracts.length}</span> },
           { label: t("contracts.activeContracts"), value: <span className="mz-num">{contracts.filter((c) => c.status === "active").length}</span> },
+          {
+            label: t("contracts.expiringWithin30Days"),
+            value: <span className="mz-num">{expiringSoonCount}</span>,
+            valueTone: expiringSoonCount > 0 ? ("danger" as const) : ("default" as const),
+          },
+        ]}
+        attentionBanners={[
+          {
+            key: "expiring-soon",
+            label: t("contracts.contractsEndingWithin30", { count: expiringSoonCount }),
+            count: expiringSoonCount,
+            tone: "warning",
+            onApply: () => setStatusFilter("expiring_soon"),
+          },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ContractStatusDTO)}
+        onStatusChange={(k) => setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon")}
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("contracts.searchByContractNumberOr")}

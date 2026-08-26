@@ -71,6 +71,7 @@ const sampleContracts: ContractDTO[] = [
     allowances: [],
     deductions: [],
     status: "active",
+    expiringSoon: false,
     terminatedAt: null,
     createdAt: "2026-08-11T00:00:00.000Z",
   },
@@ -98,6 +99,7 @@ function renderScreen(contracts: ContractDTO[] = sampleContracts) {
         allowances: [],
         deductions: [],
         status: "active",
+        expiringSoon: false,
         terminatedAt: null,
         createdAt: "2026-08-21T00:00:00.000Z",
       };

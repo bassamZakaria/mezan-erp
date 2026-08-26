@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   Money,
+  Qty,
+  can,
+  releaseLeaveBalance,
   createDepartment,
   updateDepartment,
   createJobTitle,
@@ -19,6 +22,8 @@ import {
   createLeaveRequest,
   createUnpaidLeaveDaysProvider,
   cancelLeaveRequest,
+  summarizeWorkforceAttendance,
+  LEAVE_TYPE_DEFINITIONS,
   DepartmentNotFoundError,
   InvalidDepartmentError,
   JobTitleNotFoundError,
@@ -46,6 +51,7 @@ import {
   type HolidayRepository,
   type LeaveRequest,
   type LeaveRequestRepository,
+  type LeaveType,
   type UserRepository,
 } from "@mezan/domain";
 import {
@@ -181,6 +187,8 @@ function serializeContract(c: Contract) {
     allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
     deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
     status: c.status,
+    /** Derived server-side so the 30-day window lives in one place (domain `CONTRACT_EXPIRING_SOON_WINDOW_DAYS`). */
+    expiringSoon: isContractExpiringSoon(c),
     terminatedAt: c.terminatedAt,
     createdAt: c.createdAt,
   };
@@ -283,6 +291,7 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const byDepartment = [...byDepartmentMap.entries()].map(([departmentId, count]) => ({
       departmentId,
       departmentName: departmentsById.get(departmentId)?.name ?? departmentId,
+      departmentNameAr: departmentsById.get(departmentId)?.nameAr ?? null,
       count,
     }));
 
@@ -294,16 +303,44 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const byBranch = [...byBranchMap.entries()].map(([branchId, count]) => ({ branchId, count }));
 
     const leaveRequests = await deps.leaveRequests.list();
-    const leaveTypes: Array<"annual" | "sick" | "personal"> = ["annual", "sick", "personal"];
+    const year = now.getUTCFullYear();
+    const balances = (await deps.leaveBalances?.list({ year })) ?? [];
+    const leaveTypes: LeaveType[] = LEAVE_TYPE_DEFINITIONS.map((d) => d.code);
     const leaveConsumption = leaveTypes.map((leaveType) => {
       const forType = leaveRequests.filter((r) => r.leaveType === leaveType);
+      const balanceRows = balances.filter((b) => b.leaveType === leaveType);
+      // Entitlement is the accrual sub-ledger's figure, never the request log's:
+      // days can be taken against a balance no request ever asked for.
+      const entitled = balanceRows.length === 0 ? null : balanceRows.reduce((sum, b) => sum + Number(b.entitled.add(b.carriedOver).toString()), 0);
+      const used = forType.filter((r) => r.status === "approved").reduce((sum, r) => sum + r.days, 0);
+      const pending = forType.filter((r) => r.status === "pending").reduce((sum, r) => sum + r.days, 0);
       return {
         leaveType,
-        entitled: null,
-        used: forType.filter((r) => r.status === "approved").reduce((sum, r) => sum + r.days, 0),
-        pending: forType.filter((r) => r.status === "pending").reduce((sum, r) => sum + r.days, 0),
+        entitled,
+        used,
+        pending,
+        usedPercent: entitled === null || entitled === 0 ? null : Math.round((used / entitled) * 100),
       };
     });
+
+    // Headcount movement over the trailing 12 months, from the employee record's
+    // own hire/termination dates — the dashboard's اتجاه القوى العاملة chart.
+    const headcountTrend: Array<{ month: string; hires: number; leavers: number }> = [];
+    for (let offset = 11; offset >= 0; offset -= 1) {
+      const cursor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+      const key = cursor.toISOString().slice(0, 7);
+      headcountTrend.push({
+        month: key,
+        hires: employees.filter((e) => e.hireDate.startsWith(key)).length,
+        leavers: employees.filter((e) => (e.terminatedAt ?? "").startsWith(key)).length,
+      });
+    }
+
+    const attendanceWindowDays = 30;
+    const windowEnd = now.toISOString().slice(0, 10);
+    const windowStart = new Date(now.getTime() - attendanceWindowDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const attendanceEntries = (await deps.attendance?.list({ from: windowStart, to: windowEnd })) ?? [];
+    const attendance = summarizeWorkforceAttendance(windowStart, windowEnd, attendanceEntries);
 
     return c.json({
       activeEmployees,
@@ -315,6 +352,19 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
       byDepartment,
       byBranch,
       leaveConsumption,
+      headcountTrend,
+      attendance: {
+        from: attendance.from,
+        to: attendance.to,
+        workingDays: attendance.workingDays,
+        daysPresent: attendance.daysPresent,
+        daysLate: attendance.daysLate,
+        halfDays: attendance.halfDays,
+        daysAbsent: attendance.daysAbsent,
+        daysOnLeave: attendance.daysOnLeave,
+        absenceRatePercent: attendance.absenceRatePercent,
+        lateArrivalRatePercent: attendance.lateArrivalRatePercent,
+      },
     });
   });
 
@@ -551,10 +601,23 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
   });
 
   app.post("/leave-requests", gate("hr.leave.create"), async (c) => {
-    const employeeId = await resolveCallerEmployeeId(c, deps);
-    if (!employeeId) return c.json({ error: "USER_NOT_LINKED_TO_EMPLOYEE" }, 409);
     const parsed = createLeaveRequestSchema.safeParse(await c.req.json());
     if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+
+    const callerEmployeeId = await resolveCallerEmployeeId(c, deps);
+    const onBehalfOf = parsed.data.employeeId ?? null;
+    // Filing for someone else is a manager act, not self-service: `hr.leave.create`
+    // alone only ever creates the caller's OWN request.
+    const ctx = getAuthContext(c);
+    if (onBehalfOf !== null && onBehalfOf !== callerEmployeeId && !(ctx !== undefined && can(ctx, "hr.leave.approve"))) {
+      return c.json({ error: "PERMISSION_DENIED", permission: "hr.leave.approve", message: "لا يمكن تقديم طلب إجازة نيابة عن موظف آخر بدون صلاحية اعتماد الإجازات." }, 403);
+    }
+    const employeeId = onBehalfOf ?? callerEmployeeId;
+    if (!employeeId) return c.json({ error: "USER_NOT_LINKED_TO_EMPLOYEE" }, 409);
+    if (onBehalfOf !== null && !(await deps.employees.findById(onBehalfOf))) {
+      return c.json({ error: "EMPLOYEE_NOT_FOUND", message: "الموظف غير موجود." }, 404);
+    }
+
     try {
       const id = parsed.data.id ?? randomUUID();
       const number = (await deps.numbering.next("LEAVE_REQUEST")).formatted;
@@ -569,12 +632,26 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     const employeeId = await resolveCallerEmployeeId(c, deps);
     const current = await deps.leaveRequests.findById(c.req.param("id"));
     if (!current) return c.json({ error: "LEAVE_REQUEST_NOT_FOUND" }, 404);
-    if (!employeeId || current.employeeId !== employeeId) {
+    const ctx = getAuthContext(c);
+    const isApprover = ctx !== undefined && can(ctx, "hr.leave.approve");
+    if (!isApprover && (!employeeId || current.employeeId !== employeeId)) {
       return c.json({ error: "PERMISSION_DENIED", message: "لا يمكن إلغاء طلب إجازة موظف آخر." }, 403);
     }
     try {
+      const wasApproved = current.status === "approved";
       const next = cancelLeaveRequest(current);
       await deps.leaveRequests.update(next);
+      // Approval consumed the balance; cancelling has to give it back, or the
+      // matrix keeps counting days that were never taken.
+      if (wasApproved && deps.leaveBalances) {
+        await releaseLeaveBalance(
+          current.employeeId,
+          current.leaveType,
+          Number(current.startDate.slice(0, 4)),
+          Qty.fromMajor(String(current.days)),
+          deps.leaveBalances,
+        );
+      }
       return c.json(serializeLeaveRequest(next));
     } catch (err) {
       return handleDomainError(c, err);

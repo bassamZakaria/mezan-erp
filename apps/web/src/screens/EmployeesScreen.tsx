@@ -12,11 +12,12 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { EmployeeDTO, EmployeeStatusDTO, GenderDTO, MaritalStatusDTO, OvertimeEligibilityDTO, WorkerCategoryDTO } from "@mezan/contracts";
+import type { ContractDTO, ContractTypeDTO, EmployeeDTO, EmployeeStatusDTO, GenderDTO, MaritalStatusDTO, OvertimeEligibilityDTO, WorkerCategoryDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import {
   ApiError,
   useBranches,
+  useContracts,
   useCreateEmployee,
   useDepartments,
   useEmployeeContracts,
@@ -41,6 +42,13 @@ const STATUS_TONE: Record<EmployeeStatusDTO, PillTone> = {
   on_leave: "warning",
   suspended: "danger",
   terminated: "neutral",
+};
+
+const CONTRACT_TYPE_KEY: Record<ContractTypeDTO, AppTranslationKey> = {
+  indefinite: "contracts.type.indefinite",
+  fixed_term: "contracts.type.fixed_term",
+  seasonal: "contracts.type.seasonal",
+  probationary: "contracts.type.probationary",
 };
 
 const GENDER_KEY: Record<GenderDTO, AppTranslationKey> = { male: "employees.male", female: "employees.female" };
@@ -146,6 +154,7 @@ export function EmployeesScreen() {
   const departmentsQuery = useDepartments();
   const jobTitlesQuery = useJobTitles();
   const branchesQuery = useBranches();
+  const allContractsQuery = useContracts();
   const createEmployee = useCreateEmployee();
   const transitionEmployee = useTransitionEmployee();
   const terminateEmployee = useTerminateEmployee();
@@ -154,6 +163,7 @@ export function EmployeesScreen() {
   const departments = departmentsQuery.data ?? [];
   const jobTitles = jobTitlesQuery.data ?? [];
   const branches = branchesQuery.data ?? [];
+  const allContracts = allContractsQuery.data ?? [];
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");
@@ -190,6 +200,16 @@ export function EmployeesScreen() {
   function branchName(id: string): string {
     return branches.find((b) => b.id === id)?.name ?? id;
   }
+
+  const activeContractByEmployee = useMemo(() => {
+    const map = new Map<string, ContractDTO>();
+    for (const contract of allContracts) {
+      if (contract.status !== "active") continue;
+      const current = map.get(contract.employeeId);
+      if (!current || contract.startDate > current.startDate) map.set(contract.employeeId, contract);
+    }
+    return map;
+  }, [allContracts]);
 
   const filtered = useMemo(() => {
     let rows = employees;
@@ -316,6 +336,22 @@ export function EmployeesScreen() {
     },
     { key: "department", header: t("employees.department"), render: (e) => departmentName(e.departmentId) },
     { key: "jobTitle", header: t("employees.jobTitle"), render: (e) => jobTitleName(e.jobTitleId) },
+    { key: "branch", header: t("employees.branch"), render: (e) => branchName(e.branchId) },
+    {
+      key: "contract",
+      header: t("employees.contract"),
+      render: (e) => {
+        const contract = activeContractByEmployee.get(e.id);
+        if (!contract) return <span className="text-ink-faint">{t("employees.noActiveContract")}</span>;
+        return (
+          <span className="flex items-center gap-[6px]">
+            <span className="text-ink">{t(CONTRACT_TYPE_KEY[contract.type])}</span>
+            <span className="mz-num text-[11px] text-ink-faint">{contract.number}</span>
+            {contract.expiringSoon ? <StatusPill label={t("employees.contractExpiringSoon")} tone="warning" /> : null}
+          </span>
+        );
+      },
+    },
     { key: "hireDate", header: t("employees.hireDate"), render: (e) => <span className="mz-num">{e.hireDate}</span> },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(STATUS_KEY[e.status])} tone={STATUS_TONE[e.status]} /> },
   ];

@@ -17,13 +17,26 @@ const sampleSummary: HrDashboardSummaryDTO = {
   terminationsThisMonth: 0,
   contractsExpiringSoon: 1,
   probationEndingSoon: 0,
-  byDepartment: [{ departmentId: "dept-1", departmentName: "المبيعات", count: 5 }],
+  byDepartment: [{ departmentId: "dept-1", departmentName: "Sales", departmentNameAr: "المبيعات", count: 5 }],
   byBranch: [{ branchId: "MAIN", count: 5 }],
   leaveConsumption: [
-    { leaveType: "annual", entitled: 21, used: 3, pending: 1 },
-    { leaveType: "sick", entitled: null, used: 0, pending: 0 },
-    { leaveType: "personal", entitled: null, used: 0, pending: 0 },
+    { leaveType: "annual", entitled: 21, used: 3, pending: 1, usedPercent: 14 },
+    { leaveType: "sick", entitled: null, used: 0, pending: 0, usedPercent: null },
+    { leaveType: "personal", entitled: null, used: 0, pending: 0, usedPercent: null },
   ],
+  headcountTrend: [{ month: "2026-08", hires: 2, leavers: 0 }],
+  attendance: {
+    from: "2026-07-27",
+    to: "2026-08-26",
+    workingDays: 100,
+    daysPresent: 80,
+    daysLate: 10,
+    halfDays: 2,
+    daysAbsent: 5,
+    daysOnLeave: 3,
+    absenceRatePercent: 5,
+    lateArrivalRatePercent: 11,
+  },
 };
 
 function renderScreen() {

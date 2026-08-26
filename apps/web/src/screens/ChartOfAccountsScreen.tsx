@@ -7,7 +7,6 @@ import {
   Card,
   Checkbox,
   EntityPicker,
-  FulcrumRule,
   IconButton,
   Money,
   SearchInput,
@@ -436,7 +435,6 @@ export function ChartOfAccountsScreen() {
       {activeTab === "routing" ? <AccountRoutingTab /> : null}
       {activeTab === "accounts" ? (
       <>
-      <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">

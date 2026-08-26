@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { StatusPill, type PillTone } from "./atoms";
-import { FulcrumRule } from "../shell/FulcrumRule";
 import { useUiTranslation } from "../i18n";
 
 /**
@@ -77,7 +76,6 @@ export function DocumentDetail({
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
       </div>
-      <FulcrumRule />
 
       {summary && summary.length > 0 ? (
         <div className="mb-[16px] grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border shadow-1 sm:grid-cols-3 lg:grid-cols-6">

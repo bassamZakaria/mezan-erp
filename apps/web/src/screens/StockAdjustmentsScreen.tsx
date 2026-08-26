@@ -6,7 +6,6 @@ import {
   DocumentList,
   DocumentStatusStepper,
   EmptyState,
-  FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
   RowMenu,
@@ -262,7 +261,6 @@ export function StockAdjustmentsScreen() {
           </div>
           <Button onClick={subPage.close}>{t("common.cancel")}</Button>
         </div>
-        <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-4">
           {ADJUSTMENT_REASON_DEFINITIONS.map((def) => (
             <button
@@ -667,7 +665,6 @@ function CreateAdjustmentView({
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

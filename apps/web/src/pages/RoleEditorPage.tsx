@@ -2,7 +2,6 @@ import { useMemo, useState } from "react";
 import {
   Button,
   Card,
-  FulcrumRule,
   PermissionMatrix,
   TextInput,
   type PermissionMatrixItem,
@@ -135,7 +134,6 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       {formError ? (
         <div className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[9px] text-[12.5px] text-danger-ink">

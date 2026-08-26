@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FulcrumRule, Button, Card, Money, StatusPill } from "@mezan/ui";
+import { Button, Card, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard } from "../../data/hub-hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
@@ -57,9 +57,6 @@ export function ManufacturingHubScreen() {
             </Button>
           ))}
         </div>
-      </div>
-      <div className="-mt-[18px] -mb-[22px]">
-        <FulcrumRule />
       </div>
 
       {dashboardQuery.isError ? (

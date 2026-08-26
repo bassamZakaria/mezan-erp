@@ -6,7 +6,6 @@ import { Button, Card, Money } from "./atoms";
 import { VarianceBeam } from "./beams";
 import { Select } from "./Select";
 import { TextInput } from "./form";
-import { FulcrumRule } from "../shell/FulcrumRule";
 import { useUiTranslation } from "../i18n";
 
 /**
@@ -380,7 +379,6 @@ export function ReportRunner<Row>({
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       {/*
         A server-side 400 names no single param, so it arrives under `_root`.

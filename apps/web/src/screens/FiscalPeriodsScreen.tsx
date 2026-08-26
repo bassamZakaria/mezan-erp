@@ -5,7 +5,6 @@ import {
   Chip,
   DocumentList,
   EmptyState,
-  FulcrumRule,
   RowMenu,
   Select,
   StatusPill,
@@ -202,7 +201,6 @@ export function FiscalPeriodsScreen() {
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       {actionError ? (
         <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

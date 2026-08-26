@@ -7,7 +7,6 @@ import {
   EmptyState,
   EntityPicker,
   Field,
-  FulcrumRule,
   RowMenu,
   Select,
   StatusPill,
@@ -140,7 +139,6 @@ export function EtaScreen() {
           />
         ) : null}
       </div>
-      <FulcrumRule />
 
       {readiness ? (
         <Card className="mb-[16px] p-[16px_18px]">

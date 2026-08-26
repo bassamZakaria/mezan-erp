@@ -4,7 +4,6 @@ import {
   Card,
   DocumentList,
   EmptyState,
-  FulcrumRule,
   StatCard,
   TextInput,
   formatNumber,
@@ -70,7 +69,6 @@ export function CostCenterPnLScreen() {
           <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>
       </div>
-      <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[18px] p-[18px_20px]">

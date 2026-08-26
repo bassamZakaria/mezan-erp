@@ -5,7 +5,6 @@ import { useUiTranslation } from "../i18n";
 import { Card, Chip, StatCard } from "./atoms";
 import { SearchInput } from "./form";
 import { Select } from "./Select";
-import { FulcrumRule } from "../shell/FulcrumRule";
 
 /**
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
@@ -254,7 +253,6 @@ export function DocumentList<Row>({
         </div>
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
       </div>
-      <FulcrumRule />
 
       {attentionBanners && attentionBanners.length > 0 ? (
         <div className="mb-[12px] flex flex-col gap-[6px]">

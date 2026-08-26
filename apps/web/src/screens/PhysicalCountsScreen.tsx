@@ -5,7 +5,6 @@ import {
   DocumentDetail,
   DocumentList,
   EmptyState,
-  FulcrumRule,
   RowMenu,
   StatusPill,
   TextInput,
@@ -366,7 +365,6 @@ function NewCountView({
       <div className="mb-[16px]">
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("counts.newCount")}</h1>
       </div>
-      <FulcrumRule />
       <Card className="flex flex-col gap-[14px] p-[18px]">
         <SelectField label={t("counts.warehouse")} value={warehouseId} onChange={setWarehouseId} options={warehouseOptions} />
         <TextField label={t("counts.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
@@ -455,7 +453,6 @@ function CountEntryView({
           ) : null}
         </div>
       </div>
-      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

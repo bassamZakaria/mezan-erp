@@ -858,6 +858,28 @@ export class StockLedgerService {
     return { positions, totalValue: Money.sum(positions.map((p) => p.totalValue)) };
   }
 
+  /**
+   * Every warehouse this item sits in, with its on-hand, value and average
+   * cost — what the item card's «المخزون حسب المستودع» tab needs. The valuation
+   * rollup collapses warehouses, so it cannot answer "where is this stock?".
+   */
+  async getItemPositions(itemId: string): Promise<readonly WacSnapshot[]> {
+    const positions = await this.deps.snapshots.list();
+    return positions.filter((p) => p.itemId === itemId);
+  }
+
+  /** Open cost layers for one item across every warehouse, oldest first. */
+  async getItemCostLayers(itemId: string): Promise<readonly CostLayer[]> {
+    const positions = await this.getItemPositions(itemId);
+    const layers: CostLayer[] = [];
+    for (const position of positions) {
+      layers.push(...(await this.deps.layers.listByPosition(itemId, position.warehouseId)));
+    }
+    return layers
+      .filter((layer) => layer.remainingQty.scaled > 0n)
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  }
+
   /** Drift report for one position (cached snapshot vs replayed ledger vs layers). */
   async checkDriftFor(
     itemId: string,

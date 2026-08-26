@@ -101,7 +101,6 @@ describe("ItemsScreen", () => {
 
     expect(screen.getByRole("heading", { name: "ITM-000001 — أرز أبيض مصري 5 كجم" })).toBeInTheDocument();
     await user.click(screen.getByRole("tab", { name: "المخزون" }));
-    expect(screen.getByText(/المرحلة الثانية/)).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "رجوع للقائمة" }));
     expect(screen.getByRole("heading", { name: "الأصناف" })).toBeInTheDocument();

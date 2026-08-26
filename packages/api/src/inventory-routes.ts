@@ -194,6 +194,35 @@ export function createInventoryRoutes(
     return c.json({ rows: rows.map(serializeBalanceRow) });
   });
 
+  /**
+   * Where one item's stock actually sits, and what it cost. The item card used
+   * to print "ستُعرض أرصدة المخزون … (المرحلة الثانية)" over data the
+   * stock-levels report was already serving (D43).
+   */
+  app.get("/items/:itemId/stock", gate("inventory.stock.view"), async (c) => {
+    const itemId = c.req.param("itemId");
+    const positions = withinScope(await service.getItemPositions(itemId), warehouseScopeOf(c), (p) => p.warehouseId);
+    const layers = withinScope(await service.getItemCostLayers(itemId), warehouseScopeOf(c), (l) => l.warehouseId);
+    return c.json({
+      positions: positions.map((p) => ({
+        warehouseId: p.warehouseId,
+        onHand: p.onHand.toString(),
+        totalValue: p.totalValue.toString(),
+        averageCost: p.averageCost.toString(),
+      })),
+      layers: layers.map((l) => ({
+        id: l.id,
+        warehouseId: l.warehouseId,
+        unitCost: l.unitCost.toString(),
+        originalQty: l.originalQty.toString(),
+        remainingQty: l.remainingQty.toString(),
+        sourceDocType: l.sourceDocType,
+        sourceDocNumber: l.sourceDocNumber,
+        createdAt: l.createdAt,
+      })),
+    });
+  });
+
   app.get("/drift", gate("inventory.valuation.view"), async (c) => {
     try {
       const toleranceRaw = c.req.query("tolerance");

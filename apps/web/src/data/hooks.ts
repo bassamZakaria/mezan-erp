@@ -3388,6 +3388,46 @@ export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult
   });
 }
 
+export interface ItemStockPositionRecord {
+  readonly warehouseId: string;
+  readonly onHand: string;
+  readonly totalValue: string;
+  readonly averageCost: string;
+}
+
+export interface ItemCostLayerRecord {
+  readonly id: string;
+  readonly warehouseId: string;
+  readonly unitCost: string;
+  readonly originalQty: string;
+  readonly remainingQty: string;
+  readonly sourceDocType: string;
+  readonly sourceDocNumber: string | null;
+  readonly createdAt: string;
+}
+
+/**
+ * One item's stock across warehouses and its open cost layers
+ * (`GET /inventory/items/:id/stock`). The item card used to print a
+ * "(المرحلة الثانية)" placeholder over data that already existed (D43).
+ */
+export function useItemStock(itemId: string | null): UseQueryResult<
+  { positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] },
+  ApiError
+> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<{ positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }, ApiError>({
+    queryKey: ["item-stock", itemId],
+    enabled: session !== null && itemId !== null,
+    queryFn: async () => {
+      const res = await request(`/inventory/items/${encodeURIComponent(itemId!)}/stock`);
+      if (!res.ok) throw new ApiError(res.status, t("api.theStockBalanceCouldNot"));
+      return res.json<{ positions: ItemStockPositionRecord[]; layers: ItemCostLayerRecord[] }>();
+    },
+  });
+}
+
 /**
  * The `/rfqs/:id/comparison` per-item/per-supplier price grid (packages/api/src/rfq-routes.ts) —
  * the server-computed equivalent of `@mezan/domain`'s `compareRfqQuotes`, but over the wire

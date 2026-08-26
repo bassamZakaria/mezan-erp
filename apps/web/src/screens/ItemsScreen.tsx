@@ -20,7 +20,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
-import { useAccounts, useCreateItem, useItemCategories, useItemUnits, useItems, useUpdateItem } from "../data/hooks";
+import { useAccounts, useCreateItem, useItemCategories, useItemStock, useItemUnits, useItems, useUpdateItem, useWarehouses } from "../data/hooks";
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -200,6 +200,99 @@ function nextItemCode(items: ItemDTO[]): string {
 }
 
 /** الأصناف (Items) — docs/catalog/03-inventory.md. List (KPI strip + filters + table + pager), item detail (tabs), add/edit form. */
+/** المخزون حسب المستودع — where this item's stock actually sits (D43). */
+function ItemStockTab({ itemId }: { itemId: string }) {
+  const { t } = useAppTranslation();
+  const query = useItemStock(itemId);
+  const warehouses = useWarehouses().data ?? [];
+  const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+  const positions = query.data?.positions ?? [];
+
+  if (query.isLoading) return <div className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>;
+  if (positions.length === 0) {
+    return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.stock.empty")}</div>;
+  }
+
+  const totalOnHand = positions.reduce((sum, p) => sum + Number(p.onHand), 0);
+  const totalValue = positions.reduce((sum, p) => sum + Number(p.totalValue), 0);
+
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full border-collapse text-[12.5px]">
+        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+          <tr>
+            <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.stock.onHand")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {positions.map((position) => (
+            <tr key={position.warehouseId} className="border-t border-border">
+              <td className="px-[15px] py-[10px] text-ink">{warehouseName(position.warehouseId)}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end">{Number(position.onHand)}</td>
+              <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td>
+              <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-border bg-surface-2 font-bold">
+            <td className="px-[15px] py-[10px]">{t("common.total")}</td>
+            <td className="mz-num px-[15px] py-[10px] text-end">{totalOnHand}</td>
+            <td />
+            <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td>
+          </tr>
+        </tfoot>
+      </table>
+    </Card>
+  );
+}
+
+/** طبقات التكلفة — the immutable WAC layers still holding stock (D43, R5.5). */
+function ItemCostLayersTab({ itemId }: { itemId: string }) {
+  const { t } = useAppTranslation();
+  const query = useItemStock(itemId);
+  const warehouses = useWarehouses().data ?? [];
+  const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+  const layers = query.data?.layers ?? [];
+
+  if (query.isLoading) return <div className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>;
+  if (layers.length === 0) {
+    return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.costLayers.empty")}</div>;
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full border-collapse text-[12.5px]">
+        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+          <tr>
+            <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.remaining")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.costLayers.unitCost")}</th>
+            <th className="px-[15px] py-[9px] text-start">{t("items.costLayers.source")}</th>
+            <th className="px-[15px] py-[9px] text-start">{t("common.date")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {layers.map((layer) => (
+            <tr key={layer.id} className="border-t border-border">
+              <td className="px-[15px] py-[10px] text-ink">{warehouseName(layer.warehouseId)}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end">
+                {Number(layer.remainingQty)} / {Number(layer.originalQty)}
+              </td>
+              <td className="px-[15px] py-[10px] text-end"><Money value={Number(layer.unitCost)} /></td>
+              <td className="mz-num px-[15px] py-[10px]">{layer.sourceDocNumber ?? layer.sourceDocType}</td>
+              <td className="mz-num px-[15px] py-[10px]">{layer.createdAt.slice(0, 10)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 export function ItemsScreen() {
   const { t } = useAppTranslation();
   const query = useItems();
@@ -709,7 +802,6 @@ export function ItemsScreen() {
               <div className="mt-[6px]">
                 <Money value={Number(item.costPrice ?? 0)} />
               </div>
-              <div className="mt-[6px] text-[11px] text-ink-faint">{t("items.thisBecomesDerivedFromStock")}</div>
             </div>
           </Card>
         ),
@@ -753,11 +845,12 @@ export function ItemsScreen() {
       {
         key: "stock",
         label: t("items.stock"),
-        content: (
-          <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-            {t("items.stockBalancesByWarehouseWill")}
-          </div>
-        ),
+        content: <ItemStockTab itemId={item.id} />,
+      },
+      {
+        key: "costLayers",
+        label: t("items.tab.costLayers"),
+        content: <ItemCostLayersTab itemId={item.id} />,
       },
     ];
 

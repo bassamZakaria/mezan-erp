@@ -1380,3 +1380,14 @@ export {
   type TestEmailResultDTO,
   type AllowedCurrenciesDTO,
 } from "./settings.js";
+
+export {
+  attachmentEntityTypeSchema,
+  attachmentSchema,
+  createAttachmentSchema,
+  attachmentContentSchema,
+  type AttachmentEntityTypeDTO,
+  type AttachmentDTO,
+  type CreateAttachmentDTO,
+  type AttachmentContentDTO,
+} from "./attachments.js";

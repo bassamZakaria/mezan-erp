@@ -23,6 +23,7 @@ import {
   type ItemSeasonRepository,
   type ItemSpecificationRepository,
   type ItemSpecificationUsageCounter,
+  type AttachmentRepository,
   type EventCode,
   type AllocatableInvoiceRepository,
   type ApiKeyRepository,
@@ -116,6 +117,7 @@ import {
   createItemUnitsRoutes,
 } from "./item-catalog-routes.js";
 import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
+import { createAttachmentsRoutes } from "./attachments-routes.js";
 import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
@@ -715,6 +717,12 @@ export interface CreateAppOptions {
    * submitting/listing/deciding approval instances.
    */
   readonly workflow?: WorkflowRoutesDeps;
+  /**
+   * Mounts `/attachments` (المرفقات — R1.4) when present. Files attached to a
+   * document or an entity; every route derives its permission from the entity
+   * the file hangs off, so there is no attachment permission of its own.
+   */
+  readonly attachments?: { readonly repo: AttachmentRepository; readonly resolveAuthContext?: AuthContextResolver };
 }
 
 /**
@@ -1355,6 +1363,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
         { ...options.workflow, heldDocuments: options.workflow.heldDocuments ?? buildHeldDocumentResolver(options) },
         options.resolveAuthContext,
       ),
+    );
+  }
+
+  if (options.attachments) {
+    app.route(
+      "/attachments",
+      createAttachmentsRoutes(options.attachments, options.attachments.resolveAuthContext ?? options.resolveAuthContext),
     );
   }
 

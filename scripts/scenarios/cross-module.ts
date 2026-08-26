@@ -1462,16 +1462,16 @@ export async function run(ctx: Ctx): Promise<void> {
   await scenario("x36 · branch scope narrows against a real second branch, and the two branches do not see each other (D7 fixed — guard it)", async () => {
     // 201 on a fresh database, 409 on a re-run against one this suite has
     // already touched. Either way the branch exists, which is all the rest needs.
-    const branch = await req("POST", "/branches", { id: "BR-SCN-2", code: "SCN2", name: "فرع الاختبار الثاني" });
+    const branch = await req("POST", "/branches", { id: "BR-SCN-X-2", code: "SCN2", name: "فرع الاختبار الثاني" });
     check("a second branch exists", branch.status === 201 || branch.status === 409, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
-    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-2" });
+    const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-X-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-X-2" });
     check("with its own warehouse", warehouse.status === 201 || warehouse.status === 409, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
 
     const itemId = "SCN-X-ITEM-1";
     await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-X-2");
 
     const customer = (await req("GET", `/customers/${CUSTOMER}`)).body;
-    await req("POST", "/sales-invoices", {
+    const created = await req("POST", "/sales-invoices", {
       id: "SCN-X-INV-BR2",
       date: TODAY,
       dueDate: "2026-09-23",
@@ -1483,24 +1483,27 @@ export async function run(ctx: Ctx): Promise<void> {
       taxAccountId: OUTPUT_TAX,
       lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بيع اختباري", isStock: true, qty: "2", unitPrice: "100", taxRatePercent: VAT, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
     });
+    // Checked, not assumed: an unchecked create turns any later refusal into a
+    // mystified "0 rows" three assertions further down.
+    check("the second branch's invoice is created", created.status === 201, `status ${created.status} ${JSON.stringify(created.body).slice(0, 300)}`);
     const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-BR2/confirm", {});
     check("a sale posts in the second branch", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
 
     const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
     const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
-    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-X-2" })).body);
     // D7 is fixed; these now guard the fix. A scope that narrows nothing was the
     // defect, so the assertion is that each branch sees strictly less than "*",
     // and that the two branches partition the set rather than overlapping.
     check(
       "x-branch-scope narrows: each branch sees strictly fewer invoices than the unscoped caller",
       mainOnly.length < all && secondOnly.length < all && secondOnly.length > 0,
-      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-2=${secondOnly.length}`,
+      `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-X-2=${secondOnly.length}`,
     );
     check(
       "the second branch's invoice is visible to the second branch",
       secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
-      `BR-SCN-2 rows=${JSON.stringify(secondOnly.map((i: any) => i.id)).slice(0, 200)}`,
+      `BR-SCN-X-2 rows=${JSON.stringify(secondOnly.map((i: any) => i.id)).slice(0, 200)}`,
     );
     check(
       "and invisible to a caller scoped to the first branch — the whole point of the scope",

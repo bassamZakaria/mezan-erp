@@ -222,6 +222,40 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X65 — the SALES side of a foreign currency, and what it is worth per currency
   // ---------------------------------------------------------------------------
+  await scenario("x66 · a purchase invoice can be raised in a foreign currency from the screen's own shape, and reaches the ledger converted (R1.15)", async () => {
+    // The route has always accepted a currency; no screen ever sent one, so
+    // every purchase invoice was booked at par whatever the supplier billed.
+    // This asserts the wire shape the form now sends, not a hand-built one.
+    const currencies = (await req("GET", "/settings/currencies")).body;
+    check("the tenant publishes what it allows, rather than the screen deciding", Array.isArray(currencies?.allowed) && currencies.allowed.includes("USD"), JSON.stringify(currencies));
+
+    const created = await req("POST", "/purchases/invoices", {
+      id: "SCN-S-PI-CUR", supplierId: "SUPP-DEMO-1", date: "2026-08-20",
+      branchId: "BR-MAIN", warehouseId: "WH-MAIN", currency: "USD",
+      lines: [{ itemId: "ITEM-DEMO-1", kind: "inventory", qty: "10", unitCost: "100", taxRatePercent: 0 }],
+    });
+    checkEq("the invoice is created", created.status, 201);
+    check("and keeps the currency rather than dropping it at the wire", created.body?.currency === "USD", `currency=${created.body?.currency}`);
+
+    const confirmed = await req("POST", "/purchases/invoices/SCN-S-PI-CUR/confirm", {});
+    checkEq("it confirms", confirmed.status, 200);
+    const invoice = (await req("GET", "/purchases/invoices/SCN-S-PI-CUR")).body;
+    check("the rate it confirmed at is stamped on the document", invoice?.fxRate !== null && invoice?.fxRate !== undefined, `fxRate=${invoice?.fxRate}`);
+    checkEq("and the document total stays in its OWN currency", n(invoice?.total), 1000);
+
+    const entries = rows((await req("GET", "/gl/journal-entries?sourceModule=purchases")).body);
+    const entry = entries.find((e: any) => e.sourceDocId === "SCN-S-PI-CUR");
+    check("the confirm posted an entry naming this invoice", entry !== undefined, `entries=${entries.length}`);
+    const payable = entry?.lines?.find((l: any) => l.accountId === "2100");
+    // 1,000 USD at 49.35 is 49,350.00 EGP. At par it would read 1,000.00 — the
+    // whole of D24 in one number.
+    checkEq("the payable is credited in BASE currency at the document's rate, not at par", n(payable?.credit), 49350);
+    check("and the line carries the currency it was booked in, for revaluation to find later", payable?.currency === "USD", `currency=${payable?.currency} fxRate=${payable?.fxRate}`);
+
+    const balanced = (entry?.lines ?? []).reduce((sum: number, l: any) => sum + n(l.debit) - n(l.credit), 0);
+    checkEq("and the entry still balances to the unit in base currency", Math.round(balanced * 1e6) / 1e6, 0);
+  });
+
   await scenario("x65 · a foreign-currency sales invoice reaches the ledger in base currency, is reported per currency, and is what revaluation restates", async () => {
     // The rate the SERVER will pick: the latest approved (or locked) USD rate
     // effective on or before the invoice's date. Read rather than hardcoded, so

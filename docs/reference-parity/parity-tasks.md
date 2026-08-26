@@ -150,11 +150,11 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R5.8** Transfer import — paste a range straight from Excel (the clipboard gives TSV), or choose a CSV or a real `.xlsx`. The delimiter is detected per file, quoted fields and Arabic-Indic numerals are handled, and every row is resolved against the REAL item catalogue by code or barcode; a row that matches nothing, or names a service item, is rejected WITH its reason rather than carried through as a plausible id. `.xlsx` is read with no dependency — it is a ZIP of XML and the browser already provides DEFLATE
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
 - [x] **R10.5** Leave-request create action, including filing on behalf of another employee behind `hr.leave.approve`
-- [~] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
+- [x] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
       - [x] The eleven-currency registry (`packages/domain/src/currency/`), the demo tenant's allowed list, the exchange-rate and revaluation screens
       - [x] A foreign SALES invoice converts at the approved rate of its own date, tags its receivable line, stamps the rate, and stores the BASE total in the sub-ledger (D24's remaining half)
       - [x] `GET /gl/balances-by-currency` — per-currency, per-party AR/AP in both the transaction and the base currency, shown on the revaluation screen
-      - [ ] The document screens still print every amount with the tenant's base-currency label (D52); the sales-invoice form offers only EGP + the customer's own currency rather than the eleven, and the purchase-invoice form has no currency field at all — its route accepts one, no screen sends one
+      - [x] Both document forms now offer every currency the TENANT allows, read from `/settings/currencies` rather than hardcoded, and the purchase-invoice form has a currency field at all for the first time. Amounts print in the document's own currency (D52 fixed), and the purchase-invoice form has no currency field at all — its route accepts one, no screen sends one
 
 ## P6 — list-surface parity
 

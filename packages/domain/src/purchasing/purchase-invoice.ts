@@ -487,7 +487,11 @@ export async function confirmPurchaseInvoice(
       .map((l) => ({
         itemId: l.itemId as string,
         qty: l.qty,
-        unitCost: l.unitCost,
+        // The stock ledger keeps every cost in BASE currency, because GL 1200
+        // does and the two must reconcile. Receiving a foreign invoice at its
+        // own unit cost put the sub-ledger 48,350.00 below its control account
+        // on a single 1,000 USD invoice — the GL had already converted.
+        unitCost: fx ? convertToBase(l.unitCost, fx.rate) : l.unitCost,
         batchNo: l.batchNo,
         expiryDate: l.expiryDate,
       }));

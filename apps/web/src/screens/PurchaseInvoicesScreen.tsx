@@ -45,6 +45,7 @@ import {
   useUsers,
   useBranches,
   useWarehouses,
+  useAllowedCurrencies,
 } from "../data/hooks";
 import { majorOf } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
@@ -53,7 +54,8 @@ import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { itemTypeIsPurchasable } from "@mezan/domain";
+import { itemTypeIsPurchasable ,
+  findCurrency} from "@mezan/domain";
 import { todayIso } from "../lib/dates";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
@@ -431,7 +433,7 @@ function InvoiceDetail({
 }
 
 export function PurchaseInvoicesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const workingLocation = useWorkingLocation();
   const receiptsQuery = useGoodsReceipts();
   const suppliersQuery = useSuppliers();
@@ -530,6 +532,21 @@ export function PurchaseInvoicesScreen() {
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(todayIso());
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
+  const allowedCurrencies = useAllowedCurrencies().data;
+  const baseCurrency = allowedCurrencies?.base ?? "EGP";
+  const [currency, setCurrency] = useState(baseCurrency);
+  // The route has always accepted a currency and no screen ever sent one, so
+  // every purchase invoice was booked in the base currency whatever the
+  // supplier billed (D24's purchase-side UI half).
+  const currencyOptions = useMemo(() => {
+    const codes = allowedCurrencies?.multiCurrencyEnabled
+      ? [baseCurrency, ...(allowedCurrencies.allowed ?? []).filter((c) => c !== baseCurrency)]
+      : [baseCurrency];
+    return codes.map((code) => {
+      const definition = findCurrency(code);
+      return definition ? { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` } : { value: code, label: code };
+    });
+  }, [allowedCurrencies, baseCurrency, locale]);
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -649,6 +666,7 @@ export function PurchaseInvoicesScreen() {
           branchId: workingLocation.branchId ?? "",
           warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
+          currency,
           receiptId: receipt.id,
         });
       } else {
@@ -662,6 +680,7 @@ export function PurchaseInvoicesScreen() {
           branchId: workingLocation.branchId ?? "",
           warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
+          currency,
           lines: usable.map((l) => ({
             itemId: l.kind === "inventory" ? l.itemId : null,
             description: l.description.trim() === "" ? null : l.description.trim(),
@@ -839,6 +858,7 @@ export function PurchaseInvoicesScreen() {
           <>
             <TextField label={t("purchaseInvoices.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
             <TextField label={t("purchaseInvoices.detail.supplierInvoiceNo")} value={supplierInvoiceNumber} onChange={setSupplierInvoiceNumber} />
+            <SelectField label={t("salesInvoices.field.currency")} value={currency} onChange={setCurrency} options={currencyOptions} />
             <div className="flex justify-end gap-[9px]">
               <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
               <Button variant="primary" onClick={save} disabled={!canSave}>{t("purchaseInvoices.saveDraft")}</Button>

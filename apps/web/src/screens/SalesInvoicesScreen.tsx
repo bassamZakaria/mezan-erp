@@ -58,6 +58,7 @@ import {
   useWarehouses,
   type SalesInvoiceDTO,
   useTreasuryAccounts,
+  useAllowedCurrencies,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
@@ -354,6 +355,18 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const [branchId, setBranchId] = useState("");
   const [currency, setCurrency] = useState("EGP");
   const docCurrencyLabel = currencyLabelFor(currency, locale);
+  const allowedCurrencies = useAllowedCurrencies().data;
+  const currencyOptions = useMemo(() => {
+    const base = allowedCurrencies?.base ?? "EGP";
+    const codes = allowedCurrencies?.multiCurrencyEnabled
+      ? [base, ...(allowedCurrencies.allowed ?? []).filter((c) => c !== base)]
+      : [base];
+    return codes.map((code) => {
+      const definition = findCurrency(code);
+      if (!definition) return { value: code, label: code };
+      return { value: code, label: `${code} — ${locale === "en" ? definition.nameEn : definition.nameAr}` };
+    });
+  }, [allowedCurrencies, locale]);
   const [notes, setNotes] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   /** Whether the user edited the due date by hand — an untouched one keeps tracking the customer's terms. */
@@ -763,14 +776,14 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
             onChange={setWarehouseId}
             options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
           />
+          {/* The tenant decides which currencies exist, not the screen: the
+              list comes from /settings/currencies, so switching multi-currency
+              off collapses this to the base currency without a UI change. */}
           <SelectField
             label={t("salesInvoices.field.currency")}
             value={currency}
             onChange={setCurrency}
-            options={[
-              { value: "EGP", label: t("quotes.field.baseCurrency") },
-              ...(customerRecord && customerRecord.currency !== "EGP" ? [{ value: customerRecord.currency, label: customerRecord.currency }] : []),
-            ]}
+            options={currencyOptions}
           />
         </div>
 

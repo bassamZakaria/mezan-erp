@@ -18,6 +18,8 @@ export interface UpdateItemCommand {
   readonly barcodes?: readonly string[];
   readonly categoryId?: string | null;
   readonly brandId?: string | null;
+  readonly description?: string | null;
+  readonly defaultSupplierId?: string | null;
   readonly seasonId?: string | null;
   readonly specifications?: readonly ItemSpecificationValue[];
   readonly costingMethod?: CostingMethod;
@@ -63,6 +65,8 @@ export async function updateItem(
     barcodes: command.barcodes ?? current.barcodes,
     categoryId: command.categoryId !== undefined ? command.categoryId : current.categoryId,
     brandId: command.brandId !== undefined ? command.brandId : current.brandId,
+    description: command.description !== undefined ? command.description : current.description,
+    defaultSupplierId: command.defaultSupplierId !== undefined ? command.defaultSupplierId : current.defaultSupplierId,
     seasonId: command.seasonId !== undefined ? command.seasonId : current.seasonId,
     specifications: command.specifications !== undefined ? command.specifications : current.specifications,
     costingMethod: command.costingMethod ?? current.costingMethod,

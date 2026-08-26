@@ -55,6 +55,8 @@ function buildCandidate(row: ItemImportRowInput, id: string): Item {
     barcodes: row.barcodes ?? [],
     categoryId: row.categoryId ?? null,
     brandId: row.brand ?? null,
+    description: null,
+    defaultSupplierId: null,
     seasonId: null,
     specifications: [],
     costingMethod: row.costingMethod ?? "WAC",

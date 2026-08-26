@@ -78,7 +78,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
   - [x] stock by warehouse with available / reserved / total
   - [x] cost layers (remaining qty, unit cost, source, date)
-  - [ ] specifications, price lists, attachments, audit log tabs
+  - [x] price lists (list, base price, custom price, delta)
+  - [ ] specifications, attachments, audit log tabs
   - [ ] header actions: adjust stock, transfer, raise purchase request, movement ledger
 - [x] **R5.6** Reserved stock per warehouse — derived from open documents, never stored
 - [ ] **R10.2** Employee 360 tabs and the re-hire action
@@ -110,7 +111,11 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R3.11 / R3.12** Price-list min-quantity tiers; promotion types, caps, priority, bundles
 - [ ] **R3.13** Van trip crew roles and van→warehouse→treasury cascade
 - [ ] **R4.6 / R4.7** GRN from PO only; landed-cost allocation basis and typed cost lines
-- [ ] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
+- [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
+  - [x] description, default supplier (bound to a real supplier), season, brand, specifications
+  - [ ] image — needs the attachments resource (R1.4)
+  - [ ] channels & visibility — no sales-channel concept exists anywhere in the product yet; needs a decision before it can be built
+  - [ ] editing a per-price-list price from the item form (the read-only view landed with R5.5)
 - [ ] **R5.8** Transfer import from Excel
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
 - [ ] **R10.5** Leave-request create action

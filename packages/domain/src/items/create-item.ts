@@ -16,6 +16,8 @@ export interface CreateItemCommand {
   readonly barcodes?: readonly string[];
   readonly categoryId?: string | null;
   readonly brandId?: string | null;
+  readonly description?: string | null;
+  readonly defaultSupplierId?: string | null;
   readonly seasonId?: string | null;
   readonly specifications?: readonly ItemSpecificationValue[];
   readonly costingMethod?: CostingMethod;
@@ -48,6 +50,8 @@ function buildCandidate(command: CreateItemCommand): Item {
     barcodes: command.barcodes ?? [],
     categoryId: command.categoryId ?? null,
     brandId: command.brandId ?? null,
+    description: command.description ?? null,
+    defaultSupplierId: command.defaultSupplierId ?? null,
     seasonId: command.seasonId ?? null,
     specifications: command.specifications ?? [],
     costingMethod: command.costingMethod ?? "WAC",

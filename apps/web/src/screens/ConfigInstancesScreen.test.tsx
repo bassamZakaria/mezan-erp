@@ -28,7 +28,7 @@ const items: ItemDTO[] = [
     alternateUnits: [],
     barcodes: [],
     categoryId: null,
-    brandId: null, seasonId: null, specifications: [],
+    brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [],
     costingMethod: "WAC",
     salePrice: null,
     costPrice: "85.00",

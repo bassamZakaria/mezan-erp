@@ -39,7 +39,7 @@ const customers: CustomerDTO[] = [
 const items: ItemDTO[] = [
   {
     id: "item-rice", code: "ITM-1", nameAr: "أرز أبيض مصري 5 كجم", nameEn: null, type: "stock", baseUnitCode: "PCS", alternateUnits: [], barcodes: [],
-    categoryId: null, brandId: null, seasonId: null, specifications: [], costingMethod: "WAC", salePrice: "185.00", costPrice: "150.00", taxRatePercent: 14, trackInventory: true,
+    categoryId: null, brandId: null, seasonId: null, description: null, defaultSupplierId: null, specifications: [], costingMethod: "WAC", salePrice: "185.00", costPrice: "150.00", taxRatePercent: 14, trackInventory: true,
     trackBatches: false, trackExpiry: false, reorderPoint: null, reorderQty: null, revenueAccountId: null, cogsAccountId: null, inventoryAccountId: null,
     etaCodeType: null, etaItemCode: null, gpcCode: null, status: "active",
   },

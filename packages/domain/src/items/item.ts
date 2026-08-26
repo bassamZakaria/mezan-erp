@@ -56,6 +56,13 @@ export interface Item {
    * filter by.
    */
   readonly brandId: string | null;
+  /** Free description shown on the item card and printed documents (R5.4). */
+  readonly description: string | null;
+  /**
+   * The supplier this item is normally bought from (R5.4) — a supplier id, so
+   * a purchase can default to it and a reorder can name someone real.
+   */
+  readonly defaultSupplierId: string | null;
   readonly seasonId: string | null;
   /** Values against the tenant's specification registry — the catalog facets. */
   readonly specifications: readonly ItemSpecificationValue[];

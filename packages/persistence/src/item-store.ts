@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS item (
   category_id          TEXT,
   brand                TEXT,
   season_id            TEXT,
+  description          TEXT,
+  default_supplier_id  TEXT,
   specifications       TEXT NOT NULL DEFAULT '[]',
   costing_method       TEXT NOT NULL,
   sale_price           INTEGER,
@@ -61,6 +63,8 @@ interface ItemRow {
   category_id: string | null;
   brand: string | null;
   season_id: string | null;
+  description: string | null;
+  default_supplier_id: string | null;
   specifications: string | null;
   costing_method: string;
   sale_price: number | null;
@@ -94,6 +98,8 @@ function toItem(row: ItemRow): Item {
     // `brand` is the column's original name; it holds a brand ID now (R5.10).
     brandId: row.brand,
     seasonId: row.season_id,
+    description: row.description,
+    defaultSupplierId: row.default_supplier_id,
     specifications: JSON.parse(row.specifications ?? "[]") as ItemSpecificationValue[],
     costingMethod: row.costing_method as CostingMethod,
     salePrice: row.sale_price === null ? null : Money.fromScaled(row.sale_price),
@@ -124,13 +130,13 @@ class SqliteItemStore implements ItemRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO item (
         id, code, name_ar, name_en, type, base_unit_code, alternate_units, barcodes,
-        category_id, brand, season_id, specifications, costing_method, sale_price, cost_price, tax_rate_percent,
+        category_id, brand, season_id, description, default_supplier_id, specifications, costing_method, sale_price, cost_price, tax_rate_percent,
         track_inventory, track_batches, track_expiry, reorder_point, reorder_qty,
         revenue_account_id, cogs_account_id, inventory_account_id,
         eta_code_type, eta_item_code, gpc_code, status
       ) VALUES (
         @id, @code, @name_ar, @name_en, @type, @base_unit_code, @alternate_units, @barcodes,
-        @category_id, @brand, @season_id, @specifications, @costing_method, @sale_price, @cost_price, @tax_rate_percent,
+        @category_id, @brand, @season_id, @description, @default_supplier_id, @specifications, @costing_method, @sale_price, @cost_price, @tax_rate_percent,
         @track_inventory, @track_batches, @track_expiry, @reorder_point, @reorder_qty,
         @revenue_account_id, @cogs_account_id, @inventory_account_id,
         @eta_code_type, @eta_item_code, @gpc_code, @status
@@ -146,6 +152,8 @@ class SqliteItemStore implements ItemRepository {
         category_id = excluded.category_id,
         brand = excluded.brand,
         season_id = excluded.season_id,
+        description = excluded.description,
+        default_supplier_id = excluded.default_supplier_id,
         specifications = excluded.specifications,
         costing_method = excluded.costing_method,
         sale_price = excluded.sale_price,
@@ -205,6 +213,8 @@ class SqliteItemStore implements ItemRepository {
       category_id: item.categoryId,
       brand: item.brandId,
       season_id: item.seasonId,
+      description: item.description,
+      default_supplier_id: item.defaultSupplierId,
       specifications: JSON.stringify(item.specifications),
       costing_method: item.costingMethod,
       sale_price: item.salePrice === null ? null : item.salePrice.toScaledNumber(),

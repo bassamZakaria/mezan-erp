@@ -65,8 +65,8 @@ const SEASONS = [
 
 /** Which seeded items carry which facets, so the filters return rows. */
 const ITEM_FACETS = [
-  { itemId: "ITEM-DEMO-1", brandId: "BRD-DEMO-2", seasonId: "SSN-DEMO-1", specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "PACK", value: "كيس" }] },
-  { itemId: "ITEM-DEMO-4", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-1", specifications: [{ code: "ORIGIN", value: "سريلانكا" }, { code: "SIZE", value: "وسط" }] },
+  { itemId: "ITEM-DEMO-1", brandId: "BRD-DEMO-2", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-1", description: "أرز مصري حبة طويلة، عبوة ٥ كجم", specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "PACK", value: "كيس" }] },
+  { itemId: "ITEM-DEMO-4", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-1", defaultSupplierId: "SUPP-DEMO-2", description: "شاي أسود مستورد، عبوة ٥٠٠ جم", specifications: [{ code: "ORIGIN", value: "سريلانكا" }, { code: "SIZE", value: "وسط" }] },
   { itemId: "ITEM-DEMO-5", brandId: "BRD-DEMO-1", seasonId: null, specifications: [{ code: "ORIGIN", value: "مصر" }, { code: "SIZE", value: "كبير" }] },
   { itemId: "ITEM-DEMO-6", brandId: "BRD-DEMO-1", seasonId: "SSN-DEMO-2", specifications: [{ code: "ORIGIN", value: "الهند" }] },
   { itemId: "ITEM-DEMO-2", brandId: "BRD-DEMO-3", seasonId: "SSN-DEMO-2", specifications: [{ code: "PACK", value: "برطمان" }] },
@@ -251,6 +251,8 @@ async function seedSpecificationsAndTemplates(app: App): Promise<void> {
       brandId: facets.brandId,
       seasonId: facets.seasonId,
       specifications: facets.specifications,
+      ...("defaultSupplierId" in facets ? { defaultSupplierId: facets.defaultSupplierId } : {}),
+      ...("description" in facets ? { description: facets.description } : {}),
     });
   }
 

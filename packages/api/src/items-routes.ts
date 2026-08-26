@@ -28,6 +28,8 @@ function serialize(item: Item) {
     barcodes: item.barcodes,
     categoryId: item.categoryId,
     brandId: item.brandId,
+    description: item.description,
+    defaultSupplierId: item.defaultSupplierId,
     seasonId: item.seasonId,
     specifications: item.specifications,
     costingMethod: item.costingMethod,

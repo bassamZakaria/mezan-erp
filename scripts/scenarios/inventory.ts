@@ -18,6 +18,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await itemTypeCapabilitiesBind_R51(ctx);
   await openingBalanceShortcutTargetsARealItem_R53(ctx);
   await catalogFacetsAreEntities_R510(ctx);
+  await itemDefaultSupplierIsBound_R54(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -632,5 +633,33 @@ async function catalogFacetsAreEntities_R510(ctx: Ctx): Promise<void> {
         }
       }
     }
+  });
+}
+
+/**
+ * R5.4 — the item's default supplier is a supplier ID, not a typed name. Same
+ * check as the brand: a plausible name in an id field passes every gate this
+ * repo has except a lookup against the register it claims to point at.
+ */
+async function itemDefaultSupplierIsBound_R54(ctx: Ctx): Promise<void> {
+  await ctx.scenario("an item's default supplier resolves to a real supplier (R5.4)", async () => {
+    const suppliers = ((await ctx.req("GET", "/suppliers")).body ?? []) as Array<{ id: string }>;
+    const supplierIds = new Set(suppliers.map((s) => s.id));
+    const items = ((await ctx.req("GET", "/items")).body ?? []) as Array<{
+      code: string;
+      defaultSupplierId: string | null;
+      description: string | null;
+    }>;
+
+    const bound = items.filter((i) => i.defaultSupplierId !== null);
+    ctx.check("some items name a default supplier", bound.length > 0, `${bound.length}`);
+    for (const item of bound) {
+      ctx.check(
+        `${item.code}'s default supplier resolves to a real supplier record`,
+        supplierIds.has(item.defaultSupplierId!),
+        item.defaultSupplierId!,
+      );
+    }
+    ctx.check("and the description survives the round trip", bound.some((i) => (i.description ?? "").length > 0), JSON.stringify(bound.map((i) => i.description)));
   });
 }

@@ -33,9 +33,13 @@ import {
   useItemUnits,
   useItems,
   useUpdateItem,
+  usePriceLists,
+  useSuppliers,
   useWarehouses,
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
+import { TextAreaField } from "../settings/form-controls";
+
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -80,6 +84,8 @@ interface ItemDraft {
   barcodes: string[];
   categoryId: string | null;
   brandId: string;
+  description: string;
+  defaultSupplierId: string;
   seasonId: string;
   specifications: { code: string; value: string }[];
   costingMethod: CostingMethodDTO;
@@ -109,6 +115,8 @@ const BLANK_DRAFT: ItemDraft = {
   barcodes: [],
   categoryId: null,
   brandId: "",
+  description: "",
+  defaultSupplierId: "",
   seasonId: "",
   specifications: [],
   costingMethod: "WAC",
@@ -139,6 +147,8 @@ function draftFromItem(item: ItemDTO): ItemDraft {
     barcodes: item.barcodes,
     categoryId: item.categoryId,
     brandId: item.brandId ?? "",
+    description: item.description ?? "",
+    defaultSupplierId: item.defaultSupplierId ?? "",
     seasonId: item.seasonId ?? "",
     specifications: [...(item.specifications ?? [])],
     costingMethod: item.costingMethod,
@@ -213,6 +223,8 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     barcodes: draft.barcodes,
     categoryId: draft.categoryId,
     brandId: draft.brandId === "" ? null : draft.brandId,
+    description: draft.description.trim() === "" ? null : draft.description.trim(),
+    defaultSupplierId: draft.defaultSupplierId === "" ? null : draft.defaultSupplierId,
     seasonId: draft.seasonId === "" ? null : draft.seasonId,
     // Blank values are absent values, not a specification set to "".
     specifications: draft.specifications.filter((spec) => spec.value.trim() !== ""),
@@ -298,6 +310,61 @@ function ItemStockTab({ itemId }: { itemId: string }) {
   );
 }
 
+/**
+ * قوائم الأسعار — where this item is priced, and how far each list sits from
+ * its own base price (R5.5). Derived from the price lists rather than stored
+ * on the item, so a list edited elsewhere cannot leave a stale figure here.
+ */
+function ItemPriceListsTab({ item }: { item: ItemDTO }) {
+  const { t } = useAppTranslation();
+  const priceLists = usePriceLists().data ?? [];
+  const base = Number(item.salePrice ?? 0);
+
+  const rows = priceLists
+    .map((list) => {
+      const line = list.lines.find((l) => l.itemId === item.id);
+      return line ? { list, price: Number(line.price) } : null;
+    })
+    .filter((row): row is { list: (typeof priceLists)[number]; price: number } => row !== null);
+
+  if (rows.length === 0) {
+    return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.priceLists.empty")}</div>;
+  }
+
+  return (
+    <Card className="overflow-hidden">
+      <table className="w-full border-collapse text-[12.5px]">
+        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+          <tr>
+            <th className="px-[15px] py-[9px] text-start">{t("items.priceLists.list")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.basePrice")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.customPrice")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.delta")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ list, price }) => {
+            const delta = price - base;
+            return (
+              <tr key={list.id} className="border-t border-border">
+                <td className="px-[15px] py-[10px] text-ink">
+                  {list.nameAr}
+                  {list.isBase ? <span className="ms-[6px] text-[11px] text-ink-faint">({t("items.priceLists.baseList")})</span> : null}
+                </td>
+                <td className="px-[15px] py-[10px] text-end"><Money value={base} /></td>
+                <td className="px-[15px] py-[10px] text-end font-semibold"><Money value={price} /></td>
+                <td className={`px-[15px] py-[10px] text-end ${delta > 0 ? "text-success-ink" : delta < 0 ? "text-danger-ink" : "text-ink-faint"}`}>
+                  {delta === 0 ? "—" : <Money value={delta} />}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
+
 /** طبقات التكلفة — the immutable WAC layers still holding stock (D43, R5.5). */
 function ItemCostLayersTab({ itemId }: { itemId: string }) {
   const { t } = useAppTranslation();
@@ -345,6 +412,7 @@ export function ItemsScreen() {
   const { t } = useAppTranslation();
   const { openScreenAt } = useNavigation();
   const brands = useItemBrands().data ?? [];
+  const suppliers = useSuppliers().data ?? [];
   const seasons = useItemSeasons().data ?? [];
   const specifications = useItemSpecifications().data ?? [];
   const brandName = (id: string | null | undefined) => (id ? (brands.find((b) => b.id === id)?.nameAr ?? id) : "—");
@@ -626,6 +694,20 @@ export function ItemsScreen() {
           value={draft.categoryId ? (categoryOptions.find((o) => o.id === draft.categoryId) ?? null) : (categoryOptions[0] ?? null)}
           onChange={(option) => setDraft((d) => ({ ...d, categoryId: !option || option.id === NO_CATEGORY_ID ? null : option.id }))}
         />
+        <TextAreaField
+          label={t("items.description")}
+          value={draft.description}
+          onChange={(v) => setDraft((d) => ({ ...d, description: v }))}
+        />
+        <SelectField
+          label={t("items.defaultSupplier")}
+          value={draft.defaultSupplierId}
+          onChange={(v) => setDraft((d) => ({ ...d, defaultSupplierId: v }))}
+          options={[
+            { value: "", label: t("items.noDefaultSupplier") },
+            ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr })),
+          ]}
+        />
         <SelectField
           label={t("items.brand")}
           value={draft.brandId}
@@ -869,6 +951,8 @@ export function ItemsScreen() {
               [t("items.itemType"), t(TYPE_KEY[item.type])],
               [t("common.category"), categoryLabel(item.categoryId, itemCategories, t("common.uncategorized"))],
               [t("items.brand"), brandName(item.brandId)],
+              [t("items.description"), item.description ?? "—"],
+              [t("items.defaultSupplier"), item.defaultSupplierId ? (suppliers.find((sup) => sup.id === item.defaultSupplierId)?.nameAr ?? item.defaultSupplierId) : "—"],
               [t("items.season"), seasonName(item.seasonId)],
               [t("items.costingMethod"), t(COSTING_KEY[item.costingMethod])],
               [t("items.trackStock"), item.trackInventory ? t("items.yes") : t("items.no")],
@@ -1006,6 +1090,11 @@ export function ItemsScreen() {
         key: "costLayers",
         label: t("items.tab.costLayers"),
         content: <ItemCostLayersTab itemId={item.id} />,
+      },
+      {
+        key: "priceLists",
+        label: t("items.tab.priceLists"),
+        content: <ItemPriceListsTab item={item} />,
       },
     ];
 

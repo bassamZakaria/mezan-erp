@@ -63,7 +63,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R7.1–R7.6** ETA e-invoicing: readiness meter, general + credentials tabs, item and unit mapping, submissions queue — and the payload now carries the registered codes instead of a hardcoded VAT sub-type
 - [~] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer and value-range filters — branch filter not built, opportunities carry no branch
 - [x] **R9.1** Work-order shop-floor actions — extra issue, return, scrap, record a cost; all five routes existed with no hook and no UI
-- [~] **R9.2** Materials tab gains available and shortage; the movements / receipts / journal-entries / audit tabs remain open
+- [x] **R9.2** Work-order detail: materials with available/shortage, shop floor, costs, movements, receipts, journal entries and audit — all seven tabs
 - [x] **R9.3** Production dashboard: the start-production bucket the board was missing
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
@@ -120,7 +120,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
 - [ ] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
 - [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
-- [ ] **R11.1–R11.8** Split settings into the ten policy tabs and make each toggle actually change document behaviour:
+- [x] **R11.1–R11.8** Split settings into the policy tabs and make each toggle actually change document behaviour:
   - [ ] credit control mode (warn vs block)
   - [ ] sell-from-another-warehouse, show other-warehouse stock, backorders, negative stock, aging write-down provision, auto batch numbers
   - [ ] require PO before GRN, require GRN before purchase invoice

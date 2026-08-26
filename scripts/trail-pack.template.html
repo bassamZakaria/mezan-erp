@@ -360,9 +360,13 @@
   <div class="closing">
     <p><strong>What a trail is worth.</strong> A module scenario asks whether a screen does what it says. A trail
       asks whether the rest of the product agrees with what that screen just did.</p>
-    <p>That question found four defects in one afternoon — an invoice no screen can confirm, a collection that posts
-      nothing, a supplier column showing the wrong field, and a purchase invoice that quietly drops VAT — none of
-      which a screen-level test could see, because every screen involved answered 200 and looked right.</p>
+    <p>That question found four defects in one afternoon — an invoice no screen can confirm, a collection that posted
+      nothing, a supplier column showing the wrong field, and a purchase invoice that quietly drops VAT. None of them
+      was visible to a screen-level test, because every screen involved answered 200 and looked right. Two were fixed
+      by the D1–D37 sweep before this pack merged; the other two are D43 and D44.</p>
+    <p>Most steps here are marked verified because that sweep closed 37 defects. Where a step says
+      <em>fixed (F53) — check it has stayed fixed</em>, the sentence after it is what used to happen: that is the
+      regression the step exists to catch.</p>
   </div>
 </div>
 

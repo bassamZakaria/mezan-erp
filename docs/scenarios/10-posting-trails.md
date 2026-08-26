@@ -47,9 +47,14 @@ Done: the pair that must agree once the trail is finished.
 ```
 
 `[ok]` = walked through the running app or asserted by `pnpm scenarios`.
-`[stop D39]` = a known defect blocks it; the code is the row in `docs/defects.md`
+`[stop D43]` = a known defect blocks it; the code is the row in `docs/defects.md`
 — note that you saw it, do not re-file it. `[open]` = written from the routes and
 the domain, not yet driven end to end. Finding it wrong is the point.
+
+Most steps are `[ok]` because the D1–D37 sweep closed 37 defects. Where a step's
+effect reads *fixed (F53) — check it has stayed fixed*, the sentence after it is
+what used to happen: that is the regression the step exists to catch. Four
+defects are open as this pack lands — D38, D42, D43 and D44.
 
 ---
 
@@ -67,16 +72,17 @@ Executable: cross-module.ts x40 · sales.ts
 4. [ok] Quote detail ← إنشاء الفاتورة — pick the due date and the warehouse.
    - Sales: a draft sales invoice is created; still no stock, still no ledger.
    - Sales: the panel names the new invoice by its internal id and does not link to it.
-5. [stop D39] المبيعات ← فواتير المبيعات — open the draft and confirm it.
+5. [stop D43] المبيعات ← فواتير المبيعات — open the draft and confirm it.
    - !Blocked: there is no confirm control on the invoice page — only «رجوع». The draft cannot be posted from any screen; the route is reachable only over the API.
    - Inventory: stock falls per line at weighted-average cost.
    - Accounting: one balanced entry — Dr AR 1105 / Cr Revenue 4100 + Output VAT 2200, and Dr COGS 5100 / Cr Inventory 1200 at cost, not at price.
    - Reports: the invoice appears in المبيعات حسب الفترة / العميل / الصنف and in the customer aging at its full total.
-6. [stop D40] Invoice detail ← المدفوعات ← تحصيل دفعة — collect the whole amount.
-   - Sales: the invoice flips to مدفوع and المحصل shows the money.
-   - !Accounting: nothing posts. AR still carries the full amount, no cash or bank account moves, no journal entry is written.
-   - !Reports: the aging report drops the customer while GL 1105 keeps them — the pair disagrees by exactly this payment.
-   - Treasury: the working path today is a سند قبض allocated to the invoice, which posts correctly — and then hits D1 from the other side.
+6. [ok] Invoice detail ← المدفوعات ← تحصيل دفعة — collect the whole amount into a named treasury account.
+   - Treasury: the collection creates and confirms a real سند قبض and allocates it to the invoice — the response names the voucher it made.
+   - Treasury: a payment that names no treasury account is refused. Money always lands somewhere a screen can show.
+   - Accounting: AR 1105 clears by exactly the amount, and the cash box rises by it. The bank, unnamed, does not move.
+   - Sales: amountPaid is written back by the allocation, not by a second counter of its own — the store that used to disagree with the ledger (D1) is gone.
+   - Reports: أعمار ديون العملاء drops the customer, and GL 1105 agrees with it.
 7. [ok] المحاسبة ← التقارير المالية — ميزان المراجعة and قائمة الدخل.
    - Accounting: every debit above has its credit; the trial balance still balances.
 Done: stock down by what was sold, revenue up by the net, VAT up by the tax — and once the collection is made the way that actually posts, the customer's balance back to zero in both the aging report and GL 1105.
@@ -106,8 +112,8 @@ Executable: seams.ts x63 · x28 · x34
    - Sales: the list appears on the customer record and on the quote header.
 2. [ok] المبيعات ← العروض — create a promotion that needs no coupon.
    - Sales: eligibility is by item, customer category and date window.
-3. [stop D35] Raise an invoice for that customer and that item.
-   - !Accounting: the price list is never consulted server-side — a line at 5.00 against a list quoting 80.00 is accepted without a word.
+3. [ok] Raise an invoice for that customer and that item.
+   - Accounting: fixed (F52) — check it has stayed fixed. Until then, the price list is never consulted server-side — a line at 5.00 against a list quoting 80.00 is accepted without a word.
    - Sales: the promotion is applied at confirm and recorded on the invoice that granted it; deactivating it afterwards restates nothing.
 4. [ok] Push the customer past their credit limit.
    - Sales: the confirm is refused in Arabic, and the check sees the promoted price.
@@ -120,20 +126,20 @@ Done: whatever price ends up on the line is the one the tax, the credit check an
 Modules: Purchases · Inventory · Accounting · Treasury · Dashboard · Reports
 Executable: cross-module.ts x41 · purchases.ts
 
-1. [stop D41] المشتريات ← الموردون — add a supplier.
+1. [ok] المشتريات ← الموردون — add a supplier.
    - Purchases: the supplier appears in the PO and invoice pickers.
-   - !Purchases: the list's «المستحق للمورد» column shows the opening balance, so every supplier reads 0.00 while the supplier aging shows six figures.
+   - Purchases: the «المستحق للمورد» column is computed from the documents — opening balance plus confirmed invoices, less payments, returns and cheques (F39–D39). It used to render the opening balance, which read 0.00 for every supplier who owed six figures.
 2. [ok] المشتريات ← أوامر الشراء — order 2–3 items, then تأكيد وإرسال.
    - Everywhere: document only — no stock, no ledger. The PO takes its number at draft.
 3. [ok] المشتريات ← استلام البضائع — receive against the PO and confirm.
    - Inventory: stock rises and the item's cost re-averages.
    - Accounting: no entry yet. The inventory sub-ledger legitimately runs ahead of GL 1200 by the receipt's value until the invoice lands — there is no goods-received-not-invoiced account to hold it.
-4. [stop D42] المشتريات ← فواتير المشتريات ← من إيصال استلام — create and confirm.
+4. [stop D44] المشتريات ← فواتير المشتريات ← من إيصال استلام — create and confirm.
    - !Tax: every auto-filled line arrives at 0% VAT and no screen can change it. Input VAT 1400 never moves and the tax is unreclaimable.
    - Accounting: Dr Inventory 1200 (+ input VAT, when there is any) / Cr AP 2100 — GL 1200 catches up with the receipt exactly.
-5. [stop D18] الخزينة ← السندات النقدية ← سند صرف — pay the supplier.
+5. [ok] الخزينة ← السندات النقدية ← سند صرف — pay the supplier.
    - Treasury: the cash box falls, GL 2100 falls with it.
-   - !Accounting: the AP sub-ledger does not hear the payment at all, so مطابقة الأرصدة reports it as a new mismatch.
+   - Accounting: fixed (F34) — check it has stayed fixed. Until then, the AP sub-ledger does not hear the payment at all, so مطابقة الأرصدة reports it as a new mismatch.
 6. [ok] المحاسبة ← التقارير المالية — ميزان المراجعة and الميزانية.
    - Accounting: both still balance after the whole chain.
 Done: the received quantity on hand matches what was invoiced, GL 1200 and the stock valuation agree once the invoice is posted, and the supplier nets to zero in the ledger.
@@ -162,12 +168,15 @@ Executable: cross-module.ts x7 · x9 · purchases.ts
    - Inventory: stock falls.
    - Accounting: Dr AP / Cr Inventory, with input VAT reversed.
    - Treasury: the supplier's refund is a separate receipt into the cash box.
-2. [stop D36] المشتريات ← التكاليف الإضافية — add freight and clearance against the receipt, BY_VALUE.
+2. [ok] المشتريات ← التكاليف الإضافية — add freight and clearance against the receipt, BY_VALUE.
    - Inventory: the allocation sums to exactly the total entered — no rounding leak — and each target's unit cost rises by its share.
    - Inventory: the next sale's COGS charges the raised cost, not the invoice price. That is the whole point of the document.
-   - !Reports: the revaluation writes no stock movement, so انحراف تقييم المخزون reports drift on a healthy tenant and the position cannot be replayed.
+   - Reports: fixed (F53) — check it has stayed fixed. Until then, the revaluation writes no stock movement, so انحراف تقييم المخزون reports drift on a healthy tenant and the position cannot be replayed.
 3. [ok] Run one BY_QUANTITY against a single target.
    - Inventory: 100% of the cost lands on it.
+4. [stop D42] Look for the freight supplier's own balance after the landed cost posts.
+   - Accounting: the cost is credited to the AP control account.
+   - !Purchases: with no supplier dimension — the payable exists in the ledger and on nobody's account, so the supplier statement and أعمار ديون الموردين never show it.
 Done: the item's unit cost tells the truth about what it cost to get it into the warehouse, and the freight money is in the stock value rather than in an expense account.
 
 ## T07 · Inventory — One item, cradle to count
@@ -180,9 +189,9 @@ Executable: inventory.ts · cross-module.ts x14
    - Accounting: balanced Dr 1200 / Cr 3100. Opening stock is capital, not profit.
 3. [ok] المخزون ← تحويلات المخزون — move some to another warehouse.
    - Inventory: quantity and value move together; the company total does not change and no GL entry is needed.
-4. [stop D2] المخزون ← الجرد الفعلي — count a position short.
+4. [ok] المخزون ← الجرد الفعلي — count a position short.
    - Inventory: the sub-ledger moves.
-   - !Accounting: no journal entry at all — a single-sided count leaves inventory off by exactly the shortfall.
+   - Accounting: fixed (F35) — check it has stayed fixed. Until then, no journal entry at all — a single-sided count leaves inventory off by exactly the shortfall.
 5. [ok] المخزون ← هبوط قيمة المخزون — run a write-down.
    - Accounting: charged to the P&L through a provision account, leaving the inventory control account and its reconciliation intact.
 6. [ok] Open the stock reports.
@@ -202,8 +211,8 @@ Executable: cross-module.ts x39 · shell.ts
 3. [ok] Sell part of the position.
    - Inventory: FEFO decides which batch leaves — the earliest-expiring one goes first and disappears from أصناف قاربت على الانتهاء.
    - Accounting: costing is weighted-average, so COGS charges the blended cost. "What did the October batch cost me" is a question these books cannot answer today.
-4. [stop D36] Open أصناف بطيئة الحركة, أعمار المخزون and انحراف تقييم المخزون.
-   - !Reports: drift is reported on a healthy tenant because landed costs write no movement.
+4. [ok] Open أصناف بطيئة الحركة, أعمار المخزون and انحراف تقييم المخزون.
+   - Reports: fixed (F53) — check it has stayed fixed. Until then, drift is reported on a healthy tenant because landed costs write no movement.
 Done: the expiring report is a shelf-accurate list a pharmacy could act on, and every cost that reaches COGS came from a real receipt.
 
 ## T09 · Manufacturing — Raw material becomes a product
@@ -214,9 +223,9 @@ Executable: cross-module.ts x13
    - Manufacturing: components, quantities and the expected output are on one document.
 2. [ok] التصنيع ← أوامر التصنيع — raise a work order and issue the materials.
    - Inventory: component stock falls at weighted-average cost.
-3. [stop D3] Complete the work order.
+3. [ok] Complete the work order.
    - Inventory: the finished item arrives carrying the produced cost.
-   - !Accounting: completeWorkOrder never touches GL 1200 — the raw material left the ledger and the finished goods never arrived in it. The seeded BOM at qty 10 ends 80.00 short.
+   - Accounting: fixed (F36) — check it has stayed fixed. Until then, completeWorkOrder never touches GL 1200 — the raw material left the ledger and the finished goods never arrived in it. The seeded BOM at qty 10 ends 80.00 short.
 4. [ok] Sell the finished item.
    - Accounting: COGS charges the produced cost, not a guess.
 5. [open] لوحة الإنتاج and التقارير ← التصنيع أم الشراء.
@@ -235,25 +244,25 @@ Executable: accounting.ts · seams.ts x26
    - Accounting: an unbalanced entry cannot post. Ever.
 3. [ok] Reverse it.
    - Accounting: the reversal never mutates the original, links both sides, and the books still balance. Correction is by reversal — posted entries are immutable.
-4. [stop D26] المحاسبة ← مراكز التكلفة — tag an expense with a cost centre.
+4. [ok] المحاسبة ← مراكز التكلفة — tag an expense with a cost centre.
    - Reports: a tagged journal entry reaches أرباح مراكز التكلفة once and the income statement once.
-   - !Treasury: a treasury voucher cannot be tagged at all — the field does not exist on the wire — so almost all real spending lands in «غير مخصص».
-5. [stop D1] المحاسبة ← مطابقة الأرصدة — the sub-ledgers against their controls.
-   - !Accounting: this screen is the product's own two-number check. Today it shows the ledger and the sub-ledgers disagreeing by the sum of D1, D18, D2 and D3.
+   - Treasury: fixed (F44) — check it has stayed fixed. Until then, a treasury voucher cannot be tagged at all — the field does not exist on the wire — so almost all real spending lands in «غير مخصص».
+5. [ok] المحاسبة ← مطابقة الأرصدة — the sub-ledgers against their controls.
+   - Accounting: fixed (F34 · F56) — check it has stayed fixed. Until then, this screen is the product's own two-number check. Today it shows the ledger and the sub-ledgers disagreeing by the sum of D1, D18, D2 and D3.
 Done: every figure on every financial report can be walked back to a posted, balanced, immutable entry with an actor and a date on it.
 
 ## T11 · Accounting — Periods, back-dating and the year end
 Modules: Accounting · Sales · Purchases · Treasury · Reports
 Executable: cross-module.ts x15 · x37 · seams.ts x64 · x47
 
-1. [stop D20] المحاسبة ← الفترات المالية — close the current period.
+1. [ok] المحاسبة ← الفترات المالية — close the current period.
    - Accounting: sales confirm, voucher confirm and journal post all refuse with a period error, in Arabic.
-   - !Purchases: the purchase-invoice confirm answers 500 instead — and is not atomic (D21): the stock went in before the GL refused, and nothing rolled it back.
-2. [stop D29] Re-open the period and post into it.
+   - Purchases: fixed (F39) — check it has stayed fixed. Until then, the purchase-invoice confirm answers 500 instead — and is not atomic (D21): the stock went in before the GL refused, and nothing rolled it back.
+2. [ok] Re-open the period and post into it.
    - Reports: that period's reports restate; the current period is untouched.
-   - !Tax: nothing records that a VAT period was ever filed, so a backdated document silently restates a return that has already gone to the authority.
-3. [stop D34] Generate the next fiscal year.
-   - !Accounting: there is no year-end close — no closing entry, retained earnings never posted, last year's revenue still in 4100. The balance sheet balances only because the report derives retained earnings itself.
+   - Tax: fixed (F46) — check it has stayed fixed. Until then, nothing records that a VAT period was ever filed, so a backdated document silently restates a return that has already gone to the authority.
+3. [ok] Generate the next fiscal year.
+   - Accounting: fixed (F51) — check it has stayed fixed. Until then, there is no year-end close — no closing entry, retained earnings never posted, last year's revenue still in 4100. The balance sheet balances only because the report derives retained earnings itself.
 4. [open] Lock a closed period.
    - Accounting: locked is terminal — no reopen, no posting, and the screen must say so rather than offering a button that fails.
 Done: a closed period is closed for every module by the same gate, and a new year starts where the old one ended — in the ledger, not only in the report.
@@ -272,25 +281,25 @@ Executable: accounting.ts · shell.ts SCN-RPT-*
    - Reports: opening + net change = closing.
 5. [ok] دفتر الأستاذ العام and كشف حساب.
    - Reports: the running balance's last row equals the reported closing balance.
-6. [stop D28] إقرار ضريبة القيمة المضافة.
+6. [ok] إقرار ضريبة القيمة المضافة.
    - Reports: output minus input is the net payable.
-   - !Tax: the return re-derives one blended rate per entry instead of reporting the rates actually charged, because no posted line carries a rate.
+   - Tax: fixed (the D1–D37 sweep) — check it has stayed fixed. Until then, the return re-derives one blended rate per entry instead of reporting the rates actually charged, because no posted line carries a rate.
 Done: six reports, one ledger, no figure that only one of them believes.
 
 ## T13 · Accounting — The pair that catches everything
 Modules: Accounting · Sales · Purchases · Inventory
 Executable: accounting.ts · every cross-module scenario re-checks these three
 
-1. [stop D1] AR sub-ledger against GL 1105.
-   - !Accounting: adrift by every voucher collection (D1) and every invoice-level payment (D40).
-2. [stop D18] AP sub-ledger against GL 2100.
-   - !Accounting: adrift by every supplier payment — the sub-ledger sums invoices and never subtracts allocations.
-3. [stop D2] Inventory sub-ledger against GL 1200.
-   - !Accounting: adrift by every physical count (D2), every completed work order (D3) and every crashed purchase confirm (D21).
+1. [ok] AR sub-ledger against GL 1105.
+   - Accounting: zero difference. Every collection — voucher or invoice-level — posts and allocates, so the two cannot drift (F34, F56).
+2. [ok] AP sub-ledger against GL 2100.
+   - Accounting: zero difference. The sub-ledger subtracts allocations and treasury payments, which is what D18 was.
+3. [ok] Inventory sub-ledger against GL 1200.
+   - Accounting: zero difference on a settled tenant. Physical counts post (F35), completed work orders post (F36), and a refused purchase confirm rolls its stock back (F39).
    - Inventory: legitimately apart between a goods receipt and its invoice — that gap must close when the invoice posts.
 4. [ok] Re-run all three after every trail in this pack.
-   - Accounting: a trail that leaves one of them further apart than it found it has found something, whether or not the screen it used looked right.
-Done: the three differences are exactly the known defects, and nothing else.
+   - Accounting: the baseline is now exactly zero on all four invariants, so any difference a trail leaves behind is new, and is a finding.
+Done: the three differences are zero, and any trail that moves one of them off zero has found something.
 
 ## T14 · Treasury — Where the money actually sits
 Modules: Treasury · Accounting · Sales · Purchases · HR
@@ -298,16 +307,16 @@ Executable: cross-module.ts x0 · x3 · x4 · x5 · x11 · x16
 
 1. [ok] الخزينة ← حسابات الخزينة — a cash box and a bank account, each mapped to its GL account.
    - Accounting: the treasury account's balance is the GL account's balance, not a second copy of it.
-2. [stop D1] سند قبض / سند صرف — receive and pay against a real document.
+2. [ok] سند قبض / سند صرف — receive and pay against a real document.
    - Accounting: allocate the receipt onto the invoice it pays — GL AR clears exactly.
-   - !Sales: the invoice's own amountPaid stays 0 all the same.
+   - Sales: fixed (F34 · F56) — check it has stayed fixed. Until then, the invoice's own amountPaid stays 0 all the same.
 3. [ok] Capital injection — partner money into the box.
    - Accounting: cash and equity rise together; money arrives from an owner, not from thin air.
 4. [ok] Transfer between two treasury accounts.
    - Treasury: money moves without being created or destroyed; both halves are one entry.
-5. [stop D19] Try to overdraw the cash box.
+5. [ok] Try to overdraw the cash box.
    - Treasury: it is refused.
-   - !Settings: the tenant setting «منع الرصيد السالب» that is supposed to govern the refusal is not wired to the guard — both switches are dead.
+   - Settings: fixed (F38) — check it has stayed fixed. Until then, the tenant setting «منع الرصيد السالب» that is supposed to govern the refusal is not wired to the guard — both switches are dead.
 6. [ok] Reverse a confirmed payment.
    - Accounting: the box, the counter-account and the trial balance all return to their exact prior values.
 7. [ok] Disburse an employee advance.
@@ -350,28 +359,28 @@ Done: at every moment, cheques under custody plus the bank balance equal what th
 Modules: Accounting · Sales · Purchases · Reports · Settings
 Executable: cross-module.ts x10 · x33 · seams.ts x29 · x45 · x46 · x47
 
-1. [stop D42] Sell at 14% and buy at 14%.
+1. [stop D44] Sell at 14% and buy at 14%.
    - Accounting: output VAT 2200 rises on the sale, input VAT 1400 on the purchase.
    - !Purchases: unless the purchase invoice came from a goods receipt — then it is 0%.
 2. [ok] One invoice at two rates, plus a tax-exempt customer.
    - Reports: the ledger and the return agree with both; an exempt customer pays none.
-3. [stop D28] إقرار ضريبة القيمة المضافة, then pay the net.
+3. [ok] إقرار ضريبة القيمة المضافة, then pay the net.
    - Accounting: paying clears both sides.
-   - !Reports: the return's rate buckets are derived, not recorded.
-4. [stop D5] المحاسبة ← الفاتورة الإلكترونية — switch auto-submit on and confirm an invoice.
-   - !Tax: the queue has an enqueue that nothing calls — confirming a real invoice enqueues nothing. The screen is a window onto an empty pipe.
-5. [stop D27] Withhold tax on a local B2B payment.
-   - !Tax: nowhere to put it — no account, no document field, no report. A payment cannot settle a supplier in full while paying the authority the difference.
+   - Reports: fixed (the D1–D37 sweep) — check it has stayed fixed. Until then, the return's rate buckets are derived, not recorded.
+4. [ok] المحاسبة ← الفاتورة الإلكترونية — switch auto-submit on and confirm an invoice.
+   - Tax: fixed (F33) — check it has stayed fixed. Until then, the queue has an enqueue that nothing calls — confirming a real invoice enqueues nothing. The screen is a window onto an empty pipe.
+5. [ok] Withhold tax on a local B2B payment.
+   - Tax: fixed (F45) — check it has stayed fixed. Until then, nowhere to put it — no account, no document field, no report. A payment cannot settle a supplier in full while paying the authority the difference.
 Done: the VAT return can be filed straight from the screen, and every figure on it is a sum of posted lines rather than a derivation.
 
 ## T18 · Accounting — A debt in another money
 Modules: Accounting · Purchases · Sales · Reports
 Executable: seams.ts x23 · x24
 
-1. [stop D25] المحاسبة ← أسعار الصرف — add a rate, approve it, lock it.
-   - !Accounting: a locked rate can be silently rewritten, and its status reset, by re-POSTing its id.
-2. [stop D24] Raise a supplier invoice in USD.
-   - !Accounting: the currency is a label — no rate is applied, no GL line is tagged, and the payable is booked at the foreign figure as though it were pounds.
+1. [ok] المحاسبة ← أسعار الصرف — add a rate, approve it, lock it.
+   - Accounting: fixed (F43) — check it has stayed fixed. Until then, a locked rate can be silently rewritten, and its status reset, by re-POSTing its id.
+2. [ok] Raise a supplier invoice in USD.
+   - Accounting: fixed (F42) — check it has stayed fixed. Until then, the currency is a label — no rate is applied, no GL line is tagged, and the payable is booked at the foreign figure as though it were pounds.
 3. [ok] المحاسبة ← إعادة تقييم العملات الأجنبية — revalue at the closing rate.
    - Accounting: the restatement touches only the FX accounts and auto-reverses so it cannot be counted twice — correct machinery with nothing correct to work on until the rate is applied.
 Done: a foreign debt is carried at today's rate, and the gain or loss from the move is in the P&L rather than hidden in the payable.
@@ -440,21 +449,21 @@ Executable: crm.ts (fixed-assets) · cross-module.ts x12
 3. [ok] الإهلاك — run depreciation.
    - Accounting: each asset depreciates by its own category's method and life; the posting balances.
    - Assets: accumulated depreciation never exceeds cost − salvage, and a fully-depreciated asset flips status on posting.
-4. [stop D13] Dispose of one.
-   - !Assets: there is no disposal route and no button. The status value and the permission both exist; the action does not. The trail cannot be finished.
+4. [ok] Dispose of one.
+   - Assets: fixed (F37) — check it has stayed fixed. Until then, there is no disposal route and no button. The status value and the permission both exist; the action does not. The trail cannot be finished.
 Done: the register's net book value equals cost less accumulated depreciation in the ledger, asset by asset — and an asset that leaves the company can actually leave the books.
 
 ## T23 · Field sales — A van goes out and comes back
 Modules: Field sales · Inventory · Treasury · Accounting · Reports
 Executable: crm.ts (field-sales) · cross-module.ts x21 · shell.ts SCN-RPT-20
 
-1. [stop FLD-11] المبيعات الميدانية ← رحلات المندوبين — open a trip with a stock and cash float.
+1. [open] المبيعات الميدانية ← رحلات المندوبين — open a trip with a stock and cash float.
    - Inventory: custody transfer — stock moves to the van warehouse, cash to the van treasury.
-   - !Field sales: the open route discards the caller's id and mints no tripNo.
-2. [stop D22] Record roadside sales and cash taken.
-   - !Treasury: the cash movement only mutates the trip document — nothing reaches the van treasury.
-3. [stop D22] Settle the trip.
-   - !Treasury: settling transfers the full counted cash out of the van treasury — float plus takings that were never posted into it — so every completed trip drives the van's cash account down by what its sales brought in.
+   - Field sales: unverified since the D1–D37 sweep — the open route discards the caller's id and mints no tripNo.
+2. [ok] Record roadside sales and cash taken.
+   - Treasury: fixed (F40) — check it has stayed fixed. Until then, the cash movement only mutates the trip document — nothing reaches the van treasury.
+3. [ok] Settle the trip.
+   - Treasury: fixed (F40) — check it has stayed fixed. Until then, settling transfers the full counted cash out of the van treasury — float plus takings that were never posted into it — so every completed trip drives the van's cash account down by what its sales brought in.
    - Field sales: stock and cash variances are computed and priced correctly.
 4. [ok] التقارير ← مبيعات المندوبين.
    - Reports: the cash variance report agrees with the settled trip.
@@ -468,8 +477,8 @@ Executable: crm.ts (installments) · cross-module.ts x20
    - Installments: the schedule's instalments sum to exactly the plan total — no rounding leak on any line.
 2. [ok] Take the down payment.
    - Treasury: a treasury movement of its own, posted like any other receipt.
-3. [stop INST-08] Collect an instalment.
-   - !Installments: no route anywhere sets an instalment line to «مدفوع». Collection is a treasury voucher never linked back to the plan line, so a plan paid in full still shows every line outstanding.
+3. [open] Collect an instalment.
+   - Installments: unverified since the D1–D37 sweep — no route anywhere sets an instalment line to «مدفوع». Collection is a treasury voucher never linked back to the plan line, so a plan paid in full still shows every line outstanding.
 4. [ok] متابعة التحصيل — create a follow-up, complete it with an outcome, cancel another.
    - Installments: outcomes are free text over a fixed set, and both terminal states stick.
 5. [ok] التقارير ← الأقساط المتأخرة.
@@ -480,29 +489,29 @@ Done: the plan's outstanding balance, the invoice's remaining balance and GL 111
 Modules: Settings · Workflow · System · Audit
 Executable: platform.ts · seams.ts x56 · x57 · x58 · x61
 
-1. [stop D7] الإعدادات ← الفروع / المستودعات — a second branch and a second warehouse.
+1. [ok] الإعدادات ← الفروع / المستودعات — a second branch and a second warehouse.
    - Shell: warehouse scope narrows the stock lists and the reports correctly.
-   - !Shell: branch scope narrows nothing — a caller scoped to one branch reads the other's documents.
-2. [stop D31] الأدوار والصلاحيات / المستخدمون — a role without a permission.
+   - Shell: fixed (F32) — check it has stayed fixed. Until then, branch scope narrows nothing — a caller scoped to one branch reads the other's documents.
+2. [ok] الأدوار والصلاحيات / المستخدمون — a role without a permission.
    - Settings: the dependency graph is enforced server-side.
-   - !Settings: the visibility tiers it grants (view_own, view_cost) are enforced by no route, so a plain viewer reads every colleague's invoice, its unit cost, and HR salaries.
-3. [stop D8] إعدادات الموافقات — put a confirm behind an approval chain.
+   - Settings: fixed (F48) — check it has stayed fixed. Until then, the visibility tiers it grants (view_own, view_cost) are enforced by no route, so a plain viewer reads every colleague's invoice, its unit cost, and HR salaries.
+3. [ok] إعدادات الموافقات — put a confirm behind an approval chain.
    - Workflow: approve, reject and request-modification all work.
-   - !Workflow: an admin's approve still bypasses the chain.
-4. [stop D33] تسلسلات الترقيم — change a prefix.
+   - Workflow: fixed (F18) — check it has stayed fixed. Until then, an admin's approve still bypasses the chain.
+4. [ok] تسلسلات الترقيم — change a prefix.
    - Settings: it affects the next document only, never a posted one. Eight simultaneous confirms take eight distinct, gap-free numbers, and a failed confirm burns none.
-   - !Settings: numbering is tenant-global — two branches share one counter and nothing on the number says where it came from.
+   - Settings: fixed (F50) — check it has stayed fixed. Until then, numbering is tenant-global — two branches share one counter and nothing on the number says where it came from.
 5. [ok] قواعد الإشعارات / الويب هوك / مفاتيح API.
    - Platform: a confirm fires its rule and attempts its webhook; neither can duplicate the document or roll it back, and retries are bounded. Only emitted events may be subscribed to.
-6. [stop D23] نقل البيانات — import opening balances and history.
+6. [ok] نقل البيانات — import opening balances and history.
    - Settings: the commit is all-or-nothing.
-   - !Accounting: a historical import records no opening AR or AP at all — a migrated business owes and is owed nothing in its ledger.
+   - Accounting: fixed (F41) — check it has stayed fixed. Until then, a historical import records no opening AR or AP at all — a migrated business owes and is owed nothing in its ledger.
 7. [open] قوالب الطباعة / إعدادات الباركود — print an invoice and a label.
    - Print: Arabic must render offline in the PDF, and the invoice must carry what an Egyptian invoice legally carries.
-8. [stop D30] سجل المراجعة — every money-moving action names who, where and what.
-   - !Audit: rows written by an all-branches caller carry branchId: null, so the branch filter can never find them again.
-9. [stop x38] النظام ← حالة النظام — backup, restore, licensing and entitlements.
-   - !System: module licensing is designed but not enforced — every module answers regardless of what the tenant is entitled to.
+8. [ok] سجل المراجعة — every money-moving action names who, where and what.
+   - Audit: fixed (F47) — check it has stayed fixed. Until then, rows written by an all-branches caller carry branchId: null, so the branch filter can never find them again.
+9. [open] النظام ← حالة النظام — backup, restore, licensing and entitlements.
+   - System: unverified since the D1–D37 sweep — module licensing is designed but not enforced — every module answers regardless of what the tenant is entitled to.
 Done: a second user, in a second branch, with a narrower role, can do their job and cannot see or do anything outside it — and everything they did is in the audit log with their name on it.
 
 ## T26 · Shell — The app around the documents
@@ -513,15 +522,15 @@ Executable: shell.ts · cross-module.ts x17
    - Shell: #/sales/quotes/new, #/sales/sales-invoices/INV-000007 — reload it, share it, hit Back. A create form with no address cannot be linked or reloaded.
 2. [open] Breadcrumbs walk back up.
    - Shell: on a document opened by id the last crumb is the raw id — worth fixing when the numbering lands.
-3. [stop D32] The command palette and the global search.
-   - !Shell: there is no server-side search, and the client filter cannot forgive Arabic — «احمد» finds nothing for «أحمد», «ليلي» nothing for «ليلى».
-4. [stop D7] The branch and warehouse pickers.
-   - !Shell: warehouse scope narrows أرصدة المخزون and the reports; branch scope does not.
+3. [ok] The command palette and the global search.
+   - Shell: fixed (F49) — check it has stayed fixed. Until then, there is no server-side search, and the client filter cannot forgive Arabic — «احمد» finds nothing for «أحمد», «ليلي» nothing for «ليلى».
+4. [ok] The branch and warehouse pickers.
+   - Shell: fixed (F32) — check it has stayed fixed. Until then, warehouse scope narrows أرصدة المخزون and the reports; branch scope does not.
 5. [ok] Theme and language.
    - Shell: both themes and both languages on every screen; the tree re-labels itself without a reload, and RTL mirrors rather than merely translating.
-6. [stop D37] The dashboard's tiles against the ledger.
+6. [ok] The dashboard's tiles against the ledger.
    - Dashboard: cash and payables agree with the accounts they claim to summarise.
-   - !Dashboard: receivables does not — the tile sums every 11xx asset account while the aging report covers trade AR only, a 5,486.12 disagreement that is a scope question, not arithmetic.
+   - Dashboard: fixed (F54) — check it has stayed fixed. Until then, receivables does not — the tile sums every 11xx asset account while the aging report covers trade AR only, a 5,486.12 disagreement that is a scope question, not arithmetic.
 7. [ok] الموافقات inbox and the notification bell.
    - Workflow: the inbox count, the bell count and the pending requests are the same number.
 Done: nothing on the dashboard is a number the rest of the app cannot reproduce, and every screen can be reached, linked and reloaded.
@@ -542,8 +551,8 @@ Executable: sales.ts · crm.ts
    - Reports: the statement's closing balance equals the customer's row in أعمار ديون العملاء.
 5. [open] Deactivate a customer who has documents.
    - Sales: they leave the pickers and stay in the reports — history is not deleted by deactivation.
-6. [stop D32] Search the list by an Arabic name typed without its hamza.
-   - !Shell: no match. Search is client-side and does not normalise Arabic.
+6. [ok] Search the list by an Arabic name typed without its hamza.
+   - Shell: fixed (F49) — check it has stayed fixed. Until then, no match. Search is client-side and does not normalise Arabic.
 Done: the customer's statement, the aging report and GL 1105 tell the same story about the same person.
 
 ## T28 · Purchases — The supplier master record
@@ -552,8 +561,8 @@ Executable: purchases.ts
 
 1. [ok] المشتريات ← الموردون — create with code, payment terms, currency and category.
    - Purchases: duplicate codes are refused; an empty code auto-numbers.
-2. [stop D41] Read the balance column on the list.
-   - !Purchases: it renders the opening balance under a header meaning "owed to supplier" — 0.00 for every supplier on a seeded tenant.
+2. [ok] Read the balance column on the list.
+   - Purchases: it is the live payable, and it equals that supplier's row in أعمار ديون الموردين. Until F39–D39 it rendered the opening balance under a payable header.
 3. [ok] Open the supplier detail and its statement.
    - Purchases: opening balance, confirmed invoices, returns, landed costs, allocated payments, running balance.
    - Reports: the statement's closing balance equals the supplier's row in أعمار ديون الموردين.
@@ -579,6 +588,8 @@ Executable: sales.ts
    - Sales: both refused with 409, not silently repeated.
 7. [ok] Accept a quote that was never sent.
    - Sales: refused — the lifecycle is a state machine, not a set of buttons.
+8. [stop D38] Post a quote or invoice line carrying an itemId that is not in the catalogue.
+   - !Sales: accepted. Neither line schema checks the id against the item repository, so an invented id reaches the document, the report and the ledger with a plausible name beside it.
 Done: every refusal is in Arabic, names what is wrong, and leaves the document exactly as it was.
 
 ## T30 · Purchases — Partial receipts and over-receipt
@@ -637,8 +648,8 @@ Executable: inventory.ts · cross-module.ts x14
    - Accounting: Dr 1200 / Cr 3100.
 2. [open] DAMAGE / SHRINKAGE — write stock off.
    - Accounting: Dr an expense or provision / Cr 1200, at weighted-average cost.
-3. [stop D2] PHYSICAL_COUNT — book a counted difference.
-   - !Accounting: no entry at all; the sub-ledger moves alone.
+3. [ok] PHYSICAL_COUNT — book a counted difference.
+   - Accounting: fixed (F35) — check it has stayed fixed. Until then, no entry at all; the sub-ledger moves alone.
 4. [open] An adjustment IN with a unit cost.
    - Inventory: the position's weighted-average cost re-averages; it does not simply take the new cost.
 5. [open] Reverse or void a confirmed adjustment.
@@ -711,8 +722,8 @@ Executable: seams.ts x26
    - Accounting: codes are unique; a centre can be deactivated without deleting its history.
 2. [ok] Tag a journal entry line to one of them.
    - Reports: أرباح مراكز التكلفة counts it once, and the income statement counts it once.
-3. [stop D26] Pay an expense by treasury voucher and try to tag it.
-   - !Treasury: there is no field — the expense lands in «غير مخصص», which is where most real spending ends up.
+3. [ok] Pay an expense by treasury voucher and try to tag it.
+   - Treasury: fixed (F44) — check it has stayed fixed. Until then, there is no field — the expense lands in «غير مخصص», which is where most real spending ends up.
 4. [open] Run the cost-centre P&L for a period with no tagged activity.
    - Reports: an honest empty state, not a zero-filled table.
 Done: the sum of the cost centres plus «غير مخصص» equals the income statement, exactly.
@@ -723,8 +734,8 @@ Executable: seams.ts x29 · platform.ts D5
 
 1. [open] المحاسبة ← الفاتورة الإلكترونية — read the queue and its states.
    - Tax: submitted, accepted, rejected and pending are distinguishable, with the authority's reason on a rejection.
-2. [stop D5] Turn auto-submit on and confirm a sales invoice.
-   - !Tax: nothing is enqueued — the producer does not exist.
+2. [ok] Turn auto-submit on and confirm a sales invoice.
+   - Tax: fixed (F33) — check it has stayed fixed. Until then, nothing is enqueued — the producer does not exist.
 3. [open] Retry a failed submission.
    - Tax: retrying never creates a second submission for the same invoice.
 4. [open] Print an invoice that has been accepted.
@@ -759,8 +770,8 @@ Executable: accounting.ts · platform.ts
    - Accounting: it posts once, on approval, with the approver named.
 3. [ok] Reverse a confirmed voucher.
    - Accounting: the treasury, the counter-account and the trial balance return to their exact prior values.
-4. [stop D30] Filter the audit log by branch for those actions.
-   - !Audit: rows written by an all-branches caller carry branchId: null and never appear under their document's branch.
+4. [ok] Filter the audit log by branch for those actions.
+   - Audit: fixed (F47) — check it has stayed fixed. Until then, rows written by an all-branches caller carry branchId: null and never appear under their document's branch.
 Done: no money moves without a named actor, and everything that moved can be walked back out the way it came in.
 
 ## T42 · HR — Employees, departments and job titles
@@ -850,8 +861,8 @@ Executable: shell.ts · accounting.ts
 
 1. [ok] المشتريات حسب الفترة / المورد / الصنف.
    - Reports: the three groupings agree on the grand total.
-2. [stop D37] أعمار ديون العملاء against the dashboard's receivables tile.
-   - !Dashboard: they disagree by 5,486.12 — the tile's scope is every 11xx account, the report's is trade AR.
+2. [ok] أعمار ديون العملاء against the dashboard's receivables tile.
+   - Dashboard: fixed (F54) — check it has stayed fixed. Until then, they disagree by 5,486.12 — the tile's scope is every 11xx account, the report's is trade AR.
 3. [ok] أعمار ديون الموردين against GL 2100.
    - Reports: the aging total equals the payables control account, less what D18 has left adrift.
 4. [ok] الأقساط المتأخرة and نظرة عامة على الأقساط.
@@ -870,8 +881,8 @@ Executable: shell.ts SCN-RPT-16 · inventory.ts
    - Reports: equal, to the piastre, on a tenant with no open receipts.
 4. [ok] أعمار المخزون, أصناف قاربت على الانتهاء, أصناف بطيئة الحركة.
    - Reports: the three answer over the same population and never disagree about what is on hand.
-5. [stop D36] انحراف تقييم المخزون with the type filter.
-   - !Reports: cacheDrift is nonzero on a healthy tenant because landed costs write no movement.
+5. [ok] انحراف تقييم المخزون with the type filter.
+   - Reports: fixed (F53) — check it has stayed fixed. Until then, cacheDrift is nonzero on a healthy tenant because landed costs write no movement.
 Done: eight reports over one sub-ledger, and the valuation total equals the control account.
 
 ## T49 · Reports — How a report behaves, not what it says
@@ -902,8 +913,8 @@ Executable: platform.ts · docs/scenarios/07 §4–6
    - Shell: the picker updates; a deactivated branch keeps its history.
 4. [ok] المستودعات — add one under a branch, of each type (main, transit, van).
    - Inventory: the type decides where transfers may land; a van warehouse pairs with a van treasury.
-5. [stop D7] Scope a user to one branch and read the other's documents.
-   - !Shell: nothing narrows — branch scope is not enforced on the read routes.
+5. [ok] Scope a user to one branch and read the other's documents.
+   - Shell: fixed (F32) — check it has stayed fixed. Until then, nothing narrows — branch scope is not enforced on the read routes.
 Done: the branch a document was raised in is on the document, in the audit row, and in every scoped list — or the scope is honestly labelled as not yet enforced.
 
 ## T51 · Settings — Users, roles and the permission matrix
@@ -916,8 +927,8 @@ Executable: platform.ts · seams.ts x58
    - Settings: the PIN is set by the user, and the role can be changed without recreating them.
 3. [ok] Sign in as that user and hit a guarded route.
    - Every module: 403 without the permission, and the action is hidden rather than dead on the screen.
-4. [stop D31] Give a user only the view tier and read a colleague's invoice and its unit cost.
-   - !Every module: the visibility tiers are enforced by no route — view_own and view_cost are decorative.
+4. [ok] Give a user only the view tier and read a colleague's invoice and its unit cost.
+   - Every module: fixed (F48) — check it has stayed fixed. Until then, the visibility tiers are enforced by no route — view_own and view_cost are decorative.
 5. [open] Remove a permission from a role while its holder is signed in.
    - Settings: the next request is refused; a stale session does not keep the old rights.
 Done: every screen a user can reach is one their role grants, and every refusal is a 403 from the server, not a hidden button.
@@ -930,8 +941,8 @@ Executable: platform.ts · seams.ts x56 · x57
    - Every document: the next document takes the new format; posted documents keep theirs.
 2. [ok] Confirm eight documents at once.
    - Every document: eight distinct, gap-free numbers, and a failed confirm burns none.
-3. [stop D33] Sell from two branches on the same day.
-   - !Settings: one tenant-wide counter, and nothing on the number says which branch raised it.
+3. [ok] Sell from two branches on the same day.
+   - Settings: fixed (F50) — check it has stayed fixed. Until then, one tenant-wide counter, and nothing on the number says which branch raised it.
 4. [open] قوالب الطباعة — the nine template tabs and a per-document override.
    - Print: the override wins for that document only; the tab's setting is the default for the rest.
 5. [open] Print A4 and thermal for the same invoice.
@@ -960,12 +971,12 @@ Executable: platform.ts D16 · cross-module.ts x31 · x32 · x38
 
 1. [ok] نقل البيانات — import a file with one bad row.
    - Settings: all-or-nothing — nothing is committed, and the bad row is named.
-2. [stop D23] Import outstanding customer and supplier invoices.
-   - !Accounting: AR and AP move by 0.00 — the opening entry's branch never runs because the import is wired without gl/accounts.
+2. [ok] Import outstanding customer and supplier invoices.
+   - Accounting: fixed (F41) — check it has stayed fixed. Until then, aR and AP move by 0.00 — the opening entry's branch never runs because the import is wired without gl/accounts.
 3. [open] النظام ← حالة النظام — take a backup, restore it into a fresh install.
    - System: the restored tenant produces the same trial balance, to the piastre.
-4. [stop x38] Remove a module from the licence and use it.
-   - !System: it answers anyway — entitlement is designed but not enforced.
+4. [open] Remove a module from the licence and use it.
+   - System: unverified since the D1–D37 sweep — it answers anyway — entitlement is designed but not enforced.
 5. [open] Run the app with the licence expired.
    - System: a clear, Arabic, non-destructive block — never data loss and never a silent read-only mode.
 Done: a tenant can leave with their data and come back with it, and the books survive the round trip unchanged.
@@ -980,8 +991,8 @@ Executable: platform.ts
    - Sales: the document posts once, on approval, with the approver on the audit row.
 3. [ok] Reject, and request a modification.
    - Workflow: rejection is terminal for that submission; a modification request returns it to the author with the note.
-4. [stop D8] Approve as an admin.
-   - !Workflow: the chain is bypassed entirely.
+4. [ok] Approve as an admin.
+   - Workflow: fixed (F18) — check it has stayed fixed. Until then, the chain is bypassed entirely.
 5. [ok] الموافقات — the inbox, its counts and its filters.
    - Shell: the inbox count equals the pending requests the user may act on.
 Done: nothing behind a chain posts without an approval, and every approval names a person.
@@ -1012,8 +1023,8 @@ Executable: shell.ts SHL-07..16
    - Shell: currently dead — either wire it or drop it from the shortcut list.
 4. [ok] Type into a text field and press `g`.
    - Shell: the literal character wins; shortcuts do not fire while typing.
-5. [stop D32] Search a customer by an Arabic name without its hamza.
-   - !Shell: no result — no server-side search, and no Arabic normalisation on either side.
+5. [ok] Search a customer by an Arabic name without its hamza.
+   - Shell: fixed (F49) — check it has stayed fixed. Until then, no result — no server-side search, and no Arabic normalisation on either side.
 Done: a data-entry clerk can raise a document without touching the mouse, and the search finds what they typed.
 
 ## T58 · Shell — Theme, language and RTL
@@ -1036,8 +1047,8 @@ Executable: shell.ts DSH-01..12 · cross-module.ts x17
 
 1. [ok] The KPI strip against /dashboard/summary and the ledger.
    - Accounting: cash and payables agree with the accounts they claim to summarise.
-2. [stop D37] Receivables against أعمار ديون العملاء.
-   - !Dashboard: 47,079.28 vs 52,565.40 — the tile's scope is every 11xx account.
+2. [ok] Receivables against أعمار ديون العملاء.
+   - Dashboard: fixed (F54) — check it has stayed fixed. Until then, 47,079.28 vs 52,565.40 — the tile's scope is every 11xx account.
 3. [ok] The period toggle.
    - Dashboard: every figure that depends on the period changes, and none that should not.
 4. [ok] The aging matrix, the expense donut and the top-items list.
@@ -1232,14 +1243,14 @@ Executable: docs/catalog · the tax and print agents
 
 1. [open] Print a confirmed sales invoice.
    - Print: seller and buyer names, both tax numbers, the invoice number and date, the line detail, the VAT rate and amount, and the total in words where required.
-2. [stop D5] Check the e-invoice UUID and QR on an accepted document.
-   - !Tax: nothing is submitted, so nothing comes back to print.
+2. [ok] Check the e-invoice UUID and QR on an accepted document.
+   - Tax: fixed (F33) — check it has stayed fixed. Until then, nothing is submitted, so nothing comes back to print.
 3. [open] Print a B2C receipt on the thermal printer.
    - Print: within 72 hours the e-receipt rules apply — the receipt carries what they require or the product says it does not.
-4. [stop D27] Pay a local B2B supplier subject to withholding.
-   - !Tax: no withholding concept exists — the payment cannot be split between supplier and authority.
-5. [stop D29] File a VAT period, then post into it.
-   - !Tax: nothing records the filing, so the restatement is silent.
+4. [ok] Pay a local B2B supplier subject to withholding.
+   - Tax: fixed (F45) — check it has stayed fixed. Until then, no withholding concept exists — the payment cannot be split between supplier and authority.
+5. [ok] File a VAT period, then post into it.
+   - Tax: fixed (F46) — check it has stayed fixed. Until then, nothing records the filing, so the restatement is silent.
 Done: every document a tax inspector could ask for prints from this product, complete, in Arabic, offline.
 
 ## T73 · Onboarding — First run to first invoice
@@ -1250,8 +1261,8 @@ Executable: the implementation-consultant path
    - Settings: company, branch, warehouse, fiscal year, currency, chart of accounts — in that order, each one explained.
 2. [open] Import the customer, supplier and item lists.
    - Settings: a template to fill, an all-or-nothing commit, and a report of what was created.
-3. [stop D23] Enter opening balances — cash, bank, stock, AR, AP.
-   - !Accounting: the AR/AP half of the import posts nothing; only a manual opening journal entry gets them onto the books today.
+3. [ok] Enter opening balances — cash, bank, stock, AR, AP.
+   - Accounting: fixed (F41) — check it has stayed fixed. Until then, the AR/AP half of the import posts nothing; only a manual opening journal entry gets them onto the books today.
 4. [open] Check the opening trial balance.
    - Accounting: it balances, and it equals the balances the client gave you.
 5. [open] Raise the first real invoice.
@@ -1280,8 +1291,8 @@ Done: the month closes in an afternoon, and every figure in the pack can be walk
 Modules: Accounting · Audit · Reports
 Executable: the chartered-accountant path
 
-1. [stop D34] Run the year-end close.
-   - !Accounting: there is no close — no closing entry and no posting to retained earnings.
+1. [ok] Run the year-end close.
+   - Accounting: fixed (F51) — check it has stayed fixed. Until then, there is no close — no closing entry and no posting to retained earnings.
 2. [open] Produce the statutory statements for the year.
    - Reports: they balance, but retained earnings is derived by the report rather than carried by the ledger.
 3. [open] Trace ten sampled figures back to their documents.
@@ -1298,8 +1309,8 @@ Executable: the owner path
 
 1. [ok] Open the dashboard and read the day.
    - Dashboard: cash, receivables, payables, profit — four numbers, no jargon.
-2. [stop D37] Ask why receivables differs from the aging report.
-   - !Dashboard: it does, by 5,486.12, and nothing on the screen explains the scope difference.
+2. [ok] Ask why receivables differs from the aging report.
+   - Dashboard: fixed (F54) — check it has stayed fixed. Until then, it does, by 5,486.12, and nothing on the screen explains the scope difference.
 3. [open] Ask which customer owes the most and which item makes the most margin.
    - Reports: two clicks each, from the dashboard.
 4. [open] Ask what changed since last month.

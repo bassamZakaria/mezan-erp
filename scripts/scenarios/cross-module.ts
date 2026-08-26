@@ -1681,7 +1681,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/confirm", {});
     check(
-      "the draft confirms over the API — but NO screen can do this (docs/defects.md D39): the sales-invoice detail page renders only «رجوع», " +
+      "the draft confirms over the API — but NO screen can do this (docs/defects.md D43): the sales-invoice detail page renders only «رجوع», " +
         "so an invoice converted from a quote is unconfirmable in the UI, while goods receipts and purchase invoices both carry a تأكيد button",
       confirmed.status === 200 && confirmed.body?.status === "confirmed",
       JSON.stringify(confirmed.body).slice(0, 200),
@@ -1696,19 +1696,38 @@ export async function run(ctx: Ctx): Promise<void> {
       342,
     );
 
-    const payment = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/payments", { amount: "342.00" });
-    check("the invoice's own «تحصيل دفعة» accepts the money and marks the invoice paid", payment.status === 200 && payment.body?.status === "paid", JSON.stringify(payment.body).slice(0, 200));
-    checkEq(
-      "D40 — and posts NOTHING: AR still carries the collected 342. `SalesInvoiceService.recordPayment` writes amountPaid and status and never calls the GL hook, " +
-        "so the invoice reads paid while the ledger says the customer still owes (docs/defects.md D40)",
-      (await gl(AR)) - arBefore,
-      342,
+    const payment = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/payments", {
+      amount: "342.00",
+      treasuryAccountId: CASH_TREASURY,
+      paymentMethod: "cash",
+      date: TODAY,
+    });
+    check(
+      "the invoice's own «تحصيل دفعة» collects into a named treasury account and marks the invoice paid",
+      payment.status === 200 && payment.body?.status === "paid",
+      JSON.stringify(payment.body).slice(0, 200),
     );
-    checkEq("no cash box received it either", (await gl(CASH)) - cashBefore, 0);
-    checkEq("and no bank account did — the payment names no treasury account at all, and the form offers none", (await gl(BANK)) - bankBefore, 0);
+    check(
+      "and it is a REAL collection voucher underneath — the route answers with the voucher it created and confirmed",
+      typeof payment.body?.voucherId === "string" && payment.body.voucherId.length > 0,
+      JSON.stringify(payment.body?.voucherId),
+    );
+    check(
+      "the payment cannot be made without naming where the money went — no treasuryAccountId is a 400, not a silent cash default",
+      (await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/payments", { amount: "1.00" })).status === 400,
+      "a payment with no treasury account was accepted",
+    );
+    checkEq("AR (1105) nets back to where it started — the invoice raised it, the collection cleared it", (await gl(AR)) - arBefore, 0);
+    checkEq("and the خزنة holds exactly what the customer paid", (await gl(CASH)) - cashBefore, 342);
+    checkEq("while the bank, which was not named, never moved", (await gl(BANK)) - bankBefore, 0);
+    treasuryLedger.push({ label: "invoice collection (trail, cash)", delta: 342 });
+
+    const paidInvoice = (await req("GET", "/sales-invoices/SCN-X-INV-TRAIL")).body;
+    checkEq("the invoice's own amountPaid is written back by the allocation, not by a second counter (the D1 rework)", n(paidInvoice?.amountPaid), 342);
+
     const agingPaid = ctx.rows((await req("GET", `/reports/aging/customers?asOfDate=${TODAY}`)).body);
     check(
-      "the aging report drops the customer (it reads the sub-ledger), so aging and GL 1105 now disagree by exactly this payment — the pair that proves it",
+      "and the aging report drops the customer, because the sub-ledger and GL 1105 now agree about the same payment",
       !agingPaid.some((r: any) => r.customerId === customerId),
       JSON.stringify(agingPaid.map((r: any) => r.customerId)),
     );
@@ -1726,9 +1745,9 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a supplier is created", supplier.status === 201, `status ${supplier.status} ${JSON.stringify(supplier.body).slice(0, 200)}`);
     const listed = ctx.rows((await req("GET", "/suppliers")).body).find((s: any) => s.id === supplierId);
     check(
-      "D41 — and the suppliers list has no payable to show: `/suppliers` carries `openingBalance` and no outstanding balance, " +
-        "which is why the screen's «المستحق للمورد» column reads 0.00 for every supplier while the aging report shows six figures (docs/defects.md D41)",
-      listed !== undefined && listed.openingBalance !== undefined && (listed as any).outstanding === undefined && (listed as any).balance === undefined,
+      "the new supplier is listed with a zero opening balance — since F39-D39 the screen's «المستحق للمورد» column is computed from the documents, " +
+        "so a supplier who has bought nothing owes nothing and one who has owes exactly what the aging report says",
+      listed !== undefined && n(listed.openingBalance) === 0,
       JSON.stringify(listed).slice(0, 200),
     );
 
@@ -1759,8 +1778,8 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("the from-receipt invoice drafts with no lines supplied", invoice.status === 201, `status ${invoice.status} ${JSON.stringify(invoice.body).slice(0, 200)}`);
     check(
-      "D42 — and every line comes back at 0% VAT: `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port that `create-backend.ts` never supplies, " +
-        "so it falls back to `() => 0`. The screen offers no way to edit the rate, so goods bought through the receipt path record no input VAT at all (docs/defects.md D42)",
+      "D44 — and every line comes back at 0% VAT: `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port that `create-backend.ts` never supplies, " +
+        "so it falls back to `() => 0`. The screen offers no way to edit the rate, so goods bought through the receipt path record no input VAT at all (docs/defects.md D44)",
       (invoice.body?.lines ?? []).every((l: any) => Number(l.taxRatePercent) === 0),
       JSON.stringify(invoice.body?.lines).slice(0, 200),
     );
@@ -1784,10 +1803,9 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("the خزنة falls by exactly what was paid", cashBefore - (await gl(CASH)), 1400);
     checkEq("and AP nets back to where it started — invoice raised it, payment cleared it", (await creditBalance(AP)) - apBefore, 0);
     checkEq(
-      "D18 again, on the trail a buyer walks: the AP sub-ledger never hears the payment, so this scenario's own reconciliation check below " +
-        "reports the same 1,400 adrift (docs/defects.md D18 — do not re-file)",
+      "and the AP sub-ledger hears the payment too — paying a supplier no longer leaves the reconciliation adrift (the D18 fix, measured on the trail a buyer actually walks)",
       (await ctx.invariants()).ap - apSubLedgerBefore,
-      1400,
+      0,
     );
     treasuryLedger.push({ label: "supplier payment (trail, cash)", delta: -1400 });
   });

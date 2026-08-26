@@ -17,6 +17,8 @@
     "lint:rtl": "node scripts/check-logical-css.mjs",
     "lint:tokens": "node scripts/check-color-tokens.mjs",
     "lint:controls": "node scripts/check-native-controls.mjs",
+    "dev": "node scripts/dev.mjs",
+    "dev:fresh": "node scripts/dev.mjs --fresh",
     "server": "tsx apps/server/src/index.ts",
     "desktop:demo": "pnpm --filter desktop demo",
     "test:e2e": "echo 'E2E running is disabled (see docs/testing-policy.md).' && exit 0",

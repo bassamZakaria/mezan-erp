@@ -38,7 +38,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [x] المخزون → المنتجات / الحركات · التصنيع → الإنتاج / التعريفات
   - [x] الإعدادات → عام / المستخدمون / الفروع والمستودعات / سير العمل / الطباعة / التكاملات
   - [x] المحاسبة → التعريفات / الدورة / التقارير · الموارد البشرية → الموظفون / الحضور والإجازات / الرواتب
-- [ ] **R1.5** Ctrl+K command palette: quick actions + go-to
+- [x] **R1.5** Ctrl+K command palette: quick actions + go-to — go-to entries generated from the nav specs, so the palette cannot drift out of step with the sidebar
 - [ ] **R1.6** Notification centre (all / unread, mark all read)
 - [ ] **R1.14** Branch and warehouse as a global header scope
 - [ ] **R1.9** Attention banners on lists (overdue, out of stock, drafts) that apply the filter when clicked

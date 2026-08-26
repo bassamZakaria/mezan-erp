@@ -125,7 +125,7 @@ import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { buildCommandItems, buildNavGroups, buildTopNavItem } from "./nav-config";
+import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -434,15 +434,30 @@ export function App() {
   const routedCommandItems: CommandItem[] = useMemo(() => {
     const targets: Record<string, () => void> = {
       "cmd-invoice": () => navigate("sales-invoices", "create"),
+      "cmd-collect": () => navigate("treasury-vouchers", "create"),
       "cmd-receipt": () => navigate("treasury-vouchers", "create"),
-      "cmd-coa": () => navigate("coa"),
-      "cmd-journals": () => navigate("journals"),
+      "cmd-receive": () => navigate("goods-receipts", "create"),
+      "cmd-pay-supplier": () => navigate("treasury-vouchers", "create"),
+      "cmd-purchase-invoice": () => navigate("purchase-invoices", "create"),
+      "cmd-quote": () => navigate("quotes", "create"),
+      "cmd-item": () => navigate("items", "create"),
+      "cmd-adjustment": () => navigate("stock-adjustments", "create"),
       "cmd-shortcuts": () => setShortcutsOpen(true),
     };
-    return buildCommandItems(t).map((item) => {
+    const quickActions = buildCommandItems(t).map((item) => {
       const onSelect = targets[item.id];
       return onSelect ? { ...item, onSelect } : item;
     });
+    // Every navigable screen gets a go-to entry (R1.5). Built from the nav
+    // specs rather than listed, so a screen added to the sidebar is reachable
+    // here without anyone remembering to add it in two places.
+    const goTo = buildGoToCommandItems(t)
+      .map((item) => {
+        const key = item.id.slice("goto-".length);
+        return isRoutable(key) ? { ...item, onSelect: () => navigate(key as ScreenKey) } : null;
+      })
+      .filter((item): item is CommandItem => item !== null);
+    return [...quickActions, ...goTo];
   }, [navigate, t]);
 
   const userMenuItems: UserMenuItem[] = useMemo(

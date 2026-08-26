@@ -179,13 +179,49 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
 ];
 
+/**
+ * The quick actions (R1.5). Go-to entries are NOT listed here — they are
+ * generated from the nav config below, so a screen added to the sidebar is
+ * reachable from the palette without anyone remembering to add it twice.
+ */
 const commandItemSpecs = [
   { id: "cmd-invoice", groupKey: "command.group.quickActions", hint: `${modKeyLabel()}+N` },
+  { id: "cmd-collect", groupKey: "command.group.quickActions" },
   { id: "cmd-receipt", groupKey: "command.group.quickActions" },
-  { id: "cmd-coa", groupKey: "command.group.goTo" },
-  { id: "cmd-journals", groupKey: "command.group.goTo" },
+  { id: "cmd-receive", groupKey: "command.group.quickActions" },
+  { id: "cmd-pay-supplier", groupKey: "command.group.quickActions" },
+  { id: "cmd-purchase-invoice", groupKey: "command.group.quickActions" },
+  { id: "cmd-quote", groupKey: "command.group.quickActions" },
+  { id: "cmd-item", groupKey: "command.group.quickActions" },
+  { id: "cmd-adjustment", groupKey: "command.group.quickActions" },
   { id: "cmd-shortcuts", groupKey: "command.group.goTo", hint: "?" },
 ] as const satisfies readonly { id: string; groupKey: AppTranslationKey; hint?: string }[];
+
+/**
+ * One go-to entry per navigable screen, built from the same specs the sidebar
+ * uses. Generated rather than listed so the palette cannot drift out of step
+ * with the nav — the previous hand-written list covered two screens of about
+ * ninety.
+ */
+export function buildGoToCommandItems(t: Translate): CommandItem[] {
+  const seen = new Set<string>();
+  const items: CommandItem[] = [];
+  for (const group of navGroupSpecs) {
+    const groupLabel = t(`nav.group.${group.key}` as AppTranslationKey);
+    const keys = [...group.itemKeys, ...(group.sections ?? []).flatMap((section) => section.itemKeys)];
+    for (const key of keys) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        id: `goto-${key}`,
+        label: t(`nav.item.${key}` as AppTranslationKey),
+        group: `${t("command.group.goTo")} · ${groupLabel}`,
+        onSelect: () => {},
+      });
+    }
+  }
+  return items;
+}
 
 export function buildTopNavItem(t: Translate): NavItem {
   return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };

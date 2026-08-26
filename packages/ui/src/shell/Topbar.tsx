@@ -201,7 +201,7 @@ function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; ac
   );
 }
 
-/** Topbar — the persistent command bar, tenant chip, the branch/warehouse scope selectors, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
+/** Topbar — the branch/warehouse scope selectors, then the tenant chip, the persistent command bar, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
 export function Topbar({
   commandItems = [],
   searchPlaceholder,
@@ -235,7 +235,19 @@ export function Topbar({
         className,
       )}
     >
-      <CommandBar items={commandItems} placeholder={searchPlaceholder} className="w-full max-w-[560px] flex-1" />
+      <ScopeSwitchers
+        orientation="header"
+        branchAriaLabel={t("shell.scope.branch")}
+        warehouseAriaLabel={t("shell.scope.warehouse")}
+        branchOptions={branchOptions}
+        warehouseOptions={warehouseOptions}
+        selectedBranchId={selectedBranchId}
+        selectedWarehouseId={selectedWarehouseId}
+        onSelectBranch={onSelectBranch}
+        onSelectWarehouse={onSelectWarehouse}
+        allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
+        allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
+      />
 
       <div className="flex flex-1 items-center justify-end gap-[8px]">
         {tenantName ? (
@@ -262,19 +274,7 @@ export function Topbar({
           </div>
         ) : null}
 
-        <ScopeSwitchers
-          orientation="header"
-          branchAriaLabel={t("shell.scope.branch")}
-          warehouseAriaLabel={t("shell.scope.warehouse")}
-          branchOptions={branchOptions}
-          warehouseOptions={warehouseOptions}
-          selectedBranchId={selectedBranchId}
-          selectedWarehouseId={selectedWarehouseId}
-          onSelectBranch={onSelectBranch}
-          onSelectWarehouse={onSelectWarehouse}
-          allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
-          allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
-        />
+        <CommandBar items={commandItems} placeholder={searchPlaceholder} className="w-full max-w-[520px] flex-1" />
 
         {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
 

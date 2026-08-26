@@ -2,7 +2,7 @@ import { z } from "zod";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
-import { sumRows } from "./kpi.js";
+import { diffOf, sumRows } from "./kpi.js";
 
 /**
  * إقرار ضريبة القيمة المضافة — VAT Return (docs/catalog/08-reports.md).
@@ -88,7 +88,7 @@ function bump(map: Map<number, Bucket>, rate: number, base: number, tax: number)
 export function vatNetPayable(rows: readonly VatReturnRow[]): number {
   const output = sumRows(rows, (r) => (r.side === "output" ? r.tax : 0));
   const input = sumRows(rows, (r) => (r.side === "input" ? r.tax : 0));
-  return output - input;
+  return diffOf(output, input);
 }
 
 export function createVatReturnReport(

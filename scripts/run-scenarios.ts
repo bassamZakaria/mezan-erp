@@ -10,6 +10,7 @@ import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
 import { run as eta } from "./scenarios/eta.js";
+import { run as reports } from "./scenarios/reports.js";
 
 /**
  * `pnpm scenarios` — the executable half of docs/testing-plan.md Phase 3.
@@ -28,7 +29,7 @@ const only = new Set(process.argv.slice(2));
 
 for (const [name, fn] of [
   ["shell", shell], ["accounting", accounting], ["crm", crm], ["platform", platform], ["eta", eta],
-  ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales],
+  ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales], ["reports", reports],
   ["cross-module", crossModule], ["seams", seams],
 ] as const) {
   if (only.size && !only.has(name)) continue;

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
@@ -263,6 +263,20 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     return priceLists.find((p) => p.isBase && p.active) ?? null;
   }, [customerRecord, priceLists]);
 
+  /**
+   * The price a line should open at: the customer's price list, else the item's
+   * own sale price. The invoice form used to read `item.salePrice` directly, so
+   * a customer on a wholesale list was quoted their list price but INVOICED at
+   * the retail one — the two documents disagreed on the same goods.
+   */
+  const priceFor = useCallback(
+    (item: { id: string; salePrice?: string | null }): number => {
+      const listed = priceList?.lines.find((l) => l.itemId === item.id);
+      return Number(listed?.price ?? item.salePrice ?? "0");
+    },
+    [priceList],
+  );
+
   const salespersonOptions = useMemo<EntityPickerOption[]>(
     () =>
       employees
@@ -275,8 +289,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     [employees],
   );
   const itemOptions = useMemo<EntityPickerOption[]>(
-    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(Number(i.salePrice ?? "0"))} ${format.currencyLabel}` })),
-    [items],
+    // The sublabel quotes the price THIS customer gets, not the base one: on a
+    // wholesale customer the picker advertised 180.00 and the line then opened
+    // at 168.00, so the two disagreed in front of the user.
+    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
+    [items, priceFor, format],
   );
 
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
@@ -537,7 +554,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                       value={selectedOption}
                       onChange={(opt) => {
                         const picked = opt ? items.find((it) => it.id === opt.id) : null;
-                        updateLine(i, { itemId: opt?.id ?? "", unitPrice: picked ? Number(picked.salePrice ?? "0") : null });
+                        updateLine(i, { itemId: opt?.id ?? "", unitPrice: picked ? priceFor(picked) : null });
                       }}
                       options={itemOptions}
                       placeholder={t("salesInvoices.field.itemPlaceholder")}

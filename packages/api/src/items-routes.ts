@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import {
   createItem,
   updateItem,
+  createDefaultSettings,
+  type SettingsRepository,
   Money,
   Qty,
   DuplicateItemCodeError,
@@ -81,6 +83,8 @@ export function createItemsRouter(
   repo: ItemRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
   snapshots?: WacSnapshotRepository,
+  /** Tenant settings, so a new item inherits the tenant's own default VAT rate (§"الضريبة"). */
+  settings?: SettingsRepository,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -116,12 +120,15 @@ export function createItemsRouter(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
         {
           ...parsed.data,
           alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
           salePrice: toMoney(parsed.data.salePrice),
           costPrice: toMoney(parsed.data.costPrice),
+          taxRatePercent:
+            parsed.data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
         },
         repo,
       );

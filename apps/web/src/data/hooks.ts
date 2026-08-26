@@ -1706,6 +1706,8 @@ export interface SalesInvoiceDTO {
   readonly customerId: string;
   readonly customerNameAr: string;
   readonly customerTaxExempt: boolean;
+  /** Whether this invoice's prices already contained the tax when it was raised. */
+  readonly taxInclusive: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
   readonly salespersonId: string | null;

@@ -805,7 +805,27 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route(
       "/sales-invoices",
       createSalesInvoicesRoutes(
-        { ...salesInvoices, creditControl, promotions, returns: salesInvoices.returns ?? options.salesReturns?.service },
+        {
+          ...salesInvoices,
+          creditControl,
+          promotions,
+          returns: salesInvoices.returns ?? options.salesReturns?.service,
+          // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
+          // control is: a draft is stamped with the mode in force when it was
+          // raised, so changing the setting never restates a posted invoice.
+          taxPolicy:
+            salesInvoices.taxPolicy ??
+            (options.settingsStore
+              ? async () => {
+                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
+                  return {
+                    enabled: settings.taxEnabled,
+                    defaultRatePercent: settings.defaultTaxRate,
+                    inclusive: settings.taxCalculation === "INCLUSIVE",
+                  };
+                }
+              : undefined),
+        },
         options.resolveAuthContext,
       ),
     );
@@ -897,7 +917,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
 
   if (options.items) {
-    app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots));
+    app.route(
+      "/items",
+      createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots, options.settingsStore),
+    );
   }
   if (options.itemCatalog) {
     app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));

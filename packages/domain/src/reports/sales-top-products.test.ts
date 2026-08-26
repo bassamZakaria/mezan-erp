@@ -33,6 +33,7 @@ function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
     customerId: "cust-1",
     customerNameAr: "عميل",
     customerTaxExempt: false,
+    taxInclusive: false,
     warehouseId: "wh-1",
     branchId: "br-1",
     salespersonId: null,

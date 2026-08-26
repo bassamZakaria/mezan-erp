@@ -27,6 +27,8 @@ import {
   type DepreciationRun,
   type DepreciationRunRepository,
   type JournalPostingDeps,
+  type SettingsRepository,
+  createDefaultSettings,
 } from "@mezan/domain";
 import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema, disposeAssetSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
@@ -52,6 +54,12 @@ export interface FixedAssetsRoutesDeps {
   };
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
+  /**
+   * Tenant settings §"الضريبة" → `depreciationProrate`, so the depreciation in
+   * the month of acquisition follows the tenant's stated policy rather than a
+   * built-in one.
+   */
+  readonly settings?: SettingsRepository;
 }
 
 function serializeCategory(category: AssetCategory) {
@@ -258,8 +266,14 @@ export function createFixedAssetsRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const settings = deps.settings ? ((await deps.settings.get()) ?? createDefaultSettings()) : null;
       const run = await createDepreciationRun(
-        { id: idGen(), period: parsed.data.period, branchId: parsed.data.branchId ?? null },
+        {
+          id: idGen(),
+          period: parsed.data.period,
+          branchId: parsed.data.branchId ?? null,
+          prorate: settings?.depreciationProrate ?? "DAILY",
+        },
         { runs: deps.runs, assets: deps.assets },
       );
       return c.json(serializeRun(run), 201);

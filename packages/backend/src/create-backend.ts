@@ -1220,6 +1220,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       runs: depreciationRuns,
       gl: salesInvoiceGl,
       defaultAccounts: FIXED_ASSETS_GL_ACCOUNTS,
+      settings,
     },
     inventoryWritedown: {
       runs: writedownRuns,

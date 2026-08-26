@@ -54,6 +54,19 @@ function percentOf(amount: Money, percent: number): Money {
   return Money.fromScaled(roundMinor(raw));
 }
 
+/**
+ * The tax already inside a tax-inclusive amount: amount × rate / (100 + rate).
+ * Subtracting it from the amount is what makes the invoice total come out at
+ * exactly the price the customer was quoted — the whole point of inclusive
+ * pricing — so this is deliberately NOT the same shape as `percentOf`.
+ */
+function taxWithin(amount: Money, percent: number): Money {
+  if (percent === 0) return Money.zero();
+  const pctScaled = BigInt(Math.round(percent * 1_000_000));
+  const raw = divHalfUp(amount.scaled * pctScaled, 100_000_000n + pctScaled);
+  return Money.fromScaled(roundMinor(raw));
+}
+
 export interface SalesInvoiceLineTotals {
   readonly lineId: string;
   /** qty × unitPrice, before any discount. */
@@ -64,7 +77,10 @@ export interface SalesInvoiceLineTotals {
   readonly promotionDiscount: Money;
   /** This line's share of the invoice-level discount. */
   readonly invoiceDiscount: Money;
-  /** gross − lineDiscount − promotionDiscount − invoiceDiscount — the VAT base. */
+  /**
+   * The VAT base. Exclusive pricing: gross − every discount. Inclusive pricing:
+   * that same net minus the tax already inside it.
+   */
   readonly taxableBase: Money;
   readonly tax: Money;
   /** taxableBase + tax. */
@@ -72,6 +88,14 @@ export interface SalesInvoiceLineTotals {
 }
 
 export interface SalesInvoiceTotals {
+  /**
+   * Whether the prices these figures were built from already contained the tax
+   * (settings §"الضريبة" → `taxCalculation`). When true, `grossTotal`,
+   * `subtotal` and the discount totals are tax-INCLUSIVE and `grandTotal`
+   * equals `subtotal − invoiceDiscountTotal`; a caller that prints
+   * `subtotal + tax` would double-count.
+   */
+  readonly taxInclusive: boolean;
   readonly lines: readonly SalesInvoiceLineTotals[];
   /** Σ gross. */
   readonly grossTotal: Money;
@@ -111,9 +135,12 @@ export function computeInvoiceTotals(
     readonly taxExempt?: boolean;
     /** The applied promotion's per-line split; each amount is capped at its line's post-line-discount net. */
     readonly promotionLineDiscounts?: readonly AppliedPromotionLineDiscount[];
+    /** Unit prices already contain the tax (settings §"الضريبة" → `taxCalculation`). */
+    readonly taxInclusive?: boolean;
   } = {},
 ): SalesInvoiceTotals {
   const taxExempt = options.taxExempt ?? false;
+  const taxInclusive = options.taxInclusive ?? false;
   const promotionByLineId = new Map<string, bigint>();
   for (const d of options.promotionLineDiscounts ?? []) {
     promotionByLineId.set(d.lineId, (promotionByLineId.get(d.lineId) ?? 0n) + d.amount.scaled);
@@ -146,8 +173,13 @@ export function computeInvoiceTotals(
         );
 
   const lineTotals: SalesInvoiceLineTotals[] = lines.map((line, i) => {
-    const taxableBase = (net[i] as Money).add((allocatedDiscount[i] as Money).negate());
-    const tax = taxExempt ? Money.zero() : percentOf(taxableBase, line.taxRatePercent);
+    const lineNet = (net[i] as Money).add((allocatedDiscount[i] as Money).negate());
+    const tax = taxExempt
+      ? Money.zero()
+      : taxInclusive
+        ? taxWithin(lineNet, line.taxRatePercent)
+        : percentOf(lineNet, line.taxRatePercent);
+    const taxableBase = taxInclusive ? lineNet.add(tax.negate()) : lineNet;
     return {
       lineId: line.lineId,
       gross: gross[i] as Money,
@@ -164,6 +196,7 @@ export function computeInvoiceTotals(
   const taxTotal = Money.sum(lineTotals.map((l) => l.tax));
 
   return {
+    taxInclusive,
     lines: lineTotals,
     grossTotal: Money.sum(gross),
     lineDiscountTotal: Money.sum(lineDiscount),
@@ -185,5 +218,6 @@ export function salesInvoiceTotals(invoice: SalesInvoice): SalesInvoiceTotals {
   return computeInvoiceTotals(invoice.lines, invoice.discount, {
     taxExempt: invoice.customerTaxExempt,
     promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts,
+    taxInclusive: invoice.taxInclusive,
   });
 }

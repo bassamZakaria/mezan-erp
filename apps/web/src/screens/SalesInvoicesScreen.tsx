@@ -37,6 +37,7 @@ import {
   useCustomers,
   useEmployees,
   useItems,
+  useSettings,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
   useJournalEntry,
@@ -259,6 +260,7 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
     [items],
   );
 
+  const tenantSettings = useSettings();
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
 
   const domainLines = useMemo<SalesInvoiceLine[]>(() => {
@@ -293,10 +295,18 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
     [discountType, discountValue],
   );
 
+  // The tenant's VAT basis, so the preview computes tax the same way the server
+  // will stamp it on the draft (settings §"الضريبة" → `taxCalculation`).
+  const taxInclusive = tenantSettings.data?.taxCalculation === "INCLUSIVE";
+
   // A pure, local totals preview — the server recomputes (and is authoritative on) the same totals on create.
   const totals = useMemo(
-    () => computeInvoiceTotals(domainLines, discount, { taxExempt: customerData?.taxExempt ?? false }),
-    [domainLines, discount, customerData],
+    () =>
+      computeInvoiceTotals(domainLines, discount, {
+        taxExempt: customerData?.taxExempt ?? false,
+        taxInclusive: taxInclusive,
+      }),
+    [domainLines, discount, customerData, taxInclusive],
   );
   const totalsByLineId = useMemo(() => new Map(totals.lines.map((l) => [l.lineId, l])), [totals]);
 
@@ -607,7 +617,7 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
               <dd className="font-semibold text-ink">{priceList?.nameAr ?? t("salesInvoices.summary.noPriceList")}</dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">{t("salesInvoices.subtotal")}</dt>
+              <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.subtotalInclusive") : t("salesInvoices.subtotal")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.subtotal.toString())} />
               </dd>
@@ -619,7 +629,7 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">{t("salesInvoices.tax")}</dt>
+              <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.taxIncluded") : t("salesInvoices.tax")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.taxTotal.toString())} />
               </dd>
@@ -734,6 +744,7 @@ function InvoiceDetailView({
       invoice.discount.type === "percent" ? { type: "percent", percent: invoice.discount.percent } : { type: "amount", amount: Money.fromMajor(invoice.discount.amount) };
     const totals = computeInvoiceTotals(domainLines, discount, {
       taxExempt: invoice.customerTaxExempt,
+      taxInclusive: invoice.taxInclusive === true,
       promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts.map((d: { lineId: string; itemId: string; amount: string }) => ({
         lineId: d.lineId,
         itemId: d.itemId,

@@ -459,6 +459,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // the sales module's own returns بانتظار الموافقة and hid what they assert.
   // ---------------------------------------------------------------------
   await settingsPoliciesAreLive(ctx);
+  await taxSettingsAreLive(ctx);
 
   await ctx.scenario("platform / teardown — remove the scenario-only approval chain", async () => {
     const del = await req("DELETE", `/workflow/configs/${scnReturnConfigId}`, undefined, {});
@@ -682,5 +683,165 @@ async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
 
     const back = await setPolicy({ autoGenerateBatchNumbers: false });
     check("auto batch numbers restored to off", back.status === 200 && back.body?.autoGenerateBatchNumbers === false, `status ${back.status}`);
+  });
+}
+
+/**
+ * R11.5 — the الضريبة tab. VAT on/off, the default rate, tax-inclusive vs
+ * tax-exclusive pricing and the depreciation basis all had no reader: tax was
+ * computed as if it were always exclusive, a line with no rate carried none,
+ * and depreciation was always day-prorated. Every check below only raises
+ * DRAFTS, so nothing here touches the books.
+ */
+async function taxSettingsAreLive(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, scenario } = ctx;
+
+  async function settings() {
+    return (await req("GET", "/settings")).body;
+  }
+  async function setTax(patch: Record<string, unknown>) {
+    return req("PUT", "/settings", { ...(await settings()), ...patch });
+  }
+  async function draftInvoice(id: string, line: Record<string, unknown>) {
+    return req("POST", "/sales-invoices", {
+      id,
+      date: "2026-08-24",
+      dueDate: "2026-09-23",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: `${id}-L1`,
+          itemId: "ITEM-DEMO-1",
+          itemNameAr: "صنف اختبار الضريبة",
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          revenueAccountId: "4100",
+          ...line,
+        },
+      ],
+    });
+  }
+
+  await scenario("settings / الضريبة — نسبة الضريبة الافتراضية is what a line with no rate of its own is raised at", async () => {
+    const before = await settings();
+    checkEq("the tenant's default rate is 14%", ctx.n(before?.defaultTaxRate), 14);
+
+    const draft = await draftInvoice("SCN-SET-TAX-DEFAULT", {});
+    check("a line that names no rate drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    checkEq("and is raised at the tenant's own default, not at zero", ctx.n(draft.body?.lines?.[0]?.taxRatePercent), 14);
+    checkEq("so the invoice carries 14.00 of tax", ctx.n(draft.body?.totals?.taxTotal), 14);
+    checkEq("and totals 114.00", ctx.n(draft.body?.totals?.grandTotal), 114);
+    check("on a tax-exclusive basis", draft.body?.taxInclusive === false, JSON.stringify(draft.body?.taxInclusive));
+  });
+
+  await scenario("settings / الضريبة — الأسعار شاملة الضريبة makes the invoice total the price the customer was quoted", async () => {
+    const inclusive = await setTax({ taxCalculation: "INCLUSIVE" });
+    check("the tenant switches to inclusive pricing", inclusive.status === 200 && inclusive.body?.taxCalculation === "INCLUSIVE", `status ${inclusive.status}`);
+
+    const draft = await draftInvoice("SCN-SET-TAX-INCLUSIVE", { taxRatePercent: 14 });
+    check("the invoice drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    check("and it is stamped inclusive, so a later settings change cannot restate it", draft.body?.taxInclusive === true, JSON.stringify(draft.body?.taxInclusive));
+    checkEq("the customer still pays exactly the 100.00 on the price tag", ctx.n(draft.body?.totals?.grandTotal), 100);
+    checkEq("12.28 of it is the VAT already inside that price (100 × 14/114)", ctx.n(draft.body?.totals?.taxTotal), 12.28);
+    checkEq("and 87.72 is the revenue the GL will see", ctx.n(draft.body?.totals?.taxableTotal), 87.72);
+    checkEq("the two reconcile to the cent", ctx.n(draft.body?.totals?.taxableTotal) + ctx.n(draft.body?.totals?.taxTotal), 100);
+
+    const exclusive = await setTax({ taxCalculation: "EXCLUSIVE" });
+    check("the tenant switches back to exclusive pricing", exclusive.status === 200, `status ${exclusive.status}`);
+
+    const reread = await req("GET", "/sales-invoices/SCN-SET-TAX-INCLUSIVE");
+    check("the invoice raised under inclusive pricing is STILL inclusive after the switch", reread.body?.taxInclusive === true, JSON.stringify(reread.body?.taxInclusive));
+    checkEq("and still totals 100.00 — a settings change never restates a document", ctx.n(reread.body?.totals?.grandTotal), 100);
+
+    const after = await draftInvoice("SCN-SET-TAX-EXCLUSIVE-AGAIN", { taxRatePercent: 14 });
+    check("while a NEW invoice is exclusive again", after.body?.taxInclusive === false, JSON.stringify(after.body?.taxInclusive));
+    checkEq("and totals 114.00", ctx.n(after.body?.totals?.grandTotal), 114);
+  });
+
+  await scenario("settings / الضريبة — تفعيل ضريبة القيمة المضافة off raises every line at a zero rate", async () => {
+    const off = await setTax({ taxEnabled: false });
+    check("VAT is switched off", off.status === 200 && off.body?.taxEnabled === false, `status ${off.status}`);
+
+    const draft = await draftInvoice("SCN-SET-TAX-DISABLED", { taxRatePercent: 14 });
+    check("an invoice still drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    checkEq("but the line's rate is zero even though the caller asked for 14", ctx.n(draft.body?.lines?.[0]?.taxRatePercent), 0);
+    checkEq("no tax is charged", ctx.n(draft.body?.totals?.taxTotal), 0);
+    checkEq("and the invoice totals the goods alone", ctx.n(draft.body?.totals?.grandTotal), 100);
+
+    const item = await req("POST", "/items", {
+      id: "SCN-SET-ITEM-NOVAT",
+      code: "SCN-SET-NOVAT",
+      nameAr: "صنف بلا ضريبة",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a new item is created while VAT is off", item.status === 201, `${item.status}: ${JSON.stringify(item.body).slice(0, 160)}`);
+    checkEq("and inherits a zero rate rather than the built-in 14", ctx.n(item.body?.taxRatePercent), 0);
+
+    const on = await setTax({ taxEnabled: true, defaultTaxRate: 5 });
+    check("VAT is switched back on at a different default", on.status === 200 && ctx.n(on.body?.defaultTaxRate) === 5, `status ${on.status}`);
+    const item5 = await req("POST", "/items", {
+      id: "SCN-SET-ITEM-VAT5",
+      code: "SCN-SET-VAT5",
+      nameAr: "صنف بضريبة 5%",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    checkEq("a new item inherits the tenant's rate, not a number baked into the code", ctx.n(item5.body?.taxRatePercent), 5);
+
+    const restore = await setTax({ defaultTaxRate: 14 });
+    check("the default rate is restored", restore.status === 200 && ctx.n(restore.body?.defaultTaxRate) === 14, `status ${restore.status}`);
+  });
+
+  await scenario("settings / الضريبة — الإهلاك في شهر الاقتناء picks the basis the depreciation run uses", async () => {
+    const asset = (id: string, start: string) => ({
+      id,
+      code: id,
+      nameAr: `أصل اختبار الإهلاك ${id}`,
+      categoryId: "ASSET-CAT-DEMO-1",
+      scope: "general",
+      acquisitionDate: start,
+      acquisitionCost: "31000",
+      depreciationStartDate: start,
+      usefulLifeMonths: 10,
+      salvageValue: "0",
+    });
+    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2026-05-20"));
+    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2026-06-20"));
+    check("two identical assets, each acquired on the 20th of its own month", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
+
+    // 31,000 over 10 months is 3,100 a month; May has 31 days and the asset was
+    // in service for 12 of them, so a day-prorated May charge is 1,200.
+    const daily = await setTax({ depreciationProrate: "DAILY" });
+    check("the tenant's basis is the IFRS daily proration", daily.status === 200 && daily.body?.depreciationProrate === "DAILY", `status ${daily.status}`);
+    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2026-05" });
+    check("the May run drafts", mayRun.status === 201, `${mayRun.status}: ${JSON.stringify(mayRun.body).slice(0, 200)}`);
+    const mayLine = (mayRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-A");
+    checkEq("and charges 12 of May's 31 days, not a whole month", ctx.n(mayLine?.amount), 1200);
+
+    const fullMonth = await setTax({ depreciationProrate: "FULL_MONTH" });
+    check("the tenant switches to a whole month in the month of acquisition", fullMonth.status === 200 && fullMonth.body?.depreciationProrate === "FULL_MONTH", `status ${fullMonth.status}`);
+    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2026-06" });
+    check("the June run drafts", juneRun.status === 201, `${juneRun.status}: ${JSON.stringify(juneRun.body).slice(0, 200)}`);
+    const juneLine = (juneRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-B");
+    checkEq("and the identical asset acquired on the 20th now carries the whole 3,100", ctx.n(juneLine?.amount), 3100);
+
+    const restore = await setTax({ depreciationProrate: "DAILY" });
+    check("the basis is restored", restore.status === 200 && restore.body?.depreciationProrate === "DAILY", `status ${restore.status}`);
   });
 }

@@ -42,6 +42,7 @@ import {
   type CreditCheckResult,
   can,
   type SalesInvoicePricingDeps,
+  type SalesInvoiceTaxPolicy,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -77,6 +78,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
+  /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
+  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -150,6 +153,7 @@ function serializeAppliedPromotion(promotion: AppliedSalesInvoicePromotion | nul
 
 function serializeTotals(totals: SalesInvoiceTotals) {
   return {
+    taxInclusive: totals.taxInclusive,
     grossTotal: totals.grossTotal.toString(),
     lineDiscountTotal: totals.lineDiscountTotal.toString(),
     promotionDiscountTotal: totals.promotionDiscountTotal.toString(),
@@ -177,6 +181,7 @@ function serialize(invoice: SalesInvoice, totals: SalesInvoiceTotals, returnedCr
     customerId: invoice.customerId,
     customerNameAr: invoice.customerNameAr,
     customerTaxExempt: invoice.customerTaxExempt,
+    taxInclusive: invoice.taxInclusive,
     warehouseId: invoice.warehouseId,
     branchId: invoice.branchId,
     salespersonId: invoice.salespersonId,
@@ -322,6 +327,7 @@ export function createSalesInvoicesRoutes(
       creditControl: deps.creditControl,
       promotions: deps.promotions,
       pricing: deps.pricing,
+      taxPolicy: deps.taxPolicy,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,

@@ -9,6 +9,8 @@ export interface CreateDepreciationRunCommand {
   /** "YYYY-MM" */
   readonly period: string;
   readonly branchId?: string | null;
+  /** Settings §"الضريبة" → `depreciationProrate`. Defaults to the IFRS daily proration. */
+  readonly prorate?: "DAILY" | "FULL_MONTH";
   readonly now?: () => string;
 }
 
@@ -55,7 +57,7 @@ export async function createDepreciationRun(
 
   const lines = eligible
     .map((asset) => {
-      const result = computeMonthlyDepreciation(asset, period);
+      const result = computeMonthlyDepreciation(asset, period, cmd.prorate ?? "DAILY");
       return { assetId: result.assetId, amount: result.amount };
     })
     .filter((line) => line.amount.scaled > 0n);

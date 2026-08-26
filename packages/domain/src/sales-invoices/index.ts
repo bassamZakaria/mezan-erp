@@ -60,6 +60,7 @@ export {
   applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
   type SalesInvoicePricingDeps,
+  type SalesInvoiceTaxPolicy,
   type PricingVariance,
   type SalesInvoiceCreditControlDeps,
   type CreateSalesInvoiceCommand,

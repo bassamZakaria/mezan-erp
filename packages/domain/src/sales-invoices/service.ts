@@ -91,6 +91,16 @@ export interface PricingVariance {
 /** The workflow action gated on confirm (docs/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
 
+/** The tenant's VAT rules as a document sees them (settings §"الضريبة"). */
+export interface SalesInvoiceTaxPolicy {
+  /** VAT switched off: every line on a new invoice is raised at a zero rate. */
+  readonly enabled: boolean;
+  /** The rate a line that names none is raised at. */
+  readonly defaultRatePercent: number;
+  /** Unit prices already contain the tax. */
+  readonly inclusive: boolean;
+}
+
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
   readonly numbering: DocumentNumberingHook;
@@ -112,6 +122,12 @@ export interface SalesInvoiceServiceDeps {
    */
   readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
+  /**
+   * The tenant's VAT rules (settings §"الضريبة"), read when a draft is raised
+   * and stamped onto it. Omit and an invoice behaves as it always did: tax
+   * added on top, and a line with no rate carries none.
+   */
+  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -200,7 +216,7 @@ export class SalesInvoiceService {
     if (await this.deps.repo.findById(cmd.id)) {
       throw new DuplicateSalesInvoiceError(cmd.id);
     }
-    const invoice = this.buildDraft(cmd);
+    const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy());
     this.validate(invoice);
     await this.deps.repo.save(invoice);
     this.emit("DOCUMENT_DRAFTED", invoice);
@@ -441,7 +457,13 @@ export class SalesInvoiceService {
 
   // --- internals ---
 
-  private buildDraft(cmd: CreateSalesInvoiceCommand): SalesInvoice {
+  private async resolveTaxPolicy(): Promise<SalesInvoiceTaxPolicy> {
+    if (!this.deps.taxPolicy) return { enabled: true, defaultRatePercent: 0, inclusive: false };
+    return this.deps.taxPolicy();
+  }
+
+  private buildDraft(cmd: CreateSalesInvoiceCommand, taxPolicy: SalesInvoiceTaxPolicy): SalesInvoice {
+    const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => ({
       lineId: l.lineId,
       itemId: l.itemId,
@@ -450,7 +472,7 @@ export class SalesInvoiceService {
       qty: l.qty,
       unitPrice: l.unitPrice,
       discountPercent: l.discountPercent ?? 0,
-      taxRatePercent: cmd.customerTaxExempt ? 0 : (l.taxRatePercent ?? 0),
+      taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent),
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
@@ -466,6 +488,7 @@ export class SalesInvoiceService {
       customerId: cmd.customerId,
       customerNameAr: cmd.customerNameAr,
       customerTaxExempt: cmd.customerTaxExempt ?? false,
+      taxInclusive: taxPolicy.inclusive,
       warehouseId: cmd.warehouseId,
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,

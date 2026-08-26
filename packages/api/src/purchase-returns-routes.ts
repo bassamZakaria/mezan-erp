@@ -1,7 +1,13 @@
 import { Hono } from "hono";
 import { Money, Qty, type DocumentService, type FrameworkDocument, type PurchaseInvoiceLookupPort, type PurchaseReturnLine } from "@mezan/domain";
 import { createPurchaseReturnSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import {
+  createPermissionGate,
+  headerAuthContextResolver,
+  warehouseScopeOf,
+  withinScope,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: PurchaseReturnLine) {
@@ -65,7 +71,14 @@ export function createPurchaseReturnsRoutes(
     const fromDate = c.req.query("fromDate");
     const toDate = c.req.query("toDate");
     const list = await service.list({ status: status as never, fromDate: fromDate ?? undefined, toDate: toDate ?? undefined });
-    return c.json(list.map(serialize));
+    // A return takes stock out of a warehouse, so the header's warehouse scope
+    // has to narrow it (R1.14).
+    // The warehouse is on the LINES, not the header, so a document is in
+    // scope when any of its lines is — the same rule the stock-document
+    // routes already apply.
+    const scope = warehouseScopeOf(c);
+    const scoped = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    return c.json(scoped.map(serialize));
   });
 
   app.get("/:id", gate("purchases.return.view"), async (c) => {

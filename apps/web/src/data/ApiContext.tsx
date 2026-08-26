@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   authHeaders,
   loadPersistedScopeSelection,
@@ -42,6 +43,8 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
   const [scopeSelection, setScopeSelectionState] = useState<ScopeSelection>(loadPersistedScopeSelection);
   const resolvedTransport = useMemo<Transport>(() => transport ?? resolveDefaultTransport(), [transport]);
 
+  const queryClient = useQueryClient();
+
   const setSession = useCallback((next: Session | null) => {
     setSessionState(next);
     persistSession(next);
@@ -55,6 +58,27 @@ export function ApiProvider({ children, transport, initialSession }: ApiProvider
     setScopeSelectionState(next);
     persistScopeSelection(next);
   }, []);
+
+  /**
+   * The scope rides in the request HEADERS, not in any query key, so nothing
+   * cached notices it changed: picking a warehouse relabelled the selector and
+   * left every list showing the previous scope's rows until a page reload.
+   * Dropping the cache is the honest fix — every cached answer was computed
+   * under a scope that no longer applies.
+   *
+   * In an EFFECT rather than inside the setter: invalidating in the same tick
+   * refetches before React has re-rendered, so `request` still closes over the
+   * previous selection and the new rows arrive under the OLD scope. Waiting
+   * until after the commit is what makes the refetch carry the new headers.
+   */
+  const firstScopeRender = useRef(true);
+  useEffect(() => {
+    if (firstScopeRender.current) {
+      firstScopeRender.current = false;
+      return;
+    }
+    void queryClient.invalidateQueries();
+  }, [scopeSelection, queryClient]);
 
   const value = useMemo<ApiContextValue>(
     () => ({

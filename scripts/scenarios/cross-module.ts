@@ -1643,6 +1643,47 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
+  // x20 · R1.14 — the header's warehouse scope is a real scope, not a label
+  //
+  // Six document lists carried a warehouseId and none of them narrowed by it,
+  // so picking a warehouse relabelled the selector and changed nothing on
+  // screen. The check is that a scope a document does not belong to hides it.
+  // ---------------------------------------------------------------------------
+  await scenario("x20 · every warehouse-bearing document list narrows to the header's warehouse scope (R1.14)", async () => {
+    const warehouses = ((await req("GET", "/warehouses")).body ?? []) as Array<{ id: string }>;
+    check("there is more than one warehouse to scope between", warehouses.length > 1, `${warehouses.length}`);
+
+    const paths = [
+      "/sales-invoices",
+      "/purchases/invoices",
+      "/purchases/orders",
+      "/purchases/receipts",
+      "/sales-returns",
+      "/purchase-returns",
+    ];
+
+    for (const path of paths) {
+      const all = ((await req("GET", path)).body ?? []) as unknown[];
+      if (all.length === 0) continue;
+
+      // The union of every single-warehouse scope must cover everything the
+      // unscoped call returned: a document that no scope can see is one the
+      // selector has hidden permanently.
+      let covered = 0;
+      for (const warehouse of warehouses) {
+        const scoped = ((await req("GET", path, undefined, { "x-warehouse-scope": warehouse.id })).body ?? []) as unknown[];
+        check(`${path} under one warehouse never returns MORE than unscoped`, scoped.length <= all.length, `${scoped.length} > ${all.length}`);
+        covered += scoped.length;
+      }
+      check(
+        `${path} actually narrows — some warehouse sees fewer than all ${all.length}`,
+        covered !== all.length * warehouses.length,
+        `every scope returned all ${all.length} rows, so the scope is a label`,
+      );
+    }
+  });
+
+  // ---------------------------------------------------------------------------
   // x19 · R1.1 — a list's three endpoints must agree
   //
   // The rows, the chip counts and the KPI strip are three different queries

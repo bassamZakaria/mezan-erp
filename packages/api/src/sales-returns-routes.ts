@@ -9,7 +9,13 @@ import {
   type SalesReturnLine,
 } from "@mezan/domain";
 import { createSalesReturnSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import {
+  createPermissionGate,
+  headerAuthContextResolver,
+  warehouseScopeOf,
+  withinScope,
+  type AuthContextResolver,
+} from "./permission-gate.js";
 import { handleDocumentError } from "./document-error-handling.js";
 
 function serializeLine(l: SalesReturnLine) {
@@ -91,7 +97,14 @@ export function createSalesReturnsRoutes(
       fromDate: fromDate ?? undefined,
       toDate: toDate ?? undefined,
     });
-    return c.json(list.map(serialize));
+    // A return moves stock back into a warehouse, so the header's warehouse
+    // scope has to narrow it (R1.14).
+    // The warehouse is on the LINES, not the header, so a document is in
+    // scope when any of its lines is — the same rule the stock-document
+    // routes already apply.
+    const scope = warehouseScopeOf(c);
+    const scoped = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    return c.json(scoped.map(serialize));
   });
 
   app.get("/:id", gate("sales.return.view"), async (c) => {

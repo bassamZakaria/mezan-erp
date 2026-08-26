@@ -55,6 +55,7 @@ import {
   headerAuthContextResolver,
   type AuthContextResolver,
   branchScopeOf,
+  warehouseScopeOf,
   withinScope,} from "./permission-gate.js";
 
 /**
@@ -433,10 +434,20 @@ export function createSalesInvoicesRoutes(
     // `open`/`overdue`/`all` are not stored statuses, so they must not reach
     // the repository — it would match none of them and return nothing.
     const repoFilter = status && !DERIVED_FILTER_KEYS.has(status) ? { ...dateFilter, status } : dateFilter;
+    /**
+     * BOTH scopes, not just the branch (R1.14). An invoice issues stock from a
+     * warehouse, so a user scoped to one warehouse was still seeing every
+     * other warehouse's invoices — the header selector relabelled the chrome
+     * and changed nothing on screen.
+     */
     let rows = withinScope(
-      await svc.list(repoFilter as Parameters<SalesInvoiceService["list"]>[0]),
-      branchScopeOf(c),
-      (inv) => inv.branchId,
+      withinScope(
+        await svc.list(repoFilter as Parameters<SalesInvoiceService["list"]>[0]),
+        branchScopeOf(c),
+        (inv) => inv.branchId,
+      ),
+      warehouseScopeOf(c),
+      (inv) => inv.warehouseId,
     );
     if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
     if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);

@@ -63,6 +63,7 @@ import {
   headerAuthContextResolver,
   type AuthContextResolver,
   branchScopeOf,
+  warehouseScopeOf,
   withinScope,} from "./permission-gate.js";
 
 /**
@@ -264,7 +265,14 @@ export function createPurchasesRoutes(
   // --- Purchase Orders -----------------------------------------------------
 
   app.get("/orders", gate("purchases.order.view"), async (c) => {
-    return c.json(withinScope(await deps.orders.list(), branchScopeOf(c), (o) => o.branchId).map(serializeOrder));
+    // Branch AND warehouse (R1.14): a purchase order receives into a
+    // warehouse, so the header's warehouse selector has to narrow it.
+    const orders = withinScope(
+      withinScope(await deps.orders.list(), branchScopeOf(c), (o) => o.branchId),
+      warehouseScopeOf(c),
+      (o) => o.warehouseId,
+    );
+    return c.json(orders.map(serializeOrder));
   });
 
   app.get("/orders/:id", gate("purchases.order.view"), async (c) => {
@@ -327,7 +335,10 @@ export function createPurchasesRoutes(
   // --- Goods Receipts ------------------------------------------------------
 
   app.get("/receipts", gate("purchases.receipt.view"), async (c) => {
-    return c.json((await deps.receipts.list()).map(serializeReceipt));
+    // A goods receipt carries no branch of its own — the warehouse is what it
+    // is attributable to.
+    const receipts = withinScope(await deps.receipts.list(), warehouseScopeOf(c), (r) => r.warehouseId);
+    return c.json(receipts.map(serializeReceipt));
   });
 
   app.get("/receipts/:id", gate("purchases.receipt.view"), async (c) => {
@@ -464,7 +475,11 @@ export function createPurchasesRoutes(
   }
 
   async function listFilteredInvoices(c: Context, filter: PurchaseInvoiceListQueryDTO): Promise<FilteredInvoices> {
-    let rows = withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId);
+    let rows = withinScope(
+      withinScope(await deps.invoices.list(), branchScopeOf(c), (i) => i.branchId),
+      warehouseScopeOf(c),
+      (i) => i.warehouseId,
+    );
     const { status, supplierId, fromDate, toDate, branchId, warehouseId, search } = filter;
     if (supplierId) rows = rows.filter((inv) => inv.supplierId === supplierId);
     if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);

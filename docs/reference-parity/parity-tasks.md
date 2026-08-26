@@ -40,7 +40,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [x] المحاسبة → التعريفات / الدورة / التقارير · الموارد البشرية → الموظفون / الحضور والإجازات / الرواتب
 - [x] **R1.5** Ctrl+K command palette: quick actions + go-to — go-to entries generated from the nav specs, so the palette cannot drift out of step with the sidebar
 - [ ] **R1.6** Notification centre (all / unread, mark all read)
-- [ ] **R1.14** Branch and warehouse as a global header scope
+- [x] **R1.14** Branch and warehouse as a global header scope — six document lists now narrow by warehouse, and changing the scope refetches
 - [x] **R1.9** Attention banners on lists (overdue, out of stock, drafts) that apply the filter when clicked
 - [~] **R1.10 / R1.11 / R1.12 / R1.13** Empty states with a CTA, collapsible KPI strip, page-size selector, active-filter badge
 - [ ] **R1.7 / R1.8** System-status indicator and support entry point

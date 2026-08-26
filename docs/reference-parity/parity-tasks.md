@@ -90,12 +90,13 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 - [x] **R3.6** Customer 360: overview, invoices, statement, installments, returns, attachments and audit — and customer create/update now emit the audit events the trail tab needs
 - [x] **R4.5** Supplier 360: the dated supplier statement, reconciled against both the open-invoice sub-ledger and the aging report, and the action bar (فاتورة مشتريات جديدة · سداد للمورد · أمر شراء جديد)
-- [~] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
+- [~] **R5.5** (all but the purchase-request action) Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
   - [x] stock by warehouse with available / reserved / total
   - [x] cost layers (remaining qty, unit cost, source, date)
   - [x] price lists (list, base price, custom price, delta)
-  - [ ] specifications, attachments, audit log tabs
-  - [ ] header actions: adjust stock, transfer, raise purchase request, movement ledger
+  - [x] specifications (named from the catalogue, following the reading language), attachments, movement ledger and audit log tabs
+  - [x] header actions: adjust stock and transfer, both routing with the item already answered
+  - [ ] "raise purchase request" — no purchase-request document type exists in this product, and routing to a purchase order without prefilling the item would be a half-wired control. Needs the document type, or the purchase-order form to accept an item prefill
 - [x] **R5.6** Reserved stock per warehouse — derived from open documents, never stored
 - [x] **R10.1** HR dashboard: department/branch/attendance-mix charts, headcount-movement trend, absence and late-arrival KPIs, leave entitlement columns
 - [x] **R10.2** Employee 360 tabs and the re-hire action (attachments tab waits on R1.4; audit tab waits on an `entityId` on the audit event)

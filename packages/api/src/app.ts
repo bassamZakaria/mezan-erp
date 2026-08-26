@@ -1000,7 +1000,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.items) {
     app.route(
       "/items",
-      createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots, options.settingsStore),
+      createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots, options.settingsStore, options.auditSink),
     );
   }
   if (options.accountRouting) {

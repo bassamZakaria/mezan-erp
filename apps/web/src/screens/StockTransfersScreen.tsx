@@ -89,9 +89,12 @@ export function StockTransfersScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
-  // `#/inventory/stock-transfers` · `…/new` · `…/<docNo>`
+  // `#/inventory/stock-transfers` · `…/new` · `…/new/<itemId>` · `…/<docNo>`
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
+  // Set when «تحويل مخزني» on the item detail routes here, so the first line
+  // opens on that item instead of making the user find it again.
+  const routedItemId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
 
@@ -147,7 +150,7 @@ export function StockTransfersScreen() {
   }
 
   if (firstSegment === "new") {
-    return <CreateTransferView warehouses={warehouses} items={items} onDone={subPage.close} />;
+    return <CreateTransferView warehouses={warehouses} items={items} onDone={subPage.close} initialItemId={routedItemId} />;
   }
 
   if (selected) {
@@ -274,10 +277,12 @@ function CreateTransferView({
   warehouses,
   items,
   onDone,
+  initialItemId,
 }: {
   warehouses: ReturnType<typeof useWarehouses>["data"];
   items: ReturnType<typeof useItems>["data"];
   onDone: () => void;
+  initialItemId?: string | null;
 }) {
   const { t } = useAppTranslation();
   const createTransfer = useCreateStockTransfer();
@@ -289,7 +294,9 @@ function CreateTransferView({
   const [memo, setMemo] = useState("");
   const [fromWarehouseId, setFromWarehouseId] = useState(warehouseList[0]?.id ?? "");
   const [toWarehouseId, setToWarehouseId] = useState(warehouseList[1]?.id ?? warehouseList[0]?.id ?? "");
-  const [lines, setLines] = useState<LineDraft[]>([blankLine()]);
+  // Seeded once from the route, not synchronised: the user must be able to
+  // change the line the item detail put here.
+  const [lines, setLines] = useState<LineDraft[]>(() => [{ ...blankLine(), itemId: initialItemId ?? "" }]);
   const [error, setError] = useState<string | null>(null);
 
   function warehouseLabel(id: string): string {

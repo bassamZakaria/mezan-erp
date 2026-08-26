@@ -37,6 +37,8 @@ import {
   usePriceLists,
   useSuppliers,
   useWarehouses,
+  useEntityAudit,
+  useItemMovements,
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
@@ -368,6 +370,126 @@ function ItemPriceListsTab({ item }: { item: ItemDTO }) {
 }
 
 /** طبقات التكلفة — the immutable WAC layers still holding stock (D43, R5.5). */
+/**
+ * The item's own specification values, named by the catalogue definition rather
+ * than by the raw code. The definition carries nameEn, so the label follows the
+ * reading language instead of printing Arabic into the English UI (D49).
+ */
+function ItemSpecificationsTab({ item }: { item: ItemDTO }) {
+  const { t, locale } = useAppTranslation();
+  const definitions = useItemSpecifications().data ?? [];
+  const values = (item.specifications ?? []).filter((spec) => spec.value.trim() !== "");
+  if (values.length === 0) {
+    return <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.specifications.empty")}</p>;
+  }
+  const nameOf = (code: string) => {
+    const def = definitions.find((d) => d.code === code);
+    if (!def) return code;
+    return locale === "en" ? (def.nameEn ?? def.nameAr) : def.nameAr;
+  };
+  const unitOf = (code: string) => definitions.find((d) => d.code === code)?.unit ?? null;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[420px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("items.specifications.col.spec")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("items.specifications.col.value")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {values.map((spec) => {
+            const unit = unitOf(spec.code);
+            return (
+              <tr key={spec.code} className="border-b border-border last:border-b-0">
+                <td className="px-[12px] py-[10px] text-ink">{nameOf(spec.code)}</td>
+                <td className="px-[12px] py-[10px] text-ink">{unit ? `${spec.value} ${unit}` : spec.value}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ItemMovementsTab({ itemId }: { itemId: string }) {
+  const { t } = useAppTranslation();
+  const stock = useItemStock(itemId);
+  const warehouses = useWarehouses().data ?? [];
+  const warehouseName = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+  const warehouseIds = useMemo(() => (stock.data?.positions ?? []).map((p) => p.warehouseId), [stock.data]);
+  const query = useItemMovements(itemId, warehouseIds);
+  const movements = query.data ?? [];
+
+  if (movements.length === 0) {
+    return <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.movements.empty")}</p>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[620px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("common.date")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("items.movements.col.source")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("stockBalance.filter.warehouse")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("items.movements.col.direction")}</th>
+            <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
+            <th className="px-[12px] py-[9px] text-end">{t("items.costPrice")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {movements.map((m) => (
+            <tr key={m.id} className="border-b border-border last:border-b-0">
+              <td className="mz-num px-[12px] py-[10px]">{m.occurredAt.slice(0, 10)}</td>
+              <td className="px-[12px] py-[10px] text-ink">{m.sourceDocNumber ?? m.sourceDocId ?? "—"}</td>
+              <td className="px-[12px] py-[10px] text-ink-muted">{warehouseName(m.warehouseId)}</td>
+              <td className="px-[12px] py-[10px]">
+                {m.direction.toUpperCase() === "IN" ? t("items.movements.in") : t("items.movements.out")}
+              </td>
+              <td className="mz-num px-[12px] py-[10px] text-end">{m.qty}</td>
+              <td className="mz-num px-[12px] py-[10px] text-end">
+                <Money value={Number(m.unitCost)} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ItemAuditTab({ itemId }: { itemId: string }) {
+  const { t } = useAppTranslation();
+  const query = useEntityAudit("ITEM", itemId);
+  const events = query.data ?? [];
+  if (events.length === 0) {
+    return <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.audit.empty")}</p>;
+  }
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("audit.dateAndTime")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("audit.action")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("audit.user")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className="border-b border-border last:border-b-0">
+              <td className="mz-num px-[12px] py-[10px]">{e.timestamp}</td>
+              <td className="px-[12px] py-[10px]">{e.action}</td>
+              <td className="px-[12px] py-[10px]">{e.actor}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ItemCostLayersTab({ itemId }: { itemId: string }) {
   const { t } = useAppTranslation();
   const query = useItemStock(itemId);
@@ -1110,9 +1232,24 @@ export function ItemsScreen() {
         content: <ItemPriceListsTab item={item} />,
       },
       {
+        key: "specifications",
+        label: t("items.tab.specifications"),
+        content: <ItemSpecificationsTab item={item} />,
+      },
+      {
         key: "attachments",
         label: t("attachments.tab"),
         content: <AttachmentsTab entityType="item" entityId={item.id} />,
+      },
+      {
+        key: "movements",
+        label: t("items.tab.movements"),
+        content: <ItemMovementsTab itemId={item.id} />,
+      },
+      {
+        key: "audit",
+        label: t("items.tab.audit"),
+        content: <ItemAuditTab itemId={item.id} />,
       },
     ];
 
@@ -1132,6 +1269,14 @@ export function ItemsScreen() {
                 }}
               >
                 {t("items.backToTheList")}
+              </Button>
+              {/* `any` in the reason slot: the item is known, the reason is the
+                  user's to choose, and it decides which account absorbs it. */}
+              <Button onClick={() => openScreenAt("stock-adjustments", ["new", "any", item.id])}>
+                {t("items.action.adjustStock")}
+              </Button>
+              <Button onClick={() => openScreenAt("stock-transfers", ["new", item.id])}>
+                {t("items.action.transfer")}
               </Button>
               <Button variant="primary" onClick={() => openEditForm(item)}>
                 {t("common.edit")}

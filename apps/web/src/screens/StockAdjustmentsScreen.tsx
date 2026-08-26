@@ -143,6 +143,12 @@ export function StockAdjustmentsScreen() {
    * zero-stock item row lands here already answered (R5.3). Derived from the
    * route rather than synchronised into state, so a reload or a shared link
    * reopens exactly the same form.
+   *
+   * The two are independent: a caller that knows the item but not the reason
+   * passes `any` in the reason slot and still arrives with the item answered,
+   * which is what «تسوية المخزون» on the item detail does. Anything that is not
+   * a real reason leaves the picker open rather than guessing one, because the
+   * reason decides which GL account absorbs the movement.
    */
   const routedReason = subPage.segments[1];
   const routedItemId = subPage.segments[2] ?? null;

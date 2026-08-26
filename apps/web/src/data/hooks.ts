@@ -5932,3 +5932,49 @@ export function usePayPurchaseInvoice() {
     },
   });
 }
+
+export interface StockMovementRowDTO {
+  readonly id: string;
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly direction: string;
+  readonly qty: string;
+  readonly unitCost: string;
+  readonly sourceDocType: string | null;
+  readonly sourceDocId: string | null;
+  readonly sourceDocNumber: string | null;
+  readonly reason: string | null;
+  readonly occurredAt: string;
+}
+
+/**
+ * Every movement of one item across every warehouse it sits in. The endpoint is
+ * per (item, warehouse), so the warehouses come from the item's own positions
+ * and the results are merged here — asking for a warehouse the item has never
+ * been in would only return an empty list.
+ */
+export function useItemMovements(
+  itemId: string | null,
+  warehouseIds: readonly string[],
+): UseQueryResult<StockMovementRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<StockMovementRowDTO[], ApiError>({
+    queryKey: ["item-movements", itemId, [...warehouseIds].sort()],
+    enabled: session !== null && itemId !== null && warehouseIds.length > 0,
+    queryFn: async () => {
+      const pages = await Promise.all(
+        warehouseIds.map(async (warehouseId) => {
+          const res = await request(
+            `/inventory/movements?itemId=${encodeURIComponent(itemId ?? "")}&warehouseId=${encodeURIComponent(warehouseId)}`,
+          );
+          if (!res.ok) throw new ApiError(res.status, t("api.stockMovementsCouldNotBe"));
+          return res.json<StockMovementRowDTO[]>();
+        }),
+      );
+      return pages
+        .flat()
+        .sort((a, b) => (a.occurredAt === b.occurredAt ? a.id.localeCompare(b.id) : b.occurredAt.localeCompare(a.occurredAt)));
+    },
+  });
+}

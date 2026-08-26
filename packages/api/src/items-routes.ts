@@ -10,11 +10,13 @@ import {
   InvalidItemError,
   ItemNotFoundError,
   type Item,
+  recordSensitiveEvent,
+  type AuditSink,
   type ItemRepository,
   type AlternateUnit,
   type WacSnapshotRepository, matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of an item — money as decimal strings, byte-stable. */
 function serialize(item: Item) {
@@ -99,9 +101,39 @@ export function createItemsRouter(
   snapshots?: WacSnapshotRepository,
   /** Tenant settings, so a new item inherits the tenant's own default VAT rate (§"الضريبة"). */
   settings?: SettingsRepository,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * An item's own trail. The sale and cost prices are why this matters: they
+   * decide the margin every invoice line books, and a quiet edit to either
+   * restates profitability on documents nobody re-opened.
+   */
+  async function record(c: Context, item: Item, action: "CREATE" | "UPDATE", before?: Item) {
+    if (!audit) return;
+    const priceMoved =
+      before !== undefined &&
+      (before.salePrice?.scaled !== item.salePrice?.scaled || before.costPrice?.scaled !== item.costPrice?.scaled);
+    await recordSensitiveEvent(audit, {
+      module: "inventory",
+      entityType: "ITEM",
+      entityId: item.id,
+      action,
+      actor: getAuthContext(c)?.userId ?? "system",
+      severity: priceMoved ? "WARNING" : "INFO",
+      details: {
+        code: item.code,
+        nameAr: item.nameAr,
+        salePrice: item.salePrice?.toString() ?? null,
+        costPrice: item.costPrice?.toString() ?? null,
+        ...(before
+          ? { previousSalePrice: before.salePrice?.toString() ?? null, previousCostPrice: before.costPrice?.toString() ?? null }
+          : {}),
+      },
+    });
+  }
 
   /**
    * The list carries each item's on-hand quantity and its stock state (R5.2).
@@ -170,6 +202,7 @@ export function createItemsRouter(
         },
         repo,
       );
+      await record(c, item, "CREATE");
       return c.json(serialize(item), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -182,6 +215,7 @@ export function createItemsRouter(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const before = await repo.findById(c.req.param("id"));
       const item = await updateItem(
         c.req.param("id"),
         {
@@ -192,6 +226,7 @@ export function createItemsRouter(
         },
         repo,
       );
+      await record(c, item, "UPDATE", before ?? undefined);
       return c.json(serialize(item));
     } catch (err) {
       return handleDomainError(c, err);

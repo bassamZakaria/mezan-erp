@@ -9,6 +9,7 @@ import {
   DocumentStatusStepper,
   FulcrumRule,
   IconButton,
+  RowMenu,
   SidePanel,
   Select,
   StatusPill,
@@ -16,6 +17,7 @@ import {
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contracts";
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
@@ -93,6 +95,10 @@ export function StockTransfersScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
+  const listConfirm = useConfirmStockTransfer();
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
   // `#/inventory/stock-transfers` · `…/new` · `…/new/<itemId>` · `…/<docNo>`
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -151,6 +157,19 @@ export function StockTransfersScreen() {
   function openDetail(id: string) {
     const doc = documents.find((d) => d.id === id);
     subPage.open(doc?.docNo ?? id);
+  }
+
+  async function confirmRow(id: string): Promise<void> {
+    if (rowPendingId) return;
+    setRowError(null);
+    setRowPendingId(id);
+    try {
+      await listConfirm.mutateAsync(id);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
+    }
   }
 
   if (firstSegment === "new") {
@@ -236,6 +255,11 @@ export function StockTransfersScreen() {
 
   return (
     <div className="w-full">
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<StockTransferDocumentDTO>
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
@@ -265,6 +289,16 @@ export function StockTransfersScreen() {
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
+        rowAction={(d) => {
+          // A confirmed transfer is irreversible; the counter-move is a new transfer, so it offers no confirm and no cancel.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
+            ...(d.status === "draft"
+              ? [{ key: "confirm", label: t("stockXfer.row.confirm"), disabled: rowPendingId === d.id, onSelect: () => void confirmRow(d.id) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

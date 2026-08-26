@@ -6761,6 +6761,10 @@ const webAr = {
   "quotes.row.actionsFor": "إجراءات {doc}",
   "common.rowActionsFor": "إجراءات {name}",
   "common.markRead": "تعليم كمقروء",
+  "stockAdj.row.confirm": "تأكيد التسوية",
+  "stockXfer.row.confirm": "تأكيد التحويل",
+  "instalments.confirmPlan": "تأكيد الخطة",
+  "followUps.cancelFollowUp": "إلغاء المتابعة",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -13527,6 +13531,10 @@ const webEn: Record<WebTranslationKey, string> = {
   "quotes.row.actionsFor": "Actions for {doc}",
   "common.rowActionsFor": "Actions for {name}",
   "common.markRead": "Mark as read",
+  "stockAdj.row.confirm": "Confirm adjustment",
+  "stockXfer.row.confirm": "Confirm transfer",
+  "instalments.confirmPlan": "Confirm plan",
+  "followUps.cancelFollowUp": "Cancel follow-up",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

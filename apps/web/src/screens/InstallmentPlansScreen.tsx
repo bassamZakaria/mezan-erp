@@ -4,12 +4,14 @@ import {
   Card,
   DocumentList,
   Money as MoneyDisplay,
+  RowMenu,
   SidePanel,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { Money, generateInstallmentSchedule } from "@mezan/domain";
 import type { DocumentStatusDTO, InstallmentFrequencyDTO, InstallmentPlanDocumentDTO } from "@mezan/contracts";
@@ -23,7 +25,7 @@ import {
   useSalesInvoices,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
-import { useScreenIntent } from "../navigation";
+import { useNavigation, useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
 
@@ -73,6 +75,8 @@ export function InstallmentPlansScreen() {
   );
 
   const [panel, setPanel] = useState<"none" | "create" | "overdue" | { id: string }>("none");
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
+  const { openScreenAt } = useNavigation();
   // Arriving from «إنشاء خطة أقساط» on an invoice row, that invoice is the plan's
   // subject — open the form already pointed at it.
   useScreenIntent((intent) => {
@@ -158,11 +162,28 @@ export function InstallmentPlansScreen() {
   }
 
   async function cancelExisting(id: string) {
+    if (rowPendingId) return;
     setError(null);
+    setRowPendingId(id);
     try {
       await cancelPlan.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
+    }
+  }
+
+  async function confirmExisting(id: string) {
+    if (rowPendingId) return;
+    setError(null);
+    setRowPendingId(id);
+    try {
+      await confirmPlan.mutateAsync(id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
     }
   }
 
@@ -250,6 +271,36 @@ export function InstallmentPlansScreen() {
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}
+        rowAction={(d) => {
+          // A cancelled or fully settled plan is terminal; only a live one offers the source invoice's collection route.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
+            ...(d.status === "draft"
+              ? [{ key: "confirm", label: t("instalments.confirmPlan"), disabled: rowPendingId === d.id, onSelect: () => void confirmExisting(d.id) }]
+              : []),
+            ...(d.lines[0]
+              ? [
+                  {
+                    key: "invoice",
+                    label: t("salesReturns.row.viewSourceInvoice"),
+                    onSelect: () => openScreenAt("sales-invoices", [d.lines[0]?.sourceInvoiceId ?? ""]),
+                  },
+                ]
+              : []),
+            ...(d.status === "draft" || d.status === "confirmed"
+              ? [
+                  {
+                    key: "cancel",
+                    label: t("instalments.cancelPlan"),
+                    tone: "danger" as const,
+                    disabled: rowPendingId === d.id,
+                    onSelect: () => void cancelExisting(d.id),
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.docNo ?? d.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

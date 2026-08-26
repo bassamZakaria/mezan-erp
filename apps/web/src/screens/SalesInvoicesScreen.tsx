@@ -38,6 +38,7 @@ import {
   useEmployees,
   useItems,
   useSettings,
+  useItemAvailability,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
   useJournalEntry,
@@ -120,6 +121,44 @@ function blankLine(): InvoiceLineDraft {
  * panel: a create form is a place you can be, link to and come back to with the
  * browser's Back button.
  */
+/**
+ * Live availability for one invoice line. The other-warehouse figures are shown
+ * only when the server sends them, which it does only when the tenant's عرض
+ * المخزون في المستودعات الأخرى is on — the screen never decides that itself.
+ */
+function LineAvailability({
+  itemId,
+  warehouseId,
+  warehouses,
+}: {
+  itemId: string;
+  warehouseId: string;
+  warehouses: readonly { id: string; name: string }[];
+}) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
+  const availability = useItemAvailability(itemId, warehouseId);
+  if (!availability.data) return null;
+
+  const onHand = Number(availability.data.onHand);
+  const others = availability.data.otherWarehouses;
+  const nameOf = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[3px] text-[11.5px]">
+      <span className={onHand > 0 ? "text-ink-muted" : "font-semibold text-danger-ink"}>
+        {onHand > 0 ? `${t("salesInvoices.lineAvailable")} ${format.qty(onHand)}` : t("salesInvoices.lineOutOfStock")}
+      </span>
+      {others.length > 0 ? (
+        <span className="text-ink-muted">
+          {t("salesInvoices.lineOtherWarehouses")}:{" "}
+          {others.map((w) => `${nameOf(w.warehouseId)} ${format.qty(Number(w.onHand))}`).join(" · ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function CreateInvoicePage({ onClose }: { onClose: () => void }) {
   const { t } = useAppTranslation();
   const format = useFormat();
@@ -573,6 +612,7 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
                         {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
                       </div>
                     ) : null}
+                    <LineAvailability itemId={item.id} warehouseId={warehouseId} warehouses={warehouses} />
                   </>
                 ) : null}
               </div>

@@ -7,6 +7,8 @@ import {
   InvalidStockMovementError,
   SameWarehouseTransferError,
   rollupStockBalance,
+  createDefaultSettings,
+  type SettingsRepository,
   type StockMovement,
   type WacSnapshot,
   type DriftReport,
@@ -149,9 +151,36 @@ function requireQuery(c: Context, name: string): string {
 export function createInventoryRoutes(
   service: StockLedgerService,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * Tenant settings §"سياسة المخزون". `showOtherWarehouseStock` decides whether
+   * `GET /availability` may say what the OTHER warehouses hold — a tenant that
+   * switched it off does not want a counter clerk quoting another branch's stock.
+   */
+  settings?: SettingsRepository,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  app.get("/availability", gate("inventory.stock.view"), async (c) => {
+    const itemId = requireQuery(c, "itemId");
+    const warehouseId = requireQuery(c, "warehouseId");
+    const { positions } = await service.getValuation();
+    const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
+    const mine = scoped.find((p) => p.itemId === itemId && p.warehouseId === warehouseId);
+    const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
+    const showOthers = tenant?.showOtherWarehouseStock ?? false;
+    return c.json({
+      itemId,
+      warehouseId,
+      onHand: (mine?.onHand ?? Qty.zero()).toString(),
+      showOtherWarehouseStock: showOthers,
+      otherWarehouses: showOthers
+        ? scoped
+            .filter((p) => p.itemId === itemId && p.warehouseId !== warehouseId && !p.onHand.isZero())
+            .map((p) => ({ warehouseId: p.warehouseId, onHand: p.onHand.toString() }))
+        : [],
+    });
+  });
 
   app.get("/balance", gate("inventory.stock.view"), async (c) => {
     try {

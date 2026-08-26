@@ -613,6 +613,31 @@ async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
     checkEq("and the position is still level", await onHand(), 0);
   });
 
+  await scenario("settings / سياسة المخزون — عرض المخزون في المستودعات الأخرى decides what a line's availability lookup may say", async () => {
+    const path = "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN";
+    const on = await setPolicy({ showOtherWarehouseStock: true });
+    check("the switch is on", on.status === 200 && on.body?.showOtherWarehouseStock === true, `status ${on.status}`);
+
+    const withOthers = await req("GET", path);
+    check("the availability lookup answers for the document's own warehouse", withOthers.status === 200 && withOthers.body?.warehouseId === WAREHOUSE, `${withOthers.status}: ${JSON.stringify(withOthers.body).slice(0, 200)}`);
+    check("and says so is on", withOthers.body?.showOtherWarehouseStock === true, JSON.stringify(withOthers.body?.showOtherWarehouseStock));
+    check(
+      "and it really lists what the OTHER warehouses hold, with a real warehouse id on every row",
+      (withOthers.body?.otherWarehouses ?? []).length > 0 &&
+        (withOthers.body?.otherWarehouses ?? []).every((w: any) => typeof w.warehouseId === "string" && w.warehouseId !== WAREHOUSE),
+      JSON.stringify(withOthers.body?.otherWarehouses),
+    );
+
+    const off = await setPolicy({ showOtherWarehouseStock: false });
+    check("the switch is turned off", off.status === 200 && off.body?.showOtherWarehouseStock === false, `status ${off.status}`);
+    const withoutOthers = await req("GET", path);
+    check("the same lookup still reports this warehouse's own on-hand", withoutOthers.status === 200 && withoutOthers.body?.onHand === withOthers.body?.onHand, `${withoutOthers.status}: ${JSON.stringify(withoutOthers.body).slice(0, 200)}`);
+    check("but says nothing at all about the other warehouses — the server withholds it, the screen never had to", (withoutOthers.body?.otherWarehouses ?? []).length === 0, JSON.stringify(withoutOthers.body?.otherWarehouses));
+
+    const back = await setPolicy({ showOtherWarehouseStock: true });
+    check("the switch is restored", back.status === 200 && back.body?.showOtherWarehouseStock === true, `status ${back.status}`);
+  });
+
   await scenario("settings / سياسة المخزون — مخصص هبوط المخزون الراكد drives the write-down batch's own bands", async () => {
     const seeded = await settings();
     const off = await setPolicy({ agingWritedownEnabled: false });

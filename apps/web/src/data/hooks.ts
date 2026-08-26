@@ -5137,6 +5137,33 @@ export function useSendTestEmail() {
   });
 }
 
+export interface ItemAvailabilityDTO {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly onHand: string;
+  readonly showOtherWarehouseStock: boolean;
+  readonly otherWarehouses: readonly { readonly warehouseId: string; readonly onHand: string }[];
+}
+
+/**
+ * On-hand for one item in the document's warehouse, plus what the OTHER
+ * warehouses hold — the latter only when the tenant's عرض المخزون في المستودعات
+ * الأخرى is on, which the server decides, not the screen.
+ */
+export function useItemAvailability(itemId: string, warehouseId: string): UseQueryResult<ItemAvailabilityDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ItemAvailabilityDTO, ApiError>({
+    queryKey: ["inventory-availability", itemId, warehouseId],
+    enabled: session !== null && itemId !== "" && warehouseId !== "",
+    queryFn: async () => {
+      const res = await request(`/inventory/availability?itemId=${encodeURIComponent(itemId)}&warehouseId=${encodeURIComponent(warehouseId)}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.itemAvailabilityCouldNotBe"));
+      return res.json<ItemAvailabilityDTO>();
+    },
+  });
+}
+
 /** The currencies a document is allowed to carry — the read side of تفعيل تعدد العملات. */
 export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, ApiError> {
   const { t } = useAppTranslation();

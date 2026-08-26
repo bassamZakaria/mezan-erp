@@ -988,7 +988,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.inventory) {
     app.route(
       "/inventory",
-      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
+      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext, options.settingsStore),
     );
   }
   // Mounted BEFORE `/purchases` (below): Hono matches registration order for

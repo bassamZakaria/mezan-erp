@@ -141,6 +141,7 @@ const READ_PATHS = [
   "/inventory/writedown-runs",
   "/workflow/requests",
   "/settings/currencies",
+  "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN",
 ];
 
 interface Failure {

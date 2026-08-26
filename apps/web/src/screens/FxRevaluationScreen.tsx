@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import {
   Button,
+  Card,
   Checkbox,
   Chip,
   DocumentList,
@@ -11,17 +12,20 @@ import {
   formatNumber,
   type DocumentListColumn,
 } from "@mezan/ui";
-import type { FxRevaluationDetailDTO } from "@mezan/contracts";
-import { nextDay } from "@mezan/domain";
-import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
+import type { CurrencyBalanceGroupDTO, FxRevaluationDetailDTO } from "@mezan/contracts";
+import { foreignCurrencies, nextDay } from "@mezan/domain";
+import {
+  useAllowedCurrencies,
+  useFxRevaluationPost,
+  useFxRevaluationPreview,
+  usePartyBalancesByCurrency,
+} from "../data/hooks";
 import { useAppTranslation } from "../i18n";
 import { monthEndIso } from "../lib/dates";
 
 function fmt(value: string, digits = 2): string {
   return formatNumber(Number(value), { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
-
-const CURRENCIES = ["USD", "EUR", "SAR", "AED", "QAR", "KWD", "GBP"];
 
 /**
  * إعادة تقييم العملات الأجنبية — FX Revaluation (docs/catalog/04). Revalues open
@@ -34,6 +38,11 @@ export function FxRevaluationScreen() {
   const { t } = useAppTranslation();
   const previewMutation = useFxRevaluationPreview();
   const postMutation = useFxRevaluationPost();
+  const allowedCurrencies = useAllowedCurrencies();
+  const balancesQuery = usePartyBalancesByCurrency();
+  const baseCurrency = allowedCurrencies.data?.base ?? "EGP";
+  const currencyCodes = foreignCurrencies(baseCurrency).map((c) => c.code);
+  const balances = balancesQuery.data ?? null;
   const [toDate, setToDate] = useState(monthEndIso());
   const [autoReverse, setAutoReverse] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
@@ -112,7 +121,7 @@ export function FxRevaluationScreen() {
         <div className="mt-[12px] flex flex-wrap items-center gap-[8px]">
           <span className="text-[12px] text-ink-muted">{t("fx.currencies")}</span>
           <Chip active={selected.length === 0} onClick={() => setSelected([])}>{t("common.all")}</Chip>
-          {CURRENCIES.map((c) => (
+          {currencyCodes.map((c) => (
             <Chip key={c} active={selected.includes(c)} onClick={() => toggleCurrency(c)}>{c}</Chip>
           ))}
         </div>
@@ -146,6 +155,98 @@ export function FxRevaluationScreen() {
       ) : (
         <div className="rounded-lg border border-dashed border-border p-8 text-center text-sm text-ink-muted">{t("fx.pressPreviewToListThe")}</div>
       )}
+
+      {/*
+        R1.16 — what the revaluation above is actually exposed to. A balance
+        collapsed to base loses which currency it is denominated in, so this
+        reports both: the base figure the control account holds, and the
+        figure the customer or supplier owes in the currency they were billed.
+      */}
+      <section className="mt-[24px]">
+        <h2 className="font-display text-lg font-bold text-ink">{t("fx.balances.title")}</h2>
+        <p className="mt-[4px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("fx.balances.description")}</p>
+
+        {balancesQuery.isError ? (
+          <div role="alert" className="mt-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {t("fx.balances.couldNotLoad")}
+          </div>
+        ) : null}
+
+        <div className="mt-[14px] grid grid-cols-1 gap-[16px] lg:grid-cols-2">
+          <CurrencyBalanceTable
+            heading={t("fx.balances.receivables")}
+            groups={balances?.receivables ?? []}
+            totalBase={balances?.receivableTotalBase ?? "0"}
+          />
+          <CurrencyBalanceTable
+            heading={t("fx.balances.payables")}
+            groups={balances?.payables ?? []}
+            totalBase={balances?.payableTotalBase ?? "0"}
+          />
+        </div>
+      </section>
     </div>
+  );
+}
+
+function CurrencyBalanceTable({
+  heading,
+  groups,
+  totalBase,
+}: {
+  heading: string;
+  groups: readonly CurrencyBalanceGroupDTO[];
+  totalBase: string;
+}) {
+  const { t } = useAppTranslation();
+  const headCell =
+    "whitespace-nowrap border-b border-border bg-surface-2 px-[13px] py-[9px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted";
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex flex-wrap items-baseline justify-between gap-[8px] border-b border-border px-[14px] py-[10px]">
+        <h3 className="text-[13px] font-bold text-ink">{heading}</h3>
+        <span className="text-[11.5px] text-ink-muted">
+          {t("fx.balances.totalBase")} <span className="mz-num font-bold text-ink">{fmt(totalBase)}</span>
+        </span>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[420px] border-collapse text-[13px]">
+          <thead>
+            <tr>
+              <th scope="col" className={headCell}>{t("fx.balances.party")}</th>
+              <th scope="col" className={headCell}>{t("fx.currency")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.transactionAmount")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.baseAmount")}</th>
+              <th scope="col" className={headCell}>{t("fx.balances.documents")}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {groups.map((group) => (
+              <Fragment key={group.currency}>
+                <tr className="border-b border-border bg-surface-2">
+                  <td className="px-[13px] py-[8px] font-bold text-ink" colSpan={2}>{group.currency}</td>
+                  <td className="mz-num px-[13px] py-[8px] font-bold text-ink">{fmt(group.outstandingTransaction)}</td>
+                  <td className="mz-num px-[13px] py-[8px] font-bold text-ink">{fmt(group.outstandingBase)}</td>
+                  <td className="px-[13px] py-[8px]" />
+                </tr>
+                {group.parties.map((party) => (
+                  <tr key={`${group.currency}-${party.partyId}`} className="border-b border-border last:border-b-0">
+                    <td className="px-[13px] py-[8px] text-ink">{party.partyName}</td>
+                    <td className="mz-num px-[13px] py-[8px] text-ink-muted">{party.currency}</td>
+                    <td className="mz-num px-[13px] py-[8px] text-ink">{fmt(party.outstandingTransaction)}</td>
+                    <td className="mz-num px-[13px] py-[8px] text-ink-muted">{fmt(party.outstandingBase)}</td>
+                    <td className="mz-num px-[13px] py-[8px] text-ink-muted">{party.documentCount}</td>
+                  </tr>
+                ))}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+        {groups.length === 0 ? (
+          <div className="p-6 text-center text-[12.5px] text-ink-muted">{t("fx.balances.empty")}</div>
+        ) : null}
+      </div>
+    </Card>
   );
 }

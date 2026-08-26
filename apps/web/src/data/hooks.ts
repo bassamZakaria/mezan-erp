@@ -41,6 +41,9 @@ import type {
   ConvertRfqDTO,
   ConvertSalesQuoteToInvoiceDTO,
   CostCenterDTO,
+  ImportableDepartmentDTO,
+  CreateCostCentersFromDepartmentsDTO,
+  PartyCurrencyBalanceReportDTO,
   CostCenterPnLReportDTO,
   CreateAccountDTO,
   CreateActivityDTO,
@@ -5929,6 +5932,54 @@ export function usePayPurchaseInvoice() {
       queryClient.invalidateQueries({ queryKey: ["suppliers"] });
       queryClient.invalidateQueries({ queryKey: ["open-invoices"] });
       queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}
+
+/** الأقسام التي لم يُنشأ لها مركز تكلفة بعد — the "create from departments" candidates (R6.7). */
+export function useImportableDepartments(): UseQueryResult<ImportableDepartmentDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ImportableDepartmentDTO[], ApiError>({
+    queryKey: ["cost-centers", "importable-departments"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/cost-centers/importable-departments");
+      if (!res.ok) throw new ApiError(res.status, t("api.costCentresCouldNotBe"));
+      return res.json<ImportableDepartmentDTO[]>();
+    },
+  });
+}
+
+/** إنشاء مراكز تكلفة من الأقسام — one cost centre per selected department. */
+export function useCreateCostCentersFromDepartments() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<{ created: CostCenterDTO[]; skipped: string[] }, ApiError, CreateCostCentersFromDepartmentsDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/cost-centers/from-departments", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theCostCentreCouldNot")));
+      return res.json<{ created: CostCenterDTO[]; skipped: string[] }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["cost-centers"] });
+      queryClient.invalidateQueries({ queryKey: ["cost-center-pl"] });
+    },
+  });
+}
+
+/** أرصدة العملاء والموردين حسب العملة (R1.16) — per-currency AR/AP, base and transaction. */
+export function usePartyBalancesByCurrency(): UseQueryResult<PartyCurrencyBalanceReportDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PartyCurrencyBalanceReportDTO, ApiError>({
+    queryKey: ["gl", "balances-by-currency"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/gl/balances-by-currency");
+      if (!res.ok) throw new ApiError(res.status, t("api.balancesByCurrencyCouldNot"));
+      return res.json<PartyCurrencyBalanceReportDTO>();
     },
   });
 }

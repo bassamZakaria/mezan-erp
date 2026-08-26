@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, TextInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
@@ -338,11 +338,11 @@ export function TreasuryAccountsScreen() {
           </label>
           <label className="flex flex-col gap-[5px] text-[12.5px] font-semibold text-ink">
             {t("common.date")}
-            <input
+            <TextInput
               type="date"
               value={openingDate}
               onChange={(event) => setOpeningDate(event.target.value)}
-              className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[13px] text-ink"
+              aria-label={t("common.date")}
             />
           </label>
           {openingError ? <p className="text-[12.5px] font-semibold text-danger-ink">{openingError}</p> : null}

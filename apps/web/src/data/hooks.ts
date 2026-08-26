@@ -4518,6 +4518,23 @@ export function useTerminateEmployee() {
   });
 }
 
+export function useRehireEmployee() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EmployeeDTO, ApiError, { id: string; hireDate: string }>({
+    mutationFn: async ({ id, hireDate }) => {
+      const res = await request(`/hr/employees/${id}/rehire`, { method: "POST", body: JSON.stringify({ hireDate }) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("employees.theEmployeeCouldNotBe")));
+      return res.json<EmployeeDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-employees"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-dashboard"] });
+    },
+  });
+}
+
 export function useContracts(): UseQueryResult<ContractDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();

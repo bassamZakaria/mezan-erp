@@ -26,6 +26,7 @@ import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useContracts, useCreateContract, useEmployees, useTerminateContract } from "../data/hooks";
 import { usePayrollComponents } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** العقود (Contracts) — docs/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
 
@@ -104,8 +105,7 @@ export function ContractsScreen() {
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
     if (!e) return employeeId;
-    const ar = [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ").trim();
-    return ar || `${e.firstName} ${e.lastName}`;
+    return employeeDisplayName(e, locale);
   }
 
   const filtered = useMemo(() => {

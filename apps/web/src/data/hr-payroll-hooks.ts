@@ -9,6 +9,7 @@ import type {
   EmployeeAdvanceDTO,
   PayrollRunDTO,
   PayrollRunDetailDTO,
+  PayslipDTO,
   TreasuryDisbursementDTO,
 } from "@mezan/contracts";
 import { ApiError } from "./hooks";
@@ -204,6 +205,21 @@ export function useCancelPayrollRun() {
       return res.json<PayrollRunDTO>();
     },
     onSuccess: invalidate,
+  });
+}
+
+/** One employee's payslips across every run — the Employee 360 payslips tab (R10.2). */
+export function useEmployeePayslips(employeeId: string | null): UseQueryResult<PayslipDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PayslipDTO[], ApiError>({
+    queryKey: ["hr", "payroll", "payslips", employeeId],
+    enabled: session !== null && employeeId !== null,
+    queryFn: async () => {
+      const res = await request(`/hr/payroll/payslips?employeeId=${encodeURIComponent(employeeId ?? "")}`);
+      if (!res.ok) throw new ApiError(res.status, t("payroll.payrollRunsCouldNotBe"));
+      return res.json<PayslipDTO[]>();
+    },
   });
 }
 

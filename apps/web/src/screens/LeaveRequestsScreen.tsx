@@ -5,6 +5,7 @@ import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateLeaveRequest, useDecideLeaveRequest, useEmployees, useLeaveRequestCounts, useLeaveRequests } from "../data/hooks";
 import { LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** طلبات الإجازات (Leave Requests — admin) — docs/catalog/06 §"طلبات الإجازات". Manager list with employee/status/date filters plus approve/reject, which route through the workflow gate configured for the leave type. */
 
@@ -29,7 +30,7 @@ function blankDraft(): LeaveDraft {
 }
 
 export function LeaveRequestsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
   const [leaveType, setLeaveType] = useState("");
@@ -56,7 +57,7 @@ export function LeaveRequestsScreen() {
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
     if (!employee) return id;
-    return [employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ").trim() || `${employee.firstName} ${employee.lastName}`.trim();
+    return employeeDisplayName(employee, locale);
   };
 
   async function decide(request: LeaveRequestDTO, decision: "approved" | "rejected") {

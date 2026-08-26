@@ -159,6 +159,11 @@ export const transitionEmployeeSchema = z.object({
   status: employeeStatusSchema,
 });
 
+export const rehireEmployeeSchema = z.object({
+  /** The new spell's start date; the previous spell folds into priorServiceYears. */
+  hireDate: z.string().min(1),
+});
+
 // --- Contracts ---------------------------------------------------------
 
 export const contractTypeSchema = z.enum(["indefinite", "fixed_term", "seasonal", "probationary"]);
@@ -502,6 +507,7 @@ export type EmergencyContactDTO = z.infer<typeof emergencyContactSchema>;
 export type EmployeeDTO = z.infer<typeof employeeSchema>;
 export type CreateEmployeeDTO = z.infer<typeof createEmployeeSchema>;
 export type UpdateEmployeeDTO = z.infer<typeof updateEmployeeSchema>;
+export type RehireEmployeeDTO = z.infer<typeof rehireEmployeeSchema>;
 export type TransitionEmployeeDTO = z.infer<typeof transitionEmployeeSchema>;
 export type ContractTypeDTO = z.infer<typeof contractTypeSchema>;
 export type PayBasisDTO = z.infer<typeof payBasisSchema>;

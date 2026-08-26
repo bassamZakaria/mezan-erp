@@ -25,6 +25,7 @@ import {
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** الرواتب (Payroll) — docs/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
 
@@ -68,7 +69,7 @@ function NetPayQualifierBadge() {
 }
 
 export function PayrollRunsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = usePayrollRuns();
   const employeesQuery = useEmployees();
   const treasuryQuery = useTreasuryAccounts();
@@ -103,8 +104,7 @@ export function PayrollRunsScreen() {
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
     if (!e) return employeeId;
-    const ar = [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ").trim();
-    return ar || `${e.firstName} ${e.lastName}`;
+    return employeeDisplayName(e, locale);
   }
 
   const filtered = useMemo(() => {

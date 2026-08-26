@@ -75,7 +75,12 @@ export interface ReportRunnerKpi {
  * report you have to expand to learn anything from has buried its answer.
  */
 export interface ReportRunnerSummary {
-  readonly headline: string;
+  /**
+   * Optional. Left out, the runner composes one from the first two KPIs —
+   * which is where the money formatter lives, so a caller does not have to
+   * pre-format a string it could then neither export nor re-localise.
+   */
+  readonly headline?: string;
   readonly kpis: readonly ReportRunnerKpi[];
 }
 
@@ -133,6 +138,21 @@ export interface ReportRunnerProps<Row> {
    */
   showGrandTotal?: boolean;
   className?: string;
+}
+
+/**
+ * The one line that stays visible when the strip is collapsed: the first two
+ * figures, rendered. Composed here rather than server-side because this is
+ * where the currency and number formatting live.
+ */
+function summaryHeadline(kpis: readonly ReportRunnerKpi[], fmt: ReturnType<typeof useFormat>): string {
+  return kpis
+    .slice(0, 2)
+    .map((kpi) => {
+      const value = kpi.format === "qty" || kpi.format === "percent" ? fmt.number(kpi.value) : fmt.money(kpi.value);
+      return `${kpi.label}: ${value}`;
+    })
+    .join(" · ");
 }
 
 function formatCell(value: string | number | null, format: ReportRunnerColumnFormat | undefined, fmt: ReturnType<typeof useFormat>): ReactNode {
@@ -348,7 +368,7 @@ export function ReportRunner<Row>({
                 aria-expanded={summaryOpen}
                 className="flex w-full items-center justify-between gap-[10px] px-[16px] py-[11px] text-start text-[12.5px] font-semibold text-ink transition-colors hover:bg-surface-2"
               >
-                <span>{result.summary.headline}</span>
+                <span>{result.summary.headline ?? summaryHeadline(result.summary.kpis, fmt)}</span>
                 <span className="text-[11px] font-normal text-ink-muted">
                   {summaryOpen ? t("ui.report.summaryCollapse") : t("ui.report.summaryExpand")}
                 </span>

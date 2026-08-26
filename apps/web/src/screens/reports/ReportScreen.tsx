@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ReportRunner } from "@mezan/ui";
 import type { ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
-import { localizeReportDefinition } from "../../report-labels";
+import { localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
 /**
@@ -57,7 +57,35 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
   const query = useReport<Row>(definition.id, apiPath, params, { enabled: hasRun });
 
   const fieldErrors = query.error?.fieldErrors;
-  const result = query.data ?? null;
+  const raw = query.data ?? null;
+
+  /**
+   * The summary strip (R21.2). Labels are overlaid from the catalogue the same
+   * way column headers are — the server carries the Arabic and the client
+   * translates by key, so the two can never drift.
+   *
+   * The headline is composed from the KPIs rather than sent: the server would
+   * have to send a formatted string, which could not then be re-localised or
+   * exported.
+   */
+  const result = raw === null
+    ? null
+    : {
+        ...raw,
+        summary:
+          raw.kpis && raw.kpis.length > 0
+            ? {
+                kpis: raw.kpis.map((kpi) => ({
+                  key: kpi.key,
+                  label: tryReportLabel(`report.${definition.id}.kpi.${kpi.key}`, kpi.labelAr, t),
+                  value: kpi.value,
+                  format: kpi.format,
+                  tone: kpi.tone,
+                  hint: kpi.hintAr,
+                })),
+              }
+            : null,
+      };
 
   return (
     <ReportRunner

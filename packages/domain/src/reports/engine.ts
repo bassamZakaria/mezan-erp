@@ -5,6 +5,7 @@ import type {
   ReportReconciliationResult,
   ReportValidationError,
   RunReportOutcome,
+  ReportKpiResult,
 } from "./types.js";
 
 /** Validates raw (untyped, e.g. straight off a form) params against a report's zod schema. */
@@ -101,6 +102,52 @@ export function computeReconciliation<TParams, Row, Ctx>(
  * group + total → evaluate reconciliation. The one function a UI needs to
  * call to go from raw form params to render-ready output.
  */
+/**
+ * The summary strip a report gets when it declares none (R21.2).
+ *
+ * Derived from what the report already says about itself: how many rows it
+ * found, and the grand total of every column it already marks `total`. That is
+ * enough for a reader to know the size and the shape of the answer without
+ * each of the twenty-odd reports being taught the same lesson separately.
+ */
+function defaultReportKpis<TParams, Row, Ctx>(
+  definition: ReportDefinition<TParams, Row, Ctx>,
+  rows: readonly Row[],
+  grandTotals: Readonly<Record<string, number>>,
+): ReportKpiResult[] {
+  const kpis: ReportKpiResult[] = [
+    { key: "rowCount", labelAr: "عدد السطور", format: "qty", value: rows.length },
+  ];
+  for (const column of definition.columns) {
+    if (!column.total) continue;
+    const value = grandTotals[column.key];
+    if (value === undefined) continue;
+    kpis.push({ key: column.key, labelAr: column.header, format: column.format ?? "money", value });
+  }
+  // Four is what the strip lays out; past that the cards stop being a summary.
+  return kpis.slice(0, 4);
+}
+
+function computeReportKpis<TParams, Row, Ctx>(
+  definition: ReportDefinition<TParams, Row, Ctx>,
+  params: TParams,
+  rows: readonly Row[],
+  grandTotals: Readonly<Record<string, number>>,
+): ReportKpiResult[] {
+  if (!definition.kpis) return defaultReportKpis(definition, rows, grandTotals);
+  return definition.kpis.map((spec) => {
+    const value = spec.value(rows, params);
+    return {
+      key: spec.key,
+      labelAr: spec.labelAr,
+      hintAr: spec.hintAr,
+      format: spec.format,
+      value,
+      tone: spec.tone?.(value),
+    };
+  });
+}
+
 export function runReport<TParams, Row, Ctx>(
   definition: ReportDefinition<TParams, Row, Ctx>,
   rawParams: unknown,
@@ -113,5 +160,7 @@ export function runReport<TParams, Row, Ctx>(
   const { groups, grandTotals } = computeReportGroups(definition, rows);
   const reconciliation = computeReconciliation(definition, rows, ctx);
 
-  return { ok: true, params: validated.params, rows, groups, grandTotals, reconciliation };
+  const kpis = computeReportKpis(definition, validated.params, rows, grandTotals);
+
+  return { ok: true, params: validated.params, rows, groups, grandTotals, reconciliation, kpis };
 }

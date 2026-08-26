@@ -6,6 +6,8 @@ export type {
   ReportGroupSpec,
   ReportParamField,
   ReportReconciliationResult,
+  ReportKpiResult,
+  ReportKpiSpec,
   ReportReconciliationSpec,
   ReportValidationError,
   RunReportOutcome,

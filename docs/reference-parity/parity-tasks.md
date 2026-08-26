@@ -47,7 +47,11 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 ## P2 — reports engine
 
-- [ ] **A2** `ReportDefinition` gains `kpis` and `charts`; server returns the aggregates; `ReportRunner` renders a KPI strip and a chart row
+- [~] **A2 / R21.2** `ReportDefinition` gains `kpis`; the server returns the aggregates; `ReportRunner` renders a collapsible KPI strip
+  - [x] the mechanism, and a default that gives EVERY report a strip from its own total columns
+  - [x] chart captions (R21.3), methodology footnote (R21.9) and the balance banner (R21.10) as runner capabilities
+  - [ ] per-report `kpis` overrides where the column totals do not say enough
+  - [ ] charts themselves
 - [ ] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة)
 - [ ] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date
 - [ ] **A6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson

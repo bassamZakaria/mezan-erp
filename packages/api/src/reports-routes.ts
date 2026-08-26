@@ -139,6 +139,7 @@ function respond(c: Context, outcome: RunReportOutcome<unknown, unknown>): Respo
     groups: outcome.groups,
     grandTotals: outcome.grandTotals,
     reconciliation: outcome.reconciliation,
+    kpis: outcome.kpis,
   });
 }
 

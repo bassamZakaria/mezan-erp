@@ -86,6 +86,40 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
    * Defaults to true.
    */
   readonly showGrandTotal?: boolean;
+  /**
+   * The summary strip's figures (R21.2). Omit it and the report still gets a
+   * strip: `defaultReportKpis` derives one from the row count and whichever
+   * columns are already marked `total`, so every report answers "how much, and
+   * over how many rows" without each being taught to. Supply it to say
+   * something the column totals cannot.
+   */
+  readonly kpis?: readonly ReportKpiSpec<Row, TParams>[];
+}
+
+/**
+ * One figure in a report's summary strip (R21.2).
+ *
+ * `value` is a number and `format` says how to render it — a report that
+ * handed over a pre-formatted string could neither be exported nor
+ * re-localised. Labels stay Arabic here and are overlaid on the client the
+ * same way column headers are, keyed `report.<id>.kpi.<key>`.
+ */
+export interface ReportKpiSpec<Row, TParams> {
+  readonly key: string;
+  readonly labelAr: string;
+  readonly hintAr?: string;
+  readonly format?: ReportColumnFormat;
+  readonly value: (rows: readonly Row[], params: TParams) => number;
+  readonly tone?: (value: number) => "default" | "success" | "danger";
+}
+
+export interface ReportKpiResult {
+  readonly key: string;
+  readonly labelAr: string;
+  readonly hintAr?: string;
+  readonly format?: ReportColumnFormat;
+  readonly value: number;
+  readonly tone?: "default" | "success" | "danger";
 }
 
 export interface ReportValidationError {
@@ -116,5 +150,6 @@ export type RunReportOutcome<TParams, Row> =
       readonly groups: readonly ReportGroupResult<Row>[];
       readonly grandTotals: Readonly<Record<string, number>>;
       readonly reconciliation: ReportReconciliationResult | null;
+      readonly kpis: readonly ReportKpiResult[];
     }
   | { readonly ok: false; readonly errors: readonly ReportValidationError[] };

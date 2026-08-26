@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import type { ReportGroupResult, ReportReconciliationResult } from "@mezan/domain";
+import type { ReportGroupResult, ReportReconciliationResult, ReportKpiResult } from "@mezan/domain";
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { readReportFieldErrors } from "./report-errors";
@@ -20,6 +20,8 @@ export interface ReportResult<Row> {
   readonly groups: readonly ReportGroupResult<Row>[];
   readonly grandTotals: Readonly<Record<string, number>>;
   readonly reconciliation: ReportReconciliationResult | null;
+  /** The summary strip's figures, computed server-side over the whole result (R21.2). */
+  readonly kpis?: readonly ReportKpiResult[];
 }
 
 /** Blank param values are dropped so the server falls back to the report's own defaults. */

@@ -19,6 +19,11 @@ import type { ReportScreenDefinition } from "./screens/reports/ReportScreen";
 
 type Translate = (key: AppTranslationKey) => string;
 
+/** Same overlay the column headers use, exposed for the summary strip's KPI labels. */
+export function tryReportLabel(key: string, fallback: string, t: Translate): string {
+  return tryTranslate(key, fallback, t);
+}
+
 function tryTranslate(key: string, fallback: string, t: Translate): string {
   if (WEB_TRANSLATION_KEYS.has(key)) return t(key as AppTranslationKey);
   // A key derived from the WRONG identifier falls back to Arabic and looks

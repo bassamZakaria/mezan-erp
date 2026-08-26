@@ -131,15 +131,6 @@ const ADDED_LINE_COLUMNS: readonly [string, string][] = [
   ["line_discount_amount", "INTEGER"],
 ];
 
-/** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
-const ADDED_LINE_COLUMNS: readonly [string, string][] = [
-  ["unit_code", "TEXT"],
-  ["unit_factor", "REAL"],
-  ["base_qty", "INTEGER"],
-  ["line_discount_type", "TEXT"],
-  ["line_discount_amount", "INTEGER"],
-];
-
 function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
     (sqlite.prepare(`PRAGMA table_info(sales_invoice)`).all() as { name: string }[]).map((c) => c.name),

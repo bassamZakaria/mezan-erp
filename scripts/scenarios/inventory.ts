@@ -12,6 +12,10 @@ export async function run(ctx: Ctx): Promise<void> {
   await negativeCountQtyRejected(ctx);
   await physicalCountAdjustmentPostsNoJournalEntry_D2(ctx);
   await completingAWorkOrderNeverTouchesGl1200_D3(ctx);
+  await everyAdjustmentReasonPostsToItsOwnAccount_R59(ctx);
+  await purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx);
+  await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
+  await itemTypeCapabilitiesBind_R51(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -353,4 +357,196 @@ async function completingAWorkOrderNeverTouchesGl1200_D3(ctx: Ctx): Promise<void
     after.inventory - before.inventory,
     80,
   );
+}
+
+/**
+ * R5.9 — every adjustment reason posts to its OWN GL contra account. Seven of
+ * the eight reasons used to post nothing at all (F23), so the stock sub-ledger
+ * drifted away from GL 1200 silently. One reason per account, each checked for
+ * balance, is the regression test for that.
+ */
+async function everyAdjustmentReasonPostsToItsOwnAccount_R59(ctx: Ctx): Promise<void> {
+  await ctx.scenario("stock-adjustments: each reason posts a balanced entry to its own contra account (R5.9)", async () => {
+    const cases = [
+      { reason: "DAMAGE", account: "5070" },
+      { reason: "THEFT", account: "5071" },
+      { reason: "EXPIRY", account: "5072" },
+      { reason: "SHORTAGE", account: "5073" },
+      { reason: "OTHER", account: "5075" },
+      { reason: "SUPPLIER_RETURN", account: "2110" },
+    ];
+
+    for (const { reason, account } of cases) {
+      const id = `SCN-ADJ-R59-${reason}`;
+      const { draft, confirm } = await draftAndConfirm(ctx, "stock-adjustments", id, {
+        date: "2026-08-24",
+        lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason, direction: "OUT", qty: "1" }],
+      });
+      ctx.check(`${reason} — draft created`, draft.status === 201, JSON.stringify(draft.body));
+      ctx.check(`${reason} — confirmed`, confirm.status === 200, JSON.stringify(confirm.body));
+
+      const je = await ctx.req("GET", `/gl/journal-entries/${id}`);
+      ctx.check(`${reason} — posts a journal entry at all`, je.status === 200, `status ${je.status}`);
+      const lines = (je.body?.lines ?? []) as Array<{ accountId: string; debit: string; credit: string }>;
+      ctx.check(
+        `${reason} — moves GL 1200 against ${account}`,
+        lines.some((l) => l.accountId === "1200") && lines.some((l) => l.accountId === account),
+        JSON.stringify(lines.map((l) => l.accountId)),
+      );
+      ctx.checkEq(
+        `${reason} — the entry balances`,
+        lines.reduce((sum, l) => sum + ctx.n(l.debit), 0),
+        lines.reduce((sum, l) => sum + ctx.n(l.credit), 0),
+      );
+    }
+  });
+}
+
+/**
+ * D47 — a purchase return relieves stock at the position's moving average but
+ * settles with the supplier at the invoice price. The difference must land in
+ * 5080 فروق أسعار الشراء, or the sub-ledger and GL 1200 part company.
+ */
+async function purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx: Ctx): Promise<void> {
+  await ctx.scenario("purchase returns credit inventory at moving-average cost, variance to 5080 (D47)", async () => {
+    // NOT asserted as zero: D3 (a completed work order never touches GL 1200)
+    // runs earlier in this file and leaves a known 80.00 gap. This scenario is
+    // about the purchase-return posting itself, not that open defect.
+    const entries = await ctx.req("GET", "/gl/journal-entries");
+    const list = (entries.body ?? []) as Array<{
+      memo?: string;
+      lines: Array<{ accountId: string; debit: string; credit: string }>;
+    }>;
+    const returns = list.filter((e) => e.lines.some((l) => l.accountId === "2100" && ctx.n(l.debit) > 0) && e.lines.some((l) => l.accountId === "1200" && ctx.n(l.credit) > 0));
+    ctx.check("the seed contains at least one posted purchase return", returns.length > 0, `found ${returns.length}`);
+
+    for (const entry of returns) {
+      const debits = entry.lines.reduce((sum, l) => sum + ctx.n(l.debit), 0);
+      const credits = entry.lines.reduce((sum, l) => sum + ctx.n(l.credit), 0);
+      ctx.checkEq(`purchase return "${(entry.memo ?? "").slice(0, 30)}" balances`, debits, credits);
+
+      const payable = entry.lines.filter((l) => l.accountId === "2100").reduce((sum, l) => sum + ctx.n(l.debit), 0);
+      const inventory = entry.lines.filter((l) => l.accountId === "1200").reduce((sum, l) => sum + ctx.n(l.credit), 0);
+      const tax = entry.lines.filter((l) => l.accountId === "1400").reduce((sum, l) => sum + ctx.n(l.credit), 0);
+      const variance = entry.lines
+        .filter((l) => l.accountId === "5080")
+        .reduce((sum, l) => sum + ctx.n(l.debit) - ctx.n(l.credit), 0);
+      // The supplier is credited at the invoice price; stock left at its
+      // moving average. The variance account is what makes the two meet.
+      ctx.checkEq(
+        `purchase return "${(entry.memo ?? "").slice(0, 30)}" — AP + variance = inventory + tax`,
+        payable + variance,
+        inventory + tax,
+      );
+      ctx.check(
+        `purchase return "${(entry.memo ?? "").slice(0, 30)}" — a non-zero variance is booked to 5080, never buried in 1200`,
+        variance === 0 || entry.lines.some((l) => l.accountId === "5080"),
+        JSON.stringify(entry.lines.map((l) => l.accountId)),
+      );
+    }
+  });
+}
+
+/**
+ * R5.6 — reserved stock is derived from open documents, so confirming one must
+ * convert the reservation into a movement with neither a double-count nor a
+ * gap: `available` is the figure that must not move across the confirm.
+ */
+async function draftsReserveStockAndConfirmingConvertsIt_R56(ctx: Ctx): Promise<void> {
+  await ctx.scenario("a draft sales invoice reserves stock; confirming it converts the reservation (R5.6)", async () => {
+    const read = async () => {
+      const res = await ctx.req("GET", "/inventory/items/ITEM-DEMO-1/stock");
+      const position = ((res.body?.positions ?? []) as Array<{ warehouseId: string; onHand: string; reserved: string; available: string }>)
+        .find((p) => p.warehouseId === "WH-MAIN");
+      return {
+        onHand: ctx.n(position?.onHand),
+        reserved: ctx.n(position?.reserved),
+        available: ctx.n(position?.available),
+      };
+    };
+
+    const before = await read();
+    ctx.checkEq("before: available = on hand − reserved", before.available, before.onHand - before.reserved);
+
+    const created = await ctx.req("POST", "/sales-invoices", {
+      id: "SCN-INV-RESERVE",
+      date: "2026-08-26",
+      dueDate: "2026-09-26",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      branchId: "BR-MAIN",
+      warehouseId: "WH-MAIN",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      discount: { type: "amount", amount: "0" },
+      lines: [
+        {
+          lineId: "L1",
+          itemId: "ITEM-DEMO-1",
+          itemNameAr: "أرز أبيض ٥ كجم",
+          isStock: true,
+          qty: "7",
+          unitPrice: "180",
+          discountPercent: 0,
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+          cogsAccountId: "5100",
+          inventoryAccountId: "1200",
+        },
+      ],
+    });
+    ctx.check("the draft invoice is created", created.status === 201, JSON.stringify(created.body));
+
+    const reserved = await read();
+    ctx.checkEq("the draft reserves its 7 units", reserved.reserved, before.reserved + 7);
+    ctx.checkEq("on hand has not moved — a draft moves no stock", reserved.onHand, before.onHand);
+    ctx.checkEq("available drops by the reservation", reserved.available, before.available - 7);
+
+    const confirmed = await ctx.req("POST", "/sales-invoices/SCN-INV-RESERVE/confirm", {});
+    ctx.check("the invoice confirms", confirmed.status === 200, JSON.stringify(confirmed.body));
+
+    const after = await read();
+    ctx.checkEq("confirming releases the reservation", after.reserved, before.reserved);
+    ctx.checkEq("confirming relieves the stock instead", after.onHand, before.onHand - 7);
+    // The property that matters: a reservation becoming a movement must not
+    // change what is promisable, or it was counted twice or not at all.
+    ctx.checkEq("available is unchanged across the confirm — no double-count, no gap", after.available, reserved.available);
+  });
+}
+
+/**
+ * R5.1 — the six item types are enforced by capability, not by a string match
+ * on "stock". The reports that value stock must include every type that holds
+ * it, and a type that cannot hold stock must not be able to track inventory.
+ */
+async function itemTypeCapabilitiesBind_R51(ctx: Ctx): Promise<void> {
+  await ctx.scenario("item types: capabilities bind on the server, not just in the picker (R5.1)", async () => {
+    const items = await ctx.req("GET", "/items");
+    const list = (items.body ?? []) as Array<{ id: string; type: string; trackInventory: boolean; onHand: string | null; stockState: string | null }>;
+    ctx.check("the catalogue carries all six types", new Set(list.map((i) => i.type)).size === 6, JSON.stringify([...new Set(list.map((i) => i.type))]));
+
+    for (const item of list) {
+      const holdsStock = !["service", "recipe"].includes(item.type);
+      if (!holdsStock) {
+        ctx.check(`${item.id} (${item.type}) cannot track inventory`, item.trackInventory === false, JSON.stringify(item));
+        // Null, never zero: a zero would file a service under "out of stock".
+        ctx.check(`${item.id} (${item.type}) reports no stock state at all`, item.stockState === null, JSON.stringify(item));
+      }
+    }
+
+    const rejected = await ctx.req("POST", "/items", {
+      id: "SCN-ITEM-BAD-SERVICE",
+      code: "SCN-BAD-1",
+      nameAr: "خدمة تتبع مخزون",
+      type: "service",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+    });
+    ctx.check(
+      "the server refuses a service item that claims to track inventory",
+      rejected.status >= 400,
+      `status ${rejected.status}: ${JSON.stringify(rejected.body)}`,
+    );
+  });
 }

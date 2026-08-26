@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
@@ -64,6 +65,14 @@ export interface DocumentListProps<Row> {
   rowKey: (row: Row, index: number) => string;
   onRowClick?: (row: Row) => void;
   /**
+   * Detail panel shown beneath an expanded row — a per-warehouse breakdown, a
+   * document's lines. Return null for a row with nothing to expand, and it
+   * stays un-expandable rather than opening onto an empty panel.
+   */
+  renderExpandedRow?: (row: Row) => ReactNode | null;
+  /** Row keys currently expanded. The caller owns the state. */
+  expandedKeys?: readonly string[];
+  /**
    * Trailing action revealed on the hovered (or keyboard-focused) row.
    * Defaults to a "عرض" button wired to `onRowClick` when that is present.
    */
@@ -119,6 +128,8 @@ export function DocumentList<Row>({
   rows,
   rowKey,
   onRowClick,
+  renderExpandedRow,
+  expandedKeys,
   rowAction,
   sort,
   onSortChange,
@@ -240,9 +251,13 @@ export function DocumentList<Row>({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row, rowIndex) => (
+              {rows.map((row, rowIndex) => {
+                const key = rowKey(row, rowIndex);
+                const expansion = renderExpandedRow?.(row);
+                const isExpanded = expansion !== undefined && expansion !== null && expandedKeys?.includes(key) === true;
+                return (
+                <Fragment key={key}>
                 <tr
-                  key={rowKey(row, rowIndex)}
                   className={cn(
                     "group/row h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)]",
                     onRowClick && "cursor-pointer hover:bg-surface-2",
@@ -282,7 +297,16 @@ export function DocumentList<Row>({
                     </td>
                   ) : null}
                 </tr>
-              ))}
+                {isExpanded ? (
+                  <tr className="bg-surface-2">
+                    <td colSpan={columns.length + (showRowAction ? 1 : 0)} className="px-[14px] py-[10px]">
+                      {expansion}
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
+                );
+              })}
             </tbody>
             {rows.length > 0 && footerColumns.length > 0 ? (
               <tfoot>

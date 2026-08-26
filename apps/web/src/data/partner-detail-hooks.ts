@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import type { AgingCustomersRow, AgingSuppliersRow } from "@mezan/domain";
-import type { StockBalanceRowDTO, VoucherAllocationDTO } from "@mezan/contracts";
+import type { StockBalanceRowDTO, VoucherAllocationDTO, StockBalanceWarehouseRowDTO } from "@mezan/contracts";
 import { useApi } from "./ApiContext";
 import { ApiError } from "./hooks";
 import { useReport, type ReportResult } from "./reports-hooks";
@@ -167,14 +167,22 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
         }),
       );
 
-      const merged = new Map<string, { onHand: bigint; totalValue: bigint; warehouseCount: number }>();
+      const merged = new Map<
+        string,
+        { onHand: bigint; totalValue: bigint; reserved: bigint; warehouseCount: number; warehouses: StockBalanceWarehouseRowDTO[] }
+      >();
       for (const rows of perWarehouse) {
         for (const row of rows) {
-          const existing = merged.get(row.itemId) ?? { onHand: 0n, totalValue: 0n, warehouseCount: 0 };
+          const existing =
+            merged.get(row.itemId) ?? { onHand: 0n, totalValue: 0n, reserved: 0n, warehouseCount: 0, warehouses: [] };
           merged.set(row.itemId, {
             onHand: existing.onHand + parseMoney(row.onHand),
             totalValue: existing.totalValue + parseMoney(row.totalValue),
+            // Each per-warehouse call reports the item's reservation for that
+            // warehouse only, so these add rather than double-count.
+            reserved: existing.reserved + parseMoney(row.reserved),
             warehouseCount: existing.warehouseCount + row.warehouseCount,
+            warehouses: [...existing.warehouses, ...row.warehouses],
           });
         }
       }
@@ -185,6 +193,9 @@ export function useBranchStockBalance(warehouseIds: readonly string[]): UseQuery
         totalValue: formatScaled(agg.totalValue),
         averageCost: agg.onHand === 0n ? formatScaled(0n) : formatScaled((agg.totalValue * MONEY_SCALE_FACTOR) / agg.onHand),
         warehouseCount: agg.warehouseCount,
+        reserved: formatScaled(agg.reserved),
+        available: formatScaled(agg.onHand - agg.reserved > 0n ? agg.onHand - agg.reserved : 0n),
+        warehouses: agg.warehouses,
       }));
     },
   });

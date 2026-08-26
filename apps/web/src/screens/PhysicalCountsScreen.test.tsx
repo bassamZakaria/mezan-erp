@@ -45,7 +45,7 @@ function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
 const items: ItemDTO[] = [item()];
 
 const stockBalance: StockBalanceRowDTO[] = [
-  { itemId: "itm-1", onHand: "90.000000", totalValue: "900.000000", averageCost: "10.000000", warehouseCount: 1 },
+  { itemId: "itm-1", onHand: "90.000000", totalValue: "900.000000", averageCost: "10.000000", warehouseCount: 1, reserved: "0.000000", available: "90.000000", warehouses: [] },
 ];
 
 function baseHandlers(current: PhysicalCountDTO[]) {

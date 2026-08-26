@@ -156,12 +156,27 @@ export const physicalCountSchema = z.object({
 
 // --- Stock Balance rollup ----------------------------------------------------
 
+/** One warehouse's share of a rolled-up balance row (R5.7). */
+export const stockBalanceWarehouseRowSchema = z.object({
+  warehouseId: z.string().min(1),
+  onHand: decimalString,
+  totalValue: decimalString,
+  averageCost: decimalString,
+  reserved: decimalString,
+  available: decimalString,
+});
+
 export const stockBalanceRowSchema = z.object({
   itemId: z.string().min(1),
   onHand: decimalString,
   totalValue: decimalString,
   averageCost: decimalString,
   warehouseCount: z.number().int().nonnegative(),
+  /** Committed by an open document but not yet moved (R5.6). */
+  reserved: decimalString,
+  available: decimalString,
+  /** The positions this row rolled up, so it can expand without a round trip. */
+  warehouses: z.array(stockBalanceWarehouseRowSchema),
 });
 
 export const stockBalanceListQuerySchema = z.object({
@@ -183,4 +198,5 @@ export type RecordPhysicalCountEntriesDTO = z.infer<typeof recordPhysicalCountEn
 export type GenerateAdjustmentFromCountDTO = z.infer<typeof generateAdjustmentFromCountSchema>;
 export type PhysicalCountDTO = z.infer<typeof physicalCountSchema>;
 export type StockBalanceRowDTO = z.infer<typeof stockBalanceRowSchema>;
+export type StockBalanceWarehouseRowDTO = z.infer<typeof stockBalanceWarehouseRowSchema>;
 export type StockBalanceListQueryDTO = z.infer<typeof stockBalanceListQuerySchema>;

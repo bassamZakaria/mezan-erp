@@ -1641,4 +1641,77 @@ export async function run(ctx: Ctx): Promise<void> {
     const liabilitiesEquity = rows.filter((r) => r.side === "liability-equity").reduce((s, r) => s + n(r.amount), 0);
     checkEq("and the balance sheet still balances", assets, liabilitiesEquity);
   });
+
+  // ---------------------------------------------------------------------------
+  // x19 · R1.1 — a list's three endpoints must agree
+  //
+  // The rows, the chip counts and the KPI strip are three different queries
+  // over what must be one set. They were three different derivations before
+  // R1.1, and applying a filter moved the rows while leaving the totals alone.
+  // The only way to catch that regression is to make each endpoint answer for
+  // the other two, under the SAME filter.
+  // ---------------------------------------------------------------------------
+  await scenario("x19 · every list's rows, counts and stats agree — under no filter and under a filter (R1.1)", async () => {
+    /** Sum a money column over rows the caller narrowed the same way the server did. */
+    const sum = (list: any[], pick: (row: any) => string | null | undefined): number =>
+      list.reduce((total, row) => total + n(pick(row) ?? "0"), 0);
+
+    // --- sales invoices ------------------------------------------------------
+    for (const query of ["", "?status=confirmed", "?customerId=CUST-DEMO-1"]) {
+      const rowsRes = await req("GET", `/sales-invoices${query}`);
+      const list = (rowsRes.body ?? []) as any[];
+      const stats = (await req("GET", `/sales-invoices/stats${query}`)).body as any;
+
+      const live = list.filter((r) => r.status !== "draft" && r.status !== "cancelled");
+      checkEq(`sales stats.count = the live rows returned (${query || "no filter"})`, n(stats?.count), live.length);
+      checkEq(`sales stats.sales = the sum over those rows (${query || "no filter"})`, n(stats?.sales), sum(live, (r) => r.totals?.grandTotal));
+      checkEq(`sales stats.remaining = the sum over those rows (${query || "no filter"})`, n(stats?.remaining), sum(live, (r) => r.remainingBalance));
+    }
+
+    // A chip states how many rows IT would show, so its count must equal the
+    // row count when that chip's own filter is applied — and the counts must
+    // not change when some other status filter is active.
+    const salesCounts = (await req("GET", "/sales-invoices/counts")).body as Record<string, number>;
+    const salesUnderFilter = (await req("GET", "/sales-invoices/counts?status=paid")).body as Record<string, number>;
+    checkEq("sales chip counts ignore the status filter — 'all' is unchanged", n(salesUnderFilter?.all), n(salesCounts?.all));
+    for (const chip of ["confirmed", "paid", "draft", "open", "overdue"]) {
+      const rows = ((await req("GET", `/sales-invoices?status=${chip}`)).body ?? []) as any[];
+      checkEq(`sales chip "${chip}" counts exactly the rows that chip shows`, n(salesCounts?.[chip]), rows.length);
+    }
+
+    // --- purchase invoices ---------------------------------------------------
+    for (const query of ["", "?status=confirmed"]) {
+      const list = ((await req("GET", `/purchases/invoices${query}`)).body ?? []) as any[];
+      const stats = (await req("GET", `/purchases/invoices/stats${query}`)).body as any;
+      const live = list.filter((r) => r.status === "confirmed");
+      checkEq(`purchase stats.count = the confirmed rows returned (${query || "no filter"})`, n(stats?.count), live.length);
+      checkEq(`purchase stats.purchases = the sum over those rows (${query || "no filter"})`, n(stats?.purchases), sum(live, (r) => r.total));
+      checkEq(`purchase stats.paid = the sum over those rows (${query || "no filter"})`, n(stats?.paid), sum(live, (r) => r.amountPaid));
+      // Unpaid sums only what is still owed: a credit on one invoice must not
+      // cancel another's debt.
+      checkEq(
+        `purchase stats.unpaid nets nothing off (${query || "no filter"})`,
+        n(stats?.unpaid),
+        live.reduce((total, r) => total + Math.max(0, n(r.remainingBalance)), 0),
+      );
+    }
+
+    const purchaseCounts = (await req("GET", "/purchases/invoices/counts")).body as Record<string, number>;
+    for (const chip of ["confirmed", "draft", "overdue", "due_soon", "partially_paid", "paid"]) {
+      const rows = ((await req("GET", `/purchases/invoices?status=${chip}`)).body ?? []) as any[];
+      checkEq(`purchase chip "${chip}" counts exactly the rows that chip shows`, n(purchaseCounts?.[chip]), rows.length);
+    }
+
+    // --- the filters reach all three, not just the rows ----------------------
+    // The original defect: search narrowed the table and left the KPI strip on
+    // the unfiltered total.
+    const searched = ((await req("GET", "/sales-invoices?search=INV-000002")).body ?? []) as any[];
+    const searchedStats = (await req("GET", "/sales-invoices/stats?search=INV-000002")).body as any;
+    check("a search narrows the rows", searched.length > 0 && searched.length < 6, `rows=${searched.length}`);
+    checkEq(
+      "and the KPI strip follows it rather than reporting the unfiltered total",
+      n(searchedStats?.sales),
+      sum(searched.filter((r) => r.status !== "draft" && r.status !== "cancelled"), (r) => r.totals?.grandTotal),
+    );
+  });
 }

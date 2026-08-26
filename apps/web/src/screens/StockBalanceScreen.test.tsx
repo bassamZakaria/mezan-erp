@@ -45,9 +45,9 @@ const items: ItemDTO[] = [
 ];
 
 const rows: StockBalanceRowDTO[] = [
-  { itemId: "itm-1", onHand: "100.000000", totalValue: "1000.000000", averageCost: "10.000000", warehouseCount: 2 },
-  { itemId: "itm-2", onHand: "195.000000", totalValue: "1950.000000", averageCost: "10.000000", warehouseCount: 1 },
-  { itemId: "itm-8", onHand: "147.000000", totalValue: "735.000000", averageCost: "5.000000", warehouseCount: 1 },
+  { itemId: "itm-1", onHand: "100.000000", totalValue: "1000.000000", averageCost: "10.000000", warehouseCount: 2, reserved: "0.000000", available: "100.000000", warehouses: [] },
+  { itemId: "itm-2", onHand: "195.000000", totalValue: "1950.000000", averageCost: "10.000000", warehouseCount: 1, reserved: "0.000000", available: "195.000000", warehouses: [] },
+  { itemId: "itm-8", onHand: "147.000000", totalValue: "735.000000", averageCost: "5.000000", warehouseCount: 1, reserved: "0.000000", available: "147.000000", warehouses: [] },
 ];
 
 function renderScreen() {

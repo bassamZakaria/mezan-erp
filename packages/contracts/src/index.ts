@@ -972,6 +972,7 @@ export {
   type GenerateAdjustmentFromCountDTO,
   type PhysicalCountDTO,
   type StockBalanceRowDTO,
+  type StockBalanceWarehouseRowDTO,
   type StockBalanceListQueryDTO,
 } from "./stock-documents.js";
 

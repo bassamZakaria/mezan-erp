@@ -68,6 +68,12 @@ function serializeBalanceRow(r: StockBalanceRow) {
     totalValue: r.totalValue.toString(),
     averageCost: r.averageCost.toString(),
     warehouseCount: r.warehouseCount,
+    warehouses: r.warehouses.map((w) => ({
+      warehouseId: w.warehouseId,
+      onHand: w.onHand.toString(),
+      totalValue: w.totalValue.toString(),
+      averageCost: w.averageCost.toString(),
+    })),
   };
 }
 
@@ -210,10 +216,19 @@ export function createInventoryRoutes(
     return c.json({
       rows: rows.map((row) => {
         const held = reserved.forItem(row.itemId);
+        const serialized = serializeBalanceRow(row);
         return {
-          ...serializeBalanceRow(row),
+          ...serialized,
           reserved: held.toString(),
           available: availableQty(row.onHand, held).toString(),
+          warehouses: row.warehouses.map((w, index) => {
+            const heldHere = reserved.forPosition(row.itemId, w.warehouseId);
+            return {
+              ...serialized.warehouses[index]!,
+              reserved: heldHere.toString(),
+              available: availableQty(w.onHand, heldHere).toString(),
+            };
+          }),
         };
       }),
     });

@@ -107,10 +107,11 @@ export const ADJUSTMENT_REASON_DEFINITIONS: readonly AdjustmentReasonDefinition[
     descriptionAr: "خصم الأصناف المرتجعة للمورد",
     descriptionEn: "Send goods back to the supplier",
     direction: "OUT",
-    // Goods going back reduce what is owed to the supplier — a payable, not
-    // a loss. A purchase return document is the fuller path; this is the
-    // stock-only shortcut.
-    counterpartAccountId: "2100",
+    // NOT trade payables (2100): this adjustment names no supplier, so the AP
+    // sub-ledger could never learn about it and the control account would
+    // drift away from it. It sits in a clearing account until the
+    // purchase-return document, which does name a supplier, settles it.
+    counterpartAccountId: "2110",
   },
   {
     code: "OTHER",

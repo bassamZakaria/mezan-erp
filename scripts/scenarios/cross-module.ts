@@ -1459,11 +1459,13 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X36 — a second branch makes branch scope measurable
   // ---------------------------------------------------------------------------
-  await scenario("x36 · with a real second branch, does branch scope actually narrow anything? (D7 made measurable)", async () => {
+  await scenario("x36 · branch scope narrows against a real second branch, and the two branches do not see each other (D7 fixed — guard it)", async () => {
+    // 201 on a fresh database, 409 on a re-run against one this suite has
+    // already touched. Either way the branch exists, which is all the rest needs.
     const branch = await req("POST", "/branches", { id: "BR-SCN-2", code: "SCN2", name: "فرع الاختبار الثاني" });
-    check("a second branch is created", branch.status === 201, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
+    check("a second branch exists", branch.status === 201 || branch.status === 409, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
     const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-2", code: "WH-SCN2", name: "مخزن الفرع الثاني", branchId: "BR-SCN-2" });
-    check("with its own warehouse", warehouse.status === 201, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
+    check("with its own warehouse", warehouse.status === 201 || warehouse.status === 409, `status ${warehouse.status} ${JSON.stringify(warehouse.body).slice(0, 200)}`);
 
     const itemId = "SCN-X-ITEM-1";
     await openStock(itemId, "20", "60", "SCN-X-ADJ-BR2", "WH-SCN-2");
@@ -1487,15 +1489,23 @@ export async function run(ctx: Ctx): Promise<void> {
     const all = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "*" })).body).length;
     const mainOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": BRANCH })).body);
     const secondOnly = ctx.rows((await req("GET", "/sales-invoices", undefined, { "x-branch-scope": "BR-SCN-2" })).body);
+    // D7 is fixed; these now guard the fix. A scope that narrows nothing was the
+    // defect, so the assertion is that each branch sees strictly less than "*",
+    // and that the two branches partition the set rather than overlapping.
     check(
-      "D7 measured against a REAL second branch rather than inferred from a one-branch tenant: x-branch-scope narrows nothing — every scope returns the identical row count",
-      mainOnly.length === all && secondOnly.length === all,
+      "x-branch-scope narrows: each branch sees strictly fewer invoices than the unscoped caller",
+      mainOnly.length < all && secondOnly.length < all && secondOnly.length > 0,
       `all=${all} BR-MAIN=${mainOnly.length} BR-SCN-2=${secondOnly.length}`,
     );
     check(
-      "concretely: a caller scoped to the first branch can read the second branch's invoice (docs/defects.md D7 — do not re-file)",
-      mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
-      "SCN-X-INV-BR2 not visible under BR-MAIN — D7 may have been fixed; re-check the register",
+      "the second branch's invoice is visible to the second branch",
+      secondOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
+      `BR-SCN-2 rows=${JSON.stringify(secondOnly.map((i: any) => i.id)).slice(0, 200)}`,
+    );
+    check(
+      "and invisible to a caller scoped to the first branch — the whole point of the scope",
+      !mainOnly.some((i: any) => i.id === "SCN-X-INV-BR2"),
+      "SCN-X-INV-BR2 leaked into BR-MAIN — D7 has regressed",
     );
 
     // Warehouse scope, by contrast, IS wired (F8) — proving the two are independent mechanisms.

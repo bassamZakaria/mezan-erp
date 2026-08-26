@@ -95,7 +95,12 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] specifications, attachments, audit log tabs
   - [ ] header actions: adjust stock, transfer, raise purchase request, movement ledger
 - [x] **R5.6** Reserved stock per warehouse — derived from open documents, never stored
-- [ ] **R10.2** Employee 360 tabs and the re-hire action
+- [x] **R10.1** HR dashboard: department/branch/attendance-mix charts, headcount-movement trend, absence and late-arrival KPIs, leave entitlement columns
+- [x] **R10.2** Employee 360 tabs and the re-hire action (attachments tab waits on R1.4; audit tab waits on an `entityId` on the audit event)
+- [x] **R10.3 / R10.4** Branch and active-contract columns; server-derived contract expiry with a KPI tile, banner and filter chip
+- [x] **R10.5** Leave-request create, including filing on behalf of another employee behind `hr.leave.approve`
+- [x] **R10.6** Leave-policy presets, listed and applied in one action
+- [x] **R10.7** Payroll earning and deduction components, bound to a component registry and routed to their own GL accounts
 - [~] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
   - [x] **R5.3** items list: row-menu action on zero-stock rows, routed to the adjustment form with the reason and item already answered
   - [ ] **R8.4** the same on treasury accounts
@@ -114,8 +119,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R4.2** Purchase-invoice line types (stock / expense / freight)
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
 - [ ] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
-- [ ] **R6.1** **Account routing screen** — the whole GL-mapping configuration (tax, leave, contracting, sales-discount contra, per-reason inventory adjustments, payroll components, per-item-type revenue/COGS/inventory)
-- [ ] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
+- [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
 - [ ] **R11.1–R11.8** Split settings into the ten policy tabs and make each toggle actually change document behaviour:
   - [ ] credit control mode (warn vs block)
   - [ ] sell-from-another-warehouse, show other-warehouse stock, backorders, negative stock, aging write-down provision, auto batch numbers

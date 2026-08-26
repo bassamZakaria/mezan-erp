@@ -339,7 +339,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X29 — confirming a document should reach the ETA queue
   // ---------------------------------------------------------------------------
-  await scenario("x29 · the ETA queue has no producer: switching auto-submit on and confirming a real invoice enqueues nothing", async () => {
+  await scenario("x29 · auto-submit ON puts a confirmed invoice on the ETA queue, and OFF leaves it alone (D5 fixed — guard it)", async () => {
     const config = await req("PUT", "/eta/config", {
       environment: "preproduction", taxRegistrationNumber: "123456789", activityCode: "4610",
       documentVersion: "1.0", autoSubmitOnConfirm: true, signingMethod: "none", buyerDataThreshold: 0,
@@ -351,13 +351,30 @@ export async function run(ctx: Ctx): Promise<void> {
     const queueBefore = rows((await req("GET", "/eta/submissions")).body).length;
     const sale = await serviceInvoice("SCN-S-INV-ETA", [{ qty: "1", unitPrice: "500" }]);
     check("a real, confirmable invoice is confirmed with the switch on", sale.confirmed.status === 200, JSON.stringify(sale.confirmed.body).slice(0, 200));
-    const queueAfter = rows((await req("GET", "/eta/submissions")).body).length;
-    check(
-      "D5 (docs/defects.md — do not re-file) — the queue is identical before and after: `EtaService.enqueue` has no caller, and `autoSubmitOnConfirm` is stored but read by nothing. " +
-        "An Egyptian tenant can configure e-invoicing fully, confirm invoices all day, and submit none of them.",
-      queueAfter === queueBefore,
-      `before=${queueBefore} after=${queueAfter}`,
-    );
+    const after = rows((await req("GET", "/eta/submissions")).body);
+    checkEq("the confirm enqueues exactly one submission — not zero, and not a storm", after.length - queueBefore, 1);
+
+    // Named, not counted: a queue that grew by one for some OTHER reason would
+    // pass a length check and still mean auto-submit does nothing. The queue
+    // keys on the document NUMBER (`internalId`), which is what ETA receives —
+    // not on the internal id.
+    const number = (await req("GET", "/sales-invoices/SCN-S-INV-ETA")).body?.docNo;
+    check("the confirmed invoice carries a document number", typeof number === "string" && number !== "", `number=${number}`);
+    const mine = after.find((row: any) => row.internalId === number);
+    check("and the queued row is THIS invoice", mine !== undefined, `number=${number} queue=${JSON.stringify(after.map((r: any) => r.internalId))}`);
+    check("queued awaiting submission rather than pre-marked accepted", mine?.status !== "accepted" && mine?.status !== "excluded", `status=${mine?.status}`);
+
+    // The other half of the switch: OFF must mean off. A producer wired to fire
+    // unconditionally would pass every assertion above.
+    const off = await req("PUT", "/eta/config", {
+      environment: "preproduction", taxRegistrationNumber: "123456789", activityCode: "4610",
+      documentVersion: "1.0", autoSubmitOnConfirm: false, signingMethod: "none", buyerDataThreshold: 0,
+    });
+    check("auto-submit can be switched back off", off.status === 200, `status ${off.status}`);
+    const beforeOff = rows((await req("GET", "/eta/submissions")).body).length;
+    const quiet = await serviceInvoice("SCN-S-INV-ETA-OFF", [{ qty: "1", unitPrice: "500" }]);
+    check("another invoice confirms with the switch off", quiet.confirmed.status === 200, JSON.stringify(quiet.confirmed.body).slice(0, 200));
+    checkEq("and nothing is enqueued — the switch is read, not ignored in both directions", rows((await req("GET", "/eta/submissions")).body).length, beforeOff);
   });
 
   // ---------------------------------------------------------------------------

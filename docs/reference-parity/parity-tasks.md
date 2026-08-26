@@ -148,7 +148,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
       - [x] The eleven-currency registry (`packages/domain/src/currency/`), the demo tenant's allowed list, the exchange-rate and revaluation screens
       - [x] A foreign SALES invoice converts at the approved rate of its own date, tags its receivable line, stamps the rate, and stores the BASE total in the sub-ledger (D24's remaining half)
       - [x] `GET /gl/balances-by-currency` — per-currency, per-party AR/AP in both the transaction and the base currency, shown on the revaluation screen
-      - [ ] The document screens still print every amount with the tenant's base-currency label (D52); the sales-invoice form offers only EGP + the customer's own currency rather than the eleven
+      - [ ] The document screens still print every amount with the tenant's base-currency label (D52); the sales-invoice form offers only EGP + the customer's own currency rather than the eleven, and the purchase-invoice form has no currency field at all — its route accepts one, no screen sends one
 
 ## P6 — list-surface parity
 

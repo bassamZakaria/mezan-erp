@@ -182,6 +182,9 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
 /** Groups the shell renders in the topbar's gear menu instead of the sidebar rail. */
 export const UTILITY_GROUP_KEYS: ReadonlySet<string> = new Set(["settings", "system"]);
 
+/** Items the shell renders as topbar icon buttons; their group never reaches the rail. */
+export const HEADER_NAV_ITEM_KEYS: readonly string[] = ["approvals"];
+
 /**
  * The quick actions (R1.5). Go-to entries are NOT listed here — they are
  * generated from the nav config below, so a screen added to the sidebar is

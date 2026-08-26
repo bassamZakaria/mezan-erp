@@ -128,7 +128,7 @@ import { NotificationsScreen } from "./screens/NotificationsScreen";
 import { useScopeSelector, useSystemStatus } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, UTILITY_GROUP_KEYS } from "./nav-config";
+import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, HEADER_NAV_ITEM_KEYS, UTILITY_GROUP_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem, TopbarSystemStatus, TopbarSupportItem } from "@mezan/ui";
@@ -457,9 +457,21 @@ export function App() {
     [navigate, pendingApprovalCount, t],
   );
 
-  // Settings and system live in the topbar's gear menu, not the rail; the
-  // `g`-chord shortcuts below still see the whole tree.
-  const railGroups = useMemo(() => groups.filter((group) => !UTILITY_GROUP_KEYS.has(group.key)), [groups]);
+  // Settings and system live in the topbar's gear menu and approvals is a
+  // topbar button, not rail rows; the `g`-chord shortcuts below still see the
+  // whole tree.
+  const headerNavItems = useMemo(
+    () => groups.flatMap((group) => group.items).filter((item) => HEADER_NAV_ITEM_KEYS.includes(item.key)),
+    [groups],
+  );
+  const railGroups = useMemo(
+    () =>
+      groups
+        .filter((group) => !UTILITY_GROUP_KEYS.has(group.key))
+        .map((group) => ({ ...group, items: group.items.filter((item) => !HEADER_NAV_ITEM_KEYS.includes(item.key)) }))
+        .filter((group) => group.items.length > 0),
+    [groups],
+  );
   const utilityGroups = useMemo(() => groups.filter((group) => UTILITY_GROUP_KEYS.has(group.key)), [groups]);
 
   const routedCommandItems: CommandItem[] = useMemo(() => {
@@ -617,6 +629,7 @@ export function App() {
       topNavItem={routedTopNavItem}
       navGroups={railGroups}
       utilityGroups={utilityGroups}
+      headerNavItems={headerNavItems}
       user={shellUser}
       commandItems={routedCommandItems}
       tenantName={session.tenantName}

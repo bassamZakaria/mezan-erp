@@ -39,6 +39,7 @@ import {
   useWarehouses,
   useEntityAudit,
   useItemMovements,
+  useUpdatePriceList,
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
@@ -324,46 +325,108 @@ function ItemStockTab({ itemId }: { itemId: string }) {
  * its own base price (R5.5). Derived from the price lists rather than stored
  * on the item, so a list edited elsewhere cannot leave a stale figure here.
  */
+/**
+ * Every price list quoting this item, one row per volume TIER (R3.11), each
+ * editable in place (R5.4).
+ *
+ * Saving sends the list's whole `lines` array because that is the shape the
+ * route takes — so every other line is carried through byte for byte, and only
+ * the edited tier's price changes. Rewriting a list from a partial view is how
+ * an edit to one item silently drops every other item's price.
+ */
 function ItemPriceListsTab({ item }: { item: ItemDTO }) {
   const { t } = useAppTranslation();
   const priceLists = usePriceLists().data ?? [];
+  const updatePriceList = useUpdatePriceList();
   const base = Number(item.salePrice ?? 0);
+  // Keyed per row, never a mutation-wide flag: one saving row must not disable
+  // the others.
+  const [editing, setEditing] = useState<Record<string, number>>({});
+  const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const rows = priceLists
-    .map((list) => {
-      const line = list.lines.find((l) => l.itemId === item.id);
-      return line ? { list, price: Number(line.price) } : null;
-    })
-    .filter((row): row is { list: (typeof priceLists)[number]; price: number } => row !== null);
+  const rows = priceLists.flatMap((list) =>
+    list.lines
+      .filter((line) => line.itemId === item.id)
+      .map((line) => ({ list, line, key: `${list.id}:${line.minQty ?? "0"}` })),
+  );
 
   if (rows.length === 0) {
     return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.priceLists.empty")}</div>;
   }
 
+  async function save(list: (typeof priceLists)[number], minQty: string | null | undefined, key: string) {
+    const next = editing[key];
+    if (next === undefined) return;
+    setSavingKey(key);
+    setError(null);
+    try {
+      await updatePriceList.mutateAsync({
+        id: list.id,
+        patch: {
+          lines: list.lines.map((line) =>
+            line.itemId === item.id && (line.minQty ?? "0") === (minQty ?? "0")
+              ? { itemId: line.itemId, unitCode: line.unitCode, minQty: line.minQty ?? undefined, price: next.toFixed(2) }
+              : { itemId: line.itemId, unitCode: line.unitCode, minQty: line.minQty ?? undefined, price: line.price },
+          ),
+        },
+      });
+      setEditing((prev) => {
+        const { [key]: _saved, ...rest } = prev;
+        return rest;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("items.priceLists.saveFailed"));
+    } finally {
+      setSavingKey(null);
+    }
+  }
+
   return (
     <Card className="overflow-hidden">
+      {error ? <p className="border-b border-border px-[15px] py-[8px] text-[12px] font-semibold text-danger-ink">{error}</p> : null}
       <table className="w-full border-collapse text-[12.5px]">
         <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
           <tr>
             <th className="px-[15px] py-[9px] text-start">{t("items.priceLists.list")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.tier")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.basePrice")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.customPrice")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.priceLists.delta")}</th>
+            <th className="px-[15px] py-[9px] text-end" />
           </tr>
         </thead>
         <tbody>
-          {rows.map(({ list, price }) => {
-            const delta = price - base;
+          {rows.map(({ list, line, key }) => {
+            const stored = Number(line.price);
+            const shown = editing[key] ?? stored;
+            const delta = shown - base;
+            const dirty = editing[key] !== undefined && editing[key] !== stored;
             return (
-              <tr key={list.id} className="border-t border-border">
+              <tr key={key} className="border-t border-border">
                 <td className="px-[15px] py-[10px] text-ink">
                   {list.nameAr}
                   {list.isBase ? <span className="ms-[6px] text-[11px] text-ink-faint">({t("items.priceLists.baseList")})</span> : null}
                 </td>
+                <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{line.minQty ?? "0"}</td>
                 <td className="px-[15px] py-[10px] text-end"><Money value={base} /></td>
-                <td className="px-[15px] py-[10px] text-end font-semibold"><Money value={price} /></td>
+                <td className="px-[15px] py-[10px] text-end">
+                  <MoneyInput
+                    value={shown}
+                    onChange={(v) => setEditing((prev) => ({ ...prev, [key]: v ?? 0 }))}
+                    aria-label={`${list.nameAr} — ${t("items.priceLists.customPrice")}`}
+                    disabled={savingKey === key}
+                  />
+                </td>
                 <td className={`px-[15px] py-[10px] text-end ${delta > 0 ? "text-success-ink" : delta < 0 ? "text-danger-ink" : "text-ink-faint"}`}>
                   {delta === 0 ? "—" : <Money value={delta} />}
+                </td>
+                <td className="px-[15px] py-[10px] text-end">
+                  {dirty ? (
+                    <Button size="sm" variant="primary" disabled={savingKey === key} onClick={() => save(list, line.minQty, key)}>
+                      {t("items.priceLists.save")}
+                    </Button>
+                  ) : null}
                 </td>
               </tr>
             );

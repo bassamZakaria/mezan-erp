@@ -17,6 +17,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
   await itemTypeCapabilitiesBind_R51(ctx);
   await itemImageBindsToARealAttachment_R54(ctx);
+  await editingOneTierKeepsTheRestOfTheList_R54(ctx);
   await openingBalanceShortcutTargetsARealItem_R53(ctx);
   await catalogFacetsAreEntities_R510(ctx);
   await itemDefaultSupplierIsBound_R54(ctx);
@@ -543,6 +544,45 @@ async function draftsReserveStockAndConfirmingConvertsIt_R56(ctx: Ctx): Promise<
  * update path in between did not carry it. That shape has cost this codebase a
  * currency, a cost centre and a withholding already.
  */
+/**
+ * R5.4 — editing one tier's price from the item detail. The route takes the
+ * list's WHOLE lines array, so the risk this guards is not the edit but the
+ * carry-through: a screen that rebuilt the list from its own partial view would
+ * drop every line it was not showing.
+ */
+async function editingOneTierKeepsTheRestOfTheList_R54(ctx: Ctx): Promise<void> {
+  const before = ctx.rows((await ctx.req("GET", "/price-lists")).body).find((l: any) => l.id === "PL-DEMO-2");
+  ctx.check("the wholesale list quotes more than one tier for the same item", before?.lines?.filter((l: any) => l.itemId === "ITEM-DEMO-1").length >= 2, `lines=${JSON.stringify(before?.lines).slice(0, 200)}`);
+  const lineCount = before.lines.length;
+
+  const patched = await ctx.req("PATCH", "/price-lists/PL-DEMO-2", {
+    lines: before.lines.map((l: any) =>
+      l.itemId === "ITEM-DEMO-1" && Number(l.minQty) === 10
+        ? { itemId: l.itemId, unitCode: l.unitCode, minQty: l.minQty, price: "151.50" }
+        : { itemId: l.itemId, unitCode: l.unitCode, minQty: l.minQty, price: l.price },
+    ),
+  });
+  ctx.checkEq("the edit is accepted", patched.status, 200);
+
+  const after = ctx.rows((await ctx.req("GET", "/price-lists")).body).find((l: any) => l.id === "PL-DEMO-2");
+  ctx.checkEq("every other line survives — none dropped by rewriting the array", after.lines.length, lineCount);
+  const tiers = after.lines.filter((l: any) => l.itemId === "ITEM-DEMO-1").sort((a: any, b: any) => Number(a.minQty) - Number(b.minQty));
+  ctx.checkEq("the edited tier holds the new price", ctx.n(tiers[1].price), 151.5);
+  ctx.checkEq("the tier below it is untouched", ctx.n(tiers[0].price), 168);
+  ctx.checkEq("and the tier above it is untouched", ctx.n(tiers[2].price), 148);
+
+  // The price only matters if the tier is actually SELECTED at that quantity.
+  const at12 = await ctx.req("POST", "/price-lists/resolve-price", { priceListId: "PL-DEMO-2", itemId: "ITEM-DEMO-1", qty: "12", fallback: "180.00" });
+  ctx.checkEq("and a 12-unit line takes it, which is what makes the edit mean anything", ctx.n(at12.body?.price), 151.5);
+
+  // Put the seeded price back. The suite shares one database, so a scenario
+  // that leaves seeded data changed moves the ground truth under every scenario
+  // after it — this one was caught doing exactly that to R3.11.
+  await ctx.req("PATCH", "/price-lists/PL-DEMO-2", { lines: before.lines.map((l: any) => ({ itemId: l.itemId, unitCode: l.unitCode, minQty: l.minQty, price: l.price })) });
+  const restored = ctx.rows((await ctx.req("GET", "/price-lists")).body).find((l: any) => l.id === "PL-DEMO-2");
+  ctx.checkEq("and the seeded price is restored for the scenarios that follow", ctx.n(restored.lines.find((l: any) => l.itemId === "ITEM-DEMO-1" && Number(l.minQty) === 10).price), 158);
+}
+
 async function itemImageBindsToARealAttachment_R54(ctx: Ctx): Promise<void> {
   const attachments = ctx.rows((await ctx.req("GET", "/attachments?entityType=item&entityId=ITEM-DEMO-1")).body);
   ctx.check("the seeded item carries at least one attachment to choose from", attachments.length > 0, `attachments=${attachments.length}`);

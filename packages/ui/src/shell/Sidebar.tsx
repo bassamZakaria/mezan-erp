@@ -5,6 +5,7 @@ import { BrandMark } from "./BrandMark";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import type { TopbarScopeOption } from "./Topbar";
 import { navGroupItems, type NavGroup, type NavItem, type NavSection, type ShellUser } from "./types";
+import { DisclosureChevron } from "../primitives/DisclosureChevron";
 
 export interface SidebarProps {
   activeKey?: string;
@@ -174,14 +175,7 @@ function NavSectionBlock({
           holdsActive ? "text-chrome-ink" : "text-chrome-ink-muted hover:text-chrome-ink",
         )}
       >
-        <svg
-          aria-hidden
-          viewBox="0 0 12 12"
-          fill="none"
-          className={cn("h-[10px] w-[10px] flex-none opacity-70 transition-transform duration-150", collapsed && "-rotate-90")}
-        >
-          <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
+        <DisclosureChevron collapsed={collapsed} className="h-[10px] w-[10px] opacity-70" />
         <span className="truncate">{section.label}</span>
         <span className="ms-auto flex-none text-[10px] font-normal opacity-60">{section.items.length}</span>
       </button>
@@ -332,14 +326,7 @@ export function Sidebar({
                 {expanded ? (
                   <>
                     <span className="truncate">{group.label}</span>
-                    <svg
-                      aria-hidden
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      className={cn("h-[11px] w-[11px] flex-none opacity-80 transition-transform duration-150", groupCollapsed && "-rotate-90")}
-                    >
-                      <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <DisclosureChevron collapsed={groupCollapsed} className="h-[11px] w-[11px] opacity-80" />
                   </>
                 ) : (
                   <span className="flex h-[21px] w-[21px] items-center justify-center">

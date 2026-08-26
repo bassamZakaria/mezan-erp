@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Card, StatusPill, type PillTone } from "./atoms";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /**
  * AccountTree — the دليل الحسابات (Chart of Accounts) tree table: an
@@ -64,9 +65,7 @@ function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; 
       }}
       className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-sm text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink"
     >
-      <svg aria-hidden viewBox="0 0 8 8" fill="none" className={cn("h-[8px] w-[8px] transition-transform", expanded && "rotate-90")}>
-        <path d="M2 1l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
+      <DisclosureChevron collapsed={!expanded} className="h-[9px] w-[9px]" />
     </button>
   );
 }

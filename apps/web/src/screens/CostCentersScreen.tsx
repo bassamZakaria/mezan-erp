@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   Checkbox,
+  DisclosureChevron,
   EntityPicker,
   IconButton,
   SearchInput,
@@ -341,9 +342,7 @@ export function CostCentersScreen() {
                             }}
                             className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-sm text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink"
                           >
-                            <svg aria-hidden viewBox="0 0 8 8" fill="none" className={`h-[8px] w-[8px] transition-transform ${expandedIds.has(row.id) ? "rotate-90" : ""}`}>
-                              <path d="M2 1l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
+                            <DisclosureChevron collapsed={!expandedIds.has(row.id)} className="h-[9px] w-[9px]" />
                           </button>
                         ) : (
                           <span aria-hidden className="inline-block h-[18px] w-[18px] flex-none" />

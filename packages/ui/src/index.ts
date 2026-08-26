@@ -132,6 +132,7 @@ export {
   type DateRange,
 } from "./primitives/DateRangeFilter";
 export { AccountTree, type AccountTreeProps, type AccountTreeColumnLabels, type AccountTreeRow } from "./primitives/AccountTree";
+export { DisclosureChevron, type DisclosureChevronProps } from "./primitives/DisclosureChevron";
 export {
   PermissionMatrix,
   type PermissionMatrixProps,

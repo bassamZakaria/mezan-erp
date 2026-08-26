@@ -313,6 +313,21 @@ th.mz-num {
   color: var(--accent-strong);
 }
 
+/* A disclosure chevron points along the reading direction: down when open,
+   toward the inline end when collapsed. `rotate` rather than `transform` so a
+   Tailwind transform utility on the same element cannot silently drop it. */
+.mz-disclosure-chevron {
+  transition: rotate 150ms ease;
+}
+
+.mz-disclosure-chevron[data-collapsed="true"] {
+  rotate: -90deg;
+}
+
+[dir="rtl"] .mz-disclosure-chevron[data-collapsed="true"] {
+  rotate: 90deg;
+}
+
 ::selection {
   background: var(--accent-soft);
   color: var(--text);

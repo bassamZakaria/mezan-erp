@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useTranslation } from "../i18n";
 import { Card } from "./atoms";
 import { Checkbox, SearchInput } from "./form";
+import { DisclosureChevron } from "./DisclosureChevron";
 
 /**
  * PermissionMatrix — the grouped checkbox matrix behind the role editor
@@ -147,14 +148,7 @@ export function PermissionMatrix({
                     >
                       {selectedCount} / {total}
                     </span>
-                    <svg
-                      aria-hidden
-                      viewBox="0 0 12 12"
-                      fill="none"
-                      className={cn("h-[11px] w-[11px] text-ink-faint transition-transform", isCollapsed && "-rotate-90")}
-                    >
-                      <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <DisclosureChevron collapsed={isCollapsed} className="h-[11px] w-[11px] text-ink-faint" />
                   </span>
                 </button>
               </div>

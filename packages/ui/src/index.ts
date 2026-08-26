@@ -128,7 +128,7 @@ export {
   type DateRangePreset,
   type DateRange,
 } from "./primitives/DateRangeFilter";
-export { AccountTree, type AccountTreeProps, type AccountTreeRow } from "./primitives/AccountTree";
+export { AccountTree, type AccountTreeProps, type AccountTreeColumnLabels, type AccountTreeRow } from "./primitives/AccountTree";
 export {
   PermissionMatrix,
   type PermissionMatrixProps,

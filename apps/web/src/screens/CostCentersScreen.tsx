@@ -259,6 +259,14 @@ export function CostCentersScreen() {
 
       <AccountTree
         rows={treeRows}
+        // A cost centre is not an account: the tree's default headers labelled
+        // these columns "اسم الحساب / الطبيعة" over cost-centre data (D44).
+        columnLabels={{
+          name: t("costCentres.col.name"),
+          type: t("costCentres.col.type"),
+          nature: t("costCentres.col.linkedTo"),
+          status: t("common.status"),
+        }}
         onToggle={(id) =>
           setExpandedIds((prev) => {
             const next = new Set(prev);

@@ -26,8 +26,21 @@ export interface AccountTreeRow {
   expanded: boolean;
 }
 
+/**
+ * Header labels. The tree is reused for the cost-centre hierarchy, which is not
+ * a chart of accounts — leaving the defaults there labelled its columns
+ * "اسم الحساب / الطبيعة" over cost-centre data (D44).
+ */
+export interface AccountTreeColumnLabels {
+  readonly name?: string;
+  readonly type?: string;
+  readonly nature?: string;
+  readonly status?: string;
+}
+
 export interface AccountTreeProps {
   rows: AccountTreeRow[];
+  columnLabels?: AccountTreeColumnLabels;
   onToggle: (id: string) => void;
   onRowClick?: (id: string) => void;
   rowActions?: (row: AccountTreeRow) => ReactNode;
@@ -58,7 +71,7 @@ function TreeToggle({ hasChildren, expanded, onClick }: { hasChildren: boolean; 
   );
 }
 
-export function AccountTree({ rows, onToggle, onRowClick, rowActions, emptyState, className }: AccountTreeProps) {
+export function AccountTree({ rows, columnLabels, onToggle, onRowClick, rowActions, emptyState, className }: AccountTreeProps) {
   const { t } = useUiTranslation();
   return (
     <Card className={cn("overflow-hidden", className)}>
@@ -67,16 +80,16 @@ export function AccountTree({ rows, onToggle, onRowClick, rowActions, emptyState
           <thead>
             <tr>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                {t("ui.accountTree.col.name")}
+                {columnLabels?.name ?? t("ui.accountTree.col.name")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                {t("ui.accountTree.col.type")}
+                {columnLabels?.type ?? t("ui.accountTree.col.type")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                {t("ui.accountTree.col.nature")}
+                {columnLabels?.nature ?? t("ui.accountTree.col.nature")}
               </th>
               <th scope="col" className="whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted">
-                {t("ui.accountTree.col.status")}
+                {columnLabels?.status ?? t("ui.accountTree.col.status")}
               </th>
               {rowActions ? <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[11px]" /> : null}
             </tr>

@@ -44,6 +44,7 @@ import {
   usePriceLists,
   useSalesQuotes,
   useRecordSalesInvoicePayment,
+  useInstallmentPlans,
   useSalesInvoices,
   useVouchers,
   useSalesReturns,
@@ -687,6 +688,8 @@ function InvoiceDetailView({
   const recordPayment = useRecordSalesInvoicePayment();
   const branchesQuery = useBranches();
   const returnsQuery = useSalesReturns();
+  const installmentPlansQuery = useInstallmentPlans();
+  const { navigate } = useNavigation();
   const etaQuery = useEtaSubmissions();
   const auditQuery = useAuditLog({ entityType: "SALES_INVOICE", limit: 100 });
 
@@ -696,6 +699,8 @@ function InvoiceDetailView({
 
   /** Returns raised against THIS invoice — the reference shows them on the invoice itself. */
   const invoiceReturns = (returnsQuery.data ?? []).filter((r) => r.lines.some((l: { sourceInvoiceId: string }) => l.sourceInvoiceId === invoice.id));
+  // الأقساط — plans scheduling THIS invoice's balance (R3.4).
+  const invoicePlans = (installmentPlansQuery.data ?? []).filter((plan) => plan.lines.some((l) => l.sourceInvoiceId === invoice.id));
   const etaRows = (etaQuery.data ?? []).filter((e: { internalId: string }) => e.internalId === invoice.docNo || e.internalId === invoice.id);
   const auditRows = (auditQuery.data?.events ?? []).filter((e: { details: unknown }) => {
     const d = e.details as Record<string, unknown> | null;
@@ -1003,6 +1008,38 @@ function InvoiceDetailView({
                       <span className="mz-num font-semibold text-ink">{r.docNo ?? r.id}</span>
                       <span className="text-ink-muted">
                         <span className="mz-num">{r.date}</span> · {documentStatusLabel(r.status, t)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          ),
+        },
+        {
+          key: "installments",
+          label: t("salesInvoices.tab.installments"),
+          content: (
+            <Card className="p-[16px_18px]">
+              {invoicePlans.length === 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-[10px]">
+                  <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.installments.empty")}</p>
+                  {toMajor(invoice.remainingBalance) > 0 ? (
+                    <Button
+                      size="sm"
+                      onClick={() => navigate("installment-plans", { kind: "create", prefill: { invoiceId: invoice.id } })}
+                    >
+                      {t("salesInvoices.row.newInstallmentPlan")}
+                    </Button>
+                  ) : null}
+                </div>
+              ) : (
+                <ul className="flex flex-col gap-[8px] text-[12.5px]">
+                  {invoicePlans.map((plan) => (
+                    <li key={plan.id} className="flex items-center justify-between rounded-md border border-border px-[12px] py-[9px]">
+                      <span className="mz-num font-semibold text-ink">{plan.docNo ?? plan.id}</span>
+                      <span className="text-ink-muted">
+                        <span className="mz-num">{plan.lines.length}</span> · {documentStatusLabel(plan.status, t)}
                       </span>
                     </li>
                   ))}

@@ -275,20 +275,25 @@ export function createVouchersRoutes(
   });
 
   /**
-   * The chip counts (R1.1/R8.2). Ignores `status`, `needsAllocation` AND
-   * `type` for the same reason: a chip states how many rows IT would show,
-   * not how many the active one left. Narrowing by the active type made every
-   * other type chip read zero the moment one was picked.
+   * The chip counts (R1.1/R8.2). The list has TWO chip axes — status (with the
+   * needs-allocation queues) and type — and each one drops only its own
+   * filter: a chip states how many rows IT would show, so it must honour every
+   * OTHER filter the user has applied. Dropping both axes at once made the
+   * status chips read the whole book while a type was selected (14 vouchers on
+   * the "All" chip over a 3-row list); dropping neither made every unselected
+   * chip read zero.
    */
   app.get("/counts", gate("treasury.cash_voucher.view"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const { status: _s, needsAllocation: _n, type: _t, ...rest } = parsed.data;
-    const rows = await listFilteredVouchers(c, rest);
+    const { status: _s, needsAllocation: _n, ...withoutStatusAxis } = parsed.data;
+    const { type: _t, ...withoutTypeAxis } = parsed.data;
+    const statusAxisRows = await listFilteredVouchers(c, withoutStatusAxis);
+    const typeAxisRows = await listFilteredVouchers(c, withoutTypeAxis);
     const counts: Record<string, number> = {
-      all: rows.length,
+      all: statusAxisRows.length,
       draft: 0,
       confirmed: 0,
       pending: 0,
@@ -297,7 +302,7 @@ export function createVouchersRoutes(
       needs_allocation_receipt: 0,
       needs_allocation_payment: 0,
     };
-    for (const row of rows) {
+    for (const row of statusAxisRows) {
       counts[row.status] = (counts[row.status] ?? 0) + 1;
       if (row.status === "confirmed" && row.allocatable && row.allocationSummary.needsAllocation) {
         counts.needs_allocation! += 1;
@@ -309,7 +314,7 @@ export function createVouchersRoutes(
     // filter that only lists types already used cannot be used to find that a
     // type has none.
     for (const def of VOUCHER_TYPE_DEFINITIONS) {
-      counts[`type:${def.code}`] = rows.filter((row) => row.voucherType === def.code).length;
+      counts[`type:${def.code}`] = typeAxisRows.filter((row) => row.voucherType === def.code).length;
     }
     return c.json(counts);
   });

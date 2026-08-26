@@ -10,6 +10,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "check:seed": "tsx scripts/check-seed-coverage.ts",
     "scenarios": "tsx scripts/run-scenarios.ts",
+    "trails": "node scripts/build-trail-pack.mjs",
     "test:vitest:disabled": "vitest run",
     "lint": "eslint . && pnpm run lint:rtl && pnpm run lint:tokens",
     "lint:eslint": "eslint .",

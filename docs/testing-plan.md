@@ -203,8 +203,10 @@ be perfect while no button calls it.
 **The written scenarios** are `docs/scenarios/01..08` — 964 numbered scenarios
 covering every screen, button, filter, modal and error path, with 222
 `[NOT IMPLEMENTED]` markers where the build diverges from the captured catalog —
-plus `docs/scenarios/09-cross-module.md` for the seams between modules. Work the
-manual pass from those. (The earlier 29-lifecycle summary they replaced is kept
+plus `docs/scenarios/09-cross-module.md` for the seams between modules and
+`docs/scenarios/10-posting-trails.md` for the 76 end-to-end trails (372 steps) — one
+per part of the product, each following a single thread of real clicks out into
+every module it touches. Work the manual pass from those. (The earlier 29-lifecycle summary they replaced is kept
 at `docs/archive/testing-scenarios.md` for its provenance only.)
 
 The generic checks below apply to every list screen and are what the scenarios

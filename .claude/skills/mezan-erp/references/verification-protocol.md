@@ -46,6 +46,18 @@ with `curl` and headers `x-user-id`, `x-permissions: *`, `x-branch-scope: *`,
 return zero rows (102 surfaces populated, 0 empty at last run). Any empty surface is a finding — a
 seeding gap or a broken route — and testing past it tests nothing.
 
+## Trails, not screens
+
+`docs/scenarios/10-posting-trails.md` holds 76 posting trails (372 steps) covering every
+nav group, every report, the non-functional concerns (volume, offline, a11y, i18n,
+security) and four role journeys — each a single thread of real clicks with the
+cross-module effects each click must produce, plus the pair to check and the known
+stops. `pnpm trails` regenerates the tickable page from that file; the markdown is
+the source, the HTML is output. Run the trail for whatever you touched **before** the per-screen sweep: a
+screen-level pass cannot see a document that posts one-sidedly, and every trail ends
+on a pair that must agree. Update the trail's step whenever its behaviour changes,
+and reference the defect number rather than re-describing the symptom.
+
 ## Two rules that make results trustworthy
 
 1. **Never test an empty screen.** A button with no rows to act on cannot be proven.

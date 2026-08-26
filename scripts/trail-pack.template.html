@@ -1,0 +1,512 @@
+<title>Mezan Trail Pack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap">
+
+<style>
+  :root {
+    --ground: #F5F8F6; --surface: #FFFFFF; --surface-2: #EDF2EF;
+    --line: #D6E0DA; --line-soft: #E6EDE9;
+    --ink: #13221E; --ink-muted: #56675F; --ink-faint: #7C8B84;
+    --teal: #0F4C43; --teal-soft: #DCEAE5;
+    --gold: #9C7326; --ok: #2C6E52; --ok-soft: #DCEDE2;
+    --stop: #A63E33; --stop-soft: #F6E0DC; --open: #5B6E86; --open-soft: #E3E9F0;
+    --shadow: 0 1px 2px rgba(19,34,30,.05), 0 8px 24px -18px rgba(19,34,30,.35);
+    --display: "Archivo", "IBM Plex Sans Arabic", ui-sans-serif, system-ui, sans-serif;
+    --body: "IBM Plex Sans Arabic", "Archivo", ui-sans-serif, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0D1512; --surface: #13201C; --surface-2: #182722;
+      --line: #26382F; --line-soft: #1D2E28;
+      --ink: #E6EFEA; --ink-muted: #9DB0A7; --ink-faint: #7B8E86;
+      --teal: #6FC5B1; --teal-soft: #17332C;
+      --gold: #D7AF62; --ok: #7CC79C; --ok-soft: #16301F;
+      --stop: #E39084; --stop-soft: #351C18; --open: #9DB4CE; --open-soft: #1B2734;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0D1512; --surface: #13201C; --surface-2: #182722;
+    --line: #26382F; --line-soft: #1D2E28;
+    --ink: #E6EFEA; --ink-muted: #9DB0A7; --ink-faint: #7B8E86;
+    --teal: #6FC5B1; --teal-soft: #17332C;
+    --gold: #D7AF62; --ok: #7CC79C; --ok-soft: #16301F;
+    --stop: #E39084; --stop-soft: #351C18; --open: #9DB4CE; --open-soft: #1B2734;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 10px 30px -20px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0; background: var(--ground); color: var(--ink);
+    font-family: var(--body); font-size: 15px; line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap { max-width: 1280px; margin: 0 auto; padding: 28px 22px 96px; }
+
+  .masthead {
+    display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-end;
+    justify-content: space-between; padding-bottom: 20px; border-bottom: 2px solid var(--ink);
+  }
+
+  .eyebrow {
+    font-family: var(--mono); font-size: 11px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px;
+  }
+
+  h1 {
+    font-family: var(--display); font-weight: 700;
+    font-size: clamp(30px, 4.6vw, 46px); letter-spacing: -.02em;
+    line-height: 1.02; margin: 0; text-wrap: balance;
+  }
+
+  .lede { margin: 14px 0 0; max-width: 62ch; color: var(--ink-muted); font-size: 16px; }
+
+  .env {
+    display: grid; gap: 8px; min-width: 268px; padding: 14px 16px;
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 4px; box-shadow: var(--shadow);
+  }
+
+  .env div { display: flex; justify-content: space-between; gap: 18px; font-size: 12.5px; }
+  .env .k { color: var(--ink-faint); font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; }
+  .env .v { font-family: var(--mono); font-size: 12.5px; }
+
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 22px 0 26px; }
+
+  .chip, .reset {
+    font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+    text-transform: uppercase; padding: 7px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--ink-muted); cursor: pointer;
+  }
+
+  .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--ground); }
+  .reset { border-radius: 3px; padding: 6px 10px; font-size: 11px; }
+
+  .chip:focus-visible, .reset:focus-visible, .step input:focus-visible,
+  .jump a:focus-visible, #q:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--gold); outline-offset: 2px;
+  }
+
+  #q {
+    font-family: var(--body); font-size: 13px; padding: 7px 12px; min-width: 190px;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--surface); color: var(--ink);
+  }
+
+  .tally {
+    margin-inline-start: auto; display: flex; gap: 16px; align-items: center;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-muted);
+  }
+
+  .tally b { color: var(--ink); font-weight: 500; }
+
+  .cols { display: grid; grid-template-columns: 244px minmax(0, 1fr); gap: 34px; align-items: start; }
+
+  .jump {
+    position: sticky; top: 18px; display: grid; gap: 1px; font-size: 13px;
+    max-height: calc(100vh - 36px); overflow-y: auto; padding-inline-end: 6px;
+  }
+
+  .jump h2 {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint);
+    margin: 14px 0 5px; font-weight: 500;
+  }
+
+  .jump h2:first-child { margin-top: 0; }
+
+  .jump a {
+    display: flex; justify-content: space-between; gap: 8px; padding: 3px 8px;
+    border-radius: 3px; text-decoration: none; color: var(--ink-muted);
+  }
+
+  .jump a:hover { background: var(--surface-2); color: var(--ink); }
+  .jump a .id { font-family: var(--mono); font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+  .jump a.done { color: var(--ok); }
+  .jump a.hidden { display: none; }
+
+  .trail {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 5px;
+    box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; scroll-margin-top: 16px;
+  }
+
+  .trail > summary {
+    display: grid; gap: 8px; padding: 15px 20px; cursor: pointer; list-style: none;
+    background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  }
+
+  .trail > summary::-webkit-details-marker { display: none; }
+  .trail[open] > summary { border-bottom: 1px solid var(--line-soft); }
+
+  .row1 { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+
+  .trail .id {
+    font-family: var(--mono); font-size: 12px; font-weight: 500;
+    letter-spacing: .1em; color: var(--gold);
+  }
+
+  .trail h3 {
+    font-family: var(--display); font-size: 19px; font-weight: 600;
+    letter-spacing: -.01em; margin: 0; text-wrap: balance;
+  }
+
+  .progress {
+    margin-inline-start: auto; display: flex; gap: 12px; align-items: baseline;
+    font-family: var(--mono); font-size: 11.5px; color: var(--ink-faint); white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .progress .stops { color: var(--stop); }
+  .modules { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  .mod {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 2px;
+    background: var(--teal-soft); color: var(--teal);
+  }
+
+  .exec { font-size: 12.5px; color: var(--ink-faint); margin: 0; }
+
+  .exec code {
+    font-family: var(--mono); font-size: 11.5px; background: var(--surface-2);
+    padding: 1px 5px; border-radius: 2px; color: var(--ink-muted);
+  }
+
+  ol.steps { list-style: none; margin: 0; padding: 0; }
+
+  .step {
+    display: grid; grid-template-columns: 26px 30px minmax(0, 1fr); gap: 0 12px;
+    padding: 13px 20px; border-bottom: 1px solid var(--line-soft); align-items: start;
+  }
+
+  .step:last-child { border-bottom: 0; }
+
+  .step .num {
+    font-family: var(--mono); font-size: 12px; color: var(--ink-faint);
+    padding-top: 3px; font-variant-numeric: tabular-nums;
+  }
+
+  .step input {
+    appearance: none; inline-size: 17px; block-size: 17px; margin: 3px 0 0;
+    border: 1.5px solid var(--line); border-radius: 3px; background: var(--surface);
+    cursor: pointer; display: grid; place-content: center;
+  }
+
+  .step input:checked { background: var(--ok); border-color: var(--ok); }
+
+  .step input:checked::after {
+    content: ""; inline-size: 9px; block-size: 5px;
+    border-inline-start: 2px solid var(--surface); border-block-end: 2px solid var(--surface);
+    transform: rotate(-45deg) translate(1px, -1px);
+  }
+
+  .step .act { font-weight: 500; }
+  .step.checked .act { color: var(--ink-faint); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+  .flag {
+    display: inline-block; font-family: var(--mono); font-size: 10.5px;
+    letter-spacing: .06em; text-transform: uppercase; padding: 2px 7px;
+    border-radius: 2px; margin-inline-start: 8px; vertical-align: 2px; white-space: nowrap;
+  }
+
+  .flag.ok { background: var(--ok-soft); color: var(--ok); }
+  .flag.stop { background: var(--stop-soft); color: var(--stop); }
+  .flag.open { background: var(--open-soft); color: var(--open); }
+
+  ul.effects { grid-column: 3; list-style: none; margin: 9px 0 0; padding: 0; display: grid; gap: 6px; }
+
+  ul.effects li {
+    display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px;
+    font-size: 13.5px; color: var(--ink-muted);
+    padding-inline-start: 12px; border-inline-start: 2px solid var(--line-soft);
+  }
+
+  ul.effects .where {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--ink-faint); padding-top: 3px;
+  }
+
+  ul.effects li.bad { border-inline-start-color: var(--stop); }
+  ul.effects li.bad .where { color: var(--stop); }
+
+  .trail .done {
+    padding: 14px 20px 16px; background: var(--surface-2);
+    border-top: 1px solid var(--line-soft); font-size: 13.5px;
+    display: grid; grid-template-columns: 124px minmax(0, 1fr); gap: 12px;
+  }
+
+  .trail .done .where {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .07em;
+    text-transform: uppercase; color: var(--gold); padding-top: 2px;
+  }
+
+  .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(258px, 1fr)); gap: 16px; margin: 0 0 26px; }
+
+  .panel {
+    background: var(--surface); border: 1px solid var(--line);
+    border-radius: 5px; padding: 16px 18px; box-shadow: var(--shadow);
+  }
+
+  .panel h2 {
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-faint); margin: 0 0 10px; font-weight: 500;
+  }
+
+  .panel p { margin: 0 0 8px; font-size: 13.5px; color: var(--ink-muted); }
+  .panel p:last-child { margin-bottom: 0; }
+  .panel strong { color: var(--ink); font-weight: 600; }
+  .rules { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; }
+  .rules li { font-size: 13.5px; color: var(--ink-muted); }
+  .rules b { color: var(--ink); font-weight: 600; }
+
+  .sechead { display: flex; align-items: baseline; gap: 12px; margin: 28px 0 12px; }
+
+  .sechead h2 {
+    font-family: var(--display); font-size: 13px; letter-spacing: .16em;
+    text-transform: uppercase; margin: 0; color: var(--ink); font-weight: 600;
+  }
+
+  .sechead .fill { flex: 1; border-top: 1px solid var(--line); }
+  .sechead.hidden, .trail.hidden { display: none; }
+
+  .closing {
+    margin-top: 30px; padding: 22px; border: 1px solid var(--line);
+    border-radius: 5px; background: var(--surface); box-shadow: var(--shadow);
+  }
+
+  .closing p { margin: 0; max-width: 70ch; color: var(--ink-muted); }
+  .closing p + p { margin-top: 10px; }
+
+  @media (max-width: 900px) {
+    .cols { grid-template-columns: minmax(0, 1fr); }
+    .jump { position: static; max-height: none; }
+    .step { grid-template-columns: 22px 26px minmax(0, 1fr); padding: 12px 14px; }
+    ul.effects li { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+    .trail .done { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header class="masthead">
+    <div>
+      <p class="eyebrow">Cross-module verification · seeded environment</p>
+      <h1>Mezan Posting Trails</h1>
+      <p class="lede">__COUNT_TRAILS__ threads of real clicks through the running app, __COUNT_STEPS__ steps in all —
+        one trail per part of the product. Each step names what should change <em>somewhere else</em>, so a single
+        action can be followed out to the ledger, the sub-ledger, the dashboard and the report pack that all have
+        to agree with it.</p>
+    </div>
+    <div class="env">
+      <div><span class="k">Web</span><span class="v">localhost:5174</span></div>
+      <div><span class="k">API</span><span class="v">127.0.0.1:3010 · seed ON</span></div>
+      <div><span class="k">Sign in</span><span class="v">محمد الشهابي / 1234</span></div>
+      <div><span class="k">Source</span><span class="v">scenarios/10-posting-trails.md</span></div>
+    </div>
+  </header>
+
+  <div class="toolbar">
+    <button class="chip" data-filter="all" aria-pressed="true">All steps</button>
+    <button class="chip" data-filter="stop" aria-pressed="false">Known stops</button>
+    <button class="chip" data-filter="open" aria-pressed="false">Unwalked</button>
+    <input id="q" type="search" placeholder="Filter trails…" aria-label="Filter trails by name, module or defect">
+    <button class="reset" id="expand">Expand all</button>
+    <div class="tally">
+      <span><b id="tallyDone">0</b> / <span id="tallyAll">0</span> checked</span>
+      <span><b id="tallyStops">0</b> known stops</span>
+      <button class="reset" id="reset">Clear ticks</button>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <h2>Two rules that make a trail worth running</h2>
+      <ul class="rules">
+        <li><b>Check a pair, never a single figure.</b> One plausible number hides everything; two that must agree
+          cannot. Every trail names its pair in the closing line.</li>
+        <li><b>A status is not a posting.</b> مدفوع, مؤكد and مُرحّل are claims. The claim is true when the ledger
+          moved with it — assert the GL beside the flag, never the flag alone.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h2>How to read a step</h2>
+      <p><span class="flag ok">verified</span> walked through the running app, or asserted by <code>pnpm scenarios</code>.</p>
+      <p><span class="flag stop">D39</span> a known defect blocks this step. The number is the row in
+        <strong>docs/defects.md</strong> — note that you saw it, don't re-file it.</p>
+      <p><span class="flag open">unwalked</span> written from the routes and the domain, not yet driven end to end.
+        Finding it wrong is the point.</p>
+    </div>
+    <div class="panel">
+      <h2>Reload before you tick</h2>
+      <p>Take the steps in order, in the UI, and open the screens named under each one before ticking it.
+        <strong>Reload the page first</strong> — reloading is what catches "works until you look again".</p>
+      <p>Ticks are remembered in this browser only. They never reach the repo, and clearing them loses nothing but
+        your place.</p>
+    </div>
+  </div>
+
+  <div class="cols">
+    <nav class="jump" id="jump" aria-label="Trails"></nav>
+    <main id="trails"></main>
+  </div>
+
+  <div class="closing">
+    <p><strong>What a trail is worth.</strong> A module scenario asks whether a screen does what it says. A trail
+      asks whether the rest of the product agrees with what that screen just did.</p>
+    <p>That question found four defects in one afternoon — an invoice no screen can confirm, a collection that posts
+      nothing, a supplier column showing the wrong field, and a purchase invoice that quietly drops VAT — none of
+      which a screen-level test could see, because every screen involved answered 200 and looked right.</p>
+  </div>
+</div>
+
+<script>
+  const TRAILS = /*__TRAILS__*/null;
+  const KEY = "mezan-trails-v2";
+
+  let ticks = {};
+  try { ticks = JSON.parse(localStorage.getItem(KEY) || "{}") || {}; } catch (e) { ticks = {}; }
+  const save = () => { try { localStorage.setItem(KEY, JSON.stringify(ticks)); } catch (e) { /* private window */ } };
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  const flagLabel = (s) =>
+    s.flag === "ok" ? '<span class="flag ok">verified</span>'
+      : s.flag === "open" ? '<span class="flag open">unwalked</span>'
+        : '<span class="flag stop">' + esc(s.code) + "</span>";
+
+  let html = "", jumpHtml = "", lastGroup = null;
+  for (const t of TRAILS) {
+    if (t.group !== lastGroup) {
+      html += '<div class="sechead" data-group="' + esc(t.group) + '"><h2>' + esc(t.group) + '</h2><span class="fill"></span></div>';
+      jumpHtml += "<h2>" + esc(t.group) + "</h2>";
+      lastGroup = t.group;
+    }
+    const stops = t.steps.filter((s) => s.flag === "stop").length;
+    const hay = (t.id + " " + t.group + " " + t.title + " " + t.mods.join(" ") + " " +
+      t.steps.map((s) => s.code + " " + s.act).join(" ")).toLowerCase();
+
+    html += '<details class="trail" id="' + t.id + '" data-trail="' + t.id + '" data-hay="' + esc(hay) + '">';
+    html += '<summary><div class="row1"><span class="id">' + t.id + '</span><h3>' + esc(t.title) + "</h3>" +
+      '<span class="progress"><span data-progress="' + t.id + '"></span>' +
+      (stops ? '<span class="stops">' + stops + " stop" + (stops > 1 ? "s" : "") + "</span>" : "") + "</span></div>";
+    html += '<div class="modules">' + t.mods.map((m) => '<span class="mod">' + esc(m) + "</span>").join("") + "</div>";
+    html += '<p class="exec">Executable as <code>' + esc(t.exec) + "</code></p></summary>";
+    html += '<ol class="steps">';
+    t.steps.forEach((s, i) => {
+      const key = t.id + ":" + i;
+      const on = !!ticks[key];
+      html += '<li class="step' + (on ? " checked" : "") + '" data-flag="' + s.flag + '" data-key="' + key + '">';
+      html += '<span class="num">' + String(i + 1).padStart(2, "0") + "</span>";
+      html += '<input type="checkbox" aria-label="Mark step ' + (i + 1) + " of " + t.id + ' done"' + (on ? " checked" : "") + ">";
+      html += '<div class="act">' + esc(s.act) + flagLabel(s) + "</div>";
+      if (s.fx.length) {
+        html += '<ul class="effects">' + s.fx.map((f) =>
+          '<li class="' + (f[2] ? "bad" : "") + '"><span class="where">' + esc(f[0]) + "</span><span>" + esc(f[1]) + "</span></li>"
+        ).join("") + "</ul>";
+      }
+      html += "</li>";
+    });
+    html += "</ol>";
+    html += '<div class="done"><span class="where">Done looks like</span><span>' + esc(t.done) + "</span></div>";
+    html += "</details>";
+
+    jumpHtml += '<a href="#' + t.id + '" data-jump="' + t.id + '" data-hay="' + esc(hay) + '"><span>' +
+      esc(t.title) + '</span><span class="id" data-jumpcount="' + t.id + '"></span></a>';
+  }
+
+  document.getElementById("trails").innerHTML = html;
+  document.getElementById("jump").innerHTML = jumpHtml;
+
+  function refresh() {
+    let done = 0, all = 0, stops = 0;
+    for (const t of TRAILS) {
+      let tDone = 0;
+      t.steps.forEach((s, i) => {
+        all += 1;
+        if (s.flag === "stop") stops += 1;
+        if (ticks[t.id + ":" + i]) { tDone += 1; done += 1; }
+      });
+      const p = document.querySelector('[data-progress="' + t.id + '"]');
+      if (p) p.textContent = tDone + " / " + t.steps.length;
+      const j = document.querySelector('[data-jumpcount="' + t.id + '"]');
+      if (j) j.textContent = tDone + "/" + t.steps.length;
+      const ja = document.querySelector('[data-jump="' + t.id + '"]');
+      if (ja) ja.classList.toggle("done", tDone === t.steps.length);
+    }
+    document.getElementById("tallyDone").textContent = done;
+    document.getElementById("tallyAll").textContent = all;
+    document.getElementById("tallyStops").textContent = stops;
+  }
+
+  document.getElementById("trails").addEventListener("change", (e) => {
+    const box = e.target;
+    if (box.type !== "checkbox") return;
+    const li = box.closest(".step");
+    if (box.checked) ticks[li.dataset.key] = true; else delete ticks[li.dataset.key];
+    li.classList.toggle("checked", box.checked);
+    save();
+    refresh();
+  });
+
+  let flag = "all";
+  let query = "";
+
+  function applyFilters() {
+    document.querySelectorAll(".step").forEach((s) => {
+      s.style.display = flag === "all" || s.dataset.flag === flag ? "" : "none";
+    });
+    document.querySelectorAll(".trail").forEach((t) => {
+      const matchesQuery = !query || t.dataset.hay.includes(query);
+      const hasStep = [...t.querySelectorAll(".step")].some((s) => s.style.display !== "none");
+      const show = matchesQuery && hasStep;
+      t.classList.toggle("hidden", !show);
+      if (show && (flag !== "all" || query)) t.open = true;
+      const ja = document.querySelector('[data-jump="' + t.dataset.trail + '"]');
+      if (ja) ja.classList.toggle("hidden", !show);
+    });
+    document.querySelectorAll(".sechead").forEach((h) => {
+      let el = h.nextElementSibling, any = false;
+      while (el && el.classList.contains("trail")) { if (!el.classList.contains("hidden")) any = true; el = el.nextElementSibling; }
+      h.classList.toggle("hidden", !any);
+    });
+  }
+
+  document.querySelectorAll(".chip").forEach((chip) => {
+    chip.addEventListener("click", () => {
+      flag = chip.dataset.filter;
+      document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === chip)));
+      applyFilters();
+    });
+  });
+
+  document.getElementById("q").addEventListener("input", (e) => {
+    query = e.target.value.trim().toLowerCase();
+    applyFilters();
+  });
+
+  document.getElementById("expand").addEventListener("click", (e) => {
+    const opening = e.target.textContent === "Expand all";
+    document.querySelectorAll(".trail").forEach((t) => { t.open = opening; });
+    e.target.textContent = opening ? "Collapse all" : "Expand all";
+  });
+
+  document.getElementById("reset").addEventListener("click", () => {
+    ticks = {};
+    save();
+    document.querySelectorAll(".step input").forEach((b) => { b.checked = false; b.closest(".step").classList.remove("checked"); });
+    refresh();
+  });
+
+  if (location.hash) {
+    const target = document.querySelector(location.hash);
+    if (target && target.classList.contains("trail")) target.open = true;
+  }
+
+  refresh();
+</script>

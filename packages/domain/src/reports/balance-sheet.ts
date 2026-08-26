@@ -9,7 +9,7 @@ import {
 } from "./gl-shared.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
-import { sumRows } from "./kpi.js";
+import { diffOf, sumRows } from "./kpi.js";
 
 /**
  * الميزانية العمومية — Balance Sheet (docs/catalog/08-reports.md), point in
@@ -89,7 +89,7 @@ export function createBalanceSheetReport(
     kpis: [
       { key: "totalAssets", labelAr: "إجمالي الأصول", format: "money", value: (rows) => balanceSheetTotalAssets(rows) },
       { key: "totalLiabilitiesEquity", labelAr: "الالتزامات وحقوق الملكية", format: "money", value: (rows) => balanceSheetTotalLiabilitiesEquity(rows) },
-      { key: "difference", labelAr: "الفرق", hintAr: "الأصول ناقص الالتزامات وحقوق الملكية، ويجب أن يكون صفراً", format: "money", value: (rows) => balanceSheetTotalAssets(rows) - balanceSheetTotalLiabilitiesEquity(rows), tone: (value) => (value === 0 ? "success" : "danger") },
+      { key: "difference", labelAr: "الفرق", hintAr: "الأصول ناقص الالتزامات وحقوق الملكية، ويجب أن يكون صفراً", format: "money", value: (rows) => diffOf(balanceSheetTotalAssets(rows), balanceSheetTotalLiabilitiesEquity(rows)), tone: (value) => (value === 0 ? "success" : "danger") },
       { key: "rowCount", labelAr: "عدد البنود", format: "qty", value: (rows) => rows.length },
     ],
     chart: {

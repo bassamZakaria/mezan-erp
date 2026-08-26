@@ -11,7 +11,7 @@ import { COMPARISON_LABEL_AR, type ComparisonMode, comparativeRange } from "./co
 import { Money } from "../money/index.js";
 import type { Account } from "../accounts/account.js";
 import type { ReportDefinition } from "./types.js";
-import { sumRows } from "./kpi.js";
+import { diffOf, sumRows } from "./kpi.js";
 
 /**
  * التدفقات النقدية — Cash Flow Statement, indirect method
@@ -184,7 +184,7 @@ export function createCashFlowReport(
     },
     reconciliation: {
       labelAr: "الرصيد الافتتاحي + صافي التغيير = الرصيد الختامي",
-      computeReportTotal: (rows) => (rows[0]?.openingCash ?? 0) + cashFlowNetChange(rows),
+      computeReportTotal: (rows) => diffOf(rows[0]?.openingCash ?? 0, -cashFlowNetChange(rows)),
       computeReferenceTotal: (rows) => rows[0]?.closingCash ?? 0,
       toleranceMoney: 0.01,
     },

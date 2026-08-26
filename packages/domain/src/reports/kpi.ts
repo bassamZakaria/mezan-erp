@@ -23,6 +23,15 @@ export function sumRows<Row>(rows: readonly Row[], pick: (row: Row) => number | 
   return Number(scaled) / 1e6;
 }
 
+/**
+ * `a − b` at 1e-6. Subtracting two piastre-exact doubles is as lossy as adding
+ * them: output VAT 6,455.40 less input VAT 18,527.60 came out of the subtraction
+ * as −12,072.199999999999, and that figure is the headline of a tax return.
+ */
+export function diffOf(a: number, b: number): number {
+  return Number(BigInt(Math.round(a * 1e6)) - BigInt(Math.round(b * 1e6))) / 1e6;
+}
+
 /** Rows matching a predicate — the count KPIs ("how many are overdue"). */
 export function countRows<Row>(rows: readonly Row[], match: (row: Row) => boolean): number {
   let count = 0;

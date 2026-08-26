@@ -1,5 +1,7 @@
 import { useId, useRef, useState, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { anchoredStyle, useAnchoredPopup } from "../hooks/useAnchoredPopup";
 import { useUiTranslation } from "../i18n";
 
 export interface EntityPickerOption {
@@ -44,6 +46,8 @@ export function EntityPicker({
   const generatedInputId = useId();
   const inputId = id ?? generatedInputId;
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const position = useAnchoredPopup(open, inputRef, { maxHeight: 256 });
 
   const filtered =
     query.trim() === ""
@@ -84,6 +88,7 @@ export function EntityPicker({
         </label>
       ) : null}
       <input
+        ref={inputRef}
         id={inputId}
         role="combobox"
         aria-expanded={open}
@@ -109,37 +114,41 @@ export function EntityPicker({
           disabled && "cursor-not-allowed opacity-60",
         )}
       />
-      {open && !disabled ? (
-        <ul
-          id={listboxId}
-          role="listbox"
-          className="absolute start-0 end-0 z-10 mt-[6px] max-h-64 overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
-        >
-          {filtered.length === 0 ? (
-            <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage ?? t("ui.picker.empty")}</li>
-          ) : (
-            filtered.map((option, index) => (
-              <li key={option.id} role="option" aria-selected={value?.id === option.id}>
-                <button
-                  type="button"
-                  // onMouseDown fires before the input's onBlur, so selection isn't lost.
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    select(option);
-                  }}
-                  className={cn(
-                    "flex w-full flex-col items-start gap-[1px] rounded-sm px-[10px] py-[8px] text-start text-[13px]",
-                    index === highlight ? "bg-brand-soft text-brand" : "text-ink hover:bg-surface-2",
-                  )}
-                >
-                  <span className="font-medium">{option.label}</span>
-                  {option.sublabel ? <span className="text-[11px] text-ink-faint">{option.sublabel}</span> : null}
-                </button>
-              </li>
-            ))
-          )}
-        </ul>
-      ) : null}
+      {open && !disabled && position
+        ? createPortal(
+            <ul
+              id={listboxId}
+              role="listbox"
+              className="fixed z-[90] overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
+              style={anchoredStyle(position)}
+            >
+              {filtered.length === 0 ? (
+                <li className="px-[10px] py-[10px] text-[12.5px] text-ink-faint">{emptyMessage ?? t("ui.picker.empty")}</li>
+              ) : (
+                filtered.map((option, index) => (
+                  <li key={option.id} role="option" aria-selected={value?.id === option.id}>
+                    <button
+                      type="button"
+                      // onMouseDown fires before the input's onBlur, so selection isn't lost.
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        select(option);
+                      }}
+                      className={cn(
+                        "flex w-full flex-col items-start gap-[1px] rounded-sm px-[10px] py-[8px] text-start text-[13px]",
+                        index === highlight ? "bg-brand-soft text-brand" : "text-ink hover:bg-surface-2",
+                      )}
+                    >
+                      <span className="font-medium">{option.label}</span>
+                      {option.sublabel ? <span className="text-[11px] text-ink-faint">{option.sublabel}</span> : null}
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

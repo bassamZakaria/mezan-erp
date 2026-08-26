@@ -1,16 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type ReactNode,
-} from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { anchoredStyle, useAnchoredPopup } from "../hooks/useAnchoredPopup";
 import { useUiTranslation } from "../i18n";
 
 export interface SelectOption<TValue extends string = string> {
@@ -51,34 +42,6 @@ const SIZE_CLASS: Record<SelectSize, string> = {
   md: "min-h-[38px] px-[11px] py-[9px] text-[13px]",
 };
 
-interface MenuPosition {
-  top: number;
-  inlineStart: number;
-  width: number;
-  maxHeight: number;
-}
-
-const MENU_GAP = 6;
-const MENU_MAX_HEIGHT = 288;
-const MENU_MIN_HEIGHT = 120;
-
-function measure(trigger: HTMLElement): MenuPosition {
-  const rect = trigger.getBoundingClientRect();
-  const rtl = getComputedStyle(trigger).direction === "rtl";
-  const spaceBelow = window.innerHeight - rect.bottom - MENU_GAP - 8;
-  const spaceAbove = rect.top - MENU_GAP - 8;
-  const flipUp = spaceBelow < 160 && spaceAbove > spaceBelow;
-  const maxHeight = Math.max(MENU_MIN_HEIGHT, Math.min(MENU_MAX_HEIGHT, flipUp ? spaceAbove : spaceBelow));
-  return {
-    top: flipUp ? rect.top - MENU_GAP - maxHeight : rect.bottom + MENU_GAP,
-    // Measured physically, expressed logically, so the popup tracks the
-    // trigger in both directions.
-    inlineStart: rtl ? window.innerWidth - rect.right : rect.left,
-    width: rect.width,
-    maxHeight,
-  };
-}
-
 /**
  * Select — the app's dropdown. A styled listbox that replaces the native
  * `<select>`, whose popup the OS paints outside the design system (wrong
@@ -111,9 +74,9 @@ export function Select<TValue extends string = string>({
   const { t } = useUiTranslation();
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
-  const [position, setPosition] = useState<MenuPosition | null>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const position = useAnchoredPopup(open, triggerRef, { maxHeight: 288 });
   const typeahead = useRef<{ query: string; at: number }>({ query: "", at: 0 });
   const generatedId = useId();
   const triggerId = id ?? generatedId;
@@ -136,34 +99,16 @@ export function Select<TValue extends string = string>({
     return order.map((key) => ({ key, items: byGroup.get(key)! }));
   }, [options]);
 
-  const reposition = useCallback(() => {
-    if (triggerRef.current) setPosition(measure(triggerRef.current));
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    reposition();
-  }, [open, reposition]);
-
   useEffect(() => {
     if (!open) return;
-    function onScrollOrResize() {
-      reposition();
-    }
     function onPointerDown(event: MouseEvent) {
       const target = event.target as Node;
       if (triggerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
       setOpen(false);
     }
-    window.addEventListener("scroll", onScrollOrResize, true);
-    window.addEventListener("resize", onScrollOrResize);
     document.addEventListener("mousedown", onPointerDown);
-    return () => {
-      window.removeEventListener("scroll", onScrollOrResize, true);
-      window.removeEventListener("resize", onScrollOrResize);
-      document.removeEventListener("mousedown", onPointerDown);
-    };
-  }, [open, reposition]);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -284,12 +229,7 @@ export function Select<TValue extends string = string>({
           <div
             ref={menuRef}
             className="fixed z-[90] overflow-y-auto rounded-md border border-border bg-surface p-[6px] shadow-2"
-            style={{
-              top: position.top,
-              insetInlineStart: position.inlineStart,
-              width: position.width,
-              maxHeight: position.maxHeight,
-            }}
+            style={anchoredStyle(position)}
           >
             <ul id={listboxId} role="listbox" aria-labelledby={triggerId} aria-activedescendant={`${listboxId}-${active}`}>
               {options.length === 0 ? (

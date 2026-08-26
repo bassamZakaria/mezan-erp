@@ -1,5 +1,7 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { cn } from "../lib/cn";
+import { anchoredStyle, useAnchoredPopup } from "../hooks/useAnchoredPopup";
 
 export interface RowMenuItem {
   key: string;
@@ -23,6 +25,10 @@ export interface RowMenuProps {
  * state: a draft transfer offers تأكيد, a converted quote does not offer
  * تعديل, a paid invoice does not offer إلغاء. Passing an empty list renders
  * nothing rather than a menu that opens onto nothing.
+ *
+ * The menu is portalled (`useAnchoredPopup`) because a list table clips its
+ * own overflow: on the last rows of a long list (D56) and on a table holding
+ * a single row (D59), an in-place menu was in the DOM and unreachable.
  */
 export function RowMenu({ items, label, className }: RowMenuProps) {
   const [open, setOpen] = useState(false);
@@ -30,44 +36,14 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const [dropUp, setDropUp] = useState(false);
-
-  /**
-   * Flip upward when opening downward would put the menu past the bottom of
-   * whatever actually clips it (D56).
-   *
-   * Measured against the nearest SCROLLING ancestor rather than the viewport:
-   * `DocumentList` caps its table at `max-h` with `overflow: auto`, so on the
-   * last rows of a long list a downward menu was inside the window and still
-   * unreachable — clipped by the table, not by the screen.
-   */
-  useLayoutEffect(() => {
-    if (!open) {
-      setDropUp(false);
-      return;
-    }
-    const trigger = triggerRef.current;
-    const menu = menuRef.current;
-    if (!trigger || !menu) return;
-
-    let clipper: HTMLElement | null = trigger.parentElement;
-    while (clipper) {
-      const { overflowY } = getComputedStyle(clipper);
-      if (overflowY === "auto" || overflowY === "scroll") break;
-      clipper = clipper.parentElement;
-    }
-    const bottom = clipper ? clipper.getBoundingClientRect().bottom : window.innerHeight;
-    const triggerBox = trigger.getBoundingClientRect();
-    const needed = menu.offsetHeight + 4;
-    // Only flip if there is room above; a menu taller than both sides stays
-    // downward, where at least the first items are reachable.
-    setDropUp(triggerBox.bottom + needed > bottom && triggerBox.top - needed > (clipper?.getBoundingClientRect().top ?? 0));
-  }, [open, items.length]);
+  const position = useAnchoredPopup(open, triggerRef, { gap: 4, align: "end", maxHeight: 320, minHeight: 96 });
 
   useEffect(() => {
     if (!open) return;
     function onPointerDown(event: MouseEvent) {
-      if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target) || menuRef.current?.contains(target)) return;
+      setOpen(false);
     }
     function onKeyDown(event: KeyboardEvent) {
       if (event.key !== "Escape") return;
@@ -104,41 +80,43 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
         </svg>
       </button>
 
-      {open ? (
-        <div
-          ref={menuRef}
-          id={menuId}
-          role="menu"
-          aria-label={label}
-          className={cn(
-            "absolute end-0 z-30 min-w-[190px] overflow-hidden rounded-lg border border-border bg-surface py-[4px] shadow-2",
-            dropUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]",
-          )}
-        >
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              role="menuitem"
-              disabled={item.disabled}
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
-              className={cn(
-                "flex w-full items-center px-[12px] py-[8px] text-start text-[12.5px] transition-colors",
-                item.disabled
-                  ? "cursor-not-allowed text-ink-faint"
-                  : item.tone === "danger"
-                    ? "text-danger-ink hover:bg-danger-soft"
-                    : "text-ink hover:bg-surface-2",
-              )}
+      {open && position
+        ? createPortal(
+            <div
+              ref={menuRef}
+              id={menuId}
+              role="menu"
+              aria-label={label}
+              onClick={(event) => event.stopPropagation()}
+              className="fixed z-[90] min-w-[190px] overflow-y-auto rounded-lg border border-border bg-surface py-[4px] shadow-2"
+              style={anchoredStyle(position)}
             >
-              {item.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
+              {items.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  role="menuitem"
+                  disabled={item.disabled}
+                  onClick={() => {
+                    setOpen(false);
+                    item.onSelect();
+                  }}
+                  className={cn(
+                    "flex w-full items-center px-[12px] py-[8px] text-start text-[12.5px] transition-colors",
+                    item.disabled
+                      ? "cursor-not-allowed text-ink-faint"
+                      : item.tone === "danger"
+                        ? "text-danger-ink hover:bg-danger-soft"
+                        : "text-ink hover:bg-surface-2",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

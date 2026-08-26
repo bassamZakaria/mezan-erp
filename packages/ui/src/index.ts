@@ -15,6 +15,13 @@ export {
 
 export { useFormat, NumeralsProvider, type UseFormatOptions, type UseFormatResult } from "./hooks/useFormat";
 export { useTheme, type ThemePreference, type UseThemeResult } from "./hooks/useTheme";
+export {
+  useAnchoredPopup,
+  anchoredStyle,
+  type AnchoredAlign,
+  type AnchoredPopupOptions,
+  type AnchoredPosition,
+} from "./hooks/useAnchoredPopup";
 
 export {
   DEFAULT_LOCALE,

@@ -44,8 +44,17 @@ import {
 const PURCHASE_INVOICE_SEQUENCE = "PURCHASE_INVOICE";
 const TAX_SCALE = 1_000_000n; // percent carried to 1e-6 for exact tax math
 
-/** مخزني (inventory) lines raise stock + inventory GL; مصروف شحن (freight) lines expense-only. */
-export type PurchaseInvoiceLineKind = "inventory" | "expense";
+/**
+ * The three things a purchase-invoice line can be (R4.2):
+ *
+ * - `inventory` (مخزني) — raises stock and debits the inventory account
+ * - `expense`   (مصروف)  — debits the general purchase-expense account
+ * - `freight`   (شحن)    — debits the freight account
+ *
+ * None of the three changes what the supplier is owed; they decide which
+ * account the debit side lands in, which is what makes the P&L legible.
+ */
+export type PurchaseInvoiceLineKind = "inventory" | "expense" | "freight";
 
 export interface PurchaseInvoiceLine {
   /** Required for an inventory line; null for a freight/expense line. */
@@ -235,8 +244,17 @@ export function purchaseInvoiceInventoryBase(invoice: {
   );
 }
 
-/** Σ freight/expense-line bases — Dr Freight, never stock. */
+/** Σ freight-line bases — Dr Freight, never stock. */
 export function purchaseInvoiceFreightBase(invoice: {
+  readonly lines: readonly PurchaseInvoiceLine[];
+}): Money {
+  return Money.sum(
+    invoice.lines.filter((l) => l.kind === "freight").map(purchaseInvoiceLineBase),
+  );
+}
+
+/** Σ general-expense-line bases — Dr Purchase expenses, never stock (R4.2). */
+export function purchaseInvoiceExpenseBase(invoice: {
   readonly lines: readonly PurchaseInvoiceLine[];
 }): Money {
   return Money.sum(
@@ -384,9 +402,11 @@ export function buildInvoicePosting(
 
   const inventoryBase = convert(purchaseInvoiceInventoryBase(invoice));
   const freightBase = convert(purchaseInvoiceFreightBase(invoice));
+  const expenseBase = convert(purchaseInvoiceExpenseBase(invoice));
   const tax = convert(purchaseInvoiceTax(invoice));
-  const payable = inventoryBase.add(freightBase).add(tax);
+  const payable = inventoryBase.add(freightBase).add(expenseBase).add(tax);
   const freightAccountId = accounts.freightAccountId ?? accounts.inventoryAccountId;
+  const expenseAccountId = accounts.expenseAccountId ?? freightAccountId;
   const fxTag = foreign ? { currency: invoice.currency, fxRate: fx.rate } : {};
 
   const lines: PurchaseGlPostingLine[] = [];
@@ -395,6 +415,9 @@ export function buildInvoicePosting(
   }
   if (freightBase.scaled !== 0n) {
     lines.push({ accountId: freightAccountId, debit: freightBase, credit: Money.zero() });
+  }
+  if (expenseBase.scaled !== 0n) {
+    lines.push({ accountId: expenseAccountId, debit: expenseBase, credit: Money.zero() });
   }
   if (tax.scaled !== 0n) {
     lines.push({ accountId: accounts.taxAccountId, debit: tax, credit: Money.zero() });

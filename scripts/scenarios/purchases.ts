@@ -706,4 +706,146 @@ export async function run(ctx: Ctx): Promise<void> {
       checkEq("the +7,750 gap opened by the receipt confirm is fully closed by the invoice confirm", afterInvoice.inventory, start.inventory);
     },
   );
+
+  // --- 11. R4.4: per-line delivery is read from the stock ledger, never stored ---
+  await scenario(
+    "purchases: a purchase invoice reports received / consumed / still-in-stock per line, and moving the goods out moves those figures",
+    async () => {
+      const manual = await req("GET", "/purchases/invoices/PI-DEMO-1");
+      check(
+        "PI-DEMO-1 is a manual (no-receipt) confirmed invoice, so it funds its own cost layers",
+        manual.body?.receiptId === null && manual.body?.status === "confirmed",
+        JSON.stringify({ receiptId: manual.body?.receiptId, status: manual.body?.status }),
+      );
+
+      const f = await req("GET", "/purchases/invoices/PI-DEMO-1/fulfilment");
+      check("its per-line delivery reads back", f.status === 200, `status ${f.status} ${JSON.stringify(f.body).slice(0, 200)}`);
+      check("the source document it measures against is the invoice itself", f.body?.sourceDocType === "PURCHASE_INVOICE", String(f.body?.sourceDocType));
+
+      const line0 = (f.body?.lines ?? [])[0];
+      checkEq("line 0 was received in full — a manual invoice IS the receiving document", n(line0?.receivedQty), n(manual.body?.lines?.[0]?.qty));
+      checkEq(
+        "received = consumed + still in stock on every line — the identity that makes the figure trustworthy rather than decorative",
+        (f.body?.lines ?? []).filter((l: any) => Math.abs(n(l.receivedQty) - n(l.consumedQty) - n(l.remainingQty)) > 0.000001).length,
+        0,
+      );
+
+      // Move some of those goods out of the invoice's warehouse; the same line
+      // must then report more consumed and less remaining, with received flat.
+      const consumedBefore = n(line0?.consumedQty);
+      const remainingBefore = n(line0?.remainingQty);
+      const draft = await req("POST", "/inventory/stock-transfers/draft", {
+        id: "SCN-PI-CONSUME",
+        date: "2026-08-26",
+        lines: [{ itemId: "ITEM-DEMO-1", fromWarehouseId: WAREHOUSE_ID, toWarehouseId: "WH-DEMO-2", qty: "5" }],
+      });
+      check("a transfer of 5 out of the invoice's warehouse drafts", draft.status === 201, `status ${draft.status} ${JSON.stringify(draft.body).slice(0, 200)}`);
+      const moved = await req("POST", "/inventory/stock-transfers/SCN-PI-CONSUME/confirm", {});
+      check("and confirms", moved.status === 200, `status ${moved.status} ${JSON.stringify(moved.body).slice(0, 200)}`);
+
+      const after = await req("GET", "/purchases/invoices/PI-DEMO-1/fulfilment");
+      const line0After = (after.body?.lines ?? [])[0];
+      checkEq("moving 5 out raises the line's consumed quantity by exactly 5", n(line0After?.consumedQty) - consumedBefore, 5);
+      checkEq("and drops what is still in stock from that purchase by the same 5", remainingBefore - n(line0After?.remainingQty), 5);
+      checkEq("received never moves — what arrived is history", n(line0After?.receivedQty), n(line0?.receivedQty));
+    },
+  );
+
+  // --- 12. R4.4: paying off the invoice posts a real voucher -------------------
+  await scenario(
+    "purchases: «تسجيل السداد» on a purchase invoice creates a confirmed payment voucher — the treasury falls and the payable drops by the same amount",
+    async () => {
+      const before = await req("GET", "/purchases/invoices/PI-DEMO-4");
+      check("PI-DEMO-4 is confirmed and unpaid", before.body?.status === "confirmed" && n(before.body?.amountPaid) === 0, JSON.stringify(before.body?.amountPaid));
+
+      const cashBefore = n((await req("GET", "/gl/accounts/1300-1/ledger")).body?.balance?.balance);
+      const apBefore = -n((await req("GET", "/gl/accounts/2100/ledger")).body?.balance?.balance);
+
+      const paid = await req("POST", "/purchases/invoices/PI-DEMO-4/payments", {
+        amount: "1200.00",
+        treasuryAccountId: "TR-DEMO-CASH",
+        paymentMethod: "cash",
+      });
+      check("the payment is accepted", paid.status === 200, `status ${paid.status} ${JSON.stringify(paid.body).slice(0, 200)}`);
+      check(
+        "and it names the voucher it created — a status that says money moved must have a document behind it (the D40 shape, on the purchase side)",
+        typeof paid.body?.voucherId === "string" && paid.body.voucherId.length > 0,
+        JSON.stringify(paid.body?.voucherId),
+      );
+
+      const cashAfter = n((await req("GET", "/gl/accounts/1300-1/ledger")).body?.balance?.balance);
+      const apAfter = -n((await req("GET", "/gl/accounts/2100/ledger")).body?.balance?.balance);
+      checkEq("the خزنة falls by exactly what was paid", cashBefore - cashAfter, 1200);
+      checkEq("and the payable falls by the same 1,200 — the two sides of one voucher", apBefore - apAfter, 1200);
+
+      const after = await req("GET", "/purchases/invoices/PI-DEMO-4");
+      checkEq("the invoice now reports 1,200 paid", n(after.body?.amountPaid), 1200);
+      checkEq("and the rest still outstanding", n(after.body?.remainingBalance), n(before.body?.total) - 1200);
+
+      const over = await req("POST", "/purchases/invoices/PI-DEMO-4/payments", {
+        amount: "9999999.00",
+        treasuryAccountId: "TR-DEMO-CASH",
+      });
+      checkEq("paying more than the invoice still owes is refused server-side, not merely hidden in the form", over.status, 422);
+
+      const draft = await req("POST", "/purchases/invoices", {
+        id: "SCN-PI-UNPAYABLE",
+        supplierId: "SUPP-DEMO-1",
+        date: "2026-08-26",
+        branchId: BRANCH_ID,
+        warehouseId: WAREHOUSE_ID,
+        lines: [{ itemId: "ITEM-DEMO-1", kind: "inventory", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+      });
+      check("a fresh draft invoice exists to test against", draft.status === 201, `status ${draft.status}`);
+      const draftPay = await req("POST", "/purchases/invoices/SCN-PI-UNPAYABLE/payments", {
+        amount: "10.00",
+        treasuryAccountId: "TR-DEMO-CASH",
+      });
+      checkEq("a draft invoice cannot be paid — the payable does not exist in the ledger yet", draftPay.status, 422);
+    },
+  );
+
+  // --- 13. R4.2: the three line types each debit their own account -------------
+  await scenario(
+    "purchases: stock / expense / freight lines on one invoice land in three different accounts, and all three are owed to the supplier",
+    async () => {
+      const glBal = async (code: string) => n((await req("GET", `/gl/accounts/${code}/ledger`)).body?.balance?.balance);
+      const inventoryBefore = await glBal("1200");
+      const freightBefore = await glBal("5200");
+      const expenseBefore = await glBal("5910");
+      const apBefore = -(await glBal("2100"));
+
+      const created = await req("POST", "/purchases/invoices", {
+        id: "SCN-PI-KINDS",
+        supplierId: "SUPP-DEMO-1",
+        date: "2026-08-26",
+        branchId: BRANCH_ID,
+        warehouseId: WAREHOUSE_ID,
+        lines: [
+          { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "10", unitCost: "100", taxRatePercent: 0 },
+          { itemId: null, kind: "freight", description: "نولون بحري", qty: "1", unitCost: "300", taxRatePercent: 0 },
+          { itemId: null, kind: "expense", description: "رسوم بنكية على الاعتماد", qty: "1", unitCost: "200", taxRatePercent: 0 },
+        ],
+      });
+      check("an invoice carrying all three line types drafts", created.status === 201, `status ${created.status} ${JSON.stringify(created.body).slice(0, 200)}`);
+      check(
+        "and keeps each line's own type — the line-kind enum is three-valued, not two (R4.2)",
+        (created.body?.lines ?? []).map((l: any) => l.kind).join(",") === "inventory,freight,expense",
+        (created.body?.lines ?? []).map((l: any) => l.kind).join(","),
+      );
+      checkEq("the supplier is owed all three: 1,000 + 300 + 200", n(created.body?.total), 1500);
+
+      const confirmed = await req("POST", "/purchases/invoices/SCN-PI-KINDS/confirm", {});
+      check("it confirms", confirmed.status === 200, `status ${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`);
+
+      checkEq("only the stock line raises inventory (1200)", (await glBal("1200")) - inventoryBefore, 1000);
+      checkEq("the freight line debits مصروفات الشحن والنقل (5200)", (await glBal("5200")) - freightBefore, 300);
+      checkEq(
+        "and the expense line debits مصروفات أخرى (5910) rather than being binned into freight, which is what every non-stock line used to do",
+        (await glBal("5910")) - expenseBefore,
+        200,
+      );
+      checkEq("the payable takes the whole 1,500 — how a cost is classified never changes what is owed", (-(await glBal("2100"))) - apBefore, 1500);
+    },
+  );
 }

@@ -178,6 +178,8 @@ import type {
   SalesInvoiceStatsDTO,
   PurchaseInvoiceListQueryDTO,
   PurchaseInvoiceStatsDTO,
+  PurchaseInvoiceFulfilmentDTO,
+  PurchaseInvoicePaymentDTO,
   ListCountsDTO,
   AccountRoutingDTO,
   TaxGroupDTO,
@@ -5886,6 +5888,44 @@ export function useEntityAudit(entityType: string, entityId: string): UseQueryRe
       if (!res.ok) throw new ApiError(res.status, t("api.auditCouldNotBeLoaded"));
       const body = await res.json<{ events?: AuditEventDTO[] } | AuditEventDTO[]>();
       return Array.isArray(body) ? body : (body.events ?? []);
+
+/**
+ * Per-line delivery for one purchase invoice (R4.4) — invoiced, received,
+ * consumed and still-in-stock, derived server-side from the cost layers the
+ * funding document created.
+ */
+export function usePurchaseInvoiceFulfilment(invoiceId: string | null): UseQueryResult<PurchaseInvoiceFulfilmentDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PurchaseInvoiceFulfilmentDTO, ApiError>({
+    queryKey: ["purchase-invoices", "fulfilment", invoiceId],
+    enabled: session !== null && invoiceId !== null,
+    queryFn: async () => {
+      const res = await request(`/purchases/invoices/${encodeURIComponent(invoiceId ?? "")}/fulfilment`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseInvoicesCouldNotBe"));
+      return res.json<PurchaseInvoiceFulfilmentDTO>();
+    },
+  });
+}
+
+/** سداد للمورد straight off the invoice — a real سند صرف, so the treasury and the ledger moved too. */
+export function usePayPurchaseInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PurchaseInvoiceDTO & { voucherId: string }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/purchases/invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
+      return res.json<PurchaseInvoiceDTO & { voucherId: string }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["suppliers"] });
+      queryClient.invalidateQueries({ queryKey: ["open-invoices"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

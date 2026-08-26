@@ -135,7 +135,7 @@ import { createPurchaseReturnsRoutes } from "./purchase-returns-routes.js";
 import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
-import { createPurchasesRoutes } from "./purchases-routes.js";
+import { createPurchasesRoutes, type PurchasesRoutesDeps } from "./purchases-routes.js";
 import { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
@@ -554,6 +554,8 @@ export interface CreateAppOptions {
     readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly currencyCheck?: CurrencyCheck;
+    /** Backs `POST /purchases/invoices/:id/payments`; omit it and that route answers 503. */
+    readonly pay?: NonNullable<PurchasesRoutesDeps["pay"]>;
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
@@ -1129,6 +1131,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           baseCurrency: purchases.baseCurrency,
           policy,
           layers: purchases.layers,
+          pay: purchases.pay,
           resolveTaxRate: purchases.resolveTaxRate,
           currencyCheck:
             purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),

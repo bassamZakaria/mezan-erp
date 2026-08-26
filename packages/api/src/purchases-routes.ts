@@ -39,6 +39,10 @@ import {
   NoFiscalPeriodForDateError,
   PeriodNotOpenForPostingError,
   NegativeStockError,
+  CashBalanceWouldGoNegativeError,
+  InvalidDocumentError,
+  AllocationMismatchError,
+  AllocationExceedsError,
   DEFAULT_PURCHASE_POLICY,
   type PurchaseOrder,
   type PurchaseOrderRepository,
@@ -62,6 +66,7 @@ import {
   createGoodsReceiptSchema,
   createPurchaseInvoiceSchema,
   purchaseInvoiceListQuerySchema,
+  purchaseInvoicePaymentSchema,
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
@@ -130,6 +135,25 @@ export interface PurchasesRoutesDeps {
   readonly glReverse?: PurchaseGlReversalPort;
   /** Append-only audit sink; when present every confirm/cancel below is recorded on the `sensitive` stream. */
   readonly audit?: AuditSink;
+  /**
+   * Pay a supplier straight off the invoice: creates, confirms and allocates a
+   * real سند صرف. Omit it and `POST /invoices/:id/payments` answers 503 rather
+   * than flipping the invoice to "paid" with nothing posted behind it — the
+   * failure D40 was filed for on the sales side.
+   */
+  readonly pay?: (input: {
+    readonly invoiceId: string;
+    readonly invoiceNumber: string;
+    readonly supplierId: string;
+    readonly branchId: string;
+    readonly amount: Money;
+    readonly treasuryAccountId: string;
+    readonly paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+    readonly date: string;
+    readonly referenceNo: string | null;
+    readonly memo: string;
+    readonly actor?: string;
+  }) => Promise<{ voucherId: string }>;
   readonly now?: () => string;
 }
 
@@ -270,7 +294,13 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InactiveAccountError ||
     err instanceof NoFiscalPeriodForDateError ||
     err instanceof PeriodNotOpenForPostingError ||
-    err instanceof NegativeStockError
+    err instanceof NegativeStockError ||
+    // Raised by the voucher engine behind `POST /invoices/:id/payments` — the
+    // same D20 shape: a refusal the caller can act on must not answer 500.
+    err instanceof CashBalanceWouldGoNegativeError ||
+    err instanceof InvalidDocumentError ||
+    err instanceof AllocationMismatchError ||
+    err instanceof AllocationExceedsError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -629,6 +659,142 @@ export function createPurchasesRoutes(
     const invoice = await deps.invoices.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serializeInvoice(invoice, (await allocatedByInvoice([invoice.id])).get(invoice.id)));
+  });
+
+  /**
+   * What each inventory line delivered and what is left of it (R4.4).
+   *
+   * The figures are derived from the cost layers the FUNDING document created —
+   * the goods receipt for a «من إيصال استلام» invoice, the invoice itself for a
+   * manual one — because that is where the stock ledger records the truth. A
+   * fully drawn-down layer is deleted rather than kept at zero, so "consumed"
+   * is measured as received minus what still remains, never as a sum over
+   * surviving layers.
+   */
+  app.get("/invoices/:id/fulfilment", gate("purchases.invoice.view"), async (c) => {
+    const invoice = await deps.invoices.findById(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+
+    const receipt = invoice.receiptId ? await deps.receipts.findById(invoice.receiptId) : null;
+    const sourceDocId = receipt ? receipt.id : invoice.status === "confirmed" ? invoice.id : null;
+    const sourceDocType = receipt ? "GOODS_RECEIPT" : invoice.status === "confirmed" ? "PURCHASE_INVOICE" : null;
+
+    const receivedByItem = new Map<string, Qty>();
+    if (receipt) {
+      for (const l of receipt.lines) {
+        receivedByItem.set(l.itemId, (receivedByItem.get(l.itemId) ?? Qty.zero()).add(l.qty));
+      }
+    }
+
+    const remainingByItem = new Map<string, Qty>();
+    if (deps.layers && sourceDocId) {
+      const itemIds = [...new Set(invoice.lines.filter((l) => l.itemId !== null).map((l) => l.itemId as string))];
+      for (const itemId of itemIds) {
+        const layers = await deps.layers.listByPosition(itemId, invoice.warehouseId);
+        const mine = layers.filter((l) => l.sourceDocId === sourceDocId);
+        remainingByItem.set(itemId, mine.reduce((sum, l) => sum.add(l.remainingQty), Qty.zero()));
+      }
+    }
+
+    /** Split a per-item figure back over the lines that share that item, largest line first, without inventing quantity. */
+    const takenByItem = new Map<string, Qty>();
+    const shareOf = (itemId: string, lineQty: Qty, pool: Qty): Qty => {
+      const alreadyTaken = takenByItem.get(itemId) ?? Qty.zero();
+      const left = pool.compare(alreadyTaken) > 0 ? pool.subtract(alreadyTaken) : Qty.zero();
+      const share = left.compare(lineQty) > 0 ? lineQty : left;
+      takenByItem.set(itemId, alreadyTaken.add(share));
+      return share;
+    };
+
+    const lines = invoice.lines.map((line, lineIndex) => {
+      if (line.kind !== "inventory" || line.itemId === null) {
+        return {
+          lineIndex,
+          itemId: line.itemId,
+          invoicedQty: line.qty.toString(),
+          receivedQty: Qty.zero().toString(),
+          consumedQty: Qty.zero().toString(),
+          remainingQty: Qty.zero().toString(),
+        };
+      }
+      const itemId = line.itemId;
+      // A manual invoice IS the receiving document, so it has received nothing until it is confirmed.
+      const receivedPool = receipt ? (receivedByItem.get(itemId) ?? Qty.zero()) : sourceDocId ? line.qty : Qty.zero();
+      const received = receipt ? shareOf(`recv:${itemId}`, line.qty, receivedPool) : receivedPool;
+      const remainingPool = remainingByItem.get(itemId) ?? Qty.zero();
+      const remaining = shareOf(`rem:${itemId}`, received, remainingPool);
+      const consumed = received.compare(remaining) > 0 ? received.subtract(remaining) : Qty.zero();
+      return {
+        lineIndex,
+        itemId,
+        invoicedQty: line.qty.toString(),
+        receivedQty: received.toString(),
+        consumedQty: consumed.toString(),
+        remainingQty: remaining.toString(),
+      };
+    });
+
+    return c.json({ invoiceId: invoice.id, sourceDocId, sourceDocType, lines });
+  });
+
+  /**
+   * سداد للمورد straight off the invoice (R4.4). A status that says money moved
+   * must be backed by a posting: this creates, confirms and allocates a real
+   * supplier-payment voucher, so the treasury account, GL 2100 and the
+   * allocation sub-ledger all move together.
+   */
+  app.post("/invoices/:id/payments", gate("purchases.invoice.edit"), async (c) => {
+    const parsed = purchaseInvoicePaymentSchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    if (!deps.pay) {
+      return c.json(
+        { error: "PAYMENT_UNAVAILABLE", message: "السداد يتطلب سند صرف؛ وحدة الخزينة غير مفعّلة." },
+        503,
+      );
+    }
+    const invoice = await deps.invoices.findById(c.req.param("id"));
+    if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
+    if (invoice.status !== "confirmed") {
+      return c.json(
+        { error: "INVOICE_NOT_PAYABLE", message: "لا يمكن السداد إلا على فاتورة مؤكدة." },
+        422,
+      );
+    }
+    const amount = Money.fromMajor(parsed.data.amount);
+    if (amount.scaled <= 0n) {
+      return c.json({ error: "INVALID_PAYMENT", message: "قيمة السداد يجب أن تكون أكبر من صفر." }, 422);
+    }
+    const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id) ?? Money.zero();
+    const remaining = purchaseInvoiceTotal(invoice).scaled - allocated.scaled;
+    if (amount.scaled > remaining) {
+      return c.json(
+        { error: "PAYMENT_EXCEEDS_BALANCE", message: "قيمة السداد أكبر من المتبقي على الفاتورة." },
+        422,
+      );
+    }
+    try {
+      const { voucherId } = await deps.pay({
+        invoiceId: invoice.id,
+        invoiceNumber: invoice.number,
+        supplierId: invoice.supplierId,
+        branchId: invoice.branchId,
+        amount,
+        treasuryAccountId: parsed.data.treasuryAccountId,
+        paymentMethod: parsed.data.paymentMethod ?? "cash",
+        // A payment happens when it happens — dating it back to the invoice
+        // would measure the treasury's balance on the wrong day.
+        date: parsed.data.date ?? (deps.now?.() ?? new Date().toISOString()).slice(0, 10),
+        referenceNo: parsed.data.referenceNo ?? null,
+        memo: parsed.data.notes ?? `سداد على الفاتورة ${invoice.number}`,
+        actor: actor(c),
+      });
+      const settled = (await allocatedByInvoice([invoice.id])).get(invoice.id);
+      return c.json({ ...serializeInvoice(invoice, settled), voucherId });
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
   });
 
   app.post("/invoices", gate("purchases.invoice.create"), async (c) => {

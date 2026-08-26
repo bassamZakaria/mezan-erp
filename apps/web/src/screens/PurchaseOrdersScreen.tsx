@@ -224,13 +224,21 @@ export function PurchaseOrdersScreen() {
   });
   // Carried in from «أمر شراء جديد» on a supplier's page; derived from the URL.
   const [supplierChoice, setSupplierChoice] = useState<EntityPickerOption | null | undefined>(undefined);
-  const prefilledSupplierId = subPage.segments[0] === "new" ? (subPage.segments[1] ?? null) : null;
+  // `#/…/purchase-orders/new/<supplierId|any>/<itemId?>`. "any" fills the
+  // supplier slot when the caller knows the item but not the supplier — which
+  // is «طلب شراء» on an item, where the buyer is exactly what has not been
+  // decided yet.
+  const routedSupplier = subPage.segments[0] === "new" ? (subPage.segments[1] ?? null) : null;
+  const prefilledSupplierId = routedSupplier === "any" ? null : routedSupplier;
+  const prefilledItemId = subPage.segments[0] === "new" ? (subPage.segments[2] ?? null) : null;
   const supplier =
     supplierChoice !== undefined ? supplierChoice : (supplierOptions.find((option) => option.id === prefilledSupplierId) ?? null);
   const setSupplier = setSupplierChoice;
   const [date, setDate] = useState(todayIso());
   const [notes, setNotes] = useState("");
-  const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
+  // Seeded once from the route, not synchronised: the buyer must be able to
+  // change the line the item detail put here.
+  const [lines, setLines] = useState<DraftLine[]>(() => [{ itemId: prefilledItemId ?? "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
   const orders = query.data ?? [];

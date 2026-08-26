@@ -1396,6 +1396,12 @@ export function ItemsScreen() {
               <Button onClick={() => openScreenAt("stock-transfers", ["new", item.id])}>
                 {t("items.action.transfer")}
               </Button>
+              {/* This product has no requisition document; the purchase order IS
+                  the request. "any" leaves the supplier open — on an item, the
+                  buyer is precisely what has not been decided. */}
+              <Button onClick={() => openScreenAt("purchase-orders", ["new", "any", item.id])}>
+                {t("items.action.purchaseRequest")}
+              </Button>
               <Button variant="primary" onClick={() => openEditForm(item)}>
                 {t("common.edit")}
               </Button>

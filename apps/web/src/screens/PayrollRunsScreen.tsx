@@ -5,11 +5,13 @@ import {
   DocumentList,
   EmptyState,
   Money as MoneyDisplay,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { PayrollRunDTO, PayrollRunStatusDTO, PayslipDTO } from "@mezan/contracts";
 import { PAYROLL_UNIMPLEMENTED_RULES } from "@mezan/domain";
@@ -214,6 +216,11 @@ export function PayrollRunsScreen() {
           </Button>
         </Card>
       ) : null}
+      {selectedId === null && detailError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {detailError}
+        </div>
+      ) : null}
 
       <DocumentList<PayrollRunDTO>
         title={t("payroll.payroll")}
@@ -249,6 +256,43 @@ export function PayrollRunsScreen() {
         onRowClick={(r) => {
           setDetailError(null);
           setSelectedId(r.id);
+        }}
+        rowAction={(r) => {
+          const openRow = () => {
+            setDetailError(null);
+            setSelectedId(r.id);
+          };
+          const items: RowMenuItem[] = [{ key: "view", label: t("common.view"), onSelect: openRow }];
+          if (r.status === "draft" || r.status === "calculated") {
+            items.push({
+              key: "calculate",
+              label: t("payroll.calculatePayroll"),
+              disabled: pendingId === r.id,
+              onSelect: () => void runAction(r, "calculate"),
+            });
+          }
+          if (r.status === "calculated") {
+            items.push({
+              key: "approve",
+              label: t("payroll.approveAndPostTheEntry"),
+              disabled: pendingId === r.id,
+              onSelect: () => void runAction(r, "approve"),
+            });
+          }
+          if (r.status === "draft" || r.status === "calculated") {
+            items.push({
+              key: "cancel",
+              label: t("payroll.cancelRun"),
+              tone: "danger",
+              disabled: pendingId === r.id,
+              onSelect: () => void runAction(r, "cancel"),
+            });
+          }
+          // Disbursing needs a treasury account and a branch the row cannot supply — the menu opens the panel that collects them.
+          if (r.status === "approved") {
+            items.push({ key: "disburse", label: t("payroll.payOut"), onSelect: openRow });
+          }
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: r.number })} />;
         }}
         page={page}
         pageCount={pageCount}

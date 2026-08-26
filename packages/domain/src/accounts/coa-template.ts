@@ -109,6 +109,9 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // hr/master-data — appended for the same reason as 2170/2180 above.
   { id: "5120", code: "5120", nameAr: "مصروف الرواتب", nameEn: "Salary Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5130", code: "5130", nameAr: "مساهمات صاحب العمل", nameEn: "Employer Contributions Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Allowances routed away from basic pay, so a payroll component can post to
+  // its own line of the P&L instead of vanishing into 5120 (R10.7).
+  { id: "5121", code: "5121", nameAr: "بدلات ومزايا العاملين", nameEn: "Staff Allowances & Benefits", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5200", code: "5200", nameAr: "مصروفات الشحن والنقل", nameEn: "Freight & Shipping Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },

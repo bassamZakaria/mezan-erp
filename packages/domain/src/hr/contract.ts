@@ -58,6 +58,12 @@ export interface ContractLineItem {
   readonly id: string;
   readonly name: string;
   readonly amount: Money;
+  /**
+   * The payroll component this line is an instance of (`payroll-component.ts`).
+   * Null on lines written before the registry existed; those still post to the
+   * run's default account for their kind.
+   */
+  readonly componentId: string | null;
 }
 
 export interface LeaveEntitlementOverrides {

@@ -152,6 +152,7 @@ const READ_PATHS = [
   "/data-migration/status",
   "/inventory/writedown-runs",
   "/workflow/requests",
+  "/hr/payroll/components",
 ];
 
 interface Failure {

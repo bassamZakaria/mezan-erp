@@ -10,6 +10,8 @@ import {
   cancelPayrollRun,
   createEmployeeDirectory,
   createPayrollRun,
+  createPayrollComponent,
+  updatePayrollComponent,
   disburseEmployeeAdvance,
   disbursePayrollRun,
   employeeOutstandingBalance,
@@ -17,6 +19,8 @@ import {
   requestEmployeeAdvance,
   CashBalanceWouldGoNegativeError,
   DuplicatePayrollPeriodError,
+  DuplicatePayrollComponentError,
+  InvalidPayrollComponentError,
   EmployeeAdvanceNotFoundError,
   EmployeeNotFoundError,
   InvalidEmployeeAdvanceError,
@@ -36,6 +40,9 @@ import {
   type EmployeeRepository,
   type ContractRepository,
   type JournalPostingDeps,
+  type PayrollComponent,
+  type PayrollComponentKind,
+  type PayrollComponentRepository,
   type PayrollGlAccounts,
   type PayrollRun,
   type PayrollRunRepository,
@@ -44,7 +51,13 @@ import {
   type TreasuryDisbursementPort,
   type UnpaidLeaveDaysProvider,
 } from "@mezan/domain";
-import { createEmployeeAdvanceSchema, createPayrollRunSchema, treasuryDisbursementSchema } from "@mezan/contracts";
+import {
+  createEmployeeAdvanceSchema,
+  createPayrollRunSchema,
+  createPayrollComponentSchema,
+  updatePayrollComponentSchema,
+  treasuryDisbursementSchema,
+} from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
@@ -69,6 +82,8 @@ export interface HrPayrollRoutesDeps {
   readonly treasury?: TreasuryDisbursementPort;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted. */
   readonly unpaidLeave?: UnpaidLeaveDaysProvider;
+  /** The payroll-component registry (R10.7); absent = the component routes are not mounted and every line posts to the run defaults. */
+  readonly payrollComponents?: PayrollComponentRepository;
   readonly idGen?: () => string;
 }
 
@@ -181,7 +196,9 @@ function handleDomainError(c: Context, err: unknown): Response {
     err instanceof InvalidPayrollRunTransitionError ||
     err instanceof DuplicatePayrollPeriodError ||
     err instanceof NoPayableEmployeesError ||
-    err instanceof NegativeNetPayError
+    err instanceof NegativeNetPayError ||
+    err instanceof InvalidPayrollComponentError ||
+    err instanceof DuplicatePayrollComponentError
   ) {
     return c.json({ error: err.code, message: err.message }, 422);
   }
@@ -190,6 +207,20 @@ function handleDomainError(c: Context, err: unknown): Response {
 
 function actorOf(c: Context): string {
   return getAuthContext(c)?.userId ?? "system";
+}
+
+function serializeComponent(component: PayrollComponent) {
+  return {
+    id: component.id,
+    code: component.code,
+    nameAr: component.nameAr,
+    nameEn: component.nameEn,
+    kind: component.kind,
+    glAccountId: component.glAccountId,
+    active: component.active,
+    createdAt: component.createdAt,
+    updatedAt: component.updatedAt,
+  };
 }
 
 export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthContext: AuthContextResolver = headerAuthContextResolver): Hono {
@@ -206,8 +237,48 @@ export function createHrPayrollRoutes(deps: HrPayrollRoutesDeps, resolveAuthCont
     advances: deps.advances,
     numbering: deps.numbering,
     unpaidLeave: deps.unpaidLeave,
+    payrollComponents: deps.payrollComponents,
     idGen,
   };
+
+  // --- Payroll components (GL routing) -------------------------------------
+
+  const components = deps.payrollComponents;
+  if (components) {
+    app.get("/payroll/components", gate("hr.payroll.view"), async (c) => {
+      const kind = c.req.query("kind");
+      const rows = await components.list(kind ? { kind: kind as PayrollComponentKind } : undefined);
+      return c.json(rows.map(serializeComponent));
+    });
+
+    app.post("/payroll/components", gate("hr.payroll.create"), async (c) => {
+      const parsed = createPayrollComponentSchema.safeParse(await c.req.json());
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      try {
+        const existing = await components.findByCode(parsed.data.code.trim());
+        if (existing) throw new DuplicatePayrollComponentError(parsed.data.code);
+        const component = createPayrollComponent({ ...parsed.data, id: parsed.data.id ?? idGen() });
+        await components.create(component);
+        return c.json(serializeComponent(component), 201);
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+
+    app.put("/payroll/components/:id", gate("hr.payroll.create"), async (c) => {
+      const parsed = updatePayrollComponentSchema.safeParse(await c.req.json());
+      if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+      const current = await components.findById(c.req.param("id"));
+      if (!current) return c.json({ error: "PAYROLL_COMPONENT_NOT_FOUND" }, 404);
+      try {
+        const next = updatePayrollComponent(current, parsed.data);
+        await components.update(next);
+        return c.json(serializeComponent(next));
+      } catch (err) {
+        return handleDomainError(c, err);
+      }
+    });
+  }
 
   // --- Employee advances ---------------------------------------------------
 

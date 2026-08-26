@@ -170,6 +170,8 @@ export const contractLineItemSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   amount: z.string(),
+  /** The payroll component this line binds to; drives the GL account the line posts to (R10.7). */
+  componentId: z.string().nullable(),
 });
 
 export const leaveEntitlementOverridesSchema = z.object({
@@ -203,6 +205,7 @@ export const createContractLineItemSchema = z.object({
   id: z.string().min(1).optional(),
   name: z.string().min(1),
   amount: z.string(),
+  componentId: z.string().nullable().optional(),
 });
 
 export const createContractSchema = z.object({

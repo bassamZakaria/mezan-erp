@@ -14,6 +14,10 @@ import {
   type PayslipLineKind,
   type PayslipLineSource,
   type PayslipRepository,
+  type PayrollComponent,
+  type PayrollComponentFilter,
+  type PayrollComponentKind,
+  type PayrollComponentRepository,
 } from "@mezan/domain";
 
 /**
@@ -592,4 +596,124 @@ export function createSqlitePayslipRepository(path: SqliteConnectionInput = ":me
   sqlite.exec(CREATE_PAYSLIP);
   const repo = new SqlitePayslipRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayslipRepositoryHandle;
+}
+
+// --- Payroll components (GL routing) ---------------------------------------
+
+const CREATE_PAYROLL_COMPONENT = `
+CREATE TABLE IF NOT EXISTS hr_payroll_component (
+  id            TEXT PRIMARY KEY,
+  code          TEXT NOT NULL UNIQUE,
+  name_ar       TEXT NOT NULL,
+  name_en       TEXT,
+  kind          TEXT NOT NULL,
+  gl_account_id TEXT,
+  active        INTEGER NOT NULL,
+  created_at    TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+`;
+
+interface PayrollComponentRow {
+  id: string;
+  code: string;
+  name_ar: string;
+  name_en: string | null;
+  kind: string;
+  gl_account_id: string | null;
+  active: number;
+  created_at: string;
+  updated_at: string;
+}
+
+function toPayrollComponent(row: PayrollComponentRow): PayrollComponent {
+  return {
+    id: row.id,
+    code: row.code,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
+    kind: row.kind as PayrollComponentKind,
+    glAccountId: row.gl_account_id,
+    active: row.active === 1,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+class SqlitePayrollComponentRepository implements PayrollComponentRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectById: Database.Statement;
+  private readonly selectByCode: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(private readonly sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO hr_payroll_component (id, code, name_ar, name_en, kind, gl_account_id, active, created_at, updated_at)
+      VALUES (@id, @code, @name_ar, @name_en, @kind, @gl_account_id, @active, @created_at, @updated_at)
+      ON CONFLICT(id) DO UPDATE SET
+        code = excluded.code,
+        name_ar = excluded.name_ar,
+        name_en = excluded.name_en,
+        kind = excluded.kind,
+        gl_account_id = excluded.gl_account_id,
+        active = excluded.active,
+        updated_at = excluded.updated_at
+    `);
+    this.selectById = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE id = ?`);
+    this.selectByCode = sqlite.prepare(`SELECT * FROM hr_payroll_component WHERE code = ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM hr_payroll_component ORDER BY kind, code`);
+  }
+
+  async findById(id: string): Promise<PayrollComponent | null> {
+    const row = this.selectById.get(id) as PayrollComponentRow | undefined;
+    return row ? toPayrollComponent(row) : null;
+  }
+
+  async findByCode(code: string): Promise<PayrollComponent | null> {
+    const row = this.selectByCode.get(code) as PayrollComponentRow | undefined;
+    return row ? toPayrollComponent(row) : null;
+  }
+
+  async list(filter?: PayrollComponentFilter): Promise<PayrollComponent[]> {
+    let rows = (this.selectAll.all() as PayrollComponentRow[]).map(toPayrollComponent);
+    if (filter?.kind) rows = rows.filter((row) => row.kind === filter.kind);
+    if (filter?.active !== undefined && filter.active !== null) rows = rows.filter((row) => row.active === filter.active);
+    return rows;
+  }
+
+  async create(component: PayrollComponent): Promise<void> {
+    this.write(component);
+  }
+
+  async update(component: PayrollComponent): Promise<void> {
+    this.write(component);
+  }
+
+  private write(component: PayrollComponent): void {
+    this.upsert.run({
+      id: component.id,
+      code: component.code,
+      name_ar: component.nameAr,
+      name_en: component.nameEn,
+      kind: component.kind,
+      gl_account_id: component.glAccountId,
+      active: component.active ? 1 : 0,
+      created_at: component.createdAt,
+      updated_at: component.updatedAt,
+    });
+    void this.sqlite;
+  }
+}
+
+export interface SqlitePayrollComponentRepositoryHandle extends PayrollComponentRepository {
+  close(): void;
+}
+
+/** Open a SQLite-backed PayrollComponentRepository. */
+export function createSqlitePayrollComponentRepository(path: SqliteConnectionInput = ":memory:"): SqlitePayrollComponentRepositoryHandle {
+  const { sqlite, owned } = openSqliteConnection(path);
+  sqlite.pragma("foreign_keys = ON");
+  sqlite.exec(CREATE_PAYROLL_COMPONENT);
+  const repo = new SqlitePayrollComponentRepository(sqlite);
+  return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqlitePayrollComponentRepositoryHandle;
 }

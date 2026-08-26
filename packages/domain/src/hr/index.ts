@@ -214,6 +214,15 @@ export type {
   PayrollNumbering,
 } from "./calculate-payroll-run.js";
 export { createPayrollRun, calculatePayrollRun, cancelPayrollRun } from "./calculate-payroll-run.js";
+export type {
+  PayrollComponent,
+  PayrollComponentKind,
+  PayrollComponentRepository,
+  PayrollComponentFilter,
+  PayrollComponentPatch,
+  CreatePayrollComponentCommand,
+} from "./payroll-component.js";
+export { createPayrollComponent, updatePayrollComponent, componentAccountId } from "./payroll-component.js";
 export type { PostPayrollRunDeps } from "./post-payroll-run.js";
 export { approvePayrollRun } from "./post-payroll-run.js";
 export type {
@@ -265,4 +274,7 @@ export {
   LeaveBalanceExceededError,
   TreasuryDisbursementHeldError,
   TreasuryDisbursementUnavailableError,
+  InvalidPayrollComponentError,
+  PayrollComponentNotFoundError,
+  DuplicatePayrollComponentError,
 } from "./errors.js";

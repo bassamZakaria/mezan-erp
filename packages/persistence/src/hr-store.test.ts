@@ -111,7 +111,7 @@ describe("SqliteContractRepository", () => {
       monthlySalary: Money.fromMajor("14000.00"),
       currency: "EGP",
       leaveEntitlement: { annualLeaveDays: 21, sickLeaveDays: null, personalLeaveDays: null },
-      allowances: [{ id: "a1", name: "بدل مواصلات", amount: Money.fromMajor("500.00") }],
+      allowances: [{ id: "a1", name: "بدل مواصلات", amount: Money.fromMajor("500.00"), componentId: null }],
       deductions: [],
       status: "active",
       terminatedAt: null,

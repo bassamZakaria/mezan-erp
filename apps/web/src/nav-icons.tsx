@@ -195,6 +195,7 @@ const navItemIcons: Readonly<Record<string, LucideIcon>> = {
   holidays: PartyPopper,
   attendance: CalendarCheck,
   payroll: Coins,
+  "payroll-components": Coins,
   advances: HandCoins,
   "leave-requests": CalendarPlus,
   "leave-balances": CalendarClock,

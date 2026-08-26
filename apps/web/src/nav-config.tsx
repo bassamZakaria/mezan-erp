@@ -109,7 +109,7 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
         defaultCollapsed: true,
         itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "leave-policies", "my-leave"],
       },
-      { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances"] },
+      { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances", "payroll-components"] },
     ],
   },
   { key: "projects", defaultCollapsed: true, itemKeys: ["projects"] },

@@ -80,6 +80,7 @@ import { HolidaysScreen } from "./screens/HolidaysScreen";
 import { MyLeaveScreen } from "./screens/MyLeaveScreen";
 import { AttendanceScreen } from "./screens/AttendanceScreen";
 import { PayrollRunsScreen } from "./screens/PayrollRunsScreen";
+import { PayrollComponentsScreen } from "./screens/PayrollComponentsScreen";
 import { EmployeeAdvancesScreen } from "./screens/EmployeeAdvancesScreen";
 import { LeaveRequestsScreen } from "./screens/LeaveRequestsScreen";
 import { LeavePoliciesScreen } from "./screens/LeavePoliciesScreen";
@@ -267,6 +268,7 @@ const ROUTABLE_SCREENS = {
   attendance: AttendanceScreen,
   payroll: PayrollRunsScreen,
   advances: EmployeeAdvancesScreen,
+  "payroll-components": PayrollComponentsScreen,
   "leave-requests": LeaveRequestsScreen,
   "leave-policies": LeavePoliciesScreen,
   "leave-balances": LeaveBalancesScreen,

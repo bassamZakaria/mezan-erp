@@ -491,14 +491,15 @@ interface SerializedLineItem {
   id: string;
   name: string;
   amount: number;
+  componentId?: string | null;
 }
 
 function serializeLineItems(items: readonly ContractLineItem[]): string {
-  return JSON.stringify(items.map((i): SerializedLineItem => ({ id: i.id, name: i.name, amount: i.amount.toScaledNumber() })));
+  return JSON.stringify(items.map((i): SerializedLineItem => ({ id: i.id, name: i.name, amount: i.amount.toScaledNumber(), componentId: i.componentId })));
 }
 
 function deserializeLineItems(json: string): ContractLineItem[] {
-  return (JSON.parse(json) as SerializedLineItem[]).map((i) => ({ id: i.id, name: i.name, amount: Money.fromScaled(i.amount) }));
+  return (JSON.parse(json) as SerializedLineItem[]).map((i) => ({ id: i.id, name: i.name, amount: Money.fromScaled(i.amount), componentId: i.componentId ?? null }));
 }
 
 function toContract(row: ContractRow): Contract {

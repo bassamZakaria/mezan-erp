@@ -184,8 +184,8 @@ function serializeContract(c: Contract) {
     monthlySalary: c.monthlySalary.toString(),
     currency: c.currency,
     leaveEntitlement: c.leaveEntitlement,
-    allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString() })),
-    deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString() })),
+    allowances: c.allowances.map((a) => ({ id: a.id, name: a.name, amount: a.amount.toString(), componentId: a.componentId })),
+    deductions: c.deductions.map((d) => ({ id: d.id, name: d.name, amount: d.amount.toString(), componentId: d.componentId })),
     status: c.status,
     /** Derived server-side so the 30-day window lives in one place (domain `CONTRACT_EXPIRING_SOON_WINDOW_DAYS`). */
     expiringSoon: isContractExpiringSoon(c),
@@ -525,8 +525,8 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
           id,
           number,
           monthlySalary: Money.fromMajor(parsed.data.monthlySalary),
-          allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount) })),
-          deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount) })),
+          allowances: parsed.data.allowances?.map((a) => ({ id: a.id ?? randomUUID(), name: a.name, amount: Money.fromMajor(a.amount), componentId: a.componentId ?? null })),
+          deductions: parsed.data.deductions?.map((d) => ({ id: d.id ?? randomUUID(), name: d.name, amount: Money.fromMajor(d.amount), componentId: d.componentId ?? null })),
         },
         deps.contracts,
       );

@@ -1168,6 +1168,14 @@ export {
   type PayrollRunDTO,
   type PayrollRunDetailDTO,
   type CreatePayrollRunDTO,
+  payrollComponentKindSchema,
+  payrollComponentSchema,
+  createPayrollComponentSchema,
+  updatePayrollComponentSchema,
+  type PayrollComponentKindDTO,
+  type PayrollComponentDTO,
+  type CreatePayrollComponentDTO,
+  type UpdatePayrollComponentDTO,
 } from "./hr-payroll.js";
 
 export {

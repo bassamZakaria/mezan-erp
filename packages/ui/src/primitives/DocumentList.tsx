@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
@@ -111,10 +111,66 @@ export interface DocumentListProps<Row> {
   onPageSizeChange?: (size: number) => void;
   pageSizeOptions?: readonly number[];
   emptyState?: ReactNode;
+  /**
+   * Renders `stats` behind a collapse toggle (R1.11) — a report with 30 rows
+   * of KPI cards above it is a report you scroll past, not one you read.
+   * Requires `listKey` to remember the reader's choice across a reload;
+   * without one the toggle still works, it just resets each mount.
+   */
+  statsCollapsible?: boolean;
+  /**
+   * Renders `filterBarExtra` behind a "تصفية النتائج" toggle carrying
+   * `activeFilterCount` as a badge (R1.13), instead of always-visible filter
+   * fields. Existing callers that omit this keep the old always-visible
+   * behaviour unchanged.
+   */
+  filterBarCollapsible?: boolean;
+  /** How many of this list's filters currently narrow the result set — shown as the toggle's badge. Zero renders no badge. */
+  activeFilterCount?: number;
+  /** Persists `statsCollapsible`/`filterBarCollapsible` open state per screen. Omit to keep it session-only. */
+  listKey?: string;
   className?: string;
 }
 
 const DEFAULT_PAGE_SIZES = [10, 25, 50, 100] as const;
+
+function getListStorage(): Storage | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage : null;
+  } catch {
+    // Privacy mode / disabled storage can throw on access rather than just being absent.
+    return null;
+  }
+}
+
+function loadPersistedOpen(key: string, fallback: boolean): boolean {
+  const storage = getListStorage();
+  if (!storage) return fallback;
+  try {
+    const raw = storage.getItem(key);
+    return raw === null ? fallback : raw === "1";
+  } catch {
+    return fallback;
+  }
+}
+
+function persistOpen(key: string, open: boolean): void {
+  const storage = getListStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(key, open ? "1" : "0");
+  } catch {
+    // Ignore write failures — the toggle still works for this session.
+  }
+}
+
+function FilterToggleIcon({ open }: { open: boolean }) {
+  return (
+    <svg aria-hidden viewBox="0 0 16 16" width="13" height="13" className={cn("flex-none opacity-70 transition-transform", open && "rotate-180")}>
+      <path d="M4 6.5 8 10.5 12 6.5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 function getPageItems(current: number, total: number): (number | "ellipsis")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -160,6 +216,10 @@ export function DocumentList<Row>({
   onPageSizeChange,
   pageSizeOptions = DEFAULT_PAGE_SIZES,
   emptyState,
+  statsCollapsible = false,
+  filterBarCollapsible = false,
+  activeFilterCount,
+  listKey,
   className,
 }: DocumentListProps<Row>) {
   const { t } = useUiTranslation();
@@ -167,6 +227,24 @@ export function DocumentList<Row>({
   const showRowAction = Boolean(rowAction ?? onRowClick);
   const footerColumns = columns.filter((col) => col.total);
   const totalLabelIndex = columns.findIndex((col) => !col.total);
+  const statsStorageKey = listKey ? `mezan.list.stats.${listKey}` : null;
+  const filtersStorageKey = listKey ? `mezan.list.filters.${listKey}` : null;
+  const [statsOpen, setStatsOpen] = useState(() => (statsStorageKey ? loadPersistedOpen(statsStorageKey, true) : true));
+  const [filtersOpen, setFiltersOpen] = useState(() => (filtersStorageKey ? loadPersistedOpen(filtersStorageKey, false) : false));
+  const toggleStatsOpen = () => {
+    setStatsOpen((open) => {
+      const next = !open;
+      if (statsStorageKey) persistOpen(statsStorageKey, next);
+      return next;
+    });
+  };
+  const toggleFiltersOpen = () => {
+    setFiltersOpen((open) => {
+      const next = !open;
+      if (filtersStorageKey) persistOpen(filtersStorageKey, next);
+      return next;
+    });
+  };
   return (
     <div className={cn("w-full", className)}>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
@@ -204,10 +282,24 @@ export function DocumentList<Row>({
       ) : null}
 
       {stats && stats.length > 0 ? (
-        <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
-          {stats.map((stat, i) => (
-            <StatCard key={i} label={stat.label} value={stat.value} sub={stat.sub} subTone={stat.subTone} valueTone={stat.valueTone} />
-          ))}
+        <div className="mb-[18px]">
+          {statsCollapsible ? (
+            <button
+              type="button"
+              onClick={toggleStatsOpen}
+              aria-expanded={statsOpen}
+              className="mb-[10px] inline-flex items-center gap-[6px] text-[12px] font-semibold text-ink-muted transition-colors hover:text-ink"
+            >
+              {statsOpen ? t("ui.list.statsCollapse") : t("ui.list.statsExpand")}
+            </button>
+          ) : null}
+          {!statsCollapsible || statsOpen ? (
+            <div className="grid grid-cols-2 gap-[14px] lg:grid-cols-4">
+              {stats.map((stat, i) => (
+                <StatCard key={i} label={stat.label} value={stat.value} sub={stat.sub} subTone={stat.subTone} valueTone={stat.valueTone} />
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -229,17 +321,40 @@ export function DocumentList<Row>({
       ) : null}
 
       {onSearchChange || filterBarExtra ? (
-        <div className="mb-[14px] flex flex-wrap gap-[10px]">
-          {onSearchChange ? (
-            <SearchInput
-              className="min-w-[240px] flex-1"
-              value={searchValue ?? ""}
-              onValueChange={onSearchChange}
-              placeholder={searchLabel}
-              aria-label={searchLabel}
-            />
-          ) : null}
-          {filterBarExtra}
+        <div className="mb-[14px] flex flex-col gap-[10px]">
+          <div className="flex flex-wrap gap-[10px]">
+            {onSearchChange ? (
+              <SearchInput
+                className="min-w-[240px] flex-1"
+                value={searchValue ?? ""}
+                onValueChange={onSearchChange}
+                placeholder={searchLabel}
+                aria-label={searchLabel}
+              />
+            ) : null}
+            {filterBarExtra && filterBarCollapsible ? (
+              <button
+                type="button"
+                onClick={toggleFiltersOpen}
+                aria-expanded={filtersOpen}
+                className={cn(
+                  "flex items-center gap-[7px] rounded-md border px-[12px] py-[8px] text-[12.5px] font-semibold transition-colors",
+                  filtersOpen || (activeFilterCount ?? 0) > 0
+                    ? "border-brand bg-brand-soft text-brand"
+                    : "border-border-strong bg-surface text-ink-muted hover:border-border-strong hover:text-ink",
+                )}
+              >
+                {t("ui.list.filters")}
+                {activeFilterCount ? (
+                  <span className="mz-num rounded-pill bg-brand px-[7px] py-[1px] text-[11px] font-bold text-brand-ink">
+                    {activeFilterCount}
+                  </span>
+                ) : null}
+                <FilterToggleIcon open={filtersOpen} />
+              </button>
+            ) : null}
+          </div>
+          {filterBarExtra && (!filterBarCollapsible || filtersOpen) ? filterBarExtra : null}
         </div>
       ) : null}
 

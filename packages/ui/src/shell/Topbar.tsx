@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { forwardRef, type ReactNode } from "react";
 import { cn } from "../lib/cn";
 import type { ThemePreference } from "../hooks/useTheme";
 import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
@@ -25,6 +25,28 @@ export interface TopbarScopeOption {
   label: string;
 }
 
+/** The header's always-visible system-status pill (R1.7) — a real check, not a decorative green dot. */
+export interface TopbarSystemStatus {
+  tone: "success" | "warning" | "danger" | "neutral";
+  /** Already localized, short — this renders in the chrome, not a report. */
+  label: string;
+  onClick?: () => void;
+}
+
+/** One action in the header's support entry point (R1.8). */
+export interface TopbarSupportItem {
+  key: string;
+  label: string;
+  onSelect: () => void;
+}
+
+const SYSTEM_STATUS_DOT_CLASS: Record<TopbarSystemStatus["tone"], string> = {
+  success: "bg-success",
+  warning: "bg-warning",
+  danger: "bg-danger",
+  neutral: "bg-ink-faint",
+};
+
 interface ChromeIconButtonProps {
   "aria-label": string;
   onClick?: () => void;
@@ -32,11 +54,20 @@ interface ChromeIconButtonProps {
   className?: string;
 }
 
-/** The topbar's icon button — the shell chrome is dark teal in both themes, so it cannot reuse the surface-token `IconButton`. */
-function ChromeIconButton({ onClick, children, className, ...rest }: ChromeIconButtonProps) {
+/**
+ * The topbar's icon button — the shell chrome is dark teal in both themes, so
+ * it cannot reuse the surface-token `IconButton`. `forwardRef` because
+ * `TopbarMenu` attaches a ref to whatever its `trigger` renders, to focus it
+ * back after Escape closes the panel.
+ */
+const ChromeIconButton = forwardRef<HTMLButtonElement, ChromeIconButtonProps>(function ChromeIconButton(
+  { onClick, children, className, ...rest },
+  ref,
+) {
   return (
     <button
       {...rest}
+      ref={ref}
       type="button"
       onClick={onClick}
       className={cn(
@@ -47,7 +78,7 @@ function ChromeIconButton({ onClick, children, className, ...rest }: ChromeIconB
       {children}
     </button>
   );
-}
+});
 
 export interface TopbarProps {
   /**
@@ -85,6 +116,10 @@ export interface TopbarProps {
   utilityGroups?: readonly NavGroup[];
   /** Highlights the matching utility item, mirroring the rail's active row. */
   activeNavKey?: string;
+  /** The always-visible system-status pill (R1.7). Omit to render nothing — never a fabricated "all systems operational". */
+  systemStatus?: TopbarSystemStatus;
+  /** The support entry point's menu items (R1.8). Omit (or empty) to render no headset icon. */
+  supportItems?: readonly TopbarSupportItem[];
   notificationCount?: number;
   /** Toggles the caller-supplied `notificationsPanel` open — omit both to keep the bell inert. */
   onToggleNotifications?: () => void;
@@ -201,6 +236,53 @@ function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; ac
   );
 }
 
+/** The support entry point (R1.8) — a headset icon opening a short list of real, already-live actions. */
+function SupportMenu({ items }: { items: readonly TopbarSupportItem[] }) {
+  const { t } = useUiTranslation();
+  const label = t("shell.support.menu");
+  return (
+    <TopbarMenu
+      label={label}
+      panelClassName="w-[220px]"
+      trigger={(triggerProps) => (
+        <ChromeIconButton {...triggerProps} aria-label={label}>
+          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+            <path
+              d="M4 11.5V10a6 6 0 0 1 12 0v1.5"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+            />
+            <rect x="3" y="11" width="3.4" height="5" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+            <rect x="13.6" y="11" width="3.4" height="5" rx="1.4" stroke="currentColor" strokeWidth="1.5" />
+            <path d="M16.4 16v.5a2.5 2.5 0 0 1-2.5 2.5H11.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+          </svg>
+        </ChromeIconButton>
+      )}
+    >
+      {(close) => (
+        <ul className="py-[4px]">
+          {items.map((item) => (
+            <li key={item.key}>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  item.onSelect();
+                  close();
+                }}
+                className="w-full px-[14px] py-[8px] text-start text-sm text-ink transition-colors hover:bg-surface-2"
+              >
+                {item.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </TopbarMenu>
+  );
+}
+
 /** Topbar — the persistent command bar, tenant chip, the branch/warehouse scope selectors, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
 export function Topbar({
   commandItems = [],
@@ -219,6 +301,8 @@ export function Topbar({
   allWarehousesLabel,
   utilityGroups = [],
   activeNavKey,
+  systemStatus,
+  supportItems = [],
   notificationCount = 0,
   onToggleNotifications,
   notificationsPanel,
@@ -276,7 +360,20 @@ export function Topbar({
           allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
         />
 
+        {systemStatus ? (
+          <button
+            type="button"
+            onClick={systemStatus.onClick}
+            aria-label={t("shell.systemStatus.ariaLabel", { label: systemStatus.label })}
+            className="mz-lat flex items-center gap-[7px] rounded-pill border border-chrome-border bg-chrome-hover px-[12px] py-[7px] text-xs font-medium text-chrome-ink transition-colors hover:border-chrome-accent"
+          >
+            <span aria-hidden className={cn("h-[7px] w-[7px] flex-none rounded-full", SYSTEM_STATUS_DOT_CLASS[systemStatus.tone])} />
+            {systemStatus.label}
+          </button>
+        ) : null}
+
         {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
+        {supportItems.length > 0 ? <SupportMenu items={supportItems} /> : null}
 
         <LanguageToggle />
         {onToggleTheme ? <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} /> : null}

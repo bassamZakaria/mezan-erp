@@ -55,6 +55,7 @@ export {
   Money,
   Qty,
   StatCard,
+  EmptyState,
   type ButtonProps,
   type ButtonVariant,
   type ButtonSize,
@@ -65,6 +66,7 @@ export {
   type MoneyProps,
   type QtyProps,
   type StatCardProps,
+  type EmptyStateProps,
 } from "./primitives/atoms";
 
 export {
@@ -140,7 +142,14 @@ export {
 
 export { AppShell, type AppShellProps } from "./shell/AppShell";
 export { Sidebar, type SidebarProps } from "./shell/Sidebar";
-export { Topbar, type TopbarProps, type ShellNotification, type TopbarScopeOption } from "./shell/Topbar";
+export {
+  Topbar,
+  type TopbarProps,
+  type ShellNotification,
+  type TopbarScopeOption,
+  type TopbarSystemStatus,
+  type TopbarSupportItem,
+} from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
 export { CommandBar, type CommandBarProps } from "./shell/CommandBar";
 export { FulcrumRule, type FulcrumRuleProps } from "./shell/FulcrumRule";

@@ -872,6 +872,8 @@ export function CustomersScreen() {
             {t("customers.addCustomer")}
           </Button>
         }
+        listKey="customers"
+        statsCollapsible
         stats={[
           { label: t("customers.stat.total"), value: <span className="mz-num">{customers.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{customers.filter((c) => c.active).length}</span> },

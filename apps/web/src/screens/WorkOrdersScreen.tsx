@@ -646,6 +646,8 @@ export function WorkOrdersScreen() {
             {t("workOrders.newWorkOrder")}
           </Button>
         }
+        listKey="work-orders"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{orders.length}</span> },
           { label: t("workOrders.planned"), value: <span className="mz-num">{orders.filter((o) => o.status === "planned").length}</span> },

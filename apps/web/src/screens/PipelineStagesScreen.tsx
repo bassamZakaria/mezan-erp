@@ -161,6 +161,8 @@ export function PipelineStagesScreen() {
             {t("pipelineStages.addStage")}
           </Button>
         }
+        listKey="pipeline-stages"
+        statsCollapsible
         stats={[
           { label: t("pipelineStages.totalStages"), value: <span className="mz-num">{stages.length}</span> },
           { label: t("pipelineStages.activeStages"), value: <span className="mz-num">{activeCount}</span> },

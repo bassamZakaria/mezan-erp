@@ -161,6 +161,8 @@ export function AuditLogScreen() {
       <DocumentList<AuditEventDTO>
         title={t("audit.auditLog")}
         description={t("audit.aRecordOfSecurityEvents")}
+        listKey="audit-log"
+        statsCollapsible
         stats={[
           { label: t("audit.totalUnderTheCurrentFilters"), value: <span className="mz-num">{total}</span> },
           { label: t("audit.securityEvents"), value: <span className="mz-num">{securityTotal}</span> },

@@ -180,6 +180,8 @@ export function LeaveRequestsScreen() {
             {t("leaveRequests.newLeaveRequest")}
           </Button>
         }
+        listKey="leave-requests"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{counts?.total ?? 0}</span> },
           { label: t("leaveStatus.pending"), value: <span className="mz-num">{counts?.pending ?? 0}</span> },

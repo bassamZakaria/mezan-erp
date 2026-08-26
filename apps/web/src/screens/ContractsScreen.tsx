@@ -247,6 +247,8 @@ export function ContractsScreen() {
             {t("contracts.addContract")}
           </Button>
         }
+        listKey="contracts"
+        statsCollapsible
         stats={[
           { label: t("contracts.totalContracts"), value: <span className="mz-num">{contracts.length}</span> },
           { label: t("contracts.activeContracts"), value: <span className="mz-num">{contracts.filter((c) => c.status === "active").length}</span> },

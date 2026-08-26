@@ -218,6 +218,8 @@ export function OpportunitiesScreen() {
             {t("opportunities.newOpportunity")}
           </Button>
         }
+        listKey="opportunities"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{opportunities.length}</span> },
           { label: t("opportunities.open"), value: <span className="mz-num">{openCount}</span> },

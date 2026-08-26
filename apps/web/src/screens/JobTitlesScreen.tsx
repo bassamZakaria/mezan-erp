@@ -157,6 +157,8 @@ export function JobTitlesScreen() {
             {t("jobTitles.addJobTitle")}
           </Button>
         }
+        listKey="job-titles"
+        statsCollapsible
         stats={[
           { label: t("jobTitles.totalJobTitles"), value: <span className="mz-num">{jobTitles.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{jobTitles.filter((j) => j.active).length}</span> },

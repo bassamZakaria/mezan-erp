@@ -117,6 +117,8 @@ export function LeaveAccrualBatchesScreen() {
             {t("leaveAccrual.runAccrualNow")}
           </Button>
         }
+        listKey="leave-accrual-batches"
+        statsCollapsible
         stats={[
           { label: t("leaveAccrual.batches"), value: <span className="mz-num">{batches.length}</span> },
           {

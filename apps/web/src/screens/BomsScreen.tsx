@@ -334,6 +334,8 @@ export function BomsScreen() {
             {t("boms.newBillOfMaterials")}
           </Button>
         }
+        listKey="boms"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{boms.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{boms.filter((b) => b.status === "active").length}</span> },

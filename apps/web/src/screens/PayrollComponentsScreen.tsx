@@ -179,6 +179,8 @@ export function PayrollComponentsScreen() {
             {t("payrollComponents.addComponent")}
           </Button>
         }
+        listKey="payroll-components"
+        statsCollapsible
         stats={[
           { label: t("payrollComponents.components"), value: <span className="mz-num">{components.length}</span> },
           {

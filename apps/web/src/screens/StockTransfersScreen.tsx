@@ -232,6 +232,8 @@ export function StockTransfersScreen() {
             {t("stockXfer.newTransfer")}
           </Button>
         }
+        listKey="stock-transfers"
+        statsCollapsible
         stats={[
           { label: t("stockXfer.totalTransfers"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },

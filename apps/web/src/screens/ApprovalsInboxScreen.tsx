@@ -171,6 +171,8 @@ export function ApprovalsInboxScreen() {
     <DocumentList<ApprovalRequestDTO>
       title={t("approvals.approvals")}
       description={t("approvals.theRequestsWaitingOnYou")}
+      listKey="approvals-inbox"
+      statsCollapsible
       stats={[{ label: t("approvals.awaitingApproval"), value: <span className="mz-num">{inbox.data?.length ?? 0}</span> }]}
       statusChips={[
         { key: "inbox", label: t("approvals.tab.inbox"), count: inbox.data?.length ?? 0 },

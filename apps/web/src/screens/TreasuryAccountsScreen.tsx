@@ -201,6 +201,8 @@ export function TreasuryAccountsScreen() {
             {t("treasuryAcc.addAccount")}
           </Button>
         }
+        listKey="treasury-accounts"
+        statsCollapsible
         stats={[
           { label: t("treasuryAcc.totalAccounts"), value: <span className="mz-num">{accounts.length}</span> },
           { label: t("treasuryAcc.totalBalances"), value: <MoneyDisplay value={totalBalance} /> },

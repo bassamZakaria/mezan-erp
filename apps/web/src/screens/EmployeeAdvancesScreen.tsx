@@ -212,6 +212,8 @@ export function EmployeeAdvancesScreen() {
             {t("advances.requestAnAdvance")}
           </Button>
         }
+        listKey="employee-advances"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{advances.length}</span> },
           { label: t("advances.awaitingApproval"), value: <span className="mz-num">{advances.filter((a) => a.status === "pending").length}</span> },

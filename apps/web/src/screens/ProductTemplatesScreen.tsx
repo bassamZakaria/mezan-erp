@@ -228,6 +228,8 @@ export function ProductTemplatesScreen() {
             {t("templates.newTemplate")}
           </Button>
         }
+        listKey="product-templates"
+        statsCollapsible
         stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
         columns={columns}
         rows={templates}

@@ -300,6 +300,8 @@ export function LandedCostsScreen() {
             {t("landedCosts.new")}
           </Button>
         }
+        listKey="landed-costs"
+        statsCollapsible
         stats={[
           { label: t("landedCosts.stat.total"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("landedCosts.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },

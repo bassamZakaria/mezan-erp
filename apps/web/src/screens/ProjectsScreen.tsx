@@ -235,6 +235,8 @@ export function ProjectsScreen() {
             {t("projects.newProject")}
           </Button>
         }
+        listKey="projects"
+        statsCollapsible
         stats={[
           { label: t("projects.totalProjects"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },

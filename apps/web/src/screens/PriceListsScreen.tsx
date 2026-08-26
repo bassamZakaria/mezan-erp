@@ -83,6 +83,8 @@ export function PriceListsScreen() {
             {t("priceLists.new")}
           </Button>
         }
+        listKey="price-lists"
+        statsCollapsible
         stats={[
           { label: t("priceLists.stat.total"), value: <span className="mz-num">{priceLists.length}</span> },
           { label: t("priceLists.stat.active"), value: <span className="mz-num">{priceLists.filter((p) => p.active).length}</span> },

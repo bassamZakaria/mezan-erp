@@ -193,6 +193,8 @@ export function PhysicalCountsScreen() {
             {t("counts.newCount")}
           </Button>
         }
+        listKey="physical-counts"
+        statsCollapsible
         stats={[
           { label: t("counts.totalCounts"), value: <span className="mz-num">{stats.all}</span> },
           { label: t("counts.inProgress"), value: <span className="mz-num">{stats.IN_PROGRESS}</span> },

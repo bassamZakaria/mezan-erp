@@ -379,6 +379,8 @@ export function TaxesScreen() {
             {t("taxes.addTax")}
           </Button>
         }
+        listKey="taxes"
+        statsCollapsible
         stats={[
           { label: t("taxes.totalTaxes"), value: <span className="mz-num">{taxes.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "active").length}</span> },

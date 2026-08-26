@@ -1173,6 +1173,8 @@ export function ItemsScreen() {
             {t("items.addItem")}
           </Button>
         }
+        listKey="items"
+        statsCollapsible
         stats={[
           { label: t("items.totalItems"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },

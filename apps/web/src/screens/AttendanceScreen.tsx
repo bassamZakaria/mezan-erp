@@ -180,6 +180,8 @@ export function AttendanceScreen() {
             {t("attendance.recordAttendance")}
           </Button>
         }
+        listKey="attendance"
+        statsCollapsible
         stats={[
           { label: t("attendance.workingDays"), value: <span className="mz-num">{summary?.workingDays ?? 0}</span> },
           { label: t("attendance.daysPresent"), value: <span className="mz-num">{summary?.daysPresent ?? 0}</span> },

@@ -157,6 +157,8 @@ export function InstallmentFollowUpsScreen() {
             {t("followUps.newFollowUp")}
           </Button>
         }
+        listKey="installment-follow-ups"
+        statsCollapsible
         stats={[
           { label: t("followUps.totalFollowUps"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("followUps.pending2"), value: <span className="mz-num">{counts.pending}</span> },

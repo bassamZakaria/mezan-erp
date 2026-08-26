@@ -476,6 +476,8 @@ export function ConfigInstancesScreen() {
             {t("customOrders.newCustomOrder")}
           </Button>
         }
+        listKey="config-instances"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{instances.length}</span> },
           { label: t(STATUS_KEY.configured), value: <span className="mz-num">{instances.filter((i) => i.status === "configured").length}</span> },

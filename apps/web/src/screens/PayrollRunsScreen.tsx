@@ -212,6 +212,8 @@ export function PayrollRunsScreen() {
             {t("payroll.newPayrollRun")}
           </Button>
         }
+        listKey="payroll-runs"
+        statsCollapsible
         stats={[
           { label: t("payroll.totalRuns"), value: <span className="mz-num">{runs.length}</span> },
           { label: t("payroll.grossPayThisYear"), value: <MoneyDisplay value={yearTotalGross} /> },

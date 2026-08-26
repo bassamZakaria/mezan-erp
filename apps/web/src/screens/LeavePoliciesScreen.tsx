@@ -262,6 +262,8 @@ export function LeavePoliciesScreen() {
             {t("leavePolicies.addPolicy")}
           </Button>
         }
+        listKey="leave-policies"
+        statsCollapsible
         stats={[
           { label: t("leavePolicies.policies"), value: <span className="mz-num">{policies.length}</span> },
           { label: t("leavePolicies.requiredByLaw"), value: <span className="mz-num">{policies.filter((p) => p.legallyMandated).length}</span> },

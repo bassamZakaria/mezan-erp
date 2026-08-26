@@ -165,6 +165,8 @@ export function BankReconciliationScreen() {
             {t("bankRec.importAStatement")}
           </Button>
         }
+        listKey="bank-reconciliation"
+        statsCollapsible
         stats={[
           { label: t("bankRec.totalStatements"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("bankRec.beingReconciled"), value: <span className="mz-num">{counts.in_progress}</span> },

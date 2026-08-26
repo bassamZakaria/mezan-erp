@@ -130,6 +130,8 @@ export function LeaveBalancesScreen() {
             {t("leaveBalances.adjustBalance")}
           </Button>
         }
+        listKey="leave-balances"
+        statsCollapsible
         stats={[{ label: t("leaveBalances.balances"), value: <span className="mz-num">{balances.length}</span> }]}
         filterBarExtra={
           <div className="min-w-[220px]">

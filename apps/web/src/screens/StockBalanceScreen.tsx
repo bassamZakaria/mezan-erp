@@ -162,6 +162,8 @@ export function StockBalanceScreen() {
       <DocumentList<StockBalanceRowDTO>
         title={t("stockBalance.title")}
         description={t("stockBalance.description")}
+        listKey="stock-balance"
+        statsCollapsible
         stats={[
           { label: t("stockBalance.stat.total"), value: <span className="mz-num">{counts.total}</span> },
           { label: t("stockBalance.stat.lowStock"), value: <span className="mz-num">{counts.lowStock}</span> },

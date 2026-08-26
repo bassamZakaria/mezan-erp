@@ -177,6 +177,8 @@ export function DepartmentsScreen() {
             {t("departments.addDepartment")}
           </Button>
         }
+        listKey="departments"
+        statsCollapsible
         stats={[
           { label: t("departments.totalDepartments"), value: <span className="mz-num">{departments.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{departments.filter((d) => d.active).length}</span> },

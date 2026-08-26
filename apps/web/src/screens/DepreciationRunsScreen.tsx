@@ -170,6 +170,8 @@ export function DepreciationRunsScreen() {
             {t("depreciation.runDepreciation")}
           </Button>
         }
+        listKey="depreciation-runs"
+        statsCollapsible
         stats={[
           { label: t("depreciation.totalRuns"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("docStatus.draft"), value: <span className="mz-num">{draftCount}</span> },

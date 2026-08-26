@@ -204,6 +204,8 @@ export function AssetRegisterScreen() {
             {t("asset.registerAnAsset")}
           </Button>
         }
+        listKey="asset-register"
+        statsCollapsible
         stats={[
           { label: t("asset.totalAssets"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },

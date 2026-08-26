@@ -179,6 +179,8 @@ export function WritedownRunsScreen() {
             {t("writedown.runANewOne")}
           </Button>
         }
+        listKey="writedown-runs"
+        statsCollapsible
         stats={[
           { label: t("writedown.totalRuns"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("docStatus.draft"), value: <span className="mz-num">{draftCount}</span> },

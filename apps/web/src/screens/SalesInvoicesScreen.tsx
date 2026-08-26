@@ -1716,6 +1716,8 @@ export function SalesInvoicesScreen() {
                 {t("salesInvoices.new")}
               </Button>
             }
+            listKey="sales-invoices"
+            statsCollapsible
             stats={[
               { label: t("salesInvoices.stat.sales"), value: <MoneyDisplay value={kpi.sales} /> },
               { label: t("salesInvoices.stat.collected"), value: <MoneyDisplay value={kpi.collected} /> },

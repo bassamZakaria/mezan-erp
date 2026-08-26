@@ -727,6 +727,8 @@ export function EmployeesScreen() {
             {t("employees.addEmployee")}
           </Button>
         }
+        listKey="employees"
+        statsCollapsible
         stats={[
           { label: t("employees.totalEmployees"), value: <span className="mz-num">{employees.length}</span> },
           { label: t("employees.activeEmployees"), value: <span className="mz-num">{employees.filter((e) => e.status === "active").length}</span> },

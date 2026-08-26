@@ -236,6 +236,8 @@ export function InstallmentPlansScreen() {
             </Button>
           </div>
         }
+        listKey="installment-plans"
+        statsCollapsible
         stats={[
           { label: t("instalments.totalPlans"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("instalments.activePlans"), value: <span className="mz-num">{counts.active}</span> },

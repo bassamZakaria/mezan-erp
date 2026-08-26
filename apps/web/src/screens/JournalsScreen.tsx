@@ -280,6 +280,8 @@ export function JournalsScreen() {
             </Button>
           </>
         }
+        listKey="journals"
+        statsCollapsible
         stats={[
           { label: t("journals.totalEntries"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("docStatus.posted"), value: <span className="mz-num">{counts.posted}</span> },

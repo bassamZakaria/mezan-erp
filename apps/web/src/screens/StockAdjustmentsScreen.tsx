@@ -312,6 +312,8 @@ export function StockAdjustmentsScreen() {
             {t("stockAdj.newAdjustment")}
           </Button>
         }
+        listKey="stock-adjustments"
+        statsCollapsible
         stats={[
           { label: t("stockAdj.totalAdjustments"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },

@@ -194,6 +194,8 @@ export function PromotionsScreen() {
             {t("promotions.add")}
           </Button>
         }
+        listKey="promotions"
+        statsCollapsible
         stats={[
           { label: t("promotions.stat.total"), value: <span className="mz-num">{promotions.length}</span> },
           { label: t("promotions.state.active"), value: <span className="mz-num">{counts.active}</span> },

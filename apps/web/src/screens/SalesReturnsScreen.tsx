@@ -439,6 +439,8 @@ export function SalesReturnsScreen() {
             {t("salesReturns.new")}
           </Button>
         }
+        listKey="sales-returns"
+        statsCollapsible
         stats={[
           { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },

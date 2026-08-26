@@ -178,6 +178,8 @@ export function HolidaysScreen() {
             {t("holidays.addHoliday")}
           </Button>
         }
+        listKey="holidays"
+        statsCollapsible
         stats={[
           { label: t("holidays.totalHolidays"), value: <span className="mz-num">{holidays.length}</span> },
           { label: t("holidays.annual"), value: <span className="mz-num">{recurringCount}</span> },

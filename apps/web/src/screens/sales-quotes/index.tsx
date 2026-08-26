@@ -188,6 +188,8 @@ export function SalesQuotesScreen() {
             {t("quotes.new")}
           </Button>
         }
+        listKey="index.tsx"
+        statsCollapsible
         stats={[
           { label: t("quotes.stat.totalValue"), value: <MoneyDisplay value={values.total} /> },
           { label: t("quotes.stat.acceptedValue"), value: <MoneyDisplay value={values.accepted} /> },

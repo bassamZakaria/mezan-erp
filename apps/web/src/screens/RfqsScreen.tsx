@@ -575,6 +575,8 @@ export function RfqsScreen() {
             {t("rfqs.new")}
           </Button>
         }
+        listKey="rfqs"
+        statsCollapsible
         stats={[
           { label: t("rfqs.stat.total"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("rfqs.stat.sent"), value: <span className="mz-num">{counts.sent}</span> },

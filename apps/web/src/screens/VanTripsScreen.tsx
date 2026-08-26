@@ -327,6 +327,8 @@ export function VanTripsScreen() {
             {t("vanTrips.openATrip")}
           </Button>
         }
+        listKey="van-trips"
+        statsCollapsible
         stats={[
           { label: t("vanTrips.total"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("vanTrips.open"), value: <span className="mz-num">{ongoingCount}</span> },

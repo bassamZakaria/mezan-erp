@@ -283,6 +283,8 @@ export function ItemSpecificationsScreen() {
             {t("specs.newSpecification")}
           </Button>
         }
+        listKey="item-specifications"
+        statsCollapsible
         stats={[
           { label: t("specs.totalSpecifications"), value: <span className="mz-num">{specifications.length}</span> },
           {

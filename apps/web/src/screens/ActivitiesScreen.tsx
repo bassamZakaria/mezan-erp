@@ -150,6 +150,8 @@ export function ActivitiesScreen() {
             {t("activities.newActivity")}
           </Button>
         }
+        listKey="activities"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{activities.length}</span> },
           { label: t("activities.pending"), value: <span className="mz-num">{activities.filter((a) => a.status === "pending").length}</span> },

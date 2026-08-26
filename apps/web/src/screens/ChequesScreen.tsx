@@ -272,6 +272,8 @@ export function ChequesScreen() {
             {t("cheques.newCheque")}
           </Button>
         }
+        listKey="cheques"
+        statsCollapsible
         stats={[
           { label: t("cheques.totalCheques"), value: <span className="mz-num">{totals.count}</span> },
           { label: t("cheques.totalValue"), value: <MoneyDisplay value={totals.value} /> },

@@ -456,6 +456,8 @@ export function ConfigurableProductsScreen() {
             {t("configProducts.addConfigurableProduct")}
           </Button>
         }
+        listKey="configurable-products"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{products.length}</span> },
           { label: t("common.active"), value: <span className="mz-num">{products.filter((p) => p.status === "active").length}</span> },

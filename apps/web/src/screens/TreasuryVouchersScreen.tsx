@@ -347,6 +347,8 @@ export function TreasuryVouchersScreen() {
             {t("vouchers.newVoucher")}
           </Button>
         }
+        listKey="treasury-vouchers"
+        statsCollapsible
         stats={[
           { label: t("common.total"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("docStatus.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },

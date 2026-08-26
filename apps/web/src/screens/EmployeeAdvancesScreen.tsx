@@ -7,12 +7,14 @@ import {
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { EmployeeAdvanceDTO, EmployeeAdvanceStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -249,6 +251,33 @@ export function EmployeeAdvancesScreen() {
         onRowClick={(a) => {
           setDetailError(null);
           setSelectedId(a.id);
+        }}
+        rowAction={(a) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(a.id); } },
+            ...(a.status === "pending"
+              ? [
+                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => void runDecision(a, "approve") },
+                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => void runDecision(a, "reject") },
+                ]
+              : []),
+            // Paying out needs a treasury account the row cannot supply, so the
+            // entry opens the detail panel that collects it rather than guessing.
+            ...(a.status === "approved"
+              ? [
+                  {
+                    key: "disburse",
+                    label: t("advances.payOut"),
+                    disabled: pendingId === a.id,
+                    onSelect: () => {
+                      setDetailError(null);
+                      setSelectedId(a.id);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.number })} />;
         }}
         page={page}
         pageCount={pageCount}

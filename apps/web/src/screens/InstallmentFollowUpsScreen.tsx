@@ -4,12 +4,14 @@ import {
   Card,
   DocumentList,
   EmptyState,
+  RowMenu,
   SidePanel,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -53,6 +55,7 @@ export function InstallmentFollowUpsScreen() {
   }, [customers]);
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  const [rowPendingId, setRowPendingId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
   // One filter for the rows, the status chips and the KPI strip (R1.1): the
   // screen used to derive all three from one client-side fetch, so the header
@@ -126,12 +129,16 @@ export function InstallmentFollowUpsScreen() {
   }
 
   async function cancel(f: CollectionFollowUpDTO) {
+    if (rowPendingId) return;
     setError(null);
+    setRowPendingId(f.id);
     try {
       await cancelFollowUp.mutateAsync(f.id);
       setPanel("none");
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRowPendingId(null);
     }
   }
 
@@ -161,6 +168,11 @@ export function InstallmentFollowUpsScreen() {
           </Button>
         </Card>
       ) : null}
+      {error ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
       <DocumentList<CollectionFollowUpDTO>
         title={t("followUps.collectionFollowUps")}
         description={t("followUps.aRecordOfCollectionContact")}
@@ -186,6 +198,25 @@ export function InstallmentFollowUpsScreen() {
         rows={pageRows}
         rowKey={(f) => f.id}
         onRowClick={(f) => setPanel({ id: f.id })}
+        rowAction={(f) => {
+          // Completing records an outcome, so it opens the panel that asks for one instead of writing a blank result.
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: f.id }) },
+            ...(f.status === "pending"
+              ? [
+                  { key: "complete", label: t("followUps.completeFollowUp"), onSelect: () => setPanel({ id: f.id }) },
+                  {
+                    key: "cancel",
+                    label: t("followUps.cancelFollowUp"),
+                    tone: "danger" as const,
+                    disabled: rowPendingId === f.id,
+                    onSelect: () => void cancel(f),
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: customerName(f.customerId) })} />;
+        }}
         page={currentPage}
         pageCount={pageCount}
         onPageChange={setPage}

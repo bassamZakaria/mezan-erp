@@ -428,9 +428,25 @@ Egypt-native rivals a prospect will actually compare Mezan against.
 ### 3.6 Where Mezan is currently behind and should not pretend otherwise
 
 - **CRM depth**: Zoho and Odoo have dedicated, mature CRM products; Wafeq, Qoyod, Dafater have
-  none; Mezan's CRM is scoped but deprioritized to Phase 12 in `docs/backlog.md`. Not an urgent
-  gap versus Egypt-native rivals, but worth tracking against Zoho/Odoo if Mezan ever competes for
-  a services-heavy customer.
+  none. Mezan's CRM has since been **built** — leads (6 states), lead→customer/opportunity
+  conversion, opportunities over configurable pipeline stages with probability and expected
+  value, a pipeline board, and activities (call/meeting/todo/email) — all gated and reachable.
+  What is missing is depth rather than presence. Measured against `packages/domain/src/crm/`
+  on 2026-08-27:
+
+  | Gap | Evidence | Why it matters |
+  |---|---|---|
+  | **Nothing in CRM has an owner** | `Opportunity` carries `customerId`, `branchId`, `stageId` — no `ownerId`; `Activity` has no assignee. Meanwhile `contracts/src/sales-invoice.ts` carries `salespersonId` and `reports/sales-by-salesperson.ts` reports on it | The funnel has a rep at the bottom and nobody at the top. No "my pipeline", no "my tasks", no leaderboard, no link from a closed deal to the person who worked it. Every other CRM item depends on this |
+  | **The funnel breaks at the opportunity** | No `opportunityId` on a sales quote or invoice; only `convert-lead.ts` links lead→opportunity | A won deal never points at the quote that won it or the revenue it produced. Win rate by value, pipeline-to-invoice conversion and open-quotes-on-live-deals are all unanswerable |
+  | **A stage move erases its own history** | `move-opportunity-stage.ts` overwrites `stageId` and returns the new object; nothing records the transition | Kills time-in-stage, deal velocity, stalled-deal detection and forecast trend. Same shape as the ledger rule this repo already enforces: a report that needs a fact the store never recorded |
+  | **No loss reasons** | `LeadStatus` has `lost`/`unqualified`, `Opportunity.status` has `lost`; neither carries a reason code | "Why are we losing?" is the first question a sales manager asks and the cheapest to answer |
+  | **Activities do not survive conversion** | `Activity` links to `relatedLeadId` and `relatedOpportunityId` — never to a customer | Call and meeting history disappears from the customer view the moment a lead converts. A customer 360 is what CRM depth means to an SMB |
+  | **No contact persons** | A customer is one flat record (`domain/src/customers/customer.ts`) | A distribution deal involves a purchasing manager, an owner and an accountant, each with their own phone. The one item here needing a new entity rather than a field |
+
+  Two further items are cheap because the data already exists: a **weighted forecast**
+  (`expectedValue × probability` by stage/period/owner — both fields are stored, only the
+  report is missing) and **next-action hygiene** (an opportunity with no pending activity is a
+  deal nobody is working; `dueDate` and `pending` exist, the surface does not).
 - **Mobile/field access**: SMACC ships iOS/Android apps; Daftra has a mobile app; Mezan is
   desktop-only by design (LAN multi-till substitutes for some of this at the till level, but not
   for a traveling sales rep needing a phone). Van/rep trips are scoped in Mezan's catalog
@@ -442,6 +458,42 @@ Egypt-native rivals a prospect will actually compare Mezan against.
   cloud-native today; Mezan's cloud edition (Phase 15) is deferred by design. This is fine for a
   desktop-first go-to-market but means Mezan cannot yet compete for a prospect who explicitly
   wants zero local infrastructure.
+
+### 3.7 Operational breadth beyond finance and HR is where mid-market ERPs actually live
+
+Measured against `packages/domain/src` on 2026-08-27. Mezan's manufacturing is genuinely
+respectable for its class — versioned BOMs with waste %, 4-stage work orders, material
+issue/return/waste/receive, shop-floor entries stamped with station and operator, a
+labor/overhead/other cost log, configurable products with formulas, and work stations as
+master data. The gap is not manufacturing depth in isolation; it is the operational domains
+Odoo, SAP Business One and ERPNext run *alongside* manufacturing, none of which Mezan has.
+
+| Domain | What competitors ship | Mezan today |
+|---|---|---|
+| **Production planning / MRP** | Demand (open orders + forecast) netted against stock and open POs, respecting lead time and safety stock, emitting suggested work and purchase orders (Odoo MRP, SAP B1 MRP wizard, ERPNext production plan) | `reorderLevel` on the item plus an `inventory-stock-levels` report — a threshold, not planning. No `safetyStock`, no `leadTime`, no planning run |
+| **Routings and capacity** | Operations with standard times, machine/shift capacity, finite scheduling, WIP by operation | `work-station.ts` is a master record only (code, name, status). A work order knows what materials but never how long or on which machine when |
+| **Subcontracting (التصنيع لدى الغير)** | Send material out, receive a semi-finished good back, absorb the subcontractor's cost onto the order | Zero. Can only be faked as a stock issue plus an unrelated purchase invoice, and the cost never lands on the work order |
+| **Quality management** | Inspection points on goods receipt and production receipt, quarantine location, pass/fail routing to return or rework, NCR | Zero — no inspection, no NCR, no quarantine |
+| **Traceability depth** | Batch genealogy (which raw batches went into which finished batch), bidirectional recall report, serial numbers | `batchNo` and expiry exist and FEFO is on a branch. No genealogy, no recall report, no serial numbers |
+| **Maintenance (CMMS/EAM)** | Preventive schedules on machines and vehicles, meter readings, work requests, spare-part consumption against equipment | `maintenance` appears only as a GL account name and a voucher type. Fixed assets are a register, not equipment |
+| **Warehouse execution (WMS)** | Bin locations inside a warehouse, put-away rules, pick lists and waves, packing, ABC cycle counting | Warehouses and physical counts with variance and blind counting — "how much do I have", not "where in the building" |
+| **Delivery and dispatch** | Shipments, delivery notes as their own document, drivers, proof of delivery, freight cost allocation | `field-sales/van-trip.ts` covers a rep's van route; ordinary order fulfillment has none of it |
+| **Service and after-sales** | Service orders, warranty registration, installed base at the customer, repair orders, SLA | Zero — and it collides with a segment already targeted: installment retail is furniture, appliances and electronics, exactly the goods that come back for warranty service |
+| **Project delivery** | WBS/tasks, timesheets, progress %, BOQ / progress certificates (مستخلصات) / retention billing | `projects/` is a header only — code, customer, manager, budget, dates, site address |
+
+Also absent and lower priority for the current buyer set: rental/leasing (Daftra has it),
+e-commerce channel sync, engineering change orders on top of the already-versioned BOM, and
+demand forecasting / S&OP.
+
+**The distinction that matters for sequencing** is not the feature count but which of these
+are *new fields on documents that already post correctly* versus *new domains with their own
+documents and GL consequences*. Batch genealogy, quality-on-receipt and subcontracting attach
+to the existing stock ledger. MRP, WMS bins and service management are genuinely new domains.
+
+**A costing argument for routings, separate from planning:** `WorkOrderCostLogEntry` takes
+labor and overhead as amounts somebody types in — every one of them a number the caller
+supplied, the exact shape this codebase's own rules warn about. Standard times × a station
+rate would let the system compute what is currently asserted.
 
 ---
 
@@ -526,6 +578,55 @@ follow-on; "P2" = differentiator once the core is proven.
     might need" export (journals, ETA submission log, tax reports) that works even if the machine
     has never been online that day, a scenario every cloud-only competitor cannot serve at all
     during an outage or in a low-connectivity branch.
+
+### Added 2026-08-27 · P1 — CRM depth substrate
+
+Ordered so each item unblocks the next; the first two are the substrate every CRM report needs.
+Rationale and evidence in §3.6.
+
+15. **Ownership on the pipeline** — `ownerId` on `Opportunity` and an assignee on `Activity`.
+    Revenue already knows its salesperson; the pipeline knows nobody, so the leaderboard would
+    report on invoices while the forecast reports on no one. Small change, and items 16–18 and
+    the forecast/leaderboard reports all depend on it.
+16. **Close the funnel** — carry `opportunityId` onto the sales quote and through conversion
+    into the invoice, making quote→order→invoice traceable end to end (this is ENH-042's
+    missing prerequisite).
+17. **Record stage transitions** — append-only stage history (from, to, at, by) so deal
+    velocity, time-in-stage and stalled-deal detection become reportable. Cheap to store now
+    and impossible to reconstruct later.
+18. **Loss reasons and customer-linked activities** — a `LOSS_REASON_DEFINITIONS` taxonomy
+    following the existing `LEAD_STATUS_DEFINITIONS` pattern (code + `labelAr`), plus a
+    customer link on activities so history survives conversion into a customer 360.
+
+### Added 2026-08-27 · P2 — Operational breadth beyond finance and HR
+
+Rationale and evidence in §3.7. Sequenced by fit with the current buyer set — wholesale /
+distribution, retail, restaurant, light manufacturing, pharma — not by market size.
+
+19. **Subcontracting (التصنيع لدى الغير)** — send material to a contractor, receive the
+    semi-finished good, absorb the cost onto the work order. This is the Egyptian workshop
+    reality (cutting, plating, printing, stitching) and nothing in the field models it well at
+    SMB price points.
+20. **Quality on receipt with a quarantine location** — an inspection status on goods receipt
+    and production receipt, failures routed to return or rework. Small on top of the existing
+    stock ledger, and it is the pharma/food gatekeeper question.
+21. **Batch genealogy and the recall report** — raw batch → finished batch links walked in
+    both directions. Mostly reporting over data already stored, and the claim that wins a
+    pharma or food account.
+22. **Routings with standard times** — operations, station rates, and computed labor cost;
+    turns work orders into real costing and is the prerequisite for any capacity story.
+23. **Maintenance-lite on the asset register** — preventive schedules, meter readings and work
+    requests against machines and vehicles, reusing the fixed-assets register as the equipment
+    master.
+24. **Delivery and dispatch for distribution** — a delivery note as its own document, driver,
+    proof of delivery and freight allocation, extending the van-trip model to ordinary order
+    fulfillment.
+
+**The scope question these raise, which needs a human answer:** do we sell *light
+manufacturing* or *manufacturing*? Items 19–21 make a credible workshop system on the engine
+already built. Items 22 and beyond — routings, capacity scheduling, MRP — are a different
+product: they need a planning engine that does not exist, and they push Mezan into deals where
+the buyer expects a partner-led implementation, which is where Odoo and SAP B1 live.
 
 ---
 

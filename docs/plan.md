@@ -698,3 +698,74 @@ Four things change the shape of the remaining work:
 Scope explicitly unchanged: POS stays descoped, statutory payroll stays descoped and
 visibly flagged, and Mezan keeps its own visual design. Functional completeness is
 the target; visual fidelity is not.
+
+---
+
+## Operational depth beyond finance and HR — candidate scope
+
+**Added 2026-08-27.** Measured against `packages/domain/src`, not against the catalog.
+Full rationale, per-domain evidence and competitor context are in
+`docs/enhancements/market-analysis.md` §3.6 (CRM depth) and §3.7 (operational breadth);
+this section records what that means for phasing. **Nothing here is committed scope** —
+these are candidates that sit beyond parity, and each needs the same treatment every
+other module got: a catalog or requirements entry before a line of code.
+
+### Why this section exists
+
+The v1 phasing above builds finance, HR and the documents that feed them, plus one
+production module. Mid-market ERPs — Odoo, SAP Business One, ERPNext — run a second tier
+of operational domains alongside manufacturing. Mezan has none of them, and two of the
+gaps (subcontracting, quality on receipt) are ordinary practice for the light-manufacturing
+and pharma buyers already named in the target segments.
+
+### CRM — built, but without the substrate its reports need
+
+Phase 7 delivered CRM as scoped: leads, conversion, opportunities over configurable stages,
+a pipeline board, activities. Four gaps make every downstream CRM report impossible, and all
+four are cheap to store now and impossible to reconstruct later:
+
+| Gap | Change | Unblocks |
+|---|---|---|
+| No owner anywhere in CRM | `ownerId` on `Opportunity`, assignee on `Activity` | "My pipeline", my-tasks, rep leaderboard, commission linkage |
+| Funnel breaks at the opportunity | `opportunityId` on sales quote, carried into the invoice on conversion | Win rate by value, pipeline-to-invoice conversion, open quotes on live deals |
+| Stage moves erase their own history | Append-only stage transitions (from, to, at, by) | Deal velocity, time-in-stage, stalled-deal detection, forecast trend |
+| No loss reasons | `LOSS_REASON_DEFINITIONS` (code + `labelAr`), required on a loss transition | Why-we-lose analysis, the first question a sales manager asks |
+
+Two more are free from data already stored: a weighted forecast
+(`expectedValue × probability` by stage/period/owner) and a next-action hygiene surface
+(an opportunity with no pending activity is a deal nobody is working).
+
+The same failure shape the ledger rules already name applies here: the screen looks
+complete because the *current* state is right, while the fact tomorrow's report needs was
+never recorded.
+
+### Operational domains not in any phase
+
+| Domain | Mezan today | Shape of the work |
+|---|---|---|
+| Production planning / MRP | `reorderLevel` + a stock-levels report; no `safetyStock`, no `leadTime`, no planning run | New domain, needs a planning engine |
+| Routings and capacity | `work-station.ts` is a master record only — no operations, times, capacity or scheduling | New domain; also the honest fix for typed-in labor cost |
+| Subcontracting (التصنيع لدى الغير) | Nothing | Extends the existing stock ledger + work order |
+| Quality management | Nothing — no inspection, NCR or quarantine | Extends goods receipt and production receipt |
+| Traceability depth | `batchNo` + expiry + FEFO; no genealogy, recall report or serial numbers | Mostly reporting over data already stored |
+| Maintenance (CMMS/EAM) | `maintenance` is a GL account name and a voucher type; assets are a register, not equipment | New documents on the existing asset master |
+| Warehouse execution (WMS) | Warehouses and physical counts; no bins, put-away, picking or waves | New domain below the warehouse |
+| Delivery and dispatch | `field-sales/van-trip.ts` only; no delivery note, driver, POD or freight allocation | New document, extends field sales |
+| Service and after-sales | Nothing — collides with the installment-retail segment already targeted | New domain |
+| Project delivery | `projects/` is a header only — no WBS, timesheets, progress % or BOQ / مستخلصات / retention | Extends projects; the contracting gap already named |
+
+### The sequencing rule for all of the above
+
+Prefer the items that are **new fields on documents that already post correctly** over the
+items that are **new domains with their own documents and GL consequences**. Subcontracting,
+quality-on-receipt and batch genealogy attach to the existing stock ledger and cost engine.
+MRP, WMS bins and service management do not.
+
+### The scope decision this forces
+
+**Light manufacturing or manufacturing?** Subcontracting, quality and genealogy make a
+credible workshop system on the engine already built. Routings, capacity scheduling and MRP
+are a different product — they need a planning engine that does not exist and they push
+Mezan into deals where the buyer expects a partner-led implementation. That answer decides
+whether items 22–24 in `market-analysis.md` §4 are ever scheduled, and it belongs in
+`docs/decisions.md` once taken.

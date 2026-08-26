@@ -120,7 +120,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R5.1** Item types 2 → 6, with the behavioural rules per type — capability table in the domain; pickers and reports ask the capability, never `type === "stock"`
 - [x] **R4.2** Purchase-invoice line types (stock / expense / freight) — three kinds, each routing its debit to its own account: 1200 / 5910 / 5200
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
-- [ ] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
+- [~] **R9.1** Work-order shop-floor panel exists (issue / extra issue / return / waste / log cost); the reference's station and operator tracking is not built. **R9.2** is done — all seven detail tabs
 - [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
 - [x] **R11.1–R11.8** Split settings into the policy tabs and make each toggle actually change document behaviour:
   - [ ] credit control mode (warn vs block)
@@ -143,7 +143,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] editing a per-price-list price from the item form (the read-only view landed with R5.5)
 - [ ] **R5.8** Transfer import from Excel
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
-- [ ] **R10.5** Leave-request create action
+- [x] **R10.5** Leave-request create action, including filing on behalf of another employee behind `hr.leave.approve`
 - [ ] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances
 
 ## P6 — list-surface parity

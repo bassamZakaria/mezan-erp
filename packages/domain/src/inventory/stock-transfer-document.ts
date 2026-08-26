@@ -99,11 +99,17 @@ export const stockTransferDocumentType: DocumentTypeDefinition<StockTransferDocL
         {
           kind: "stock",
           description: `ينقل ${doc.lines.length} صنف من المستودع "${fromWarehouseId}" إلى المستودع "${toWarehouseId}"`,
+          // The ids travel; the UI resolves them to the tenant's own warehouse
+          // names, which the domain has no way to know (D48).
+          key: "docEffects.stockTransfer.stock",
+          params: { count: doc.lines.length, fromWarehouseId, toWarehouseId },
         },
         {
           kind: "info",
           description: "لا يتغير إجمالي قيمة المخزون",
+          key: "docEffects.stockTransfer.value",
           detail: "التحويل ينقل الكمية بين المواقع فقط، بنفس متوسط تكلفة المصدر — لا أثر محاسبي.",
+          detailKey: "docEffects.stockTransfer.valueDetail",
         },
       ],
       blocked: false,

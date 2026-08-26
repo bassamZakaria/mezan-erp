@@ -33,6 +33,7 @@ import {
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
+import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
 
@@ -88,6 +89,7 @@ function blankLine(): LineDraft {
 }
 
 export function StockTransfersScreen() {
+  const effectText = useDocumentEffectText();
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
@@ -226,12 +228,15 @@ export function StockTransfersScreen() {
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockXfer.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
-          effects={effects.effects.map((e) => (
-            <span key={e.description}>
-              {e.description}
-              {e.detail ? <span className="block text-[11.5px] text-ink-muted">{e.detail}</span> : null}
-            </span>
-          ))}
+          effects={effects.effects.map((e) => {
+            const { text, detail } = effectText(e);
+            return (
+              <span key={e.key ?? e.description}>
+                {text}
+                {detail ? <span className="block text-[11.5px] text-ink-muted">{detail}</span> : null}
+              </span>
+            );
+          })}
           tabs={[
             {
               key: "lines",

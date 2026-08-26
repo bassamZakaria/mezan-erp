@@ -46,6 +46,7 @@ import {
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
+import { useDocumentEffectText } from "../lib/document-effects";
 import { useEntityName } from "../lib/entity-names";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
@@ -121,6 +122,7 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
+  const effectText = useDocumentEffectText();
   const nameOf = useEntityName();
   const { t, locale } = useAppTranslation();
   const { label: domainLabel } = useDomainLabels();
@@ -326,12 +328,15 @@ export function StockAdjustmentsScreen() {
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
-          effects={effects.effects.map((e) => (
-            <span key={e.description}>
-              {e.description}
-              {e.detail ? <span className="block text-[11.5px] text-ink-muted">{e.detail}</span> : null}
-            </span>
-          ))}
+          effects={effects.effects.map((e) => {
+            const { text, detail } = effectText(e);
+            return (
+              <span key={e.key ?? e.description}>
+                {text}
+                {detail ? <span className="block text-[11.5px] text-ink-muted">{detail}</span> : null}
+              </span>
+            );
+          })}
           tabs={[
             {
               key: "lines",

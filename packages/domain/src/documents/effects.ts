@@ -21,6 +21,23 @@ export interface DocumentEffect {
   readonly description: string;
   /** Optional secondary detail (e.g. an account name + Dr/Cr amount). */
   readonly detail?: string;
+  /**
+   * Catalogue key + placeholders for the SAME sentence as `description`.
+   *
+   * The domain builds business vocabulary, not UI copy, and it has neither a
+   * locale nor the tenant's warehouse names nor the user's number format. So
+   * the panel read Arabic inside the English UI, printed the warehouse **id**
+   * where a name belongs, and showed raw scaled money — "0.000000" (D48).
+   *
+   * `description` stays as the fallback for any effect that has not been given
+   * a key yet, and for callers with no catalogue (tests, the domain's own
+   * assertions). Where `key` is present the UI translates it and resolves the
+   * params — `warehouseId` becomes a name, Money-valued params get formatted.
+   */
+  readonly key?: string;
+  readonly params?: Readonly<Record<string, string | number>>;
+  readonly detailKey?: string;
+  readonly detailParams?: Readonly<Record<string, string | number>>;
 }
 
 /**

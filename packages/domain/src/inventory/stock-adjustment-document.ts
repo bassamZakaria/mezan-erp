@@ -22,7 +22,7 @@
 
 import { Money, Qty } from "../money/index.js";
 import type { DocumentTypeDefinition, FrameworkDocument } from "../documents/document.js";
-import { buildEffects } from "../documents/effects.js";
+import { buildEffects, type DocumentEffect } from "../documents/effects.js";
 import { InvalidDocumentError } from "../documents/errors.js";
 import { ADJUSTMENT_REASONS, getAdjustmentReasonDefinition, type AdjustmentReason } from "./reasons.js";
 import type { StockMovementDirection } from "./movement.js";
@@ -127,24 +127,40 @@ export const stockAdjustmentDocumentType: DocumentTypeDefinition<StockAdjustment
     const outLines = doc.lines.filter((l) => l.direction === "OUT");
     const knownInValue = Money.sum(inLines.map((l) => (l.unitCost ? extend(l.qty, l.unitCost) : Money.zero())));
 
-    const effects = [
+    // `key`/`params` are what the UI renders; `description`/`detail` stay as the
+    // Arabic fallback for callers with no catalogue. The warehouse travels as an
+    // ID and the value as an exact decimal STRING, because neither the tenant's
+    // warehouse names nor the reader's number format belong to the domain (D48).
+    const effects: DocumentEffect[] = [
       {
-        kind: "stock" as const,
+        kind: "stock",
         description: `يعدّل رصيد ${doc.lines.length} صنف في المستودع "${warehouseId}" (${def.labelAr})`,
+        key: "docEffects.stockAdjustment.stock",
+        params: { count: doc.lines.length, warehouseId, reasonAr: def.labelAr, reasonEn: def.labelEn },
         detail:
           inLines.length > 0 && outLines.length > 0
             ? `${inLines.length} بند زيادة، ${outLines.length} بند نقصان`
             : inLines.length > 0
               ? `${inLines.length} بند زيادة`
               : `${outLines.length} بند نقصان`,
+        detailKey:
+          inLines.length > 0 && outLines.length > 0
+            ? "docEffects.stockAdjustment.linesBoth"
+            : inLines.length > 0
+              ? "docEffects.stockAdjustment.linesIn"
+              : "docEffects.stockAdjustment.linesOut",
+        detailParams: { inCount: inLines.length, outCount: outLines.length },
       },
       {
-        kind: "gl" as const,
+        kind: "gl",
         description: "يُنشئ قيداً محاسبياً موازناً لتغير قيمة المخزون (عند وجود فرق قيمة)",
+        key: "docEffects.stockAdjustment.gl",
         detail:
           outLines.length > 0
             ? `قيمة بنود الزيادة المعروفة: ${knownInValue.toString()} — قيمة بنود النقصان تُحسب عند الترحيل بمتوسط التكلفة الحالي`
             : `${knownInValue.toString()}`,
+        detailKey: outLines.length > 0 ? "docEffects.stockAdjustment.glDetailWithOut" : "docEffects.stockAdjustment.glDetail",
+        detailParams: { value: knownInValue.toString() },
       },
     ];
 

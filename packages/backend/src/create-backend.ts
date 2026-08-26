@@ -4,6 +4,7 @@ import {
   StockLedgerService,
   applyAllocatedSettlement,
   InvalidSalesInvoicePaymentError,
+  InvalidPurchaseDocumentError,
   postJournalEntry,
   resolvePrice,
   createSalesInvoiceGlHook,
@@ -157,13 +158,17 @@ import { createFetchWebhookTransport, createHmacWebhookSigner } from "./webhook-
 /**
  * The GL accounts the purchase chain's invoice confirm posts against —
  * docs/catalog/04's standard COA (packages/domain/src/accounts/coa-template.ts):
- * inventory (1200), trade payables (2100), input VAT (1400), freight (5200).
+ * inventory (1200), trade payables (2100), input VAT (1400), freight (5200),
+ * other purchase expenses (5910).
  */
 const PURCHASE_GL_ACCOUNTS = {
   inventoryAccountId: "1200",
   payableAccountId: "2100",
   taxAccountId: "1400",
   freightAccountId: "5200",
+  // R4.2: a general expense line on a purchase invoice is not freight; routing
+  // it to 5200 made "مصروفات الشحن والنقل" the bin for everything non-stock.
+  expenseAccountId: "5910",
 };
 
 /**
@@ -1163,6 +1168,53 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       // «من إيصال استلام» omits lines, so the route builds them from the receipt
       // — and without this port every one of those lines was taxed at 0% (D50).
       resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
+      /**
+       * سداد للمورد from the invoice itself (R4.4) — the purchase-side mirror of
+       * the sales `collect` adapter below. It creates, confirms and allocates a
+       * REAL سند صرف: an invoice that reads "مدفوع" with nothing posted behind
+       * it is the failure D40 was filed for.
+       */
+      pay: async (input) => {
+        const treasury = await treasuryAccounts.findById(input.treasuryAccountId);
+        if (!treasury?.glAccountId) {
+          throw new InvalidPurchaseDocumentError(["حساب الخزينة غير موجود أو بلا حساب دفتري."]);
+        }
+        const voucherId = `PAY:${input.invoiceId}:${randomUUID()}`;
+        const service = new VoucherService({
+          documents: vouchers.documents,
+          ledger,
+          accounts,
+          periods: fiscalPeriods,
+          numbering: ledger.numbering,
+          treasuryAccounts,
+          allocations: vouchers.allocations,
+          invoices: vouchers.invoices,
+          settings,
+          audit: auditSink,
+          actor: input.actor,
+        });
+        await service.createVoucher({
+          id: voucherId,
+          date: input.date,
+          memo: input.memo,
+          voucherType: "supplier_payment",
+          amount: input.amount,
+          branchId: input.branchId,
+          paymentMethod: input.paymentMethod,
+          treasuryAccountId: input.treasuryAccountId,
+          treasuryGlAccountId: treasury.glAccountId,
+          counterpartyGlAccountId: PURCHASE_GL_ACCOUNTS.payableAccountId,
+          supplierId: input.supplierId,
+          referenceNo: input.referenceNo,
+        });
+        await service.confirmVoucher(voucherId);
+        await service.allocate(voucherId, {
+          allocationId: `${voucherId}:A1`,
+          invoiceId: input.invoiceId,
+          amount: input.amount,
+        });
+        return { voucherId };
+      },
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.

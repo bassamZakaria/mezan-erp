@@ -97,6 +97,7 @@ export {
   purchaseInvoiceSubtotal,
   purchaseInvoiceInventoryBase,
   purchaseInvoiceFreightBase,
+  purchaseInvoiceExpenseBase,
   purchaseInvoiceTax,
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,

@@ -19,7 +19,7 @@ export const purchaseOrderStatusSchema = z.enum([
 ]);
 export const goodsReceiptStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
 export const purchaseInvoiceStatusSchema = z.enum(["draft", "confirmed", "cancelled"]);
-export const purchaseInvoiceLineKindSchema = z.enum(["inventory", "expense"]);
+export const purchaseInvoiceLineKindSchema = z.enum(["inventory", "expense", "freight"]);
 
 // --- Purchase Order --------------------------------------------------------
 
@@ -166,6 +166,40 @@ export const createPurchaseInvoiceLineSchema = z.object({
   expiryDate: isoDate.nullable().optional(),
 });
 
+/**
+ * `GET /purchases/invoices/:id/fulfilment` — what each inventory line of this
+ * invoice actually delivered and what is left of it. Read from the cost layers
+ * the funding document created (the goods receipt, or the invoice itself when
+ * it is a manual one), never stored on the invoice, so it cannot drift from
+ * the stock ledger.
+ */
+export const purchaseInvoiceLineFulfilmentSchema = z.object({
+  lineIndex: z.number().int().nonnegative(),
+  itemId: z.string().nullable(),
+  invoicedQty: decimalString,
+  receivedQty: decimalString,
+  consumedQty: decimalString,
+  remainingQty: decimalString,
+});
+
+export const purchaseInvoiceFulfilmentSchema = z.object({
+  invoiceId: z.string().min(1),
+  /** The document whose confirmation created the cost layers these figures are read from. */
+  sourceDocId: z.string().nullable(),
+  sourceDocType: z.enum(["GOODS_RECEIPT", "PURCHASE_INVOICE"]).nullable(),
+  lines: z.array(purchaseInvoiceLineFulfilmentSchema),
+});
+
+/** `POST /purchases/invoices/:id/payments` — pay a supplier straight off the invoice. */
+export const purchaseInvoicePaymentSchema = z.object({
+  amount: z.string(),
+  treasuryAccountId: z.string().min(1),
+  paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
+  date: z.string().min(1).optional(),
+  referenceNo: z.string().nullish(),
+  notes: z.string().nullish(),
+});
+
 export const createPurchaseInvoiceSchema = z.object({
   id: z.string().min(1),
   supplierId: z.string().min(1),
@@ -194,6 +228,9 @@ export type CreateGoodsReceiptDTO = z.infer<typeof createGoodsReceiptSchema>;
 export type PurchaseInvoiceLineDTO = z.infer<typeof purchaseInvoiceLineSchema>;
 export type PurchaseInvoiceDTO = z.infer<typeof purchaseInvoiceSchema>;
 export type CreatePurchaseInvoiceDTO = z.infer<typeof createPurchaseInvoiceSchema>;
+export type PurchaseInvoiceLineFulfilmentDTO = z.infer<typeof purchaseInvoiceLineFulfilmentSchema>;
+export type PurchaseInvoiceFulfilmentDTO = z.infer<typeof purchaseInvoiceFulfilmentSchema>;
+export type PurchaseInvoicePaymentDTO = z.infer<typeof purchaseInvoicePaymentSchema>;
 
 // --- RFQ (طلبات عروض الأسعار) ------------------------------------------------
 

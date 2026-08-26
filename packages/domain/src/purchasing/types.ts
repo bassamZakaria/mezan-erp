@@ -106,8 +106,10 @@ export interface PurchaseGlAccounts {
   readonly inventoryAccountId: string;
   readonly payableAccountId: string;
   readonly taxAccountId: string;
-  /** Booked for freight/expense lines (مصروف شحن); falls back to inventory when absent. */
+  /** Booked for freight lines (مصروف شحن); falls back to inventory when absent. */
   readonly freightAccountId?: string;
+  /** Booked for general purchase-expense lines (مصروف); falls back to freight, then inventory (R4.2). */
+  readonly expenseAccountId?: string;
 }
 
 /**

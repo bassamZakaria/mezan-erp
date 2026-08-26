@@ -17,9 +17,13 @@ import {
 } from "@mezan/ui";
 import type {
   GoodsReceiptDTO,
+  LandedCostDistributionMethodDTO,
+  LandedCostTypeDTO,
   PurchaseInvoiceDTO,
   PurchaseInvoiceLineDTO,
+  PurchaseInvoiceLineFulfilmentDTO,
   PurchaseInvoiceListQueryDTO,
+  PurchaseInvoicePaymentDTO,
   PurchaseInvoiceStatusDTO,
 } from "@mezan/contracts";
 import {
@@ -27,10 +31,14 @@ import {
   useCreatePurchaseInvoice,
   useGoodsReceipts,
   useItems,
+  useLandedCosts,
+  usePayPurchaseInvoice,
   usePurchaseInvoices,
   usePurchaseInvoiceCounts,
+  usePurchaseInvoiceFulfilment,
   usePurchaseInvoiceStats,
   useSuppliers,
+  useTreasuryAccounts,
   useUsers,
   useBranches,
   useWarehouses,
@@ -58,13 +66,35 @@ const STATUS_TONE: Record<PurchaseInvoiceStatusDTO, PillTone> = {
   cancelled: "danger",
 };
 
+const LANDED_COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
+  SHIPPING: "landedCosts.type.SHIPPING",
+  CUSTOMS: "landedCosts.type.CUSTOMS",
+  INSURANCE: "landedCosts.type.INSURANCE",
+  CLEARANCE: "landedCosts.type.CLEARANCE",
+  OTHER: "landedCosts.type.OTHER",
+};
+
+const LANDED_COST_BASIS_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey> = {
+  BY_VALUE: "landedCosts.method.BY_VALUE",
+  BY_QUANTITY: "landedCosts.method.BY_QUANTITY",
+};
+
+/** The three things a purchase-invoice line can be (R4.2) — each routes its debit to a different account. */
+const LINE_KINDS = ["inventory", "expense", "freight"] as const satisfies readonly PurchaseInvoiceLineDTO["kind"][];
+
+const LINE_KIND_KEY: Record<PurchaseInvoiceLineDTO["kind"], AppTranslationKey> = {
+  inventory: "purchaseInvoices.kind.inventory",
+  expense: "purchaseInvoices.kind.expense",
+  freight: "purchaseInvoices.kind.freight",
+};
+
 const num = (v: string) => Number(v);
 const lineBase = (l: PurchaseInvoiceLineDTO) => Number(l.qty) * Number(l.unitCost);
 const lineTax = (l: PurchaseInvoiceLineDTO) => (lineBase(l) * l.taxRatePercent) / 100;
 
 interface DraftLine {
   itemId: string;
-  kind: "inventory" | "expense";
+  kind: PurchaseInvoiceLineDTO["kind"];
   qty: number;
   unitCost: number;
   taxRatePercent: number;
@@ -92,6 +122,77 @@ function InvoiceDetail({
   onConfirm: () => void;
 }) {
   const { t } = useAppTranslation();
+  const fulfilmentQuery = usePurchaseInvoiceFulfilment(invoice.id);
+  const landedCostsQuery = useLandedCosts();
+  const treasuryAccounts = useTreasuryAccounts().data ?? [];
+  const payInvoice = usePayPurchaseInvoice();
+
+  const [payAmount, setPayAmount] = useState<number | null>(null);
+  const [payTreasuryId, setPayTreasuryId] = useState("");
+  const [payMethod, setPayMethod] = useState<PurchaseInvoicePaymentDTO["paymentMethod"]>("cash");
+  const [payError, setPayError] = useState<string | null>(null);
+  const [payNote, setPayNote] = useState<string | null>(null);
+
+  const paid = num(invoice.amountPaid);
+  const remaining = num(invoice.remainingBalance);
+  const canPay = invoice.status === "confirmed" && remaining > 0;
+
+  const fulfilment = useMemo(() => {
+    const map = new Map<number, PurchaseInvoiceLineFulfilmentDTO>();
+    for (const row of fulfilmentQuery.data?.lines ?? []) map.set(row.lineIndex, row);
+    return map;
+  }, [fulfilmentQuery.data]);
+
+  /**
+   * التكاليف الإضافية that landed on THIS document. A landed-cost line names the
+   * document whose goods it revalued, which for a «من إيصال استلام» invoice is
+   * the receipt, not the invoice — so both ids have to be matched or the tab
+   * would read empty on exactly the invoices that carry one.
+   */
+  const landedCosts = useMemo(() => {
+    const sourceIds = new Set([invoice.id, ...(invoice.receiptId ? [invoice.receiptId] : [])]);
+    return (landedCostsQuery.data ?? [])
+      .map((doc) => ({ doc, lines: doc.lines.filter((l) => sourceIds.has(l.sourceInvoiceId)) }))
+      .filter((row) => row.lines.length > 0);
+  }, [landedCostsQuery.data, invoice.id, invoice.receiptId]);
+
+  const landedTotal = landedCosts.reduce(
+    (sum, row) => sum + row.lines.reduce((s, l) => s + num(l.allocatedAmount), 0),
+    0,
+  );
+
+  async function submitPayment() {
+    setPayError(null);
+    setPayNote(null);
+    if (payAmount === null || payAmount <= 0) {
+      setPayError(t("purchaseInvoices.pay.errorPositive"));
+      return;
+    }
+    if (payTreasuryId === "") {
+      setPayError(t("purchaseInvoices.pay.errorTreasury"));
+      return;
+    }
+    try {
+      const result = await payInvoice.mutateAsync({
+        id: invoice.id,
+        amount: String(payAmount),
+        treasuryAccountId: payTreasuryId,
+        paymentMethod: payMethod,
+      });
+      setPayAmount(null);
+      setPayNote(t("purchaseInvoices.pay.done", { voucher: result.voucherId }));
+    } catch (err) {
+      setPayError(err instanceof Error ? err.message : t("purchaseInvoices.pay.errorFailed"));
+    }
+  }
+
+  const kindLabel = (kind: PurchaseInvoiceLineDTO["kind"]) =>
+    kind === "inventory"
+      ? t("purchaseInvoices.kind.inventory")
+      : kind === "freight"
+        ? t("purchaseInvoices.kind.freight")
+        : t("purchaseInvoices.kind.expense");
+
   return (
     <DocumentDetail
       title={t("purchaseInvoices.detailTitle", { number: invoice.number })}
@@ -115,6 +216,8 @@ function InvoiceDetail({
         { label: t("purchaseInvoices.detail.supplierInvoiceNo"), value: invoice.supplierInvoiceNumber ?? "—" },
         { label: t("purchaseInvoices.detail.source"), value: invoice.receiptId ? t("purchaseInvoices.source.fromReceipt") : t("purchaseInvoices.source.manual") },
         { label: t("purchaseInvoices.detail.grandTotal"), value: <MoneyValue value={num(invoice.total)} /> },
+        { label: t("purchaseInvoices.pay.paid"), value: <MoneyValue value={paid} /> },
+        { label: t("purchaseInvoices.pay.remaining"), value: <MoneyValue value={remaining} />, valueTone: remaining > 0 ? "danger" : "default" },
       ]}
       effects={[
         invoice.receiptId
@@ -129,32 +232,42 @@ function InvoiceDetail({
           label: t("purchaseInvoices.tab.lines", { count: invoice.lines.length }),
           content: (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[620px] border-collapse text-[13px]">
+              <table className="w-full min-w-[860px] border-collapse text-[13px]">
                 <thead>
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                     <th className="px-[12px] py-[9px] text-start">{t("common.type")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("common.qty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.receivedQty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.consumedQty")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.remainingQty")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.unitCost")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("purchaseInvoices.col.taxPct")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {invoice.lines.map((l, i) => (
-                    <tr key={i} className="border-b border-border last:border-b-0">
-                      <td className="px-[12px] py-[10px]">{l.kind === "expense" ? (l.description ?? t("purchaseInvoices.expense")) : itemName(l.itemId)}</td>
-                      <td className="px-[12px] py-[10px]">{l.kind === "inventory" ? t("purchaseInvoices.kind.inventory") : t("purchaseInvoices.kind.expense")}</td>
-                      <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
-                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
-                      <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
-                      <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
-                    </tr>
-                  ))}
+                  {invoice.lines.map((l, i) => {
+                    const row = fulfilment.get(i);
+                    const stockLine = l.kind === "inventory";
+                    return (
+                      <tr key={i} className="border-b border-border last:border-b-0">
+                        <td className="px-[12px] py-[10px]">{l.kind === "inventory" ? itemName(l.itemId) : (l.description ?? kindLabel(l.kind))}</td>
+                        <td className="px-[12px] py-[10px]">{kindLabel(l.kind)}</td>
+                        <td className="px-[12px] py-[10px] text-end"><QtyDisplay value={l.qty} /></td>
+                        <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.receivedQty} /> : "—"}</td>
+                        <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.consumedQty} /> : "—"}</td>
+                        <td className="px-[12px] py-[10px] text-end">{stockLine && row ? <QtyDisplay value={row.remainingQty} /> : "—"}</td>
+                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
+                        <td className="mz-num px-[12px] py-[10px] text-end">{l.taxRatePercent}</td>
+                        <td className="px-[12px] py-[10px] text-end"><MoneyValue value={lineBase(l) + lineTax(l)} showUnit={false} /></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-border font-semibold">
-                    <td className="px-[12px] py-[10px]" colSpan={5}>{t("purchaseInvoices.totalsRow")}</td>
+                    <td className="px-[12px] py-[10px]" colSpan={8}>{t("purchaseInvoices.totalsRow")}</td>
                     <td className="px-[12px] py-[10px] text-end">
                       <div><MoneyValue value={num(invoice.subtotal)} showUnit={false} /></div>
                       <div className="text-ink-muted"><MoneyValue value={num(invoice.tax)} showUnit={false} /></div>
@@ -163,6 +276,142 @@ function InvoiceDetail({
                   </tr>
                 </tfoot>
               </table>
+              <p className="mt-[10px] max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-muted">
+                {t("purchaseInvoices.fulfilmentNote")}
+              </p>
+            </div>
+          ),
+        },
+        {
+          key: "landed-costs",
+          label: t("purchaseInvoices.tab.landedCosts", { count: landedCosts.length }),
+          content: landedCosts.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface p-[22px_24px]">
+              <p className="text-[13.5px] font-semibold text-ink">{t("purchaseInvoices.landed.emptyTitle")}</p>
+              <p className="mt-[8px] max-w-[70ch] text-[12.5px] leading-[1.9] text-ink-muted">{t("purchaseInvoices.landed.emptyBody")}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-[14px]">
+              <div className="flex items-center justify-between rounded-lg border border-border bg-surface p-[13px_15px]">
+                <span className="text-[12.5px] text-ink-muted">{t("purchaseInvoices.landed.totalAllocated")}</span>
+                <MoneyValue value={landedTotal} />
+              </div>
+              <div className="overflow-x-auto rounded-lg border border-border bg-surface">
+                <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="border-b border-border text-ink-muted">
+                      <th className="p-[10px] text-start font-semibold">{t("purchaseInvoices.landed.col.document")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("common.item")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("purchaseInvoices.landed.col.costTypes")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("purchaseInvoices.landed.col.basis")}</th>
+                      <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.allocated")}</th>
+                      <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.oldUnitCost")}</th>
+                      <th className="p-[10px] text-end font-semibold">{t("purchaseInvoices.landed.col.newUnitCost")}</th>
+                      <th className="p-[10px] text-start font-semibold">{t("common.status")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {landedCosts.flatMap((row) =>
+                      row.lines.map((l, i) => (
+                        <tr key={`${row.doc.id}:${i}`} className="border-b border-border last:border-b-0">
+                          <td className="mz-num p-[10px] font-semibold text-ink">{row.doc.docNo ?? row.doc.id}</td>
+                          <td className="p-[10px]">{itemName(l.itemId)}</td>
+                          <td className="p-[10px] text-ink-muted">
+                            {l.costItems.map((ci) => t(LANDED_COST_TYPE_KEY[ci.costType])).join(" · ")}
+                          </td>
+                          <td className="p-[10px] text-ink-muted">{t(LANDED_COST_BASIS_KEY[l.distributionMethod])}</td>
+                          <td className="p-[10px] text-end font-semibold text-ink"><MoneyValue value={num(l.allocatedAmount)} showUnit={false} /></td>
+                          <td className="p-[10px] text-end text-ink-muted"><MoneyValue value={num(l.unitCost)} showUnit={false} /></td>
+                          <td className="p-[10px] text-end text-ink"><MoneyValue value={num(l.newUnitCost)} showUnit={false} /></td>
+                          <td className="p-[10px]">
+                            <StatusPill
+                              label={row.doc.status === "confirmed" ? t("purchaseInvoices.status.confirmed") : t("purchaseInvoices.status.draft")}
+                              tone={row.doc.status === "confirmed" ? "success" : "neutral"}
+                            />
+                          </td>
+                        </tr>
+                      )),
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              <p className="max-w-[80ch] text-[11.5px] leading-[1.9] text-ink-muted">{t("purchaseInvoices.landed.note")}</p>
+            </div>
+          ),
+        },
+        {
+          key: "payments",
+          label: t("purchaseInvoices.tab.payments"),
+          content: (
+            <div className="flex flex-col gap-[14px]">
+              <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-3">
+                <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("purchaseInvoices.detail.grandTotal")}</div>
+                  <div className="mt-[5px] text-[14.5px] font-bold text-ink"><MoneyValue value={num(invoice.total)} showUnit={false} /></div>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("purchaseInvoices.pay.paid")}</div>
+                  <div className="mt-[5px] text-[14.5px] font-bold text-ink"><MoneyValue value={paid} showUnit={false} /></div>
+                </div>
+                <div className="rounded-lg border border-border bg-surface p-[13px_15px]">
+                  <div className="text-[11px] font-semibold text-ink-faint">{t("purchaseInvoices.pay.remaining")}</div>
+                  <div className="mt-[5px] text-[14.5px] font-bold text-ink"><MoneyValue value={remaining} showUnit={false} /></div>
+                </div>
+              </div>
+              {canPay ? (
+                <Card className="p-[16px_18px]">
+                  <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("purchaseInvoices.pay.heading")}</h3>
+                  {payError ? (
+                    <div role="alert" className="mb-[10px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+                      {payError}
+                    </div>
+                  ) : null}
+                  {payNote ? (
+                    <div role="status" className="mb-[10px] rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12.5px] text-ink">
+                      {payNote}
+                    </div>
+                  ) : null}
+                  <div className="flex flex-col gap-[10px]">
+                    <NumberField
+                      label={t("purchaseInvoices.pay.amount")}
+                      value={payAmount ?? 0}
+                      min={0}
+                      onChange={(v) => setPayAmount(v)}
+                    />
+                    <SelectField
+                      label={t("purchaseInvoices.pay.treasury")}
+                      value={payTreasuryId}
+                      onChange={setPayTreasuryId}
+                      options={[
+                        { value: "", label: t("purchaseInvoices.pay.treasuryPlaceholder") },
+                        ...treasuryAccounts.map((a) => ({ value: a.id, label: a.name })),
+                      ]}
+                    />
+                    <SelectField
+                      label={t("purchaseInvoices.pay.method")}
+                      value={payMethod ?? "cash"}
+                      onChange={(v) => setPayMethod(v as PurchaseInvoicePaymentDTO["paymentMethod"])}
+                      options={[
+                        { value: "cash", label: t("vouchers.method.cash") },
+                        { value: "bank", label: t("vouchers.method.bank") },
+                        { value: "cheque", label: t("vouchers.method.cheque") },
+                        { value: "card", label: t("vouchers.method.card") },
+                        { value: "wallet", label: t("vouchers.method.wallet") },
+                      ]}
+                    />
+                    <p className="text-[11.5px] leading-[1.9] text-ink-muted">{t("purchaseInvoices.pay.hint")}</p>
+                    <div className="flex justify-end">
+                      <Button variant="primary" disabled={payInvoice.isPending} onClick={submitPayment}>
+                        {t("purchaseInvoices.pay.submit")}
+                      </Button>
+                    </div>
+                  </div>
+                </Card>
+              ) : (
+                <div className="p-[16px] text-center text-[12.5px] text-ink-muted">
+                  {invoice.status === "confirmed" ? t("purchaseInvoices.pay.settled") : t("purchaseInvoices.pay.blocked")}
+                </div>
+              )}
             </div>
           ),
         },
@@ -355,7 +604,7 @@ export function PurchaseInvoicesScreen() {
   const canSave =
     method === "from-receipt"
       ? pickedReceipt !== null && receiptLines.length > 0
-      : supplier !== null && lines.some((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
+      : supplier !== null && lines.some((l) => l.qty > 0 && (l.kind !== "inventory" || l.itemId !== ""));
 
   async function save() {
     setFormError(null);
@@ -378,7 +627,7 @@ export function PurchaseInvoicesScreen() {
         });
       } else {
         if (!supplier) return;
-        const usable = lines.filter((l) => l.qty > 0 && (l.kind === "expense" || l.itemId !== ""));
+        const usable = lines.filter((l) => l.qty > 0 && (l.kind !== "inventory" || l.itemId !== ""));
         if (usable.length === 0) return;
         await createInvoice.mutateAsync({
           id: crypto.randomUUID(),
@@ -388,7 +637,7 @@ export function PurchaseInvoicesScreen() {
           warehouseId: workingLocation.warehouseId ?? "",
           supplierInvoiceNumber: supplierInvoiceNumber.trim() === "" ? null : supplierInvoiceNumber.trim(),
           lines: usable.map((l) => ({
-            itemId: l.kind === "expense" ? null : l.itemId,
+            itemId: l.kind === "inventory" ? l.itemId : null,
             description: l.description.trim() === "" ? null : l.description.trim(),
             kind: l.kind,
             qty: String(l.qty),
@@ -454,9 +703,23 @@ export function PurchaseInvoicesScreen() {
             <EntityPicker label={t("purchaseInvoices.field.supplier")} value={supplier} onChange={setSupplier} options={supplierOptions} placeholder={t("purchaseInvoices.field.supplierPlaceholder")} />
             {lines.map((line, i) => (
               <div key={i} className="rounded-lg border border-border bg-surface p-[12px]">
-                <div className="mb-[8px] flex gap-[8px]">
-                  <Chip type="button" active={line.kind === "inventory"} onClick={() => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, kind: "inventory" } : l)))}>{t("purchaseInvoices.kind.inventory")}</Chip>
-                  <Chip type="button" active={line.kind === "expense"} onClick={() => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, kind: "expense", taxRatePercent: 0 } : l)))}>{t("purchaseInvoices.kind.expense")}</Chip>
+                <div className="mb-[8px] flex flex-wrap gap-[8px]">
+                  {LINE_KINDS.map((kind) => (
+                    <Chip
+                      key={kind}
+                      type="button"
+                      active={line.kind === kind}
+                      onClick={() =>
+                        setLines((prev) =>
+                          prev.map((l, j) =>
+                            j === i ? { ...l, kind, ...(kind === "inventory" ? {} : { itemId: "", taxRatePercent: 0 }) } : l,
+                          ),
+                        )
+                      }
+                    >
+                      {t(LINE_KIND_KEY[kind])}
+                    </Chip>
+                  ))}
                 </div>
                 {line.kind === "inventory" ? (
                   <EntityPicker
@@ -481,7 +744,12 @@ export function PurchaseInvoicesScreen() {
                     placeholder={t("purchaseInvoices.field.itemPlaceholder")}
                   />
                 ) : (
-                  <TextField label={t("purchaseInvoices.field.expenseDescription")} value={line.description} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, description: v } : l)))} placeholder={t("purchaseInvoices.field.expensePlaceholder")} />
+                  <TextField
+                    label={line.kind === "freight" ? t("purchaseInvoices.field.freightDescription") : t("purchaseInvoices.field.expenseDescription")}
+                    value={line.description}
+                    onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, description: v } : l)))}
+                    placeholder={line.kind === "freight" ? t("purchaseInvoices.field.freightPlaceholder") : t("purchaseInvoices.field.expensePlaceholder")}
+                  />
                 )}
                 <div className="mt-[10px] grid grid-cols-3 gap-[8px]">
                   <NumberField label={t("common.qty")} value={line.qty} min={0} onChange={(v) => setLines((prev) => prev.map((l, j) => (j === i ? { ...l, qty: v } : l)))} />

@@ -13,6 +13,12 @@ export interface Opportunity {
   readonly id: string;
   readonly title: string;
   readonly customerId: string;
+  /**
+   * The branch the deal belongs to. Nullable: opportunities written before the
+   * column existed have none, and NULL means "not recorded" rather than "every
+   * branch" — a scoped caller must not inherit rows nobody assigned.
+   */
+  readonly branchId: string | null;
   readonly stageId: string;
   readonly expectedValue: Money;
   readonly probability: number;
@@ -35,6 +41,7 @@ export interface CreateOpportunityCommand {
   readonly id: string;
   readonly title: string;
   readonly customerId: string;
+  readonly branchId?: string | null;
   readonly stageId: string;
   readonly expectedValue?: Money;
   readonly probability?: number;
@@ -66,6 +73,7 @@ export async function createOpportunity(
     id: command.id,
     title: command.title,
     customerId: command.customerId,
+    branchId: command.branchId ?? null,
     stageId: command.stageId,
     expectedValue: command.expectedValue ?? Money.zero(),
     probability,

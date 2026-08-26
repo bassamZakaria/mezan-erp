@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { FulcrumRule, Button, Card, Money as MoneyDisplay, SidePanel, StatCard } from "@mezan/ui";
 import type { OpportunityDTO, PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, SelectField } from "../settings/form-controls";
-import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages , useBranches} from "../data/hooks";
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
 import { useAppTranslation } from "../i18n";
 import { majorOf, sumMajor } from "../lib/money";
@@ -19,6 +19,7 @@ export function PipelineScreen() {
   const stagesQuery = usePipelineStages();
   const opportunitiesQuery = useOpportunities();
   const customersQuery = useCustomers();
+  const branchesQuery = useBranches();
   const moveStage = useMoveOpportunityStage();
 
   const stages = useMemo(
@@ -35,6 +36,7 @@ export function PipelineScreen() {
 
   const [view, setView] = useState<"board" | "list">("board");
   const [customerFilter, setCustomerFilter] = useState("");
+  const [branchFilter, setBranchFilter] = useState("");
   const [valueFrom, setValueFrom] = useState(Number.NaN);
   const [valueTo, setValueTo] = useState(Number.NaN);
   const [formOpen, setFormOpen] = useState(false);
@@ -48,6 +50,7 @@ export function PipelineScreen() {
    */
   const opportunities = allOpportunities.filter((opportunity) => {
     if (customerFilter && opportunity.customerId !== customerFilter) return false;
+    if (branchFilter && opportunity.branchId !== branchFilter) return false;
     const value = majorOf(opportunity.expectedValue);
     if (!Number.isNaN(valueFrom) && value < valueFrom) return false;
     if (!Number.isNaN(valueTo) && value > valueTo) return false;
@@ -132,7 +135,16 @@ export function PipelineScreen() {
             </button>
           ))}
         </div>
-        <div className="grid flex-1 gap-2 sm:grid-cols-3">
+        <div className="grid flex-1 gap-2 sm:grid-cols-4">
+          <SelectField
+            label={t("pipeline.filter.branch")}
+            value={branchFilter}
+            onChange={setBranchFilter}
+            options={[
+              { value: "", label: t("pipeline.filter.allBranches") },
+              ...(branchesQuery.data ?? []).map((branch) => ({ value: branch.id, label: branch.name })),
+            ]}
+          />
           <SelectField
             label={t("pipeline.filter.customer")}
             value={customerFilter}

@@ -43,7 +43,7 @@ import {
   createPipelineStageSchema,
   createActivitySchema,
 } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { branchScopeOf, createPermissionGate, headerAuthContextResolver, withinScope, type AuthContextResolver } from "./permission-gate.js";
 
 /**
  * CRM routes (docs/catalog/06-crm-hr.md "العملاء المحتملون / الفرص / خط
@@ -85,6 +85,7 @@ function serializeOpportunity(opportunity: Opportunity) {
     id: opportunity.id,
     title: opportunity.title,
     customerId: opportunity.customerId,
+    branchId: opportunity.branchId,
     stageId: opportunity.stageId,
     expectedValue: opportunity.expectedValue.toString(),
     probability: opportunity.probability,
@@ -215,6 +216,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
             ? {
                 id: parsed.data.opportunity.id,
                 title: parsed.data.opportunity.title,
+                branchId: parsed.data.opportunity.branchId,
                 stageId: parsed.data.opportunity.stageId,
                 expectedValue: Money.fromMajor(parsed.data.opportunity.expectedValue),
                 probability: parsed.data.opportunity.probability,
@@ -237,7 +239,12 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
   // --- Opportunities ---------------------------------------------------------
 
   app.get("/opportunities", gate("crm.opportunity.view"), async (c) => {
-    return c.json((await deps.opportunities.list()).map(serializeOpportunity));
+    // Branch SCOPE first — no query parameter may widen what this caller may
+    // see — then the board's own branch filter narrows within it.
+    const scoped = withinScope(await deps.opportunities.list(), branchScopeOf(c), (o) => o.branchId);
+    const branchId = c.req.query("branchId");
+    const rows = branchId ? scoped.filter((o) => o.branchId === branchId) : scoped;
+    return c.json(rows.map(serializeOpportunity));
   });
 
   app.post("/opportunities", gate("crm.opportunity.create"), async (c) => {
@@ -251,6 +258,7 @@ export function createCrmRoutes(deps: CrmRoutesDeps, resolveAuthContext: AuthCon
           id: parsed.data.id ?? randomUUID(),
           title: parsed.data.title,
           customerId: parsed.data.customerId,
+          branchId: parsed.data.branchId,
           stageId: parsed.data.stageId,
           expectedValue: parsed.data.expectedValue == null ? undefined : Money.fromMajor(parsed.data.expectedValue),
           probability: parsed.data.probability,

@@ -147,6 +147,7 @@ CREATE TABLE IF NOT EXISTS crm_opportunity (
   id                   TEXT PRIMARY KEY,
   title                TEXT NOT NULL,
   customer_id          TEXT NOT NULL,
+  branch_id            TEXT,
   stage_id             TEXT NOT NULL,
   expected_value       INTEGER NOT NULL,
   probability          INTEGER NOT NULL,
@@ -162,6 +163,7 @@ interface OpportunityRow {
   id: string;
   title: string;
   customer_id: string;
+  branch_id: string | null;
   stage_id: string;
   expected_value: number;
   probability: number;
@@ -177,6 +179,7 @@ function toOpportunity(row: OpportunityRow): Opportunity {
     id: row.id,
     title: row.title,
     customerId: row.customer_id,
+    branchId: row.branch_id,
     stageId: row.stage_id,
     expectedValue: Money.fromScaled(row.expected_value),
     probability: row.probability,
@@ -195,11 +198,12 @@ class SqliteOpportunityRepository implements OpportunityRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO crm_opportunity (id, title, customer_id, stage_id, expected_value, probability, expected_close_date, notes, status, created_at, closed_at)
-      VALUES (@id, @title, @customer_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @status, @created_at, @closed_at)
+      INSERT INTO crm_opportunity (id, title, customer_id, branch_id, stage_id, expected_value, probability, expected_close_date, notes, status, created_at, closed_at)
+      VALUES (@id, @title, @customer_id, @branch_id, @stage_id, @expected_value, @probability, @expected_close_date, @notes, @status, @created_at, @closed_at)
       ON CONFLICT(id) DO UPDATE SET
         title = excluded.title,
         customer_id = excluded.customer_id,
+        branch_id = excluded.branch_id,
         stage_id = excluded.stage_id,
         expected_value = excluded.expected_value,
         probability = excluded.probability,
@@ -234,6 +238,7 @@ class SqliteOpportunityRepository implements OpportunityRepository {
       id: opportunity.id,
       title: opportunity.title,
       customer_id: opportunity.customerId,
+      branch_id: opportunity.branchId,
       stage_id: opportunity.stageId,
       expected_value: opportunity.expectedValue.toScaledNumber(),
       probability: opportunity.probability,
@@ -459,10 +464,19 @@ export function createSqliteLeadRepository(path: SqliteConnectionInput = ":memor
 }
 
 /** Open a SQLite-backed OpportunityRepository. ":memory:" for tests, a path for real. */
+/** Adds `branch_id` to a database created before the column existed. */
+function addOpportunityBranchColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(crm_opportunity)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "branch_id")) {
+    sqlite.exec(`ALTER TABLE crm_opportunity ADD COLUMN branch_id TEXT`);
+  }
+}
+
 export function createSqliteOpportunityRepository(path: SqliteConnectionInput = ":memory:"): SqliteOpportunityRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_OPPORTUNITY);
+  addOpportunityBranchColumnIfMissing(sqlite);
   const repo = new SqliteOpportunityRepository(sqlite);
   return Object.assign(repo, { close: () => { if (owned) sqlite.close(); } }) as SqliteOpportunityRepositoryHandle;
 }

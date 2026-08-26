@@ -12,6 +12,7 @@ export interface ConvertLeadCommand {
   readonly opportunity?: {
     readonly id: string;
     readonly title: string;
+    readonly branchId?: string | null;
     readonly stageId: string;
     readonly expectedValue: Money;
     readonly probability: number;
@@ -70,6 +71,7 @@ export async function convertLead(cmd: ConvertLeadCommand, deps: ConvertLeadDeps
       id: opportunityInput.id,
       title: opportunityInput.title,
       customerId: customerId ?? "",
+      branchId: opportunityInput.branchId ?? null,
       stageId: opportunityInput.stageId,
       expectedValue: opportunityInput.expectedValue,
       probability: opportunityInput.probability,

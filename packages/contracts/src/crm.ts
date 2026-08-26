@@ -55,6 +55,7 @@ export const convertLeadSchema = z.object({
     .object({
       id: z.string().min(1),
       title: z.string().min(1),
+      branchId: z.string().min(1).nullable().optional(),
       stageId: z.string().min(1),
       expectedValue: z.string(),
       probability: z.number().min(0).max(100),
@@ -69,6 +70,7 @@ export const opportunitySchema = z.object({
   id: z.string().min(1),
   title: z.string().min(1),
   customerId: z.string().min(1),
+  branchId: z.string().nullable(),
   stageId: z.string().min(1),
   expectedValue: z.string(),
   probability: z.number().min(0).max(100),
@@ -83,6 +85,7 @@ export const createOpportunitySchema = z.object({
   id: z.string().min(1).optional(),
   title: z.string().min(1),
   customerId: z.string().min(1),
+  branchId: z.string().min(1).nullable().optional(),
   stageId: z.string().min(1),
   expectedValue: z.string().optional(),
   probability: z.number().min(0).max(100).optional(),

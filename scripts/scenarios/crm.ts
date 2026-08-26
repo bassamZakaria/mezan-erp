@@ -541,4 +541,43 @@ export async function run(ctx: Ctx): Promise<void> {
     checkEq("cancels", cancelled.status, 200);
     check("status is 'cancelled'", cancelled.body.status === "cancelled");
   });
+
+  await scenario("crm · the pipeline's branch filter narrows, and branch SCOPE narrows before it (R23.1)", async () => {
+    // A branch filter measured against a one-branch tenant proves nothing: every
+    // row carries the same value, so a filter that does nothing looks identical
+    // to one that works. The second branch is what makes the assertion mean
+    // something.
+    const branch = await req("POST", "/branches", { id: "BR-CRM-2", code: "CRM2", name: "فرع الفرص" });
+    check("a second branch exists", branch.status === 201 || branch.status === 409, `status ${branch.status} ${JSON.stringify(branch.body).slice(0, 200)}`);
+
+    // Named, not counted: earlier scenarios in this suite create their own
+    // deals, and a blanket assertion over the whole list would fail on theirs
+    // rather than on anything the seed did.
+    const seeded = rows((await req("GET", "/crm/opportunities")).body).filter((o: any) => String(o.id).startsWith("OPP-DEMO-"));
+    check("every seeded deal names the tenant's own branch — including the one produced by converting a lead", seeded.length > 0 && seeded.every((o: any) => o.branchId === "BR-MAIN"), JSON.stringify(seeded.map((o: any) => [o.id, o.branchId])).slice(0, 300));
+
+    const made = await req("POST", "/crm/opportunities", {
+      id: "SCN-OPP-BR2",
+      title: "صفقة الفرع الثاني",
+      customerId: seeded[0].customerId,
+      branchId: "BR-CRM-2",
+      stageId: seeded[0].stageId,
+      expectedValue: "12000",
+    });
+    check("a deal is created in the second branch", made.status === 201, `status ${made.status} ${JSON.stringify(made.body).slice(0, 250)}`);
+    check("and stores that branch rather than dropping it at the wire", made.body?.branchId === "BR-CRM-2", `branchId=${made.body?.branchId}`);
+
+    const all = rows((await req("GET", "/crm/opportunities")).body);
+    const filtered = rows((await req("GET", "/crm/opportunities?branchId=BR-CRM-2")).body);
+    check("the filter narrows to strictly fewer rows", filtered.length > 0 && filtered.length < all.length, `all=${all.length} filtered=${filtered.length}`);
+    check("and every row it returns belongs to that branch", filtered.every((o: any) => o.branchId === "BR-CRM-2"), JSON.stringify(filtered.map((o: any) => o.branchId)));
+    check("the other branch's deals are absent from it", !filtered.some((o: any) => o.branchId === "BR-MAIN"), "a BR-MAIN deal leaked into the BR-CRM-2 filter");
+
+    // Scope is not the same mechanism as the filter, and must hold on its own:
+    // no query parameter may widen what a scoped caller sees.
+    const scoped = rows((await req("GET", "/crm/opportunities", undefined, { "x-branch-scope": "BR-MAIN" })).body);
+    check("a caller scoped to the first branch cannot see the second branch's deal", !scoped.some((o: any) => o.id === "SCN-OPP-BR2"), `scoped ids=${JSON.stringify(scoped.map((o: any) => o.id)).slice(0, 200)}`);
+    const widened = rows((await req("GET", "/crm/opportunities?branchId=BR-CRM-2", undefined, { "x-branch-scope": "BR-MAIN" })).body);
+    checkEq("and naming the other branch in the query does not widen that scope", widened.length, 0);
+  });
 }

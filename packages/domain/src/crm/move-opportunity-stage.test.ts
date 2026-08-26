@@ -9,6 +9,7 @@ function opportunity(overrides: Partial<Opportunity> = {}): Opportunity {
     id: "opp-1",
     title: "فرصة الفا",
     customerId: "cust-1",
+    branchId: null,
     stageId: "stage-1",
     expectedValue: Money.fromMajor("1000.00"),
     probability: 20,

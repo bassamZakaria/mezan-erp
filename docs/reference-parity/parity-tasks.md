@@ -63,7 +63,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R21.1** Every report subtitle is the question that report answers, in both languages (29 rewritten)
 - [x] **R21.10** The trial balance states that it balances, as a banner above the table
 - [x] **R7.1–R7.6** ETA e-invoicing: readiness meter, general + credentials tabs, item and unit mapping, submissions queue — and the payload now carries the registered codes instead of a hardcoded VAT sub-type
-- [~] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer and value-range filters — branch filter not built, opportunities carry no branch
+- [x] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer, value-range AND branch filters — an opportunity now carries a branch, the list route enforces branch SCOPE before the filter narrows within it, and converting a lead carries the branch through
 - [x] **R9.1** Work-order shop-floor actions — extra issue, return, scrap, record a cost; all five routes existed with no hook and no UI
 - [x] **R9.2** Work-order detail: materials with available/shortage, shop floor, costs, movements, receipts, journal entries and audit — all seven tabs
 - [x] **R9.3** Production dashboard: the start-production bucket the board was missing

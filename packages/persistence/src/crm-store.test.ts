@@ -78,6 +78,7 @@ describe("SqliteOpportunityRepository", () => {
     id: "opp1",
     title: "صفقة مع شركة النور",
     customerId: "cust1",
+    branchId: null,
     stageId: "stage1",
     expectedValue: Money.fromMajor("50000"),
     probability: 40,

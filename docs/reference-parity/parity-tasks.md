@@ -104,9 +104,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R10.5** Leave-request create, including filing on behalf of another employee behind `hr.leave.approve`
 - [x] **R10.6** Leave-policy presets, listed and applied in one action
 - [x] **R10.7** Payroll earning and deduction components, bound to a component registry and routed to their own GL accounts
-- [~] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
+- [x] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
   - [x] **R5.3** items list: row-menu action on zero-stock rows, routed to the adjustment form with the reason and item already answered
-  - [ ] **R8.4** the same on treasury accounts
+  - [x] **R8.4** the same on treasury accounts: a row-menu action on accounts whose balance is zero AND that are bound to a GL account, posting Dr the treasury account / Cr 3210 أرصدة افتتاحية
 - [ ] **R3.7** Loyalty points — decide in or out for v1; if in, build it as a sub-ledger
 
 ## P5 — missing features

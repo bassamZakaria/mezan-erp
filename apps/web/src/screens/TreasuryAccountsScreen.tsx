@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useAccountLedger, useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import { useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
 } from "../data/hooks";
 import { treasuryBalanceById } from "../lib/partner-balances";
 import { useFinancialReport } from "../data/financial-reports-hooks";
@@ -11,6 +11,14 @@ import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+
+/**
+ * أرصدة افتتاحية — the equity account an opening balance is funded from. NOT
+ * 3200, which is Partner Drawings and carries the opposite natural balance;
+ * posting an opening balance there would be wrong in a way the trial balance
+ * would still show as balanced.
+ */
+const OPENING_BALANCE_EQUITY_ACCOUNT = "3210";
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
@@ -88,6 +96,11 @@ export function TreasuryAccountsScreen() {
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [openingFor, setOpeningFor] = useState<TreasuryAccountDTO | null>(null);
+  const [openingAmount, setOpeningAmount] = useState(0);
+  const [openingDate, setOpeningDate] = useState(todayIso());
+  const [openingError, setOpeningError] = useState<string | null>(null);
+  const postOpeningEntry = useCreateJournalEntry();
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TreasuryAccountDraft>(blankDraft(branches));
@@ -181,6 +194,32 @@ export function TreasuryAccountsScreen() {
     { key: "currency", header: t("treasuryAcc.currency"), render: (a) => a.currency },
     { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => <MoneyDisplay value={balanceOf(a.id)} /> },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
+    {
+      key: "actions",
+      header: "",
+      align: "end",
+      render: (a) => (
+        <div className="flex items-center justify-end" onClick={(event) => event.stopPropagation()}>
+          <RowMenu
+            label={a.name}
+            items={
+              // Offered only where it applies (R8.4): an account already
+              // holding money does not need an opening balance, and one with
+              // no GL account behind it has nowhere to post it.
+              balanceOf(a.id) === 0 && a.glAccountId !== null
+                ? [
+                    {
+                      key: "opening-balance",
+                      label: t("treasuryAcc.action.openingBalance"),
+                      onSelect: () => setOpeningFor(a),
+                    },
+                  ]
+                : []
+            }
+          />
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -242,6 +281,64 @@ export function TreasuryAccountsScreen() {
         }
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("treasuryAcc.noMatchingTreasuryAccounts")}</div>}
       />
+
+      <SidePanel
+        open={openingFor !== null}
+        title={t("treasuryAcc.opening.title")}
+        onClose={() => {
+          setOpeningFor(null);
+          setOpeningError(null);
+        }}
+      >
+        <div className="flex flex-col gap-[12px]">
+          <p className="text-[12.5px] text-ink-muted">{t("treasuryAcc.opening.hint")}</p>
+          {openingFor !== null && openingFor.glAccountId === null ? (
+            <p className="text-[12.5px] font-semibold text-danger-ink">{t("treasuryAcc.opening.noGlAccount")}</p>
+          ) : null}
+          <label className="flex flex-col gap-[5px] text-[12.5px] font-semibold text-ink">
+            {t("treasuryAcc.balance")}
+            <MoneyInput value={openingAmount} onChange={(value) => setOpeningAmount(value ?? 0)} aria-label={t("treasuryAcc.balance")} />
+          </label>
+          <label className="flex flex-col gap-[5px] text-[12.5px] font-semibold text-ink">
+            {t("common.date")}
+            <input
+              type="date"
+              value={openingDate}
+              onChange={(event) => setOpeningDate(event.target.value)}
+              className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[13px] text-ink"
+            />
+          </label>
+          {openingError ? <p className="text-[12.5px] font-semibold text-danger-ink">{openingError}</p> : null}
+          <Button
+            variant="primary"
+            disabled={openingAmount <= 0 || postOpeningEntry.isPending}
+            onClick={async () => {
+              const account = openingFor;
+              if (!account?.glAccountId) return;
+              setOpeningError(null);
+              try {
+                await postOpeningEntry.mutateAsync({
+                  id: `TRO-${account.id}-${openingDate}`,
+                  date: openingDate,
+                  memo: t("treasuryAcc.opening.title") + " — " + account.name,
+                  lines: [
+                    // Money in, funded by equity. Amounts are wire decimals so
+                    // the figure never becomes a float on its way to the ledger.
+                    { accountId: account.glAccountId, debit: openingAmount.toFixed(2), credit: "0.00" },
+                    { accountId: OPENING_BALANCE_EQUITY_ACCOUNT, debit: "0.00", credit: openingAmount.toFixed(2) },
+                  ],
+                });
+                setOpeningFor(null);
+                setOpeningAmount(0);
+              } catch (err) {
+                setOpeningError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+          >
+            {t("common.save")}
+          </Button>
+        </div>
+      </SidePanel>
 
       {/* -------- Treasury account detail panel -------- */}
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("treasuryAcc.statementTitle", { name: selected.name }) : ""}>

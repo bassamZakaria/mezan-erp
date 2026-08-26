@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from "react";
 import { parseDelimited, normalizeNumeral } from "../lib/delimited";
+import { readXlsxFirstSheet } from "../lib/xlsx";
 import {
   Button,
   Card,
@@ -306,10 +307,14 @@ function ImportLinesPanel({
 }) {
   const { t } = useAppTranslation();
   const [text, setText] = useState("");
+  // Rows read straight out of a workbook, which never go through the delimiter
+  // parser — a spreadsheet already has its cells separated.
+  const [sheetRows, setSheetRows] = useState<string[][] | null>(null);
+  const [readError, setReadError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const parsed = useMemo<ImportedLine[]>(() => {
-    const rows = parseDelimited(text);
+    const rows = sheetRows ?? parseDelimited(text);
     if (rows.length === 0) return [];
     // A header line is detected, not configured: if the second cell of the
     // first row is not a number, that row names columns.
@@ -330,7 +335,7 @@ function ImportLinesPanel({
       else if (!Number.isFinite(qty) || qty <= 0) error = t("stockXfer.import.badQty");
       return { rowNumber, raw: code, itemId: match?.id ?? null, qty, error };
     });
-  }, [text, items, t]);
+  }, [text, sheetRows, items, t]);
 
   const ready = parsed.filter((r) => r.error === null);
   const rejected = parsed.filter((r) => r.error !== null);
@@ -342,18 +347,38 @@ function ImportLinesPanel({
         <input
           ref={fileInput}
           type="file"
-          accept=".csv,.tsv,.txt,text/csv,text/plain"
+          accept=".csv,.tsv,.txt,.xlsx,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
           className="hidden"
           onChange={async (event) => {
             const file = event.target.files?.[0];
-            if (file) setText(await file.text());
             event.target.value = "";
+            if (!file) return;
+            setReadError(null);
+            try {
+              if (file.name.toLowerCase().endsWith(".xlsx")) {
+                const rows = await readXlsxFirstSheet(await file.arrayBuffer());
+                setSheetRows(rows);
+                // Shown so the reader can see what was understood before
+                // committing it — a workbook that parsed to nothing must look
+                // different from one nobody chose.
+                setText(rows.map((r) => r.join("\t")).join("\n"));
+              } else {
+                setSheetRows(null);
+                setText(await file.text());
+              }
+            } catch {
+              setReadError(t("stockXfer.import.unreadableFile"));
+            }
           }}
         />
         <Button onClick={() => fileInput.current?.click()}>{t("stockXfer.import.chooseFile")}</Button>
+        {readError ? <p className="text-[12.5px] font-semibold text-danger-ink">{readError}</p> : null}
         <textarea
           value={text}
-          onChange={(event) => setText(event.target.value)}
+          onChange={(event) => {
+            setSheetRows(null);
+            setText(event.target.value);
+          }}
           placeholder={t("stockXfer.import.paste")}
           rows={7}
           className="w-full rounded-md border border-border bg-surface p-[9px] font-mono text-[12px] text-ink"
@@ -387,6 +412,7 @@ function ImportLinesPanel({
           onClick={() => {
             onApply(ready.map((r) => ({ itemId: r.itemId as string, qty: r.qty })));
             setText("");
+            setSheetRows(null);
             onClose();
           }}
         >

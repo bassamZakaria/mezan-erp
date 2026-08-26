@@ -1,5 +1,17 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, EmptyState, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type EntityPickerOption } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  EmptyState,
+  EntityPicker,
+  RowMenu,
+  SidePanel,
+  StatusPill,
+  type DocumentListColumn,
+  type EntityPickerOption,
+  type RowMenuItem,
+} from "@mezan/ui";
 import type { LeaveRequestDTO, LeaveRequestStatusDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateLeaveRequest, useDecideLeaveRequest, useEmployees, useLeaveRequestCounts, useLeaveRequests } from "../data/hooks";
@@ -144,22 +156,6 @@ export function LeaveRequestsScreen() {
     },
     { key: "days", header: t("leaveRequests.days"), align: "end", render: (r) => <span className="mz-num text-ink">{r.days}</span> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (r) =>
-        r.status === "pending" ? (
-          <div className="flex items-center justify-end gap-[6px]">
-            <Button size="sm" variant="primary" disabled={decidingId !== null} onClick={() => decide(r, "approved")}>
-              {t("leaveRequests.approve")}
-            </Button>
-            <Button size="sm" disabled={decidingId !== null} onClick={() => decide(r, "rejected")}>
-              {t("leaveRequests.reject")}
-            </Button>
-          </div>
-        ) : null,
-    },
   ];
 
   return (
@@ -263,6 +259,16 @@ export function LeaveRequestsScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(r) => r.id}
+        rowAction={(r) => {
+          const menuItems: RowMenuItem[] =
+            r.status === "pending"
+              ? [
+                  { key: "approve", label: t("leaveRequests.approve"), disabled: decidingId === r.id, onSelect: () => void decide(r, "approved") },
+                  { key: "reject", label: t("leaveRequests.reject"), tone: "danger", disabled: decidingId === r.id, onSelect: () => void decide(r, "rejected") },
+                ]
+              : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.number })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

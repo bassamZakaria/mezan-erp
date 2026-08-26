@@ -9,6 +9,8 @@ import { navGroupItems, type NavGroup, type NavItem, type NavSection, type Shell
 export interface SidebarProps {
   activeKey?: string;
   topItem: NavItem;
+  /** Rows pinned directly under the top item, outside every group — the approvals inbox. */
+  pinnedItems?: readonly NavItem[];
   groups: NavGroup[];
   brandName?: string;
   brandSub?: string;
@@ -198,6 +200,7 @@ function NavSectionBlock({
 export function Sidebar({
   activeKey,
   topItem,
+  pinnedItems = [],
   groups,
   brandName,
   brandSub = "Mezan ERP",
@@ -302,6 +305,9 @@ export function Sidebar({
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>
           <NavRow item={topItem} active={activeKey === topItem.key} showLabel={expanded} />
+          {pinnedItems.map((item) => (
+            <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel={expanded} />
+          ))}
         </ul>
 
         {groups.map((group) => {

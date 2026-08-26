@@ -11,8 +11,10 @@ export interface AppShellProps {
   navGroups: NavGroup[];
   /** Groups that belong in the header's gear menu rather than the rail — settings and system. */
   utilityGroups?: NavGroup[];
-  /** Items promoted out of the rail into the header as icon buttons — the approvals inbox. */
+  /** Items promoted out of the rail into the header as icon buttons. */
   headerNavItems?: NavItem[];
+  /** Rail rows pinned above every group — the approvals inbox. */
+  pinnedNavItems?: NavItem[];
   user: ShellUser;
   commandItems?: CommandItem[];
   tenantName?: string;
@@ -50,6 +52,7 @@ export function AppShell({
   navGroups,
   utilityGroups,
   headerNavItems,
+  pinnedNavItems,
   user,
   commandItems = [],
   tenantName,
@@ -78,6 +81,7 @@ export function AppShell({
       <Sidebar
         activeKey={activeNavKey}
         topItem={topNavItem}
+        pinnedItems={pinnedNavItems}
         groups={navGroups}
         brandName={brandName}
         brandSub={brandSub}

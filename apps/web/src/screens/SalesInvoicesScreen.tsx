@@ -45,6 +45,7 @@ import {
   useSalesQuotes,
   useRecordSalesInvoicePayment,
   useSalesInvoices,
+  useVouchers,
   useSalesReturns,
   useWarehouses,
   type SalesInvoiceDTO,
@@ -856,6 +857,16 @@ function InvoiceDetailView({
                     })}
                   </tbody>
                   <tfoot>
+                    {/* Subtotal and tax were computed and stored but never shown, so the
+                        grand total appeared without the arithmetic that produced it (R2.7). */}
+                    <tr className="text-ink-muted">
+                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.subtotal")}</td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.subtotal)} /></td>
+                    </tr>
+                    <tr className="text-ink-muted">
+                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.tax")}</td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.taxTotal)} /></td>
+                    </tr>
                     <tr className="bg-surface-2 font-bold">
                       <td className="px-[15px] py-[11px]" colSpan={7}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></td>
@@ -1096,6 +1107,17 @@ export function SalesInvoicesScreen() {
     return c;
   }, [invoices]);
 
+  /**
+   * المقبوضات غير المخصصة — money taken from customers that is not yet applied
+   * to any invoice (R3.2). Without it the strip shows what is owed but not the
+   * cash already sitting against it, and the two never reconcile on screen.
+   */
+  const receipts = useVouchers({ type: "customer_collection", status: "confirmed" }).data ?? [];
+  const unallocatedReceipts = useMemo(
+    () => receipts.reduce((sum, row) => sum + toMajor(row.allocationSummary?.unallocated ?? "0"), 0),
+    [receipts],
+  );
+
   const kpi = useMemo(() => {
     let sales = 0;
     let collected = 0;
@@ -1255,6 +1277,7 @@ export function SalesInvoicesScreen() {
               { label: t("salesInvoices.stat.sales"), value: <MoneyDisplay value={kpi.sales} /> },
               { label: t("salesInvoices.stat.collected"), value: <MoneyDisplay value={kpi.collected} /> },
               { label: t("salesInvoices.stat.returned"), value: <MoneyDisplay value={kpi.returned} /> },
+              { label: t("salesInvoices.stat.unallocatedReceipts"), value: <MoneyDisplay value={unallocatedReceipts} /> },
               { label: t("salesInvoices.stat.remaining"), value: <MoneyDisplay value={kpi.remaining} />, valueTone: kpi.remaining > 0 ? "danger" : "default" },
             ]}
             statusChips={statusChips}

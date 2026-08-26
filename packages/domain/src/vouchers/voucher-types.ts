@@ -21,14 +21,15 @@ export type VoucherPaymentMethod = "cash" | "bank" | "cheque" | "card" | "wallet
 export interface VoucherPaymentMethodDefinition {
   readonly code: VoucherPaymentMethod;
   readonly labelAr: string;
+  readonly labelEn: string;
 }
 
 export const VOUCHER_PAYMENT_METHODS: readonly VoucherPaymentMethodDefinition[] = [
-  { code: "cash", labelAr: "نقدي" },
-  { code: "bank", labelAr: "بنكي" },
-  { code: "cheque", labelAr: "شيك" },
-  { code: "card", labelAr: "بطاقة" },
-  { code: "wallet", labelAr: "محفظة إلكترونية" },
+  { code: "cash", labelAr: "نقدي", labelEn: "Cash" },
+  { code: "bank", labelAr: "بنكي", labelEn: "Bank" },
+  { code: "cheque", labelAr: "شيك", labelEn: "Cheque" },
+  { code: "card", labelAr: "بطاقة", labelEn: "Card" },
+  { code: "wallet", labelAr: "محفظة إلكترونية", labelEn: "E-wallet" },
 ] as const;
 
 /** The 11 voucher types from the catalog's type-picker grid. */
@@ -52,8 +53,11 @@ export interface VoucherTypeDefinition {
   readonly code: VoucherType;
   /** Arabic label as shown in the type-picker grid. */
   readonly labelAr: string;
+  /** English label — without it the picker leaks Arabic into the en UI. */
+  readonly labelEn: string;
   /** The one-line guiding subtitle from the type-picker. */
   readonly subtitleAr: string;
+  readonly subtitleEn: string;
   readonly direction: VoucherDirection;
   readonly requiresCustomer: boolean;
   readonly requiresSupplier: boolean;
@@ -67,7 +71,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "customer_collection",
     labelAr: "تحصيل من عميل",
+    labelEn: "Collect from customer",
     subtitleAr: "استلام دفعة من عميل وتخصيصها على فواتيره",
+    subtitleEn: "Take a payment from a customer and allocate it across their invoices",
     direction: "receipt",
     requiresCustomer: true,
     requiresSupplier: false,
@@ -77,7 +83,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "supplier_payment",
     labelAr: "دفع لمورد",
+    labelEn: "Pay supplier",
     subtitleAr: "صرف دفعة لمورد وتخصيصها على فواتيره",
+    subtitleEn: "Pay a supplier and allocate it across their invoices",
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: true,
@@ -87,7 +95,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "customer_refund",
     labelAr: "رد مبلغ لعميل",
+    labelEn: "Refund a customer",
     subtitleAr: "إرجاع مبلغ نقدي للعميل (بعد مرتجع أو رصيد دائن)",
+    subtitleEn: "Return cash to a customer after a return or a credit balance",
     direction: "payment",
     requiresCustomer: true,
     requiresSupplier: false,
@@ -97,7 +107,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "customer_advance",
     labelAr: "دفعة مقدمة من عميل مقاولات",
+    labelEn: "Advance from a contracting customer",
     subtitleAr: "دفعة مقدمة يدفعها العميل على عقد مقاولة (تُسترد من المستخلصات)",
+    subtitleEn: "An advance paid against a contract, recovered from progress certificates",
     direction: "receipt",
     requiresCustomer: true,
     requiresSupplier: false,
@@ -107,7 +119,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "supplier_refund",
     labelAr: "استرداد من مورد",
+    labelEn: "Refund from supplier",
     subtitleAr: "استلام مبلغ نقدي من مورد (بعد مرتجع مشتريات أو رصيد دائن)",
+    subtitleEn: "Receive cash back from a supplier after a purchase return or a credit balance",
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: true,
@@ -117,7 +131,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "other_income",
     labelAr: "إيراد آخر",
+    labelEn: "Other income",
     subtitleAr: "إيراد لا يخص فاتورة (إيجار محصّل، فوائد، خصومات بنكية…)",
+    subtitleEn: "Income not tied to an invoice — rent received, interest, bank rebates",
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: false,
@@ -127,7 +143,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "other_expense",
     labelAr: "مصروف آخر",
+    labelEn: "Other expense",
     subtitleAr: "مصروف لا يخص مورّداً (إيجار مدفوع، صيانة، مرافق…)",
+    subtitleEn: "An expense not tied to a supplier — rent paid, maintenance, utilities",
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
@@ -137,7 +155,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "capital_injection",
     labelAr: "ضخ رأس مال من الشريك",
+    labelEn: "Partner capital injection",
     subtitleAr: "إيداع شخصي من الشريك إلى الخزينة",
+    subtitleEn: "A partner pays money into the treasury",
     direction: "receipt",
     requiresCustomer: false,
     requiresSupplier: false,
@@ -147,7 +167,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "capital_withdrawal",
     labelAr: "سحب شخصي للشريك",
+    labelEn: "Partner drawings",
     subtitleAr: "سحب شخصي من الخزينة للشريك",
+    subtitleEn: "A partner takes money out of the treasury",
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
@@ -157,7 +179,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "tax_payment",
     labelAr: "دفع لمصلحة الضرائب",
+    labelEn: "Payment to the tax authority",
     subtitleAr: "دفعة لمصلحة الضرائب أو جهة حكومية",
+    subtitleEn: "A payment to the tax authority or another government body",
     direction: "payment",
     requiresCustomer: false,
     requiresSupplier: false,
@@ -167,7 +191,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
   {
     code: "inter_treasury_transfer",
     labelAr: "تحويل بين الخزائن",
+    labelEn: "Transfer between treasuries",
     subtitleAr: "تحويل مبلغ بين خزينتين داخل المنشأة",
+    subtitleEn: "Move money between two of the company's own treasuries",
     direction: "transfer",
     requiresCustomer: false,
     requiresSupplier: false,

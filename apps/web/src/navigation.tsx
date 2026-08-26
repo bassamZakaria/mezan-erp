@@ -16,6 +16,13 @@ export type ScreenIntentKind = "create";
 export interface ScreenIntent {
   readonly kind: ScreenIntentKind;
   readonly prefill?: Readonly<Record<string, string>>;
+  /**
+   * The screen the intent is addressed to. The hash change that moves there is
+   * asynchronous, so without this the intent is picked up by whichever screen
+   * is still mounted — clicking «تحصيل» on an invoice row fired the invoice
+   * screen's own create handler instead of the voucher screen's.
+   */
+  readonly screen?: string;
 }
 
 /** Callers may pass the bare kind; it normalises to `{ kind }`. */

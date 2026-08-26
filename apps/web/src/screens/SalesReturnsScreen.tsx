@@ -23,7 +23,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
-import { useSubPage } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
@@ -80,23 +80,34 @@ export function SalesReturnsScreen() {
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
+  useScreenIntent((intent) => {
+    const invoiceId = intent.prefill?.invoiceId;
+    subPage.open(...(invoiceId ? ["new", invoiceId] : ["new"]));
+  });
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
-  const [invoiceId, setInvoiceId] = useState("");
+  // The source invoice rides in the URL (`…/new/<invoiceId>`) when the user
+  // arrived from «إنشاء مرتجع مبيعات» on that invoice's row.
+  const [invoiceId, setInvoiceId] = useState(() => subPage.segments[1] ?? "");
   const [warehouseId, setWarehouseId] = useState("");
   const [reason, setReason] = useState<SalesReturnReasonDTO>("DEFECTIVE");
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  // Defaults the create form's invoice/warehouse pickers once their queries resolve —
-  // `openCreate` alone can't do this if the page is opened before `invoices`/`warehouses` load.
+  /**
+   * Seeds the line grid once the chosen invoice resolves. It does NOT choose an
+   * invoice: this used to default to `invoices[0]`, so opening «مرتجع جديد»
+   * silently pointed the return at whichever invoice happened to sort first —
+   * a user who did not notice returned goods against the wrong document. A
+   * return has no meaning without its source, so the picker starts empty
+   * unless the caller supplied one (R2.2).
+   */
   useEffect(() => {
-    if (firstSegment !== "new" || invoiceId !== "") return;
-    const firstInvoice = invoices[0];
-    if (!firstInvoice) return;
-    setInvoiceId(firstInvoice.id);
-    const firstLine = firstInvoice.lines.find((l) => l.isStock && l.unitCost !== null);
+    if (firstSegment !== "new" || invoiceId === "" || lines.length > 0) return;
+    const invoice = invoices.find((i) => i.id === invoiceId);
+    if (!invoice) return;
+    const firstLine = invoice.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
-  }, [firstSegment, invoices, invoiceId]);
+  }, [firstSegment, invoices, invoiceId, lines.length]);
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;

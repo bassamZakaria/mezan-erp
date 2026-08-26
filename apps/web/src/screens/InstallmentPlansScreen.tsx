@@ -23,6 +23,7 @@ import {
   useSalesInvoices,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useScreenIntent } from "../navigation";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -70,6 +71,13 @@ export function InstallmentPlansScreen() {
   );
 
   const [panel, setPanel] = useState<"none" | "create" | "overdue" | { id: string }>("none");
+  // Arriving from «إنشاء خطة أقساط» on an invoice row, that invoice is the plan's
+  // subject — open the form already pointed at it.
+  useScreenIntent((intent) => {
+    const prefilled = intent.prefill?.invoiceId;
+    if (prefilled) setInvoiceId(prefilled);
+    setPanel("create");
+  });
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
   const [invoiceId, setInvoiceId] = useState("");
   const [installmentCount, setInstallmentCount] = useState(6);
@@ -79,13 +87,9 @@ export function InstallmentPlansScreen() {
   const [error, setError] = useState<string | null>(null);
   const [overdueResult, setOverdueResult] = useState<{ newlyOverdueCount: number; totalLateFeesApplied: string } | null>(null);
 
-  // Defaults the create form's invoice picker once the sales-invoices query resolves —
-  // opening the panel alone can't do this if it happens before `invoices` has loaded.
-  useEffect(() => {
-    if (panel !== "create" || invoiceId !== "") return;
-    const firstInvoice = invoices[0];
-    if (firstInvoice) setInvoiceId(firstInvoice.id);
-  }, [panel, invoices, invoiceId]);
+  // No default invoice: this used to pick `invoices[0]`, so opening «خطة جديدة»
+  // silently pointed the plan at whichever invoice sorted first. A plan
+  // schedules a specific invoice's balance — the choice has to be deliberate.
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const preview = useMemo(() => {

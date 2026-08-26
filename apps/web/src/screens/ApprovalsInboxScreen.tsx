@@ -13,6 +13,7 @@ import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
 import { useDecideApproval, useMyApprovalDecisions, useMyApprovalRequests, usePendingApprovals } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { useDomainLabels } from "../lib/domain-labels";
 
 /**
  * الموافقات (docs/reference-parity/audit/REQUIREMENTS.md R12.1, R14.1) — three
@@ -33,7 +34,8 @@ type DecisionAction = "approve" | "reject" | "request_modification";
 const ANY_TYPE = "__all__";
 
 export function ApprovalsInboxScreen() {
-  const { t, locale } = useAppTranslation();
+  const { t } = useAppTranslation();
+  const { label: domainLabel } = useDomainLabels();
 
   const inbox = usePendingApprovals();
   const mine = useMyApprovalRequests();
@@ -48,9 +50,9 @@ export function ApprovalsInboxScreen() {
   const [commentDraft, setCommentDraft] = useState<Record<string, string>>({});
 
   const actionTypeLabel = useMemo(() => {
-    const byCode = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, locale === "en" ? a.labelEn : a.labelAr]));
+    const byCode = new Map<string, string>(GATEABLE_ACTION_TYPES.map((a) => [a.code, domainLabel(a)]));
     return (code: string) => byCode.get(code) ?? code;
-  }, [locale]);
+  }, [domainLabel]);
 
   const query = tab === "inbox" ? inbox : tab === "mine" ? mine : acted;
   const rows = useMemo(() => query.data ?? [], [query.data]);
@@ -190,7 +192,7 @@ export function ApprovalsInboxScreen() {
             className="w-[220px]"
             options={[
               { value: ANY_TYPE, label: t("approvals.allDocumentTypes") },
-              ...GATEABLE_ACTION_TYPES.map((a) => ({ value: a.code, label: locale === "en" ? a.labelEn : a.labelAr })),
+              ...GATEABLE_ACTION_TYPES.map((a) => ({ value: a.code, label: domainLabel(a) })),
             ]}
           />
           {actionError ? (

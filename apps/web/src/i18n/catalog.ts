@@ -868,6 +868,7 @@ const webAr = {
 
   // shared vocabulary — reused across screens
   "common.show": "عرض",
+  "common.view": "عرض",
   "common.of": "من",
   "common.status": "الحالة",
   "common.retry": "إعادة المحاولة",
@@ -1164,6 +1165,9 @@ const webAr = {
   "salesInvoices.filter.anyCustomer": "كل العملاء",
   "salesInvoices.filter.from": "من تاريخ",
   "salesInvoices.filter.to": "إلى تاريخ",
+  "salesInvoices.row.newReturn": "إنشاء مرتجع مبيعات",
+  "salesInvoices.row.newInstallmentPlan": "إنشاء خطة أقساط",
+  "salesInvoices.row.actionsFor": "إجراءات {doc}",
   "salesInvoices.collect": "تحصيل",
   "salesInvoices.detail.cost": "التكلفة",
   "salesInvoices.detail.profit": "الربح",
@@ -6544,6 +6548,7 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // shared vocabulary — reused across screens
   "common.show": "Showing",
+  "common.view": "View",
   "common.of": "of",
   "common.status": "Status",
   "common.retry": "Try again",
@@ -6840,6 +6845,9 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.filter.anyCustomer": "All customers",
   "salesInvoices.filter.from": "From date",
   "salesInvoices.filter.to": "To date",
+  "salesInvoices.row.newReturn": "Create sales return",
+  "salesInvoices.row.newInstallmentPlan": "Create installment plan",
+  "salesInvoices.row.actionsFor": "Actions for {doc}",
   "salesInvoices.collect": "Collect",
   "salesInvoices.detail.cost": "Cost",
   "salesInvoices.detail.profit": "Profit",

@@ -343,7 +343,7 @@ export function App() {
   const navigate = useCallback(
     (screen: ScreenKey, intent?: ScreenIntentInput) => {
       setActiveScreen(screen);
-      setPendingIntent(intent ? toScreenIntent(intent) : null);
+      setPendingIntent(intent ? { ...toScreenIntent(intent), screen } : null);
     },
     [setActiveScreen],
   );
@@ -362,9 +362,11 @@ export function App() {
     setIntentTargets((n) => n + 1);
     return () => setIntentTargets((n) => n - 1);
   }, []);
+  // Only hand an intent to the screen it names — see ScreenIntent.screen.
+  const deliverableIntent = pendingIntent && (pendingIntent.screen === undefined || pendingIntent.screen === route.screen) ? pendingIntent : null;
   const navigation = useMemo(
-    () => ({ navigate, segments: route.segments, openSubPage, openScreenAt, intent: pendingIntent, clearIntent, registerIntentTarget }),
-    [navigate, route.segments, openSubPage, openScreenAt, pendingIntent, clearIntent, registerIntentTarget],
+    () => ({ navigate, segments: route.segments, openSubPage, openScreenAt, intent: deliverableIntent, clearIntent, registerIntentTarget }),
+    [navigate, route.segments, openSubPage, openScreenAt, deliverableIntent, clearIntent, registerIntentTarget],
   );
 
   const rolesQuery = useRoles();

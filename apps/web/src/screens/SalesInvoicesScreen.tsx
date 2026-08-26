@@ -10,6 +10,7 @@ import {
   MoneyInput,
   Qty as QtyDisplay,
   QtyInput,
+  RowMenu,
   StatusPill,
   TextInput,
   useFormat,
@@ -17,6 +18,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  type RowMenuItem,
 } from "@mezan/ui";
 import {
   Money,
@@ -51,7 +53,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, NumberField, TextAreaField, TextField } from "../settings/form-controls";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
@@ -1069,6 +1071,7 @@ export function SalesInvoicesScreen() {
   const listCustomers = useCustomers().data ?? [];
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
+  const { navigate } = useNavigation();
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
     subPage.open(...(customerId ? ["new", customerId] : ["new"]));
@@ -1296,18 +1299,47 @@ export function SalesInvoicesScreen() {
             rows={pageRows}
             rowKey={(inv) => inv.id}
             onRowClick={(inv) => subPage.open(inv.docNo ?? inv.id)}
-            rowAction={(inv) => (
-              <div className="flex items-center gap-2">
-                {toMajor(inv.remainingBalance) > 0 && (inv.status === "confirmed" || inv.status === "partially_paid") ? (
-                  <Button size="sm" variant="default" onClick={() => subPage.open(inv.docNo ?? inv.id)}>
-                    {t("salesInvoices.collect")}
-                  </Button>
-                ) : null}
-                <Button size="sm" variant="ghost" onClick={() => subPage.open(inv.docNo ?? inv.id)}>
-                  {t("common.show")}
-                </Button>
-              </div>
-            )}
+            rowAction={(inv) => {
+              const owing = toMajor(inv.remainingBalance) > 0 && (inv.status === "confirmed" || inv.status === "partially_paid");
+              const posted = inv.status === "confirmed" || inv.status === "partially_paid" || inv.status === "paid";
+              // Derived from THIS row's state — a voided invoice offers neither
+              // a return nor a plan, a settled one offers no collection (R1.3).
+              const menuItems: RowMenuItem[] = [
+                { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.docNo ?? inv.id) },
+                ...(posted
+                  ? [
+                      {
+                        key: "return",
+                        label: t("salesInvoices.row.newReturn"),
+                        onSelect: () => navigate("sales-returns", { kind: "create", prefill: { invoiceId: inv.id } }),
+                      },
+                    ]
+                  : []),
+                ...(owing
+                  ? [
+                      {
+                        key: "plan",
+                        label: t("salesInvoices.row.newInstallmentPlan"),
+                        onSelect: () => navigate("installment-plans", { kind: "create", prefill: { invoiceId: inv.id } }),
+                      },
+                    ]
+                  : []),
+              ];
+              return (
+                <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+                  {owing ? (
+                    <Button
+                      size="sm"
+                      variant="default"
+                      onClick={() => navigate("treasury-vouchers", { kind: "create", prefill: { customerId: inv.customerId, invoiceId: inv.id } })}
+                    >
+                      {t("salesInvoices.collect")}
+                    </Button>
+                  ) : null}
+                  <RowMenu items={menuItems} label={t("salesInvoices.row.actionsFor", { doc: inv.docNo ?? inv.id })} />
+                </div>
+              );
+            }}
             page={currentPage}
             pageCount={pageCount}
             onPageChange={setPage}

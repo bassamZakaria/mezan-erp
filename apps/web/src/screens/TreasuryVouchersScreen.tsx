@@ -50,6 +50,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useDomainLabels } from "../lib/domain-labels";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -142,6 +143,7 @@ function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo
 
 export function TreasuryVouchersScreen() {
   const { t } = useAppTranslation();
+  const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const query = useVouchers();
   const customersQuery = useCustomers();
   const suppliersQuery = useSuppliers();
@@ -149,7 +151,13 @@ export function TreasuryVouchersScreen() {
   const accountsQuery = useAccounts();
 
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
-  useScreenIntent(() => setMode("create"));
+  // Arriving from «تحصيل» on an invoice row: the customer is known, so the
+  // create form opens as a collection already pointed at them (R3.5).
+  const [prefillCustomerId, setPrefillCustomerId] = useState<string | null>(null);
+  useScreenIntent((intent) => {
+    setPrefillCustomerId(intent.prefill?.customerId ?? null);
+    setMode("create");
+  });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "needs_allocation" | VoucherStatusDTO>("all");
@@ -224,7 +232,7 @@ export function TreasuryVouchersScreen() {
         </div>
       ),
     },
-    { key: "type", header: t("vouchers.voucherType"), render: (d) => getVoucherTypeDefinition(d.voucherType).labelAr },
+    { key: "type", header: t("vouchers.voucherType"), render: (d) => voucherLabel(getVoucherTypeDefinition(d.voucherType)) },
     {
       key: "party",
       header: t("vouchers.party"),
@@ -274,6 +282,7 @@ export function TreasuryVouchersScreen() {
         suppliers={suppliers}
         treasuryAccounts={treasuryAccounts}
         accounts={accounts}
+        initialCustomerId={prefillCustomerId}
         onDone={() => setMode("list")}
       />
     );
@@ -325,7 +334,7 @@ export function TreasuryVouchersScreen() {
             </Chip>
             {typeBreakdown.map(([type, n]) => (
               <Chip key={type} active={typeFilter === type} onClick={() => setTypeFilter(type)}>
-                {getVoucherTypeDefinition(type).labelAr} ({n})
+                {voucherLabel(getVoucherTypeDefinition(type))} ({n})
               </Chip>
             ))}
           </div>
@@ -363,6 +372,7 @@ function VoucherDetailView({
   onBack: () => void;
 }) {
   const { t } = useAppTranslation();
+  const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const query = useVoucherDetail(id);
   const reverseVoucher = useReverseVoucher();
   const createAllocation = useCreateAllocation();
@@ -447,7 +457,7 @@ function VoucherDetailView({
   const activeAllocations = doc.allocations.filter((a) => a.status === "active");
 
   const summaryItems = [
-    { label: t("common.type"), value: def.labelAr },
+    { label: t("common.type"), value: voucherLabel(def) },
     { label: t("common.date"), value: <span className="mz-num">{doc.date}</span> },
     { label: t("vouchers.paymentMethod"), value: getVoucherPaymentMethodLabel(doc.paymentMethod) },
     { label: t("vouchers.party"), value: partyName(partyId) },
@@ -628,27 +638,31 @@ function CreateVoucherView({
   suppliers,
   treasuryAccounts,
   accounts,
+  initialCustomerId = null,
   onDone,
 }: {
   customers: CustomerDTO[];
   suppliers: SupplierDTO[];
   treasuryAccounts: TreasuryAccountDTO[];
   accounts: AccountDTO[];
+  initialCustomerId?: string | null;
   onDone: () => void;
 }) {
   const { t } = useAppTranslation();
+  const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
   const createVoucher = useCreateVoucher();
   const confirmVoucher = useConfirmVoucher();
   const branchesQuery = useBranches();
 
-  const [type, setType] = useState<VoucherType | null>(null);
+  // A collection is what «تحصيل» means; without a customer the user still picks the type.
+  const [type, setType] = useState<VoucherType | null>(initialCustomerId ? "customer_collection" : null);
   const [draft, setDraft] = useState<CreateDraft>({
     amount: null,
     paymentMethod: "cash",
     treasuryAccountId: treasuryAccounts[0]?.id ?? "",
     counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
     counterpartyGlAccountId: "4900",
-    partyId: "",
+    partyId: initialCustomerId ?? "",
     date: new Date().toISOString().slice(0, 10),
     referenceNo: "",
     memo: "",
@@ -709,7 +723,7 @@ function CreateVoucherView({
     if (!type || !def) return null;
     const line = buildLine();
     if (!line || line.amount.scaled <= 0n) return null;
-    const preview = toPreviewDoc(line, { id: "preview", date: draft.date, memo: draft.memo || def.labelAr, status: "draft" });
+    const preview = toPreviewDoc(line, { id: "preview", date: draft.date, memo: draft.memo || voucherLabel(def), status: "draft" });
     try {
       return voucherDocumentType.describeEffects(preview);
     } catch {
@@ -726,7 +740,7 @@ function CreateVoucherView({
     try {
       const created = await createVoucher.mutateAsync({
         date: draft.date,
-        memo: draft.memo || def.labelAr,
+        memo: draft.memo || voucherLabel(def),
         voucherType: line.voucherType,
         amount: line.amount.toString(),
         branchId: line.branchId,
@@ -767,8 +781,8 @@ function CreateVoucherView({
               onClick={() => setType(d.code)}
               className="rounded-lg border border-border bg-surface p-[16px] text-start shadow-1 transition-colors hover:border-brand"
             >
-              <div className="font-display text-[14px] font-bold text-ink">{d.labelAr}</div>
-              <div className="mt-[6px] text-[12px] text-ink-muted">{d.subtitleAr}</div>
+              <div className="font-display text-[14px] font-bold text-ink">{voucherLabel(d)}</div>
+              <div className="mt-[6px] text-[12px] text-ink-muted">{voucherSubtitle(d)}</div>
             </button>
           ))}
         </div>
@@ -787,7 +801,7 @@ function CreateVoucherView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{def.labelAr}</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{voucherLabel(def)}</h1>
           <button type="button" onClick={() => setType(null)} className="mt-[6px] text-[12px] text-brand underline">
             {t("vouchers.changeVoucherType")}
           </button>
@@ -818,7 +832,7 @@ function CreateVoucherView({
             label={t("vouchers.paymentMethod2")}
             value={draft.paymentMethod}
             onChange={(v) => setDraft((d) => ({ ...d, paymentMethod: v as VoucherPaymentMethod }))}
-            options={VOUCHER_PAYMENT_METHODS.map((m) => ({ value: m.code, label: m.labelAr }))}
+            options={VOUCHER_PAYMENT_METHODS.map((m) => ({ value: m.code, label: voucherLabel(m) }))}
           />
 
           <SelectField
@@ -861,7 +875,7 @@ function CreateVoucherView({
 
           <TextField label={t("vouchers.date")} value={draft.date} onChange={(v) => setDraft((d) => ({ ...d, date: v }))} placeholder="YYYY-MM-DD" />
           <TextField label={t("vouchers.referenceNumber")} value={draft.referenceNo} onChange={(v) => setDraft((d) => ({ ...d, referenceNo: v }))} />
-          <TextField label={t("common.notes")} value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={def.labelAr} />
+          <TextField label={t("common.notes")} value={draft.memo} onChange={(v) => setDraft((d) => ({ ...d, memo: v }))} placeholder={voucherLabel(def)} />
         </Card>
 
         <div

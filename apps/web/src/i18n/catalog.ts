@@ -2314,7 +2314,7 @@ const webAr = {
   "items.stock.warehouse": "المستودع",
   "items.stock.reserved": "محجوز",
   "items.stock.available": "متاح",
-  "items.stock.onHand": "المتاح",
+  "items.stock.onHand": "الرصيد",
   "items.stock.averageCost": "متوسط التكلفة",
   "items.stock.value": "القيمة",
   "items.costLayers.empty": "لا توجد طبقات تكلفة مفتوحة لهذا الصنف.",

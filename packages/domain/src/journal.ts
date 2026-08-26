@@ -67,6 +67,15 @@ export interface JournalEntry {
   readonly reversesEntryId?: string | null;
   /** On a reversed entry: the id of the reversing entry that offset it. */
   readonly reversedByEntryId?: string | null;
+  /**
+   * The document that produced this entry (R6.3). Carried so the journal list
+   * can name the module an entry came from and link back to its source —
+   * without it, a posted entry is anonymous the moment you leave the document
+   * that made it.
+   */
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
+  readonly sourceDocNumber?: string | null;
 }
 
 /**
@@ -86,4 +95,62 @@ export interface UnitOfWork {
   readonly roles: RoleRepository;
   readonly users: UserRepository;
   transaction<T>(fn: (uow: UnitOfWork) => Promise<T>): Promise<T>;
+}
+
+/**
+ * Which module produced a journal entry (R6.3). Derived from the posting
+ * document's type rather than stored twice: a module recorded separately from
+ * the document type is a second source of truth that can disagree with it.
+ *
+ * `manual` covers an entry a person typed; `unknown` is honest about an entry
+ * whose document type predates this field rather than guessing a module.
+ */
+export type JournalSourceModule =
+  | "sales"
+  | "purchases"
+  | "inventory"
+  | "treasury"
+  | "manufacturing"
+  | "payroll"
+  | "assets"
+  | "manual"
+  | "unknown";
+
+const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
+  SALES_INVOICE: "sales",
+  SALES_RETURN: "sales",
+  SALES_QUOTE: "sales",
+  PURCHASE_INVOICE: "purchases",
+  PURCHASE_RETURN: "purchases",
+  PURCHASE_ORDER: "purchases",
+  GOODS_RECEIPT: "purchases",
+  LANDED_COST: "purchases",
+  ADJUSTMENT: "inventory",
+  STOCK_ADJUSTMENT: "inventory",
+  TRANSFER: "inventory",
+  STOCK_TRANSFER: "inventory",
+  WRITEDOWN_RUN: "inventory",
+  TREASURY_VOUCHER: "treasury",
+  CHEQUE: "treasury",
+  WORK_ORDER: "manufacturing",
+  PAYROLL_RUN: "payroll",
+  LEAVE_ACCRUAL: "payroll",
+  EMPLOYEE_ADVANCE: "payroll",
+  DEPRECIATION_RUN: "assets",
+  ASSET_DISPOSAL: "assets",
+  JOURNAL_ENTRY: "manual",
+};
+
+/**
+ * `source` disambiguates the missing case: an entry a person typed genuinely
+ * has no document, while a system entry with no document type is one whose
+ * poster does not yet carry it. Calling the second one "manual" would put
+ * machine postings in the column a human is accountable for.
+ */
+export function journalSourceModule(
+  sourceDocType: string | null | undefined,
+  source?: JournalEntrySource | null,
+): JournalSourceModule {
+  if (!sourceDocType) return source === "system" ? "unknown" : "manual";
+  return MODULE_BY_DOC_TYPE[sourceDocType] ?? "unknown";
 }

@@ -136,6 +136,9 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
           date: posting.date,
           memo: posting.memo,
           source: "manual",
+          sourceDocType: posting.sourceDocType,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
           lines: posting.lines.map((l) => ({
             accountId: l.accountId,
             debit: l.debit,

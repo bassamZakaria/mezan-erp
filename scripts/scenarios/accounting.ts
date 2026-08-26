@@ -19,6 +19,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await voucherTypesRouteToTheirOwnAccounts_R81(ctx);
   await voucherQueuesAreAServerConcern_R82_R83(ctx);
   await accountRoutingDecidesWherePostingsLand_R61(ctx);
+  await everyJournalEntryNamesItsModule_R63(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -686,4 +687,49 @@ async function draftAndConfirmAdjustment(ctx: Ctx, id: string, reason: string) {
   });
   const confirm = await ctx.req("POST", `/inventory/stock-adjustments/${id}/confirm`, {});
   return { draft, confirm };
+}
+
+/**
+ * R6.3 — every posted entry names the module that produced it. The check that
+ * matters is that NOTHING falls through to "unknown": an entry whose poster
+ * forgot to carry its document type is anonymous the moment you leave the
+ * document that made it, and no report would flag it.
+ */
+export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<void> {
+  await ctx.scenario("every journal entry names the module that produced it (R6.3)", async () => {
+    const entries = ((await ctx.req("GET", "/gl/journal-entries")).body ?? []) as Array<{
+      entryNo: string | null;
+      memo: string;
+      source: string;
+      sourceModule: string;
+      sourceDocType: string | null;
+      sourceDocNumber: string | null;
+    }>;
+    ctx.check("the ledger has entries to check", entries.length > 0, `${entries.length}`);
+
+    const unknown = entries.filter((e) => e.sourceModule === "unknown");
+    ctx.check(
+      "no entry falls through to 'unknown' — every poster carries its document type",
+      unknown.length === 0,
+      JSON.stringify(unknown.map((e) => [e.entryNo, e.memo.slice(0, 30)])),
+    );
+
+    // A system entry must never be filed as "manual": that is the column a
+    // person is accountable for.
+    const misfiled = entries.filter((e) => e.source === "system" && e.sourceModule === "manual");
+    ctx.check("no system entry is filed as a manual one", misfiled.length === 0, JSON.stringify(misfiled.map((e) => e.entryNo)));
+
+    for (const entry of entries) {
+      if (entry.sourceModule === "manual") continue;
+      ctx.check(`${entry.entryNo} carries the document it came from`, entry.sourceDocType !== null, JSON.stringify(entry));
+    }
+
+    // And the filter returns exactly the entries of that module.
+    for (const module of ["sales", "purchases", "inventory", "treasury", "payroll"]) {
+      const filtered = ((await ctx.req("GET", `/gl/journal-entries?sourceModule=${module}`)).body ?? []) as Array<{ sourceModule: string }>;
+      const expected = entries.filter((e) => e.sourceModule === module).length;
+      ctx.checkEq(`the ${module} filter returns exactly that module's entries`, filtered.length, expected);
+      ctx.check(`and nothing else leaks into it`, filtered.every((e) => e.sourceModule === module), module);
+    }
+  });
 }

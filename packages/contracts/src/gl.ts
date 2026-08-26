@@ -40,10 +40,24 @@ export const reverseGlJournalEntrySchema = z.object({
   memo: z.string().optional(),
 });
 
+/** Which module a journal entry came from (R6.3), derived from its document type. */
+export const journalSourceModuleSchema = z.enum([
+  "sales",
+  "purchases",
+  "inventory",
+  "treasury",
+  "manufacturing",
+  "payroll",
+  "assets",
+  "manual",
+  "unknown",
+]);
+
 /** Query filter for the journal-entry list. */
 export const glJournalListQuerySchema = z.object({
   status: journalEntryStatusSchema.optional(),
   source: journalEntrySourceSchema.optional(),
+  sourceModule: journalSourceModuleSchema.optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
 });
@@ -54,3 +68,4 @@ export type GlJournalLineDTO = z.infer<typeof glJournalLineSchema>;
 export type CreateGlJournalEntryDTO = z.infer<typeof createGlJournalEntrySchema>;
 export type ReverseGlJournalEntryDTO = z.infer<typeof reverseGlJournalEntrySchema>;
 export type GlJournalListQueryDTO = z.infer<typeof glJournalListQuerySchema>;
+export type JournalSourceModuleDTO = z.infer<typeof journalSourceModuleSchema>;

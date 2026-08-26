@@ -34,6 +34,9 @@ export async function postWritedownRun(runId: string, deps: PostWritedownRunDeps
       date: periodEndDate(run.period),
       memo: `Inventory aging write-down ${run.period}${run.warehouseId ? ` — warehouse ${run.warehouseId}` : ""}`,
       source: "system",
+      sourceDocType: "WRITEDOWN_RUN",
+      sourceDocId: run.id,
+      sourceDocNumber: run.period,
       lines: [
         { accountId: deps.accounts.writedownExpenseAccountId, debit: run.totalAmount, credit: Money.zero() },
         { accountId: deps.accounts.provisionAccountId, debit: Money.zero(), credit: run.totalAmount },

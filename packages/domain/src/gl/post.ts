@@ -50,6 +50,14 @@ export interface CreateJournalEntryCommand {
   readonly memo: string;
   /** Defaults to "manual". Document-driven callers pass "system". */
   readonly source?: JournalEntrySource;
+  /**
+   * The document behind the entry (R6.3) — the journal list derives its
+   * source-module column from this rather than storing the module separately,
+   * which would be a second source of truth that could disagree.
+   */
+  readonly sourceDocType?: string | null;
+  readonly sourceDocId?: string | null;
+  readonly sourceDocNumber?: string | null;
   readonly lines: readonly JournalLineInput[];
 }
 
@@ -189,6 +197,9 @@ export async function createJournalEntry(
       memo: cmd.memo,
       status: "draft",
       source: cmd.source ?? "manual",
+      sourceDocType: cmd.sourceDocType ?? null,
+      sourceDocId: cmd.sourceDocId ?? null,
+      sourceDocNumber: cmd.sourceDocNumber ?? null,
       lines: cmd.lines.map(toLine),
       createdAt: nowIso(deps),
       postedAt: null,
@@ -232,6 +243,9 @@ export async function postJournalEntry(
       memo: cmd.memo,
       status: "posted",
       source: cmd.source ?? "manual",
+      sourceDocType: cmd.sourceDocType ?? null,
+      sourceDocId: cmd.sourceDocId ?? null,
+      sourceDocNumber: cmd.sourceDocNumber ?? null,
       lines: cmd.lines.map(toLine),
       createdAt: stamp,
       postedAt: stamp,

@@ -98,6 +98,9 @@ export function createInventoryGlPostingHook(deps: JournalPostingDeps): Inventor
           date: posting.date,
           memo: posting.memo,
           source: "system",
+          sourceDocType: posting.sourceDocType,
+          sourceDocId: posting.sourceDocId,
+          sourceDocNumber: posting.sourceDocNumber,
           lines: posting.lines.map((l) => ({
             accountId: l.accountId,
             debit: l.debit,

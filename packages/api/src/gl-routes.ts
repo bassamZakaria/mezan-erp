@@ -28,6 +28,7 @@ import {
   type NextNumberService,
   type AuditSink,
   type GlEventPublisher,
+  journalSourceModule,
 } from "@mezan/domain";
 import {
   createGlJournalEntrySchema,
@@ -66,6 +67,12 @@ function serialize(entry: JournalEntry) {
     postedAt: entry.postedAt ?? null,
     reversesEntryId: entry.reversesEntryId ?? null,
     reversedByEntryId: entry.reversedByEntryId ?? null,
+    sourceDocType: entry.sourceDocType ?? null,
+    sourceDocId: entry.sourceDocId ?? null,
+    sourceDocNumber: entry.sourceDocNumber ?? null,
+    // Derived, not stored: a module recorded beside the document type is a
+    // second source of truth that can disagree with it (R6.3).
+    sourceModule: journalSourceModule(entry.sourceDocType, entry.source),
     lines: entry.lines.map((l) => ({
       accountId: l.accountId,
       debit: l.debit.toString(),
@@ -271,13 +278,16 @@ export function createGlRoutes(
     const parsed = glJournalListQuerySchema.safeParse({
       status: c.req.query("status"),
       source: c.req.query("source"),
+      sourceModule: c.req.query("sourceModule"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const entries = await deps.ledger.list(parsed.data);
+    const { sourceModule, ...ledgerFilter } = parsed.data;
+    let entries = await deps.ledger.list(ledgerFilter);
+    if (sourceModule) entries = entries.filter((e) => journalSourceModule(e.sourceDocType, e.source) === sourceModule);
     return c.json(entries.map(serialize));
   });
 

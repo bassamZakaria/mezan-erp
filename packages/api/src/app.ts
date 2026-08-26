@@ -988,6 +988,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             date: posting.date,
             memo: posting.memo,
             source: "system",
+            sourceDocType: posting.sourceDocType,
+            sourceDocId: posting.sourceDocId,
+            sourceDocNumber: posting.sourceDocNumber ?? null,
             lines: posting.lines.map((l) => ({
               accountId: l.accountId,
               debit: l.debit,

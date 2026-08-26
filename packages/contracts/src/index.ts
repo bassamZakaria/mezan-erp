@@ -307,6 +307,8 @@ export {
   createGlJournalEntrySchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
+  journalSourceModuleSchema,
+  type JournalSourceModuleDTO,
   type JournalEntrySourceDTO,
   type JournalEntryStatusDTO,
   type GlJournalLineDTO,

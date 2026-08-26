@@ -40,7 +40,10 @@ CREATE TABLE IF NOT EXISTS journal_entry (
   created_at           TEXT NOT NULL,
   posted_at            TEXT,
   reverses_entry_id    TEXT REFERENCES journal_entry(id),
-  reversed_by_entry_id TEXT REFERENCES journal_entry(id)
+  reversed_by_entry_id TEXT REFERENCES journal_entry(id),
+  source_doc_type      TEXT,
+  source_doc_id        TEXT,
+  source_doc_number    TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_journal_entry_date ON journal_entry(date);
 CREATE INDEX IF NOT EXISTS idx_journal_entry_status ON journal_entry(status);
@@ -78,6 +81,9 @@ interface EntryRow {
   posted_at: string | null;
   reverses_entry_id: string | null;
   reversed_by_entry_id: string | null;
+  source_doc_type: string | null;
+  source_doc_id: string | null;
+  source_doc_number: string | null;
 }
 
 interface LineRow {
@@ -128,16 +134,19 @@ class SqliteLedgerRepository implements LedgerRepository {
   constructor(private readonly sqlite: Database.Database) {
     this.insertEntry = sqlite.prepare(`
       INSERT INTO journal_entry
-        (id, entry_no, date, memo, status, source, created_at, posted_at, reverses_entry_id, reversed_by_entry_id)
+        (id, entry_no, date, memo, status, source, created_at, posted_at, reverses_entry_id, reversed_by_entry_id, source_doc_type, source_doc_id, source_doc_number)
       VALUES
-        (@id, @entry_no, @date, @memo, @status, @source, @created_at, @posted_at, @reverses_entry_id, @reversed_by_entry_id)
+        (@id, @entry_no, @date, @memo, @status, @source, @created_at, @posted_at, @reverses_entry_id, @reversed_by_entry_id, @source_doc_type, @source_doc_id, @source_doc_number)
     `);
     this.updateEntry = sqlite.prepare(`
       UPDATE journal_entry SET
         entry_no = @entry_no,
         status = @status,
         posted_at = @posted_at,
-        reversed_by_entry_id = @reversed_by_entry_id
+        reversed_by_entry_id = @reversed_by_entry_id,
+        source_doc_type = @source_doc_type,
+        source_doc_id = @source_doc_id,
+        source_doc_number = @source_doc_number
       WHERE id = @id
     `);
     this.insertLine = sqlite.prepare(`
@@ -177,6 +186,9 @@ class SqliteLedgerRepository implements LedgerRepository {
       status: entry.status,
       posted_at: entry.postedAt ?? null,
       reversed_by_entry_id: entry.reversedByEntryId ?? null,
+      source_doc_type: entry.sourceDocType ?? null,
+      source_doc_id: entry.sourceDocId ?? null,
+      source_doc_number: entry.sourceDocNumber ?? null,
     });
   }
 
@@ -365,6 +377,9 @@ class SqliteLedgerRepository implements LedgerRepository {
       postedAt: row.posted_at,
       reversesEntryId: row.reverses_entry_id,
       reversedByEntryId: row.reversed_by_entry_id,
+      sourceDocType: row.source_doc_type,
+      sourceDocId: row.source_doc_id,
+      sourceDocNumber: row.source_doc_number,
     };
   }
 }
@@ -381,6 +396,9 @@ function entryParams(entry: JournalEntry) {
     posted_at: entry.postedAt ?? null,
     reverses_entry_id: entry.reversesEntryId ?? null,
     reversed_by_entry_id: entry.reversedByEntryId ?? null,
+    source_doc_type: entry.sourceDocType ?? null,
+    source_doc_id: entry.sourceDocId ?? null,
+    source_doc_number: entry.sourceDocNumber ?? null,
   };
 }
 

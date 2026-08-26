@@ -107,7 +107,7 @@ const journalEntry: JournalEntryDTO = {
   createdAt: "2026-08-20T09:00:00.000Z",
   postedAt: "2026-08-20T09:00:00.000Z",
   reversesEntryId: null,
-  reversedByEntryId: null,
+  reversedByEntryId: null, sourceDocType: null, sourceDocId: null, sourceDocNumber: null, sourceModule: "manual" as const,
   lines: [
     { accountId: "1105", debit: "210.90", credit: "0.00", memo: null },
     { accountId: "4100", debit: "0.00", credit: "185.00", memo: null },

@@ -17,7 +17,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
-import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO } from "@mezan/contracts";
+import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
 import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -38,6 +38,18 @@ const STATUS_TONE: Record<JournalEntryStatusDTO, PillTone> = {
   pending: "warning",
   posted: "success",
   reversed: "danger",
+};
+
+const MODULE_KEY: Record<JournalSourceModuleDTO, AppTranslationKey> = {
+  sales: "journals.module.sales",
+  purchases: "journals.module.purchases",
+  inventory: "journals.module.inventory",
+  treasury: "journals.module.treasury",
+  manufacturing: "journals.module.manufacturing",
+  payroll: "journals.module.payroll",
+  assets: "journals.module.assets",
+  manual: "journals.module.manual",
+  unknown: "journals.module.unknown",
 };
 
 /** Keys, not copy — the stepper's labels are built with the translator at render. */
@@ -79,7 +91,6 @@ function blankLine(): LineDraft {
 
 export function JournalsScreen() {
   const { t } = useAppTranslation();
-  const query = useJournalEntries();
   const accountsQuery = useAccounts();
   const createJournalEntry = useCreateJournalEntry();
   const reverseJournalEntry = useReverseJournalEntry();
@@ -89,6 +100,15 @@ export function JournalsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | JournalEntryStatusDTO>("all");
+  const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+
+  const query = useJournalEntries({
+    ...(moduleFilter ? { sourceModule: moduleFilter } : {}),
+    ...(fromDate ? { fromDate } : {}),
+    ...(toDate ? { toDate } : {}),
+  });
 
   const accountLabel = useMemo(() => {
     const map = new Map(accounts.map((a) => [a.id, `${a.code} — ${a.nameAr}`]));
@@ -129,6 +149,16 @@ export function JournalsScreen() {
     },
     { key: "date", header: t("common.date"), sortable: true, render: (d) => <span className="mz-num text-ink-muted">{d.date}</span> },
     { key: "memo", header: t("journals.description"), render: (d) => <span className="text-ink">{d.memo}</span> },
+    {
+      key: "sourceModule",
+      header: t("journals.col.sourceModule"),
+      render: (d) => (
+        <div className="flex flex-col gap-[2px]">
+          <StatusPill label={t(MODULE_KEY[d.sourceModule])} tone={d.sourceModule === "manual" ? "neutral" : "info"} />
+          {d.sourceDocNumber ? <span className="mz-num text-[11px] text-ink-faint">{d.sourceDocNumber}</span> : null}
+        </div>
+      ),
+    },
     { key: "debit", header: t("journals.totalDebit"), align: "end", render: (d) => <MoneyDisplay value={docTotals(d).debit} /> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={t(STATUS_KEY[d.status])} tone={STATUS_TONE[d.status]} /> },
   ];
@@ -242,9 +272,12 @@ export function JournalsScreen() {
         title={t("journals.journalEntries")}
         description={t("journals.theJournalRegisterDraftAwaiting")}
         actions={
-          <Button variant="primary" onClick={() => setMode("create")}>
-            {t("journals.newEntry")}
-          </Button>
+          <>
+            <Button onClick={() => window.print()}>{t("journals.print")}</Button>
+            <Button variant="primary" onClick={() => setMode("create")}>
+              {t("journals.newEntry")}
+            </Button>
+          </>
         }
         stats={[
           { label: t("journals.totalEntries"), value: <span className="mz-num">{counts.all}</span> },
@@ -263,6 +296,24 @@ export function JournalsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("journals.searchByEntryNumber")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-3">
+            <SelectField
+              label={t("journals.filter.module")}
+              value={moduleFilter}
+              onChange={(value) => setModuleFilter(value as "" | JournalSourceModuleDTO)}
+              options={[
+                { value: "", label: t("journals.filter.allModules") },
+                ...(Object.keys(MODULE_KEY) as JournalSourceModuleDTO[]).map((key) => ({
+                  value: key,
+                  label: t(MODULE_KEY[key]),
+                })),
+              ]}
+            />
+            <TextField label={t("journals.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("journals.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}

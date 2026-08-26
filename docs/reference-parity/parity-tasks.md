@@ -94,6 +94,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R8.2** Voucher list: type filter listing every type (used or not), branch filter, date range, chips for needs-allocation / pending / voided, row menu view / print / cancel
 - [x] **R8.3** Needs-allocation queue as a server concern, split by intent (receipt vs payment), with server-side chip counts
 - [x] **R6.1** Account-routing screen — a second tab on the chart of accounts mapping every posting to a GL account, wired to the ledger rather than decorative
+- [x] **R6.3** Journal entries: date-range filter, source-module column (with the source document number), print
 - [x] **R5.1** Item types 2 → 6, with the behavioural rules per type — capability table in the domain; pickers and reports ask the capability, never `type === "stock"`
 - [ ] **R4.2** Purchase-invoice line types (stock / expense / freight)
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter

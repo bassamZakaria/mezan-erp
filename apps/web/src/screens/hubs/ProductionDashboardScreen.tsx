@@ -110,6 +110,7 @@ export function ProductionDashboardScreen() {
       </div>
 
       <div className="grid grid-cols-1 gap-[14px] lg:grid-cols-3">
+        <BucketList title={t("production.startProduction")} orders={dashboard?.buckets.notStarted ?? []} />
         <BucketList title={t("production.waitingOnMaterials")} orders={dashboard?.buckets.awaitingMaterialIssue ?? []} />
         <BucketList title={t("production.waitingOnTheProduct")} orders={dashboard?.buckets.awaitingProductReceipt ?? []} />
         <BucketList title={t("production.readyToClose")} orders={dashboard?.buckets.readyToComplete ?? []} />

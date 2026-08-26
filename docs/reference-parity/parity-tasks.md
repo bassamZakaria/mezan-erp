@@ -64,6 +64,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer and value-range filters — branch filter not built, opportunities carry no branch
 - [x] **R9.1** Work-order shop-floor actions — extra issue, return, scrap, record a cost; all five routes existed with no hook and no UI
 - [~] **R9.2** Materials tab gains available and shortage; the movements / receipts / journal-entries / audit tabs remain open
+- [x] **R9.3** Production dashboard: the start-production bucket the board was missing
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
 - [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)

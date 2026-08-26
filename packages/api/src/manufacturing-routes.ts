@@ -757,6 +757,10 @@ export function createManufacturingRoutes(
         avgCostPerUnit: num(avgCostPerUnit),
       },
       buckets: {
+        // The bucket a run actually starts in (R9.3). It was missing, so an
+        // order nobody had begun appeared only in the flat list of everything
+        // — the one bucket a supervisor opens the board to act on.
+        notStarted: bucket("not_started"),
         awaitingMaterialIssue: bucket("started"),
         awaitingProductReceipt: bucket("materials_issued"),
         readyToComplete: bucket("product_received"),

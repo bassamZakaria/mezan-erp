@@ -56,6 +56,7 @@ export interface ProductionDashboardDTO {
     readonly avgCostPerUnit: string;
   };
   readonly buckets: {
+    readonly notStarted: readonly ProductionBucketOrderDTO[];
     readonly awaitingMaterialIssue: readonly ProductionBucketOrderDTO[];
     readonly awaitingProductReceipt: readonly ProductionBucketOrderDTO[];
     readonly readyToComplete: readonly ProductionBucketOrderDTO[];

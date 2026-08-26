@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import { InMemoryPriceListRepository } from "./test-helpers/in-memory-price-list-repository.js";
 import { createPriceList, validateNewPriceList } from "./create-price-list.js";
 import { DuplicatePriceListError, InvalidPriceListError } from "./errors.js";
@@ -30,7 +30,7 @@ describe("createPriceList", () => {
         nameEn: "Retail",
         description: "قائمة أسعار التجزئة",
         isBase: true,
-        lines: [{ itemId: "item-1", price: Money.fromMajor("100.00") }],
+        lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") }],
       },
       repo,
     );
@@ -38,7 +38,7 @@ describe("createPriceList", () => {
     expect(pl.description).toBe("قائمة أسعار التجزئة");
     expect(pl.isBase).toBe(true);
     expect(pl.lines).toHaveLength(1);
-    expect(pl.lines[0]).toEqual({ itemId: "item-1", price: Money.fromMajor("100.00") });
+    expect(pl.lines[0]).toEqual({ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") });
   });
 
   it("rejects a duplicate price list code", async () => {
@@ -65,8 +65,8 @@ describe("createPriceList", () => {
           code: "RETAIL",
           nameAr: "قائمة التجزئة",
           lines: [
-            { itemId: "item-1", price: Money.fromMajor("100.00") },
-            { itemId: "item-1", price: Money.fromMajor("90.00") },
+            { itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") },
+            { itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("90.00") },
           ],
         },
         repo,
@@ -82,7 +82,7 @@ describe("createPriceList", () => {
           id: "pl1",
           code: "RETAIL",
           nameAr: "قائمة التجزئة",
-          lines: [{ itemId: "item-1", price: Money.fromMajor("-1.00") }],
+          lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("-1.00") }],
         },
         repo,
       ),

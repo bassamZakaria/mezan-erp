@@ -53,13 +53,18 @@ const PRICE_LISTS = [
     code: "PL-WHOLESALE",
     nameAr: "قائمة أسعار الجملة",
     nameEn: "Wholesale Price List",
-    description: "خصم الجملة لعملاء التعاقد السنوي",
+    description: "خصم الجملة لعملاء التعاقد السنوي — بشرائح حد أدنى للكمية",
     isBase: false,
+    // Volume tiers (R3.11): the same item quoted at three thresholds, so a
+    // 60-unit line is priced at 148 and a 3-unit line at 168 off ONE list.
     lines: [
-      { itemId: "ITEM-DEMO-1", price: "168" },
-      { itemId: "ITEM-DEMO-2", price: "88" },
-      { itemId: "ITEM-DEMO-3", price: "39" },
-      { itemId: "ITEM-DEMO-4", price: "242" },
+      { itemId: "ITEM-DEMO-1", minQty: "1", unitCode: "PCS", price: "168" },
+      { itemId: "ITEM-DEMO-1", minQty: "10", unitCode: "PCS", price: "158" },
+      { itemId: "ITEM-DEMO-1", minQty: "50", unitCode: "PCS", price: "148" },
+      { itemId: "ITEM-DEMO-2", minQty: "1", unitCode: "PCS", price: "88" },
+      { itemId: "ITEM-DEMO-2", minQty: "25", unitCode: "PCS", price: "80" },
+      { itemId: "ITEM-DEMO-3", minQty: "1", unitCode: "PCS", price: "39" },
+      { itemId: "ITEM-DEMO-4", minQty: "1", unitCode: "PCS", price: "242" },
     ],
   },
   {
@@ -100,11 +105,15 @@ async function priceFrom(
   priceListId: string | null,
   itemId: string,
   fallback: string,
+  qty: string,
 ): Promise<string> {
+  // `qty` picks the minimum-quantity tier (R3.11) — asking without it would
+  // price every seeded quote line at the "from 1" tier regardless of volume.
   const resolved = (await step(app, "POST", "/price-lists/resolve-price", {
     priceListId,
     itemId,
     fallback,
+    qty,
   })) as { price: string };
   return resolved.price;
 }
@@ -131,7 +140,7 @@ async function createQuote(
       itemId: spec.itemId,
       itemNameAr: ITEM_NAMES_AR[spec.itemId] as string,
       qty: spec.qty,
-      unitPrice: await priceFrom(app, quote.priceListId, spec.itemId, fallback),
+      unitPrice: await priceFrom(app, quote.priceListId, spec.itemId, fallback, spec.qty),
       taxRatePercent: VAT_PERCENT,
     });
   }

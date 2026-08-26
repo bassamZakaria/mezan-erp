@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money, createPriceList, updatePriceList } from "@mezan/domain";
+import { Money, Qty, createPriceList, updatePriceList } from "@mezan/domain";
 import { createSqlitePriceListStore } from "./price-list-store.js";
 
 describe("SqlitePriceListStore", () => {
@@ -35,16 +35,16 @@ describe("SqlitePriceListStore", () => {
           code: "RETAIL",
           nameAr: "قائمة التجزئة",
           lines: [
-            { itemId: "item-1", price: Money.fromMajor("1250.500000") },
-            { itemId: "item-2", price: Money.fromMajor("0.000001") },
+            { itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("1250.500000") },
+            { itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("0.000001") },
           ],
         },
         repo,
       );
       const reloaded = await repo.findById("pl1");
       expect(reloaded?.lines).toHaveLength(2);
-      expect(reloaded?.lines[0]).toEqual({ itemId: "item-1", price: Money.fromMajor("1250.500000") });
-      expect(reloaded?.lines[1]).toEqual({ itemId: "item-2", price: Money.fromMajor("0.000001") });
+      expect(reloaded?.lines[0]).toEqual({ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("1250.500000") });
+      expect(reloaded?.lines[1]).toEqual({ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("0.000001") });
     } finally {
       repo.close();
     }
@@ -54,12 +54,12 @@ describe("SqlitePriceListStore", () => {
     const repo = createSqlitePriceListStore();
     try {
       const created = await createPriceList(
-        { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", price: Money.fromMajor("100.00") }] },
+        { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") }] },
         repo,
       );
-      await updatePriceList("pl1", { lines: [{ itemId: "item-2", price: Money.fromMajor("50.00") }] }, repo);
+      await updatePriceList("pl1", { lines: [{ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("50.00") }] }, repo);
       const reloaded = await repo.findById("pl1");
-      expect(reloaded?.lines).toEqual([{ itemId: "item-2", price: Money.fromMajor("50.00") }]);
+      expect(reloaded?.lines).toEqual([{ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("50.00") }]);
       expect(created.id).toBe("pl1");
     } finally {
       repo.close();

@@ -581,10 +581,14 @@ export {
 
 export {
   priceListLineSchema,
+  priceListLineViewSchema,
   priceListSchema,
   createPriceListSchema,
   updatePriceListSchema,
+  resolvePriceListPriceSchema,
   type PriceListLineDTO,
+  type PriceListLineViewDTO,
+  type ResolvePriceListPriceDTO,
   type PriceListDTO,
   type CreatePriceListDTO,
   type UpdatePriceListDTO,

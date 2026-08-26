@@ -1376,7 +1376,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
         return { voucherId };
       },
       pricing: {
-        listPriceFor: async (customerId: string, itemId: string) => {
+        listPriceFor: async (customerId: string, itemId: string, qty: Qty) => {
           // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
           // lists switched off no invoice may be measured against one, or the
           // toggle would only hide the screen while the variance check ran on.
@@ -1388,7 +1388,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           if (!list) return null;
           const item = await items.findById(itemId);
           const fallback = item?.salePrice ?? Money.zero();
-          const resolved = resolvePrice(list, itemId, fallback);
+          const resolved = resolvePrice(list, itemId, fallback, qty);
           return resolved.scaled === 0n ? null : resolved;
         },
       },

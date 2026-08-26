@@ -78,8 +78,13 @@ export interface SalesInvoiceCreditControlDeps {
  * for. What the product owes the tenant is that nobody can do it unknowingly.
  */
 export interface SalesInvoicePricingDeps {
-  /** The list price for this customer and item, or null when no list applies. */
-  listPriceFor(customerId: string, itemId: string): Promise<Money | null>;
+  /**
+   * The list price for this customer and item at the line's quantity, or null
+   * when no list applies. `qty` is what selects the minimum-quantity tier
+   * (R3.11): a list quoting 100.00 from 1 and 85.00 from 50 measures a 60-unit
+   * line against 85.00, not against 100.00.
+   */
+  listPriceFor(customerId: string, itemId: string, qty: Qty): Promise<Money | null>;
 }
 
 /** One line charged below the customer's list price. */
@@ -492,7 +497,7 @@ export class SalesInvoiceService {
     if (!pricing) return [];
     const out: PricingVariance[] = [];
     for (const line of invoice.lines) {
-      const listPrice = await pricing.listPriceFor(invoice.customerId, line.itemId);
+      const listPrice = await pricing.listPriceFor(invoice.customerId, line.itemId, line.baseQty);
       if (!listPrice) continue;
       if (line.unitPrice.scaled < listPrice.scaled) {
         out.push({ lineId: line.lineId, itemId: line.itemId, listPrice, chargedPrice: line.unitPrice });

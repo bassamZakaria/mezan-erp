@@ -70,6 +70,9 @@ import type {
   CreateOpportunityDTO,
   CreatePipelineStageDTO,
   CreatePriceListDTO,
+  UpdatePriceListDTO,
+  UpdatePromotionDTO,
+  ResolvePriceListPriceDTO,
   CreateProductTemplateDTO,
   CreateProjectDTO,
   CreatePromotionDTO,
@@ -6100,6 +6103,49 @@ export function useCreateCostCentersFromDepartments() {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Sales parity — R3.8 / R3.9 / R3.11 / R3.12 / R3.13
+// ---------------------------------------------------------------------------
+
+/** Rewrites a price list, including its minimum-quantity tier grid (R3.11). */
+export function useUpdatePriceList() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PriceListDTO, ApiError, { id: string; patch: UpdatePriceListDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/price-lists/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePriceListCouldNot")));
+      return res.json<PriceListDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["price-lists"] }),
+  });
+}
+
+export interface ResolvedPriceListPrice {
+  readonly price: string;
+  readonly priceListId: string | null;
+  readonly tierMinQty: string | null;
+  readonly fromPriceList: boolean;
+}
+
+/**
+ * Asks the SERVER which minimum-quantity tier a line lands on. The tier an
+ * invoice is measured against on confirm is resolved server-side, so a screen
+ * that worked it out in the browser could disagree with the books.
+ */
+export function useResolvePriceListPrice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<ResolvedPriceListPrice, ApiError, ResolvePriceListPriceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/price-lists/resolve-price", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.priceListsCouldNotBe")));
+      return res.json<ResolvedPriceListPrice>();
+    },
+  });
+}
+
 /** أرصدة العملاء والموردين حسب العملة (R1.16) — per-currency AR/AP, base and transaction. */
 export function usePartyBalancesByCurrency(): UseQueryResult<PartyCurrencyBalanceReportDTO, ApiError> {
   const { t } = useAppTranslation();
@@ -6112,5 +6158,20 @@ export function usePartyBalancesByCurrency(): UseQueryResult<PartyCurrencyBalanc
       if (!res.ok) throw new ApiError(res.status, t("api.balancesByCurrencyCouldNot"));
       return res.json<PartyCurrencyBalanceReportDTO>();
     },
+  });
+}
+
+/** Edits a promotion — cap, priority, minimum quantity, bundle components (R3.12). */
+export function useUpdatePromotion() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<PromotionDTO, ApiError, { id: string; patch: UpdatePromotionDTO }>({
+    mutationFn: async ({ id, patch }) => {
+      const res = await request(`/promotions/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePromotionCouldNotBe")));
+      return res.json<PromotionDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["promotions"] }),
   });
 }

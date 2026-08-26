@@ -35,9 +35,9 @@ import type {
   SalesInvoiceStatus,
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
-import { salesInvoiceTotals, type SalesInvoiceTotals } from "./totals.js";
+import { salesInvoiceTotals, salesInvoiceBaseGrandTotal, type SalesInvoiceTotals } from "./totals.js";
 import { describeSalesInvoiceEffects } from "./effects.js";
-import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine } from "./gl.js";
+import { buildSalesInvoiceGlPosting, type SalesInvoiceCogsLine, type SalesInvoiceFxContext } from "./gl.js";
 import type {
   SalesInvoiceRepository,
   SalesInvoiceListFilter,
@@ -130,6 +130,16 @@ export interface SalesInvoiceServiceDeps {
    * added on top, and a line with no rate carries none.
    */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  /**
+   * Exchange rates, so a foreign-currency invoice posts its base-currency
+   * value at the rate that applied on its own date and keeps that rate on the
+   * receivable line for revaluation (D24). Omit and a non-base currency is
+   * REFUSED rather than posted at 1:1 — silently mis-stating a debt is the
+   * worse failure.
+   */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's own currency; anything else on a document needs a rate. */
+  readonly baseCurrency?: string;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -282,6 +292,11 @@ export class SalesInvoiceService {
     const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
     const pricingVariances = await this.checkPricing(promoted);
 
+    // A foreign-currency invoice needs the rate BEFORE anything is written:
+    // resolved here, a missing rate refuses the confirm outright rather than
+    // leaving stock issued against a document that never posted.
+    const fx = await this.resolveFxRate(promoted);
+
     const confirmed = await this.deps.repo.transaction(async () => {
       const number = await this.deps.numbering.next({ branchId: existing.branchId });
       const docNo = number.formatted;
@@ -323,8 +338,8 @@ export class SalesInvoiceService {
           cost: costByLineId.get(l.lineId) ?? Money.zero(),
         }));
 
-      const numbered: SalesInvoice = { ...promoted, docNo, lines: linesWithCost };
-      const posting = buildSalesInvoiceGlPosting(numbered, totals, cogsLines);
+      const numbered: SalesInvoice = { ...promoted, docNo, lines: linesWithCost, fxRate: fx?.rate ?? null };
+      const posting = buildSalesInvoiceGlPosting(numbered, totals, cogsLines, fx);
       const glResult = await this.deps.gl.post(posting);
 
       const next: SalesInvoice = {
@@ -345,7 +360,10 @@ export class SalesInvoiceService {
         kind: "sales",
         partyId: confirmed.customerId,
         date: confirmed.date,
-        total: totals.grandTotal,
+        // BASE currency: a voucher settles in base, and the control account
+        // holds base — comparing a USD figure against either reads adrift by
+        // the whole rate (D24).
+        total: salesInvoiceBaseGrandTotal(totals, confirmed.fxRate),
         allocated: Money.zero(),
       });
     }
@@ -353,6 +371,23 @@ export class SalesInvoiceService {
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
     return { invoice: confirmed, held: false, creditWarning, pricingVariances };
+  }
+
+  /**
+   * The rate a foreign-currency invoice confirms at: the latest APPROVED rate
+   * effective on/before the invoice's own date. A base-currency invoice needs
+   * none; a foreign one with no usable rate is refused, never posted at 1:1.
+   */
+  private async resolveFxRate(invoice: SalesInvoice): Promise<SalesInvoiceFxContext | undefined> {
+    const baseCurrency = this.deps.baseCurrency ?? "EGP";
+    if (!invoice.currency || invoice.currency === baseCurrency) return undefined;
+    const found = await this.deps.exchangeRates?.findRate(invoice.currency, invoice.date);
+    if (!found) {
+      throw new InvalidSalesInvoiceError([
+        `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+      ]);
+    }
+    return { rate: found.rate };
   }
 
   /**

@@ -141,6 +141,8 @@ export const purchaseInvoiceSchema = z.object({
   branchId: z.string().min(1),
   warehouseId: z.string().min(1),
   currency: z.string().min(1),
+  /** The rate the invoice CONFIRMED at; null for a base-currency invoice (D24). */
+  fxRate: z.string().nullable().optional(),
   notes: z.string().nullable(),
   receiptId: z.string().nullable(),
   lines: z.array(purchaseInvoiceLineSchema),

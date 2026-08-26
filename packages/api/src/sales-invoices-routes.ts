@@ -86,6 +86,14 @@ export interface SalesInvoiceRoutesDeps {
   /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
   readonly currencyCheck?: CurrencyCheck;
   /**
+   * Exchange rates, so a foreign-currency invoice posts its base value at the
+   * approved rate of its own date and tags the receivable line for revaluation
+   * (D24). Omit and a non-base currency is refused rather than posted 1:1.
+   */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's base currency; defaults to EGP. */
+  readonly baseCurrency?: string;
+  /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
    * than writing a payment the ledger never hears about (D1).
@@ -219,6 +227,7 @@ function serialize(
     salespersonId: invoice.salespersonId,
     salespersonNameAr: invoice.salespersonNameAr,
     currency: invoice.currency,
+    fxRate: invoice.fxRate ?? null,
     couponCode: invoice.couponCode,
     appliedPromotion: serializeAppliedPromotion(invoice.appliedPromotion),
     notes: invoice.notes,
@@ -378,6 +387,8 @@ export function createSalesInvoicesRoutes(
       promotions: deps.promotions,
       pricing: deps.pricing,
       taxPolicy: deps.taxPolicy,
+      exchangeRates: deps.exchangeRates,
+      baseCurrency: deps.baseCurrency,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,

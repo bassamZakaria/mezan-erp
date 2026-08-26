@@ -1,16 +1,24 @@
 import { Hono, type Context } from "hono";
+import { randomUUID } from "node:crypto";
 import {
   createCostCenter,
   updateCostCenter,
   buildCostCenterTree,
+  importableDepartments,
+  createCostCentersFromDepartments,
   CircularParentCostCenterError,
   CostCenterNotFoundError,
   DuplicateCostCenterCodeError,
   InvalidParentCostCenterError,
   type CostCenter,
   type CostCenterRepository,
+  type DepartmentRepository,
 } from "@mezan/domain";
-import { createCostCenterSchema, updateCostCenterSchema } from "@mezan/contracts";
+import {
+  createCostCenterSchema,
+  updateCostCenterSchema,
+  createCostCentersFromDepartmentsSchema,
+} from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
 
 function serialize(costCenter: CostCenter) {
@@ -56,9 +64,48 @@ function handleDomainError(c: Context, err: unknown) {
 export function createCostCentersRoutes(
   repo: CostCenterRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * HR departments, so مراكز التكلفة can be created from the org chart the
+   * tenant already maintains (R6.7). Omit and both import routes report an
+   * empty list rather than 404ing a control the screen would still render.
+   */
+  departments?: Pick<DepartmentRepository, "list">,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * The departments that have no cost centre yet. Listed BEFORE `/:id`, or
+   * Hono matches this path as an id and answers 404.
+   */
+  app.get("/importable-departments", gate("accounting.coa.view"), async (c) => {
+    if (!departments) return c.json([]);
+    const [deps, costCenters] = await Promise.all([departments.list(), repo.list()]);
+    return c.json(importableDepartments(deps, costCenters));
+  });
+
+  app.post("/from-departments", gate("accounting.coa.manage"), async (c) => {
+    if (!departments) {
+      return c.json({ error: "DEPARTMENTS_UNAVAILABLE", message: "الأقسام غير متاحة في هذا التركيب." }, 422);
+    }
+    const parsed = createCostCentersFromDepartmentsSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    try {
+      const result = await createCostCentersFromDepartments(
+        {
+          departmentIds: parsed.data.departmentIds,
+          parentId: parsed.data.parentId ?? null,
+          idFor: () => randomUUID(),
+        },
+        { departments, costCenters: repo },
+      );
+      return c.json({ created: result.created.map(serialize), skipped: result.skipped }, 201);
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
 
   app.get("/", gate("accounting.coa.view"), async (c) => {
     const costCenters = withinScope(await repo.list(), branchScopeOf(c), (cc) => cc.branchId);

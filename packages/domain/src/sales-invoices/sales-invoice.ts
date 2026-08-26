@@ -164,6 +164,13 @@ export interface SalesInvoice {
   /** Name snapshot at draft time, like `customerNameAr` — print/history must not re-resolve it. */
   readonly salespersonNameAr: string | null;
   readonly currency: string;
+  /**
+   * The rate this invoice was CONFIRMED at, when its currency is not the base
+   * one. Stamped once, at confirm, so the receivable sub-ledger and every
+   * report restate the figure the GL actually holds rather than re-deriving a
+   * rate that has since moved (D24). Null for a base-currency invoice.
+   */
+  readonly fxRate?: string | null;
   /** Coupon the customer presented; feeds the promotion evaluation at confirm. */
   readonly couponCode: string | null;
   /** What the promotion engine actually granted at confirm; null when nothing applied. */

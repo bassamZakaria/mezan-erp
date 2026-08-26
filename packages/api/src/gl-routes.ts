@@ -39,6 +39,9 @@ import {
   VatFilingNotFoundError,
   type VatFiling,
   type VatFilingRepository,
+  summarizePartyBalancesByCurrency,
+  type OpenPartyDocument,
+  type CurrencyBalanceGroup,
 } from "@mezan/domain";
 import {
   createGlJournalEntrySchema,
@@ -68,6 +71,15 @@ export interface GlRoutesDeps {
   readonly now?: () => string;
   /** Generates a reversing-entry id when the request body omits one. Defaults to a UUID. */
   readonly idGen?: () => string;
+  /**
+   * Every open receivable and payable with the currency it was raised in and
+   * the rate it was booked at — the input to `GET /gl/balances-by-currency`
+   * (R1.16). Omit and the endpoint reports empty rather than pretending every
+   * balance is base-currency.
+   */
+  readonly openPartyDocuments?: () => Promise<readonly OpenPartyDocument[]>;
+  /** The tenant's base currency; defaults to EGP. */
+  readonly baseCurrency?: () => Promise<string> | string;
 }
 
 function serialize(entry: JournalEntry) {
@@ -117,6 +129,22 @@ function serializeLedgerLine(line: AccountLedgerLine) {
     memo: line.memo,
     debit: line.debit.toString(),
     credit: line.credit.toString(),
+  };
+}
+
+function serializeCurrencyGroup(group: CurrencyBalanceGroup) {
+  return {
+    currency: group.currency,
+    outstandingBase: group.outstandingBase.toString(),
+    outstandingTransaction: group.outstandingTransaction.toString(),
+    parties: group.parties.map((p) => ({
+      partyId: p.partyId,
+      partyName: p.partyName,
+      currency: p.currency,
+      outstandingBase: p.outstandingBase.toString(),
+      outstandingTransaction: p.outstandingTransaction.toString(),
+      documentCount: p.documentCount,
+    })),
   };
 }
 
@@ -422,6 +450,24 @@ export function createGlRoutes(
     const entry = await deps.ledger.findById(c.req.param("id"));
     if (!entry) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serialize(entry));
+  });
+
+  /**
+   * أرصدة العملاء والموردين حسب العملة (R1.16). The base figure is what the
+   * AR/AP control accounts hold; the transaction figure is what the customer
+   * or supplier actually owes, in the currency the document was raised in.
+   */
+  app.get("/balances-by-currency", gate("accounting.reports.view"), async (c) => {
+    const baseCurrency = (await deps.baseCurrency?.()) ?? "EGP";
+    const documents = (await deps.openPartyDocuments?.()) ?? [];
+    const report = summarizePartyBalancesByCurrency(documents, baseCurrency);
+    return c.json({
+      baseCurrency: report.baseCurrency,
+      receivables: report.receivables.map(serializeCurrencyGroup),
+      payables: report.payables.map(serializeCurrencyGroup),
+      receivableTotalBase: report.receivableTotalBase.toString(),
+      payableTotalBase: report.payableTotalBase.toString(),
+    });
   });
 
   app.get("/accounts/:accountId/ledger", gate("accounting.journal.view"), async (c) => {

@@ -29,6 +29,8 @@ import {
   PhysicalCountService,
   SALES_INVOICE_ACTIVE_STATUSES,
   salesInvoiceTotals,
+  salesInvoiceBaseGrandTotal,
+  type OpenPartyDocument,
   purchaseInvoiceTotal,
   purchaseInvoiceBaseTotal,
   Qty,
@@ -809,6 +811,62 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
    * Historical-import archives carry opening balances that post to the same two
    * control accounts (D23), so their remaining balances belong here too.
    */
+  /**
+   * Every open receivable and payable, carrying the currency it was raised in
+   * and the rate it was booked at — the input to `GET /gl/balances-by-currency`
+   * (R1.16). The base figure comes from the same helpers the control-account
+   * reconciliation uses, so the report's totals tie to GL 1105 / 2100 rather
+   * than to a second arithmetic.
+   */
+  async function collectOpenPartyDocuments(): Promise<OpenPartyDocument[]> {
+    const [invoices, purchInvoices, customerRows, supplierRows] = await Promise.all([
+      salesInvoices.list(),
+      purchaseInvoices.list(),
+      customers.findAll(),
+      suppliers.findAll(),
+    ]);
+    const customerName = new Map(customerRows.map((r) => [r.id, r.nameAr]));
+    const supplierName = new Map(supplierRows.map((r) => [r.id, r.nameAr]));
+    const base = ((await settings.get()) ?? createDefaultSettings()).currency;
+    const out: OpenPartyDocument[] = [];
+
+    for (const inv of invoices) {
+      if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
+      const allocated = (await vouchers.invoices.findById(inv.id))?.allocated ?? Money.zero();
+      out.push({
+        kind: "receivable",
+        documentId: inv.id,
+        documentNo: inv.docNo ?? inv.id,
+        partyId: inv.customerId,
+        partyName: customerName.get(inv.customerId) ?? inv.customerNameAr,
+        date: inv.date,
+        currency: inv.currency || base,
+        fxRate: inv.fxRate ?? null,
+        totalBase: salesInvoiceBaseGrandTotal(salesInvoiceTotals(inv), inv.fxRate),
+        allocatedBase: allocated,
+      });
+    }
+
+    for (const inv of purchInvoices) {
+      if (inv.status !== "confirmed") continue;
+      const allocated = (await vouchers.invoices.findById(inv.id))?.allocated ?? Money.zero();
+      out.push({
+        kind: "payable",
+        documentId: inv.id,
+        documentNo: inv.number,
+        partyId: inv.supplierId,
+        partyName: supplierName.get(inv.supplierId) ?? inv.supplierId,
+        date: inv.date,
+        currency: inv.currency || base,
+        fxRate: inv.fxRate ?? null,
+        totalBase: purchaseInvoiceBaseTotal(inv),
+        allocatedBase: allocated,
+      });
+    }
+
+    return out;
+  }
+
   async function resolveReconciliationControls() {
     const [invoices, purchInvoices, snapshots, salesReturnDocs, purchaseReturnDocs, landedCostDocs, purchaseArchives, salesArchives] = await Promise.all([
       salesInvoices.list(),
@@ -864,7 +922,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     for (const inv of invoices) {
       if (!SALES_INVOICE_ACTIVE_STATUSES.has(inv.status)) continue;
       const totals = salesInvoiceTotals(inv);
-      arScaled += totals.grandTotal.scaled;
+      // The BASE-currency figure, which is what the control account holds — a
+      // USD invoice's own total is not an EGP amount (D24).
+      arScaled += salesInvoiceBaseGrandTotal(totals, inv.fxRate).scaled;
     }
     for (const archive of salesArchives) {
       if (archive.settled) continue;
@@ -1129,6 +1189,8 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       numbering: ledger.numbering,
       audit: auditSink,
       vatFilings,
+      openPartyDocuments: () => collectOpenPartyDocuments(),
+      baseCurrency: async () => ((await settings.get()) ?? createDefaultSettings()).currency,
     },
     vouchers: {
       audit: auditSink,

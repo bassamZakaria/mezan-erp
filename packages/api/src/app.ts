@@ -811,7 +811,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     }
   }
   if (options.costCenterRepo) {
-    app.route("/cost-centers", createCostCentersRoutes(options.costCenterRepo, options.resolveAuthContext));
+    app.route(
+      "/cost-centers",
+      createCostCentersRoutes(options.costCenterRepo, options.resolveAuthContext, options.hr?.departments),
+    );
   }
   if (options.treasuryAccountRepo) {
     app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, options.resolveAuthContext));
@@ -894,6 +897,10 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           currencyCheck:
             salesInvoices.currencyCheck ??
             (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
+          // Without this a permitted foreign currency still posts at par: the
+          // currency check only decides whether the code is allowed, never what
+          // it is worth (D24).
+          exchangeRates: salesInvoices.exchangeRates ?? options.exchangeRateRepo,
           taxPolicy:
             salesInvoices.taxPolicy ??
             (options.settingsStore

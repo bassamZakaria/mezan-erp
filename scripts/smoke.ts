@@ -162,6 +162,8 @@ const READ_PATHS = [
   "/hr/payroll/components",
   "/settings/currencies",
   "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN",
+  "/gl/balances-by-currency",
+  "/cost-centers/importable-departments",
 ];
 
 interface Failure {

@@ -178,6 +178,8 @@ export * from "./promotions/index.js";
 export * from "./exchange-rates/index.js";
 // fx-revaluation/ — period-end FX revaluation with auto-reverse
 export * from "./fx-revaluation/index.js";
+// currency/ — the supported-currency registry + per-currency AR/AP balances
+export * from "./currency/index.js";
 // cost-center-pl/ — أرباح مراكز التكلفة (Cost Center P&L)
 export * from "./cost-center-pl/index.js";
 // reconciliation/ — مطابقة الأرصدة (sub-ledger vs GL control account)

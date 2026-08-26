@@ -17,6 +17,7 @@ import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** الفرص (Opportunities) — docs/catalog/06 §"الفرص". List + create. Stage moves happen from the Pipeline board. */
 
@@ -180,7 +181,7 @@ export function OpportunitiesScreen() {
 
   const openCount = opportunities.filter((o) => o.status === "open").length;
   const wonCount = opportunities.filter((o) => o.status === "won").length;
-  const totalExpectedValue = opportunities.reduce((sum, o) => sum + Number(o.expectedValue), 0);
+  const totalExpectedValue = sumMajor(opportunities.map((o) => o.expectedValue));
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: opportunities.length },

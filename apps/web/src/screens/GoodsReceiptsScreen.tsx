@@ -23,6 +23,7 @@ import { useConfirmGoodsReceipt, useCreateGoodsReceipt, useGoodsReceipts, useIte
 import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -343,7 +344,7 @@ export function GoodsReceiptsScreen() {
         stats={[
           { label: t("goodsReceipts.stat.total"), value: <span className="mz-num">{receipts.length}</span> },
           { label: t("goodsReceipts.stat.confirmed"), value: <span className="mz-num">{receipts.filter((r) => r.status === "confirmed").length}</span> },
-          { label: t("goodsReceipts.stat.value"), value: <MoneyValue value={receipts.reduce((sum, r) => sum + num(r.totalCost), 0)} showUnit={false} /> },
+          { label: t("goodsReceipts.stat.value"), value: <MoneyValue value={sumMajor(receipts.map((r) => r.totalCost))} showUnit={false} /> },
           { label: t("goodsReceipts.stat.uninvoiced"), value: <span className="mz-num">{receipts.filter((r) => !r.invoiced).length}</span> },
         ]}
         statusChips={statusChips}

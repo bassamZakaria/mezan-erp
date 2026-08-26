@@ -30,6 +30,7 @@ import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -376,7 +377,7 @@ export function PurchaseOrdersScreen() {
         stats={[
           { label: t("purchaseOrders.stat.total"), value: <span className="mz-num">{orders.length}</span> },
           { label: t("purchaseOrders.stat.sent"), value: <span className="mz-num">{orders.filter((o) => o.status === "sent").length}</span> },
-          { label: t("purchaseOrders.stat.value"), value: <MoneyValue value={orders.reduce((sum, o) => sum + num(o.subtotal), 0)} showUnit={false} /> },
+          { label: t("purchaseOrders.stat.value"), value: <MoneyValue value={sumMajor(orders.map((o) => o.subtotal))} showUnit={false} /> },
           { label: t("purchaseOrders.stat.received"), value: <span className="mz-num">{orders.filter((o) => o.status === "fully_received").length}</span> },
         ]}
         statusChips={statusChips}

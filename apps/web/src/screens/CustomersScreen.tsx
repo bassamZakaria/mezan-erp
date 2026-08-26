@@ -37,6 +37,7 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
 import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
+import { sumMajor } from "../lib/money";
 
 /**
  * العملاء (Customers) — docs/catalog/01-sales.md "العملاء (Customers —
@@ -755,7 +756,7 @@ export function CustomersScreen() {
           { label: t("common.active"), value: <span className="mz-num">{customers.filter((c) => c.active).length}</span> },
           {
             label: t("customers.stat.creditLimits"),
-            value: <MoneyValue value={customers.reduce((sum, c) => sum + num(c.creditLimit), 0)} showUnit={false} />,
+            value: <MoneyValue value={sumMajor(customers.map((c) => c.creditLimit))} showUnit={false} />,
           },
           {
             label: t("customers.stat.toCollect"),

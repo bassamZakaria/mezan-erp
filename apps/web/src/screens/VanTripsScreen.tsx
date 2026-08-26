@@ -27,6 +27,7 @@ import {
 } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
@@ -303,7 +304,7 @@ export function VanTripsScreen() {
     {
       key: "cash",
       header: t("vanTrips.cashCollected"),
-      render: (trip) => <MoneyDisplay value={trip.cashMovements.reduce((sum, m) => sum + toMajor(m.amount), 0)} />,
+      render: (trip) => <MoneyDisplay value={sumMajor(trip.cashMovements.map((m) => m.amount))} />,
     },
   ];
 

@@ -24,6 +24,7 @@ import { useAccounts, useCreateItem, useItemCategories, useItemStock, useItemUni
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = { stock: "items.stockProduct", service: "items.service" };
 const TYPE_TONE: Record<ItemTypeDTO, PillTone> = { stock: "info", service: "neutral" };
@@ -213,8 +214,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
     return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("items.stock.empty")}</div>;
   }
 
-  const totalOnHand = positions.reduce((sum, p) => sum + Number(p.onHand), 0);
-  const totalValue = positions.reduce((sum, p) => sum + Number(p.totalValue), 0);
+  const totalOnHand = sumMajor(positions.map((p) => p.onHand));
+  const totalValue = sumMajor(positions.map((p) => p.totalValue));
 
   return (
     <Card className="overflow-hidden">

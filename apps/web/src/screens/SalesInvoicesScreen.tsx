@@ -56,7 +56,7 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { majorOf } from "../lib/money";
+import { majorOf, sumMajor } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
 import { SelectField, NumberField, TextAreaField, TextField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
@@ -1184,7 +1184,7 @@ export function SalesInvoicesScreen() {
    */
   const receipts = useVouchers({ type: "customer_collection", status: "confirmed" }).data ?? [];
   const unallocatedReceipts = useMemo(
-    () => receipts.reduce((sum, row) => sum + toMajor(row.allocationSummary?.unallocated ?? "0"), 0),
+    () => sumMajor(receipts.map((row) => row.allocationSummary?.unallocated ?? "0")),
     [receipts],
   );
 
@@ -1265,7 +1265,7 @@ export function SalesInvoicesScreen() {
           </div>
         );
       },
-      total: (rows) => <MoneyDisplay value={rows.reduce((sum, inv) => sum + toMajor(inv.remainingBalance), 0)} />,
+      total: (rows) => <MoneyDisplay value={sumMajor(rows.map((inv) => inv.remainingBalance))} />,
     },
     {
       key: "status",

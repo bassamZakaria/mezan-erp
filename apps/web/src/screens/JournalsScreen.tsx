@@ -21,6 +21,7 @@ import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO } from "@mezan/cont
 import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJournalEntry, type JournalEntryDTO } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
@@ -53,8 +54,8 @@ function toMajor(value: string): number {
 
 function docTotals(doc: JournalDoc): { debit: number; credit: number } {
   return {
-    debit: doc.lines.reduce((sum, l) => sum + toMajor(l.debit), 0),
-    credit: doc.lines.reduce((sum, l) => sum + toMajor(l.credit), 0),
+    debit: sumMajor(doc.lines.map((l) => l.debit)),
+    credit: sumMajor(doc.lines.map((l) => l.credit)),
   };
 }
 

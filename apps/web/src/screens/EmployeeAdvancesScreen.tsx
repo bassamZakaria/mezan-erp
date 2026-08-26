@@ -24,6 +24,7 @@ import {
   useRequestEmployeeAdvance,
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** سلف الموظفين (Employee Advances) — docs/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
@@ -190,7 +191,7 @@ export function EmployeeAdvancesScreen() {
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
   ];
 
-  const totalOutstanding = balances.reduce((sum, b) => sum + Number(b.outstanding), 0);
+  const totalOutstanding = sumMajor(balances.map((b) => b.outstanding));
 
   return (
     <div className="w-full">

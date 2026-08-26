@@ -30,6 +30,7 @@ import {
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** التكاليف الإضافية (Landed Costs) — docs/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -276,7 +277,7 @@ export function LandedCostsScreen() {
         return <span className="mz-num">{numbers.length > 0 ? numbers.join("، ") : "—"}</span>;
       },
     },
-    { key: "total", header: t("landedCosts.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + num(l.allocatedAmount), 0)} /> },
+    { key: "total", header: t("landedCosts.col.total"), align: "end", render: (d) => <MoneyDisplay value={sumMajor(d.lines.map((l) => l.allocatedAmount))} /> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 

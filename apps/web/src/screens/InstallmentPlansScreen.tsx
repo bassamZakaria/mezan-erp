@@ -24,6 +24,7 @@ import {
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useScreenIntent } from "../navigation";
+import { sumMajor } from "../lib/money";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -189,7 +190,7 @@ export function InstallmentPlansScreen() {
       header: t("instalments.remaining"),
       align: "end",
       render: (d) => (
-        <MoneyDisplay value={d.lines.filter((l) => l.status !== "paid").reduce((s, l) => s + Number(l.amount), 0)} />
+        <MoneyDisplay value={sumMajor(d.lines.filter((l) => l.status !== "paid").map((l) => l.amount))} />
       ),
     },
     {

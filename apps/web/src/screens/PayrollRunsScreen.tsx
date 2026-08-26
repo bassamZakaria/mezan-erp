@@ -24,6 +24,7 @@ import {
   usePayrollRuns,
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** الرواتب (Payroll) — docs/catalog/06 §"الرواتب". A run covers one month: مسودة → محتسب → معتمد (قيد محاسبي متوازن) → مصروف. */
 
@@ -186,11 +187,11 @@ export function PayrollRunsScreen() {
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
   ];
 
-  const yearTotalGross = runs.filter((r) => r.year === now.getUTCFullYear()).reduce((s, r) => s + Number(r.totalGross), 0);
-  const yearTotalNet = runs.filter((r) => r.year === now.getUTCFullYear()).reduce((s, r) => s + Number(r.totalNet), 0);
-  const yearDisbursed = runs
-    .filter((r) => r.year === now.getUTCFullYear() && r.status === "disbursed")
-    .reduce((s, r) => s + Number(r.totalNet), 0);
+  const yearTotalGross = sumMajor(runs.filter((r) => r.year === now.getUTCFullYear()).map((r) => r.totalGross));
+  const yearTotalNet = sumMajor(runs.filter((r) => r.year === now.getUTCFullYear()).map((r) => r.totalNet));
+  const yearDisbursed = sumMajor(
+    runs.filter((r) => r.year === now.getUTCFullYear() && r.status === "disbursed").map((r) => r.totalNet),
+  );
 
   return (
     <div className="w-full">

@@ -5,6 +5,7 @@ import { SelectField } from "../settings/form-controls";
 import { useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
 import { CreateOpportunityForm } from "./OpportunitiesScreen";
 import { useAppTranslation } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /**
  * خط المبيعات (Sales Pipeline) — docs/catalog/06 §"خط المبيعات". A kanban
@@ -37,9 +38,9 @@ export function PipelineScreen() {
   const [moveError, setMoveError] = useState<string | null>(null);
 
   const totalCount = opportunities.length;
-  const totalExpectedValue = opportunities.reduce((sum, o) => sum + Number(o.expectedValue), 0);
+  const totalExpectedValue = sumMajor(opportunities.map((o) => o.expectedValue));
   const wonOpportunities = opportunities.filter((o) => o.status === "won");
-  const wonValue = wonOpportunities.reduce((sum, o) => sum + Number(o.expectedValue), 0);
+  const wonValue = sumMajor(wonOpportunities.map((o) => o.expectedValue));
 
   async function moveOpportunity(opportunity: OpportunityDTO, stageId: string) {
     if (stageId === opportunity.stageId || movingId) return;

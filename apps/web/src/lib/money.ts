@@ -32,7 +32,10 @@ export function toMajorNumber(scaled: bigint): number {
   return Number(scaled) / 10 ** SCALE_DIGITS;
 }
 
-/** Sum a column of API money strings straight to a display number. */
+/**
+ * Sum a column of API decimal strings straight to a display number. Quantities
+ * use the same scale-1e-6 string form as money, so they belong here too.
+ */
 export function sumMajor(values: Iterable<string | null | undefined>): number {
   return toMajorNumber(sumScaled(values));
 }

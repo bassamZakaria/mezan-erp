@@ -5,6 +5,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useLeaveAccrualBatches, useRunLeaveAccrual } from "../data/hooks";
 import { formatDays } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { sumMajor } from "../lib/money";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
@@ -119,7 +120,7 @@ export function LeaveAccrualBatchesScreen() {
           { label: t("leaveAccrual.batches"), value: <span className="mz-num">{batches.length}</span> },
           {
             label: t("leaveAccrual.totalDays"),
-            value: <span className="mz-num">{formatDays(String(batches.reduce((sum, b) => sum + Number(b.totalDays), 0)))}</span>,
+            value: <span className="mz-num">{formatDays(String(sumMajor(batches.map((b) => b.totalDays))))}</span>,
           },
         ]}
         columns={columns}

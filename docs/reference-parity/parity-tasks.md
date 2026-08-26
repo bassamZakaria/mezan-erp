@@ -62,6 +62,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R21.10** The trial balance states that it balances, as a banner above the table
 - [x] **R7.1–R7.6** ETA e-invoicing: readiness meter, general + credentials tabs, item and unit mapping, submissions queue — and the payload now carries the registered codes instead of a hardcoded VAT sub-type
 - [~] **R23.1** Pipeline board: stage colour dots, board/list toggle, customer and value-range filters — branch filter not built, opportunities carry no branch
+- [x] **R9.1** Work-order shop-floor actions — extra issue, return, scrap, record a cost; all five routes existed with no hook and no UI
+- [~] **R9.2** Materials tab gains available and shortage; the movements / receipts / journal-entries / audit tabs remain open
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
 - [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)

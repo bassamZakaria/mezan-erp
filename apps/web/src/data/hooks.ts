@@ -157,6 +157,9 @@ import type {
   PurchaseReturnDocumentDTO,
   PurchaseRfqDTO,
   ReceiveProductDTO,
+  WorkOrderLineActionDTO,
+  LogWasteDTO,
+  LogCostDTO,
   ReconciliationReportDTO,
   RecordPhysicalCountEntriesDTO,
   RecordVanCashMovementDTO,
@@ -2655,6 +2658,9 @@ export interface WorkOrderMaterialRecord {
   readonly issuedQty: string;
   readonly returnedQty: string;
   readonly netQty: string;
+  /** What the source warehouse holds, and what is still missing (R9.2). Null when unknown. */
+  readonly availableQty: string | null;
+  readonly shortageQty: string | null;
   readonly issuedUnitCost: string;
 }
 
@@ -2764,6 +2770,68 @@ export function useIssueWorkOrderMaterials() {
     mutationFn: async (id) => {
       const res = await request(`/manufacturing/work-orders/${id}/issue`, { method: "POST" });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+/**
+ * The shop-floor actions (R9.1). All five routes existed and none had a hook,
+ * so a work order could only be started, issued in full, received and closed —
+ * a production run that needed one more sack of sugar, or scrapped a batch,
+ * had nowhere to record it.
+ */
+export function useExtraIssueWorkOrderMaterials() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body: WorkOrderLineActionDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/extra-issue`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+export function useReturnWorkOrderMaterials() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body: WorkOrderLineActionDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/return`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+export function useLogWorkOrderWaste() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body: LogWasteDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/log-waste`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theMaterialsCouldNotBe")));
+      return res.json<WorkOrderRecord>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),
+  });
+}
+
+export function useLogWorkOrderCost() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<WorkOrderRecord, ApiError, { id: string; body: LogCostDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/manufacturing/work-orders/${id}/log-cost`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theProductCouldNotBe")));
       return res.json<WorkOrderRecord>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["work-orders"] }),

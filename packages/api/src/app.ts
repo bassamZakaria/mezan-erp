@@ -561,6 +561,8 @@ export interface CreateAppOptions {
     readonly configInstances: ConfigInstanceRepository;
     readonly numbering: NextNumberService;
     readonly stock: StockLedgerService;
+    /** On-hand per (item, warehouse) for the materials tab's available/shortage columns (R9.2). */
+    readonly positions?: () => Promise<readonly { itemId: string; warehouseId: string; onHand: number }[]>;
     /** GL posting engine deps — the work-order complete builds a JE and posts it here. */
     readonly gl: JournalPostingDeps;
     readonly accounts: WorkOrderGlAccounts;
@@ -1083,6 +1085,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           configInstances: mfg.configInstances,
           numbering: mfg.numbering,
           stock: mfg.stock,
+          positions: mfg.positions,
           gl: glPort,
           accounts: mfg.accounts,
           resolveUnitCost: mfg.resolveUnitCost,

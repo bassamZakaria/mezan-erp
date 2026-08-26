@@ -19,6 +19,10 @@ import {
   useCompleteWorkOrder,
   useCreateWorkOrder,
   useIssueWorkOrderMaterials,
+  useExtraIssueWorkOrderMaterials,
+  useReturnWorkOrderMaterials,
+  useLogWorkOrderWaste,
+  useLogWorkOrderCost,
   useItems,
   useReceiveWorkOrderProduct,
   useStartWorkOrder,
@@ -75,6 +79,109 @@ const STAGE_ACTION: Record<WorkOrderStageRecord, AppTranslationKey | null> = {
 };
 /** Map not_started onto the first step so the stepper reads before-issue. */
 const stepperKey = (stage: WorkOrderStageRecord) => (stage === "not_started" ? "started" : stage);
+
+/**
+ * إجراءات التشغيل (R9.1) — the shop-floor actions a real production run needs.
+ *
+ * All five routes existed on the server and none had a hook, so a work order
+ * could only be started, issued in full, received and closed: a run that
+ * needed one more sack of sugar, returned what it did not use, or scrapped a
+ * batch had nowhere to record it, and the WIP cost was wrong from that moment
+ * on.
+ */
+function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName: (id: string) => string }) {
+  const { t } = useAppTranslation();
+  const extraIssue = useExtraIssueWorkOrderMaterials();
+  const returnMaterials = useReturnWorkOrderMaterials();
+  const logWaste = useLogWorkOrderWaste();
+  const logCost = useLogWorkOrderCost();
+
+  const [itemId, setItemId] = useState(order.materials[0]?.itemId ?? "");
+  const [qty, setQty] = useState(0);
+  const [costKind, setCostKind] = useState<"labor" | "overhead" | "other">("labor");
+  const [amount, setAmount] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  const busy = extraIssue.isPending || returnMaterials.isPending || logWaste.isPending || logCost.isPending;
+  // Only a started order has materials on the floor to add to, return or scrap.
+  const canMoveMaterials = order.stage === "started" || order.stage === "materials_issued";
+
+  async function run(action: () => Promise<unknown>) {
+    setError(null);
+    try {
+      await action();
+      setQty(0);
+      setAmount(0);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("workOrders.thatActionCouldNotBe"));
+    }
+  }
+
+  const itemOptions = order.materials.map((m) => ({ value: m.itemId, label: itemName(m.itemId) }));
+
+  return (
+    <div className="flex flex-col gap-[14px]">
+      {error ? (
+        <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="rounded-lg border border-border p-[14px]">
+        <div className="mb-[10px] text-[12.5px] font-semibold text-ink">{t("workOrders.shopFloor")}</div>
+        <div className="grid gap-[10px] sm:grid-cols-2">
+          <SelectField label={t("workOrders.pickItem")} value={itemId} onChange={setItemId} options={itemOptions} />
+          <NumberField label={t("workOrders.qty")} value={qty} min={0} onChange={setQty} />
+        </div>
+        <div className="mt-[10px] flex flex-wrap gap-[8px]">
+          <Button
+            disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
+            onClick={() => run(() => extraIssue.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+          >
+            {t("workOrders.action.extraIssue")}
+          </Button>
+          <Button
+            disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
+            onClick={() => run(() => returnMaterials.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+          >
+            {t("workOrders.action.returnMaterials")}
+          </Button>
+          <Button
+            variant="danger-outline"
+            disabled={busy || !canMoveMaterials || qty <= 0 || itemId === ""}
+            onClick={() => run(() => logWaste.mutateAsync({ id: order.id, body: { lines: [{ itemId, qty: String(qty) }] } }))}
+          >
+            {t("workOrders.action.logWaste")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-border p-[14px]">
+        <div className="grid gap-[10px] sm:grid-cols-2">
+          <SelectField
+            label={t("workOrders.costKind")}
+            value={costKind}
+            onChange={(value) => setCostKind(value as "labor" | "overhead" | "other")}
+            options={[
+              { value: "labor", label: t("workOrders.costKind.labor") },
+              { value: "overhead", label: t("workOrders.costKind.overhead") },
+              { value: "other", label: t("workOrders.costKind.other") },
+            ]}
+          />
+          <NumberField label={t("workOrders.amount")} value={amount} min={0} onChange={setAmount} />
+        </div>
+        <div className="mt-[10px]">
+          <Button
+            disabled={busy || amount <= 0 || order.status === "cancelled"}
+            onClick={() => run(() => logCost.mutateAsync({ id: order.id, body: { kind: costKind, amount: String(amount) } }))}
+          >
+            {t("workOrders.action.logCost")}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function WorkOrderDetail({
   order,
@@ -144,9 +251,11 @@ function WorkOrderDetail({
                   <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
                     <th className="px-[12px] py-[9px] text-start">{t("common.item")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.required")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.available")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.issued")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.returned")}</th>
                     <th className="px-[12px] py-[9px] text-end">{t("workOrders.net")}</th>
+                    <th className="px-[12px] py-[9px] text-end">{t("workOrders.shortage")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,15 +263,24 @@ function WorkOrderDetail({
                     <tr key={i} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[10px]">{itemName(m.itemId)}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.requiredQty}</td>
+                      <td className="mz-num px-[12px] py-[10px] text-end text-ink-muted">{m.availableQty ?? "—"}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.issuedQty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.returnedQty}</td>
                       <td className="mz-num px-[12px] py-[10px] text-end">{m.netQty}</td>
+                      <td className={`mz-num px-[12px] py-[10px] text-end ${Number(m.shortageQty ?? 0) > 0 ? "font-bold text-danger-ink" : "text-ink-faint"}`}>
+                        {m.shortageQty ?? "—"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           ),
+        },
+        {
+          key: "shopFloor",
+          label: t("workOrders.shopFloor"),
+          content: <ShopFloorPanel order={order} itemName={itemName} />,
         },
         {
           key: "costs",

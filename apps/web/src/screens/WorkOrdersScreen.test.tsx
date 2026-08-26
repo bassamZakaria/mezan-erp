@@ -80,7 +80,7 @@ function workOrder(overrides: Partial<WorkOrderRecord> = {}): WorkOrderRecord {
     status: "planned",
     stage: "not_started",
     materials: [
-      { itemId: "item-table", requiredQty: "40", wastePercent: 5, optional: false, issuedQty: "0", returnedQty: "0", netQty: "0", issuedUnitCost: "0" },
+      { itemId: "item-table", requiredQty: "40", wastePercent: 5, optional: false, issuedQty: "0", returnedQty: "0", netQty: "0", availableQty: null, shortageQty: null, issuedUnitCost: "0" },
     ],
     materialCost: "0",
     laborCost: "50",

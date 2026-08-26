@@ -1104,6 +1104,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       configInstances: manufacturing.configInstances,
       numbering: ledger.numbering,
       stock: stockService,
+      /** Feeds the materials tab's available/shortage columns (R9.2). */
+      positions: async () => {
+        const { positions } = await stockService.getValuation();
+        return positions.map((position) => ({
+          itemId: position.itemId,
+          warehouseId: position.warehouseId,
+          onHand: Number(position.onHand.toString()),
+        }));
+      },
       gl: salesInvoiceGl,
       accounts: MANUFACTURING_GL_ACCOUNTS,
       resolveUnitCost: async (itemId: string) => {

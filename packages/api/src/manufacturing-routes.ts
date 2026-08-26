@@ -81,6 +81,13 @@ export interface ManufacturingRoutesDeps {
   readonly configInstances: ConfigInstanceRepository;
   readonly numbering: NextNumberService;
   readonly stock: ManufacturingStockPort;
+  /**
+   * On-hand quantities per (item, warehouse), for the materials tab's
+   * available and shortage columns (R9.2). Optional: without it those two
+   * columns report null rather than a zero that would read as "nothing in
+   * stock" on a full warehouse.
+   */
+  readonly positions?: () => Promise<readonly { itemId: string; warehouseId: string; onHand: number }[]>;
   readonly gl: ManufacturingGlPostingPort;
   readonly accounts: WorkOrderGlAccounts;
   /** Item → moving-average unit cost (for BOM/config cost estimates). Defaults to 0. */
@@ -126,7 +133,12 @@ function serializeBom(b: Bom, estimate?: { materialCost: Money; laborCost: Money
   };
 }
 
-function serializeWorkOrder(o: WorkOrder) {
+/**
+ * A work order's materials, with what the source warehouse can actually
+ * supply. Shortage is required minus what is issued AND available — the number
+ * a supervisor needs before starting a run, not after it stalls.
+ */
+function serializeWorkOrder(o: WorkOrder, onHand?: ReadonlyMap<string, number>) {
   const wip = workOrderWipTotal(o);
   const producedOrPlanned = o.producedQty.scaled > 0n ? o.producedQty : o.plannedQty;
   const unitCost =
@@ -157,6 +169,17 @@ function serializeWorkOrder(o: WorkOrder) {
       issuedQty: num(m.issuedQty),
       returnedQty: num(m.returnedQty),
       netQty: num(m.issuedQty.subtract(m.returnedQty)),
+      availableQty: onHand ? String(onHand.get(`${m.itemId} ${o.sourceWarehouseId}`) ?? 0) : null,
+      shortageQty: onHand
+        ? String(
+            Math.max(
+              0,
+              Number(num(m.requiredQty)) -
+                Number(num(m.issuedQty.subtract(m.returnedQty))) -
+                (onHand.get(`${m.itemId} ${o.sourceWarehouseId}`) ?? 0),
+            ),
+          )
+        : null,
       issuedUnitCost: num(m.issuedUnitCost),
     })),
     materialCost: num(o.materialCost),
@@ -376,8 +399,22 @@ export function createManufacturingRoutes(
 
   // --- Work Orders ---------------------------------------------------------
 
+  /**
+   * One positions read per request, not one per material: the per-material
+   * version is an N+1 that gets slower with every work order on the board.
+   */
+  async function onHandByPosition(): Promise<ReadonlyMap<string, number> | undefined> {
+    if (!deps.positions) return undefined;
+    const map = new Map<string, number>();
+    for (const position of await deps.positions()) {
+      map.set(`${position.itemId} ${position.warehouseId}`, position.onHand);
+    }
+    return map;
+  }
+
   app.get("/work-orders", gate("manufacturing.wo.view"), async (c) => {
-    return c.json((await deps.workOrders.list()).map(serializeWorkOrder));
+    const onHand = await onHandByPosition();
+    return c.json((await deps.workOrders.list()).map((order) => serializeWorkOrder(order, onHand)));
   });
 
   app.get("/work-orders/:id", gate("manufacturing.wo.view"), async (c) => {

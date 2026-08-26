@@ -56,6 +56,12 @@ export function createInventoryValuationReport(): ReportDefinition<
       { key: "unitCost", header: "متوسط التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
       { key: "totalValue", header: "القيمة الإجمالية", format: "money", align: "end", total: true, value: (row) => row.totalValue },
     ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "totalValue",
+      maxPoints: 8,
+      captionAr: "الأصناف مرتبة حسب قيمة المخزون — أين يتركز رأس المال.",
+    },
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const rows: InventoryValuationRow[] = [];

@@ -87,6 +87,12 @@ export function createAgingSuppliersReport(
       { key: "over120", header: "أكثر من 120 يوم", format: "money", align: "end", total: true, value: (row) => row.over120 },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
     ],
+    chart: {
+      labelColumn: "supplierNameAr",
+      valueColumn: "total",
+      maxPoints: 8,
+      captionAr: "الموردون مرتبون حسب إجمالي المستحق لهم.",
+    },
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const byBucketTotals = new Map<string, AgingBucketTotals>();

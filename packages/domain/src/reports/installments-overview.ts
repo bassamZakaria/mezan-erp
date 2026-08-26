@@ -72,6 +72,12 @@ export function createInstallmentsOverviewReport(
       { key: "startDate", header: "تاريخ البدء", format: "date", value: (row) => row.startDate },
       { key: "statusLabel", header: "الحالة", format: "text", value: (row) => row.statusLabel },
     ],
+    chart: {
+      labelColumn: "customerNameAr",
+      valueColumn: "remaining",
+      maxPoints: 8,
+      captionAr: "الخطط مرتبة حسب المتبقي على العميل.",
+    },
     run: (_params, ctx) => {
       const customerNames = new Map(ctx.customers.map((c) => [c.id, c.nameAr]));
       return ctx.plans

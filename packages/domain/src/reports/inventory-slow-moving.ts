@@ -93,6 +93,12 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
       { key: "lastSaleDate", header: "تاريخ آخر بيع", format: "date", value: (row) => row.lastSaleDate },
       { key: "severityLabel", header: "مستوى الخطورة", format: "text", value: (row) => row.severityLabel },
     ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "onHand",
+      maxPoints: 8,
+      captionAr: "الأصناف الراكدة مرتبة حسب الكمية المتبقية.",
+    },
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);

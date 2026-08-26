@@ -91,6 +91,12 @@ export function createAgingCustomersReport(
       { key: "over120", header: "أكثر من 120 يوم", format: "money", align: "end", total: true, value: (row) => row.over120 },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
     ],
+    chart: {
+      labelColumn: "customerNameAr",
+      valueColumn: "total",
+      maxPoints: 8,
+      captionAr: "العملاء مرتبون حسب إجمالي المتأخر عليهم.",
+    },
     run: (params, ctx) => {
       const byCustomer = new Map<string, AgingBucketTotals>();
       for (const invoice of ctx.invoices) {

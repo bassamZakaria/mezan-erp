@@ -152,6 +152,12 @@ const READ_PATHS = [
   "/data-migration/status",
   "/inventory/writedown-runs",
   "/workflow/requests",
+  "/eta/activity-codes",
+  "/eta/unit-codes",
+  "/eta/branch-codes",
+  "/eta/item-mappings",
+  "/eta/unit-mappings",
+  "/eta/tax-subtypes",
 ];
 
 interface Failure {

@@ -19,6 +19,8 @@ export interface EtaLineInput {
   /** ETA item code (GS1/EGS), from the item mapping. */
   readonly itemCode: string;
   readonly quantity: string;
+  /** The authority's unit-of-measure code, from the unit mapping. */
+  readonly unitType: string;
   readonly unitPrice: string;
   readonly netTotal: string;
   /** VAT sub-type code (V009/V003/…) + rate + amount. */
@@ -33,6 +35,8 @@ export interface EtaDocumentInput {
   /** ISO datetime the document was issued/confirmed. */
   readonly issueDateTime: string;
   readonly receiver: EtaPartyInput;
+  /** كود الفرع لدى المصلحة — the issuing branch's registered code. */
+  readonly branchCode: string | null;
   readonly lines: readonly EtaLineInput[];
   readonly totalNet: string;
   readonly totalTax: string;
@@ -62,6 +66,7 @@ export function buildEtaPayload(input: EtaDocumentInput, config: EtaConfig): unk
             street: config.address.street,
             buildingNumber: config.address.buildingNumber,
             postalCode: config.address.postalCode,
+            branchId: input.branchCode,
           }
         : null,
     },
@@ -74,6 +79,7 @@ export function buildEtaPayload(input: EtaDocumentInput, config: EtaConfig): unk
       description: l.description,
       itemCode: l.itemCode,
       quantity: l.quantity,
+      unitType: l.unitType,
       unitValue: { currencySold: "EGP", amountEGP: l.unitPrice },
       netTotal: l.netTotal,
       taxableItems: [

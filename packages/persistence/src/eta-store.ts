@@ -12,6 +12,10 @@ import {
   type EtaSubmission,
   type EtaSubmissionRepository,
   type EtaSubmissionStatus,
+  type EtaBranchCode,
+  type EtaBranchCodeRepository,
+  type EtaUnitMapping,
+  type EtaUnitMappingRepository,
 } from "@mezan/domain";
 
 /**
@@ -48,6 +52,14 @@ CREATE TABLE IF NOT EXISTS eta_submission (
   submitted_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_eta_submission_status ON eta_submission(status);
+CREATE TABLE IF NOT EXISTS eta_branch_code (
+  branch_id      TEXT PRIMARY KEY,
+  eta_branch_code TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS eta_unit_mapping (
+  unit_code      TEXT PRIMARY KEY,
+  eta_unit_code  TEXT NOT NULL
+);
 `;
 
 const SINGLETON = "singleton";
@@ -241,6 +253,50 @@ class SqliteEtaSubmissionRepository implements EtaSubmissionRepository {
   }
 }
 
+class SqliteEtaBranchCodeRepository implements EtaBranchCodeRepository {
+  private readonly selectAll: Database.Statement;
+  private readonly upsert: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.selectAll = sqlite.prepare(`SELECT * FROM eta_branch_code ORDER BY branch_id`);
+    this.upsert = sqlite.prepare(`
+      INSERT INTO eta_branch_code (branch_id, eta_branch_code) VALUES (?, ?)
+      ON CONFLICT(branch_id) DO UPDATE SET eta_branch_code = excluded.eta_branch_code
+    `);
+  }
+
+  async list(): Promise<EtaBranchCode[]> {
+    const rows = this.selectAll.all() as { branch_id: string; eta_branch_code: string }[];
+    return rows.map((r) => ({ branchId: r.branch_id, etaBranchCode: r.eta_branch_code }));
+  }
+
+  async save(mapping: EtaBranchCode): Promise<void> {
+    this.upsert.run(mapping.branchId, mapping.etaBranchCode);
+  }
+}
+
+class SqliteEtaUnitMappingRepository implements EtaUnitMappingRepository {
+  private readonly selectAll: Database.Statement;
+  private readonly upsert: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.selectAll = sqlite.prepare(`SELECT * FROM eta_unit_mapping ORDER BY unit_code`);
+    this.upsert = sqlite.prepare(`
+      INSERT INTO eta_unit_mapping (unit_code, eta_unit_code) VALUES (?, ?)
+      ON CONFLICT(unit_code) DO UPDATE SET eta_unit_code = excluded.eta_unit_code
+    `);
+  }
+
+  async list(): Promise<EtaUnitMapping[]> {
+    const rows = this.selectAll.all() as { unit_code: string; eta_unit_code: string }[];
+    return rows.map((r) => ({ unitCode: r.unit_code, etaUnitCode: r.eta_unit_code }));
+  }
+
+  async save(mapping: EtaUnitMapping): Promise<void> {
+    this.upsert.run(mapping.unitCode, mapping.etaUnitCode);
+  }
+}
+
 /** Config repo with the extra secret-write the API uses (never on the domain port). */
 export interface EtaConfigStore extends EtaConfigRepository {
   setClientSecret(secret: string): Promise<void>;
@@ -249,6 +305,8 @@ export interface EtaConfigStore extends EtaConfigRepository {
 export interface SqliteEtaStoreHandle {
   readonly config: EtaConfigStore;
   readonly submissions: EtaSubmissionRepository;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
   close(): void;
 }
 
@@ -260,6 +318,8 @@ export function createSqliteEtaStore(path: SqliteConnectionInput = ":memory:"): 
   return {
     config: new SqliteEtaConfigRepository(sqlite),
     submissions: new SqliteEtaSubmissionRepository(sqlite),
+    branchCodes: new SqliteEtaBranchCodeRepository(sqlite),
+    unitMappings: new SqliteEtaUnitMappingRepository(sqlite),
     close: () => { if (owned) sqlite.close(); },
   };
 }

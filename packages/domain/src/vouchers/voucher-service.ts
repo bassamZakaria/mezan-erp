@@ -181,7 +181,20 @@ export class VoucherService {
       paymentMethod: cmd.paymentMethod,
       treasuryAccountId: cmd.treasuryAccountId,
       treasuryGlAccountId: cmd.treasuryGlAccountId,
-      counterpartyGlAccountId: cmd.counterpartyGlAccountId ?? null,
+      /**
+       * A fixed type overrides the caller outright (R8.1): a partner's capital
+       * injection is equity by definition and a tax payment settles the VAT
+       * payable, so accepting an account from the request body meant a drawing
+       * could be booked as an expense.
+       *
+       * Everything else takes the caller's account and falls back to the
+       * type's default — `other_expense` in particular must stay open, since
+       * an employee-advance disbursement rides on it to reach the 1160
+       * advances ASSET account.
+       */
+      counterpartyGlAccountId: def.counterpartAccountFixed
+        ? def.counterpartAccountId
+        : (cmd.counterpartyGlAccountId ?? def.counterpartAccountId ?? null),
       counterTreasuryAccountId: cmd.counterTreasuryAccountId ?? null,
       counterTreasuryGlAccountId: cmd.counterTreasuryGlAccountId ?? null,
       customerId: cmd.customerId ?? null,

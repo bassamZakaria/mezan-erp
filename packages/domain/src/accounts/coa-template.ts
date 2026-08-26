@@ -65,11 +65,17 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // --- 3000 حقوق الملكية (Equity) ---
   { id: "3000", code: "3000", nameAr: "حقوق الملكية", nameEn: "Equity", type: "equity", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "3100", code: "3100", nameAr: "رأس المال", nameEn: "Capital", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
+  // A partner's drawings are contra-equity, not an expense: taking money out
+  // of the business does not make the business less profitable (R8.1).
+  { id: "3200", code: "3200", nameAr: "مسحوبات الشركاء", nameEn: "Partner Drawings", type: "equity", naturalBalance: "debit", parentId: "3000", isHeader: false },
   { id: "3900", code: "3900", nameAr: "الأرباح المرحلة", nameEn: "Retained Earnings", type: "equity", naturalBalance: "credit", parentId: "3000", isHeader: false },
 
   // --- 4000 الإيرادات (Revenue) ---
   { id: "4000", code: "4000", nameAr: "الإيرادات", nameEn: "Revenue", type: "revenue", naturalBalance: "credit", parentId: null, isHeader: true },
   { id: "4100", code: "4100", nameAr: "إيرادات المبيعات", nameEn: "Sales Revenue", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
+  // Distinct from 4900 فائض الصندوق, which is specifically a till overage —
+  // an "other income" voucher is rent received, interest, a bank rebate.
+  { id: "4910", code: "4910", nameAr: "إيرادات أخرى", nameEn: "Other Income", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   { id: "4900", code: "4900", nameAr: "فائض الصندوق", nameEn: "Cash Overage", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
   { id: "4500", code: "4500", nameAr: "أرباح بيع الأصول", nameEn: "Gain on Asset Disposal", type: "revenue", naturalBalance: "credit", parentId: "4000", isHeader: false },
 
@@ -107,6 +113,8 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   { id: "5210", code: "5210", nameAr: "المصاريف المحمّلة", nameEn: "Overhead Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5400", code: "5400", nameAr: "إهلاك الأصول", nameEn: "Depreciation Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5450", code: "5450", nameAr: "خسارة بيع الأصول", nameEn: "Loss on Asset Disposal", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Likewise distinct from 5900 عجز الصندوق: rent paid, maintenance, utilities.
+  { id: "5910", code: "5910", nameAr: "مصروفات أخرى", nameEn: "Other Expenses", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5900", code: "5900", nameAr: "عجز الصندوق", nameEn: "Cash Shortage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
 ];
 

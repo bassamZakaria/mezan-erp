@@ -16,6 +16,7 @@ async function accountBalance(ctx: Ctx, accountId: string, asOf?: string): Promi
 
 /** Executable checks for the accounting module — see docs/scenarios/04-accounting-treasury.md. */
 export async function run(ctx: Ctx): Promise<void> {
+  await voucherTypesRouteToTheirOwnAccounts_R81(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -468,5 +469,100 @@ export async function run(ctx: Ctx): Promise<void> {
       underCollectionBefore,
     );
     ctx.checkEq("1360 (شيكات مرتجعة) increases by exactly the bounced cheque's amount", bouncedAfter, bouncedBefore + ctx.n(amount));
+  });
+}
+
+/**
+ * R8.1 — the voucher TYPE decides which GL account it posts against, not the
+ * request body. Each case deliberately names a wrong account and asserts the
+ * server overrode it: a partner's drawing booked as an expense, or a tax
+ * payment booked as rent, is a misstatement no report would flag.
+ */
+export async function voucherTypesRouteToTheirOwnAccounts_R81(ctx: Ctx): Promise<void> {
+  await ctx.scenario("voucher types post to the account their type fixes, not the one the caller sends (R8.1)", async () => {
+    const treasuries = ((await ctx.req("GET", "/treasury-accounts")).body ?? []) as Array<{
+      id: string;
+      glAccountId: string | null;
+    }>;
+    const treasury = treasuries.find((t) => t.glAccountId !== null);
+    ctx.check("a treasury account with a GL account exists", treasury !== undefined, JSON.stringify(treasuries));
+    if (!treasury) return;
+
+    const cases = [
+      { type: "capital_injection", account: "3100", why: "a partner's injection is equity, never income" },
+      { type: "capital_withdrawal", account: "3200", why: "a drawing is contra-equity, never an expense" },
+      { type: "tax_payment", account: "2200", why: "a tax payment settles the VAT payable, never an expense" },
+
+      { type: "customer_advance", account: "2160", why: "an advance is owed back — a liability, never revenue" },
+    ];
+
+    for (const { type, account, why } of cases) {
+      const id = `SCN-VCH-R81-${type}`;
+      const created = await ctx.req("POST", "/vouchers", {
+        id,
+        date: "2026-08-26",
+        voucherType: type,
+        amount: "500",
+        branchId: "BR-MAIN",
+        paymentMethod: "cash",
+        treasuryAccountId: treasury.id,
+        treasuryGlAccountId: treasury.glAccountId,
+        // Deliberately wrong. The server must not take it.
+        counterpartyGlAccountId: "9999-WRONG",
+        ...(type === "customer_advance" ? { customerId: "CUST-DEMO-1" } : {}),
+      });
+      ctx.check(`${type} — voucher drafts`, created.status === 201, JSON.stringify(created.body));
+      ctx.checkEq(`${type} — routed to ${account}: ${why}`, created.body?.counterpartyGlAccountId, account);
+
+      const confirmed = await ctx.req("POST", `/vouchers/${id}/confirm`, {});
+      ctx.check(`${type} — confirms`, confirmed.status === 200, JSON.stringify(confirmed.body));
+    }
+
+    /**
+     * The other half of the rule: `other_income` and `other_expense` are
+     * catch-alls, so an account the caller DOES name must survive — an
+     * employee-advance disbursement rides on `other_expense` to reach the
+     * 1160 advances asset account. The type only supplies a default.
+     */
+    const openTyped = await ctx.req("POST", "/vouchers", {
+      id: "SCN-VCH-R81-open",
+      date: "2026-08-26",
+      voucherType: "other_expense",
+      amount: "250",
+      branchId: "BR-MAIN",
+      paymentMethod: "cash",
+      treasuryAccountId: treasury.id,
+      treasuryGlAccountId: treasury.glAccountId,
+      counterpartyGlAccountId: "1160",
+    });
+    ctx.checkEq("other_expense keeps the account the caller named — it is a catch-all", openTyped.body?.counterpartyGlAccountId, "1160");
+
+    const defaulted = await ctx.req("POST", "/vouchers", {
+      id: "SCN-VCH-R81-default",
+      date: "2026-08-26",
+      voucherType: "other_expense",
+      amount: "250",
+      branchId: "BR-MAIN",
+      paymentMethod: "cash",
+      treasuryAccountId: treasury.id,
+      treasuryGlAccountId: treasury.glAccountId,
+    });
+    ctx.checkEq("and falls back to 5910 when the caller names none", defaulted.body?.counterpartyGlAccountId, "5910");
+
+    // And the resulting entries balance, so the routing did not just relabel
+    // one side of a broken posting.
+    const entries = ((await ctx.req("GET", "/gl/journal-entries")).body ?? []) as Array<{
+      memo?: string;
+      lines: Array<{ accountId: string; debit: string; credit: string }>;
+    }>;
+    const routed = entries.filter((e) => e.lines.some((l) => ["3100", "3200", "2200", "4910", "5910", "2160"].includes(l.accountId)));
+    ctx.check("the routed vouchers produced journal entries", routed.length > 0, `${routed.length}`);
+    for (const entry of routed) {
+      ctx.checkEq(
+        `"${(entry.memo ?? "").slice(0, 26)}" balances`,
+        entry.lines.reduce((sum, l) => sum + ctx.n(l.debit), 0),
+        entry.lines.reduce((sum, l) => sum + ctx.n(l.credit), 0),
+      );
+    }
   });
 }

@@ -65,6 +65,26 @@ export interface VoucherTypeDefinition {
   readonly allocatable: boolean;
   /** The invoice kind allocations target (only meaningful when allocatable). */
   readonly allocationKind: AllocationInvoiceKind | null;
+  /**
+   * The GL account this type posts against (R8.1). `null` means the type has
+   * no opinion at all — a customer collection posts to that customer's own
+   * receivable, a transfer to the other treasury — and the caller supplies it.
+   */
+  readonly counterpartAccountId: string | null;
+  /**
+   * Whether that account is the type's RULE rather than its default.
+   *
+   * A partner's capital injection is equity by definition, and a tax payment
+   * settles the VAT payable: accepting an account from the request body meant
+   * a drawing could be booked as an expense and a tax payment as rent. Those
+   * types are fixed.
+   *
+   * `other_income` and `other_expense` are the opposite case — being a
+   * catch-all is the whole point, and an employee-advance disbursement rides
+   * on `other_expense` to reach the 1160 advances ASSET account. For those the
+   * account here is only what a caller gets when it names none.
+   */
+  readonly counterpartAccountFixed: boolean;
 }
 
 export const VOUCHER_TYPE_DEFINITIONS = [
@@ -79,6 +99,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: true,
     allocationKind: "sales",
+    // The customer's own receivable control account, resolved per customer.
+    counterpartAccountId: null,
+    counterpartAccountFixed: false,
   },
   {
     code: "supplier_payment",
@@ -91,6 +114,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: true,
     allocatable: true,
     allocationKind: "purchase",
+    // The supplier's own payable control account, resolved per supplier.
+    counterpartAccountId: null,
+    counterpartAccountFixed: false,
   },
   {
     code: "customer_refund",
@@ -103,6 +129,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Back against the customer's receivable.
+    counterpartAccountId: null,
+    counterpartAccountFixed: false,
   },
   {
     code: "customer_advance",
@@ -115,6 +144,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // An advance is money owed back until the work is certified — a liability, never revenue.
+    counterpartAccountId: "2160",
+    counterpartAccountFixed: true,
   },
   {
     code: "supplier_refund",
@@ -127,6 +159,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: true,
     allocatable: false,
     allocationKind: null,
+    // Back against the supplier's payable.
+    counterpartAccountId: null,
+    counterpartAccountFixed: false,
   },
   {
     code: "other_income",
@@ -139,6 +174,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Sundry income.
+    counterpartAccountId: "4910",
+    counterpartAccountFixed: false,
   },
   {
     code: "other_expense",
@@ -151,6 +189,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Sundry expense.
+    counterpartAccountId: "5910",
+    counterpartAccountFixed: false,
   },
   {
     code: "capital_injection",
@@ -163,6 +204,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Equity, not income: the partner is not a customer (R8.1).
+    counterpartAccountId: "3100",
+    counterpartAccountFixed: true,
   },
   {
     code: "capital_withdrawal",
@@ -175,6 +219,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Drawings — contra-equity, not an expense (R8.1).
+    counterpartAccountId: "3200",
+    counterpartAccountFixed: true,
   },
   {
     code: "tax_payment",
@@ -187,6 +234,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // Settles the VAT payable the invoices accrued, never an expense (R8.1).
+    counterpartAccountId: "2200",
+    counterpartAccountFixed: true,
   },
   {
     code: "inter_treasury_transfer",
@@ -199,6 +249,9 @@ export const VOUCHER_TYPE_DEFINITIONS = [
     requiresSupplier: false,
     allocatable: false,
     allocationKind: null,
+    // The destination treasury's own GL account.
+    counterpartAccountId: null,
+    counterpartAccountFixed: false,
   },
 ] as const satisfies readonly VoucherTypeDefinition[];
 

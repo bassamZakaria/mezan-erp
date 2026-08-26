@@ -6,6 +6,7 @@ import {
   DocumentList,
   EntityPicker,
   IconButton,
+  RowMenu,
   Money,
   Qty,
   MoneyInput,
@@ -27,6 +28,7 @@ import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { useNavigation } from "../navigation";
 
 const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
   stock: "items.stockProduct",
@@ -320,6 +322,7 @@ function ItemCostLayersTab({ itemId }: { itemId: string }) {
 
 export function ItemsScreen() {
   const { t } = useAppTranslation();
+  const { openScreenAt } = useNavigation();
   const query = useItems();
   const createItem = useCreateItem();
   const updateItem = useUpdateItem();
@@ -498,17 +501,37 @@ export function ItemsScreen() {
       header: "",
       align: "end",
       render: (row) => (
-        <IconButton
-          aria-label={t("items.editLabel", { name: row.nameAr })}
-          onClick={(event) => {
-            event.stopPropagation();
-            openEditForm(row);
-          }}
-        >
-          <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px]">
-            <path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-          </svg>
-        </IconButton>
+        <div className="flex items-center justify-end gap-[4px]">
+          <RowMenu
+            label={t("items.editLabel", { name: row.nameAr })}
+            items={[
+              // Offered only where it applies: an item already holding stock
+              // does not need an opening balance, and one that holds none at
+              // all cannot have one (R5.3).
+              ...(row.stockState === "out"
+                ? [
+                    {
+                      key: "opening-balance",
+                      label: t("items.action.setOpeningBalance"),
+                      onSelect: () =>
+                        openScreenAt("stock-adjustments", ["new", "INITIAL_STOCK", row.id]),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+          <IconButton
+            aria-label={t("items.editLabel", { name: row.nameAr })}
+            onClick={(event) => {
+              event.stopPropagation();
+              openEditForm(row);
+            }}
+          >
+            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px]">
+              <path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+            </svg>
+          </IconButton>
+        </div>
       ),
     },
   ];

@@ -21,6 +21,7 @@ import {
   Qty,
   ADJUSTMENT_REASON_DEFINITIONS,
   getAdjustmentReasonDefinition,
+  isAdjustmentReason,
   stockAdjustmentDocumentType,
   type AdjustmentReason,
   type AdjustmentReasonDefinition,
@@ -134,7 +135,20 @@ export function StockAdjustmentsScreen() {
   // `#/inventory/stock-adjustments` · `…/new` (reason picker, then the form) · `…/<docNo>`
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
-  const [selectedReason, setSelectedReason] = useState<AdjustmentReasonDefinition | null>(null);
+  const [reasonChoice, setReasonChoice] = useState<AdjustmentReasonDefinition | null>(null);
+  /**
+   * `#/…/stock-adjustments/new/<REASON>/<itemId?>` — the reason (and optionally
+   * the item) can arrive in the URL, which is how "set opening balance" on a
+   * zero-stock item row lands here already answered (R5.3). Derived from the
+   * route rather than synchronised into state, so a reload or a shared link
+   * reopens exactly the same form.
+   */
+  const routedReason = subPage.segments[1];
+  const routedItemId = subPage.segments[2] ?? null;
+  const selectedReason =
+    reasonChoice ??
+    (routedReason && isAdjustmentReason(routedReason) ? getAdjustmentReasonDefinition(routedReason) : null);
+  const setSelectedReason = setReasonChoice;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
@@ -223,6 +237,7 @@ export function StockAdjustmentsScreen() {
     return (
       <CreateAdjustmentView
         reason={selectedReason}
+        initialItemId={routedItemId}
         warehouses={warehouses}
         items={items}
         onDone={() => {
@@ -447,12 +462,15 @@ function AdjustmentGlTab({ docId }: { docId: string }) {
 /* -------------------------------------------------------------------- */
 
 function CreateAdjustmentView({
+  initialItemId,
   reason,
   warehouses,
   items,
   onDone,
   onBack,
 }: {
+  /** Prefills the first line, for "set opening balance" on an item row (R5.3). */
+  initialItemId?: string | null;
   reason: AdjustmentReasonDefinition;
   warehouses: ReturnType<typeof useWarehouses>["data"];
   items: ReturnType<typeof useItems>["data"];
@@ -468,7 +486,9 @@ function CreateAdjustmentView({
   const [memo, setMemo] = useState("");
   const [warehouseId, setWarehouseId] = useState(warehouses?.[0]?.id ?? "");
   const defaultDirection: StockMovementDirection = reason.direction === "OUT" ? "OUT" : "IN";
-  const [lines, setLines] = useState<LineDraft[]>([blankLine(defaultDirection)]);
+  const [lines, setLines] = useState<LineDraft[]>([
+    initialItemId ? { ...blankLine(defaultDirection), itemId: initialItemId } : blankLine(defaultDirection),
+  ]);
   const [error, setError] = useState<string | null>(null);
 
   const warehouseList = warehouses ?? [];

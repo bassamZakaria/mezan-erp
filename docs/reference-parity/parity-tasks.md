@@ -82,7 +82,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] header actions: adjust stock, transfer, raise purchase request, movement ledger
 - [x] **R5.6** Reserved stock per warehouse — derived from open documents, never stored
 - [ ] **R10.2** Employee 360 tabs and the re-hire action
-- [ ] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
+- [~] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
+  - [x] **R5.3** items list: row-menu action on zero-stock rows, routed to the adjustment form with the reason and item already answered
+  - [ ] **R8.4** the same on treasury accounts
 - [ ] **R3.7** Loyalty points — decide in or out for v1; if in, build it as a sub-ledger
 
 ## P5 — missing features

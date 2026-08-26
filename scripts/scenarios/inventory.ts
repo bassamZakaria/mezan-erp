@@ -16,6 +16,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx);
   await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
   await itemTypeCapabilitiesBind_R51(ctx);
+  await openingBalanceShortcutTargetsARealItem_R53(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -548,5 +549,31 @@ async function itemTypeCapabilitiesBind_R51(ctx: Ctx): Promise<void> {
       rejected.status >= 400,
       `status ${rejected.status}: ${JSON.stringify(rejected.body)}`,
     );
+  });
+}
+
+/**
+ * R5.3 — the opening-balance shortcut is a ROUTE, not screen state: the reason
+ * and the item ride in the URL so a reload or a shared link reopens the same
+ * form. The server half of that is that the id in the URL is a real item.
+ */
+async function openingBalanceShortcutTargetsARealItem_R53(ctx: Ctx): Promise<void> {
+  await ctx.scenario("the opening-balance shortcut posts against the item it named (R5.3)", async () => {
+    const items = ((await ctx.req("GET", "/items")).body ?? []) as Array<{ id: string; stockState: string | null }>;
+    const zeroStock = items.filter((i) => i.stockState === "out");
+    ctx.check("the seed has a zero-stock item to offer the action on", zeroStock.length > 0, `found ${zeroStock.length}`);
+
+    const target = zeroStock[0]!;
+    const { draft, confirm } = await draftAndConfirm(ctx, "stock-adjustments", "SCN-ADJ-R53", {
+      date: "2026-08-24",
+      lines: [{ itemId: target.id, warehouseId: "WH-MAIN", reason: "INITIAL_STOCK", direction: "IN", qty: "12", unitCost: "5" }],
+    });
+    ctx.check("the opening balance drafts", draft.status === 201, JSON.stringify(draft.body));
+    ctx.check("the opening balance confirms", confirm.status === 200, JSON.stringify(confirm.body));
+
+    const after = ((await ctx.req("GET", "/items")).body ?? []) as Array<{ id: string; onHand: string | null; stockState: string | null }>;
+    const row = after.find((i) => i.id === target.id);
+    ctx.checkEq("the item now holds the opened quantity", ctx.n(row?.onHand), 12);
+    ctx.check("and it has left the out-of-stock chip", row?.stockState !== "out", JSON.stringify(row));
   });
 }

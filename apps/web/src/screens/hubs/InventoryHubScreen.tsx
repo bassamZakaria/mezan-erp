@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
+import { Button, Card, Money, StatCard } from "@mezan/ui";
 import type { InventoryStockLevelsRow } from "@mezan/domain";
 import { useItems } from "../../data/hooks";
 import { useReport } from "../../data/reports-hooks";
@@ -59,9 +59,6 @@ export function InventoryHubScreen() {
             </Button>
           ))}
         </div>
-      </div>
-      <div className="-mt-[18px] -mb-[22px]">
-        <FulcrumRule />
       </div>
 
       {isError ? (

@@ -4,7 +4,6 @@ import {
   Card,
   Checkbox,
   EntityPicker,
-  FulcrumRule,
   IconButton,
   SearchInput,
   Select,
@@ -268,7 +267,6 @@ export function CostCentersScreen() {
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">
         <StatCard label={t("costCentres.totalCostCentres")} value={<span className="mz-num">{totalCount}</span>} />

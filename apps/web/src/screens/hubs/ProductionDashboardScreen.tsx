@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FulcrumRule, Button, Card, EmptyState, Money, StatusPill } from "@mezan/ui";
+import { Button, Card, EmptyState, Money, StatusPill } from "@mezan/ui";
 import { useManufacturingDashboard, type ProductionBucketOrderDTO } from "../../data/hub-hooks";
 import { useCreateWorkStation, useSetWorkStationStatus, useWorkStations } from "../../data/hooks";
 import { TextField } from "../../settings/form-controls";
@@ -170,9 +170,6 @@ export function ProductionDashboardScreen() {
             {t("production.billsOfMaterials")}
           </Button>
         </div>
-      </div>
-      <div className="-mt-[18px] -mb-[22px]">
-        <FulcrumRule />
       </div>
 
       {query.isError ? (

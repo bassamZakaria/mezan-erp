@@ -6,7 +6,6 @@ import {
   DocumentList,
   DocumentStatusStepper,
   EmptyState,
-  FulcrumRule,
   IconButton,
   RowMenu,
   Select,
@@ -452,7 +451,6 @@ function CreateTransferView({
           </Button>
         </div>
       </div>
-      <FulcrumRule />
 
       {error ? (
         <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">

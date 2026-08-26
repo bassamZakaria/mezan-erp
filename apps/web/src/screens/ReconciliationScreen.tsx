@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { FulcrumRule, DocumentList, EmptyState, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import { DocumentList, EmptyState, StatusPill, Chip, Button, Card, formatNumber, type DocumentListColumn } from "@mezan/ui";
 import type { ReconciliationRowDTO, UnlinkedEntryLineDTO } from "@mezan/contracts";
 import { useReconciliation } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -68,7 +68,6 @@ export function ReconciliationScreen() {
         </div>
         <Button onClick={() => query.refetch()}>{t("reconciliation.refresh")}</Button>
       </div>
-      <FulcrumRule />
 
       {query.isError ? (
         <Card className="mb-[16px] p-[18px_20px]">

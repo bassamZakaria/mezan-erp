@@ -6222,11 +6222,7 @@ const webAr = {
   "salesInvoices.effects.pendingCustomer": "العميل",
 
   // نظام الحالة + الدعم الفني — شريط التطبيق (R1.7 / R1.8)
-  "shell.systemStatus.ok": "متصل",
-  "shell.systemStatus.issue": "يوجد خلل في أحد الأنظمة",
-  "shell.systemStatus.checking": "جارٍ التحقق…",
-  "shell.support.shortcuts": "اختصارات لوحة المفاتيح",
-  "shell.support.status": "حالة النظام",
+  "shell.utility.shortcuts": "اختصارات لوحة المفاتيح",
   "nav.item.notifications": "الإشعارات",
 
   // مركز الإشعارات — صفحة "عرض الكل" (R1.6)
@@ -13069,11 +13065,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "salesInvoices.effects.pendingCustomer": "The customer",
 
   // System status + support — app header (R1.7 / R1.8)
-  "shell.systemStatus.ok": "Online",
-  "shell.systemStatus.issue": "One system has an issue",
-  "shell.systemStatus.checking": "Checking…",
-  "shell.support.shortcuts": "Keyboard shortcuts",
-  "shell.support.status": "System status",
+  "shell.utility.shortcuts": "Keyboard shortcuts",
   "nav.item.notifications": "Notifications",
 
   // Notification centre — "see all" screen (R1.6)

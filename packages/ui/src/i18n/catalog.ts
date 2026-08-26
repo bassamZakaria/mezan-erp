@@ -171,8 +171,6 @@ const uiAr = {
   "ui.list.statsCollapse": "إخفاء التفاصيل",
   "ui.list.statsExpand": "عرض التفاصيل",
   "ui.list.filters": "تصفية النتائج",
-  "shell.systemStatus.ariaLabel": "حالة النظام: {label}",
-  "shell.support.menu": "الدعم الفني",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -343,8 +341,6 @@ const uiEn: Record<UiTranslationKey, string> = {
   "ui.list.statsCollapse": "Hide details",
   "ui.list.statsExpand": "Show details",
   "ui.list.filters": "Filter results",
-  "shell.systemStatus.ariaLabel": "System status: {label}",
-  "shell.support.menu": "Support",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

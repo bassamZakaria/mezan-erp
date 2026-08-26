@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { FulcrumRule, Button, Card, Money, StatCard } from "@mezan/ui";
+import { Button, Card, Money, StatCard } from "@mezan/ui";
 import { useCheques, useDashboardSummary, useTreasuryAccounts, useVouchers } from "../../data/hooks";
 import { useNavigation } from "../../navigation";
 import type { ScreenKey } from "../../App";
@@ -58,9 +58,6 @@ export function TreasuryHubScreen() {
             </Button>
           ))}
         </div>
-      </div>
-      <div className="-mt-[18px] -mb-[22px]">
-        <FulcrumRule />
       </div>
 
       {isError ? (

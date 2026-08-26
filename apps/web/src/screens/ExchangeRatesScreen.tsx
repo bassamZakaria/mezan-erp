@@ -5,7 +5,6 @@ import {
   Chip,
   DocumentList,
   EmptyState,
-  FulcrumRule,
   RowMenu,
   Select,
   StatusPill,
@@ -136,7 +135,6 @@ export function ExchangeRatesScreen() {
         </div>
         <Button variant="primary" onClick={() => setAdding((v) => !v)}>{t("fxRates.addRate")}</Button>
       </div>
-      <FulcrumRule />
 
       {error ? <div role="alert" className="mb-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">{error}</div> : null}
 

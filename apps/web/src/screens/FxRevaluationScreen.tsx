@@ -6,7 +6,6 @@ import {
   Chip,
   DocumentList,
   EmptyState,
-  FulcrumRule,
   StatCard,
   TextInput,
   VarianceBeam,
@@ -112,7 +111,6 @@ export function FxRevaluationScreen() {
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fx.foreignCurrencyRevaluation")}</h1>
         <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("fx.thisPostsAnEntryRestating")}</p>
       </div>
-      <FulcrumRule />
 
       <div className="mb-[18px] rounded-lg border border-border bg-surface p-[16px_18px]">
         <div className="flex flex-wrap items-end gap-[16px]">

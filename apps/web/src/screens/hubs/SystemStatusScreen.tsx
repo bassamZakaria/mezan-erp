@@ -1,4 +1,4 @@
-import { FulcrumRule, Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
+import { Button, Card, StatusPill, formatTime, type Locale } from "@mezan/ui";
 import { useSystemStatus, type ServiceStateDTO } from "../../data/hub-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 
@@ -59,9 +59,6 @@ export function SystemStatusScreen() {
         <Button size="sm" onClick={() => query.refetch()}>
           {t("systemStatus.checkAgainNow")}
         </Button>
-      </div>
-      <div className="-mt-[18px] -mb-[22px]">
-        <FulcrumRule />
       </div>
 
       {query.isError ? (

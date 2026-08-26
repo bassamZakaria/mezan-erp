@@ -386,3 +386,30 @@ export class TreasuryDisbursementUnavailableError extends Error {
     this.name = "TreasuryDisbursementUnavailableError";
   }
 }
+
+/** Raised when a payroll component fails its own validation (code, Arabic name). */
+export class InvalidPayrollComponentError extends Error {
+  readonly code = "INVALID_PAYROLL_COMPONENT";
+  constructor(readonly reasons: readonly string[]) {
+    super(reasons.join("، "));
+    this.name = "InvalidPayrollComponentError";
+  }
+}
+
+/** Raised when an operation references a payroll-component id that does not exist. */
+export class PayrollComponentNotFoundError extends Error {
+  readonly code = "PAYROLL_COMPONENT_NOT_FOUND";
+  constructor(readonly componentId: string) {
+    super(`مكوّن الرواتب غير موجود: ${componentId}`);
+    this.name = "PayrollComponentNotFoundError";
+  }
+}
+
+/** Raised when a payroll component reuses a code the registry already holds. */
+export class DuplicatePayrollComponentError extends Error {
+  readonly code = "DUPLICATE_PAYROLL_COMPONENT";
+  constructor(readonly componentCode: string) {
+    super(`كود مكوّن الرواتب مستخدم بالفعل: ${componentCode}`);
+    this.name = "DuplicatePayrollComponentError";
+  }
+}

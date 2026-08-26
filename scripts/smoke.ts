@@ -158,6 +158,7 @@ const READ_PATHS = [
   "/eta/item-mappings",
   "/eta/unit-mappings",
   "/eta/tax-subtypes",
+  "/hr/payroll/components",
 ];
 
 interface Failure {

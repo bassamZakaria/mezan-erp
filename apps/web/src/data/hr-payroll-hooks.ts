@@ -1,7 +1,10 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
   CreateEmployeeAdvanceDTO,
+  CreatePayrollComponentDTO,
   CreatePayrollRunDTO,
+  PayrollComponentDTO,
+  UpdatePayrollComponentDTO,
   EmployeeAdvanceBalanceDTO,
   EmployeeAdvanceDTO,
   PayrollRunDTO,
@@ -199,6 +202,58 @@ export function useCancelPayrollRun() {
       const res = await request(`/hr/payroll/runs/${id}/cancel`, { method: "POST" });
       if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("hrApi.thePayrollRunCouldNot3")));
       return res.json<PayrollRunDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+/* --- مكوّنات الرواتب — the GL-routing registry (R10.7) ----------------- */
+
+export function usePayrollComponents(): UseQueryResult<PayrollComponentDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<PayrollComponentDTO[], ApiError>({
+    queryKey: ["hr", "payroll", "components"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/hr/payroll/components");
+      if (!res.ok) throw new ApiError(res.status, t("payrollComponents.componentsCouldNotBeLoaded"));
+      return res.json<PayrollComponentDTO[]>();
+    },
+  });
+}
+
+function useComponentInvalidation() {
+  const queryClient = useQueryClient();
+  return () => {
+    queryClient.invalidateQueries({ queryKey: ["hr", "payroll", "components"] });
+    queryClient.invalidateQueries({ queryKey: ["hr-contracts"] });
+  };
+}
+
+export function useCreatePayrollComponent() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useComponentInvalidation();
+  return useMutation<PayrollComponentDTO, ApiError, CreatePayrollComponentDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/hr/payroll/components", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payrollComponents.theComponentCouldNotBe")));
+      return res.json<PayrollComponentDTO>();
+    },
+    onSuccess: invalidate,
+  });
+}
+
+export function useUpdatePayrollComponent() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const invalidate = useComponentInvalidation();
+  return useMutation<PayrollComponentDTO, ApiError, { id: string; body: UpdatePayrollComponentDTO }>({
+    mutationFn: async ({ id, body }) => {
+      const res = await request(`/hr/payroll/components/${id}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readMessage(res, t("payrollComponents.theComponentCouldNotBe")));
+      return res.json<PayrollComponentDTO>();
     },
     onSuccess: invalidate,
   });

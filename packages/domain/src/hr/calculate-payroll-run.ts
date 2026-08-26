@@ -1,6 +1,7 @@
 import { Money, allocate } from "../money/index.js";
 import type { EmployeeDirectory, EmployeeRef } from "../hr-shared/employee-ref.js";
 import { getPayBasisLabel, getPayFrequencyLabel, type Contract, type ContractRepository } from "./contract.js";
+import { componentAccountId, type PayrollComponentRepository } from "./payroll-component.js";
 import {
   amountDueBy,
   type EmployeeAdvance,
@@ -72,6 +73,8 @@ export interface PayrollCalculationDeps {
   readonly numbering: PayrollNumbering;
   /** Bound by the attendance/leave side of HR; absent = no unpaid-leave day is deducted (recorded on the run). */
   readonly unpaidLeave?: UnpaidLeaveDaysProvider;
+  /** GL routing registry for earning/deduction components (R10.7); absent = every line falls back to the run's default accounts. */
+  readonly payrollComponents?: Pick<PayrollComponentRepository, "list">;
   readonly idGen?: () => string;
   readonly now?: () => string;
 }
@@ -210,6 +213,8 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
     warnings.push("لم يُربط مصدر أيام الإجازات بدون أجر — لم تُخصم أي أيام إجازة بدون أجر في هذه الدورة.");
   }
 
+  const components = (await deps.payrollComponents?.list()) ?? [];
+
   const payslips: Payslip[] = [];
   for (const { employee, contract, paidDays } of inputs) {
     const lines: PayslipLine[] = [];
@@ -230,7 +235,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         source: "contract_allowance",
         nameAr: allowance.name,
         amount: prorate(allowance.amount, paidDays, periodDays),
-        glAccountId: null,
+        glAccountId: componentAccountId(components, allowance.componentId),
         referenceId: null,
       });
     }
@@ -260,7 +265,7 @@ export async function calculatePayrollRun(runId: string, deps: PayrollCalculatio
         source: "contract_deduction",
         nameAr: deduction.name,
         amount: deduction.amount,
-        glAccountId: null,
+        glAccountId: componentAccountId(components, deduction.componentId),
         referenceId: null,
       });
     }

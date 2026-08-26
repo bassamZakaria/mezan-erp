@@ -159,3 +159,42 @@ export type PayslipDTO = z.infer<typeof payslipSchema>;
 export type PayrollRunDTO = z.infer<typeof payrollRunSchema>;
 export type PayrollRunDetailDTO = z.infer<typeof payrollRunDetailSchema>;
 export type CreatePayrollRunDTO = z.infer<typeof createPayrollRunSchema>;
+
+// --- Payroll components (GL routing, R10.7) --------------------------------
+
+export const payrollComponentKindSchema = payslipLineKindSchema;
+
+export const payrollComponentSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable(),
+  kind: payrollComponentKindSchema,
+  /** Debit account for an earning or employer contribution, credit account for a deduction. */
+  glAccountId: z.string().nullable(),
+  active: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+});
+
+export const createPayrollComponentSchema = z.object({
+  id: z.string().min(1).optional(),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable().optional(),
+  kind: payrollComponentKindSchema,
+  glAccountId: z.string().nullable().optional(),
+  active: z.boolean().optional(),
+});
+
+export const updatePayrollComponentSchema = z.object({
+  nameAr: z.string().min(1).optional(),
+  nameEn: z.string().nullable().optional(),
+  glAccountId: z.string().nullable().optional(),
+  active: z.boolean().optional(),
+});
+
+export type PayrollComponentKindDTO = z.infer<typeof payrollComponentKindSchema>;
+export type PayrollComponentDTO = z.infer<typeof payrollComponentSchema>;
+export type CreatePayrollComponentDTO = z.infer<typeof createPayrollComponentSchema>;
+export type UpdatePayrollComponentDTO = z.infer<typeof updatePayrollComponentSchema>;

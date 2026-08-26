@@ -239,9 +239,11 @@ export {
   createSqliteEmployeeAdvanceRepository,
   createSqlitePayrollRunRepository,
   createSqlitePayslipRepository,
+  createSqlitePayrollComponentRepository,
   type SqliteEmployeeAdvanceRepositoryHandle,
   type SqlitePayrollRunRepositoryHandle,
   type SqlitePayslipRepositoryHandle,
+  type SqlitePayrollComponentRepositoryHandle,
 } from "./hr-payroll-store.js";
 export {
   createSqliteWritedownRunRepository,

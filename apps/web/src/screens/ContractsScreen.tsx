@@ -13,9 +13,18 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { ContractDTO, PayBasisDTO, ContractStatusDTO, ContractTypeDTO, PayFrequencyDTO } from "@mezan/contracts";
+import type {
+  ContractDTO,
+  PayBasisDTO,
+  ContractStatusDTO,
+  ContractTypeDTO,
+  PayFrequencyDTO,
+  PayrollComponentDTO,
+  PayrollComponentKindDTO,
+} from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useContracts, useCreateContract, useEmployees, useTerminateContract } from "../data/hooks";
+import { usePayrollComponents } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** العقود (Contracts) — docs/catalog/06 §"العقود". Formal employment contract per employee: type/pay-basis/frequency, salary, currency, allowances/deductions, leave-entitlement overrides. */
@@ -45,6 +54,13 @@ interface ContractDraft {
   annualLeaveDays: number | null;
   sickLeaveDays: number | null;
   personalLeaveDays: number | null;
+  lines: ContractLineDraft[];
+}
+
+interface ContractLineDraft {
+  key: string;
+  componentId: string;
+  amount: number | null;
 }
 
 function blankDraft(): ContractDraft {
@@ -57,6 +73,7 @@ function blankDraft(): ContractDraft {
     endDate: "",
     monthlySalary: null,
     currency: "EGP",
+    lines: [],
     annualLeaveDays: null,
     sickLeaveDays: null,
     personalLeaveDays: null,
@@ -64,11 +81,12 @@ function blankDraft(): ContractDraft {
 }
 
 export function ContractsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useContracts();
   const employeesQuery = useEmployees();
   const createContract = useCreateContract();
   const terminateContract = useTerminateContract();
+  const components = usePayrollComponents().data ?? [];
   const contracts = query.data ?? [];
   const employees = employeesQuery.data ?? [];
 
@@ -104,11 +122,34 @@ export function ContractsScreen() {
   const selected = selectedId ? (contracts.find((c) => c.id === selectedId) ?? null) : null;
 
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: `${e.code} — ${employeeName(e.id)}` }));
+  const componentOptions: EntityPickerOption[] = components
+    .filter((component) => component.active && component.kind !== "employer_contribution")
+    .map((component) => ({
+      id: component.id,
+      label: locale === "ar" ? component.nameAr : (component.nameEn ?? component.nameAr),
+      sublabel: `${component.code} · ${t(component.kind === "earning" ? "payrollComponents.earning" : "payrollComponents.deduction")}`,
+    }));
 
   function openCreateForm() {
     setDraft(blankDraft());
     setFormError(null);
     setFormOpen(true);
+  }
+
+  function componentOf(componentId: string): PayrollComponentDTO | undefined {
+    return components.find((component) => component.id === componentId);
+  }
+
+  // The line's NAME comes from the bound component, never from free text: the
+  // component is what carries the GL account the payslip line posts to.
+  function linePayload(kind: PayrollComponentKindDTO) {
+    return draft.lines
+      .filter((line) => line.componentId !== "" && line.amount !== null && componentOf(line.componentId)?.kind === kind)
+      .map((line) => ({
+        name: componentOf(line.componentId)!.nameAr,
+        amount: (line.amount ?? 0).toFixed(6),
+        componentId: line.componentId,
+      }));
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -137,6 +178,8 @@ export function ContractsScreen() {
           sickLeaveDays: draft.sickLeaveDays,
           personalLeaveDays: draft.personalLeaveDays,
         },
+        allowances: linePayload("earning"),
+        deductions: linePayload("deduction"),
       });
       setFormOpen(false);
     } catch (err) {
@@ -414,6 +457,57 @@ export function ContractsScreen() {
             value={draft.personalLeaveDays ?? Number.NaN}
             onChange={(v) => setDraft((d) => ({ ...d, personalLeaveDays: Number.isNaN(v) ? null : v }))}
           />
+          <div className="flex flex-col gap-[10px] rounded-md border border-border p-[12px]">
+            <div className="flex items-center justify-between gap-[10px]">
+              <span className="text-[12.5px] font-semibold text-ink">{t("contracts.allowancesAndDeductions")}</span>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => setDraft((d) => ({ ...d, lines: [...d.lines, { key: `line-${Date.now()}`, componentId: "", amount: null }] }))}
+              >
+                {t("contracts.addLine")}
+              </Button>
+            </div>
+            {draft.lines.length === 0 ? (
+              <p className="text-[12px] text-ink-muted">{t("contracts.noAllowanceOrDeductionLines")}</p>
+            ) : null}
+            {draft.lines.map((line, index) => (
+              <div key={line.key} className="flex flex-wrap items-end gap-[10px]">
+                <div className="min-w-[220px] flex-1">
+                  <EntityPicker
+                    label={t("contracts.component")}
+                    options={componentOptions}
+                    value={componentOptions.find((option) => option.id === line.componentId) ?? null}
+                    onChange={(option) =>
+                      setDraft((d) => ({
+                        ...d,
+                        lines: d.lines.map((row, i) => (i === index ? { ...row, componentId: option?.id ?? "" } : row)),
+                      }))
+                    }
+                    placeholder={t("contracts.pickAComponent")}
+                  />
+                </div>
+                <div className="min-w-[140px]">
+                  <span className="mb-[4px] block text-[11.5px] font-semibold text-ink-muted">{t("contracts.amount")}</span>
+                  <MoneyInput
+                    aria-label={t("contracts.amount")}
+                    value={line.amount}
+                    onChange={(value) =>
+                      setDraft((d) => ({ ...d, lines: d.lines.map((row, i) => (i === index ? { ...row, amount: value } : row)) }))
+                    }
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label={t("contracts.removeLine")}
+                  onClick={() => setDraft((d) => ({ ...d, lines: d.lines.filter((_, i) => i !== index) }))}
+                >
+                  {t("contracts.removeLine")}
+                </Button>
+              </div>
+            ))}
+          </div>
           <div className="mt-[6px] flex justify-end gap-[9px]">
             <Button type="button" onClick={() => setFormOpen(false)}>
               {t("common.cancel")}

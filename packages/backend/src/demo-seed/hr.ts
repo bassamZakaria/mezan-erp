@@ -282,6 +282,16 @@ const EMPLOYEES = [
  * contractual only — no tax or insurance line is seeded, because the payroll
  * engine computes neither.
  */
+const PAYROLL_COMPONENTS = [
+  { id: "PC-DEMO-TRANSPORT", code: "ALW-TRANSPORT", nameAr: "بدل انتقال", nameEn: "Transport allowance", kind: "earning", glAccountId: "5121" },
+  { id: "PC-DEMO-PHONE", code: "ALW-PHONE", nameAr: "بدل هاتف", nameEn: "Phone allowance", kind: "earning", glAccountId: "5121" },
+  { id: "PC-DEMO-HOUSING", code: "ALW-HOUSING", nameAr: "بدل سكن", nameEn: "Housing allowance", kind: "earning", glAccountId: "5121" },
+  { id: "PC-DEMO-MEAL", code: "ALW-MEAL", nameAr: "بدل وجبة", nameEn: "Meal allowance", kind: "earning", glAccountId: "5121" },
+  { id: "PC-DEMO-NATURE", code: "ALW-NATURE", nameAr: "بدل طبيعة عمل", nameEn: "Work-nature allowance", kind: "earning", glAccountId: "5121" },
+  { id: "PC-DEMO-WELFARE", code: "DED-WELFARE", nameAr: "اشتراك صندوق الزمالة", nameEn: "Welfare-fund subscription", kind: "deduction", glAccountId: "2190" },
+  { id: "PC-DEMO-EMPLOYER-INS", code: "EMP-INSURANCE", nameAr: "حصة صاحب العمل في التأمينات", nameEn: "Employer social-insurance share", kind: "employer_contribution", glAccountId: "5130" },
+];
+
 const CONTRACTS = [
   {
     id: "CTR-DEMO-1",
@@ -291,10 +301,10 @@ const CONTRACTS = [
     endDate: null,
     monthlySalary: "9000",
     allowances: [
-      { id: "CTR-DEMO-1-A1", name: "بدل انتقال", amount: "800" },
-      { id: "CTR-DEMO-1-A2", name: "بدل هاتف", amount: "200" },
+      { id: "CTR-DEMO-1-A1", name: "بدل انتقال", amount: "800", componentId: "PC-DEMO-TRANSPORT" },
+      { id: "CTR-DEMO-1-A2", name: "بدل هاتف", amount: "200", componentId: "PC-DEMO-PHONE" },
     ],
-    deductions: [{ id: "CTR-DEMO-1-D1", name: "اشتراك صندوق الزمالة", amount: "100" }],
+    deductions: [{ id: "CTR-DEMO-1-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
   },
   {
     id: "CTR-DEMO-2",
@@ -303,7 +313,7 @@ const CONTRACTS = [
     startDate: "2025-01-15",
     endDate: "2026-01-14",
     monthlySalary: "6500",
-    allowances: [{ id: "CTR-DEMO-2-A1", name: "بدل انتقال", amount: "500" }],
+    allowances: [{ id: "CTR-DEMO-2-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
@@ -313,7 +323,7 @@ const CONTRACTS = [
     startDate: "2026-01-15",
     endDate: null,
     monthlySalary: "7800",
-    allowances: [{ id: "CTR-DEMO-3-A1", name: "بدل انتقال", amount: "600" }],
+    allowances: [{ id: "CTR-DEMO-3-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
@@ -325,8 +335,8 @@ const CONTRACTS = [
     monthlySalary: "18000",
     leaveEntitlement: { annualLeaveDays: 30 },
     allowances: [
-      { id: "CTR-DEMO-4-A1", name: "بدل سكن", amount: "2500" },
-      { id: "CTR-DEMO-4-A2", name: "بدل انتقال", amount: "1500" },
+      { id: "CTR-DEMO-4-A1", name: "بدل سكن", amount: "2500", componentId: "PC-DEMO-HOUSING" },
+      { id: "CTR-DEMO-4-A2", name: "بدل انتقال", amount: "1500", componentId: "PC-DEMO-TRANSPORT" },
     ],
     deductions: [],
   },
@@ -337,7 +347,7 @@ const CONTRACTS = [
     startDate: "2024-09-01",
     endDate: null,
     monthlySalary: "7500",
-    allowances: [{ id: "CTR-DEMO-5-A1", name: "بدل انتقال", amount: "600" }],
+    allowances: [{ id: "CTR-DEMO-5-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
@@ -348,10 +358,10 @@ const CONTRACTS = [
     endDate: null,
     monthlySalary: "8200",
     allowances: [
-      { id: "CTR-DEMO-6-A1", name: "بدل انتقال", amount: "600" },
-      { id: "CTR-DEMO-6-A2", name: "بدل طبيعة عمل", amount: "400" },
+      { id: "CTR-DEMO-6-A1", name: "بدل انتقال", amount: "600", componentId: "PC-DEMO-TRANSPORT" },
+      { id: "CTR-DEMO-6-A2", name: "بدل طبيعة عمل", amount: "400", componentId: "PC-DEMO-NATURE" },
     ],
-    deductions: [{ id: "CTR-DEMO-6-D1", name: "اشتراك صندوق الزمالة", amount: "100" }],
+    deductions: [{ id: "CTR-DEMO-6-D1", name: "اشتراك صندوق الزمالة", amount: "100", componentId: "PC-DEMO-WELFARE" }],
   },
   {
     id: "CTR-DEMO-7",
@@ -360,7 +370,7 @@ const CONTRACTS = [
     startDate: "2026-02-01",
     endDate: "2027-01-31",
     monthlySalary: "6800",
-    allowances: [{ id: "CTR-DEMO-7-A1", name: "بدل وجبة", amount: "450" }],
+    allowances: [{ id: "CTR-DEMO-7-A1", name: "بدل وجبة", amount: "450", componentId: "PC-DEMO-MEAL" }],
     deductions: [],
   },
   {
@@ -370,7 +380,7 @@ const CONTRACTS = [
     startDate: "2026-06-01",
     endDate: "2026-08-31",
     monthlySalary: "5600",
-    allowances: [{ id: "CTR-DEMO-8-A1", name: "بدل انتقال", amount: "400" }],
+    allowances: [{ id: "CTR-DEMO-8-A1", name: "بدل انتقال", amount: "400", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
   {
@@ -392,7 +402,7 @@ const CONTRACTS = [
     startDate: "2024-02-01",
     endDate: null,
     monthlySalary: "6200",
-    allowances: [{ id: "CTR-DEMO-10-A1", name: "بدل انتقال", amount: "500" }],
+    allowances: [{ id: "CTR-DEMO-10-A1", name: "بدل انتقال", amount: "500", componentId: "PC-DEMO-TRANSPORT" }],
     deductions: [],
   },
 ];
@@ -610,6 +620,11 @@ export async function seedHr(app: App): Promise<void> {
   }
   for (const jobTitle of JOB_TITLES) {
     await step(app, "POST", "/hr/job-titles", jobTitle);
+  }
+
+  // Contract lines bind to these by id, so the registry has to exist first.
+  for (const component of PAYROLL_COMPONENTS) {
+    await step(app, "POST", "/hr/payroll/components", component);
   }
 
   for (const employee of EMPLOYEES) {

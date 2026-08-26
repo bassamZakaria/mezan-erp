@@ -145,7 +145,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [ ] image — needs the attachments resource (R1.4)
   - [ ] channels & visibility — no sales-channel concept exists anywhere in the product yet; needs a decision before it can be built
   - [ ] editing a per-price-list price from the item form (the read-only view landed with R5.5)
-- [ ] **R5.8** Transfer import from Excel
+- [~] **R5.8** Transfer import — paste a range straight from Excel (the clipboard gives TSV) or choose a CSV file; the delimiter is detected per file, quoted fields and Arabic-Indic numerals are handled, and every row is resolved against the REAL item catalogue by code or barcode. A row that matches nothing, or names a service item, is rejected WITH its reason rather than carried through as a plausible id
+  - [ ] true binary `.xlsx` parsing — it needs a spreadsheet dependency this offline desktop app does not carry, and Excel's own CSV/clipboard export covers the same task without one
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three
 - [x] **R10.5** Leave-request create action, including filing on behalf of another employee behind `hr.leave.approve`
 - [~] **R1.15 / R1.16** 11 document currencies; per-currency AR/AP balances

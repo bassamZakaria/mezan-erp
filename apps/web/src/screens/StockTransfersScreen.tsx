@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
+import { parseDelimited, normalizeNumeral } from "../lib/delimited";
 import {
   Button,
   Card,
@@ -7,6 +8,7 @@ import {
   DocumentStatusStepper,
   FulcrumRule,
   IconButton,
+  SidePanel,
   Select,
   StatusPill,
   TextInput,
@@ -273,6 +275,128 @@ export function StockTransfersScreen() {
 /* Create view                                                          */
 /* -------------------------------------------------------------------- */
 
+interface ImportedLine {
+  readonly rowNumber: number;
+  readonly raw: string;
+  readonly itemId: string | null;
+  readonly qty: number;
+  readonly error: string | null;
+}
+
+/**
+ * Turns pasted or uploaded rows into transfer lines (R5.8).
+ *
+ * Every row is resolved against the REAL item catalogue by code or barcode and
+ * keeps that item's own id. An import is precisely where invented ids get in —
+ * a spreadsheet column is free text, and a row that cannot be matched is
+ * REJECTED with its reason rather than carried through as a plausible-looking
+ * string. A service item is rejected too: it holds no stock, so it cannot be
+ * transferred between warehouses.
+ */
+function ImportLinesPanel({
+  open,
+  onClose,
+  items,
+  onApply,
+}: {
+  open: boolean;
+  onClose: () => void;
+  items: readonly { id: string; code: string; nameAr: string; type: string; barcodes?: readonly string[] | null }[];
+  onApply: (lines: readonly { itemId: string; qty: number }[]) => void;
+}) {
+  const { t } = useAppTranslation();
+  const [text, setText] = useState("");
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  const parsed = useMemo<ImportedLine[]>(() => {
+    const rows = parseDelimited(text);
+    if (rows.length === 0) return [];
+    // A header line is detected, not configured: if the second cell of the
+    // first row is not a number, that row names columns.
+    const first = rows[0] as string[];
+    const hasHeader = rows.length > 1 && Number.isNaN(Number(normalizeNumeral(first[1] ?? "")));
+    const body = hasHeader ? rows.slice(1) : rows;
+
+    return body.map((cells, index) => {
+      const rowNumber = index + 1 + (hasHeader ? 1 : 0);
+      const code = (cells[0] ?? "").trim();
+      const qty = Number(normalizeNumeral(cells[1] ?? ""));
+      const match = items.find(
+        (i) => i.code.toLowerCase() === code.toLowerCase() || (i.barcodes ?? []).some((b) => b === code),
+      );
+      let error: string | null = null;
+      if (!match) error = t("stockXfer.import.unknownItem");
+      else if (match.type === "service") error = t("stockXfer.import.notStocked");
+      else if (!Number.isFinite(qty) || qty <= 0) error = t("stockXfer.import.badQty");
+      return { rowNumber, raw: code, itemId: match?.id ?? null, qty, error };
+    });
+  }, [text, items, t]);
+
+  const ready = parsed.filter((r) => r.error === null);
+  const rejected = parsed.filter((r) => r.error !== null);
+
+  return (
+    <SidePanel open={open} onClose={onClose} title={t("stockXfer.import.title")}>
+      <div className="flex flex-col gap-[12px]">
+        <p className="text-[12.5px] text-ink-muted">{t("stockXfer.import.hint")}</p>
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv,text/plain"
+          className="hidden"
+          onChange={async (event) => {
+            const file = event.target.files?.[0];
+            if (file) setText(await file.text());
+            event.target.value = "";
+          }}
+        />
+        <Button onClick={() => fileInput.current?.click()}>{t("stockXfer.import.chooseFile")}</Button>
+        <textarea
+          value={text}
+          onChange={(event) => setText(event.target.value)}
+          placeholder={t("stockXfer.import.paste")}
+          rows={7}
+          className="w-full rounded-md border border-border bg-surface p-[9px] font-mono text-[12px] text-ink"
+        />
+
+        {parsed.length > 0 ? (
+          <>
+            <div className="flex gap-[12px] text-[12.5px]">
+              <span className="font-semibold text-success-ink">{t("stockXfer.import.readyCount", { count: ready.length })}</span>
+              {rejected.length > 0 ? (
+                <span className="font-semibold text-danger-ink">{t("stockXfer.import.rejectedCount", { count: rejected.length })}</span>
+              ) : null}
+            </div>
+            {rejected.length > 0 ? (
+              <ul className="flex flex-col gap-[3px] text-[12px] text-danger-ink">
+                {rejected.map((r) => (
+                  <li key={r.rowNumber}>
+                    {t("stockXfer.import.row", { n: r.rowNumber })} · {r.raw || "—"} · {r.error}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </>
+        ) : text.trim() !== "" ? (
+          <p className="text-[12.5px] text-ink-muted">{t("stockXfer.import.nothingParsed")}</p>
+        ) : null}
+
+        <Button
+          variant="primary"
+          disabled={ready.length === 0}
+          onClick={() => {
+            onApply(ready.map((r) => ({ itemId: r.itemId as string, qty: r.qty })));
+            setText("");
+            onClose();
+          }}
+        >
+          {t("stockXfer.import.apply")}
+        </Button>
+      </div>
+    </SidePanel>
+  );
+}
+
 function CreateTransferView({
   warehouses,
   items,
@@ -312,6 +436,8 @@ function CreateTransferView({
   function updateLine(index: number, patch: Partial<LineDraft>) {
     setLines((prev) => prev.map((l, i) => (i === index ? { ...l, ...patch } : l)));
   }
+  const [importOpen, setImportOpen] = useState(false);
+
   function addLine() {
     setLines((prev) => [...prev, blankLine()]);
   }
@@ -421,12 +547,30 @@ function CreateTransferView({
                 </tbody>
               </table>
             </div>
-            <div className="border-t border-border p-[12px]">
+            <div className="flex gap-[8px] border-t border-border p-[12px]">
               <Button size="sm" onClick={addLine}>
                 {t("stockXfer.addLine")}
               </Button>
+              <Button size="sm" onClick={() => setImportOpen(true)}>
+                {t("stockXfer.import.title")}
+              </Button>
             </div>
           </Card>
+
+          <ImportLinesPanel
+            open={importOpen}
+            onClose={() => setImportOpen(false)}
+            items={itemList}
+            onApply={(imported) =>
+              setLines((prev) => {
+                // An import ADDS to what is already drafted; it replaces only a
+                // single untouched blank first row, which is the row the form
+                // opens with.
+                const existing = prev.length === 1 && prev[0]?.itemId === "" && prev[0]?.qty === 0 ? [] : prev;
+                return [...existing, ...imported.map((line) => ({ ...blankLine(), itemId: line.itemId, qty: line.qty }))];
+              })
+            }
+          />
         </div>
 
         <div

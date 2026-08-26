@@ -86,7 +86,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 ## P4 — entity 360
 
-- [~] **R3.6** Customer 360: statement already existed; action bar done; installments/returns/attachments/audit tabs still open
+- [x] **R3.6** Customer 360: overview, invoices, statement, installments, returns, attachments and audit — and customer create/update now emit the audit events the trail tab needs
 - [ ] **R4.5** Supplier 360: supplier statement and the purchase-side action bar
 - [~] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
   - [x] stock by warehouse with available / reserved / total

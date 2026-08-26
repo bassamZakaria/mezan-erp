@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import Database from "better-sqlite3";
+import { installSchemaSync } from "./schema-sync.js";
 
 /**
  * What a `createSqliteXStore(...)` factory accepts in place of a bare path:
@@ -42,11 +43,13 @@ export interface OpenedSqliteConnection {
  */
 export function openSqliteConnection(input: SqliteConnectionInput): OpenedSqliteConnection {
   if (typeof input !== "string") {
+    installSchemaSync(input);
     return { sqlite: input, owned: false };
   }
   const sqlite = new Database(input);
   sqlite.pragma("journal_mode = WAL");
   sqlite.pragma("busy_timeout = 5000");
+  installSchemaSync(sqlite);
   return { sqlite, owned: true };
 }
 

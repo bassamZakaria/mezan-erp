@@ -246,18 +246,9 @@ export interface SqliteItemStoreHandle extends ItemRepository {
 }
 
 /** Open a SQLite-backed ItemRepository. ":memory:" for tests, a path for real. */
-/** Adds `image_attachment_id` to a database created before the column existed. */
-function addImageColumnIfMissing(sqlite: Database.Database): void {
-  const columns = sqlite.prepare(`PRAGMA table_info(item)`).all() as { name: string }[];
-  if (!columns.some((c) => c.name === "image_attachment_id")) {
-    sqlite.exec(`ALTER TABLE item ADD COLUMN image_attachment_id TEXT`);
-  }
-}
-
 export function createSqliteItemStore(path: SqliteConnectionInput = ":memory:"): SqliteItemStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
-  addImageColumnIfMissing(sqlite);
   const store = new SqliteItemStore(sqlite);
   return Object.assign(store, {
     close: () => { if (owned) sqlite.close(); },

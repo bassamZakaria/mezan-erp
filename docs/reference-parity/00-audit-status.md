@@ -38,17 +38,32 @@ CRM, assets), `inventory/writedown-runs`, `accounting/trial-balance-report`,
 
 **Audited: 22 of 99. Not yet audited: 77.**
 
-## Findings so far (filed in `docs/defects.md`)
+## Findings so far
 
-- **D39** suppliers list reports the opening balance as the amount due — reads 0.00
-  against 150,867.60 of confirmed purchase invoices.
-- **D40** customer remaining credit is computed against the opening balance, so it
-  ignores every live invoice.
-- **D41** every treasury account's balance — column and all three KPIs — is the
-  opening balance; reads 0.00 with 10 confirmed vouchers on file.
+**Fixed this pass** — all three were one shape, an *opening* balance rendered as if
+it were a live one:
 
-These are one shape: **an opening balance rendered as if it were a live balance.**
-Wherever a screen shows a partner or account balance, check which field it reads.
+- **D39** suppliers list showed 0.00 payable against 150,867.60 of confirmed
+  invoices → now 112,076.00, tying to GL 2100 (114,576.00) to within the 2,500.00
+  of D42.
+- **D40** customer remaining credit ignored every invoice since the opening balance
+  → now measured against what the customer owes today.
+- **D41** treasury balances read 0.00 with ten confirmed vouchers posted → now read
+  from each account's own GL account: cash 2,379.12, bank 141,396.00, van 1,550.00,
+  equal to GL 1300-1 / 1310 / 1300-2 exactly.
+
+**Filed, still open:**
+
+- **D42** a landed cost credits AP with no supplier dimension — the 2,500.00 that
+  sits in the ledger and on no supplier's account.
+
+**Known gap the customer figure still carries:** the customers list sums invoice
+`remainingBalance` (51,368.40) while GL 1105 stands at 37,839.28. The 13,529.12
+difference is **D1** — confirmed collection vouchers never move an invoice's
+`amountPaid`. Re-measure this list when D1 is fixed.
+
+Lesson for the rest of the audit: **wherever a screen shows a balance, check which
+field it reads, and tie the total to its GL control account before believing it.**
 
 ## Inventory · Treasury · Accounting · Customers — list-level gaps
 

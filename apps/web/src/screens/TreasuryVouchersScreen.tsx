@@ -153,9 +153,15 @@ export function TreasuryVouchersScreen() {
   const [mode, setMode] = useState<"list" | "create" | "detail">("list");
   // Arriving from «تحصيل» on an invoice row: the customer is known, so the
   // create form opens as a collection already pointed at them (R3.5).
-  const [prefillCustomerId, setPrefillCustomerId] = useState<string | null>(null);
+  const [prefillParty, setPrefillParty] = useState<{ customerId?: string; supplierId?: string } | null>(null);
   useScreenIntent((intent) => {
-    setPrefillCustomerId(intent.prefill?.customerId ?? null);
+    setPrefillParty(
+      intent.prefill?.customerId
+        ? { customerId: intent.prefill.customerId }
+        : intent.prefill?.supplierId
+          ? { supplierId: intent.prefill.supplierId }
+          : null,
+    );
     setMode("create");
   });
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -282,7 +288,8 @@ export function TreasuryVouchersScreen() {
         suppliers={suppliers}
         treasuryAccounts={treasuryAccounts}
         accounts={accounts}
-        initialCustomerId={prefillCustomerId}
+        initialCustomerId={prefillParty?.customerId ?? null}
+        initialSupplierId={prefillParty?.supplierId ?? null}
         onDone={() => setMode("list")}
       />
     );
@@ -639,6 +646,7 @@ function CreateVoucherView({
   treasuryAccounts,
   accounts,
   initialCustomerId = null,
+  initialSupplierId = null,
   onDone,
 }: {
   customers: CustomerDTO[];
@@ -646,6 +654,7 @@ function CreateVoucherView({
   treasuryAccounts: TreasuryAccountDTO[];
   accounts: AccountDTO[];
   initialCustomerId?: string | null;
+  initialSupplierId?: string | null;
   onDone: () => void;
 }) {
   const { t } = useAppTranslation();
@@ -655,14 +664,18 @@ function CreateVoucherView({
   const branchesQuery = useBranches();
 
   // A collection is what «تحصيل» means; without a customer the user still picks the type.
-  const [type, setType] = useState<VoucherType | null>(initialCustomerId ? "customer_collection" : null);
+  // «تحصيل» means a collection and «صرف دفعة» a supplier payment; without a
+  // party the user still picks the type from the grid.
+  const [type, setType] = useState<VoucherType | null>(
+    initialCustomerId ? "customer_collection" : initialSupplierId ? "supplier_payment" : null,
+  );
   const [draft, setDraft] = useState<CreateDraft>({
     amount: null,
     paymentMethod: "cash",
     treasuryAccountId: treasuryAccounts[0]?.id ?? "",
     counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
     counterpartyGlAccountId: "4900",
-    partyId: initialCustomerId ?? "",
+    partyId: initialCustomerId ?? initialSupplierId ?? "",
     date: new Date().toISOString().slice(0, 10),
     referenceNo: "",
     memo: "",

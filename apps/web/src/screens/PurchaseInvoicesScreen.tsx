@@ -208,9 +208,21 @@ export function PurchaseInvoicesScreen() {
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  useScreenIntent(() => openCreate());
+  const prefilledSupplierId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
+  useScreenIntent((intent) => {
+    const supplierId = intent.prefill?.supplierId;
+    openCreate(...(supplierId ? [supplierId] : []));
+  });
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
-  const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
+  /**
+   * Arriving from «فاتورة مشتريات جديدة» on a supplier's page, the supplier is
+   * already known and rides in the URL. Derived, not synchronised: `undefined`
+   * means the user has not touched the picker.
+   */
+  const [supplierChoice, setSupplierChoice] = useState<EntityPickerOption | null | undefined>(undefined);
+  const supplier =
+    supplierChoice !== undefined ? supplierChoice : (supplierOptions.find((option) => option.id === prefilledSupplierId) ?? null);
+  const setSupplier = setSupplierChoice;
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
@@ -308,15 +320,16 @@ export function PurchaseInvoicesScreen() {
     { key: "createdBy", header: t("common.createdBy"), render: (inv) => <span className="text-ink-muted">{userName(inv.createdBy)}</span> },
   ];
 
-  function openCreate() {
+  function openCreate(supplierId?: string) {
     setMethod("manual");
-    setSupplier(null);
+    // `undefined` = untouched, so a supplier carried in from the supplier's page applies.
+    setSupplierChoice(undefined);
     setPickedReceipt(null);
     setDate(new Date().toISOString().slice(0, 10));
     setSupplierInvoiceNumber("");
     setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
     setFormError(null);
-    subPage.open("new");
+    subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
   }
 
   async function confirmSelected(id: string) {
@@ -513,7 +526,7 @@ export function PurchaseInvoicesScreen() {
         title={t("purchaseInvoices.title")}
         description={t("purchaseInvoices.description")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
+          <Button variant="primary" onClick={() => openCreate()}>
             {t("purchaseInvoices.new")}
           </Button>
         }

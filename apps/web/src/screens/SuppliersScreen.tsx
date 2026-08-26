@@ -35,6 +35,7 @@ import {
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 import { supplierPayableById } from "../lib/partner-balances";
+import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -532,6 +533,7 @@ function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
 
 function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; onBack: () => void; onEdit: () => void }) {
   const { t } = useAppTranslation();
+  const { navigate } = useNavigation();
   const address = [supplier.addressStreet, supplier.addressDistrict, supplier.addressCity].filter(Boolean).join(t("suppliers.addressSeparator"));
   return (
     <DocumentDetail
@@ -541,10 +543,19 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
       subtitle={supplier.nameEn ?? undefined}
       actions={
         <>
-          <Button variant="primary" onClick={onEdit}>
-            {t("suppliers.edit")}
+          <Button variant="primary" onClick={() => navigate("purchase-invoices", { kind: "create", prefill: { supplierId: supplier.id } })}>
+            {t("suppliers.action.newInvoice")}
           </Button>
-          <Button onClick={onBack}>{t("suppliers.backToList")}</Button>
+          <Button onClick={() => navigate("treasury-vouchers", { kind: "create", prefill: { supplierId: supplier.id } })}>
+            {t("suppliers.action.payment")}
+          </Button>
+          <Button onClick={() => navigate("purchase-orders", { kind: "create", prefill: { supplierId: supplier.id } })}>
+            {t("suppliers.action.newOrder")}
+          </Button>
+          <Button onClick={onEdit}>{t("suppliers.edit")}</Button>
+          <Button variant="ghost" onClick={onBack}>
+            {t("suppliers.backToList")}
+          </Button>
         </>
       }
       summary={[

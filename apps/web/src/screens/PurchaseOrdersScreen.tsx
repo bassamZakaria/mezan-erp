@@ -178,8 +178,16 @@ export function PurchaseOrdersScreen() {
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
-  useScreenIntent(() => openCreate());
-  const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
+  useScreenIntent((intent) => {
+    const supplierId = intent.prefill?.supplierId;
+    openCreate(...(supplierId ? [supplierId] : []));
+  });
+  // Carried in from «أمر شراء جديد» on a supplier's page; derived from the URL.
+  const [supplierChoice, setSupplierChoice] = useState<EntityPickerOption | null | undefined>(undefined);
+  const prefilledSupplierId = subPage.segments[0] === "new" ? (subPage.segments[1] ?? null) : null;
+  const supplier =
+    supplierChoice !== undefined ? supplierChoice : (supplierOptions.find((option) => option.id === prefilledSupplierId) ?? null);
+  const setSupplier = setSupplierChoice;
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
@@ -225,13 +233,13 @@ export function PurchaseOrdersScreen() {
     { key: "createdBy", header: t("common.createdBy"), render: (o) => <span className="text-ink-muted">{userName(o.createdBy)}</span> },
   ];
 
-  function openCreate() {
-    setSupplier(null);
+  function openCreate(supplierId?: string) {
+    setSupplierChoice(undefined);
     setDate(new Date().toISOString().slice(0, 10));
     setNotes("");
     setLines([{ itemId: "", qty: 1, unitPrice: 0 }]);
     setFormError(null);
-    subPage.open("new");
+    subPage.open(...(supplierId ? ["new", supplierId] : ["new"]));
   }
 
   async function confirmSelected(id: string) {
@@ -361,7 +369,7 @@ export function PurchaseOrdersScreen() {
         title={t("purchaseOrders.title")}
         description={t("purchaseOrders.description")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
+          <Button variant="primary" onClick={() => openCreate()}>
             {t("purchaseOrders.new")}
           </Button>
         }

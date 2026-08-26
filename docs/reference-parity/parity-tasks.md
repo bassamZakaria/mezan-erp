@@ -81,13 +81,13 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices — roll out to the rest)
 - [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
 - [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open
-- [ ] **R4.4** Purchase-invoice detail: add landed-costs and attachments tabs; consumed/received per line; inline pay action
+- [~] **R4.4** Purchase-invoice detail: landed-costs tab, consumed/received/still-in-stock per line (read from the cost layers the funding document created) and an inline «تسجيل السداد» that posts a real سند صرف — the attachments tab waits on R1.4
 - [ ] **R2.6** Coupon codes · **R2.9** quick-preview panel · **R2.10** share document
 
 ## P4 — entity 360
 
 - [~] **R3.6** Customer 360: statement already existed; action bar done; installments/returns/attachments/audit tabs still open
-- [ ] **R4.5** Supplier 360: supplier statement and the purchase-side action bar
+- [x] **R4.5** Supplier 360: the dated supplier statement, reconciled against both the open-invoice sub-ledger and the aging report, and the action bar (فاتورة مشتريات جديدة · سداد للمورد · أمر شراء جديد)
 - [~] **R5.5** Item detail: stock by warehouse (with reserved), cost layers, price lists, specifications, attachments, audit log; adjust-stock / transfer / purchase-request / movement-ledger actions
   - [x] stock by warehouse with available / reserved / total
   - [x] cost layers (remaining qty, unit cost, source, date)
@@ -116,7 +116,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R6.4** Tax groups alongside tax rates — compounding members, per-member breakdown
 - [x] **R6.5** Exchange rates: search and date filter (the three statuses already existed)
 - [x] **R5.1** Item types 2 → 6, with the behavioural rules per type — capability table in the domain; pickers and reports ask the capability, never `type === "stock"`
-- [ ] **R4.2** Purchase-invoice line types (stock / expense / freight)
+- [x] **R4.2** Purchase-invoice line types (stock / expense / freight) — three kinds, each routing its debit to its own account: 1200 / 5910 / 5200
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
 - [ ] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
 - [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude

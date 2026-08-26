@@ -5879,11 +5879,11 @@ export function usePayPurchaseInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<PurchaseInvoiceDTO & { voucherId: string }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
+  return useMutation<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/purchases/invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
-      return res.json<PurchaseInvoiceDTO & { voucherId: string }>();
+      return res.json<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }>();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] });

@@ -153,7 +153,7 @@ export interface PurchasesRoutesDeps {
     readonly referenceNo: string | null;
     readonly memo: string;
     readonly actor?: string;
-  }) => Promise<{ voucherId: string }>;
+  }) => Promise<{ voucherId: string; voucherNo: string | null }>;
   readonly now?: () => string;
 }
 
@@ -775,7 +775,7 @@ export function createPurchasesRoutes(
       );
     }
     try {
-      const { voucherId } = await deps.pay({
+      const { voucherId, voucherNo } = await deps.pay({
         invoiceId: invoice.id,
         invoiceNumber: invoice.number,
         supplierId: invoice.supplierId,
@@ -791,7 +791,7 @@ export function createPurchasesRoutes(
         actor: actor(c),
       });
       const settled = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-      return c.json({ ...serializeInvoice(invoice, settled), voucherId });
+      return c.json({ ...serializeInvoice(invoice, settled), voucherId, voucherNo });
     } catch (err) {
       return handleDomainError(c, err);
     }

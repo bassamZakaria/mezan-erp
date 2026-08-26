@@ -1213,7 +1213,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           invoiceId: input.invoiceId,
           amount: input.amount,
         });
-        return { voucherId };
+        // The number is stamped by the confirm, not the create — read it back so
+        // the screen can name the voucher instead of showing its internal id.
+        const posted = await vouchers.documents.findById(voucherId);
+        return { voucherId, voucherNo: posted?.docNo ?? null };
       },
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this

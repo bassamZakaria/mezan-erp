@@ -180,7 +180,7 @@ function InvoiceDetail({
         paymentMethod: payMethod,
       });
       setPayAmount(null);
-      setPayNote(t("purchaseInvoices.pay.done", { voucher: result.voucherId }));
+      setPayNote(t("purchaseInvoices.pay.done", { voucher: result.voucherNo ?? result.voucherId }));
     } catch (err) {
       setPayError(err instanceof Error ? err.message : t("purchaseInvoices.pay.errorFailed"));
     }

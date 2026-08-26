@@ -206,11 +206,16 @@ export async function run(ctx: Ctx): Promise<void> {
       id: "SCN-S-PI-XAU", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH, currency: "XAU",
       lines: [{ itemId: null, kind: "expense", description: "عملة بلا سعر صرف", qty: "1", unitCost: "10", taxRatePercent: 0 }],
     });
+    check(
+      "a currency the tenant never enabled is REFUSED at the door rather than posted at 1:1 — silently mis-stating a debt is the worse failure, and R11.7's allowed-currency list now catches it one step earlier than the missing-rate guard",
+      noRate.status === 422 && noRate.body?.error === "CURRENCY_NOT_ALLOWED",
+      `create=${noRate.status} ${JSON.stringify(noRate.body).slice(0, 250)}`,
+    );
     const noRateConfirm = await req("POST", "/purchases/invoices/SCN-S-PI-XAU/confirm", {});
     check(
-      "a currency with no approved rate on that date is REFUSED rather than posted at 1:1 — silently mis-stating a debt is the worse failure",
-      noRate.status === 201 && noRateConfirm.status === 422 && /سعر صرف/.test(JSON.stringify(noRateConfirm.body)),
-      `create=${noRate.status} confirm=${noRateConfirm.status} ${JSON.stringify(noRateConfirm.body).slice(0, 250)}`,
+      "and no such document exists to be confirmed",
+      noRateConfirm.status === 404,
+      `confirm=${noRateConfirm.status} ${JSON.stringify(noRateConfirm.body).slice(0, 250)}`,
     );
   });
 

@@ -51,6 +51,7 @@ import {
   salesInvoiceListQuerySchema,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
+import type { CurrencyCheck } from "./currency-policy.js";
 import {
   createAnyPermissionGate,
   createPermissionGate,
@@ -80,6 +81,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly pricing?: SalesInvoicePricingDeps;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
+  readonly currencyCheck?: CurrencyCheck;
   /**
    * Turns a collection recorded on the invoice into a real confirmed collection
    * voucher, allocated to that invoice. Without it the route refuses rather
@@ -347,6 +350,8 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const currencyRefusal = await deps.currencyCheck?.(d.currency);
+    if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date,

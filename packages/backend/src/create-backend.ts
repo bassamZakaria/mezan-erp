@@ -879,6 +879,10 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccounts,
     allocations: vouchers.allocations,
     invoices: vouchers.invoices,
+    // A van's opening float is a real cash movement out of a real خزنة, so it
+    // answers to the same سياسة الخزينة every other voucher does; without this
+    // it read the service's own built-in default instead.
+    settings,
   });
   const hrTreasuryDisbursement = createHrTreasuryDisbursementPort({
     documents: vouchers.documents,
@@ -1133,6 +1137,11 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
       pricing: {
         listPriceFor: async (customerId: string, itemId: string) => {
+          // تفعيل قوائم الأسعار (settings §"الرقابة الائتمانية"): with price
+          // lists switched off no invoice may be measured against one, or the
+          // toggle would only hide the screen while the variance check ran on.
+          const tenant = (await settings.get()) ?? createDefaultSettings();
+          if (!tenant.priceListsEnabled) return null;
           const customer = await customers.findById(customerId);
           if (!customer?.priceListId) return null;
           const list = await priceLists.findById(customer.priceListId);

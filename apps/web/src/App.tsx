@@ -98,6 +98,7 @@ import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
 import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
 import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
+import { TenantPreferences } from "./settings/TenantPreferences";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
@@ -563,6 +564,7 @@ export function App() {
   const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 
   return (
+    <TenantPreferences>
     <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
@@ -626,5 +628,6 @@ export function App() {
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} moduleJumps={moduleJumps} />
     </AppShell>
     </NavigationProvider>
+    </TenantPreferences>
   );
 }

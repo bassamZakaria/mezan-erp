@@ -62,6 +62,7 @@ import {
   createGoodsReceiptSchema,
   createPurchaseInvoiceSchema,
 } from "@mezan/contracts";
+import type { CurrencyCheck } from "./currency-policy.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -109,6 +110,8 @@ export interface PurchasesRoutesDeps {
    * stays blank.
    */
   readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
+  /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
+  readonly currencyCheck?: CurrencyCheck;
   /**
    * Cost-layer lookups the cancel endpoints use for the "sold-item" guard
    * (`trackSoldPurchaseItems`) and the stock-reversal ports use to find the
@@ -297,6 +300,8 @@ export function createPurchasesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const orderCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
+    if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal }, 422);
     try {
       const order = await createPurchaseOrder(
         {
@@ -448,6 +453,8 @@ export function createPurchasesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const invoiceCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
+    if (invoiceCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: invoiceCurrencyRefusal }, 422);
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;

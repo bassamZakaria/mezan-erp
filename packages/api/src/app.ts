@@ -98,6 +98,7 @@ import type { EntitlementsResolver } from "./module-gate.js";
 import { createAccountsRouter } from "./accounts.js";
 import type { AuthContextResolver } from "./permission-gate.js";
 import { createSettingsRoutes } from "./settings-routes.js";
+import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
 import { createCustomersRouter } from "./customers-routes.js";
@@ -504,7 +505,11 @@ export interface CreateAppOptions {
     readonly accounts: PurchaseGlAccounts;
     readonly allocatable?: AllocatableInvoiceRepository;
     /** Exchange rates, so a foreign-currency invoice posts at the rate of its own date (D24). */
-    readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+    readonly exchangeRates?: {
+      findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null>;
+      /** Full rate table, so the ALLOW_MISSING fx policy can reach an out-of-date rate. */
+      list?(): Promise<readonly { currency: string; rate: string; effectiveDate: string; status: string }[]>;
+    };
     /** The tenant's own currency; anything else on a document needs a rate. */
     readonly baseCurrency?: string;
     /**
@@ -522,6 +527,7 @@ export interface CreateAppOptions {
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number;
     readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
+    readonly currencyCheck?: CurrencyCheck;
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
@@ -696,6 +702,35 @@ function mapSettingsToPurchasePolicy(settings: TenantSettings): PurchasePolicy {
   };
 }
 
+type FxRateSource = NonNullable<NonNullable<CreateAppOptions["purchases"]>["exchangeRates"]>;
+
+/**
+ * Applies the tenant's سياسة عدم وجود سعر صرف (settings §"عام" →
+ * `fxRateMissingPolicy`) to a rate lookup. STRICT keeps today's behaviour: no
+ * approved rate on or before the document's date and the document is refused.
+ * ALLOW_MISSING falls back to the nearest approved rate the tenant holds for
+ * that currency — deliberately NOT to 1:1, which would post foreign figures
+ * into the base ledger as though the currency did not exist.
+ */
+function fxRatesUnder(source: FxRateSource | undefined, settingsStore: SettingsRepository | undefined): FxRateSource | undefined {
+  if (!source || !settingsStore || !source.list) return source;
+  const list = source.list.bind(source);
+  return {
+    list,
+    findRate: async (currency, asOfDate) => {
+      const onDate = await source.findRate(currency, asOfDate);
+      if (onDate) return onDate;
+      const settings = (await settingsStore.get()) ?? createDefaultSettings();
+      if (settings.fxRateMissingPolicy === "STRICT") return null;
+      const usable = (await list())
+        .filter((r) => r.currency === currency && (r.status === "approved" || r.status === "locked"))
+        .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+      const nearest = usable.at(0);
+      return nearest ? { rate: nearest.rate } : null;
+    },
+  };
+}
+
 /**
  * The ONE Hono app. A Hono app is a `(Request) => Promise<Response>` function,
  * so this exact instance is mounted two ways with no code difference:
@@ -813,6 +848,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           // Auto-wire the tenant's VAT rules (§"الضريبة") the same way credit
           // control is: a draft is stamped with the mode in force when it was
           // raised, so changing the setting never restates a posted invoice.
+          currencyCheck:
+            salesInvoices.currencyCheck ??
+            (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
           taxPolicy:
             salesInvoices.taxPolicy ??
             (options.settingsStore
@@ -1025,11 +1063,13 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           glReverse: purchases.layers ? glReversePort : undefined,
           accounts: purchases.accounts,
           allocatable: purchases.allocatable,
-          exchangeRates: purchases.exchangeRates,
+          exchangeRates: fxRatesUnder(purchases.exchangeRates, options.settingsStore),
           baseCurrency: purchases.baseCurrency,
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,
+          currencyCheck:
+            purchases.currencyCheck ?? (options.settingsStore ? createCurrencyCheck(options.settingsStore) : undefined),
           autoBatchNo:
             purchases.autoBatchNo ??
             (options.settingsStore && options.items

@@ -316,6 +316,12 @@ export async function seedDemoTenant(app: App): Promise<void> {
   assertLocalOrTest();
   if (await alreadySeeded(app)) return;
 
+  // The demo tenant imports in USD and EUR and holds rates for both, so it is a
+  // tenant that has switched تعدد العملات on. A brand-new tenant still starts
+  // single-currency — that is what the setting is for.
+  const baseSettings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
+  await step(app, "PUT", "/settings", { ...baseSettings, multiCurrencyEnabled: true });
+
   for (const customer of CUSTOMERS) {
     await step(app, "POST", "/customers", { ...customer, currency: "EGP", active: true });
   }

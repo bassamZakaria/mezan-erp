@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { createContext, createElement, useCallback, useContext, useMemo, type ReactNode } from "react";
 import { useUiTranslation } from "../i18n";
 import {
   formatDate,
@@ -11,8 +11,20 @@ import {
   type NumeralSystem,
 } from "../lib/format";
 
+/**
+ * The tenant's numeral preference (settings §"عام" → نظام الأرقام). It is a
+ * context rather than a prop because every screen calls `useFormat()` with no
+ * arguments — without this the preference would have to be threaded through
+ * hundreds of call sites, which is how it ended up being stored and never read.
+ */
+const NumeralsContext = createContext<NumeralSystem>("western");
+
+export function NumeralsProvider({ numerals, children }: { numerals: NumeralSystem; children: ReactNode }) {
+  return createElement(NumeralsContext.Provider, { value: numerals }, children);
+}
+
 export interface UseFormatOptions {
-  /** Numeral system for both money and dates. Defaults to "western". */
+  /** Numeral system for both money and dates. Defaults to the tenant's own preference. */
   numerals?: NumeralSystem;
   /** Overrides the locale's own currency label (ج.م / EGP). */
   currencyLabel?: string;
@@ -35,12 +47,13 @@ export interface UseFormatResult {
 }
 
 /**
- * Central formatting hook for the Mezan UI. Keeps money/number figures in
- * western tabular digits with correct RTL negative-sign placement, and lets
- * dates honor either western or Eastern Arabic-Indic numerals.
+ * Central formatting hook for the Mezan UI. Renders figures with correct RTL
+ * negative-sign placement, in whichever numeral system the tenant chose —
+ * western by default, Eastern Arabic-Indic when the tenant asked for it.
  */
 export function useFormat(options: UseFormatOptions = {}): UseFormatResult {
-  const numerals = options.numerals ?? "western";
+  const tenantNumerals = useContext(NumeralsContext);
+  const numerals = options.numerals ?? tenantNumerals;
   const { t, locale } = useUiTranslation();
   const currencyLabel = options.currencyLabel ?? t("ui.currency");
 

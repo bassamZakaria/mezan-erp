@@ -3388,6 +3388,39 @@ export function useStockBalance(filter: StockBalanceFilter = {}): UseQueryResult
   });
 }
 
+export interface AccountLedgerLineRecord {
+  readonly entryId: string;
+  readonly entryNo: string | null;
+  readonly date: string;
+  readonly memo: string | null;
+  readonly debit: string;
+  readonly credit: string;
+}
+
+export interface AccountLedgerRecord {
+  readonly balance: { accountId: string; debit: string; credit: string; balance: string };
+  readonly lines: AccountLedgerLineRecord[];
+}
+
+/**
+ * One GL account's movements and balance (`GET /gl/accounts/:id/ledger`). The
+ * route already existed and nothing called it, so the chart-of-accounts detail
+ * printed a "(المرحلة الثانية)" placeholder over live data (D43).
+ */
+export function useAccountLedger(accountId: string | null): UseQueryResult<AccountLedgerRecord, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<AccountLedgerRecord, ApiError>({
+    queryKey: ["account-ledger", accountId],
+    enabled: session !== null && accountId !== null,
+    queryFn: async () => {
+      const res = await request(`/gl/accounts/${encodeURIComponent(accountId!)}/ledger`);
+      if (!res.ok) throw new ApiError(res.status, t("api.theAccountLedgerCouldNot"));
+      return res.json<AccountLedgerRecord>();
+    },
+  });
+}
+
 export interface ItemStockPositionRecord {
   readonly warehouseId: string;
   readonly onHand: string;

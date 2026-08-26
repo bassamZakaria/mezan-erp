@@ -1,5 +1,6 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
+  useFormat,
   AccountTree,
   Button,
   Card,
@@ -20,7 +21,7 @@ import {
 } from "@mezan/ui";
 import type { AccountDTO, AccountStatusDTO, AccountTypeDTO, NaturalBalanceDTO } from "@mezan/contracts";
 import { buildAccountTree, hasChildAccounts, isDescendantOf, type AccountTreeNode } from "../lib/account-tree";
-import { useAccounts, useCreateAccount, useUpdateAccount } from "../data/hooks";
+import { useAccountLedger, useAccounts, useCreateAccount, useUpdateAccount } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
@@ -448,9 +449,7 @@ export function ChartOfAccountsScreen() {
                 </button>
               </div>
               {detailTab === "movements" ? (
-                <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-                  {t("coa.accountMovementWillAppearHere")}
-                </div>
+                <AccountMovementsTab accountId={selectedAccount.id} />
               ) : (
                 <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
                   {t("coa.theAuditTrailShowsEvery")}
@@ -584,6 +583,67 @@ export function ChartOfAccountsScreen() {
           </div>
         </form>
       </SidePanel>
+    </div>
+  );
+}
+
+/** حركة الحساب — this account's posted movements and running balance (D43). */
+function AccountMovementsTab({ accountId }: { accountId: string }) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
+  const query = useAccountLedger(accountId);
+  const lines = query.data?.lines ?? [];
+  const balance = query.data?.balance;
+
+  if (query.isLoading) return <div className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>;
+  if (lines.length === 0) {
+    return <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("coa.movements.empty")}</div>;
+  }
+
+  // Running balance in ledger order, so the reader can follow how the closing
+  // figure was reached rather than being handed only the total.
+  let running = 0;
+  const rows = lines.map((line) => {
+    running += Number(line.debit) - Number(line.credit);
+    return { ...line, running };
+  });
+
+  // The side panel is narrow; the table scrolls inside its own box rather than
+  // squashing five columns into stacked, unreadable cells.
+  return (
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full min-w-[420px] border-collapse text-[12.5px]">
+        <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+          <tr>
+            <th className="px-[13px] py-[8px] text-start">{t("common.date")}</th>
+            <th className="px-[13px] py-[8px] text-start">{t("coa.movements.entry")}</th>
+            <th className="px-[13px] py-[8px] text-end">{t("coa.movements.debit")}</th>
+            <th className="px-[13px] py-[8px] text-end">{t("coa.movements.credit")}</th>
+            <th className="px-[13px] py-[8px] text-end">{t("coa.movements.running")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.entryId} className="border-t border-border">
+              <td className="mz-num px-[13px] py-[9px]">{row.date}</td>
+              <td className="mz-num px-[13px] py-[9px] text-ink">{row.entryNo ?? "—"}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end">{Number(row.debit) ? format.money(Number(row.debit)) : "—"}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end">{Number(row.credit) ? format.money(Number(row.credit)) : "—"}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end font-semibold">{format.money(row.running)}</td>
+            </tr>
+          ))}
+        </tbody>
+        {balance ? (
+          <tfoot>
+            <tr className="border-t border-border bg-surface-2 font-bold">
+              <td className="px-[13px] py-[9px]" colSpan={2}>{t("coa.movements.closing")}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end">{format.money(Number(balance.debit))}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end">{format.money(Number(balance.credit))}</td>
+              <td className="mz-num px-[13px] py-[9px] text-end">{format.money(Number(balance.balance))}</td>
+            </tr>
+          </tfoot>
+        ) : null}
+      </table>
     </div>
   );
 }

@@ -1,8 +1,8 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+import { useAccountLedger, useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
 } from "../data/hooks";
 import { treasuryBalanceById } from "../lib/partner-balances";
 import { useFinancialReport } from "../data/financial-reports-hooks";
@@ -271,18 +271,7 @@ export function TreasuryAccountsScreen() {
                 <div className="mt-[5px] text-[14px] font-bold text-ink">{selected.glAccountId ?? t("treasuryAcc.automaticByType")}</div>
               </div>
             </Card>
-            <Card className="p-[13px_15px]">
-              <div className="text-[11px] font-semibold text-ink-faint">{t("treasuryAcc.closingBalance")}</div>
-              <div className="mt-[6px]">
-                <MoneyDisplay value={toMajor(selected.openingBalance)} className="text-[18px] font-bold" />
-              </div>
-              {selected.openingBalanceDate ? (
-                <div className="mz-num mt-[6px] text-[11.5px] text-ink-faint">{t("treasuryAcc.asOf")} {selected.openingBalanceDate}</div>
-              ) : null}
-            </Card>
-            <div className="rounded-md border border-dashed border-border p-[18px] text-center text-[12.5px] text-ink-muted">
-              {t("treasuryAcc.accountMovementWillAppearHere")}
-            </div>
+            <TreasuryAccountLedger account={selected} />
           </div>
         ) : null}
       </SidePanel>
@@ -354,5 +343,65 @@ export function TreasuryAccountsScreen() {
         </form>
       </SidePanel>
     </div>
+  );
+}
+
+
+/**
+ * حركة الحساب — the treasury account's own GL movements and its TRUE closing
+ * balance. Two defects in one card: the panel printed a "(المرحلة الثانية)"
+ * placeholder over the ledger (D43), and the "closing balance" figure beside it
+ * was actually the OPENING balance, so a till that had taken money all month
+ * still read as it did on day one (the D41 shape).
+ */
+function TreasuryAccountLedger({ account }: { account: TreasuryAccountDTO }) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
+  const query = useAccountLedger(account.glAccountId ?? null);
+  const lines = query.data?.lines ?? [];
+  const closing = query.data?.balance;
+
+  return (
+    <>
+      <Card className="p-[13px_15px]">
+        <div className="text-[11px] font-semibold text-ink-faint">{t("treasuryAcc.closingBalance")}</div>
+        <div className="mt-[6px]">
+          <MoneyDisplay value={closing ? Number(closing.balance) : toMajor(account.openingBalance)} className="text-[18px] font-bold" />
+        </div>
+        <div className="mt-[6px] text-[11.5px] text-ink-faint">
+          {t("treasuryAcc.openingBalance")} <MoneyDisplay value={toMajor(account.openingBalance)} />
+          {account.openingBalanceDate ? <span className="mz-num"> · {account.openingBalanceDate}</span> : null}
+        </div>
+      </Card>
+
+      {query.isLoading ? (
+        <div className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>
+      ) : lines.length === 0 ? (
+        <div className="rounded-md border border-border p-[18px] text-center text-[12.5px] text-ink-muted">{t("treasuryAcc.movements.empty")}</div>
+      ) : (
+        <div className="overflow-hidden rounded-md border border-border">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+              <tr>
+                <th className="px-[13px] py-[8px] text-start">{t("common.date")}</th>
+                <th className="px-[13px] py-[8px] text-start">{t("coa.movements.entry")}</th>
+                <th className="px-[13px] py-[8px] text-end">{t("coa.movements.debit")}</th>
+                <th className="px-[13px] py-[8px] text-end">{t("coa.movements.credit")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lines.map((line) => (
+                <tr key={line.entryId} className="border-t border-border">
+                  <td className="mz-num px-[13px] py-[9px]">{line.date}</td>
+                  <td className="mz-num px-[13px] py-[9px] text-ink">{line.entryNo ?? "—"}</td>
+                  <td className="mz-num px-[13px] py-[9px] text-end">{Number(line.debit) ? format.money(Number(line.debit)) : "—"}</td>
+                  <td className="mz-num px-[13px] py-[9px] text-end">{Number(line.credit) ? format.money(Number(line.credit)) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
   );
 }

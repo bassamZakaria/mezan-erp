@@ -97,6 +97,17 @@ import type {
   EtaSubmissionStatusDTO,
   ExchangeRateDTO,
   ExcludeEtaSubmissionDTO,
+  EtaActivityCodeDTO,
+  EtaUnitCodeDTO,
+  EtaTestConnectionResultDTO,
+  EtaBranchCodeRowDTO,
+  UpdateEtaBranchCodeDTO,
+  EtaItemMappingRowDTO,
+  UpdateEtaItemMappingDTO,
+  EtaUnitMappingRowDTO,
+  UpdateEtaUnitMappingDTO,
+  ApplyEtaUnitSuggestionsResultDTO,
+  EtaTaxSubTypeRowDTO,
   FiscalPeriodDTO,
   FollowUpStatusDTO,
   FxRevaluationPostResultDTO,
@@ -3323,6 +3334,181 @@ export function useExcludeEtaSubmission() {
       return res.json<EtaSubmissionDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["eta-submissions"] }),
+  });
+}
+
+
+export function useEtaActivityCodes(): UseQueryResult<EtaActivityCodeDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaActivityCodeDTO[], ApiError>({
+    queryKey: ["eta-activity-codes"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/activity-codes");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaActivityCodeDTO[]>();
+    },
+  });
+}
+
+export function useEtaUnitCodes(): UseQueryResult<EtaUnitCodeDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaUnitCodeDTO[], ApiError>({
+    queryKey: ["eta-unit-codes"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/unit-codes");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaUnitCodeDTO[]>();
+    },
+  });
+}
+
+export function useTestEtaConnection() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<EtaTestConnectionResultDTO, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/eta/test-connection", { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      return res.json<EtaTestConnectionResultDTO>();
+    },
+  });
+}
+
+export function useEtaBranchCodes(): UseQueryResult<EtaBranchCodeRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaBranchCodeRowDTO[], ApiError>({
+    queryKey: ["eta-branch-codes"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/branch-codes");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaBranchCodeRowDTO[]>();
+    },
+  });
+}
+
+export function useSaveEtaBranchCode() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaBranchCodeRowDTO, ApiError, { branchId: string; body: UpdateEtaBranchCodeDTO }>({
+    mutationFn: async ({ branchId, body }) => {
+      const res = await request(`/eta/branch-codes/${branchId}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      return res.json<EtaBranchCodeRowDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["eta-branch-codes"] });
+      void queryClient.invalidateQueries({ queryKey: ["eta-config"] });
+    },
+  });
+}
+
+export interface EtaItemMappingsResponse {
+  readonly rows: EtaItemMappingRowDTO[];
+  readonly total: number;
+  readonly unmapped: number;
+}
+
+export function useEtaItemMappings(filter: { q?: string; unmappedOnly?: boolean } = {}): UseQueryResult<EtaItemMappingsResponse, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaItemMappingsResponse, ApiError>({
+    queryKey: ["eta-item-mappings", filter.q ?? "", filter.unmappedOnly ?? false],
+    enabled: session !== null,
+    queryFn: async () => {
+      const params = new URLSearchParams();
+      if (filter.q) params.set("q", filter.q);
+      if (filter.unmappedOnly) params.set("unmapped", "1");
+      const suffix = params.toString();
+      const res = await request(`/eta/item-mappings${suffix ? `?${suffix}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaItemMappingsResponse>();
+    },
+  });
+}
+
+export function useSaveEtaItemMapping() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaItemMappingRowDTO, ApiError, { itemId: string; body: UpdateEtaItemMappingDTO }>({
+    mutationFn: async ({ itemId, body }) => {
+      const res = await request(`/eta/item-mappings/${itemId}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      return res.json<EtaItemMappingRowDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["eta-item-mappings"] });
+      void queryClient.invalidateQueries({ queryKey: ["eta-config"] });
+    },
+  });
+}
+
+export function useEtaUnitMappings(): UseQueryResult<EtaUnitMappingRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaUnitMappingRowDTO[], ApiError>({
+    queryKey: ["eta-unit-mappings"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/unit-mappings");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaUnitMappingRowDTO[]>();
+    },
+  });
+}
+
+export function useSaveEtaUnitMapping() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<EtaUnitMappingRowDTO, ApiError, { unitCode: string; body: UpdateEtaUnitMappingDTO }>({
+    mutationFn: async ({ unitCode, body }) => {
+      const res = await request(`/eta/unit-mappings/${unitCode}`, { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      return res.json<EtaUnitMappingRowDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["eta-unit-mappings"] });
+      void queryClient.invalidateQueries({ queryKey: ["eta-config"] });
+    },
+  });
+}
+
+export function useApplyEtaUnitSuggestions() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<ApplyEtaUnitSuggestionsResultDTO, ApiError, void>({
+    mutationFn: async () => {
+      const res = await request("/eta/unit-mappings/apply-suggestions", { method: "POST" });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.eInvoicingSettingsCouldNot2")));
+      return res.json<ApplyEtaUnitSuggestionsResultDTO>();
+    },
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["eta-unit-mappings"] });
+      void queryClient.invalidateQueries({ queryKey: ["eta-config"] });
+    },
+  });
+}
+
+export function useEtaTaxSubTypes(): UseQueryResult<EtaTaxSubTypeRowDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<EtaTaxSubTypeRowDTO[], ApiError>({
+    queryKey: ["eta-tax-subtypes"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/eta/tax-subtypes");
+      if (!res.ok) throw new ApiError(res.status, t("api.eInvoicingSettingsCouldNot"));
+      return res.json<EtaTaxSubTypeRowDTO[]>();
+    },
   });
 }
 

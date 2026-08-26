@@ -6,12 +6,14 @@ import {
   DocumentDetail,
   EntityPicker,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import {
   useCancelConfigInstance,
@@ -216,6 +218,7 @@ export function ConfigInstancesScreen() {
   const [scheduledEndDate, setScheduledEndDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selectedProduct = products.find((p) => p.id === product?.id) ?? null;
 
@@ -328,6 +331,17 @@ export function ConfigInstancesScreen() {
       await cancelInstance.mutateAsync(id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2"));
+    }
+  }
+
+  async function runRowAction(id: string, action: "close" | "cancel") {
+    if (pendingId) return;
+    setPendingId(id);
+    try {
+      if (action === "close") await doClose(id);
+      else await doCancel(id);
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -468,6 +482,11 @@ export function ConfigInstancesScreen() {
           </Button>
         </Card>
       ) : null}
+      {actionError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
+        </div>
+      ) : null}
       <DocumentList<ConfigInstanceRecord>
         title={t("customOrders.customManufacturing")}
         description={t("customOrders.madeToOrderManufacturingOf")}
@@ -497,6 +516,30 @@ export function ConfigInstancesScreen() {
         rows={filtered}
         rowKey={(i) => i.id}
         onRowClick={(i) => setSelectedId(i.id)}
+        rowAction={(i) => {
+          const canAct = i.status !== "closed" && i.status !== "cancelled";
+          const items: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(i.id) },
+          ];
+          if (canAct) {
+            items.push(
+              {
+                key: "close",
+                label: t("customOrders.closeOrder"),
+                disabled: pendingId === i.id,
+                onSelect: () => void runRowAction(i.id, "close"),
+              },
+              {
+                key: "cancel",
+                label: t("common.cancel"),
+                tone: "danger",
+                disabled: pendingId === i.id,
+                onSelect: () => void runRowAction(i.id, "cancel"),
+              },
+            );
+          }
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: i.number })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{instances.length}</span> {t("customOrders.orders")}</>}

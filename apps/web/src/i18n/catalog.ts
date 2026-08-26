@@ -6765,6 +6765,7 @@ const webAr = {
   "stockXfer.row.confirm": "تأكيد التحويل",
   "instalments.confirmPlan": "تأكيد الخطة",
   "followUps.cancelFollowUp": "إلغاء المتابعة",
+  "taxes.deactivate": "تعطيل النسبة",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -13535,6 +13536,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "stockXfer.row.confirm": "Confirm transfer",
   "instalments.confirmPlan": "Confirm plan",
   "followUps.cancelFollowUp": "Cancel follow-up",
+  "taxes.deactivate": "Deactivate rate",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

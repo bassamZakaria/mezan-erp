@@ -3,10 +3,30 @@ import { createContext, useContext, useEffect, useRef, type ReactNode } from "re
 import type { ScreenKey } from "./App";
 
 /** An optional "do this on arrival" hint carried alongside a navigation. */
-export type ScreenIntent = "create";
+export type ScreenIntentKind = "create";
+
+/**
+ * A "do this on arrival" hint. `prefill` carries the entity the caller already
+ * knows about — the customer behind «إنشاء فاتورة» on a customer's page, the
+ * supplier behind «فاتورة مشتريات», the invoice behind «مرتجع جديد» — so the
+ * target screen opens its create flow already bound to it instead of asking
+ * the user to search for what they just came from
+ * (docs/reference-parity/audit/REQUIREMENTS.md R2.11, R3.6, R4.5).
+ */
+export interface ScreenIntent {
+  readonly kind: ScreenIntentKind;
+  readonly prefill?: Readonly<Record<string, string>>;
+}
+
+/** Callers may pass the bare kind; it normalises to `{ kind }`. */
+export type ScreenIntentInput = ScreenIntentKind | ScreenIntent;
+
+export function toScreenIntent(input: ScreenIntentInput): ScreenIntent {
+  return typeof input === "string" ? { kind: input } : input;
+}
 
 type NavigationValue = {
-  navigate: (screen: ScreenKey, intent?: ScreenIntent) => void;
+  navigate: (screen: ScreenKey, intent?: ScreenIntentInput) => void;
   /** Sub-page segments under the active screen — `["new"]`, `["<id>"]`, `[]`. */
   segments: readonly string[];
   /** Replace the active screen's sub-page: `openSubPage(["new"])` → `#/sales/quotes/new`. */

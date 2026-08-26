@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Button,
   Card,
@@ -117,7 +117,7 @@ function blankLine(): InvoiceLineDraft {
  * panel: a create form is a place you can be, link to and come back to with the
  * browser's Back button.
  */
-function CreateInvoicePage({ onClose }: { onClose: () => void }) {
+function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void; initialCustomerId?: string | null }) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -141,7 +141,23 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
   const priceLists = priceListsQuery.data ?? [];
 
   const today = new Date().toISOString().slice(0, 10);
-  const [customer, setCustomer] = useState<EntityPickerOption | null>(null);
+  /**
+   * Arriving from a customer's page («إنشاء فاتورة») the customer is already
+   * known and rides in the URL, so the form opens bound to it instead of
+   * asking the user to search for the record they just came from. Derived, not
+   * synchronised: `undefined` means "the user has not touched the picker", so
+   * the prefill shows as soon as the customer list resolves and stops applying
+   * the moment they choose — including choosing nothing.
+   */
+  const [customerChoice, setCustomerChoice] = useState<EntityPickerOption | null | undefined>(undefined);
+  const customerOptions = useMemo<EntityPickerOption[]>(
+    () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
+    [customers],
+  );
+  const customer =
+    customerChoice !== undefined ? customerChoice : (customerOptions.find((option) => option.id === initialCustomerId) ?? null);
+  const setCustomer = setCustomerChoice;
+
   const [date, setDate] = useState(today);
   const [dueDate, setDueDate] = useState(today);
   const [warehouseId, setWarehouseId] = useState("");
@@ -163,7 +179,9 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false);
 
   function resetForm() {
-    setCustomer(null);
+    // `undefined` = untouched, so a customer carried in from «إنشاء فاتورة»
+    // re-applies. `null` would mean "the user deliberately chose nobody".
+    setCustomerChoice(undefined);
     setDate(today);
     setDueDate(today);
     setWarehouseId(workingLocation.warehouseId ?? warehouses[0]?.id ?? "");
@@ -180,10 +198,14 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
     setError(null);
   }
 
+  // Seed the location defaults once their lists arrive — only into fields the
+  // user has not set. This used to call `resetForm()`, which wiped every line
+  // and note the user had already typed whenever either query resolved or
+  // refetched.
   useEffect(() => {
-    resetForm();
-    // Re-seed the defaults once the branch/warehouse lists arrive.
-  }, [warehouses, branches]);
+    setWarehouseId((current) => current || workingLocation.warehouseId || warehouses[0]?.id || "");
+    setBranchId((current) => current || workingLocation.branchId || branches.find((b) => b.isMain)?.id || "");
+  }, [warehouses, branches, workingLocation.warehouseId, workingLocation.branchId]);
 
   const customerRecord = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
 
@@ -237,10 +259,6 @@ function CreateInvoicePage({ onClose }: { onClose: () => void }) {
     return priceLists.find((p) => p.isBase && p.active) ?? null;
   }, [customerRecord, priceLists]);
 
-  const customerOptions = useMemo<EntityPickerOption[]>(
-    () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
-    [customers],
-  );
   const salespersonOptions = useMemo<EntityPickerOption[]>(
     () =>
       employees
@@ -1051,7 +1069,10 @@ export function SalesInvoicesScreen() {
   const listCustomers = useCustomers().data ?? [];
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
-  useScreenIntent(() => subPage.open("new"));
+  useScreenIntent((intent) => {
+    const customerId = intent.prefill?.customerId;
+    subPage.open(...(customerId ? ["new", customerId] : ["new"]));
+  });
 
   const today = new Date().toISOString().slice(0, 10);
   const [firstSegment] = subPage.segments;
@@ -1186,7 +1207,7 @@ export function SalesInvoicesScreen() {
     },
   ];
 
-  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} />;
+  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? null} />;
 
   return (
     <>

@@ -36,6 +36,7 @@ import {
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
 import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useNavigation } from "../navigation";
 
 /**
  * العملاء (Customers) — docs/catalog/01-sales.md "العملاء (Customers —
@@ -475,6 +476,7 @@ function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
 
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
   const { t } = useAppTranslation();
+  const { navigate } = useNavigation();
   // Credit left is the limit minus what the customer owes TODAY. Measuring it
   // against the opening balance ignored every invoice since (D40).
   const invoices = useSalesInvoices().data ?? [];
@@ -488,10 +490,19 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
       subtitle={customer.nameEn ?? undefined}
       actions={
         <>
-          <Button variant="primary" onClick={onEdit}>
-            {t("customers.edit")}
+          <Button variant="primary" onClick={() => navigate("sales-invoices", { kind: "create", prefill: { customerId: customer.id } })}>
+            {t("customers.action.newInvoice")}
           </Button>
-          <Button onClick={onBack}>{t("customers.backToList")}</Button>
+          <Button onClick={() => navigate("treasury-vouchers", { kind: "create", prefill: { customerId: customer.id } })}>
+            {t("customers.action.collectPayment")}
+          </Button>
+          <Button onClick={() => navigate("quotes", { kind: "create", prefill: { customerId: customer.id } })}>
+            {t("customers.action.newQuote")}
+          </Button>
+          <Button onClick={onEdit}>{t("customers.edit")}</Button>
+          <Button variant="ghost" onClick={onBack}>
+            {t("customers.backToList")}
+          </Button>
         </>
       }
       summary={[

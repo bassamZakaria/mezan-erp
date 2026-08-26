@@ -90,8 +90,10 @@ export function EntityPicker({
         aria-controls={listboxId}
         aria-autocomplete="list"
         disabled={disabled}
-        placeholder={value ? value.label : (placeholder ?? t("ui.search.placeholder"))}
-        value={open ? query : ""}
+        placeholder={placeholder ?? t("ui.search.placeholder")}
+        // A chosen entity is the field's VALUE, not its placeholder: rendering
+        // it in placeholder ink made a bound picker read as empty.
+        value={open ? query : (value?.label ?? "")}
         onFocus={() => {
           setOpen(true);
           setHighlight(0);

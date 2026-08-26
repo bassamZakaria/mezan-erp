@@ -148,7 +148,7 @@ import {
 import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
-import { NavigationProvider, type ScreenIntent } from "./navigation";
+import { NavigationProvider, toScreenIntent, type ScreenIntent, type ScreenIntentInput } from "./navigation";
 import { hashForRoute, parseHash } from "./routing";
 import { Breadcrumbs } from "./Breadcrumbs";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
@@ -341,9 +341,9 @@ export function App() {
   }, []);
 
   const navigate = useCallback(
-    (screen: ScreenKey, intent?: ScreenIntent) => {
+    (screen: ScreenKey, intent?: ScreenIntentInput) => {
       setActiveScreen(screen);
-      setPendingIntent(intent ?? null);
+      setPendingIntent(intent ? toScreenIntent(intent) : null);
     },
     [setActiveScreen],
   );

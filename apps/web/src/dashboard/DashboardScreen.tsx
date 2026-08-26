@@ -3,7 +3,7 @@ import { Button, Card, Chip, Money, StatCard, useFormat } from "@mezan/ui";
 import { useApi } from "../data/ApiContext";
 import { useNavigation } from "../navigation";
 import type { ScreenKey } from "../App";
-import type { ScreenIntent } from "../navigation";
+import type { ScreenIntentInput } from "../navigation";
 import { useDashboardSummary, type DashboardRange } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { BalanceBeam, beamTiltDegrees } from "./BalanceBeam";
@@ -26,7 +26,7 @@ import {
   type DashboardRangeValue,
 } from "./dashboard-hooks";
 
-type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntent; primary?: boolean };
+type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntentInput; primary?: boolean };
 
 /** Quick-action launchers: each navigates to its screen and opens that screen's create flow. */
 const quickActions: QuickAction[] = [

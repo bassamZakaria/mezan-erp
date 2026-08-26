@@ -77,7 +77,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R2.5** Per-line and per-document discount type (percentage / fixed)
 - [x] **R2.7** Totals block: subtotal and tax lines added, return-adjusted net kept
 - [ ] **R2.8** Three-card "effects of this document" explainer including "no automatic collection"
-- [ ] **R1.4** Attachments across documents and entities
+- [~] **R1.4** Attachments across documents and entities — resource built (domain, SQLite store, `/attachments` routes gated by the host entity's own permissions, reusable `AttachmentsTab`), wired on the item detail only; the other screens adopt the tab in their own tasks
 - [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices — roll out to the rest)
 - [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
 - [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open

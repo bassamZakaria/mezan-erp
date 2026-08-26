@@ -34,6 +34,13 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             debit: l.debit,
             credit: l.credit,
             memo: l.memo ?? null,
+            // A dimension dropped here is gone for good: the posted line is
+            // all the cost-centre P&L and the FX revaluation ever see, and a
+            // converted amount with no currency on it is indistinguishable
+            // from a base-currency one (D24, D26).
+            costCenterId: l.costCenterId ?? null,
+            currency: l.currency ?? null,
+            fxRate: l.fxRate ?? null,
           })),
         },
         deps,

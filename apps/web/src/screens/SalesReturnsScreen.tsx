@@ -3,11 +3,14 @@ import {
   Button,
   Card,
   DocumentList,
+  EntityPicker,
   Money as MoneyDisplay,
   StatusPill,
   SidePanel,
+  TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
+  type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, SalesReturnLineDTO, SalesReturnReasonDTO } from "@mezan/contracts";
@@ -84,7 +87,28 @@ export function SalesReturnsScreen() {
     const invoiceId = intent.prefill?.invoiceId;
     subPage.open(...(invoiceId ? ["new", invoiceId] : ["new"]));
   });
+  /**
+   * The source invoice's number, resolved from its id. The denormalised
+   * `sourceInvoiceNumber` on the line is null on some rows (a return raised
+   * before the invoice was numbered), which showed as "—" even though the
+   * return plainly has a source. The id is always there, so resolve from it
+   * and fall back to the stored copy.
+   */
+  const sourceInvoiceNo = useMemo(() => {
+    const byId = new Map(invoices.map((inv) => [inv.id, inv.docNo]));
+    return (line: { sourceInvoiceId: string; sourceInvoiceNumber: string | null } | undefined) =>
+      line ? (byId.get(line.sourceInvoiceId) ?? line.sourceInvoiceNumber ?? line.sourceInvoiceId) : null;
+  }, [invoices]);
+
+  const customerOptions = useMemo<EntityPickerOption[]>(
+    () => customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
+    [customers],
+  );
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [search, setSearch] = useState("");
+  const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   // The source invoice rides in the URL (`…/new/<invoiceId>`) when the user
   // arrived from «إنشاء مرتجع مبيعات» on that invoice's row.
   const [invoiceId, setInvoiceId] = useState(() => subPage.segments[1] ?? "");
@@ -132,7 +156,28 @@ export function SalesReturnsScreen() {
     return c;
   }, [documents]);
 
-  const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+  /**
+   * The list had no filter bar at all — with more than a screenful of returns
+   * the only way to find one was to read every row. Search covers the return
+   * number and the source invoice number, which is how a user actually looks
+   * one up ("the return against INV-000014").
+   */
+  const filtered = useMemo(() => {
+    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+    if (customerFilter) rows = rows.filter((d) => d.lines.some((l) => l.customerId === customerFilter.id));
+    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
+    if (toDate) rows = rows.filter((d) => d.date <= toDate);
+    const q = search.trim().toLowerCase();
+    if (q !== "") {
+      rows = rows.filter(
+        (d) =>
+          (d.docNo ?? "").toLowerCase().includes(q) ||
+          d.lines.some((l) => (sourceInvoiceNo(l) ?? "").toLowerCase().includes(q)) ||
+          (d.lines[0] ? customerName(d.lines[0].customerId).toLowerCase().includes(q) : false),
+      );
+    }
+    return rows;
+  }, [documents, statusFilter, customerFilter, fromDate, toDate, search, customerName, sourceInvoiceNo]);
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
       ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
@@ -231,7 +276,7 @@ export function SalesReturnsScreen() {
       render: (d) => (
         <div>
           <div className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</div>
-          <div className="text-[11px] text-ink-muted">{d.lines[0]?.sourceInvoiceNumber ?? "—"}</div>
+          <div className="text-[11px] text-ink-muted">{sourceInvoiceNo(d.lines[0]) ?? "—"}</div>
         </div>
       ),
     },
@@ -401,6 +446,24 @@ export function SalesReturnsScreen() {
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("salesReturns.searchPlaceholder")}
+        filterBarExtra={
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <div className="min-w-[210px]">
+              <EntityPicker
+                value={customerFilter}
+                onChange={setCustomerFilter}
+                options={customerOptions}
+                placeholder={t("salesReturns.filterByCustomer")}
+                aria-label={t("salesReturns.filterByCustomer")}
+              />
+            </div>
+            <TextInput numeric type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label={t("common.fromDate")} />
+            <TextInput numeric type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label={t("common.toDate")} />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}

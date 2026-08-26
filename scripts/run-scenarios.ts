@@ -9,6 +9,7 @@ import { run as platform } from "./scenarios/platform.js";
 import { run as shell } from "./scenarios/shell.js";
 import { run as crossModule } from "./scenarios/cross-module.js";
 import { run as seams } from "./scenarios/seams.js";
+import { run as eta } from "./scenarios/eta.js";
 
 /**
  * `pnpm scenarios` — the executable half of docs/testing-plan.md Phase 3.
@@ -26,7 +27,7 @@ console.log(`baseline  tb ${start.tb.toFixed(6)} · inventory ${start.inventory.
 const only = new Set(process.argv.slice(2));
 
 for (const [name, fn] of [
-  ["shell", shell], ["accounting", accounting], ["crm", crm], ["platform", platform],
+  ["shell", shell], ["accounting", accounting], ["crm", crm], ["platform", platform], ["eta", eta],
   ["hr", hr], ["inventory", inventory], ["purchases", purchases], ["sales", sales],
   ["cross-module", crossModule], ["seams", seams],
 ] as const) {

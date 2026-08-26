@@ -1788,21 +1788,21 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("the from-receipt invoice drafts with no lines supplied", invoice.status === 201, `status ${invoice.status} ${JSON.stringify(invoice.body).slice(0, 200)}`);
     check(
-      "D44 — and every line comes back at 0% VAT: `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port that `create-backend.ts` never supplies, " +
-        "so it falls back to `() => 0`. The screen offers no way to edit the rate, so goods bought through the receipt path record no input VAT at all (docs/defects.md D44)",
-      (invoice.body?.lines ?? []).every((l: any) => Number(l.taxRatePercent) === 0),
+      "every auto-filled line carries the item's own VAT rate — `resolveTaxRate` is wired to the item catalogue, so the receipt path no longer records " +
+        "goods a 14% supplier billed as though they were exempt (the F86 fix for docs/defects.md D50)",
+      (invoice.body?.lines ?? []).every((l: any) => Number(l.taxRatePercent) === 14),
       JSON.stringify(invoice.body?.lines).slice(0, 200),
     );
-    checkEq("the invoice total is therefore the bare goods value, with no tax on it", n(invoice.body?.total), 1400);
+    checkEq("the invoice total is the goods value plus that tax", n(invoice.body?.total), 1596);
 
     await req("POST", "/purchases/invoices/SCN-X-PI-TRAIL/confirm", {});
-    checkEq("confirming it credits AP with that same untaxed total", (await creditBalance(AP)) - apBefore, 1400);
-    checkEq("and input VAT (1400) never moves — the 196 the supplier charged is unreclaimable from these books", (await gl(INPUT_TAX)) - inputTaxBefore, 0);
+    checkEq("confirming it credits AP with the gross the supplier is owed", (await creditBalance(AP)) - apBefore, 1596);
+    checkEq("and input VAT (1400) takes the 196 — reclaimable, where before the fix it moved 0.00", (await gl(INPUT_TAX)) - inputTaxBefore, 196);
 
     const { confirmed: paid } = await voucher("SCN-X-PAY-TRAIL", {
       memo: "سداد لمورد مسار الاختبار",
       voucherType: "supplier_payment",
-      amount: "1400.00",
+      amount: "1596.00",
       paymentMethod: "cash",
       treasuryAccountId: CASH_TREASURY,
       treasuryGlAccountId: CASH,
@@ -1810,14 +1810,14 @@ export async function run(ctx: Ctx): Promise<void> {
       supplierId,
     });
     check("paying the supplier confirms", paid.status === 200 && paid.body?.status === "confirmed", JSON.stringify(paid.body).slice(0, 200));
-    checkEq("the خزنة falls by exactly what was paid", cashBefore - (await gl(CASH)), 1400);
+    checkEq("the خزنة falls by exactly what was paid", cashBefore - (await gl(CASH)), 1596);
     checkEq("and AP nets back to where it started — invoice raised it, payment cleared it", (await creditBalance(AP)) - apBefore, 0);
     checkEq(
       "and the AP sub-ledger hears the payment too — paying a supplier no longer leaves the reconciliation adrift (the D18 fix, measured on the trail a buyer actually walks)",
       (await ctx.invariants()).ap - apSubLedgerBefore,
       0,
     );
-    treasuryLedger.push({ label: "supplier payment (trail, cash)", delta: -1400 });
+    treasuryLedger.push({ label: "supplier payment (trail, cash)", delta: -1596 });
   });
 
   // ---------------------------------------------------------------------------

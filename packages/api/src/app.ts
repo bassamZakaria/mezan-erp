@@ -921,7 +921,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.priceListRepo) {
-    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext));
+    app.route("/price-lists", createPriceListsRoutes(options.priceListRepo, options.resolveAuthContext, options.customerStore));
   }
   if (options.promotionRepo) {
     app.route(

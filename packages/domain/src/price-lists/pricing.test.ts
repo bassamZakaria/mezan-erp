@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import type { PriceList } from "./price-list.js";
 import { resolvePrice } from "./pricing.js";
 
@@ -27,19 +27,19 @@ describe("resolvePrice", () => {
   });
 
   it("falls back when the list has no line for the item", () => {
-    const list = makeList({ lines: [{ itemId: "item-2", price: Money.fromMajor("90.00") }] });
+    const list = makeList({ lines: [{ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("90.00") }] });
     expect(resolvePrice(list, "item-1", fallback)).toEqual(fallback);
   });
 
   it("uses the line override when present on an active list", () => {
     const override = Money.fromMajor("85.50");
-    const list = makeList({ lines: [{ itemId: "item-1", price: override }] });
+    const list = makeList({ lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: override }] });
     expect(resolvePrice(list, "item-1", fallback)).toEqual(override);
   });
 
   it("falls back when the list is inactive, even if a line matches", () => {
     const override = Money.fromMajor("85.50");
-    const list = makeList({ active: false, lines: [{ itemId: "item-1", price: override }] });
+    const list = makeList({ active: false, lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: override }] });
     expect(resolvePrice(list, "item-1", fallback)).toEqual(fallback);
   });
 });

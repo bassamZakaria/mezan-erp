@@ -4,9 +4,21 @@ import { z } from "zod";
  * Wire contract for price lists (docs/catalog/01 "قوائم الأسعار"). Money is
  * always a decimal string on the wire — `price` here is an absolute
  * sell-price override for the line's item, not a discount percentage.
+ * An item may repeat across lines, once per `minQty` tier.
  */
 export const priceListLineSchema = z.object({
   itemId: z.string().min(1),
+  unitCode: z.string().nullish(),
+  /** Volume threshold this tier's price applies from. Omitted means the base tier ("0"). */
+  minQty: z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string").optional(),
+  price: z.string(),
+});
+
+/** What the server serialises back: every tier carries its threshold explicitly. */
+export const priceListLineViewSchema = z.object({
+  itemId: z.string().min(1),
+  unitCode: z.string().nullable(),
+  minQty: z.string(),
   price: z.string(),
 });
 
@@ -18,7 +30,7 @@ export const priceListSchema = z.object({
   description: z.string().nullable(),
   isBase: z.boolean(),
   active: z.boolean(),
-  lines: z.array(priceListLineSchema),
+  lines: z.array(priceListLineViewSchema),
   createdAt: z.string(),
 });
 
@@ -43,7 +55,22 @@ export const updatePriceListSchema = z.object({
   lines: z.array(priceListLineSchema).optional(),
 });
 
+/**
+ * Resolves the tier that applies to a line — the server-side answer to "what
+ * does this customer pay for this item at this quantity", so no screen has to
+ * reimplement tier selection in the browser.
+ */
+export const resolvePriceListPriceSchema = z.object({
+  priceListId: z.string().min(1).nullish(),
+  customerId: z.string().min(1).nullish(),
+  itemId: z.string().min(1),
+  qty: z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string").optional(),
+  fallback: z.string(),
+});
+
 export type PriceListLineDTO = z.infer<typeof priceListLineSchema>;
+export type PriceListLineViewDTO = z.infer<typeof priceListLineViewSchema>;
+export type ResolvePriceListPriceDTO = z.infer<typeof resolvePriceListPriceSchema>;
 export type PriceListDTO = z.infer<typeof priceListSchema>;
 export type CreatePriceListDTO = z.infer<typeof createPriceListSchema>;
 export type UpdatePriceListDTO = z.infer<typeof updatePriceListSchema>;

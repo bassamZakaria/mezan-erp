@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { Money } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import { InMemoryPriceListRepository } from "./test-helpers/in-memory-price-list-repository.js";
 import { createPriceList } from "./create-price-list.js";
 import { updatePriceList } from "./update-price-list.js";
@@ -28,15 +28,15 @@ describe("updatePriceList", () => {
   it("replaces lines wholesale and re-validates them", async () => {
     const repo = new InMemoryPriceListRepository();
     await createPriceList(
-      { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", price: Money.fromMajor("100.00") }] },
+      { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") }] },
       repo,
     );
     const updated = await updatePriceList(
       "pl1",
-      { lines: [{ itemId: "item-2", price: Money.fromMajor("50.00") }] },
+      { lines: [{ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("50.00") }] },
       repo,
     );
-    expect(updated.lines).toEqual([{ itemId: "item-2", price: Money.fromMajor("50.00") }]);
+    expect(updated.lines).toEqual([{ itemId: "item-2", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("50.00") }]);
   });
 
   it("rejects a lines patch with duplicate itemId", async () => {
@@ -47,8 +47,8 @@ describe("updatePriceList", () => {
         "pl1",
         {
           lines: [
-            { itemId: "item-1", price: Money.fromMajor("10.00") },
-            { itemId: "item-1", price: Money.fromMajor("20.00") },
+            { itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("10.00") },
+            { itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("20.00") },
           ],
         },
         repo,
@@ -66,10 +66,10 @@ describe("updatePriceList", () => {
   it("leaves lines untouched when the patch does not include them", async () => {
     const repo = new InMemoryPriceListRepository();
     await createPriceList(
-      { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", price: Money.fromMajor("100.00") }] },
+      { id: "pl1", code: "RETAIL", nameAr: "قائمة التجزئة", lines: [{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") }] },
       repo,
     );
     const updated = await updatePriceList("pl1", { description: "desc" }, repo);
-    expect(updated.lines).toEqual([{ itemId: "item-1", price: Money.fromMajor("100.00") }]);
+    expect(updated.lines).toEqual([{ itemId: "item-1", unitCode: null, minQty: Qty.zero(), price: Money.fromMajor("100.00") }]);
   });
 });

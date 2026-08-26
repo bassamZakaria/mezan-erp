@@ -1,33 +1,249 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
+  Card,
+  Chip,
   DocumentList,
+  EmptyState,
+  EntityPicker,
+  Money as MoneyDisplay,
+  MoneyInput,
+  QtyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   TextArea,
   type DocumentListColumn,
+  type DocumentListStatusChip,
+  type EntityPickerOption,
+  type RowMenuItem,
 } from "@mezan/ui";
-import type { PriceListDTO } from "@mezan/contracts";
+import type { ItemDTO, PriceListDTO, PriceListLineDTO } from "@mezan/contracts";
 import { Field, TextField, ToggleField } from "../settings/form-controls";
-import { useCreatePriceList, usePriceLists } from "../data/hooks";
+import { useCreatePriceList, useItems, usePriceLists, useUpdatePriceList } from "../data/hooks";
+import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
+import { majorOf } from "../lib/money";
 
 /**
  * قوائم الأسعار (Price Lists — docs/catalog/01). Real data only: the list, the
- * create form and every count on this screen come from `GET/POST /price-lists`
- * through TanStack Query — no sample arrays.
+ * create form and every count on this screen come from `GET/POST/PATCH
+ * /price-lists` through TanStack Query — no sample arrays.
+ *
+ * A list quotes an item once per MINIMUM-QUANTITY tier (R3.11): 100.00 from 1,
+ * 85.00 from 50. The tier a line lands on is chosen server-side by
+ * `resolvePriceTier`, so the grid here edits the thresholds and never decides
+ * which one an invoice takes.
  */
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+interface TierDraft {
+  key: string;
+  itemId: string;
+  unitCode: string;
+  minQty: number;
+  price: number | null;
+}
+
+let tierSeq = 0;
+function tierKey(): string {
+  tierSeq += 1;
+  return `t${tierSeq}`;
+}
+
+function draftFrom(list: PriceListDTO): TierDraft[] {
+  return list.lines.map((line) => ({
+    key: tierKey(),
+    itemId: line.itemId,
+    unitCode: line.unitCode ?? "",
+    minQty: majorOf(line.minQty),
+    price: majorOf(line.price),
+  }));
+}
+
+/**
+ * The tier grid for one list — item, unit, minimum quantity, the item's own
+ * base price, and the custom price this list charges from that quantity up.
+ */
+function PriceListTiers({ list, items }: { list: PriceListDTO; items: ItemDTO[] }) {
+  const { t } = useAppTranslation();
+  const update = useUpdatePriceList();
+  const [tiers, setTiers] = useState<TierDraft[]>(() => draftFrom(list));
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    setTiers(draftFrom(list));
+    setError(null);
+    setSaved(false);
+  }, [list]);
+
+  const itemOptions = useMemo<EntityPickerOption[]>(
+    () => items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code })),
+    [items],
+  );
+  const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
+
+  function setTier(key: string, patch: Partial<TierDraft>) {
+    setTiers((rows) => rows.map((row) => (row.key === key ? { ...row, ...patch } : row)));
+  }
+
+  function addTier() {
+    setTiers((rows) => [...rows, { key: tierKey(), itemId: "", unitCode: "", minQty: 1, price: null }]);
+    setSaved(false);
+  }
+
+  async function save() {
+    setError(null);
+    setSaved(false);
+    const rows = tiers.filter((row) => row.itemId !== "");
+    const seen = new Set<string>();
+    for (const row of rows) {
+      const key = `${row.itemId}@${row.minQty}`;
+      if (seen.has(key)) {
+        setError(t("priceLists.tier.duplicate"));
+        return;
+      }
+      seen.add(key);
+    }
+    const lines: PriceListLineDTO[] = rows.map((row) => ({
+      itemId: row.itemId,
+      unitCode: row.unitCode.trim() === "" ? null : row.unitCode.trim(),
+      minQty: row.minQty.toFixed(6),
+      price: (row.price ?? 0).toFixed(2),
+    }));
+    try {
+      await update.mutateAsync({ id: list.id, patch: { lines } });
+      setSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("priceLists.tier.saveFailed"));
+    }
+  }
+
+  return (
+    <Card className="p-[18px_20px]">
+      <div className="mb-[10px] flex flex-wrap items-center justify-between gap-[10px]">
+        <div>
+          <h2 className="font-display text-[15px] font-bold text-ink">{t("priceLists.tier.heading")}</h2>
+          <p className="mt-[3px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("priceLists.tier.hint")}</p>
+        </div>
+        <Button onClick={addTier}>{t("priceLists.tier.add")}</Button>
+      </div>
+
+      {tiers.length === 0 ? (
+        <EmptyState
+          title={t("priceLists.tier.emptyTitle")}
+          description={t("priceLists.tier.emptyBody")}
+          action={{ label: t("priceLists.tier.add"), onClick: addTier }}
+        />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[720px] text-[13px]">
+            <thead>
+              <tr className="border-b border-border text-[12px] text-ink-muted">
+                <th className="p-[10px] text-start font-semibold">{t("common.item")}</th>
+                <th className="p-[10px] text-start font-semibold">{t("priceLists.tier.unit")}</th>
+                <th className="p-[10px] text-start font-semibold">{t("priceLists.tier.minQty")}</th>
+                <th className="p-[10px] text-end font-semibold">{t("priceLists.tier.basePrice")}</th>
+                <th className="p-[10px] text-end font-semibold">{t("priceLists.tier.customPrice")}</th>
+                <th className="p-[10px] text-end font-semibold">{t("priceLists.tier.actions")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {tiers.map((row) => {
+                const item = itemById.get(row.itemId) ?? null;
+                const basePrice = item?.salePrice ? majorOf(item.salePrice) : 0;
+                return (
+                  <tr key={row.key} className="border-b border-border align-top">
+                    <td className="p-[8px_10px]">
+                      <EntityPicker
+                        value={item ? { id: item.id, label: item.nameAr, sublabel: item.code } : null}
+                        onChange={(option) =>
+                          setTier(row.key, {
+                            itemId: option?.id ?? "",
+                            unitCode: option ? (itemById.get(option.id)?.baseUnitCode ?? row.unitCode) : row.unitCode,
+                          })
+                        }
+                        options={itemOptions}
+                        placeholder={t("priceLists.tier.chooseItem")}
+                        aria-label={t("common.item")}
+                      />
+                    </td>
+                    <td className="p-[8px_10px] text-ink-muted">{row.unitCode || item?.baseUnitCode || "—"}</td>
+                    <td className="p-[8px_10px]">
+                      <QtyInput
+                        value={row.minQty}
+                        min={0}
+                        onChange={(v) => setTier(row.key, { minQty: v })}
+                        aria-label={t("priceLists.tier.minQty")}
+                      />
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <MoneyDisplay value={basePrice} />
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <MoneyInput
+                        value={row.price}
+                        onChange={(v) => setTier(row.key, { price: v })}
+                        aria-label={t("priceLists.tier.customPrice")}
+                      />
+                    </td>
+                    <td className="p-[8px_10px] text-end">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTiers((rows) => rows.filter((r) => r.key !== row.key))}
+                      >
+                        {t("common.delete")}
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {error ? (
+        <div role="alert" className="mt-[12px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {error}
+        </div>
+      ) : null}
+      {saved ? <div className="mt-[12px] text-[12.5px] text-success-ink">{t("priceLists.tier.saved")}</div> : null}
+
+      <div className="mt-[14px] flex justify-end">
+        <Button variant="primary" onClick={save} disabled={update.isPending}>
+          {t("priceLists.tier.save")}
+        </Button>
+      </div>
+    </Card>
+  );
+}
+
 export function PriceListsScreen() {
   const { t } = useAppTranslation();
   const query = usePriceLists();
   const priceLists = query.data ?? [];
+  const items = useItems().data ?? [];
   const create = useCreatePriceList();
+  const update = useUpdatePriceList();
+
+  const subPage = useSubPage();
+  const [selectedId] = subPage.segments;
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [code, setCode] = useState("");
   const [nameAr, setNameAr] = useState("");
   const [description, setDescription] = useState("");
   const [isBase, setIsBase] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [baseOnly, setBaseOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   function resetForm() {
     setCode("");
@@ -42,6 +258,35 @@ export function PriceListsScreen() {
     setPanelOpen(false);
     resetForm();
   }
+
+  const filtered = useMemo(() => {
+    let rows = priceLists;
+    if (statusFilter !== "all") rows = rows.filter((pl) => (statusFilter === "active" ? pl.active : !pl.active));
+    if (baseOnly) rows = rows.filter((pl) => pl.isBase);
+    const q = search.trim().toLowerCase();
+    if (q !== "") {
+      rows = rows.filter(
+        (pl) => pl.nameAr.toLowerCase().includes(q) || pl.code.toLowerCase().includes(q) || (pl.nameEn ?? "").toLowerCase().includes(q),
+      );
+    }
+    return rows;
+  }, [priceLists, statusFilter, baseOnly, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (baseOnly ? 1 : 0);
+
+  const statusChips: DocumentListStatusChip[] = [
+    { key: "all", label: t("common.all"), count: priceLists.length },
+    { key: "active", label: t("priceLists.active"), count: priceLists.filter((pl) => pl.active).length },
+    { key: "inactive", label: t("priceLists.inactive"), count: priceLists.filter((pl) => !pl.active).length },
+  ];
+
+  const selected = selectedId ? (priceLists.find((pl) => pl.id === selectedId || pl.code === selectedId) ?? null) : null;
 
   const columns: DocumentListColumn<PriceListDTO>[] = [
     {
@@ -59,6 +304,12 @@ export function PriceListsScreen() {
       key: "lines",
       header: t("priceLists.col.items"),
       align: "end",
+      render: (pl) => <span className="mz-num">{new Set(pl.lines.map((l) => l.itemId)).size}</span>,
+    },
+    {
+      key: "tiers",
+      header: t("priceLists.col.tiers"),
+      align: "end",
       render: (pl) => <span className="mz-num">{pl.lines.length}</span>,
     },
     {
@@ -73,8 +324,58 @@ export function PriceListsScreen() {
     },
   ];
 
+  if (selected) {
+    return (
+      <div className="w-full">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("priceLists.title")}</div>
+            <h1 className="font-display text-xl font-bold text-ink">{selected.nameAr}</h1>
+            <p className="mt-[4px] text-[12.5px] text-ink-muted">{selected.description ?? t("priceLists.detail.noDescription")}</p>
+          </div>
+          <Button onClick={subPage.close}>{t("common.back")}</Button>
+        </div>
+
+        {/* The card selector: every list, the active one raised, the base one badged. */}
+        <div className="mb-[16px] flex flex-wrap gap-[10px]">
+          {priceLists.map((pl) => (
+            <button
+              key={pl.id}
+              type="button"
+              onClick={() => subPage.open(pl.id)}
+              aria-current={pl.id === selected.id ? "true" : undefined}
+              className={
+                pl.id === selected.id
+                  ? "min-w-[180px] rounded-lg border-2 border-accent bg-accent-soft p-[12px_14px] text-start"
+                  : "min-w-[180px] rounded-lg border border-border bg-surface p-[12px_14px] text-start hover:border-accent"
+              }
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-[13px] font-semibold text-ink">{pl.nameAr}</span>
+                {pl.isBase ? <StatusPill label={t("priceLists.base")} tone="info" /> : null}
+              </div>
+              <div className="mz-num mt-[4px] text-[11px] text-ink-faint">
+                {pl.code} · {t("priceLists.tier.count", { count: pl.lines.length })}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <PriceListTiers list={selected} items={items} />
+      </div>
+    );
+  }
+
   return (
     <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("priceLists.loadFailed")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
       <DocumentList<PriceListDTO>
         title={t("priceLists.title")}
         description={t("priceLists.description")}
@@ -88,21 +389,94 @@ export function PriceListsScreen() {
         stats={[
           { label: t("priceLists.stat.total"), value: <span className="mz-num">{priceLists.length}</span> },
           { label: t("priceLists.stat.active"), value: <span className="mz-num">{priceLists.filter((p) => p.active).length}</span> },
+          {
+            label: t("priceLists.stat.tiers"),
+            value: <span className="mz-num">{priceLists.reduce((sum, pl) => sum + pl.lines.length, 0)}</span>,
+          },
         ]}
+        statusChips={statusChips}
+        activeStatusKey={statusFilter}
+        onStatusChange={(key) => {
+          setStatusFilter(key as typeof statusFilter);
+          setPage(1);
+        }}
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
+        searchPlaceholder={t("priceLists.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        filterBarExtra={
+          <div className="flex flex-wrap items-center gap-[8px]">
+            <Chip
+              active={baseOnly}
+              onClick={() => {
+                setBaseOnly((on) => !on);
+                setPage(1);
+              }}
+            >
+              {t("priceLists.filter.baseOnly")}
+            </Chip>
+          </div>
+        }
         columns={columns}
-        rows={priceLists}
+        rows={pageRows}
         rowKey={(pl) => pl.id}
-        page={1}
-        pageCount={1}
+        onRowClick={(pl) => subPage.open(pl.id)}
+        rowAction={(pl) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "prices", label: t("priceLists.row.managePrices"), onSelect: () => subPage.open(pl.id) },
+            pl.active
+              ? {
+                  key: "deactivate",
+                  label: t("priceLists.row.deactivate"),
+                  tone: "danger" as const,
+                  onSelect: () => void update.mutateAsync({ id: pl.id, patch: { active: false } }),
+                }
+              : {
+                  key: "activate",
+                  label: t("priceLists.row.activate"),
+                  onSelect: () => void update.mutateAsync({ id: pl.id, patch: { active: true } }),
+                },
+            ...(pl.isBase
+              ? []
+              : [
+                  {
+                    key: "make-base",
+                    label: t("priceLists.row.makeBase"),
+                    onSelect: () => void update.mutateAsync({ id: pl.id, patch: { isBase: true } }),
+                  },
+                ]),
+          ];
+          return <RowMenu items={menuItems} label={t("priceLists.row.actionsFor", { list: pl.nameAr })} />;
+        }}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("priceLists.showingPrefix")} <span className="mz-num">{priceLists.length}</span> {t("priceLists.showingOf")} <span className="mz-num">{priceLists.length}</span> {t("priceLists.showingSuffix")}
+            {t("priceLists.showingPrefix")} <span className="mz-num">{pageRows.length}</span> {t("priceLists.showingOf")}{" "}
+            <span className="mz-num">{priceLists.length}</span> {t("priceLists.showingSuffix")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("priceLists.loading") : t("priceLists.empty")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("priceLists.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("priceLists.empty")}
+              description={t("priceLists.emptyBody")}
+              action={{ label: t("priceLists.new"), onClick: () => setPanelOpen(true) }}
+            />
+          )
         }
       />
 

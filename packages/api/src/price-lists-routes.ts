@@ -1,24 +1,39 @@
-import { z } from "zod";
 import { Hono, type Context } from "hono";
 import {
   Money,
+  Qty,
   createPriceList,
   updatePriceList,
   resolvePrice,
+  resolvePriceTier,
   DuplicatePriceListError,
   InvalidPriceListError,
   PriceListNotFoundError,
   type PriceList,
+  type PriceListLine,
   type PriceListRepository,
 } from "@mezan/domain";
-import { createPriceListSchema, updatePriceListSchema } from "@mezan/contracts";
+import {
+  createPriceListSchema,
+  updatePriceListSchema,
+  resolvePriceListPriceSchema,
+  type PriceListLineDTO,
+} from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
-const resolvePriceSchema = z.object({
-  priceListId: z.string().min(1).nullish(),
-  itemId: z.string().min(1),
-  fallback: z.string(),
-});
+/** Resolves a customer's assigned price list, so the resolve route can answer by customer as well as by list. */
+export interface PriceListCustomerLookup {
+  findById(id: string): Promise<{ priceListId: string | null } | null>;
+}
+
+function toDomainLine(line: PriceListLineDTO): PriceListLine {
+  return {
+    itemId: line.itemId,
+    unitCode: line.unitCode ?? null,
+    minQty: Qty.fromMajor(line.minQty ?? "0"),
+    price: Money.fromMajor(line.price),
+  };
+}
 
 function serialize(priceList: PriceList) {
   return {
@@ -29,7 +44,12 @@ function serialize(priceList: PriceList) {
     description: priceList.description,
     isBase: priceList.isBase,
     active: priceList.active,
-    lines: priceList.lines.map((line) => ({ itemId: line.itemId, price: line.price.toString() })),
+    lines: priceList.lines.map((line) => ({
+      itemId: line.itemId,
+      unitCode: line.unitCode,
+      minQty: line.minQty.toString(),
+      price: line.price.toString(),
+    })),
     createdAt: priceList.createdAt,
   };
 }
@@ -55,6 +75,7 @@ function handleDomainError(c: Context, err: unknown) {
 export function createPriceListsRoutes(
   repo: PriceListRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  customers?: PriceListCustomerLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -75,20 +96,32 @@ export function createPriceListsRoutes(
   /**
    * Applies a price list to a line (docs/catalog/01 §"قوائم الأسعار" —
    * per-customer/category sell prices). Thin wrapper around the pure
-   * `resolvePrice` domain function: the line override if the list is active
-   * and has one for `itemId`, else `fallback` (the item's normal sale price).
-   * Callers resolve the customer's own `priceListId` (or their category's)
-   * before calling this — this route only knows how to apply ONE list.
+   * `resolvePrice` domain function: the MINIMUM-QUANTITY tier the line's `qty`
+   * reaches if the list is active and quotes one, else `fallback` (the item's
+   * normal sale price).
+   *
+   * `customerId` resolves the customer's own list here rather than in the
+   * browser — a screen that picked the list itself would be free to pick the
+   * wrong one, and the tier the invoice is measured against on confirm is the
+   * one this route returns.
    */
   app.post("/resolve-price", gate("sales.price_list.view"), async (c) => {
-    const parsed = resolvePriceSchema.safeParse(await c.req.json());
+    const parsed = resolvePriceListPriceSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
-    const { priceListId, itemId, fallback } = parsed.data;
-    const priceList = priceListId ? await repo.findById(priceListId) : null;
-    const price = resolvePrice(priceList, itemId, Money.fromMajor(fallback));
-    return c.json({ price: price.toString() });
+    const { priceListId, customerId, itemId, fallback } = parsed.data;
+    const qty = Qty.fromMajor(parsed.data.qty ?? "1");
+    const resolvedListId =
+      priceListId ?? (customerId && customers ? ((await customers.findById(customerId))?.priceListId ?? null) : null);
+    const priceList = resolvedListId ? await repo.findById(resolvedListId) : null;
+    const tier = resolvePriceTier(priceList, itemId, qty);
+    return c.json({
+      price: resolvePrice(priceList, itemId, Money.fromMajor(fallback), qty).toString(),
+      priceListId: priceList?.id ?? null,
+      tierMinQty: tier ? tier.minQty.toString() : null,
+      fromPriceList: tier !== null,
+    });
   });
 
   app.post("/", gate("sales.price_list.manage"), async (c) => {
@@ -109,7 +142,7 @@ export function createPriceListsRoutes(
           nameEn: parsed.data.nameEn,
           description: parsed.data.description,
           isBase: parsed.data.isBase,
-          lines: parsed.data.lines?.map((line) => ({ itemId: line.itemId, price: Money.fromMajor(line.price) })),
+          lines: parsed.data.lines?.map(toDomainLine),
         },
         repo,
       );
@@ -140,7 +173,7 @@ export function createPriceListsRoutes(
           description: parsed.data.description,
           isBase: parsed.data.isBase,
           active: parsed.data.active,
-          lines: parsed.data.lines?.map((line) => ({ itemId: line.itemId, price: Money.fromMajor(line.price) })),
+          lines: parsed.data.lines?.map(toDomainLine),
         },
         repo,
       );

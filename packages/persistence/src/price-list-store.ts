@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { openSqliteConnection, type SqliteConnectionInput } from "./sqlite-connection.js";
-import { Money, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
+import { Money, Qty, type PriceList, type PriceListLine, type PriceListRepository } from "@mezan/domain";
 
 /**
  * SQLite-backed {@link PriceListRepository} — header + child-lines pattern
@@ -30,6 +30,21 @@ CREATE TABLE IF NOT EXISTS price_list_line (
 CREATE INDEX IF NOT EXISTS idx_price_list_line_price_list ON price_list_line(price_list_id);
 `;
 
+/** Tier columns added after the first release — an existing database keeps its rows as the base tier. */
+const ADDED_LINE_COLUMNS: readonly [string, string][] = [
+  ["min_qty", "INTEGER NOT NULL DEFAULT 0"],
+  ["unit_code", "TEXT"],
+];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(price_list_line)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_LINE_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE price_list_line ADD COLUMN ${name} ${type}`);
+  }
+}
+
 interface PriceListRow {
   id: string;
   code: string;
@@ -44,11 +59,15 @@ interface PriceListRow {
 interface PriceListLineRow {
   item_id: string;
   price: bigint;
+  min_qty: bigint | null;
+  unit_code: string | null;
 }
 
 function toPriceListLine(row: PriceListLineRow): PriceListLine {
   return {
     itemId: row.item_id,
+    unitCode: row.unit_code,
+    minQty: Qty.fromScaled(row.min_qty ?? 0n),
     price: Money.fromScaled(row.price),
   };
 }
@@ -92,12 +111,16 @@ class SqlitePriceListRepository implements PriceListRepository {
     `);
     this.deleteLines = sqlite.prepare(`DELETE FROM price_list_line WHERE price_list_id = ?`);
     this.insertLine = sqlite.prepare(`
-      INSERT INTO price_list_line (price_list_id, line_no, item_id, price)
-      VALUES (@price_list_id, @line_no, @item_id, @price)
+      INSERT INTO price_list_line (price_list_id, line_no, item_id, price, min_qty, unit_code)
+      VALUES (@price_list_id, @line_no, @item_id, @price, @min_qty, @unit_code)
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM price_list WHERE id = ?`);
+    // Cheapest tier last: `resolvePriceTier` picks by threshold, but a stable
+    // ascending order is what the price-list grid renders.
     this.selectLines = sqlite
-      .prepare(`SELECT item_id, price FROM price_list_line WHERE price_list_id = ? ORDER BY line_no`)
+      .prepare(
+        `SELECT item_id, price, min_qty, unit_code FROM price_list_line WHERE price_list_id = ? ORDER BY item_id, min_qty, line_no`,
+      )
       .safeIntegers();
   }
 
@@ -136,6 +159,8 @@ class SqlitePriceListRepository implements PriceListRepository {
         line_no: index,
         item_id: line.itemId,
         price: line.price.toScaledNumber(),
+        min_qty: line.minQty.toScaledNumber(),
+        unit_code: line.unitCode,
       });
     });
   }
@@ -165,6 +190,7 @@ export function createSqlitePriceListStore(path: SqliteConnectionInput = ":memor
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addMissingColumns(sqlite);
   const repo = new SqlitePriceListRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

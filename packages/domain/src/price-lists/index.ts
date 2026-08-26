@@ -4,4 +4,4 @@ export type { PriceListRepository } from "./ports.js";
 export { InvalidPriceListError, PriceListNotFoundError, DuplicatePriceListError } from "./errors.js";
 export { validateNewPriceList, createPriceList, type CreatePriceListCommand } from "./create-price-list.js";
 export { updatePriceList, type UpdatePriceListCommand } from "./update-price-list.js";
-export { resolvePrice } from "./pricing.js";
+export { resolvePrice, resolvePriceTier } from "./pricing.js";

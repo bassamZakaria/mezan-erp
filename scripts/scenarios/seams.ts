@@ -220,6 +220,75 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
+  // X65 — the SALES side of a foreign currency, and what it is worth per currency
+  // ---------------------------------------------------------------------------
+  await scenario("x65 · a foreign-currency sales invoice reaches the ledger in base currency, is reported per currency, and is what revaluation restates", async () => {
+    // The rate the SERVER will pick: the latest approved (or locked) USD rate
+    // effective on or before the invoice's date. Read rather than hardcoded, so
+    // an earlier scenario adding a rate cannot silently change what is asserted.
+    const usable = ((await req("GET", "/exchange-rates")).body as any[])
+      .filter((r: any) => r.currency === "USD" && r.effectiveDate <= TODAY && (r.status === "approved" || r.status === "locked"))
+      .sort((a: any, b: any) => String(b.effectiveDate).localeCompare(String(a.effectiveDate)));
+    const rate = n(usable[0]?.rate ?? 0);
+    check("the tenant holds an approved USD rate for the invoice's date", rate > 0, `rate=${rate}`);
+
+    const arBefore = await gl(AR);
+    const { created, confirmed } = await serviceInvoice(
+      "SCN-S-SI-USD",
+      [{ qty: "1", unitPrice: "1000", taxRatePercent: 0 }],
+      { currency: "USD", customerId: "CUST-DEMO-USD", customerNameAr: "شركة دلتا للتصدير" },
+    );
+    check("a USD sales invoice is accepted and confirms", created.status === 201 && confirmed.status === 200, `${created.status}/${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 220)}`);
+    check("and it records the rate it confirmed at, rather than leaving a later reader to re-derive one", n(confirmed.body?.fxRate) === rate, `fxRate=${confirmed.body?.fxRate} rate=${rate}`);
+
+    const entry = await journalOf(String(confirmed.body?.journalEntryId ?? ""));
+    const arLine = entry.lines.find((l: any) => l.accountId === AR);
+    checkEq(
+      "USD 1,000 debits the receivable with its BASE-currency value at the invoice's own rate, not 1,000 EGP (docs/defects.md D24)",
+      n(arLine?.debit),
+      1000 * rate,
+    );
+    check(
+      "and the receivable line keeps the currency and the rate — the only thing that makes the debt revaluable at all",
+      arLine?.currency === "USD" && n(arLine?.fxRate) === rate,
+      `arLine=${JSON.stringify(arLine).slice(0, 220)}`,
+    );
+    checkEq("the entry still balances to the unit after conversion", Math.round(entry.debit * 100), Math.round(entry.credit * 100));
+    checkEq("and GL 1105 itself moved by exactly that base amount", Math.round(((await gl(AR)) - arBefore) * 100) / 100, Math.round(1000 * rate * 100) / 100);
+
+    const balances = await req("GET", "/gl/balances-by-currency");
+    check("the per-currency balance report answers", balances.status === 200, `status ${balances.status}`);
+    const usdReceivable = ((balances.body?.receivables ?? []) as any[]).find((g: any) => g.currency === "USD");
+    const egpReceivable = ((balances.body?.receivables ?? []) as any[]).find((g: any) => g.currency === "EGP");
+    check("USD receivables are reported as their OWN currency, not folded into the base group (R1.16)", Boolean(usdReceivable) && Boolean(egpReceivable), `currencies=${((balances.body?.receivables ?? []) as any[]).map((g: any) => g.currency).join(",")}`);
+    checkEq("the customer is owed 1,000 DOLLARS — the figure they were billed", n(usdReceivable?.outstandingTransaction), 1000);
+    checkEq("worth exactly 1,000 × the booking rate in the base currency the control account holds", n(usdReceivable?.outstandingBase), 1000 * rate);
+    const usdParty = ((usdReceivable?.parties ?? []) as any[]).find((p: any) => p.partyId === "CUST-DEMO-USD");
+    check("and the balance names the customer it belongs to, not just the currency", usdParty?.partyName === "شركة دلتا للتصدير", `parties=${JSON.stringify(usdReceivable?.parties ?? []).slice(0, 220)}`);
+
+    const usdPayable = ((balances.body?.payables ?? []) as any[]).find((g: any) => g.currency === "USD");
+    check("the supplier side reports per currency too — x23's USD purchase invoice is a dollar payable", Boolean(usdPayable) && n(usdPayable?.outstandingTransaction) > 0, `payables=${JSON.stringify(balances.body?.payables ?? []).slice(0, 220)}`);
+    check(
+      "and every foreign group's base ÷ transaction is the rate it was booked at, never today's",
+      Math.abs(n(usdReceivable?.outstandingBase) / n(usdReceivable?.outstandingTransaction) - rate) < 0.000001,
+      `base=${usdReceivable?.outstandingBase} txn=${usdReceivable?.outstandingTransaction} rate=${rate}`,
+    );
+
+    // The month-end closing rate x23 approved (52.00) is higher than the
+    // booking rate, so a dollar RECEIVABLE is worth more in base currency: a
+    // debit-natured balance that rises is a gain, the mirror of x23's payable.
+    const preview = await req("POST", "/revaluation/preview", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
+    check("the revaluation preview runs", preview.status === 200, `status ${preview.status} ${JSON.stringify(preview.body).slice(0, 220)}`);
+    const arDetail = ((preview.body?.details ?? []) as any[]).find((d: any) => d.accountId === AR);
+    check("revaluation now finds the RECEIVABLE the document created — before this it had nothing upstream speaking currency", Boolean(arDetail), `details=${((preview.body?.details ?? []) as any[]).map((d: any) => `${d.accountId}/${d.currency}`).join(",")}`);
+    checkEq("recovered from the posted base amount and its booking rate, the open balance is 1,000 USD", n(arDetail?.foreignAmount), 1000);
+    const closingRate = n(arDetail?.closingRate);
+    checkEq("restated at the closing rate it is worth 1,000 × that rate", n(arDetail?.revaluedBase), 1000 * closingRate);
+    checkEq("so the restatement is exactly 1,000 × (closing − booking)", Math.round(n(arDetail?.gainLoss) * 100) / 100, Math.round(1000 * (closingRate - rate) * 100) / 100);
+    check("and a receivable worth MORE base currency is a gain, never a loss", n(arDetail?.gainLoss) > 0, `gainLoss=${arDetail?.gainLoss} closing=${closingRate} booking=${rate}`);
+  });
+
+  // ---------------------------------------------------------------------------
   // X24 — an unapproved rate must not be spendable
   // ---------------------------------------------------------------------------
   await scenario("x24 · a pending exchange rate cannot be spent, an approved one can, and a locked one is supposed to be final", async () => {

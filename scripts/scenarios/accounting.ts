@@ -21,6 +21,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await accountRoutingDecidesWherePostingsLand_R61(ctx);
   await everyJournalEntryNamesItsModule_R63(ctx);
   await taxGroupsKeepTheirMembersSeparate_R64(ctx);
+  await costCentresCarryTheirOwnColumnsAndImportDepartments_R67(ctx);
   await byItemReportsTieToTheLedger_A7(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
@@ -737,6 +738,70 @@ export async function everyJournalEntryNamesItsModule_R63(ctx: Ctx): Promise<voi
  * own rate, and a group that reported one combined percentage would hide both
  * that and which authority is owed what.
  */
+/**
+ * D44 / R6.7. The screen used to render the chart-of-accounts headers over
+ * cost-centre rows, which is only possible because a cost centre and an account
+ * happen to share four field names — so the check below is on the DATA every
+ * one of the reference's six columns needs, not on the headers themselves.
+ */
+export async function costCentresCarryTheirOwnColumnsAndImportDepartments_R67(ctx: Ctx): Promise<void> {
+  await ctx.scenario("cost centres carry their own six columns, and can be created from the departments the tenant already keeps (R6.7)", async () => {
+    const centres = ctx.rows((await ctx.req("GET", "/cost-centers")).body);
+    ctx.check("the tenant has cost centres to look at", centres.length > 0, `centres=${centres.length}`);
+    const columnsPresent = centres.every(
+      (c: any) =>
+        typeof c.code === "string" &&
+        typeof c.nameAr === "string" &&
+        typeof c.type === "string" &&
+        "departmentId" in c &&
+        "branchId" in c &&
+        "parentId" in c &&
+        typeof c.status === "string",
+    );
+    ctx.check(
+      "every row carries code, name, type, what it is linked to, its parent and its status — the six the reference lists (docs/defects.md D44)",
+      columnsPresent,
+      JSON.stringify(centres[0] ?? {}).slice(0, 220),
+    );
+
+    const departments = ctx.rows((await ctx.req("GET", "/hr/departments")).body);
+    ctx.check("the tenant keeps a department list", departments.length >= 2, `departments=${departments.length}`);
+
+    const importable = ctx.rows((await ctx.req("GET", "/cost-centers/importable-departments")).body);
+    ctx.check("and every one of them is offered for import, since none has a cost centre yet", importable.length >= 2, `importable=${importable.length}`);
+    ctx.check(
+      "each candidate names the code it would take rather than leaving the user to invent one",
+      importable.every((d: any) => typeof d.suggestedCode === "string" && d.suggestedCode.startsWith("CC-")),
+      JSON.stringify(importable.slice(0, 2)),
+    );
+
+    const picked = importable.slice(0, 2).map((d: any) => d.id as string);
+    const created = await ctx.req("POST", "/cost-centers/from-departments", { departmentIds: picked });
+    ctx.check("the import runs", created.status === 201, `${created.status}: ${JSON.stringify(created.body).slice(0, 220)}`);
+    const createdRows = ((created.body?.created ?? []) as any[]);
+    ctx.checkEq("one cost centre per department chosen", createdRows.length, picked.length);
+    ctx.check(
+      "each is a DEPARTMENT-type centre carrying the real department id — a label alone could not stop the next import duplicating it",
+      createdRows.every((c: any) => c.type === "department" && picked.includes(c.departmentId)),
+      JSON.stringify(createdRows).slice(0, 260),
+    );
+
+    const again = await ctx.req("POST", "/cost-centers/from-departments", { departmentIds: picked });
+    ctx.checkEq("importing the same departments a second time creates nothing", ((again.body?.created ?? []) as any[]).length, 0);
+    ctx.checkEq("and says which ones it left alone", ((again.body?.skipped ?? []) as any[]).length, picked.length);
+
+    const stillImportable = ctx.rows((await ctx.req("GET", "/cost-centers/importable-departments")).body);
+    ctx.check(
+      "the imported departments are no longer offered",
+      stillImportable.every((d: any) => !picked.includes(d.id)),
+      `remaining=${stillImportable.map((d: any) => d.id).join(",")}`,
+    );
+
+    const after = ctx.rows((await ctx.req("GET", "/cost-centers")).body);
+    ctx.checkEq("and the tree really grew by that many centres", after.length, centres.length + picked.length);
+  });
+}
+
 export async function taxGroupsKeepTheirMembersSeparate_R64(ctx: Ctx): Promise<void> {
   await ctx.scenario("a tax group reports its members separately, and compounds correctly (R6.4)", async () => {
     const groups = ((await ctx.req("GET", "/tax-groups")).body ?? []) as Array<{

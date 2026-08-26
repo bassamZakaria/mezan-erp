@@ -4637,6 +4637,36 @@ export function usePendingApprovals(): UseQueryResult<ApprovalRequestDTO[], ApiE
   });
 }
 
+/** طلباتي — approval requests this user submitted, whatever their state. */
+export function useMyApprovalRequests(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ApprovalRequestDTO[], ApiError>({
+    queryKey: ["workflow-requests", "mine"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/mine");
+      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
+      return res.json<ApprovalRequestDTO[]>();
+    },
+  });
+}
+
+/** إجراءاتي — requests this user has already approved, rejected or sent back. */
+export function useMyApprovalDecisions(): UseQueryResult<ApprovalRequestDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ApprovalRequestDTO[], ApiError>({
+    queryKey: ["workflow-requests", "acted"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/workflow/requests/acted");
+      if (!res.ok) throw new ApiError(res.status, t("api.pendingApprovalsCouldNotBe"));
+      return res.json<ApprovalRequestDTO[]>();
+    },
+  });
+}
+
 /** The shell's global pending-count badge on the الموافقات nav item. */
 export function usePendingApprovalCount(): UseQueryResult<number, ApiError> {
   const { t } = useAppTranslation();

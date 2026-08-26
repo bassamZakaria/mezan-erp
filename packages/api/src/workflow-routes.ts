@@ -198,6 +198,19 @@ export function createWorkflowRoutes(
     return c.json(rows.map(serializeRequest));
   });
 
+  /**
+   * إجراءاتي — requests this user has already decided on. Derived from the
+   * decision log's `actorId` rather than the caller filtering `/requests`,
+   * so the tab stays correct however many requests exist.
+   */
+  app.get("/requests/acted", gate("workflow.view"), async (c) => {
+    const ctx = getAuthContext(c);
+    if (!ctx) return c.json([]);
+    const rows = await deps.requests.list();
+    const mine = rows.filter((row) => row.decisions.some((decision) => decision.actorId === ctx.userId));
+    return c.json(mine.map(serializeRequest));
+  });
+
   app.get("/requests", gate("workflow.view"), async (c) => {
     const rows = await deps.requests.list();
     return c.json(rows.map(serializeRequest));

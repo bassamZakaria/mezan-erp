@@ -33,7 +33,10 @@ const quickActions: QuickAction[] = [
   { labelKey: "dashboard.action.salesInvoice", screen: "sales-invoices", intent: "create", primary: true },
   { labelKey: "dashboard.action.voucher", screen: "treasury-vouchers", intent: "create" },
   { labelKey: "dashboard.action.goodsReceipt", screen: "goods-receipts", intent: "create" },
+  { labelKey: "dashboard.action.purchaseInvoice", screen: "purchase-invoices", intent: "create" },
+  { labelKey: "dashboard.action.purchaseOrder", screen: "purchase-orders", intent: "create" },
   { labelKey: "dashboard.action.quote", screen: "quotes", intent: "create" },
+  { labelKey: "dashboard.action.newItem", screen: "items", intent: "create" },
 ];
 
 const RANGE_OPTIONS = [

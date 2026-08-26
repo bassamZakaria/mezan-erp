@@ -13,7 +13,8 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
-import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
+import { foreignCurrencies } from "@mezan/domain";
+import { useAllowedCurrencies, useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { TextField } from "../settings/form-controls";
 import { todayIso } from "../lib/dates";
@@ -21,19 +22,25 @@ import { todayIso } from "../lib/dates";
 const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
 
-const CURRENCIES = ["USD", "EUR", "GBP", "SAR", "AED", "QAR", "KWD"];
-
 /**
  * أسعار الصرف — Exchange Rates (docs/catalog/04). Master data feeding FX
  * revaluation, with the بانتظار الاعتماد → معتمد → مقفل approval lifecycle.
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
 export function ExchangeRatesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useExchangeRates();
+  const allowedCurrencies = useAllowedCurrencies();
   const createExchangeRate = useCreateExchangeRate();
   const approveExchangeRate = useApproveExchangeRate();
   const rates = query.data ?? [];
+  // Every currency the platform supports except the tenant's base (R1.15).
+  // Four screens each carried their own shorter hardcoded list before this.
+  const baseCurrency = allowedCurrencies.data?.base ?? "EGP";
+  const currencyOptions = foreignCurrencies(baseCurrency).map((c) => ({
+    value: c.code,
+    label: `${c.code} — ${locale === "ar" ? c.nameAr : c.nameEn}`,
+  }));
   const [statusFilter, setStatusFilter] = useState<ExchangeRateStatusDTO | "all">("all");
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: todayIso() });
@@ -81,7 +88,7 @@ export function ExchangeRatesScreen() {
   }
 
   const columns: DocumentListColumn<ExchangeRateDTO>[] = [
-    { key: "pair", header: t("fxRates.currencyPair"), render: (r) => <span className="font-semibold text-ink">{r.currency} / EGP</span> },
+    { key: "pair", header: t("fxRates.currencyPair"), render: (r) => <span className="font-semibold text-ink">{r.currency} / {baseCurrency}</span> },
     { key: "rate", header: t("fxRates.rate"), render: (r) => <span className="mz-num text-ink">{formatNumber(Number(r.rate), { minimumFractionDigits: 4, maximumFractionDigits: 6 })}</span> },
     { key: "date", header: t("fxRates.effectiveFrom"), render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
     { key: "source", header: t("fxRates.source"), render: (r) => <span className="text-ink-muted">{r.source === "manual" ? t("fxRates.manual") : t("fxRates.automatic")}</span> },
@@ -119,11 +126,11 @@ export function ExchangeRatesScreen() {
             <div className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.foreignCurrency")}
               <Select
                 size="sm"
-                className="w-[130px]"
+                className="w-[220px]"
                 aria-label={t("fxRates.foreignCurrency")}
                 value={draft.currency}
                 onChange={(value) => setDraft((d) => ({ ...d, currency: value }))}
-                options={CURRENCIES.map((c) => ({ value: c, label: c }))}
+                options={currencyOptions}
               />
             </div>
             <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fxRates.rate")}

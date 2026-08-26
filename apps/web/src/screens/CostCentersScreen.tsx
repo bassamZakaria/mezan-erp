@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  AccountTree,
   Button,
   Card,
+  Checkbox,
   EntityPicker,
   FulcrumRule,
   IconButton,
@@ -11,14 +11,20 @@ import {
   SidePanel,
   StatCard,
   StatusPill,
-  type AccountTreeRow,
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, matchesSearch, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
+import { COST_CENTER_TYPE_DEFINITIONS, isLinked as costCenterIsLinked, matchesSearch } from "@mezan/domain";
 import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mezan/contracts";
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
-import { useBranches, useCostCenters, useCreateCostCenter, useUpdateCostCenter } from "../data/hooks";
+import {
+  useBranches,
+  useCostCenters,
+  useCreateCostCenter,
+  useCreateCostCentersFromDepartments,
+  useImportableDepartments,
+  useUpdateCostCenter,
+} from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -26,6 +32,14 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<CostCenterStatusDTO, AppTranslationKey> = { active: "costCentres.status.active", inactive: "costCentres.status.inactive" };
 const STATUS_TONE: Record<CostCenterStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
+const TYPE_KEY: Record<CostCenterTypeDTO, AppTranslationKey> = {
+  general: "costCentres.type.general",
+  department: "costCentres.type.department",
+  project: "costCentres.type.project",
+  branch: "costCentres.type.branch",
+};
+const HEAD_CELL =
+  "whitespace-nowrap border-b border-border bg-surface-2 px-[15px] py-[11px] text-start text-[11px] font-bold uppercase tracking-[0.2px] text-ink-muted";
 
 const ROOT_PARENT_ID = "__root__";
 
@@ -105,6 +119,14 @@ export function CostCentersScreen() {
     }
   }, [costCenters]);
 
+  const importableQuery = useImportableDepartments();
+  const importFromDepartments = useCreateCostCentersFromDepartments();
+  const importable = importableQuery.data ?? [];
+  const [importOpen, setImportOpen] = useState(false);
+  const [importSelection, setImportSelection] = useState<Set<string>>(new Set());
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importDone, setImportDone] = useState<number | null>(null);
+
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -124,20 +146,6 @@ export function CostCentersScreen() {
       .map((c) => ({ ...c, level: 0, hasChildren: false }));
   }, [tree, costCenters, expandedIds, hasActiveFilter, search, typeFilter]);
 
-  const treeRows: AccountTreeRow[] = rows.map((row) => ({
-    id: row.id,
-    code: row.code,
-    nameAr: row.nameAr,
-    nameEn: row.nameEn,
-    typeLabel: getCostCenterTypeLabel(row.type as DomainCostCenterType),
-    natureLabel: costCenterIsLinked(row) ? t("costCentres.linked") : t("costCentres.standalone"),
-    statusLabel: t(STATUS_KEY[row.status]),
-    statusTone: STATUS_TONE[row.status],
-    level: row.level,
-    hasChildren: row.hasChildren,
-    expanded: expandedIds.has(row.id),
-  }));
-
   const allIds = useMemo(() => costCenters.map((c) => c.id), [costCenters]);
   const allExpanded = allIds.length > 0 && allIds.every((id) => expandedIds.has(id));
 
@@ -150,6 +158,35 @@ export function CostCentersScreen() {
   const parentOfSelected = selected?.parentId ? costCenters.find((c) => c.id === selected.parentId) ?? null : null;
   const childrenOfSelected = selectedId ? costCenters.filter((c) => c.parentId === selectedId) : [];
   const branchOfSelected = selected?.branchId ? branches.find((b) => b.id === selected.branchId) ?? null : null;
+
+  function openImport() {
+    setImportError(null);
+    setImportDone(null);
+    setImportSelection(new Set());
+    setImportOpen(true);
+  }
+
+  async function submitImport() {
+    if (importSelection.size === 0) return;
+    setImportError(null);
+    try {
+      const result = await importFromDepartments.mutateAsync({ departmentIds: [...importSelection] });
+      setImportDone(result.created.length);
+      setImportSelection(new Set());
+      await importableQuery.refetch();
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : t("costCentres.import.failed"));
+    }
+  }
+
+  function toggleExpanded(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function openCreateForm() {
     setEditingId(null);
@@ -222,6 +259,7 @@ export function CostCentersScreen() {
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <Button onClick={() => setExpandedIds(allExpanded ? new Set() : new Set(allIds))}>{allExpanded ? t("costCentres.collapseAll") : t("costCentres.expandAll")}</Button>
+          <Button onClick={openImport}>{t("costCentres.import.action")}</Button>
           <Button variant="primary" onClick={openCreateForm}>
             {t("costCentres.addCostCentre")}
           </Button>
@@ -252,54 +290,109 @@ export function CostCentersScreen() {
           onChange={(value) => setTypeFilter(value as CostCenterTypeDTO | "all")}
           options={[
             { value: "all", label: t("costCentres.allTypes") },
-            ...COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr })),
+            ...COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: t(TYPE_KEY[d.code]) })),
           ]}
         />
       </div>
 
-      <AccountTree
-        rows={treeRows}
-        // A cost centre is not an account: the tree's default headers labelled
-        // these columns "اسم الحساب / الطبيعة" over cost-centre data (D44).
-        columnLabels={{
-          name: t("costCentres.col.name"),
-          type: t("costCentres.col.type"),
-          nature: t("costCentres.col.linkedTo"),
-          status: t("common.status"),
-        }}
-        onToggle={(id) =>
-          setExpandedIds((prev) => {
-            const next = new Set(prev);
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
-            return next;
-          })
-        }
-        onRowClick={(id) => setSelectedId(id)}
-        rowActions={(row) => (
-          <IconButton
-            aria-label={t("costCentres.editLabel", { name: row.nameAr })}
-            onClick={(event) => {
-              event.stopPropagation();
-              const cc = costCenters.find((c) => c.id === row.id);
-              if (cc) openEditForm(cc);
-            }}
-          >
-            <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px]">
-              <path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-            </svg>
-          </IconButton>
-        )}
-        emptyState={
-          <div className="p-8 text-center">
-            <p className="text-[13px] font-semibold text-ink">{t("costCentres.noCostCentresYet")}</p>
-            <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("costCentres.costCentresLetYouSee")}</p>
-            <Button className="mt-[12px]" variant="primary" onClick={openCreateForm}>
-              {t("costCentres.addCostCentre")}
-            </Button>
-          </div>
-        }
-      />
+      {/*
+        A cost centre is not an account. Reusing the chart-of-accounts tree
+        labelled these columns اسم الحساب / الطبيعة over cost-centre data and
+        had no room for the parent centre at all (D44); the reference lists
+        الكود · الاسم · النوع · مرتبط بـ · المركز الرئيسي · الحالة.
+      */}
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[760px] border-collapse text-[13px]">
+            <thead>
+              <tr>
+                <th scope="col" className={HEAD_CELL}>{t("costCentres.col.code")}</th>
+                <th scope="col" className={HEAD_CELL}>{t("costCentres.col.name")}</th>
+                <th scope="col" className={HEAD_CELL}>{t("costCentres.col.type")}</th>
+                <th scope="col" className={HEAD_CELL}>{t("costCentres.col.linkedTo")}</th>
+                <th scope="col" className={HEAD_CELL}>{t("costCentres.col.parent")}</th>
+                <th scope="col" className={HEAD_CELL}>{t("common.status")}</th>
+                <th scope="col" className={HEAD_CELL} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => {
+                const parent = row.parentId ? costCenters.find((c) => c.id === row.parentId) ?? null : null;
+                return (
+                  <tr
+                    key={row.id}
+                    className="cursor-pointer border-b border-border transition-colors last:border-b-0 hover:bg-surface-2"
+                    onClick={() => setSelectedId(row.id)}
+                  >
+                    <td className="px-[15px] py-[10px] align-middle">
+                      <span className="mz-num text-ink-muted">{row.code}</span>
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle">
+                      <div className="flex items-center gap-[6px]" style={{ paddingInlineStart: row.level * 20 }}>
+                        {row.hasChildren ? (
+                          <button
+                            type="button"
+                            aria-expanded={expandedIds.has(row.id)}
+                            aria-label={expandedIds.has(row.id) ? t("costCentres.collapseAll") : t("costCentres.expandAll")}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              toggleExpanded(row.id);
+                            }}
+                            className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-sm text-ink-faint transition-colors hover:bg-surface-2 hover:text-ink"
+                          >
+                            <svg aria-hidden viewBox="0 0 8 8" fill="none" className={`h-[8px] w-[8px] transition-transform ${expandedIds.has(row.id) ? "rotate-90" : ""}`}>
+                              <path d="M2 1l4 3-4 3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </button>
+                        ) : (
+                          <span aria-hidden className="inline-block h-[18px] w-[18px] flex-none" />
+                        )}
+                        <span className="font-semibold text-ink">{row.nameAr}</span>
+                      </div>
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle">
+                      <span className="inline-flex rounded-sm bg-surface-3 px-[8px] py-[3px] text-[11.5px] font-semibold text-ink-muted">
+                        {t(TYPE_KEY[row.type])}
+                      </span>
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle text-ink-muted">
+                      {costCenterIsLinked(row) ? t("costCentres.linked") : t("costCentres.standalone")}
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle text-ink-muted">
+                      {parent ? `${parent.code} — ${parent.nameAr}` : t("costCentres.noParentCentre")}
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle">
+                      <StatusPill label={t(STATUS_KEY[row.status])} tone={STATUS_TONE[row.status]} />
+                    </td>
+                    <td className="px-[15px] py-[10px] align-middle text-end">
+                      <IconButton
+                        aria-label={t("costCentres.editLabel", { name: row.nameAr })}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openEditForm(row);
+                        }}
+                      >
+                        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px]">
+                          <path d="M13.5 3.5 16.5 6.5 7 16H4v-3L13.5 3.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                        </svg>
+                      </IconButton>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          {rows.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-[13px] font-semibold text-ink">{t("costCentres.noCostCentresYet")}</p>
+              <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("costCentres.costCentresLetYouSee")}</p>
+              <Button className="mt-[12px]" variant="primary" onClick={openCreateForm}>
+                {t("costCentres.addCostCentre")}
+              </Button>
+            </div>
+          ) : null}
+        </div>
+      </Card>
 
       <div className="mt-[10px] text-xs text-ink-muted">
         {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("costCentres.costCentres2")}
@@ -310,7 +403,7 @@ export function CostCentersScreen() {
         open={selected !== null}
         onClose={() => setSelectedId(null)}
         title={selected ? `${selected.code} — ${selected.nameAr}` : ""}
-        description={selected ? getCostCenterTypeLabel(selected.type as DomainCostCenterType) : undefined}
+        description={selected ? t(TYPE_KEY[selected.type]) : undefined}
       >
         {selected ? (
           <div className="flex flex-col gap-[16px]">
@@ -374,12 +467,12 @@ export function CostCentersScreen() {
 
           <TextField label={t("costCentres.code")} value={draft.code} onChange={(v) => setDraft((d) => ({ ...d, code: v }))} disabled={editingId !== null} placeholder="CC-005" />
           <TextField label={t("costCentres.name")} value={draft.nameAr} onChange={(v) => setDraft((d) => ({ ...d, nameAr: v }))} />
-          <TextField label={t("costCentres.nameInArabic")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
+          <TextField label={t("costCentres.nameInEnglish")} value={draft.nameEn} onChange={(v) => setDraft((d) => ({ ...d, nameEn: v }))} />
           <SelectField
             label={t("common.type")}
             value={draft.type}
             onChange={(v) => setDraft((d) => ({ ...d, type: v as CostCenterTypeDTO }))}
-            options={COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: d.labelAr }))}
+            options={COST_CENTER_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: t(TYPE_KEY[d.code]) }))}
           />
           <EntityPicker
             label={t("costCentres.parentCentre")}
@@ -410,6 +503,74 @@ export function CostCentersScreen() {
             </Button>
           </div>
         </form>
+      </SidePanel>
+
+      {/* -------- إنشاء من الأقسام (R6.7) -------- */}
+      <SidePanel open={importOpen} onClose={() => setImportOpen(false)} title={t("costCentres.import.title")} description={t("costCentres.import.description")}>
+        <div className="flex flex-col gap-[14px]">
+          {importError ? (
+            <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+              {importError}
+            </div>
+          ) : null}
+          {importDone !== null ? (
+            <div role="status" className="rounded-md border border-success bg-success-soft px-[12px] py-[10px] text-[12.5px] text-success-ink">
+              {t("costCentres.import.done", { count: importDone })}
+            </div>
+          ) : null}
+
+          {importable.length === 0 ? (
+            <p className="text-[12.5px] text-ink-muted">{t("costCentres.import.empty")}</p>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-[9px]">
+                <Button size="sm" onClick={() => setImportSelection(new Set(importable.filter((d) => !d.codeInUse).map((d) => d.id)))}>
+                  {t("costCentres.import.selectAll")}
+                </Button>
+                <Button size="sm" onClick={() => setImportSelection(new Set())}>
+                  {t("costCentres.import.clear")}
+                </Button>
+                <span className="text-[12px] text-ink-muted">{t("costCentres.import.selected", { count: importSelection.size })}</span>
+              </div>
+
+              <div className="flex flex-col gap-[6px]">
+                {importable.map((department) => (
+                  <div
+                    key={department.id}
+                    className="flex items-center justify-between gap-[10px] rounded-md border border-border px-[12px] py-[9px]"
+                  >
+                    <Checkbox
+                      className="items-center"
+                      checked={importSelection.has(department.id)}
+                      disabled={department.codeInUse}
+                      onChange={() =>
+                        setImportSelection((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(department.id)) next.delete(department.id);
+                          else next.add(department.id);
+                          return next;
+                        })
+                      }
+                      label={`${department.code} — ${department.nameAr ?? department.name}`}
+                    />
+                    <span className="mz-num text-[11.5px] text-ink-faint">
+                      {department.codeInUse ? t("costCentres.import.codeInUse") : department.suggestedCode}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-[6px] flex justify-end gap-[9px]">
+                <Button type="button" onClick={() => setImportOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button variant="primary" disabled={importSelection.size === 0 || importFromDepartments.isPending} onClick={submitImport}>
+                  {t("costCentres.import.submit")}
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
       </SidePanel>
     </div>
   );

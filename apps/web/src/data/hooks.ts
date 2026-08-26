@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import type {
+  AuditEventDTO,
   WorkflowConfigDTO,
   CreateWorkflowConfigDTO,
   UpdateWorkflowConfigDTO,
@@ -5849,6 +5850,32 @@ export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, Api
       const res = await request("/settings/currencies");
       if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
       return res.json<AllowedCurrenciesDTO>();
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* سجل التدقيق لكيان واحد                                                 */
+/* -------------------------------------------------------------------- */
+
+/**
+ * One entity's own audit trail. Selectable at all only because the audit event
+ * now carries `entityId`; before that the trail could be filtered by TYPE but
+ * never down to a single customer, item or document.
+ */
+export function useEntityAudit(entityType: string, entityId: string): UseQueryResult<AuditEventDTO[], ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<AuditEventDTO[], ApiError>({
+    queryKey: ["entity-audit", entityType, entityId],
+    enabled: session !== null && entityId !== "",
+    queryFn: async () => {
+      const res = await request(
+        `/audit?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}&limit=100`,
+      );
+      if (!res.ok) throw new ApiError(res.status, t("api.auditCouldNotBeLoaded"));
+      const body = await res.json<{ events?: AuditEventDTO[] } | AuditEventDTO[]>();
+      return Array.isArray(body) ? body : (body.events ?? []);
     },
   });
 }

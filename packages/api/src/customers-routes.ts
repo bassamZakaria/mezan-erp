@@ -1,7 +1,17 @@
 import { Hono, type Context } from "hono";
-import { createCustomer, updateCustomer, InvalidCustomerError, matchesSearch, Money, type Customer, type CustomerRepository } from "@mezan/domain";
+import {
+  createCustomer,
+  updateCustomer,
+  InvalidCustomerError,
+  matchesSearch,
+  Money,
+  recordSensitiveEvent,
+  type AuditSink,
+  type Customer,
+  type CustomerRepository,
+} from "@mezan/domain";
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
-import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
+import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
@@ -44,9 +54,35 @@ function handleDomainError(c: Context, err: unknown) {
 export function createCustomersRouter(
   repo: CustomerRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  audit?: AuditSink,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * A customer's own trail. The credit limit is the reason this matters: it is
+   * the one master-data field that decides how much a salesperson may sell on
+   * credit, and raising it quietly is the cheapest way to push a bad debt
+   * through. `details` records the before and after so the change is readable
+   * without replaying anything.
+   */
+  async function record(c: Context, customer: Customer, action: "CREATE" | "UPDATE", before?: Customer) {
+    if (!audit) return;
+    await recordSensitiveEvent(audit, {
+      module: "sales",
+      entityType: "CUSTOMER",
+      entityId: customer.id,
+      action,
+      actor: getAuthContext(c)?.userId ?? "system",
+      severity: before && before.creditLimit.scaled !== customer.creditLimit.scaled ? "WARNING" : "INFO",
+      details: {
+        code: customer.code,
+        nameAr: customer.nameAr,
+        creditLimit: customer.creditLimit.toString(),
+        ...(before ? { previousCreditLimit: before.creditLimit.toString(), previousCode: before.code } : {}),
+      },
+    });
+  }
 
   app.get("/", gate("sales.customer.view"), async (c) => {
     const customers = await repo.findAll();
@@ -85,6 +121,7 @@ export function createCustomersRouter(
         creditLimit: creditLimit !== undefined ? Money.fromMajor(creditLimit) : undefined,
       });
       await repo.save(customer);
+      await record(c, customer, "CREATE");
       return c.json(serialize(customer), 201);
     } catch (err) {
       return handleDomainError(c, err);
@@ -119,6 +156,7 @@ export function createCustomersRouter(
       };
       const next = updateCustomer(current, patch);
       await repo.save(next);
+      await record(c, next, "UPDATE", current);
       return c.json(serialize(next));
     } catch (err) {
       return handleDomainError(c, err);

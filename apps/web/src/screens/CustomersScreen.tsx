@@ -18,9 +18,12 @@ import {
   useCustomers,
   useSalesInvoices,
   useSalesReturns,
+  useInstallmentPlans,
+  useEntityAudit,
   useUpdateCustomer,
   useVouchers,
 } from "../data/hooks";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import {
   MONEY_RECONCILIATION_TOLERANCE,
   agingBucketsFor,
@@ -110,6 +113,120 @@ function MiniStat({ label, value }: { label: string; value: ReactNode }) {
 }
 
 /** فواتير العميل — `GET /sales-invoices?customerId=…`, the customer's own invoice ledger. */
+/**
+ * The three document tabs narrow an already-scoped list in the browser rather
+ * than asking the server per customer: these are short lists the detail page
+ * has usually already loaded, and the branch/warehouse SCOPE that decides what
+ * this user may see at all is still applied server-side.
+ */
+function CustomerInstallmentsTab({ customerId }: { customerId: string }) {
+  const { t } = useAppTranslation();
+  const query = useInstallmentPlans();
+  // The customer is on the LINES, not the header — a plan can schedule more
+  // than one customer's instalments, so it belongs to this customer if any
+  // line does. Same shape as the warehouse on a return.
+  const plans = (query.data ?? []).filter((p) => p.lines.some((l) => l.customerId === customerId));
+  if (query.isError) return <TabError message={t("customers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
+  if (plans.length === 0) return <TabMessage title={t("customers.tab.installments")} body={t("customers.installments.empty")} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("common.date")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("common.status")}</th>
+            <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {plans.map((p) => (
+            <tr key={p.id} className="border-b border-border last:border-b-0">
+              <td className="px-[12px] py-[10px]">{p.date}</td>
+              <td className="px-[12px] py-[10px]">{p.status}</td>
+              <td className="mz-num px-[12px] py-[10px] text-end">
+                <MoneyValue
+                  value={moneyToNumber(sumMoney(p.lines.filter((l) => l.customerId === customerId).map((l) => l.amount)))}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CustomerReturnsTab({ customerId }: { customerId: string }) {
+  const { t } = useAppTranslation();
+  const query = useSalesReturns();
+  const returns = (query.data ?? []).filter((r) => r.lines.some((l) => l.customerId === customerId));
+  if (query.isError) return <TabError message={t("customers.invoices.loadFailed")} onRetry={() => query.refetch()} />;
+  if (returns.length === 0) return <TabMessage title={t("customers.tab.returns")} body={t("customers.returns.empty")} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("common.date")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("common.status")}</th>
+            <th className="px-[12px] py-[9px] text-end">{t("common.total")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {returns.map((r) => (
+            <tr key={r.id} className="border-b border-border last:border-b-0">
+              <td className="px-[12px] py-[10px]">{r.date}</td>
+              <td className="px-[12px] py-[10px]">{r.status}</td>
+              <td className="mz-num px-[12px] py-[10px] text-end">
+                <MoneyValue
+                  value={moneyToNumber(
+                    r.lines
+                      .filter((l) => l.customerId === customerId)
+                      // multiplyMoney takes both operands as wire decimals and
+                      // stays in scaled-integer space; Number(qty) here would
+                      // drop the line total to a float.
+                      .reduce<bigint>((total, l) => total + multiplyMoney(l.unitPrice, l.qty), 0n),
+                  )}
+                />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function CustomerAuditTab({ customerId }: { customerId: string }) {
+  const { t } = useAppTranslation();
+  const query = useEntityAudit("CUSTOMER", customerId);
+  const events = query.data ?? [];
+  if (query.isError) return <TabError message={t("api.auditCouldNotBeLoaded")} onRetry={() => query.refetch()} />;
+  if (events.length === 0) return <TabMessage title={t("customers.tab.audit")} body={t("customers.audit.empty")} />;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            <th className="px-[12px] py-[9px] text-start">{t("audit.dateAndTime")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("audit.action")}</th>
+            <th className="px-[12px] py-[9px] text-start">{t("audit.user")}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {events.map((e, i) => (
+            <tr key={i} className="border-b border-border last:border-b-0">
+              <td className="mz-num px-[12px] py-[10px]">{e.timestamp}</td>
+              <td className="px-[12px] py-[10px]">{e.action}</td>
+              <td className="px-[12px] py-[10px]">{e.actor}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function CustomerInvoicesTab({ customerId }: { customerId: string }) {
   const { t } = useAppTranslation();
   const query = useSalesInvoices({ customerId });
@@ -550,6 +667,10 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
         },
         { key: "invoices", label: t("customers.tab.invoices"), content: <CustomerInvoicesTab customerId={customer.id} /> },
         { key: "statement", label: t("customers.tab.statement"), content: <CustomerStatementTab customer={customer} /> },
+        { key: "installments", label: t("customers.tab.installments"), content: <CustomerInstallmentsTab customerId={customer.id} /> },
+        { key: "returns", label: t("customers.tab.returns"), content: <CustomerReturnsTab customerId={customer.id} /> },
+        { key: "attachments", label: t("customers.tab.attachments"), content: <AttachmentsTab entityType="customer" entityId={customer.id} /> },
+        { key: "audit", label: t("customers.tab.audit"), content: <CustomerAuditTab customerId={customer.id} /> },
       ]}
     />
   );

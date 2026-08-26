@@ -793,7 +793,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, options.resolveAuthContext));
   }
   if (options.customerStore) {
-    app.route("/customers", createCustomersRouter(options.customerStore, options.resolveAuthContext));
+    app.route("/customers", createCustomersRouter(options.customerStore, options.resolveAuthContext, options.auditSink));
   }
   if (options.supplierStore) {
     app.route("/suppliers", createSuppliersRouter(options.supplierStore, options.resolveAuthContext));

@@ -10,6 +10,7 @@ import { collectItemFieldErrors } from "../items/validation.js";
 import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemType } from "../items/item.js";
 import { Money } from "../money/index.js";
 import type { ImportRowError } from "./row-errors.js";
+import { itemTypeTracksStock } from "../items/item-type.js";
 
 export interface ItemImportRowInput {
   readonly rowNumber: number;
@@ -58,7 +59,7 @@ function buildCandidate(row: ItemImportRowInput, id: string): Item {
     salePrice: row.salePrice ?? null,
     costPrice: row.costPrice ?? null,
     taxRatePercent: row.taxRatePercent ?? 14,
-    trackInventory: row.trackInventory ?? type === "stock",
+    trackInventory: row.trackInventory ?? itemTypeTracksStock(type),
     trackBatches: row.trackBatches ?? false,
     trackExpiry: row.trackExpiry ?? false,
     reorderPoint: row.reorderPoint ?? null,

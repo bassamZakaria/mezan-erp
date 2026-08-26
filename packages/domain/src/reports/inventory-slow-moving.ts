@@ -4,6 +4,7 @@ import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
  * أصناف بطيئة الحركة — Slow-Moving Items (docs/catalog/08-reports.md): items
@@ -107,7 +108,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
 
       const rows: InventorySlowMovingRow[] = [];
       for (const item of ctx.items) {
-        if (item.type !== "stock") continue;
+        if (!itemTypeTracksStock(item.type)) continue;
         if (search && !item.nameAr.toLowerCase().includes(search)) continue;
         const positions = ctx.snapshots.filter(
           (s) => s.itemId === item.id && (params.warehouseId === "" || s.warehouseId === params.warehouseId),

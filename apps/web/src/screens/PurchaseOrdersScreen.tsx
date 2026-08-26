@@ -31,6 +31,7 @@ import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { itemTypeIsPurchasable } from "@mezan/domain";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -161,7 +162,9 @@ export function PurchaseOrdersScreen() {
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
   const unitLabel = useUnitLabel();
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
+  const itemOptions: EntityPickerOption[] = items
+    .filter((i) => itemTypeIsPurchasable(i.type))
+    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const users = useUsers().data ?? [];
   const filterBranches = useBranches().data ?? [];

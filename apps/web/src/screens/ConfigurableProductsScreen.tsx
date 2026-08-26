@@ -21,6 +21,7 @@ import {
 } from "../data/hooks";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { itemTypeIsBomComponent } from "@mezan/domain";
 
 type Status = ConfigurableProductRecord["status"];
 
@@ -173,7 +174,9 @@ export function ConfigurableProductsScreen() {
     const map = new Map(items.map((i) => [i.id, i.nameAr]));
     return (id: string) => map.get(id) ?? id;
   }, [items]);
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code }));
+  const itemOptions: EntityPickerOption[] = items
+    .filter((i) => itemTypeIsBomComponent(i.type))
+    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.code }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");

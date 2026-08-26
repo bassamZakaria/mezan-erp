@@ -5,6 +5,7 @@ import { bomCostEstimate, type Bom } from "../manufacturing/index.js";
 import type { Item } from "../items/item.js";
 import { purchaseInvoiceLineBase, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
  * التصنيع أم الشراء — Make vs Buy (docs/catalog/07 §التصنيع مقابل الشراء):
@@ -130,7 +131,7 @@ export function createMakeVsBuyReport(): ReportDefinition<MakeVsBuyParams, MakeV
 
       const rows: MakeVsBuyRow[] = [];
       for (const item of ctx.items) {
-        if (item.type !== "stock") continue;
+        if (!itemTypeTracksStock(item.type)) continue;
         const bom = activeBoms.get(item.id);
         if (!bom) continue;
         if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;

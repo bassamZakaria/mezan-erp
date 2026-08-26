@@ -91,6 +91,20 @@ const ITEMS = [
 ];
 
 /**
+ * One item per non-product type (R5.1), so each type chip on the items list
+ * has something to filter to and the capability rules are visible: the service
+ * and the recipe hold no stock, the raw material and the consumable cannot be
+ * sold, the finished good cannot be purchased.
+ */
+const TYPED_ITEMS = [
+  { id: "ITEM-DEMO-10", code: "IT-0010", nameAr: "خدمة توصيل الطلبات", nameEn: "Delivery Service", type: "service" as const, salePrice: "75", costPrice: "0" },
+  { id: "ITEM-DEMO-11", code: "IT-0011", nameAr: "أوراق شاي خام", nameEn: "Raw Tea Leaves", type: "raw_material" as const, salePrice: "0", costPrice: "180" },
+  { id: "ITEM-DEMO-12", code: "IT-0012", nameAr: "عبوة شاي جاهزة للبيع", nameEn: "Packed Tea, Finished", type: "finished_good" as const, salePrice: "190", costPrice: "140" },
+  { id: "ITEM-DEMO-13", code: "IT-0013", nameAr: "أكياس تغليف", nameEn: "Packaging Bags", type: "consumable" as const, salePrice: "0", costPrice: "2.50" },
+  { id: "ITEM-DEMO-14", code: "IT-0014", nameAr: "وصفة خليط الشاي بالنعناع", nameEn: "Mint Tea Blend Recipe", type: "recipe" as const, salePrice: "0", costPrice: "0" },
+];
+
+/**
  * قوائم المواد (BOMs) for the two manufactured items above — demo data for
  * the make-vs-buy report. Both BOMs cost their tea/sugar lines at the SAME
  * purchase history `PURCHASE_INVOICES` below records, so the report's
@@ -330,6 +344,18 @@ export async function seedDemoTenant(app: App): Promise<void> {
       baseUnitCode: "PCS",
       taxRatePercent: VAT_PERCENT,
       trackInventory: true,
+      revenueAccountId: ACCOUNTS.revenue,
+      cogsAccountId: ACCOUNTS.cogs,
+      inventoryAccountId: ACCOUNTS.inventory,
+    });
+  }
+  for (const item of TYPED_ITEMS) {
+    const tracksStock = item.type !== "service" && item.type !== "recipe";
+    await step(app, "POST", "/items", {
+      ...item,
+      baseUnitCode: "PCS",
+      taxRatePercent: VAT_PERCENT,
+      trackInventory: tracksStock,
       revenueAccountId: ACCOUNTS.revenue,
       cogsAccountId: ACCOUNTS.cogs,
       inventoryAccountId: ACCOUNTS.inventory,

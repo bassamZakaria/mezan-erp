@@ -17,6 +17,7 @@ import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } fro
 import { useUnitLabel } from "../lib/item-labels";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { itemTypeIsBomComponent } from "@mezan/domain";
 
 type BomStatus = BomRecord["status"];
 
@@ -138,7 +139,10 @@ export function BomsScreen() {
     return (id: string) => map.get(id) ?? 0;
   }, [items]);
   const unitLabel = useUnitLabel();
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
+  // BOM component lines: a service has no quantity to consume (R5.1).
+  const itemOptions: EntityPickerOption[] = items
+    .filter((i) => itemTypeIsBomComponent(i.type))
+    .map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<BomStatus | "all">("all");

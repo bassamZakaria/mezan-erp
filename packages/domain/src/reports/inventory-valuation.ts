@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import type { ReportDefinition } from "./types.js";
+import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
  * تقييم المخزون — Inventory Valuation (docs/catalog/08-reports.md): current
@@ -59,7 +60,7 @@ export function createInventoryValuationReport(): ReportDefinition<
       const search = params.search.trim().toLowerCase();
       const rows: InventoryValuationRow[] = [];
       for (const item of ctx.items) {
-        if (item.type !== "stock") continue;
+        if (!itemTypeTracksStock(item.type)) continue;
         if (search && !item.nameAr.toLowerCase().includes(search) && !item.code.toLowerCase().includes(search)) continue;
         const positions = ctx.snapshots.filter(
           (s) => s.itemId === item.id && (params.warehouseId === "" || s.warehouseId === params.warehouseId),

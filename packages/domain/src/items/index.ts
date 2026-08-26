@@ -16,6 +16,16 @@ export {
   InvalidItemSpecificationError,
   ItemSpecificationInUseError,
 } from "./errors.js";
+export {
+  ITEM_TYPES,
+  itemTypeCapabilities,
+  itemTypeTracksStock,
+  itemTypeIsSellable,
+  itemTypeIsPurchasable,
+  itemTypeIsBomComponent,
+  itemTypeIsBomOutput,
+  type ItemTypeCapabilities,
+} from "./item-type.js";
 export { validateAlternateUnits, validateGlAccountRefs, collectItemFieldErrors } from "./validation.js";
 export { validateNewItem, createItem, type CreateItemCommand } from "./create-item.js";
 export { updateItem, type UpdateItemCommand } from "./update-item.js";

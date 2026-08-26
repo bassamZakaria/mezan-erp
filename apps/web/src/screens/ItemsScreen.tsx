@@ -20,14 +20,29 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { AlternateUnitDTO, CostingMethodDTO, EtaCodeTypeDTO, ItemDTO, ItemStatusDTO, ItemTypeDTO } from "@mezan/contracts";
+import { ITEM_TYPES, itemTypeTracksStock } from "@mezan/domain";
 import { useAccounts, useCreateItem, useItemCategories, useItemStock, useItemUnits, useItems, useUpdateItem, useWarehouses } from "../data/hooks";
 import { categoryLabel, unitLabel } from "../lib/item-labels";
 import { Field, FieldGroup, NumberField, SelectField, TextField, ToggleField } from "./item-form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 
-const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = { stock: "items.stockProduct", service: "items.service" };
-const TYPE_TONE: Record<ItemTypeDTO, PillTone> = { stock: "info", service: "neutral" };
+const TYPE_KEY: Record<ItemTypeDTO, AppTranslationKey> = {
+  stock: "items.stockProduct",
+  service: "items.service",
+  raw_material: "items.type.rawMaterial",
+  finished_good: "items.type.finishedGood",
+  consumable: "items.type.consumable",
+  recipe: "items.type.recipe",
+};
+const TYPE_TONE: Record<ItemTypeDTO, PillTone> = {
+  stock: "info",
+  service: "neutral",
+  raw_material: "warning",
+  finished_good: "success",
+  consumable: "neutral",
+  recipe: "info",
+};
 const STATUS_KEY: Record<ItemStatusDTO, AppTranslationKey> = { active: "common.active", inactive: "common.inactive" };
 const STATUS_TONE: Record<ItemStatusDTO, PillTone> = { active: "success", inactive: "neutral" };
 const COSTING_KEY: Record<CostingMethodDTO, AppTranslationKey> = { WAC: "items.weightedAverageWac", FIFO: "items.oldestFirstFifo" };
@@ -127,7 +142,7 @@ function draftFromItem(item: ItemDTO): ItemDraft {
  * Client-side mirror of the rules `@mezan/domain`'s `createItem`/`updateItem`
  * enforce (packages/domain/src/items) — unique code, non-blank name,
  * positive/unique alternate-unit conversions, non-blank/unique barcodes, a
- * service item can't track inventory, batch/expiry tracking requires
+ * a type that cannot hold stock can't track inventory, batch/expiry tracking requires
  * trackInventory. The server re-validates on save; this runs first so the form
  * shows the same messages inline without importing the whole domain package
  * into the web bundle.
@@ -142,8 +157,8 @@ function validateDraft(
     return t("items.codeInUse", { code: draft.code });
   }
   if (draft.nameAr.trim() === "") return t("items.theItemNeedsAName");
-  if (draft.type === "service" && draft.trackInventory) {
-    return t("items.aServiceItemCannotTrack");
+  if (!itemTypeTracksStock(draft.type) && draft.trackInventory) {
+    return t("items.typeCannotTrackStock", { type: t(TYPE_KEY[draft.type]) });
   }
   const seenUnitCodes = new Set<string>();
   for (const unit of draft.alternateUnits) {
@@ -181,9 +196,9 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     salePrice: draft.salePrice === null ? null : draft.salePrice.toFixed(2),
     costPrice: draft.costPrice === null ? null : draft.costPrice.toFixed(2),
     taxRatePercent: draft.taxRatePercent,
-    trackInventory: draft.type === "stock" ? draft.trackInventory : false,
-    trackBatches: draft.type === "stock" && draft.trackInventory ? draft.trackBatches : false,
-    trackExpiry: draft.type === "stock" && draft.trackInventory ? draft.trackBatches : false,
+    trackInventory: itemTypeTracksStock(draft.type) ? draft.trackInventory : false,
+    trackBatches: itemTypeTracksStock(draft.type) && draft.trackInventory ? draft.trackBatches : false,
+    trackExpiry: itemTypeTracksStock(draft.type) && draft.trackInventory ? draft.trackBatches : false,
     reorderPoint: draft.reorderPoint,
     reorderQty: draft.reorderQty,
     revenueAccountId: draft.revenueAccountId,
@@ -331,13 +346,20 @@ export function ItemsScreen() {
 
   const totalCount = items.length;
   const activeCount = items.filter((i) => i.status === "active").length;
-  const stockCount = items.filter((i) => i.type === "stock").length;
-  const serviceCount = items.filter((i) => i.type === "service").length;
+  const typeCounts = useMemo(() => {
+    const counts = new Map<ItemTypeDTO, number>();
+    for (const item of items) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+    return counts;
+  }, [items]);
+
+  // Counted by capability, not by the literal type "stock": raw materials,
+  // finished goods and consumables all hold stock too (R5.1).
+  const stockTrackedCount = items.filter((i) => itemTypeTracksStock(i.type)).length;
 
   const filtered = useMemo(() => {
     let rows = items;
     if (statusChipKey === "active" || statusChipKey === "inactive") rows = rows.filter((i) => i.status === statusChipKey);
-    if (statusChipKey === "stock" || statusChipKey === "service") rows = rows.filter((i) => i.type === statusChipKey);
+    if (ITEM_TYPES.includes(statusChipKey as ItemTypeDTO)) rows = rows.filter((i) => i.type === statusChipKey);
     if (categoryFilter !== "all") rows = rows.filter((i) => i.categoryId === categoryFilter);
     if (unitFilter !== "all") rows = rows.filter((i) => i.baseUnitCode === unitFilter);
     if (search.trim() !== "") {
@@ -465,8 +487,7 @@ export function ItemsScreen() {
     { key: "all", label: t("common.all"), count: totalCount },
     { key: "active", label: t("common.active"), count: activeCount },
     { key: "inactive", label: t("common.inactive"), count: totalCount - activeCount },
-    { key: "stock", label: t("items.stockProduct"), count: stockCount },
-    { key: "service", label: t("items.service"), count: serviceCount },
+    ...ITEM_TYPES.map((type) => ({ key: type, label: t(TYPE_KEY[type]), count: typeCounts.get(type) ?? 0 })),
   ];
 
   const formPanel = (
@@ -498,8 +519,7 @@ export function ItemsScreen() {
             }));
           }}
           options={[
-            { value: "stock", label: t(TYPE_KEY.stock) },
-            { value: "service", label: t(TYPE_KEY.service) },
+            ...ITEM_TYPES.map((type) => ({ value: type, label: t(TYPE_KEY[type]) })),
           ]}
         />
 
@@ -915,8 +935,8 @@ export function ItemsScreen() {
         stats={[
           { label: t("items.totalItems"), value: <span className="mz-num">{totalCount}</span> },
           { label: t("common.active"), value: <span className="mz-num">{activeCount}</span> },
-          { label: t("items.stockItems"), value: <span className="mz-num">{stockCount}</span> },
-          { label: t("items.serviceItems"), value: <span className="mz-num">{serviceCount}</span> },
+          { label: t("items.stockItems"), value: <span className="mz-num">{stockTrackedCount}</span> },
+          { label: t("items.nonStockItems"), value: <span className="mz-num">{totalCount - stockTrackedCount}</span> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusChipKey}

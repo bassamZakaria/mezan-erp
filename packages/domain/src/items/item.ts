@@ -1,4 +1,7 @@
 import type { Money } from "../money/index.js";
+import type { ItemType } from "./item-type.js";
+
+export type { ItemType };
 
 /**
  * Items — inventory master data (docs/catalog/03-inventory.md "الأصناف").
@@ -9,7 +12,6 @@ import type { Money } from "../money/index.js";
  * and reach the item-detail response as its `stock` block.
  */
 
-export type ItemType = "stock" | "service";
 export type CostingMethod = "WAC" | "FIFO";
 export type ItemStatus = "active" | "inactive";
 /** Egyptian e-invoice (ETA) code classification (docs/catalog/03 "تصنيف الفاتورة الإلكترونية"). */

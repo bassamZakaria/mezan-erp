@@ -41,6 +41,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { itemTypeIsPurchasable } from "@mezan/domain";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -192,7 +193,8 @@ export function PurchaseInvoicesScreen() {
   }, [items]);
 
   const supplierOptions: EntityPickerOption[] = suppliers.map((s) => ({ id: s.id, label: s.nameAr, sublabel: s.code }));
-  const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr }));
+  // A finished good is produced, not bought; a recipe is neither.
+  const itemOptions: EntityPickerOption[] = items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr }));
   const confirmedReceipts: GoodsReceiptDTO[] = receipts.filter((r) => r.status === "confirmed" && !r.invoiced);
   const receiptOptions: EntityPickerOption[] = confirmedReceipts.map((r) => ({
     id: r.id,

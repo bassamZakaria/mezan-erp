@@ -3,6 +3,7 @@ import type { Money } from "../money/index.js";
 import type { AlternateUnit, CostingMethod, EtaCodeType, Item, ItemRepository, ItemStatus, ItemType } from "./item.js";
 import { DuplicateItemCodeError, InvalidItemError } from "./errors.js";
 import { collectItemFieldErrors, validateGlAccountRefs } from "./validation.js";
+import { itemTypeTracksStock } from "./item-type.js";
 
 export interface CreateItemCommand {
   readonly id: string;
@@ -49,7 +50,7 @@ function buildCandidate(command: CreateItemCommand): Item {
     salePrice: command.salePrice ?? null,
     costPrice: command.costPrice ?? null,
     taxRatePercent: command.taxRatePercent ?? 14,
-    trackInventory: command.trackInventory ?? command.type === "stock",
+    trackInventory: command.trackInventory ?? itemTypeTracksStock(command.type),
     trackBatches: command.trackBatches ?? false,
     trackExpiry: command.trackExpiry ?? false,
     reorderPoint: command.reorderPoint ?? null,

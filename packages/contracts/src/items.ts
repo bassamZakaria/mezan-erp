@@ -7,7 +7,13 @@ import { z } from "zod";
  * alternate-unit conversion `factor` is a plain ratio, not a ledger amount,
  * so it stays a `number`.
  */
-export const itemTypeSchema = z.enum(["stock", "service"]);
+/**
+ * The six item types (R5.1). `stock` is the stored identifier for منتج
+ * (product) — it keeps its old value so existing rows need no migration. What
+ * each type may do lives in the domain's capability table, not in checks
+ * against these strings.
+ */
+export const itemTypeSchema = z.enum(["stock", "service", "raw_material", "finished_good", "consumable", "recipe"]);
 export const costingMethodSchema = z.enum(["WAC", "FIFO"]);
 export const itemStatusSchema = z.enum(["active", "inactive"]);
 export const etaCodeTypeSchema = z.enum(["EGS", "GPC"]);

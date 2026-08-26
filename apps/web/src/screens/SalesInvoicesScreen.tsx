@@ -27,8 +27,7 @@ import {
   SALES_INVOICE_STATUS_LABELS_AR,
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
-  type SalesInvoiceDiscountType,
-} from "@mezan/domain";
+  type SalesInvoiceDiscountType, itemTypeIsSellable,} from "@mezan/domain";
 import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
@@ -296,7 +295,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     // The sublabel quotes the price THIS customer gets, not the base one: on a
     // wholesale customer the picker advertised 180.00 and the line then opened
     // at 168.00, so the two disagreed in front of the user.
-    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
+    () =>
+      items
+        // A raw material, a consumable or a recipe is not something you sell.
+        .filter((i) => i.status === "active" && itemTypeIsSellable(i.type))
+        .map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(priceFor(i))} ${format.currencyLabel}` })),
     [items, priceFor, format],
   );
 

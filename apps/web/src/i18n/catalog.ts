@@ -2214,6 +2214,11 @@ const webAr = {
 
   // items
   "items.stockProduct": "منتج مخزون",
+  "items.type.rawMaterial": "مادة خام",
+  "items.type.finishedGood": "منتج تام",
+  "items.type.consumable": "مستهلك",
+  "items.type.recipe": "وصفة",
+  "items.typeCannotTrackStock": "لا يمكن لصنف من نوع {type} أن يتتبع المخزون",
   "items.service": "خدمة",
   "items.defaultForTheItemType": "الافتراضي حسب نوع الصنف",
   "items.itemName": "اسم الصنف",
@@ -2282,6 +2287,7 @@ const webAr = {
   "items.items": "الأصناف",
   "items.theMasterCatalogueOfProducts": "الكتالوج الرئيسي للمنتجات والخدمات — الوحدات، الباركود، التسعير، تعيين الحسابات، وسياسة المخزون",
   "items.totalItems": "إجمالي الأصناف",
+  "items.nonStockItems": "أصناف غير مخزنية",
   "items.stockItems": "أصناف مخزون",
   "items.serviceItems": "أصناف خدمية",
   "items.searchByNameOrCode": "بحث بالاسم أو الكود...",
@@ -7927,6 +7933,11 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // items
   "items.stockProduct": "Stock product",
+  "items.type.rawMaterial": "Raw material",
+  "items.type.finishedGood": "Finished good",
+  "items.type.consumable": "Consumable",
+  "items.type.recipe": "Recipe",
+  "items.typeCannotTrackStock": "An item of type {type} cannot track inventory",
   "items.service": "Service",
   "items.defaultForTheItemType": "Default for the item type",
   "items.itemName": "Item name",
@@ -7995,6 +8006,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "items.items": "Items",
   "items.theMasterCatalogueOfProducts": "The master catalogue of products and services — units, barcodes, pricing, account mapping and stock policy",
   "items.totalItems": "Total items",
+  "items.nonStockItems": "Non-stock items",
   "items.stockItems": "Stock items",
   "items.serviceItems": "Service items",
   "items.searchByNameOrCode": "Search by name or code…",

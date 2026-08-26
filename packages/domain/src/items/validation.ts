@@ -1,6 +1,7 @@
 import type { Account } from "../accounts/index.js";
 import { isPostable } from "../accounts/index.js";
 import type { AlternateUnit, Item } from "./item.js";
+import { itemTypeTracksStock } from "./item-type.js";
 
 /**
  * Alternate-unit conversion rules (docs/catalog/03 "وحدات القياس"): every
@@ -69,8 +70,10 @@ export function collectItemFieldErrors(item: Item): string[] {
   if (item.nameAr.trim() === "") reasons.push("nameAr is required");
   if (item.baseUnitCode.trim() === "") reasons.push("baseUnitCode is required");
 
-  if (item.type === "service" && item.trackInventory) {
-    reasons.push("a service item cannot track inventory");
+  // Asked as a capability, not as `type === "service"`: recipes cannot hold
+  // stock either, and the check has to keep holding as types are added.
+  if (!itemTypeTracksStock(item.type) && item.trackInventory) {
+    reasons.push(`an item of type ${item.type} cannot track inventory`);
   }
   if (!item.trackInventory && (item.trackBatches || item.trackExpiry)) {
     reasons.push("batch/expiry tracking requires trackInventory");

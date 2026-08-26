@@ -32,6 +32,7 @@ import { useWorkingLocation } from "../data/hub-hooks";
 import { useSubPage } from "../navigation";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { itemTypeIsPurchasable } from "@mezan/domain";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -405,7 +406,7 @@ export function RfqsScreen() {
   const [createError, setCreateError] = useState<string | null>(null);
 
   const itemOptions: EntityPickerOption[] = useMemo(
-    () => items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.baseUnitCode })),
+    () => items.filter((i) => itemTypeIsPurchasable(i.type)).map((i) => ({ id: i.id, label: i.nameAr, sublabel: i.baseUnitCode })),
     [items],
   );
 

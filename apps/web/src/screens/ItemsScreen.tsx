@@ -452,26 +452,14 @@ export function ItemsScreen() {
   const [draft, setDraft] = useState<ItemDraft>(BLANK_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const totalCount = items.length;
-  const activeCount = items.filter((i) => i.status === "active").length;
-  const typeCounts = useMemo(() => {
-    const counts = new Map<ItemTypeDTO, number>();
-    for (const item of items) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
-    return counts;
-  }, [items]);
-
-  // Counted by capability, not by the literal type "stock": raw materials,
-  // finished goods and consumables all hold stock too (R5.1).
-  const stockTrackedCount = items.filter((i) => itemTypeTracksStock(i.type)).length;
-  const lowStockCount = items.filter((i) => i.stockState === "low").length;
-  const outOfStockCount = items.filter((i) => i.stockState === "out").length;
-
-  const filtered = useMemo(() => {
+  /**
+   * Everything the user narrowed by EXCEPT the chip row. The chips and the KPI
+   * strip both count over this set: a chip states how many rows it would show,
+   * so it has to follow the brand/season/category/unit/search filters — but
+   * not the chip currently selected, which would zero every other chip.
+   */
+  const baseRows = useMemo(() => {
     let rows = items;
-    if (statusChipKey === "active" || statusChipKey === "inactive") rows = rows.filter((i) => i.status === statusChipKey);
-    if (ITEM_TYPES.includes(statusChipKey as ItemTypeDTO)) rows = rows.filter((i) => i.type === statusChipKey);
-    if (statusChipKey === "low_stock") rows = rows.filter((i) => i.stockState === "low");
-    if (statusChipKey === "out_of_stock") rows = rows.filter((i) => i.stockState === "out");
     if (categoryFilter !== "all") rows = rows.filter((i) => i.categoryId === categoryFilter);
     if (brandFilter) rows = rows.filter((i) => i.brandId === brandFilter);
     if (seasonFilter) rows = rows.filter((i) => i.seasonId === seasonFilter);
@@ -482,6 +470,29 @@ export function ItemsScreen() {
         (i) => i.nameAr.toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || (i.nameEn ?? "").toLowerCase().includes(q),
       );
     }
+    return rows;
+  }, [items, categoryFilter, brandFilter, seasonFilter, unitFilter, search]);
+
+  const totalCount = baseRows.length;
+  const activeCount = baseRows.filter((i) => i.status === "active").length;
+  const typeCounts = useMemo(() => {
+    const counts = new Map<ItemTypeDTO, number>();
+    for (const item of baseRows) counts.set(item.type, (counts.get(item.type) ?? 0) + 1);
+    return counts;
+  }, [baseRows]);
+
+  // Counted by capability, not by the literal type "stock": raw materials,
+  // finished goods and consumables all hold stock too (R5.1).
+  const stockTrackedCount = baseRows.filter((i) => itemTypeTracksStock(i.type)).length;
+  const lowStockCount = baseRows.filter((i) => i.stockState === "low").length;
+  const outOfStockCount = baseRows.filter((i) => i.stockState === "out").length;
+
+  const filtered = useMemo(() => {
+    let rows = baseRows;
+    if (statusChipKey === "active" || statusChipKey === "inactive") rows = rows.filter((i) => i.status === statusChipKey);
+    if (ITEM_TYPES.includes(statusChipKey as ItemTypeDTO)) rows = rows.filter((i) => i.type === statusChipKey);
+    if (statusChipKey === "low_stock") rows = rows.filter((i) => i.stockState === "low");
+    if (statusChipKey === "out_of_stock") rows = rows.filter((i) => i.stockState === "out");
     const sorted = [...rows].sort((a, b) => {
       const dir = sort.direction === "asc" ? 1 : -1;
       if (sort.key === "salePrice") return (Number(a.salePrice ?? 0) - Number(b.salePrice ?? 0)) * dir;
@@ -490,7 +501,7 @@ export function ItemsScreen() {
       return a.code.localeCompare(b.code) * dir;
     });
     return sorted;
-  }, [items, statusChipKey, categoryFilter, brandFilter, seasonFilter, unitFilter, search, sort]);
+  }, [baseRows, statusChipKey, sort]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);

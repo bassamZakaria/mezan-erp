@@ -851,7 +851,38 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     treasuryAccountRepo: treasuryAccounts,
     fiscalPeriodRepo: fiscalPeriods,
     hasher,
-    inventory: { service: stockService },
+    inventory: {
+      service: stockService,
+      /**
+       * مخزون محجوز (R5.6), derived rather than stored: a draft sales invoice
+       * has spoken for its stock lines, and a draft transfer has spoken for
+       * its source warehouse's. Confirming either moves the stock and drops
+       * the reservation by construction, so there is no counter to forget.
+       */
+      reservations: {
+        async list() {
+          const [invoices, transfers] = await Promise.all([
+            salesInvoices.list({ status: "draft" }),
+            inventoryOps.stockTransfers.list({ status: "draft" }),
+          ]);
+          const lines: { itemId: string; warehouseId: string; qty: Qty }[] = [];
+          for (const invoice of invoices) {
+            for (const line of invoice.lines) {
+              if (!line.isStock) continue;
+              lines.push({ itemId: line.itemId, warehouseId: invoice.warehouseId, qty: line.qty });
+            }
+          }
+          for (const transfer of transfers) {
+            for (const line of transfer.lines) {
+              // The SOURCE only: the destination gains nothing until the
+              // transfer confirms, so reserving there would invent stock.
+              lines.push({ itemId: line.itemId, warehouseId: line.fromWarehouseId, qty: line.qty });
+            }
+          }
+          return lines;
+        },
+      },
+    },
     gl: {
       ledger,
       accounts,

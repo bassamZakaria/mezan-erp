@@ -231,6 +231,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
   }
 
   const totalOnHand = sumMajor(positions.map((p) => p.onHand));
+  const totalReserved = sumMajor(positions.map((p) => p.reserved));
+  const totalAvailable = sumMajor(positions.map((p) => p.available));
   const totalValue = sumMajor(positions.map((p) => p.totalValue));
 
   return (
@@ -240,6 +242,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
           <tr>
             <th className="px-[15px] py-[9px] text-start">{t("items.stock.warehouse")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.stock.onHand")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.stock.reserved")}</th>
+            <th className="px-[15px] py-[9px] text-end">{t("items.stock.available")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.stock.averageCost")}</th>
             <th className="px-[15px] py-[9px] text-end">{t("items.stock.value")}</th>
           </tr>
@@ -249,6 +253,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
             <tr key={position.warehouseId} className="border-t border-border">
               <td className="px-[15px] py-[10px] text-ink">{warehouseName(position.warehouseId)}</td>
               <td className="mz-num px-[15px] py-[10px] text-end">{Number(position.onHand)}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end text-ink-muted">{Number(position.reserved)}</td>
+              <td className="mz-num px-[15px] py-[10px] text-end font-semibold">{Number(position.available)}</td>
               <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.averageCost)} /></td>
               <td className="px-[15px] py-[10px] text-end"><Money value={Number(position.totalValue)} /></td>
             </tr>
@@ -258,6 +264,8 @@ function ItemStockTab({ itemId }: { itemId: string }) {
           <tr className="border-t border-border bg-surface-2 font-bold">
             <td className="px-[15px] py-[10px]">{t("common.total")}</td>
             <td className="mz-num px-[15px] py-[10px] text-end">{totalOnHand}</td>
+            <td className="mz-num px-[15px] py-[10px] text-end">{totalReserved}</td>
+            <td className="mz-num px-[15px] py-[10px] text-end">{totalAvailable}</td>
             <td />
             <td className="px-[15px] py-[10px] text-end"><Money value={totalValue} /></td>
           </tr>

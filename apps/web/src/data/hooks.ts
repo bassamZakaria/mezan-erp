@@ -3533,6 +3533,10 @@ export function useAccountLedger(accountId: string | null): UseQueryResult<Accou
 export interface ItemStockPositionRecord {
   readonly warehouseId: string;
   readonly onHand: string;
+  /** Committed by an open document but not yet moved (R5.6). */
+  readonly reserved: string;
+  /** onHand − reserved, floored at zero. What the sales desk can actually promise. */
+  readonly available: string;
   readonly totalValue: string;
   readonly averageCost: string;
 }

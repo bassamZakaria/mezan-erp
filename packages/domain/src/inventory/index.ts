@@ -261,3 +261,11 @@ export {
   type LabelBatchLine,
   type LabelBatch,
 } from "./label-batch.js";
+
+export {
+  buildStockReservations,
+  availableQty,
+  type ReservationLine,
+  type StockReservations,
+  type StockReservationSource,
+} from "./reservations.js";

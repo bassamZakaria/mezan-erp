@@ -14,6 +14,10 @@ import {
   type PostedAdjustment,
   type PostedTransfer,
   getAdjustmentReasonDefinition,
+  buildStockReservations,
+  availableQty,
+  type StockReservationSource,
+  type StockReservations,
 } from "@mezan/domain";
 import {
   postAdjustmentSchema,
@@ -150,9 +154,19 @@ function requireQuery(c: Context, name: string): string {
 export function createInventoryRoutes(
   service: StockLedgerService,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * Open documents that have committed stock they have not yet moved (R5.6).
+   * Optional: without it every position reports zero reserved rather than a
+   * figure it cannot substantiate.
+   */
+  reservations?: StockReservationSource,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  async function currentReservations(): Promise<StockReservations> {
+    return buildStockReservations(reservations ? await reservations.list() : []);
+  }
 
   app.get("/balance", gate("inventory.stock.view"), async (c) => {
     try {
@@ -192,7 +206,17 @@ export function createInventoryRoutes(
     const warehouseId = c.req.query("warehouseId");
     const scoped = withinScope(positions, warehouseScopeOf(c), (p) => p.warehouseId);
     const rows = rollupStockBalance(scoped, { warehouseId });
-    return c.json({ rows: rows.map(serializeBalanceRow) });
+    const reserved = await currentReservations();
+    return c.json({
+      rows: rows.map((row) => {
+        const held = reserved.forItem(row.itemId);
+        return {
+          ...serializeBalanceRow(row),
+          reserved: held.toString(),
+          available: availableQty(row.onHand, held).toString(),
+        };
+      }),
+    });
   });
 
   /**
@@ -204,13 +228,21 @@ export function createInventoryRoutes(
     const itemId = c.req.param("itemId");
     const positions = withinScope(await service.getItemPositions(itemId), warehouseScopeOf(c), (p) => p.warehouseId);
     const layers = withinScope(await service.getItemCostLayers(itemId), warehouseScopeOf(c), (l) => l.warehouseId);
+    const reserved = await currentReservations();
     return c.json({
-      positions: positions.map((p) => ({
-        warehouseId: p.warehouseId,
-        onHand: p.onHand.toString(),
-        totalValue: p.totalValue.toString(),
-        averageCost: p.averageCost.toString(),
-      })),
+      positions: positions.map((p) => {
+        const held = reserved.forPosition(itemId, p.warehouseId);
+        return {
+          warehouseId: p.warehouseId,
+          onHand: p.onHand.toString(),
+          // متاح / محجوز / إجمالي — a warehouse balance the sales desk can act
+          // on has to say how much of it is already spoken for (R5.5, R5.6).
+          reserved: held.toString(),
+          available: availableQty(p.onHand, held).toString(),
+          totalValue: p.totalValue.toString(),
+          averageCost: p.averageCost.toString(),
+        };
+      }),
       layers: layers.map((l) => ({
         id: l.id,
         warehouseId: l.warehouseId,

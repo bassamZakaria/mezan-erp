@@ -34,6 +34,7 @@ import {
   type TreasuryAccountRepository,
   type FiscalPeriodRepository,
   type StockLedgerService,
+  type StockReservationSource,
   postJournalEntry,
   type NextNumberService,
   type JournalPostingDeps,
@@ -333,6 +334,8 @@ export interface CreateAppOptions {
   readonly inventory?: {
     readonly service: StockLedgerService;
     readonly resolveAuthContext?: AuthContextResolver;
+    /** Open documents holding stock they have not yet moved (R5.6). */
+    readonly reservations?: StockReservationSource;
   };
   /**
    * Mounts `/inventory/stock-adjustments` (docs/catalog/03 §"تسويات المخزون")
@@ -922,7 +925,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.inventory) {
     app.route(
       "/inventory",
-      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext),
+      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext, options.inventory.reservations),
     );
   }
   // Mounted BEFORE `/purchases` (below): Hono matches registration order for

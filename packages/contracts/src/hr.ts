@@ -193,6 +193,8 @@ export const contractSchema = z.object({
   allowances: z.array(contractLineItemSchema),
   deductions: z.array(contractLineItemSchema),
   status: contractStatusSchema,
+  /** Active, fixed-term, and ending within the domain's expiring-soon window. */
+  expiringSoon: z.boolean(),
   terminatedAt: z.string().nullable(),
   createdAt: z.string().min(1),
 });
@@ -267,6 +269,8 @@ export const leaveRequestSchema = z.object({
 
 export const createLeaveRequestSchema = z.object({
   id: z.string().min(1).optional(),
+  /** Filing on behalf of another employee (the admin list's create action); omitted, the request is the caller's own. */
+  employeeId: z.string().min(1).optional(),
   leaveType: leaveTypeSchema,
   halfDay: z.boolean().optional(),
   startDate: z.string().min(1),
@@ -450,16 +454,32 @@ export const hrDashboardSummarySchema = z.object({
   terminationsThisMonth: z.number(),
   contractsExpiringSoon: z.number(),
   probationEndingSoon: z.number(),
-  byDepartment: z.array(z.object({ departmentId: z.string(), departmentName: z.string(), count: z.number() })),
+  byDepartment: z.array(z.object({ departmentId: z.string(), departmentName: z.string(), departmentNameAr: z.string().nullable(), count: z.number() })),
   byBranch: z.array(z.object({ branchId: z.string(), count: z.number() })),
   leaveConsumption: z.array(
     z.object({
       leaveType: leaveTypeSchema,
+      /** Accrued + carried over for the current year, or null when nothing has been accrued. */
       entitled: z.number().nullable(),
       used: z.number(),
       pending: z.number(),
+      usedPercent: z.number().nullable(),
     }),
   ),
+  /** Hires and leavers per month over the trailing 12 months, oldest first. */
+  headcountTrend: z.array(z.object({ month: z.string(), hires: z.number(), leavers: z.number() })),
+  attendance: z.object({
+    from: z.string(),
+    to: z.string(),
+    workingDays: z.number(),
+    daysPresent: z.number(),
+    daysLate: z.number(),
+    halfDays: z.number(),
+    daysAbsent: z.number(),
+    daysOnLeave: z.number(),
+    absenceRatePercent: z.number(),
+    lateArrivalRatePercent: z.number(),
+  }),
 });
 
 export type DepartmentDTO = z.infer<typeof departmentSchema>;

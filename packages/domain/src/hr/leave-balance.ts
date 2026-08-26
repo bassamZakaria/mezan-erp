@@ -290,6 +290,31 @@ export async function consumeLeaveBalance(
 }
 
 /**
+ * Returns `days` to an employee's balance when an APPROVED leave request is
+ * cancelled — the reverse of `consumeLeaveBalance`.
+ *
+ * Without it the balance keeps counting leave that was never taken: the
+ * request reads ملغى while the matrix still shows the days as used. Consumption
+ * never goes below zero, so a balance whose row was rebuilt after the approval
+ * cannot be driven negative by the release.
+ */
+export async function releaseLeaveBalance(
+  employeeId: string,
+  leaveType: LeaveType,
+  year: number,
+  days: Qty,
+  deps: Pick<LeaveBalanceRepository, "find" | "update">,
+  now: () => string = () => new Date().toISOString(),
+): Promise<LeaveBalance | null> {
+  const existing = await deps.find(employeeId, leaveType, year);
+  if (!existing) return null;
+  const released = existing.used.subtract(days);
+  const next = adjustLeaveBalance(existing, { used: released.isNegative() ? Qty.zero() : released }, now);
+  await deps.update(next);
+  return next;
+}
+
+/**
  * Binds the leave layer behind payroll's `UnpaidLeaveDaysProvider` seam
  * (`payroll-run.ts`): the number of APPROVED unpaid-leave days that fall
  * inside a payroll period, which the run prorates the month's salary by.

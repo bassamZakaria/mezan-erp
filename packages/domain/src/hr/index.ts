@@ -86,6 +86,7 @@ export type {
   AttendanceStatusDefinition,
   AttendanceFilter,
   AttendanceSummary,
+  WorkforceAttendanceSummary,
   RecordAttendanceCommand,
   CorrectAttendanceCommand,
   ResolveAttendanceStatusInput,
@@ -102,6 +103,7 @@ export {
   recordAttendance,
   correctAttendance,
   summarizeAttendance,
+  summarizeWorkforceAttendance,
 } from "./attendance.js";
 
 export type {
@@ -148,6 +150,7 @@ export {
   accrualPeriodKey,
   runLeaveAccrual,
   consumeLeaveBalance,
+  releaseLeaveBalance,
   assertLeaveBalanceCovers,
   createUnpaidLeaveDaysProvider,
 } from "./leave-balance.js";

@@ -4396,7 +4396,12 @@ export function useCreateLeaveRequest() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot")));
       return res.json<LeaveRequestDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-request-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-dashboard"] });
+    },
   });
 }
 
@@ -4410,7 +4415,13 @@ export function useCancelLeaveRequest() {
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theLeaveRequestCouldNot2")));
       return res.json<LeaveRequestDTO>();
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-requests"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-request-counts"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] });
+      queryClient.invalidateQueries({ queryKey: ["hr-dashboard"] });
+    },
   });
 }
 

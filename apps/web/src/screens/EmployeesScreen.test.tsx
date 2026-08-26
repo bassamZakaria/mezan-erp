@@ -59,6 +59,7 @@ function renderScreen(employees: EmployeeDTO[] = sampleEmployees) {
     "GET /hr/employees": () => ({ body: current }),
     "GET /hr/departments": () => ({ body: [] }),
     "GET /hr/job-titles": () => ({ body: [] }),
+    "GET /hr/contracts": () => ({ body: [] }),
     "GET /branches": () => ({ body: sampleBranches }),
     "GET /hr/employees/emp-1/contracts": () => ({ body: [] }),
     "POST /hr/employees": (init) => {

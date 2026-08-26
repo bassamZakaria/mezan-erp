@@ -244,6 +244,54 @@ export interface AttendanceSummary {
   readonly attendanceRatePercent: number;
 }
 
+export interface WorkforceAttendanceSummary {
+  readonly from: string;
+  readonly to: string;
+  /** Days that count as scheduled work: present + late + half + absent + on leave. */
+  readonly workingDays: number;
+  readonly daysPresent: number;
+  readonly daysLate: number;
+  readonly halfDays: number;
+  readonly daysAbsent: number;
+  readonly daysOnLeave: number;
+  /** Absent days over working days, in whole percent — the dashboard's معدل الغياب. */
+  readonly absenceRatePercent: number;
+  /** Late arrivals over the days actually attended, in whole percent. */
+  readonly lateArrivalRatePercent: number;
+}
+
+/**
+ * The whole workforce's attendance over a window — the HR dashboard's
+ * absence-rate and late-arrival KPIs (R10.1).
+ *
+ * Deliberately NOT the sum of `summarizeAttendance` per employee: the rates are
+ * computed over the pooled day counts, so an employee with two recorded days
+ * cannot swing the company rate as far as one with twenty.
+ */
+export function summarizeWorkforceAttendance(from: string, to: string, entries: readonly AttendanceEntry[]): WorkforceAttendanceSummary {
+  const scoped = entries.filter((e) => e.date >= from && e.date <= to);
+  const count = (status: AttendanceStatus) => scoped.filter((e) => e.status === status).length;
+  const daysPresent = count("present");
+  const daysLate = count("late");
+  const halfDays = count("half_day");
+  const daysAbsent = count("absent");
+  const daysOnLeave = count("on_leave");
+  const workingDays = daysPresent + daysLate + halfDays + daysAbsent + daysOnLeave;
+  const attended = daysPresent + daysLate + halfDays;
+  return {
+    from,
+    to,
+    workingDays,
+    daysPresent,
+    daysLate,
+    halfDays,
+    daysAbsent,
+    daysOnLeave,
+    absenceRatePercent: workingDays === 0 ? 0 : Math.round((daysAbsent / workingDays) * 100),
+    lateArrivalRatePercent: attended === 0 ? 0 : Math.round((daysLate / attended) * 100),
+  };
+}
+
 /** Aggregates one employee's entries into the catalog's "الملخص الشهري للحضور" KPI tiles. */
 export function summarizeAttendance(employeeId: string, from: string, to: string, entries: readonly AttendanceEntry[]): AttendanceSummary {
   const scoped = entries.filter((e) => e.employeeId === employeeId && e.date >= from && e.date <= to);

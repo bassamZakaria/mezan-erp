@@ -1621,6 +1621,178 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
+  // X40 — the sales trail a user actually clicks: quote → accept → invoice → collect
+  // ---------------------------------------------------------------------------
+  await scenario("x40 · quote to collection through the screens' own routes — new customer, quote, convert, confirm, collect", async () => {
+    const customerId = "SCN-X-CUST-TRAIL";
+    const itemId = "SCN-X-ITEM-TRAIL";
+    await makeItem(itemId, "SCN-X-TRAIL", "صنف مسار البيع");
+    await openStock(itemId, "50", "60", "SCN-X-ADJ-TRAIL");
+
+    const customer = await req("POST", "/customers", {
+      id: customerId, code: "SCN-X-CT", nameAr: "عميل مسار الاختبار", creditLimit: "100000.00", currency: "EGP",
+    });
+    check("a customer with a credit limit is created", customer.status === 201, `status ${customer.status} ${JSON.stringify(customer.body).slice(0, 200)}`);
+
+    const agingBefore = ctx.rows((await req("GET", `/reports/aging/customers?asOfDate=${TODAY}`)).body);
+    check(
+      "a customer who has bought nothing carries no aging row — the report counts documents, not names",
+      !agingBefore.some((r: any) => r.customerId === customerId),
+      JSON.stringify(agingBefore.map((r: any) => r.customerId)),
+    );
+
+    const arBefore = await gl(AR);
+    const cashBefore = await gl(CASH);
+    const bankBefore = await gl(BANK);
+    const stockBefore = await stock(itemId);
+
+    const quote = await req("POST", "/sales-quotes", {
+      id: "SCN-X-QT-TRAIL",
+      date: TODAY,
+      expiryDate: "2026-09-24",
+      customerId,
+      customerNameAr: "عميل مسار الاختبار",
+      branchId: BRANCH,
+      lines: [{ lineId: "L1", itemId, itemNameAr: "صنف مسار البيع", qty: "3", unitPrice: "100", taxRatePercent: VAT }],
+    });
+    check("the quote drafts", quote.status === 201 && quote.body?.status === "draft", `status ${quote.status} ${JSON.stringify(quote.body).slice(0, 200)}`);
+    checkEq("its total is 3 × 100 + 14% VAT", n(quote.body?.totals?.grandTotal), 342);
+    checkEq("a quote moves no stock — it is an offer, not a document", (await stock(itemId)).onHand, stockBefore.onHand);
+    checkEq("and it posts nothing to AR", (await gl(AR)) - arBefore, 0);
+
+    const sent = await req("POST", "/sales-quotes/SCN-X-QT-TRAIL/send", {});
+    check("sending it numbers it — a draft quote has no number to quote back", sent.status === 200 && typeof sent.body?.docNo === "string" && sent.body.docNo.length > 0, JSON.stringify(sent.body?.docNo));
+    const accepted = await req("POST", "/sales-quotes/SCN-X-QT-TRAIL/accept", {});
+    check("the customer accepts", accepted.status === 200 && accepted.body?.status === "accepted", JSON.stringify(accepted.body).slice(0, 200));
+
+    const converted = await req("POST", "/sales-quotes/SCN-X-QT-TRAIL/convert-to-invoice", {
+      id: "SCN-X-INV-TRAIL",
+      dueDate: "2026-09-24",
+      warehouseId: WH,
+      arAccountId: AR,
+      taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", isStock: true, revenueAccountId: REVENUE, cogsAccountId: COGS, inventoryAccountId: INVENTORY }],
+    });
+    check("the accepted quote converts into an invoice", converted.status === 201, `status ${converted.status} ${JSON.stringify(converted.body).slice(0, 200)}`);
+    const draft = (await req("GET", "/sales-invoices/SCN-X-INV-TRAIL")).body;
+    check("which lands as a DRAFT — conversion offers no numbering and no posting", draft?.status === "draft" && draft?.docNo === null, `status=${draft?.status} docNo=${draft?.docNo}`);
+    checkEq("so nothing has left the warehouse yet", (await stock(itemId)).onHand, stockBefore.onHand);
+    checkEq("and AR is still where it started", (await gl(AR)) - arBefore, 0);
+
+    const confirmed = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/confirm", {});
+    check(
+      "the draft confirms over the API — but NO screen can do this (docs/defects.md D39): the sales-invoice detail page renders only «رجوع», " +
+        "so an invoice converted from a quote is unconfirmable in the UI, while goods receipts and purchase invoices both carry a تأكيد button",
+      confirmed.status === 200 && confirmed.body?.status === "confirmed",
+      JSON.stringify(confirmed.body).slice(0, 200),
+    );
+    checkEq("confirming issues the number and charges AR with the gross", (await gl(AR)) - arBefore, 342);
+    checkEq("stock falls by exactly the quantity sold", stockBefore.onHand - (await stock(itemId)).onHand, 3);
+
+    const agingAfter = ctx.rows((await req("GET", `/reports/aging/customers?asOfDate=${TODAY}`)).body);
+    checkEq(
+      "and the customer now carries exactly that invoice in the aging report",
+      n(agingAfter.find((r: any) => r.customerId === customerId)?.total),
+      342,
+    );
+
+    const payment = await req("POST", "/sales-invoices/SCN-X-INV-TRAIL/payments", { amount: "342.00" });
+    check("the invoice's own «تحصيل دفعة» accepts the money and marks the invoice paid", payment.status === 200 && payment.body?.status === "paid", JSON.stringify(payment.body).slice(0, 200));
+    checkEq(
+      "D40 — and posts NOTHING: AR still carries the collected 342. `SalesInvoiceService.recordPayment` writes amountPaid and status and never calls the GL hook, " +
+        "so the invoice reads paid while the ledger says the customer still owes (docs/defects.md D40)",
+      (await gl(AR)) - arBefore,
+      342,
+    );
+    checkEq("no cash box received it either", (await gl(CASH)) - cashBefore, 0);
+    checkEq("and no bank account did — the payment names no treasury account at all, and the form offers none", (await gl(BANK)) - bankBefore, 0);
+    const agingPaid = ctx.rows((await req("GET", `/reports/aging/customers?asOfDate=${TODAY}`)).body);
+    check(
+      "the aging report drops the customer (it reads the sub-ledger), so aging and GL 1105 now disagree by exactly this payment — the pair that proves it",
+      !agingPaid.some((r: any) => r.customerId === customerId),
+      JSON.stringify(agingPaid.map((r: any) => r.customerId)),
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // X41 — the purchase trail a user actually clicks: PO → receipt → invoice from receipt
+  // ---------------------------------------------------------------------------
+  await scenario("x41 · order to payment through the screens' own routes — the from-receipt invoice the UI actually sends", async () => {
+    const supplierId = "SCN-X-SUPP-TRAIL";
+    const itemId = "SCN-X-ITEM-BUY-TRAIL";
+    await makeItem(itemId, "SCN-X-BUY-TRAIL", "صنف مسار الشراء");
+
+    const supplier = await req("POST", "/suppliers", { id: supplierId, code: "SCN-X-ST", nameAr: "مورد مسار الاختبار", currency: "EGP" });
+    check("a supplier is created", supplier.status === 201, `status ${supplier.status} ${JSON.stringify(supplier.body).slice(0, 200)}`);
+    const listed = ctx.rows((await req("GET", "/suppliers")).body).find((s: any) => s.id === supplierId);
+    check(
+      "D41 — and the suppliers list has no payable to show: `/suppliers` carries `openingBalance` and no outstanding balance, " +
+        "which is why the screen's «المستحق للمورد» column reads 0.00 for every supplier while the aging report shows six figures (docs/defects.md D41)",
+      listed !== undefined && listed.openingBalance !== undefined && (listed as any).outstanding === undefined && (listed as any).balance === undefined,
+      JSON.stringify(listed).slice(0, 200),
+    );
+
+    const inputTaxBefore = await gl(INPUT_TAX);
+    const apBefore = await creditBalance(AP);
+    const apSubLedgerBefore = (await ctx.invariants()).ap;
+    const cashBefore = await gl(CASH);
+
+    const po = await req("POST", "/purchases/orders", {
+      id: "SCN-X-PO-TRAIL", supplierId, date: TODAY, branchId: BRANCH, warehouseId: WH,
+      lines: [{ itemId, qty: "10", unitPrice: "140" }],
+    });
+    check("the purchase order drafts", po.status === 201, `status ${po.status} ${JSON.stringify(po.body).slice(0, 200)}`);
+    await req("POST", "/purchases/orders/SCN-X-PO-TRAIL/confirm", {});
+
+    const receipt = await req("POST", "/purchases/receipts", { id: "SCN-X-GRN-TRAIL", purchaseOrderId: "SCN-X-PO-TRAIL", date: TODAY });
+    check("the receipt auto-fills from the order", receipt.status === 201 && n(receipt.body?.lines?.[0]?.qty) === 10, JSON.stringify(receipt.body).slice(0, 200));
+    await req("POST", "/purchases/receipts/SCN-X-GRN-TRAIL/confirm", {});
+    checkEq("receiving raises stock by the ordered quantity", (await stock(itemId)).onHand, 10);
+    checkEq("and re-values it at the purchase price", (await stock(itemId)).totalValue, 1400);
+
+    // The UI's «من إيصال استلام» sends receiptId and OMITS lines — the route then
+    // builds them itself. Every other test of this route supplies its own lines,
+    // which is exactly why the hole below survived.
+    const invoice = await req("POST", "/purchases/invoices", {
+      id: "SCN-X-PI-TRAIL", supplierId, date: TODAY, dueDate: "2026-09-24", branchId: BRANCH, warehouseId: WH,
+      receiptId: "SCN-X-GRN-TRAIL",
+    });
+    check("the from-receipt invoice drafts with no lines supplied", invoice.status === 201, `status ${invoice.status} ${JSON.stringify(invoice.body).slice(0, 200)}`);
+    check(
+      "D42 — and every line comes back at 0% VAT: `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port that `create-backend.ts` never supplies, " +
+        "so it falls back to `() => 0`. The screen offers no way to edit the rate, so goods bought through the receipt path record no input VAT at all (docs/defects.md D42)",
+      (invoice.body?.lines ?? []).every((l: any) => Number(l.taxRatePercent) === 0),
+      JSON.stringify(invoice.body?.lines).slice(0, 200),
+    );
+    checkEq("the invoice total is therefore the bare goods value, with no tax on it", n(invoice.body?.total), 1400);
+
+    await req("POST", "/purchases/invoices/SCN-X-PI-TRAIL/confirm", {});
+    checkEq("confirming it credits AP with that same untaxed total", (await creditBalance(AP)) - apBefore, 1400);
+    checkEq("and input VAT (1400) never moves — the 196 the supplier charged is unreclaimable from these books", (await gl(INPUT_TAX)) - inputTaxBefore, 0);
+
+    const { confirmed: paid } = await voucher("SCN-X-PAY-TRAIL", {
+      memo: "سداد لمورد مسار الاختبار",
+      voucherType: "supplier_payment",
+      amount: "1400.00",
+      paymentMethod: "cash",
+      treasuryAccountId: CASH_TREASURY,
+      treasuryGlAccountId: CASH,
+      counterpartyGlAccountId: AP,
+      supplierId,
+    });
+    check("paying the supplier confirms", paid.status === 200 && paid.body?.status === "confirmed", JSON.stringify(paid.body).slice(0, 200));
+    checkEq("the خزنة falls by exactly what was paid", cashBefore - (await gl(CASH)), 1400);
+    checkEq("and AP nets back to where it started — invoice raised it, payment cleared it", (await creditBalance(AP)) - apBefore, 0);
+    checkEq(
+      "D18 again, on the trail a buyer walks: the AP sub-ledger never hears the payment, so this scenario's own reconciliation check below " +
+        "reports the same 1,400 adrift (docs/defects.md D18 — do not re-file)",
+      (await ctx.invariants()).ap - apSubLedgerBefore,
+      1400,
+    );
+    treasuryLedger.push({ label: "supplier payment (trail, cash)", delta: -1400 });
+  });
+
+  // ---------------------------------------------------------------------------
   // X18 — nothing appeared from nowhere
   // ---------------------------------------------------------------------------
   await scenario("x18 · company-wide money conservation: cash + bank moved by exactly the net of the vouchers this file posted", async () => {

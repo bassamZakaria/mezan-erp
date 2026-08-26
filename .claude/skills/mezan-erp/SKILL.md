@@ -80,6 +80,24 @@ Apply these first — they have the highest yield per minute.
    fabricated id looks like from the front. Free text where the reference picks an
    entity is a defect even when everything downstream answers 200.
 
+11. **Every state a document can reach needs a screen that moves it on.** A quote
+   converts into a *draft* invoice, and the invoice detail page renders only «رجوع»
+   — `POST /sales-invoices/:id/confirm` exists and nothing in the UI calls it (D39).
+   Walk each document's status list against its own page and ask which control
+   advances it; a status with no button is a dead end that no test with API access
+   will ever notice. When one sibling has the control (goods receipts, purchase
+   invoices both confirm) and another does not, the odd one out is the defect.
+
+12. **Exercise the request shape the UI actually sends.** `POST /purchases/invoices`
+   accepts either explicit `lines` or a bare `receiptId`; every scenario passed its
+   own lines with `taxRatePercent: 14`, and the screen passes none — so nobody saw
+   that the auto-filled path resolves every rate to 0% because `resolveTaxRate` was
+   never wired (D42). Where a route has two input shapes, the one with the *fewer*
+   fields is the one the client uses and the one that hides the unwired dependency.
+   The same rule applies to a status that implies money moved: «تحصيل دفعة» flips
+   the invoice to مدفوع and posts nothing (D40) — assert the GL beside the flag,
+   never the flag alone.
+
 
 ## Non-negotiables in this codebase
 

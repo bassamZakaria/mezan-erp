@@ -6,7 +6,9 @@ here, it is not tracked.
 
 Updated 2026-08-25 (the fix pass on the register's own OPEN table, then the cross-module
 money-trail pass and the currency / tax / compliance / platform seam pass —
-`docs/scenarios/09-cross-module.md` and `scripts/scenarios/seams.ts`).
+`docs/scenarios/09-cross-module.md` and `scripts/scenarios/seams.ts`; then the two
+posting-trail walkthroughs driven through the real UI, which added D39–D42 and
+scenarios x40/x41).
 
 ## How to use this file
 
@@ -59,6 +61,10 @@ through as "oh, that's the known one".
 | D36 | Inventory reporting | A landed cost writes **no stock movement**, so it cannot be replayed | `applyLandedCostRevaluation` bumps the snapshot and rewrites cost layers directly. `GET /inventory/drift` therefore reports `cacheDrift` on a healthy tenant: ITEM-DEMO-1 cached **146.827936** vs recomputed **140.000000** — and the field's own docstring says a nonzero value "means the cache is CORRUPTED" | Medium |
 | D37 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by **5,486.12** | The tile sums EVERY code-11xx asset account (trade AR 1105, installment AR 1110, retention 1150, employee advances 1160, and the credit-natural provision 1190 sign-flipped positive); aging covers sales-invoice trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic | Medium |
 | D38 | Sales / contracts | A quote or invoice line accepts **any** `itemId` string — no route checks it against the item catalogue | `createSalesQuoteLineSchema` and the sales-invoice line schema validate `itemId: z.string().min(1)` only; neither route holds an item repository. Until F34 the quotes screen exploited this by sending invented ids (`ITEM-1`, `ITEM-2`), and the convert step then hardcoded `isStock: false`, so a stock item converted into an invoice line that moves no stock and posts no COGS | Medium |
+| D39 | Sales / UI | A **draft sales invoice cannot be confirmed from any screen** — the only confirm path is the "save and confirm" checkbox on the create form | `SalesInvoicesScreen.tsx`'s `InvoiceDetailView` renders `actions={<Button>رجوع</Button>}` and the list has no row action, so an invoice produced by «تحويل عرض السعر إلى فاتورة» (or saved as a draft) is stranded: `POST /sales-invoices/:id/confirm` works, nothing calls it. Goods receipts and purchase invoices both carry a تأكيد button on their detail page | High |
+| D40 | Sales / GL | The invoice's own **«تحصيل دفعة» posts no journal entry**: it marks the invoice paid and moves no money | `SCN-X-INV-TRAIL` at 342.00 → `POST /sales-invoices/:id/payments` returns `status: "paid"`, GL 1105 still carries the full **342.00**, cash 1300-1 and bank 1310 both move **0.00**, and no JE is written. `SalesInvoiceService.recordPayment` writes `amountPaid`/`status` and never calls the GL hook; the form names no treasury account and offers none. The aging report (sub-ledger) drops the customer while GL 1105 keeps them — the exact mirror of D1 | High |
+| D41 | Purchases / UI | The suppliers list shows **`openingBalance` under a column headed «المستحق للمورد»**, so every supplier reads 0.00 while owing six figures | Seeded tenant: the screen's column and its «المستحق للموردين» tile both read **0.00**; `/reports/aging/suppliers` reports **62,073.00** and **59,040.60** for the same two suppliers. `SuppliersScreen.tsx` renders `s.openingBalance` for `suppliers.col.payable`; `/suppliers` returns no outstanding balance at all, so there is nothing truer to render | Medium |
+| D42 | Purchases / Tax | A purchase invoice created **«من إيصال استلام» always carries 0% VAT**, and no screen can change it | `POST /purchases/invoices` with `receiptId` and no `lines` → every line comes back `taxRatePercent: 0`, total **1,400.00** on goods a 14% supplier billed at 1,596.00; GL 1400 (input VAT) moves **0.00**. `buildInvoiceLinesFromReceipt` takes a `resolveTaxRate` port, `purchases-routes.ts` defaults it to `() => 0`, and `create-backend.ts` never passes one. Every existing test of this route supplies its own `lines`, which is why it survived: the UI is the only caller that omits them | High |
 
 Every other row that stood here has moved to FIXED below. **D18 and D19 below are
 origin's; the two findings from the local fix pass that had also been numbered D18/D19

@@ -438,6 +438,12 @@ scenarios test the **honesty** of that gap first, and the computation later.
 ### X64 — Year-end
 **Now executable** — written out in full under "Currency, tax, compliance and platform seams" above, and asserted by `scripts/scenarios/seams.ts`.
 
+### X65 — The sales trail as a user clicks it: quote → accept → invoice → collect
+**Now executable** — `scripts/scenarios/cross-module.ts` x40. One new customer with a credit limit, a quote for two items, accept, convert, confirm, collect. What it pins: a quote moves nothing; conversion lands a **draft** with no number; confirming charges AR, output VAT and COGS and drops stock; and the invoice's own «تحصيل دفعة» marks the invoice paid while posting **no journal entry at all** (D40), so the aging report and GL 1105 part company. D39 rides along: no screen can confirm that draft.
+
+### X66 — The purchase trail as a user clicks it: order → receive → invoice from receipt → pay
+**Now executable** — `scripts/scenarios/cross-module.ts` x41. The from-receipt invoice is created the way the screen creates it — `receiptId` with **no lines** — which is what exposes D42: the route's `resolveTaxRate` port is never wired, so every line is 0% VAT and input VAT never moves. Receiving raises stock without a GL entry (the sub-ledger legitimately runs ahead until the invoice), the invoice closes that gap, and paying the supplier through a voucher clears GL 2100 while the AP sub-ledger ignores it (D18).
+
 ---
 
 ## Sources for the compliance scenarios

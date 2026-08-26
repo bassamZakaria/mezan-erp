@@ -118,6 +118,16 @@ function meetsMinInvoiceValue(promotion: Promotion, subtotal: Money): boolean {
   return subtotal.scaled >= promotion.minInvoiceValue.scaled;
 }
 
+/**
+ * "حد أدنى للكمية" — measured across the lines IN SCOPE, so a promotion scoped
+ * to one category is not let through by quantity bought outside it.
+ */
+function meetsMinQty(promotion: Promotion, lines: readonly PromotionLineInput[]): boolean {
+  if (!promotion.minQty) return true;
+  const scopedQty = scopedLines(promotion, lines).reduce((sum, l) => sum + l.qty.scaled, 0n);
+  return scopedQty >= promotion.minQty.scaled;
+}
+
 function findFirstLineForItem(lines: readonly PromotionLineInput[], itemId: string): PromotionLineInput | undefined {
   return lines.find((l) => l.itemId === itemId);
 }
@@ -147,10 +157,11 @@ function isBundleEligible(promotion: Promotion, lines: readonly PromotionLineInp
 }
 
 /**
- * Active, in date range, day/hour-window match, min-invoice-value met, and
- * (coupon required => couponCode matches this promo's code). Bundle-type
- * promotions additionally require at least one complete bundle purchasable;
- * every other type requires at least one line in scope.
+ * Active, in date range, day/hour-window match, min-invoice-value met,
+ * min-quantity met across the lines in scope, and (coupon required =>
+ * couponCode matches this promo's code). Bundle-type promotions additionally
+ * require at least one complete bundle purchasable; every other type requires
+ * at least one line in scope.
  */
 export function findEligiblePromotions(input: EvaluatePromotionsInput): readonly Promotion[] {
   return input.promotions.filter((p) => {
@@ -159,6 +170,7 @@ export function findEligiblePromotions(input: EvaluatePromotionsInput): readonly
     if (!withinDayHourWindow(p, input.dayOfWeek, input.hour)) return false;
     if (!matchesCoupon(p, input.couponCode)) return false;
     if (!meetsMinInvoiceValue(p, input.subtotal)) return false;
+    if (!meetsMinQty(p, input.lines)) return false;
     if (p.type === "bundle") return isBundleEligible(p, input.lines);
     return scopedLines(p, input.lines).length > 0;
   });
@@ -279,6 +291,29 @@ function computeBundle(promotion: Promotion, lines: readonly PromotionLineInput[
   return { promotion, discountTotal, lineDiscounts, freeGoods: [] };
 }
 
+/**
+ * "الحد الأقصى للخصم" — trims a computed application down to the campaign's
+ * cap and re-spreads the capped total over the SAME lines by largest
+ * remainder, so the per-line parts still sum exactly to what the document
+ * gives away. `buy_x_get_y` never reaches here: its discount is free units,
+ * and the validator refuses a cap on that type.
+ */
+function applyCap(result: PromotionApplicationResult): PromotionApplicationResult {
+  const cap = result.promotion.maxDiscountAmount;
+  if (!cap || result.discountTotal.scaled <= cap.scaled) return result;
+  const capped = Money.fromScaled(roundMinor(cap.scaled));
+  const weights = result.lineDiscounts.map((d) => (d.amount.scaled < 0n ? 0n : d.amount.scaled));
+  if (!weights.some((w) => w > 0n)) {
+    return { ...result, discountTotal: Money.zero() };
+  }
+  const parts = allocateScaled(capped.scaled / MINOR_STEP, weights);
+  const lineDiscounts = result.lineDiscounts.map((d, i) => ({
+    lineId: d.lineId,
+    amount: Money.fromScaled((parts[i] as bigint) * MINOR_STEP),
+  }));
+  return { ...result, discountTotal: Money.sum(lineDiscounts.map((d) => d.amount)), lineDiscounts };
+}
+
 function computeApplication(promotion: Promotion, lines: readonly PromotionLineInput[]): PromotionApplicationResult {
   switch (promotion.type) {
     case "percentage":
@@ -309,5 +344,5 @@ export function evaluateBestPromotion(input: EvaluatePromotionsInput): Promotion
     return 0;
   })[0] as Promotion;
 
-  return computeApplication(best, input.lines);
+  return applyCap(computeApplication(best, input.lines));
 }

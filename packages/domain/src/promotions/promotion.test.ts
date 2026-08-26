@@ -194,6 +194,8 @@ function promoWith(overrides: Partial<Promotion>): Promotion {
     percentValue: 10,
     amountValue: null,
     minInvoiceValue: null,
+    minQty: null,
+    maxDiscountAmount: null,
     buyQty: null,
     getQty: null,
     bundleComponents: [],

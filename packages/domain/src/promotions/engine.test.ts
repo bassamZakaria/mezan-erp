@@ -18,6 +18,8 @@ function promo(overrides: Partial<Promotion> & { id: string; type: Promotion["ty
     percentValue: null,
     amountValue: null,
     minInvoiceValue: null,
+    minQty: null,
+    maxDiscountAmount: null,
     buyQty: null,
     getQty: null,
     bundleComponents: [],

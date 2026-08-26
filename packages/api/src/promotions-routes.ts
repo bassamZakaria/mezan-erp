@@ -36,6 +36,8 @@ function serialize(promotion: Promotion) {
     percentValue: promotion.percentValue,
     amountValue: promotion.amountValue?.toString() ?? null,
     minInvoiceValue: promotion.minInvoiceValue?.toString() ?? null,
+    minQty: promotion.minQty?.toString() ?? null,
+    maxDiscountAmount: promotion.maxDiscountAmount?.toString() ?? null,
     buyQty: promotion.buyQty,
     getQty: promotion.getQty,
     bundleComponents: promotion.bundleComponents.map((c) => ({ itemId: c.itemId, qty: c.qty.toString() })),
@@ -68,6 +70,13 @@ function parseMoneyNullish(value: string | null | undefined): Money | null | und
   if (value === undefined) return undefined;
   if (value === null) return null;
   return Money.fromMajor(value);
+}
+
+/** The Qty mirror of {@link parseMoneyNullish} — for the minimum-quantity threshold (R3.12). */
+function parseQtyNullish(value: string | null | undefined): Qty | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  return Qty.fromMajor(value);
 }
 
 /**
@@ -195,6 +204,8 @@ export function createPromotionsRoutes(
           percentValue: parsed.data.percentValue,
           amountValue: parseMoneyNullish(parsed.data.amountValue),
           minInvoiceValue: parseMoneyNullish(parsed.data.minInvoiceValue),
+          minQty: parseQtyNullish(parsed.data.minQty),
+          maxDiscountAmount: parseMoneyNullish(parsed.data.maxDiscountAmount),
           buyQty: parsed.data.buyQty,
           getQty: parsed.data.getQty,
           bundleComponents: parsed.data.bundleComponents?.map((bc) => ({ itemId: bc.itemId, qty: Qty.fromMajor(bc.qty) })),
@@ -232,6 +243,8 @@ export function createPromotionsRoutes(
           percentValue: parsed.data.percentValue,
           amountValue: parseMoneyNullish(parsed.data.amountValue),
           minInvoiceValue: parseMoneyNullish(parsed.data.minInvoiceValue),
+          minQty: parseQtyNullish(parsed.data.minQty),
+          maxDiscountAmount: parseMoneyNullish(parsed.data.maxDiscountAmount),
           buyQty: parsed.data.buyQty,
           getQty: parsed.data.getQty,
           bundleComponents: parsed.data.bundleComponents?.map((bc) => ({ itemId: bc.itemId, qty: Qty.fromMajor(bc.qty) })),

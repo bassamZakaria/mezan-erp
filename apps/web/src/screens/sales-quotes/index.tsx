@@ -12,14 +12,28 @@ import {
   type EntityPickerOption,
 } from "@mezan/ui";
 import { SelectField, TextField } from "../../settings/form-controls";
-import { useBranches, useCustomers, useSalesQuotes, type SalesQuoteRecord } from "../../data/hooks";
+import {
+  useBranches,
+  useCustomers,
+  useSalesQuotes,
+  useSalesQuoteCounts,
+  useSalesQuoteStats,
+  type SalesQuoteListFilter,
+  type SalesQuoteRecord,
+} from "../../data/hooks";
 import { useScreenIntent, useSubPage } from "../../navigation";
 import { useAppTranslation } from "../../i18n";
+import { majorOf } from "../../lib/money";
 import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
 import { STATUS_KEY, STATUS_TONE, daysExpired, isExpired, type QuoteFilterKey } from "./quote-model";
 
 const PAGE_SIZES = [10, 25, 50, 100] as const;
+
+/** One server-computed money total at the display boundary; the addition happened in `Money`. */
+function money(value: unknown): number {
+  return majorOf(value === null || value === undefined ? "0" : String(value));
+}
 
 /**
  * عروض الأسعار / Sales Quotations (docs/catalog/01) — list, create and detail,
@@ -35,8 +49,7 @@ const PAGE_SIZES = [10, 25, 50, 100] as const;
 export function SalesQuotesScreen() {
   const { t } = useAppTranslation();
   const format = useFormat();
-  const query = useSalesQuotes();
-  const quotes = query.data ?? [];
+
   const customers = useCustomers().data ?? [];
   const branches = useBranches().data ?? [];
 
@@ -56,53 +69,28 @@ export function SalesQuotesScreen() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
 
-  const counts = useMemo(() => {
-    const c: Record<QuoteFilterKey, number> = {
-      all: quotes.length,
-      draft: 0,
-      sent: 0,
-      accepted: 0,
-      rejected: 0,
-      converted: 0,
-      cancelled: 0,
-      expired: 0,
-    };
-    for (const q of quotes) {
-      c[q.status] += 1;
-      if (isExpired(q)) c.expired += 1;
-    }
-    return c;
-  }, [quotes]);
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1). The screen
+   * used to narrow by branch, customer and free text in the browser while the
+   * three money tiles were added up as JS numbers over every quote the server
+   * had sent, so applying a branch moved the table and left the header alone.
+   */
+  const filter = useMemo<SalesQuoteListFilter>(
+    () => ({
+      status: statusFilter,
+      branchId: branchFilter || undefined,
+      customerId: customerFilter?.id,
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      search: search.trim() || undefined,
+    }),
+    [statusFilter, branchFilter, customerFilter, fromDate, toDate, search],
+  );
 
-  /** The three figures the header reports, in money — total, accepted and converted value. */
-  const values = useMemo(() => {
-    let total = 0;
-    let accepted = 0;
-    let converted = 0;
-    for (const q of quotes) {
-      const amount = Number(q.totals.grandTotal);
-      total += amount;
-      if (q.status === "accepted") accepted += amount;
-      if (q.status === "converted") converted += amount;
-    }
-    return { total, accepted, converted };
-  }, [quotes]);
-
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    return quotes.filter((q) => {
-      if (statusFilter === "expired" ? !isExpired(q) : statusFilter !== "all" && q.status !== statusFilter) return false;
-      if (branchFilter && q.branchId !== branchFilter) return false;
-      if (customerFilter && q.customerId !== customerFilter.id) return false;
-      if (fromDate && q.date < fromDate) return false;
-      if (toDate && q.date > toDate) return false;
-      if (needle !== "") {
-        const haystack = `${q.docNo ?? ""} ${q.customerNameAr}`.toLowerCase();
-        if (!haystack.includes(needle)) return false;
-      }
-      return true;
-    });
-  }, [quotes, statusFilter, branchFilter, customerFilter, fromDate, toDate, search]);
+  const query = useSalesQuotes(filter);
+  const filtered = query.data ?? [];
+  const counts = useSalesQuoteCounts(filter).data ?? {};
+  const stats = useSalesQuoteStats(filter).data ?? {};
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -121,13 +109,13 @@ export function SalesQuotesScreen() {
   );
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: counts.all },
-    { key: "draft", label: t("quotes.status.draft"), count: counts.draft },
-    { key: "sent", label: t("quotes.status.sent"), count: counts.sent },
-    { key: "accepted", label: t("quotes.status.accepted"), count: counts.accepted },
-    { key: "rejected", label: t("quotes.status.rejected"), count: counts.rejected },
-    { key: "expired", label: t("quotes.status.expired"), count: counts.expired },
-    { key: "converted", label: t("quotes.status.converted"), count: counts.converted },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "draft", label: t("quotes.status.draft"), count: counts.draft ?? 0 },
+    { key: "sent", label: t("quotes.status.sent"), count: counts.sent ?? 0 },
+    { key: "accepted", label: t("quotes.status.accepted"), count: counts.accepted ?? 0 },
+    { key: "rejected", label: t("quotes.status.rejected"), count: counts.rejected ?? 0 },
+    { key: "expired", label: t("quotes.status.expired"), count: counts.expired ?? 0 },
+    { key: "converted", label: t("quotes.status.converted"), count: counts.converted ?? 0 },
   ];
 
   const columns: DocumentListColumn<SalesQuoteRecord>[] = [
@@ -171,7 +159,7 @@ export function SalesQuotesScreen() {
   const [firstSegment] = subPage.segments;
   if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? ""} />;
   if (firstSegment !== undefined) {
-    const quote = quotes.find((q) => q.id === firstSegment || q.docNo === firstSegment);
+    const quote = filtered.find((q) => q.id === firstSegment || q.docNo === firstSegment);
     if (quote) return <QuoteDetailView quote={quote} onBack={subPage.close} />;
     if (!query.isLoading) {
       return (
@@ -198,12 +186,12 @@ export function SalesQuotesScreen() {
             {t("quotes.new")}
           </Button>
         }
-        listKey="index.tsx"
+        listKey="sales-quotes"
         statsCollapsible
         stats={[
-          { label: t("quotes.stat.totalValue"), value: <MoneyDisplay value={values.total} /> },
-          { label: t("quotes.stat.acceptedValue"), value: <MoneyDisplay value={values.accepted} /> },
-          { label: t("quotes.stat.convertedValue"), value: <MoneyDisplay value={values.converted} /> },
+          { label: t("quotes.stat.totalValue"), value: <MoneyDisplay value={money(stats.total)} /> },
+          { label: t("quotes.stat.acceptedValue"), value: <MoneyDisplay value={money(stats.accepted)} /> },
+          { label: t("quotes.stat.convertedValue"), value: <MoneyDisplay value={money(stats.converted)} /> },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}

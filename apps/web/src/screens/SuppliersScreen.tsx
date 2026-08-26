@@ -21,6 +21,9 @@ import {
   usePurchaseInvoices,
   usePurchaseReturns,
   useSuppliers,
+  useSupplierCounts,
+  useSupplierStats,
+  type SupplierListFilter,
   useUpdateSupplier,
   useVouchers,
 } from "../data/hooks";
@@ -37,6 +40,7 @@ import {
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 import { supplierPayableById } from "../lib/partner-balances";
+import { majorOf } from "../lib/money";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
@@ -608,22 +612,8 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
 
 export function SuppliersScreen() {
   const { t } = useAppTranslation();
-  const query = useSuppliers();
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
-  const suppliers = query.data ?? [];
-  // The payable a supplier list must answer is the LIVE one: opening balance plus
-  // confirmed invoices, less payments and returns. Reporting the opening figure
-  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39).
-  const purchaseInvoices = usePurchaseInvoices().data ?? [];
-  const vouchers = useVouchers().data ?? [];
-  const purchaseReturns = usePurchaseReturns().data ?? [];
-  const cheques = useCheques().data ?? [];
-  const payableById = useMemo(
-    () => supplierPayableById(suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques),
-    [suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques],
-  );
-  const payableOf = (id: string) => payableById.get(id) ?? 0;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -635,28 +625,47 @@ export function SuppliersScreen() {
   const [draft, setDraft] = useState<SupplierDraft>(BLANK_DRAFT);
   const [error, setError] = useState<string | null>(null);
 
-  const selected = suppliers.find((s) => s.id === selectedId) ?? null;
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1). The payable
+   * tile used to be a float sum over every supplier the server had sent, so a
+   * status chip moved the table and left the header on the whole book.
+   */
+  const filter = useMemo<SupplierListFilter>(
+    () => ({ status: statusFilter, q: search.trim() || undefined }),
+    [statusFilter, search],
+  );
 
-  const filtered = useMemo(() => {
-    let rows = suppliers;
-    if (statusFilter !== "all") rows = rows.filter((s) => (statusFilter === "active" ? s.active : !s.active));
-    if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (s) => matchesSearch(search, s.nameAr, s.nameEn, s.code, s.phone),
-      );
-    }
-    return rows;
-  }, [suppliers, statusFilter, search]);
+  const query = useSuppliers(filter);
+  const suppliers = query.data ?? [];
+  const filtered = suppliers;
+  const counts = useSupplierCounts(filter).data ?? {};
+  const stats = useSupplierStats(filter).data ?? {};
+
+  // The payable a supplier ROW must answer is the LIVE one: opening balance plus
+  // confirmed invoices, less payments and returns. Reporting the opening figure
+  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39). The
+  // strip's total comes off `/suppliers/stats`, which derives the same figure
+  // server-side in `Money`.
+  const purchaseInvoices = usePurchaseInvoices().data ?? [];
+  const vouchers = useVouchers().data ?? [];
+  const purchaseReturns = usePurchaseReturns().data ?? [];
+  const cheques = useCheques().data ?? [];
+  const payableById = useMemo(
+    () => supplierPayableById(suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques),
+    [suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques],
+  );
+  const payableOf = (id: string) => payableById.get(id) ?? 0;
+
+  const selected = suppliers.find((s) => s.id === selectedId) ?? null;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: suppliers.length },
-    { key: "active", label: t("common.active"), count: suppliers.filter((s) => s.active).length },
-    { key: "inactive", label: t("common.inactive"), count: suppliers.filter((s) => !s.active).length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "active", label: t("common.active"), count: counts.active ?? 0 },
+    { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
   ];
 
   const columns: DocumentListColumn<SupplierDTO>[] = [
@@ -809,11 +818,11 @@ export function SuppliersScreen() {
           </Button>
         }
         stats={[
-          { label: t("suppliers.stat.total"), value: <span className="mz-num">{suppliers.length}</span> },
-          { label: t("common.active"), value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
+          { label: t("suppliers.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
           {
             label: t("suppliers.stat.payable"),
-            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + payableOf(s.id), 0)} showUnit={false} />,
+            value: <MoneyValue value={majorOf(String(stats.payable ?? "0"))} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

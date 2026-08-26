@@ -22,6 +22,9 @@ import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan
 import {
   useCreateCustomer,
   useCustomers,
+  useCustomerCounts,
+  useCustomerStats,
+  type CustomerListFilter,
   usePriceLists,
   useSalesInvoices,
   useSalesReturns,
@@ -48,7 +51,7 @@ import { TextField, NumberField, SelectField, ToggleField } from "../settings/fo
 import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useNavigation } from "../navigation";
-import { sumMajor } from "../lib/money";
+import { majorOf } from "../lib/money";
 
 /**
  * العملاء (Customers) — docs/catalog/01-sales.md "العملاء (Customers —
@@ -745,13 +748,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
 export function CustomersScreen() {
   const { t } = useAppTranslation();
   const { navigate } = useNavigation();
-  const query = useCustomers();
   const createCustomer = useCreateCustomer();
   const updateCustomer = useUpdateCustomer();
-  const customers = query.data ?? [];
-  const invoices = useSalesInvoices().data ?? [];
-  const owedById = useMemo(() => customerOwedById(customers, invoices), [customers, invoices]);
-  const owedOf = (id: string) => owedById.get(id) ?? 0;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -773,20 +771,32 @@ export function CustomersScreen() {
   );
   const priceListOption = (id: string): EntityPickerOption | null => priceListOptions.find((o) => o.id === id) ?? null;
 
-  const selected = customers.find((c) => c.id === selectedId) ?? null;
+  /**
+   * One filter for the rows, the chips and the KPI strip (R1.1). The four
+   * tiles used to be totalled in the browser over every customer the server
+   * had sent, so applying a filter moved the table and left the header alone —
+   * and `?q=` is Arabic-forgiving server-side, which the old `includes` was not.
+   */
+  const filter = useMemo<CustomerListFilter>(
+    () => ({
+      status: statusFilter,
+      q: search.trim() || undefined,
+      priceListId: priceListFilter?.id,
+      overLimit: overLimitOnly || undefined,
+    }),
+    [statusFilter, search, priceListFilter, overLimitOnly],
+  );
 
-  const filtered = useMemo(() => {
-    let rows = customers;
-    if (statusFilter !== "all") rows = rows.filter((c) => (statusFilter === "active" ? c.active : !c.active));
-    if (overLimitOnly) {
-      rows = rows.filter((c) => num(c.creditLimit) > 0 && (owedById.get(c.id) ?? 0) > num(c.creditLimit));
-    }
-    if (priceListFilter) rows = rows.filter((c) => c.priceListId === priceListFilter.id);
-    if (search.trim() !== "") {
-      rows = rows.filter((c) => matchesSearch(search, c.nameAr, c.nameEn, c.code, c.phone));
-    }
-    return rows;
-  }, [customers, statusFilter, search, overLimitOnly, priceListFilter, owedById]);
+  const query = useCustomers(filter);
+  const customers = query.data ?? [];
+  const counts = useCustomerCounts(filter).data ?? {};
+  const stats = useCustomerStats(filter).data ?? {};
+  const invoices = useSalesInvoices().data ?? [];
+  const owedById = useMemo(() => customerOwedById(customers, invoices), [customers, invoices]);
+  const owedOf = (id: string) => owedById.get(id) ?? 0;
+
+  const selected = customers.find((c) => c.id === selectedId) ?? null;
+  const filtered = customers;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -797,9 +807,9 @@ export function CustomersScreen() {
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (overLimitOnly ? 1 : 0) + (priceListFilter ? 1 : 0);
 
   const statusChips: DocumentListStatusChip[] = [
-    { key: "all", label: t("common.all"), count: customers.length },
-    { key: "active", label: t("common.active"), count: customers.filter((c) => c.active).length },
-    { key: "inactive", label: t("common.inactive"), count: customers.filter((c) => !c.active).length },
+    { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "active", label: t("common.active"), count: counts.active ?? 0 },
+    { key: "inactive", label: t("common.inactive"), count: counts.inactive ?? 0 },
   ];
 
   const columns: DocumentListColumn<CustomerDTO>[] = [
@@ -1015,15 +1025,15 @@ export function CustomersScreen() {
         listKey="customers"
         statsCollapsible
         stats={[
-          { label: t("customers.stat.total"), value: <span className="mz-num">{customers.length}</span> },
-          { label: t("common.active"), value: <span className="mz-num">{customers.filter((c) => c.active).length}</span> },
+          { label: t("customers.stat.total"), value: <span className="mz-num">{stats.count ?? 0}</span> },
+          { label: t("common.active"), value: <span className="mz-num">{stats.active ?? 0}</span> },
           {
             label: t("customers.stat.creditLimits"),
-            value: <MoneyValue value={sumMajor(customers.map((c) => c.creditLimit))} showUnit={false} />,
+            value: <MoneyValue value={majorOf(String(stats.creditLimits ?? "0"))} showUnit={false} />,
           },
           {
             label: t("customers.stat.toCollect"),
-            value: <MoneyValue value={customers.reduce((sum, c) => sum + owedOf(c.id), 0)} showUnit={false} />,
+            value: <MoneyValue value={majorOf(String(stats.toCollect ?? "0"))} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

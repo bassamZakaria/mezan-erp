@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, Money as MoneyDisplay, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { DocumentList, Money as MoneyDisplay, Qty, Card, Button, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useItems, useStockBalance, useWarehouses } from "../data/hooks";
 import { SelectField, NumberField } from "../settings/form-controls";
@@ -53,18 +53,13 @@ export function StockBalanceScreen() {
     return reorderPoint !== null && onHand <= reorderPoint ? "low" : "in_stock";
   }
 
-  const counts = useMemo(
-    () => ({
-      total: rows.length,
-      outOfStock: rows.filter((r) => statusOf(r) === "out").length,
-      lowStock: rows.filter((r) => statusOf(r) === "low").length,
-    }),
-    [rows, items],
-  );
-
-  const filtered = useMemo(() => {
+  /**
+   * Everything the user narrowed by except the status filter, which the stat
+   * strip counts across. A stat that ignored the quantity range and the search
+   * box would report the whole warehouse while the list showed six rows.
+   */
+  const baseRows = useMemo(() => {
     let list = rows;
-    if (statusFilter !== "all") list = list.filter((r) => statusOf(r) === statusFilter);
     if (!Number.isNaN(qtyFrom)) list = list.filter((r) => majorOf(r.onHand) >= qtyFrom);
     if (!Number.isNaN(qtyTo)) list = list.filter((r) => majorOf(r.onHand) <= qtyTo);
     if (search.trim() !== "") {
@@ -72,7 +67,21 @@ export function StockBalanceScreen() {
       list = list.filter((r) => itemLabel(r.itemId).toLowerCase().includes(q));
     }
     return list;
-  }, [rows, search, items, statusFilter, qtyFrom, qtyTo]);
+  }, [rows, search, items, qtyFrom, qtyTo]);
+
+  const counts = useMemo(
+    () => ({
+      total: baseRows.length,
+      outOfStock: baseRows.filter((r) => statusOf(r) === "out").length,
+      lowStock: baseRows.filter((r) => statusOf(r) === "low").length,
+    }),
+    [baseRows, items],
+  );
+
+  const filtered = useMemo(
+    () => (statusFilter === "all" ? baseRows : baseRows.filter((r) => statusOf(r) === statusFilter)),
+    [baseRows, items, statusFilter],
+  );
 
   const columns: DocumentListColumn<StockBalanceRowDTO>[] = [
     {
@@ -94,19 +103,19 @@ export function StockBalanceScreen() {
       header: t("stockBalance.col.totalOnHand"),
       align: "end",
       sortable: true,
-      render: (r) => <span className="mz-num font-semibold text-ink">{r.onHand}</span>,
+      render: (r) => <Qty value={r.onHand} className="font-semibold text-ink" />,
     },
     {
       key: "reserved",
       header: t("stockBalance.col.reserved"),
       align: "end",
-      render: (r) => <span className="mz-num text-ink-muted">{r.reserved}</span>,
+      render: (r) => <Qty value={r.reserved} className="text-ink-muted" />,
     },
     {
       key: "available",
       header: t("stockBalance.col.available"),
       align: "end",
-      render: (r) => <span className="mz-num font-semibold text-ink">{r.available}</span>,
+      render: (r) => <Qty value={r.available} className="font-semibold text-ink" />,
     },
     {
       key: "reorderPoint",
@@ -210,9 +219,15 @@ export function StockBalanceScreen() {
                 {r.warehouses.map((w) => (
                   <tr key={w.warehouseId} className="border-t border-border">
                     <td className="px-[10px] py-[6px] text-ink">{warehouseLabel(w.warehouseId)}</td>
-                    <td className="mz-num px-[10px] py-[6px] text-end">{w.onHand}</td>
-                    <td className="mz-num px-[10px] py-[6px] text-end text-ink-muted">{w.reserved}</td>
-                    <td className="mz-num px-[10px] py-[6px] text-end font-semibold">{w.available}</td>
+                    <td className="px-[10px] py-[6px] text-end">
+                      <Qty value={w.onHand} />
+                    </td>
+                    <td className="px-[10px] py-[6px] text-end">
+                      <Qty value={w.reserved} className="text-ink-muted" />
+                    </td>
+                    <td className="px-[10px] py-[6px] text-end">
+                      <Qty value={w.available} className="font-semibold" />
+                    </td>
                     <td className="px-[10px] py-[6px] text-end">
                       <MoneyDisplay value={Number(w.averageCost)} />
                     </td>

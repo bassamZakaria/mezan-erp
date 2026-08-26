@@ -29,6 +29,17 @@ export interface DocumentListColumn<Row> {
   render: (row: Row) => ReactNode;
 }
 
+/** An actionable exception above a list (R1.9). */
+export interface DocumentListAttentionBanner {
+  key: string;
+  label: string;
+  /** Rows behind the exception; a banner with none is not rendered. */
+  count: number;
+  tone?: "danger" | "warning";
+  /** Applies the filter that shows exactly those rows. */
+  onApply: () => void;
+}
+
 export interface DocumentListStat {
   label: string;
   value: ReactNode;
@@ -53,6 +64,13 @@ export interface DocumentListProps<Row> {
   description?: string;
   actions?: ReactNode;
   stats?: DocumentListStat[];
+  /**
+   * Actionable exceptions shown above the list (R1.9) — "2 overdue invoices
+   * need follow-up". Distinct from the KPI tiles: a tile states a figure, a
+   * banner states a problem AND applies the filter that shows it. A banner
+   * with no `onApply` would just be a tile in a louder colour.
+   */
+  attentionBanners?: DocumentListAttentionBanner[];
   statusChips?: DocumentListStatusChip[];
   activeStatusKey?: string;
   onStatusChange?: (key: string) => void;
@@ -117,6 +135,7 @@ export function DocumentList<Row>({
   description,
   actions,
   stats,
+  attentionBanners,
   statusChips,
   activeStatusKey,
   onStatusChange,
@@ -158,6 +177,31 @@ export function DocumentList<Row>({
         {actions ? <div className="flex flex-wrap items-center gap-[9px]">{actions}</div> : null}
       </div>
       <FulcrumRule />
+
+      {attentionBanners && attentionBanners.length > 0 ? (
+        <div className="mb-[12px] flex flex-col gap-[6px]">
+          {attentionBanners
+            // A zero-count exception is not an exception; showing it would
+            // train people to ignore the row that matters.
+            .filter((banner) => banner.count > 0)
+            .map((banner) => (
+              <button
+                key={banner.key}
+                type="button"
+                onClick={banner.onApply}
+                className={cn(
+                  "flex w-full items-center justify-between gap-[10px] rounded-md border px-[14px] py-[9px] text-start text-[12.5px] transition-colors",
+                  banner.tone === "danger"
+                    ? "border-danger bg-danger-soft text-danger-ink"
+                    : "border-warning bg-warning-soft text-warning-ink",
+                )}
+              >
+                <span className="font-semibold">{banner.label}</span>
+                <span className="text-[11.5px] underline underline-offset-2">{t("ui.list.applyFilter")}</span>
+              </button>
+            ))}
+        </div>
+      ) : null}
 
       {stats && stats.length > 0 ? (
         <div className="mb-[18px] grid grid-cols-2 gap-[14px] lg:grid-cols-4">

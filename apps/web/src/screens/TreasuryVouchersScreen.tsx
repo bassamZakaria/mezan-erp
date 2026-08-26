@@ -350,6 +350,15 @@ export function TreasuryVouchersScreen() {
           { label: t("vouchers.needsAllocation"), value: <span className="mz-num">{counts.needsAllocation}</span> },
           { label: t("docStatus.draft"), value: <span className="mz-num">{counts.draft}</span> },
         ]}
+        attentionBanners={[
+          {
+            key: "needs_allocation",
+            label: t("vouchers.banner.needsAllocation", { count: counts.needsAllocation }),
+            count: counts.needsAllocation,
+            tone: "warning",
+            onApply: () => setStatusFilter("needs_allocation"),
+          },
+        ]}
         statusChips={[
           { key: "all", label: t("common.all"), count: counts.all },
           { key: "needs_allocation", label: t("vouchers.needsAllocation"), count: counts.needsAllocation },

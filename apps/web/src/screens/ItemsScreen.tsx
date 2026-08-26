@@ -1172,6 +1172,28 @@ export function ItemsScreen() {
           { label: t("items.stockItems"), value: <span className="mz-num">{stockTrackedCount}</span> },
           { label: t("items.nonStockItems"), value: <span className="mz-num">{totalCount - stockTrackedCount}</span> },
         ]}
+        attentionBanners={[
+          {
+            key: "out_of_stock",
+            label: t("items.banner.outOfStock", { count: outOfStockCount }),
+            count: outOfStockCount,
+            tone: "danger",
+            onApply: () => {
+              setStatusChipKey("out_of_stock");
+              setPage(1);
+            },
+          },
+          {
+            key: "low_stock",
+            label: t("items.banner.lowStock", { count: lowStockCount }),
+            count: lowStockCount,
+            tone: "warning",
+            onApply: () => {
+              setStatusChipKey("low_stock");
+              setPage(1);
+            },
+          },
+        ]}
         statusChips={statusChips}
         activeStatusKey={statusChipKey}
         onStatusChange={(key) => {

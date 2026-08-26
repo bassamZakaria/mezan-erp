@@ -81,6 +81,7 @@ export {
   type DocumentListProps,
   type DocumentListColumn,
   type DocumentListStat,
+  type DocumentListAttentionBanner,
   type DocumentListStatusChip,
   type DocumentListSort,
 } from "./primitives/DocumentList";

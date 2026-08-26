@@ -548,6 +548,22 @@ export function PurchaseInvoicesScreen() {
           { label: t("purchaseInvoices.stat.unpaidBalance"), value: <MoneyValue value={money.unpaid} showUnit={false} />, valueTone: money.unpaid > 0 ? "danger" : "default" },
           { label: t("purchaseInvoices.stat.total"), value: <span className="mz-num">{invoices.length}</span> },
         ]}
+        attentionBanners={[
+          {
+            key: "overdue",
+            label: t("purchaseInvoices.banner.overdue", { count: counts.overdue ?? 0 }),
+            count: counts.overdue ?? 0,
+            tone: "danger",
+            onApply: () => setStatusFilter("overdue"),
+          },
+          {
+            key: "due_soon",
+            label: t("purchaseInvoices.banner.dueSoon", { count: counts.due_soon ?? 0 }),
+            count: counts.due_soon ?? 0,
+            tone: "warning",
+            onApply: () => setStatusFilter("due_soon"),
+          },
+        ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
         onStatusChange={(key) => setStatusFilter(key as PurchaseInvoiceStatusDTO | "all")}

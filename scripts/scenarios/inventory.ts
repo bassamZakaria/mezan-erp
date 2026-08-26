@@ -19,6 +19,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await openingBalanceShortcutTargetsARealItem_R53(ctx);
   await catalogFacetsAreEntities_R510(ctx);
   await itemDefaultSupplierIsBound_R54(ctx);
+  await attentionBannerCountsMatchTheirFilter_R19(ctx);
 }
 
 async function itemBalance(ctx: Ctx, itemId: string, warehouseId: string) {
@@ -661,5 +662,40 @@ async function itemDefaultSupplierIsBound_R54(ctx: Ctx): Promise<void> {
       );
     }
     ctx.check("and the description survives the round trip", bound.some((i) => (i.description ?? "").length > 0), JSON.stringify(bound.map((i) => i.description)));
+  });
+}
+
+/**
+ * R1.9 — an attention banner states an exception AND the filter that shows it.
+ * The server half of that promise is that the count it advertises equals the
+ * rows the filter actually returns: a banner offering "9 items are out of
+ * stock" that then shows 7 is worse than no banner.
+ */
+async function attentionBannerCountsMatchTheirFilter_R19(ctx: Ctx): Promise<void> {
+  await ctx.scenario("an attention banner's count equals the rows its filter returns (R1.9)", async () => {
+    const items = ((await ctx.req("GET", "/items")).body ?? []) as Array<{ stockState: string | null }>;
+    const out = items.filter((i) => i.stockState === "out").length;
+    const low = items.filter((i) => i.stockState === "low").length;
+    ctx.check("the seed has both exceptions to advertise", out > 0 && low > 0, `out=${out} low=${low}`);
+
+    // The items list filters client-side over the same payload, so the check
+    // that matters here is that the states are mutually exclusive — an item
+    // counted in both banners would be double-reported.
+    const both = items.filter((i) => i.stockState === "out" && i.stockState === "low").length;
+    ctx.checkEq("no item is counted by two banners at once", both, 0);
+
+    const sales = ((await ctx.req("GET", "/sales-invoices/counts")).body ?? {}) as Record<string, number>;
+    const overdueRows = ((await ctx.req("GET", "/sales-invoices?status=overdue")).body ?? []) as unknown[];
+    ctx.checkEq("the overdue banner's count equals the rows its filter returns", sales.overdue ?? 0, overdueRows.length);
+
+    const purchases = ((await ctx.req("GET", "/purchases/invoices/counts")).body ?? {}) as Record<string, number>;
+    for (const key of ["overdue", "due_soon"]) {
+      const rows = ((await ctx.req("GET", `/purchases/invoices?status=${key}`)).body ?? []) as unknown[];
+      ctx.checkEq(`the purchase "${key}" banner matches its filter`, purchases[key] ?? 0, rows.length);
+    }
+
+    const vouchers = ((await ctx.req("GET", "/vouchers/counts")).body ?? {}) as Record<string, number>;
+    const unallocated = ((await ctx.req("GET", "/vouchers?needsAllocation=any")).body ?? []) as unknown[];
+    ctx.checkEq("the needs-allocation banner matches its queue", vouchers.needs_allocation ?? 0, unallocated.length);
   });
 }

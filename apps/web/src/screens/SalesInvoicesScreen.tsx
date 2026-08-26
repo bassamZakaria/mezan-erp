@@ -1325,7 +1325,19 @@ export function SalesInvoicesScreen() {
               { label: t("salesInvoices.stat.unallocatedReceipts"), value: <MoneyDisplay value={unallocatedReceipts} /> },
               { label: t("salesInvoices.stat.remaining"), value: <MoneyDisplay value={kpi.remaining} />, valueTone: kpi.remaining > 0 ? "danger" : "default" },
             ]}
-            statusChips={statusChips}
+            attentionBanners={[
+          {
+            key: "overdue",
+            label: t("salesInvoices.banner.overdue", { count: counts.overdue ?? 0 }),
+            count: counts.overdue ?? 0,
+            tone: "danger",
+            onApply: () => {
+              setStatusFilter("overdue");
+              setPage(1);
+            },
+          },
+        ]}
+        statusChips={statusChips}
             activeStatusKey={statusFilter}
             onStatusChange={(key) => {
               setStatusFilter(key as InvoiceFilterKey);

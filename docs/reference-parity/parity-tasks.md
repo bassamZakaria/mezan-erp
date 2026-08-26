@@ -136,7 +136,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R5.3 / R8.4** Inline opening-balance actions on zero-stock items and treasury accounts
   - [x] **R5.3** items list: row-menu action on zero-stock rows, routed to the adjustment form with the reason and item already answered
   - [x] **R8.4** the same on treasury accounts: a row-menu action on accounts whose balance is zero AND that are bound to a GL account, posting Dr the treasury account / Cr 3210 أرصدة افتتاحية
-- [ ] **R3.7** Loyalty points — decide in or out for v1; if in, build it as a sub-ledger
+- [x] **R3.7** Loyalty points — **decided OUT for v1** (owner's call). Points earned are a real liability to the customer, so doing it honestly means a points sub-ledger, an expiry policy, a GL liability account and a redemption path that posts — a module, not a field. A counter on the customer record would be a promise no account backs and nothing could reconcile. No other parity item depends on it
 
 ## P5 — missing features
 
@@ -172,7 +172,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
   - [x] description, default supplier (bound to a real supplier), season, brand, specifications
   - [x] image — chosen from the item's own attachments, so the file lives in the attachments resource and the item holds only the id
-  - [ ] channels & visibility — no sales-channel concept exists anywhere in the product yet; needs a decision before it can be built
+  - [x] channels & visibility — **dropped for v1** (owner's call). The reference carries channels because it sells online; this is a desktop ERP for a shop, where the branch and the warehouse already carry that dimension and are already scoped
   - [x] editing a per-price-list price from the item form — one row per volume TIER, each editable in place, saving the list's whole lines array so no other line is dropped
 - [x] **R5.8** Transfer import — paste a range straight from Excel (the clipboard gives TSV), or choose a CSV or a real `.xlsx`. The delimiter is detected per file, quoted fields and Arabic-Indic numerals are handled, and every row is resolved against the REAL item catalogue by code or barcode; a row that matches nothing, or names a service item, is rejected WITH its reason rather than carried through as a plausible id. `.xlsx` is read with no dependency — it is a ZIP of XML and the browser already provides DEFLATE
 - [x] **R5.10** Brands, seasons and specification facets — brands and seasons are entities, items carry registry-checked specification values, and the list filters by all three

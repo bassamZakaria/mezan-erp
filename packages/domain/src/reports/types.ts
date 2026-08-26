@@ -36,6 +36,19 @@ export interface ReportColumn<Row> {
    * 12,072.20 refundable. Per-GROUP subtotals still use the plain sum.
    */
   readonly grandTotal?: (rows: readonly Row[]) => number;
+  /**
+   * Marks this cell as naming a domain entity, so the runner can open the
+   * drill-down panel on it (A5). `id` must return that entity's REAL id — the
+   * panel goes back to the posted documents with it, and a label is not an id.
+   */
+  readonly entity?: ReportEntityRef<Row>;
+}
+
+export type ReportEntityKind = "customer" | "supplier" | "item" | "account";
+
+export interface ReportEntityRef<Row> {
+  readonly kind: ReportEntityKind;
+  readonly id: (row: Row) => string | null;
 }
 
 /** Groups a report's rows into labeled sections (e.g. trial balance by account type). */
@@ -146,6 +159,27 @@ export interface ReportChartSpec {
   /** Charting fifty rows produces a hairbrush; the top slice is the readable part. */
   readonly maxPoints?: number;
   readonly captionAr?: string;
+  /**
+   * Where the points come from.
+   *
+   * `rows` (the default) plots one point per row. `groups` plots one point per
+   * SECTION, using the subtotal the table already prints for it — which is the
+   * only readable chart for a statement whose rows are individual accounts:
+   * the balance sheet's answer is "assets versus liabilities and equity", not
+   * "the eight largest ledger accounts".
+   */
+  readonly source?: "rows" | "groups";
+  /**
+   * Adds the rows up by their label before plotting. A movement report has one
+   * row per movement, and forty bars each labelled with the same item name are
+   * not a chart of anything; summing them by item is.
+   */
+  readonly aggregate?: boolean;
+  /**
+   * Which end of the rows to take when there are more than `maxPoints`.
+   * `last` is for a running-balance statement, where the answer is at the end.
+   */
+  readonly slice?: "first" | "last";
 }
 
 export interface ReportValidationError {

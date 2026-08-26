@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Supplier } from "../suppliers/supplier.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
@@ -51,7 +52,7 @@ export function createPurchasesBySupplierReport(
     paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
     rowKey: (row) => row.supplierId,
     columns: [
-      { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr },
+      { key: "supplierNameAr", header: "اسم المورد", format: "text", value: (row) => row.supplierNameAr, entity: { kind: "supplier", id: (row) => row.supplierId } },
       { key: "count", header: "عدد الفواتير", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
@@ -63,6 +64,12 @@ export function createPurchasesBySupplierReport(
       maxPoints: 8,
       captionAr: "المورّدون مرتبون حسب حجم الإنفاق في الفترة.",
     },
+    kpis: [
+      { key: "total", labelAr: "إجمالي المشتريات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
+      { key: "outstanding", labelAr: "المستحق للموردين", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "supplierCount", labelAr: "عدد الموردين", format: "qty", value: (rows) => rows.length },
+      { key: "topShare", labelAr: "حصة أكبر مورد", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
+    ],
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const bySupplier = new Map<string, { count: number; total: Money }>();
@@ -80,7 +87,7 @@ export function createPurchasesBySupplierReport(
         total: Number(agg.total.toString()),
         outstanding: Number(agg.total.toString()),
       }));
-      const totalAll = rows.reduce((sum, r) => sum + r.total, 0);
+      const totalAll = sumRows(rows, (r) => r.total);
       return rows
         .map((r) => ({ ...r, contributionPercent: totalAll > 0 ? (r.total / totalAll) * 100 : 0 }))
         .sort((a, b) => b.total - a.total);

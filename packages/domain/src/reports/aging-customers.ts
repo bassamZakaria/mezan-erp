@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, percentOf } from "./kpi.js";
 
 /**
  * أعمار ديون العملاء — Customer Debt Aging (docs/catalog/08-reports.md): the
@@ -114,7 +115,7 @@ export function createAgingCustomersReport(
     paramFields: [{ kind: "date", key: "asOfDate", label: "حتى تاريخ" }],
     rowKey: (row) => row.customerId,
     columns: [
-      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr },
+      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
       { key: "current", header: "جاري", format: "money", align: "end", total: true, value: (row) => row.current },
       { key: "d31to60", header: "31-60 يوم", format: "money", align: "end", total: true, value: (row) => row.d31to60 },
       { key: "d61to90", header: "61-90 يوم", format: "money", align: "end", total: true, value: (row) => row.d61to90 },
@@ -128,6 +129,12 @@ export function createAgingCustomersReport(
       maxPoints: 8,
       captionAr: "العملاء مرتبون حسب إجمالي المتأخر عليهم.",
     },
+    kpis: [
+      { key: "total", labelAr: "إجمالي المديونية", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
+      { key: "over90", labelAr: "متأخر أكثر من 90 يوم", format: "money", value: (rows) => sumRows(rows, (r) => r.d91to120 + r.over120), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "over90Percent", labelAr: "نسبة المتأخر", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => r.d91to120 + r.over120), sumRows(rows, (r) => r.total)) },
+      { key: "customerCount", labelAr: "عدد العملاء المدينين", format: "qty", value: (rows) => rows.length },
+    ],
     run: (params, ctx) => {
       const byCustomer = new Map<string, AgingBucketTotals>();
       for (const invoice of ctx.invoices) {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { purchaseInvoiceSubtotal, purchaseInvoiceTax, purchaseInvoiceTotal, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 
 /**
@@ -72,6 +73,12 @@ export function createPurchasesByPeriodReport(
       maxPoints: 8,
       captionAr: "صافي تكلفة الشراء في كل فترة.",
     },
+    kpis: [
+      { key: "net", labelAr: "صافي المشتريات", format: "money", value: (rows) => sumRows(rows, (r) => r.net) },
+      { key: "tax", labelAr: "الضريبة المدفوعة", format: "money", value: (rows) => sumRows(rows, (r) => r.tax) },
+      { key: "count", labelAr: "عدد الفواتير", format: "qty", value: (rows) => sumRows(rows, (r) => r.count) },
+      { key: "avgInvoice", labelAr: "متوسط قيمة الفاتورة", hintAr: "الصافي ÷ عدد الفواتير", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.net), sumRows(rows, (r) => r.count)) },
+    ],
     run: (params, ctx) => {
       const buckets = new Map<string, PurchasesByPeriodRow>();
       for (const invoice of ctx.invoices) {

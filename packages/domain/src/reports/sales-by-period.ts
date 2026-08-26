@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, averageOf } from "./kpi.js";
 import { periodBucketKey, withinDateRange, type PeriodGroupBy } from "./period-bucket.js";
 
 /**
@@ -76,6 +77,12 @@ export function createSalesByPeriodReport(
       maxPoints: 8,
       captionAr: "صافي المبيعات في كل فترة، بعد الخصم ومع الضريبة.",
     },
+    kpis: [
+      { key: "net", labelAr: "صافي المبيعات", format: "money", value: (rows) => sumRows(rows, (r) => r.net) },
+      { key: "tax", labelAr: "الضريبة المحصلة", format: "money", value: (rows) => sumRows(rows, (r) => r.tax) },
+      { key: "count", labelAr: "عدد الفواتير", format: "qty", value: (rows) => sumRows(rows, (r) => r.count) },
+      { key: "avgInvoice", labelAr: "متوسط قيمة الفاتورة", hintAr: "الصافي ÷ عدد الفواتير", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.net), sumRows(rows, (r) => r.count)) },
+    ],
     run: (params, ctx) => {
       const buckets = new Map<string, SalesByPeriodRow>();
       for (const invoice of ctx.invoices) {

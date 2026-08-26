@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import type { InstallmentLine, InstallmentPlanDocument } from "../installments/index.js";
 import type { Customer } from "../customers/customer.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countDistinct, maxOf } from "./kpi.js";
 
 /**
  * الأقساط المتأخرة — Overdue Installments (docs/catalog/08-reports.md):
@@ -38,6 +39,7 @@ export interface InstallmentsOverdueParams {
 export interface InstallmentsOverdueRow {
   readonly rank: number;
   readonly lineId: string;
+  readonly customerId: string;
   readonly customerNameAr: string;
   readonly planNo: string;
   readonly amount: number;
@@ -93,13 +95,26 @@ export function createInstallmentsOverdueReport(
     rowKey: (row) => row.lineId,
     columns: [
       { key: "rank", header: "#", format: "qty", align: "end", value: (row) => row.rank },
-      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr },
+      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
       { key: "planNo", header: "رقم خطة التقسيط", format: "text", value: (row) => row.planNo },
       { key: "amount", header: "المبلغ", format: "money", align: "end", total: true, value: (row) => row.amount },
       { key: "remaining", header: "المبلغ المتبقي", format: "money", align: "end", total: true, value: (row) => row.remaining },
       { key: "dueDate", header: "تاريخ الاستحقاق", format: "date", value: (row) => row.dueDate },
       { key: "daysLate", header: "أيام التأخير", format: "qty", align: "end", value: (row) => row.daysLate },
     ],
+    kpis: [
+      { key: "remaining", labelAr: "إجمالي المتأخر", format: "money", value: (rows) => sumRows(rows, (r) => r.remaining), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "lineCount", labelAr: "أقساط متأخرة", format: "qty", value: (rows) => rows.length },
+      { key: "customerCount", labelAr: "عملاء متأخرون", format: "qty", value: (rows) => countDistinct(rows, (r) => r.customerId) },
+      { key: "maxDaysLate", labelAr: "أطول تأخير (يوم)", format: "qty", value: (rows) => maxOf(rows, (r) => r.daysLate) },
+    ],
+    chart: {
+      labelColumn: "customerNameAr",
+      valueColumn: "remaining",
+      aggregate: true,
+      maxPoints: 8,
+      captionAr: "العملاء مرتبون حسب إجمالي المتبقي من أقساطهم المتأخرة.",
+    },
     run: (params, ctx) => {
       const customerNames = new Map(ctx.customers.map((c) => [c.id, c.nameAr]));
       const rows: Omit<InstallmentsOverdueRow, "rank">[] = [];
@@ -111,6 +126,7 @@ export function createInstallmentsOverdueReport(
           if (params.bucket !== "" && bucketOf(days) !== params.bucket) continue;
           rows.push({
             lineId: `${plan.id}|${line.no}`,
+            customerId: line.customerId,
             customerNameAr: customerNames.get(line.customerId) ?? line.customerId,
             planNo: plan.docNo ?? plan.id,
             amount: Number(line.amount.toString()),

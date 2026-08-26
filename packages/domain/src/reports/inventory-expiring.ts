@@ -4,6 +4,7 @@ import type { Warehouse } from "../settings/warehouse.js";
 import type { CostLayer } from "../inventory/cost-layer.js";
 import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * أصناف قاربت على الانتهاء — Expiring Soon / FEFO (docs/catalog/08-reports.md):
@@ -111,6 +112,19 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
       { key: "receivedOn", header: "تاريخ الاستلام", format: "date", value: (row) => row.receivedOn },
       { key: "sourceDocNumber", header: "مستند الاستلام", format: "text", value: (row) => row.sourceDocNumber },
     ],
+    kpis: [
+      { key: "totalValue", labelAr: "القيمة المعرضة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
+      { key: "expiredValue", labelAr: "قيمة المنتهية", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry < 0 ? r.totalValue : 0)), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "within30Value", labelAr: "تنتهي خلال 30 يوم", format: "money", value: (rows) => sumRows(rows, (r) => (r.daysToExpiry >= 0 && r.daysToExpiry <= 30 ? r.totalValue : 0)) },
+      { key: "batchCount", labelAr: "عدد الدفعات", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      labelColumn: "statusLabel",
+      valueColumn: "totalValue",
+      aggregate: true,
+      maxPoints: 4,
+      captionAr: "القيمة الموزعة على نوافذ الانتهاء — المنتهي أولاً، وهو نفس ترتيب الصرف.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));

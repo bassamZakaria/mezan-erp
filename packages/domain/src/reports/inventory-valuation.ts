@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import type { Item } from "../items/item.js";
 import type { WacSnapshot } from "../inventory/ports.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, averageOf } from "./kpi.js";
 import { itemTypeTracksStock } from "../items/item-type.js";
 
 /**
@@ -51,7 +52,7 @@ export function createInventoryValuationReport(): ReportDefinition<
     ],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "onHand", header: "المخزون الحالي", format: "qty", align: "end", total: true, value: (row) => row.onHand },
       { key: "unitCost", header: "متوسط التكلفة", format: "money", align: "end", value: (row) => row.unitCost },
       { key: "totalValue", header: "القيمة الإجمالية", format: "money", align: "end", total: true, value: (row) => row.totalValue },
@@ -62,6 +63,12 @@ export function createInventoryValuationReport(): ReportDefinition<
       maxPoints: 8,
       captionAr: "الأصناف مرتبة حسب قيمة المخزون — أين يتركز رأس المال.",
     },
+    kpis: [
+      { key: "totalValue", labelAr: "إجمالي قيمة المخزون", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
+      { key: "onHand", labelAr: "إجمالي الكمية", format: "qty", value: (rows) => sumRows(rows, (r) => r.onHand) },
+      { key: "itemCount", labelAr: "عدد الأصناف", format: "qty", value: (rows) => rows.length },
+      { key: "avgUnitCost", labelAr: "متوسط تكلفة الوحدة", hintAr: "القيمة ÷ الكمية", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.totalValue), sumRows(rows, (r) => r.onHand)) },
+    ],
     run: (params, ctx) => {
       const search = params.search.trim().toLowerCase();
       const rows: InventoryValuationRow[] = [];

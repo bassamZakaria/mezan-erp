@@ -9,6 +9,7 @@ import {
 } from "./gl-shared.js";
 import { Money } from "../money/index.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * الميزانية العمومية — Balance Sheet (docs/catalog/08-reports.md), point in
@@ -50,12 +51,12 @@ const SECTION_ORDER: string[] = [
 
 /** Total of the asset rows. */
 export function balanceSheetTotalAssets(rows: readonly BalanceSheetRow[]): number {
-  return rows.filter((r) => r.side === "asset").reduce((s, r) => s + r.amount, 0);
+  return sumRows(rows, (r) => (r.side === "asset" ? r.amount : 0));
 }
 
 /** Total of the liability + equity rows (incl. retained earnings). */
 export function balanceSheetTotalLiabilitiesEquity(rows: readonly BalanceSheetRow[]): number {
-  return rows.filter((r) => r.side === "liability-equity").reduce((s, r) => s + r.amount, 0);
+  return sumRows(rows, (r) => (r.side === "liability-equity" ? r.amount : 0));
 }
 
 export function createBalanceSheetReport(
@@ -84,6 +85,18 @@ export function createBalanceSheetReport(
       computeReportTotal: (rows) => balanceSheetTotalAssets(rows),
       computeReferenceTotal: (rows) => balanceSheetTotalLiabilitiesEquity(rows),
       toleranceMoney: 0.01,
+    },
+    kpis: [
+      { key: "totalAssets", labelAr: "إجمالي الأصول", format: "money", value: (rows) => balanceSheetTotalAssets(rows) },
+      { key: "totalLiabilitiesEquity", labelAr: "الالتزامات وحقوق الملكية", format: "money", value: (rows) => balanceSheetTotalLiabilitiesEquity(rows) },
+      { key: "difference", labelAr: "الفرق", hintAr: "الأصول ناقص الالتزامات وحقوق الملكية، ويجب أن يكون صفراً", format: "money", value: (rows) => balanceSheetTotalAssets(rows) - balanceSheetTotalLiabilitiesEquity(rows), tone: (value) => (value === 0 ? "success" : "danger") },
+      { key: "rowCount", labelAr: "عدد البنود", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "sectionLabel",
+      valueColumn: "amount",
+      captionAr: "أقسام الميزانية بمجاميعها — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },
     run: (params, ctx) => {
       const balances = netBalancesByAccount(ctx.journalEntries, { to: params.asOfDate });

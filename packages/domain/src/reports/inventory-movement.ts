@@ -3,6 +3,7 @@ import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import type { StockMovement } from "../inventory/movement.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 import { STOCK_SOURCE_DOC_TYPE_LABELS_AR } from "./inventory-source-doc-labels.js";
 
@@ -80,6 +81,19 @@ export function createInventoryMovementReport(
       { key: "sourceDocTypeLabel", header: "نوع المرجع", format: "text", value: (row) => row.sourceDocTypeLabel },
       { key: "sourceDocNumber", header: "المرجع", format: "text", value: (row) => row.sourceDocNumber },
     ],
+    kpis: [
+      { key: "inQty", labelAr: "الكمية الواردة", format: "qty", value: (rows) => sumRows(rows, (r) => (r.direction === "وارد" ? r.qty : 0)) },
+      { key: "outQty", labelAr: "الكمية الصادرة", format: "qty", value: (rows) => sumRows(rows, (r) => (r.direction === "صادر" ? r.qty : 0)) },
+      { key: "netQty", labelAr: "صافي الحركة", format: "qty", value: (rows) => sumRows(rows, (r) => (r.direction === "وارد" ? r.qty : -r.qty)), tone: (value) => (value < 0 ? "danger" : "default") },
+      { key: "movementCount", labelAr: "عدد الحركات", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      labelColumn: "direction",
+      valueColumn: "qty",
+      aggregate: true,
+      maxPoints: 2,
+      captionAr: "إجمالي الكمية الواردة مقابل الصادرة في الفترة.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));

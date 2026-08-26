@@ -3,6 +3,7 @@ import { Money, Qty } from "../money/index.js";
 import { purchaseInvoiceLineBase, type PurchaseInvoice } from "../purchasing/purchase-invoice.js";
 import type { Item } from "../items/item.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
@@ -53,7 +54,7 @@ export function createPurchasesByItemReport(
     paramFields: [{ kind: "dateRange", fromKey: "dateFrom", toKey: "dateTo", label: "الفترة" }],
     rowKey: (row) => row.itemId,
     columns: [
-      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "qty", header: "الكمية المشتراة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "cost", header: "التكلفة", format: "money", align: "end", total: true, value: (row) => row.cost },
       { key: "costPercent", header: "نسبة التكلفة", format: "share", align: "end", value: (row) => row.costPercent },
@@ -65,7 +66,7 @@ export function createPurchasesByItemReport(
      */
     reconciliation: {
       labelAr: "تكلفة التقرير مقابل المرحَّل للمخزون في دفتر الأستاذ",
-      computeReportTotal: (rows) => rows.reduce((sum, row) => sum + row.cost, 0),
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.cost),
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedInventory?.(params) ?? 0,
       toleranceMoney: 0.01,
     },
@@ -75,6 +76,12 @@ export function createPurchasesByItemReport(
       maxPoints: 8,
       captionAr: "الأصناف مرتبة حسب ما أُنفق عليها.",
     },
+    kpis: [
+      { key: "cost", labelAr: "إجمالي التكلفة", format: "money", value: (rows) => sumRows(rows, (r) => r.cost) },
+      { key: "qty", labelAr: "الكمية المشتراة", format: "qty", value: (rows) => sumRows(rows, (r) => r.qty) },
+      { key: "itemCount", labelAr: "عدد الأصناف", format: "qty", value: (rows) => rows.length },
+      { key: "avgUnitCost", labelAr: "متوسط تكلفة الوحدة", hintAr: "التكلفة ÷ الكمية", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.cost), sumRows(rows, (r) => r.qty)) },
+    ],
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const byItem = new Map<string, { qty: Qty; cost: Money }>();
@@ -96,7 +103,7 @@ export function createPurchasesByItemReport(
         qty: Number(agg.qty.toString()),
         cost: Number(agg.cost.toString()),
       }));
-      const totalCost = rows.reduce((sum, r) => sum + r.cost, 0);
+      const totalCost = sumRows(rows, (r) => r.cost);
       return rows
         .map((r) => ({ ...r, costPercent: totalCost > 0 ? (r.cost / totalCost) * 100 : 0 }))
         .sort((a, b) => b.cost - a.cost);

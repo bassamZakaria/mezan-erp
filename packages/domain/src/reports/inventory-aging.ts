@@ -5,6 +5,7 @@ import type { Warehouse } from "../settings/warehouse.js";
 import type { CostLayer } from "../inventory/cost-layer.js";
 import { layerRemainingValue } from "../inventory/cost-layer.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, maxOf, percentOf } from "./kpi.js";
 
 /**
  * أعمار المخزون — Inventory Aging (docs/catalog/08-reports.md): the age of
@@ -99,6 +100,19 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
       { key: "ageBucketLabel", header: "الشريحة العمرية", format: "text", value: (row) => row.ageBucketLabel },
       { key: "lastReceiptDate", header: "آخر استلام", format: "date", value: (row) => row.lastReceiptDate },
     ],
+    kpis: [
+      { key: "totalValue", labelAr: "إجمالي القيمة", format: "money", value: (rows) => sumRows(rows, (r) => r.totalValue) },
+      { key: "over180Value", labelAr: "قيمة أقدم من 180 يوم", format: "money", value: (rows) => sumRows(rows, (r) => (r.ageDays > 180 ? r.totalValue : 0)), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "over180Percent", labelAr: "نسبة الراكد", format: "percent", value: (rows) => percentOf(sumRows(rows, (r) => (r.ageDays > 180 ? r.totalValue : 0)), sumRows(rows, (r) => r.totalValue)) },
+      { key: "oldestAgeDays", labelAr: "أقدم عمر (يوم)", format: "qty", value: (rows) => maxOf(rows, (r) => r.ageDays) },
+    ],
+    chart: {
+      labelColumn: "ageBucketLabel",
+      valueColumn: "totalValue",
+      aggregate: true,
+      maxPoints: 5,
+      captionAr: "قيمة المخزون موزعة على الشرائح العمرية — كل عمود هو مجموع صفوف تلك الشريحة.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));

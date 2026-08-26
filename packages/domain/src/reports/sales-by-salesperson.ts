@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
@@ -88,6 +89,12 @@ export function createSalesBySalespersonReport(
       maxPoints: 8,
       captionAr: "حصة كل مندوب من إيراد الفترة.",
     },
+    kpis: [
+      { key: "total", labelAr: "إجمالي المبيعات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
+      { key: "outstanding", labelAr: "المستحق", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "promotionDiscount", labelAr: "خصم العروض", format: "money", value: (rows) => sumRows(rows, (r) => r.promotionDiscount) },
+      { key: "salespersonCount", labelAr: "عدد المندوبين", format: "qty", value: (rows) => rows.length },
+    ],
     run: (params, ctx) => {
       const byRep = new Map<
         string,
@@ -125,7 +132,7 @@ export function createSalesBySalespersonReport(
         promotionDiscount: Number(agg.promotionDiscount.toString()),
         outstanding: Number(agg.outstanding.toString()),
       }));
-      const totalRevenue = rows.reduce((sum, r) => sum + r.total, 0);
+      const totalRevenue = sumRows(rows, (r) => r.total);
       return rows
         .map((r) => ({ ...r, contributionPercent: totalRevenue > 0 ? (r.total / totalRevenue) * 100 : 0 }))
         .sort((a, b) => {

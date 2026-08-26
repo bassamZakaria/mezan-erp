@@ -4,6 +4,7 @@ import type { JournalEntry } from "../journal.js";
 import { Money } from "../money/index.js";
 import { isLedgerEffective } from "./gl-shared.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * ميزان المراجعة — Trial Balance (docs/catalog/08-reports.md), the report
@@ -77,7 +78,7 @@ export function createTrialBalanceReport(
     rowKey: (row) => row.accountId,
     columns: [
       { key: "code", header: "رقم الحساب", format: "text", value: (row) => row.code },
-      { key: "nameAr", header: "اسم الحساب", format: "text", value: (row) => row.nameAr },
+      { key: "nameAr", header: "اسم الحساب", format: "text", value: (row) => row.nameAr, entity: { kind: "account", id: (row) => row.accountId } },
       { key: "debit", header: "مدين", format: "money", align: "end", total: true, value: (row) => row.debit },
       { key: "credit", header: "دائن", format: "money", align: "end", total: true, value: (row) => row.credit },
     ],
@@ -87,9 +88,21 @@ export function createTrialBalanceReport(
     },
     reconciliation: {
       labelAr: "إجمالي المدين = إجمالي الدائن",
-      computeReportTotal: (rows) => rows.reduce((sum, row) => sum + row.debit, 0),
-      computeReferenceTotal: (rows) => rows.reduce((sum, row) => sum + row.credit, 0),
+      computeReportTotal: (rows) => sumRows(rows, (row) => row.debit),
+      computeReferenceTotal: (rows) => sumRows(rows, (row) => row.credit),
       toleranceMoney: 0.01,
+    },
+    kpis: [
+      { key: "debit", labelAr: "إجمالي المدين", format: "money", value: (rows) => sumRows(rows, (r) => r.debit) },
+      { key: "credit", labelAr: "إجمالي الدائن", format: "money", value: (rows) => sumRows(rows, (r) => r.credit) },
+      { key: "difference", labelAr: "الفرق", hintAr: "المدين − الدائن، ويجب أن يكون صفراً", format: "money", value: (rows) => sumRows(rows, (r) => r.debit - r.credit), tone: (value) => (value === 0 ? "success" : "danger") },
+      { key: "accountCount", labelAr: "عدد الحسابات", format: "qty", value: (rows) => rows.length },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "typeLabel",
+      valueColumn: "debit",
+      captionAr: "إجمالي الأرصدة المدينة في كل نوع حساب — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },
     run: (params, ctx) => {
       const balances = computeAccountBalances(ctx.journalEntries, params.asOfDate);

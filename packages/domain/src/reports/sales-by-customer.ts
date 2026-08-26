@@ -3,6 +3,7 @@ import { Money } from "../money/index.js";
 import { salesInvoiceTotals } from "../sales-invoices/totals.js";
 import { SALES_INVOICE_ACTIVE_STATUSES, type SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, averageOf } from "./kpi.js";
 import { withinDateRange } from "./period-bucket.js";
 
 /**
@@ -62,7 +63,7 @@ export function createSalesByCustomerReport(
     ],
     rowKey: (row) => row.customerId,
     columns: [
-      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr },
+      { key: "customerNameAr", header: "اسم العميل", format: "text", value: (row) => row.customerNameAr, entity: { kind: "customer", id: (row) => row.customerId } },
       { key: "count", header: "عدد المبيعات", format: "qty", align: "end", total: true, value: (row) => row.count },
       { key: "total", header: "الإجمالي", format: "money", align: "end", total: true, value: (row) => row.total },
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
@@ -74,6 +75,12 @@ export function createSalesByCustomerReport(
       maxPoints: 8,
       captionAr: "العملاء مرتبون من الأعلى إيراداً في الفترة.",
     },
+    kpis: [
+      { key: "total", labelAr: "إجمالي الإيرادات", format: "money", value: (rows) => sumRows(rows, (r) => r.total) },
+      { key: "outstanding", labelAr: "المستحق على العملاء", format: "money", value: (rows) => sumRows(rows, (r) => r.outstanding), tone: (value) => (value > 0 ? "danger" : "default") },
+      { key: "customerCount", labelAr: "عدد العملاء", format: "qty", value: (rows) => rows.length },
+      { key: "avgPerCustomer", labelAr: "متوسط الإيراد لكل عميل", hintAr: "الإيراد ÷ عدد العملاء", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.total), rows.length) },
+    ],
     run: (params, ctx) => {
       const byCustomer = new Map<
         string,
@@ -105,7 +112,7 @@ export function createSalesByCustomerReport(
         total: Number(agg.total.toString()),
         outstanding: Number(agg.outstanding.toString()),
       }));
-      const totalRevenue = rows.reduce((sum, r) => sum + r.total, 0);
+      const totalRevenue = sumRows(rows, (r) => r.total);
       return rows
         .map((r) => ({ ...r, contributionPercent: totalRevenue > 0 ? (r.total / totalRevenue) * 100 : 0 }))
         .sort((a, b) => b.total - a.total);

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { SalesInvoice } from "../sales-invoices/sales-invoice.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 /**
@@ -62,7 +63,7 @@ export function createTopProductsReport(
     rowKey: (row) => row.itemId,
     columns: [
       { key: "rank", header: "#", format: "qty", align: "end", value: (row) => row.rank },
-      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr },
+      { key: "itemNameAr", header: "اسم الصنف", format: "text", value: (row) => row.itemNameAr, entity: { kind: "item", id: (row) => row.itemId } },
       { key: "qty", header: "إجمالي الكمية المباعة", format: "qty", align: "end", total: true, value: (row) => row.qty },
       { key: "revenue", header: "الإيرادات", format: "money", align: "end", total: true, value: (row) => row.revenue },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
@@ -73,9 +74,15 @@ export function createTopProductsReport(
       maxPoints: 8,
       captionAr: "أفضل المنتجات مبيعاً، مرتبة تنازلياً.",
     },
+    kpis: [
+      { key: "revenue", labelAr: "إيرادات المنتجات المعروضة", format: "money", value: (rows) => sumRows(rows, (r) => r.revenue) },
+      { key: "qty", labelAr: "إجمالي الكمية", format: "qty", value: (rows) => sumRows(rows, (r) => r.qty) },
+      { key: "productCount", labelAr: "عدد المنتجات", format: "qty", value: (rows) => rows.length },
+      { key: "topShare", labelAr: "حصة المنتج الأول", format: "percent", value: (rows) => rows[0]?.contributionPercent ?? 0 },
+    ],
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
-      const totalRevenue = aggregates.reduce((sum, a) => sum + a.revenue, 0);
+      const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       const ranked = aggregates
         .sort((a, b) => (params.rankBy === "revenue" ? b.revenue - a.revenue : b.qty - a.qty))
         .slice(0, params.limit);

@@ -5,6 +5,7 @@ import type { StockMovement } from "../inventory/movement.js";
 import type { Item } from "../items/item.js";
 import type { Warehouse } from "../settings/warehouse.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows, countRows, maxOf } from "./kpi.js";
 
 /**
  * انحراف تقييم المخزون — Inventory Valuation Drift (docs/catalog/08-reports.md):
@@ -82,6 +83,18 @@ export function createInventoryDriftReport(): ReportDefinition<
       { key: "maxPctDrift", header: "أعلى نسبة انحراف", format: "percent", align: "end", value: (row) => row.maxPctDrift },
       { key: "typeLabel", header: "النوع", format: "text", value: (row) => row.typeLabel },
     ],
+    kpis: [
+      { key: "valueDiff", labelAr: "إجمالي فارق القيمة", format: "money", value: (rows) => sumRows(rows, (r) => r.valueDiff), tone: (value) => (value === 0 ? "success" : "danger") },
+      { key: "positionCount", labelAr: "المواضع المنحرفة", format: "qty", value: (rows) => rows.length, tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "maxPctDrift", labelAr: "أعلى نسبة انحراف", format: "percent", value: (rows) => maxOf(rows, (r) => r.maxPctDrift) },
+      { key: "qtyDriftCount", labelAr: "مواضع بفارق كمية", format: "qty", value: (rows) => countRows(rows, (r) => r.typeLabel !== DRIFT_TYPE_LABELS.value) },
+    ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "valueDiff",
+      maxPoints: 8,
+      captionAr: "الأصناف مرتبة حسب فارق القيمة بين مصادر التقييم — كل عمود انحراف يحتاج تفسيراً.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));

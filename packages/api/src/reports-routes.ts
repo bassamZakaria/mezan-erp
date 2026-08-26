@@ -35,6 +35,11 @@ import {
   createAccountLedgerReport,
   OUTPUT_VAT_ACCOUNT_ID,
   INPUT_VAT_ACCOUNT_ID,
+  ACCOUNT_TYPE_LABELS,
+  SALES_INVOICE_ACTIVE_STATUSES,
+  moneyToNumber,
+  purchaseInvoiceTotal,
+  salesInvoiceTotals,
   type GlReportContext,
   type SalesInvoiceRepository,
   type PurchaseInvoiceRepository,
@@ -127,6 +132,13 @@ export interface ReportsRoutesDeps {
  */
 const REVENUE_ACCOUNT_IDS = ["4100"] as const;
 const INVENTORY_ACCOUNT_IDS = ["1200"] as const;
+
+/**
+ * How many source documents a drill-down panel carries. Fixed here, never read
+ * off the request: a limit the caller supplies is not a limit. The panel is
+ * told the true total separately so it can say what it is not showing.
+ */
+const DRILL_DOWN_LIMIT = 25;
 
 function todayIso(deps: ReportsRoutesDeps): string {
   if (deps.today) return deps.today();
@@ -571,6 +583,173 @@ export function createReportsRoutes(
     const definition = createGeneralLedgerReport({ periodFrom: firstOfYear(today), periodTo: today });
     const ctx = await loadGlContext(deps);
     return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, ctx));
+  });
+
+  // --- التفاصيل — drill-down from an entity cell (A5) ----------------------
+  // A report row is an aggregate. The only honest answer to "what is this
+  // figure made of" is the documents that produced it, resolved here from the
+  // posted records — never re-sliced in the browser out of the loaded page.
+
+  app.get("/drill-down/customer/:id", gate("sales.customer.view"), async (c) => {
+    const id = c.req.param("id");
+    const [customers, invoices] = await Promise.all([deps.customers.findAll(), deps.salesInvoices.list()]);
+    const customer = customers.find((entry) => entry.id === id);
+    if (!customer) return c.json({ error: "NOT_FOUND" }, 404);
+    const own = invoices
+      .filter((invoice) => invoice.customerId === id && SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status))
+      .sort((a, b) => b.date.localeCompare(a.date));
+    let outstanding = 0n;
+    let billed = 0n;
+    for (const invoice of own) {
+      const totals = salesInvoiceTotals(invoice);
+      billed += totals.grandTotal.scaled;
+      const balance = totals.grandTotal.scaled - invoice.amountPaid.scaled;
+      if (balance > 0n) outstanding += balance;
+    }
+    return c.json({
+      kind: "customer",
+      id,
+      titleAr: customer.nameAr,
+      subtitleAr: customer.code,
+      facts: [
+        { key: "phone", labelAr: "الهاتف", value: customer.phone ?? "—" },
+        { key: "creditLimit", labelAr: "حد الائتمان", value: customer.creditLimit.toString(), format: "money" },
+        { key: "billed", labelAr: "إجمالي المفوتر", value: (Number(billed) / 1e6).toFixed(2), format: "money" },
+        { key: "outstanding", labelAr: "المستحق", value: (Number(outstanding) / 1e6).toFixed(2), format: "money" },
+      ],
+      documents: own.slice(0, DRILL_DOWN_LIMIT).map((invoice) => ({
+        id: invoice.id,
+        docNo: invoice.docNo ?? invoice.id,
+        date: invoice.date,
+        type: "SALES_INVOICE",
+        status: invoice.status,
+        amount: moneyToNumber(salesInvoiceTotals(invoice).grandTotal),
+        amountFormat: "money",
+      })),
+      documentCount: own.length,
+    });
+  });
+
+  app.get("/drill-down/supplier/:id", gate("purchases.supplier.view"), async (c) => {
+    const id = c.req.param("id");
+    const [suppliers, invoices] = await Promise.all([deps.suppliers.findAll(), deps.purchaseInvoices.list()]);
+    const supplier = suppliers.find((entry) => entry.id === id);
+    if (!supplier) return c.json({ error: "NOT_FOUND" }, 404);
+    const own = invoices
+      .filter((invoice) => invoice.supplierId === id && invoice.status === "confirmed")
+      .sort((a, b) => b.date.localeCompare(a.date));
+    let billed = 0n;
+    for (const invoice of own) billed += purchaseInvoiceTotal(invoice).scaled;
+    return c.json({
+      kind: "supplier",
+      id,
+      titleAr: supplier.nameAr,
+      subtitleAr: supplier.code,
+      facts: [
+        { key: "phone", labelAr: "الهاتف", value: supplier.phone ?? "—" },
+        { key: "paymentTermsDays", labelAr: "مهلة السداد (يوم)", value: String(supplier.paymentTermsDays), format: "qty" },
+        { key: "billed", labelAr: "إجمالي المشتريات", value: (Number(billed) / 1e6).toFixed(2), format: "money" },
+        { key: "invoiceCount", labelAr: "عدد الفواتير", value: String(own.length), format: "qty" },
+      ],
+      documents: own.slice(0, DRILL_DOWN_LIMIT).map((invoice) => ({
+        id: invoice.id,
+        docNo: invoice.number,
+        date: invoice.date,
+        type: "PURCHASE_INVOICE",
+        status: invoice.status,
+        amount: moneyToNumber(purchaseInvoiceTotal(invoice)),
+        amountFormat: "money",
+      })),
+      documentCount: own.length,
+    });
+  });
+
+  app.get("/drill-down/item/:id", gate("inventory.item.view"), async (c) => {
+    const id = c.req.param("id");
+    const [items, snapshots] = await Promise.all([deps.items.list(), deps.wacSnapshots.list()]);
+    const item = items.find((entry) => entry.id === id);
+    if (!item) return c.json({ error: "NOT_FOUND" }, 404);
+    const positions = withinScope(
+      snapshots.filter((snapshot) => snapshot.itemId === id),
+      warehouseScopeOf(c),
+      (snapshot) => snapshot.warehouseId,
+    );
+    let onHand = 0n;
+    let value = 0n;
+    for (const position of positions) {
+      onHand += position.onHand.scaled;
+      value += position.totalValue.scaled;
+    }
+    const movements = (await loadAllMovements(deps))
+      .filter((movement) => movement.itemId === id)
+      .sort((a, b) => b.occurredAt.localeCompare(a.occurredAt));
+    return c.json({
+      kind: "item",
+      id,
+      titleAr: item.nameAr,
+      subtitleAr: item.code,
+      facts: [
+        { key: "unit", labelAr: "الوحدة", value: item.baseUnitCode },
+        { key: "onHand", labelAr: "المخزون الحالي", value: (Number(onHand) / 1e6).toString(), format: "qty" },
+        { key: "value", labelAr: "قيمة المخزون", value: (Number(value) / 1e6).toFixed(2), format: "money" },
+        { key: "warehouseCount", labelAr: "عدد المستودعات", value: String(positions.length), format: "qty" },
+      ],
+      documents: movements.slice(0, DRILL_DOWN_LIMIT).map((movement) => ({
+        id: movement.sourceDocId,
+        docNo: movement.sourceDocNumber ?? movement.sourceDocId,
+        date: movement.occurredAt.slice(0, 10),
+        type: "STOCK_MOVEMENT",
+        status: movement.direction,
+        amount: Number(movement.qty.toString()),
+        amountFormat: "qty",
+      })),
+      documentCount: movements.length,
+    });
+  });
+
+  app.get("/drill-down/account/:id", gate("accounting.reports.view"), async (c) => {
+    const id = c.req.param("id");
+    const ctx = await loadGlContext(deps);
+    const account = ctx.accounts.find((entry) => entry.id === id);
+    if (!account) return c.json({ error: "NOT_FOUND" }, 404);
+    let debit = 0n;
+    let credit = 0n;
+    const touching: { id: string; docNo: string; date: string; net: bigint }[] = [];
+    for (const entry of ctx.journalEntries) {
+      let net = 0n;
+      let touched = false;
+      for (const line of entry.lines) {
+        if (line.accountId !== id) continue;
+        touched = true;
+        debit += line.debit.scaled;
+        credit += line.credit.scaled;
+        net += line.debit.scaled - line.credit.scaled;
+      }
+      if (touched) touching.push({ id: entry.id, docNo: entry.entryNo ?? entry.id, date: entry.date, net });
+    }
+    touching.sort((a, b) => b.date.localeCompare(a.date));
+    return c.json({
+      kind: "account",
+      id,
+      titleAr: account.nameAr,
+      subtitleAr: account.code,
+      facts: [
+        { key: "type", labelAr: "نوع الحساب", value: ACCOUNT_TYPE_LABELS[account.type] },
+        { key: "debit", labelAr: "إجمالي المدين", value: (Number(debit) / 1e6).toFixed(2), format: "money" },
+        { key: "credit", labelAr: "إجمالي الدائن", value: (Number(credit) / 1e6).toFixed(2), format: "money" },
+        { key: "balance", labelAr: "الرصيد", value: (Number(debit - credit) / 1e6).toFixed(2), format: "money" },
+      ],
+      documents: touching.slice(0, DRILL_DOWN_LIMIT).map((entry) => ({
+        id: entry.id,
+        docNo: entry.docNo,
+        date: entry.date,
+        type: "JOURNAL_ENTRY",
+        status: "posted",
+        amount: Number(entry.net) / 1e6,
+        amountFormat: "money",
+      })),
+      documentCount: touching.length,
+    });
   });
 
   app.get("/accounting/account-ledger", gate("accounting.reports.view"), async (c) => {

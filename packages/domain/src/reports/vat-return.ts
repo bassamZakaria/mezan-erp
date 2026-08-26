@@ -2,6 +2,7 @@ import { z } from "zod";
 import { type GlReportContext, isLedgerEffective, moneyToNumber } from "./gl-shared.js";
 import type { JournalEntry } from "../journal.js";
 import type { ReportDefinition } from "./types.js";
+import { sumRows } from "./kpi.js";
 
 /**
  * إقرار ضريبة القيمة المضافة — VAT Return (docs/catalog/08-reports.md).
@@ -85,8 +86,8 @@ function bump(map: Map<number, Bucket>, rate: number, base: number, tax: number)
 
 /** Output tax − input tax = net VAT payable (positive) or refundable (negative). */
 export function vatNetPayable(rows: readonly VatReturnRow[]): number {
-  const output = rows.filter((r) => r.side === "output").reduce((s, r) => s + r.tax, 0);
-  const input = rows.filter((r) => r.side === "input").reduce((s, r) => s + r.tax, 0);
+  const output = sumRows(rows, (r) => (r.side === "output" ? r.tax : 0));
+  const input = sumRows(rows, (r) => (r.side === "input" ? r.tax : 0));
   return output - input;
 }
 
@@ -111,8 +112,7 @@ export function createVatReturnReport(
         total: true,
         value: (row) => row.base,
         grandTotal: (rows) =>
-          rows.filter((r) => r.side === "output").reduce((s, r) => s + r.base, 0) -
-          rows.filter((r) => r.side === "input").reduce((s, r) => s + r.base, 0),
+          sumRows(rows, (r) => (r.side === "output" ? r.base : -r.base)),
       },
       {
         key: "tax",
@@ -129,6 +129,18 @@ export function createVatReturnReport(
     group: {
       key: (row) => row.side,
       label: (row) => row.sideLabel,
+    },
+    kpis: [
+      { key: "outputTax", labelAr: "ضريبة المخرجات", format: "money", value: (rows) => sumRows(rows, (r) => (r.side === "output" ? r.tax : 0)) },
+      { key: "inputTax", labelAr: "ضريبة المدخلات", format: "money", value: (rows) => sumRows(rows, (r) => (r.side === "input" ? r.tax : 0)) },
+      { key: "netPayable", labelAr: "صافي الضريبة", hintAr: "الموجب مستحق للمصلحة، والسالب قابل للاسترداد", format: "money", value: (rows) => vatNetPayable(rows), tone: (value) => (value > 0 ? "danger" : "success") },
+      { key: "taxableBase", labelAr: "الوعاء الخاضع", format: "money", value: (rows) => sumRows(rows, (r) => (r.side === "output" ? r.base : 0)) },
+    ],
+    chart: {
+      source: "groups",
+      labelColumn: "sideLabel",
+      valueColumn: "tax",
+      captionAr: "ضريبة المخرجات مقابل ضريبة المدخلات — الفرق بينهما هو صافي الإقرار.",
     },
     run: (params, ctx) => {
       const typeOf = new Map(ctx.accounts.map((a) => [a.id, a.type]));

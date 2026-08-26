@@ -6304,6 +6304,27 @@ const webAr = {
   "promotions.row.actionsFor": "إجراءات {promo}",
   "promotions.error.codeAndName": "الرمز والاسم مطلوبان.",
   "promotions.error.saveFailed": "تعذّر حفظ العرض.",
+
+  // R3.8 — العملاء: الخيارات المتقدمة
+  "customers.advanced.heading": "خيارات متقدمة",
+  "customers.field.commercialRegistration": "رقم السجل التجاري",
+  "customers.field.address": "العنوان",
+  "customers.field.logo": "الشعار",
+  "customers.field.taxExemptHint": "العميل المعفى لا تُحتسب عليه ضريبة القيمة المضافة على بنود الفاتورة.",
+  "customers.field.etaBuyerTypeHint": "تصنيف المشتري في الفاتورة الإلكترونية: تلقائي يستنتجه من الرقم الضريبي.",
+  "customers.logo.newCustomer": "احفظ العميل أولاً، ثم ارفع الشعار من تبويب المرفقات واختره هنا.",
+  "customers.logo.noImages": "لا توجد صور مرفقة بهذا العميل — ارفع صورة من تبويب المرفقات أولاً.",
+  "customers.logo.none": "بلا شعار",
+  "customers.logo.hint": "يُختار الشعار من مرفقات العميل، فالملف نفسه محفوظ حيث تُحفظ باقي المرفقات.",
+  "customers.filter.overLimit": "تجاوزوا حد الائتمان",
+  "customers.filter.byPriceList": "تصفية بقائمة الأسعار",
+  "customers.emptyBody": "العميل هو الطرف الذي تُصدر له الفواتير وتتابع تحصيله — أضف أول عميل لتبدأ.",
+  "customers.row.view": "عرض ملف العميل",
+  "customers.row.edit": "تعديل البيانات",
+  "customers.row.newInvoice": "فاتورة مبيعات جديدة",
+  "customers.row.activate": "تفعيل العميل",
+  "customers.row.deactivate": "إيقاف العميل",
+  "customers.row.actionsFor": "إجراءات {customer}",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12613,6 +12634,27 @@ const webEn: Record<WebTranslationKey, string> = {
   "promotions.row.actionsFor": "Actions for {promo}",
   "promotions.error.codeAndName": "Code and name are both required.",
   "promotions.error.saveFailed": "The promotion could not be saved.",
+
+  // R3.8 — customers: advanced options
+  "customers.advanced.heading": "Advanced options",
+  "customers.field.commercialRegistration": "Commercial registration number",
+  "customers.field.address": "Address",
+  "customers.field.logo": "Logo",
+  "customers.field.taxExemptHint": "An exempt customer is charged no VAT on invoice lines.",
+  "customers.field.etaBuyerTypeHint": "How the buyer is classified on an e-invoice. Automatic infers it from the tax number.",
+  "customers.logo.newCustomer": "Save the customer first, then upload the logo from the attachments tab and pick it here.",
+  "customers.logo.noImages": "No images are attached to this customer — upload one from the attachments tab first.",
+  "customers.logo.none": "No logo",
+  "customers.logo.hint": "The logo is chosen from the customer's attachments, so the file itself lives where every other attachment does.",
+  "customers.filter.overLimit": "Over their credit limit",
+  "customers.filter.byPriceList": "Filter by price list",
+  "customers.emptyBody": "A customer is who you invoice and collect from — add the first one to get started.",
+  "customers.row.view": "Open customer file",
+  "customers.row.edit": "Edit details",
+  "customers.row.newInvoice": "New sales invoice",
+  "customers.row.activate": "Activate customer",
+  "customers.row.deactivate": "Deactivate customer",
+  "customers.row.actionsFor": "Actions for {customer}",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

@@ -26,6 +26,9 @@ const sampleCustomers: CustomerDTO[] = [
     creditLimit: "0.000000",
     taxExempt: false,
     etaBuyerType: "business",
+    commercialRegistrationNumber: null,
+    address: null,
+    logoAttachmentId: null,
     nationalId: null,
   },
 ];

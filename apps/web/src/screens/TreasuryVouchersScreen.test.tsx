@@ -28,7 +28,7 @@ const customers: CustomerDTO[] = [
   {
     id: "cust-amal", code: "C1", nameAr: "شركة الأمل للتجارة", nameEn: null, phone: null, email: null, contactPerson: null, taxNumber: null,
     category: null, notes: null, paymentTermsDays: 30, currency: "EGP", openingBalance: "0", active: true, priceListId: null,
-    creditLimit: "0", taxExempt: false, etaBuyerType: "auto", nationalId: null,
+    creditLimit: "0", taxExempt: false, etaBuyerType: "auto", commercialRegistrationNumber: null, address: null, logoAttachmentId: null, nationalId: null,
   },
 ];
 const suppliers: SupplierDTO[] = [];

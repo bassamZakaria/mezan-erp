@@ -26,6 +26,9 @@ export const customerSchema = z.object({
   creditLimit: z.string(),
   taxExempt: z.boolean(),
   etaBuyerType: etaBuyerTypeSchema,
+  commercialRegistrationNumber: z.string().nullable(),
+  address: z.string().nullable(),
+  logoAttachmentId: z.string().nullable(),
   nationalId: z.string().nullable(),
 });
 
@@ -49,6 +52,9 @@ export const createCustomerSchema = z.object({
   creditLimit: z.string().optional(),
   taxExempt: z.boolean().optional(),
   etaBuyerType: etaBuyerTypeSchema.optional(),
+  commercialRegistrationNumber: z.string().nullable().optional(),
+  address: z.string().nullable().optional(),
+  logoAttachmentId: z.string().nullable().optional(),
   nationalId: z.string().nullable().optional(),
 });
 

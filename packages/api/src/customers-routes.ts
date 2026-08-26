@@ -13,6 +13,11 @@ import {
 import { createCustomerSchema, updateCustomerSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
+/** Resolves a price list by id, so `priceListId` can be checked against the real resource. */
+export interface CustomerPriceListLookup {
+  findById(id: string): Promise<unknown | null>;
+}
+
 /** Wire representation of a customer — a plain JSON-safe projection with Money as decimal strings. */
 function serialize(customer: Customer) {
   return {
@@ -34,6 +39,9 @@ function serialize(customer: Customer) {
     creditLimit: customer.creditLimit.toString(),
     taxExempt: customer.taxExempt,
     etaBuyerType: customer.etaBuyerType,
+    commercialRegistrationNumber: customer.commercialRegistrationNumber,
+    address: customer.address,
+    logoAttachmentId: customer.logoAttachmentId,
     nationalId: customer.nationalId,
   };
 }
@@ -55,9 +63,20 @@ export function createCustomersRouter(
   repo: CustomerRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
   audit?: AuditSink,
+  priceLists?: CustomerPriceListLookup,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+
+  /**
+   * `priceListId` names an entity, so it has to resolve to one. Accepting an
+   * unresolvable id would price every one of this customer's invoices off the
+   * item master while the screen showed a list assigned.
+   */
+  async function priceListMissing(priceListId: string | null | undefined): Promise<boolean> {
+    if (!priceListId || !priceLists) return false;
+    return (await priceLists.findById(priceListId)) === null;
+  }
 
   /**
    * A customer's own trail. The credit limit is the reason this matters: it is
@@ -113,6 +132,9 @@ export function createCustomersRouter(
     if (await repo.findByCode(parsed.data.code)) {
       return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `Customer code "${parsed.data.code}" already exists.` }, 409);
     }
+    if (await priceListMissing(parsed.data.priceListId)) {
+      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
+    }
     try {
       const { openingBalance, creditLimit, ...rest } = parsed.data;
       const customer = createCustomer({
@@ -142,6 +164,9 @@ export function createCustomersRouter(
       if (clash) {
         return c.json({ error: "DUPLICATE_CUSTOMER_CODE", message: `Customer code "${parsed.data.code}" already exists.` }, 409);
       }
+    }
+    if (await priceListMissing(parsed.data.priceListId)) {
+      return c.json({ error: "PRICE_LIST_NOT_FOUND", message: "قائمة الأسعار المحددة غير موجودة." }, 422);
     }
     try {
       // Only include openingBalance/creditLimit in the patch when the caller

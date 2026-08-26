@@ -34,6 +34,22 @@ CREATE TABLE IF NOT EXISTS customer (
 );
 `;
 
+/** Advanced-options columns added after the first release (R3.8) — an existing database keeps them null. */
+const ADDED_COLUMNS: readonly [string, string][] = [
+  ["commercial_registration_number", "TEXT"],
+  ["address", "TEXT"],
+  ["logo_attachment_id", "TEXT"],
+];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(customer)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE customer ADD COLUMN ${name} ${type}`);
+  }
+}
+
 interface CustomerRow {
   id: string;
   code: string;
@@ -53,6 +69,9 @@ interface CustomerRow {
   credit_limit: number;
   tax_exempt: number;
   eta_buyer_type: string;
+  commercial_registration_number: string | null;
+  address: string | null;
+  logo_attachment_id: string | null;
   national_id: string | null;
 }
 
@@ -76,6 +95,9 @@ function toCustomer(row: CustomerRow): Customer {
     creditLimit: Money.fromScaled(row.credit_limit),
     taxExempt: row.tax_exempt === 1,
     etaBuyerType: row.eta_buyer_type as EtaBuyerType,
+    commercialRegistrationNumber: row.commercial_registration_number ?? null,
+    address: row.address ?? null,
+    logoAttachmentId: row.logo_attachment_id ?? null,
     nationalId: row.national_id,
   };
 }
@@ -90,17 +112,21 @@ class SqliteCustomerRepository implements CustomerRepository {
     this.upsert = sqlite.prepare(`
       INSERT INTO customer (
         id, code, name_ar, name_en, phone, email, contact_person, tax_number, category, notes,
-        payment_terms_days, currency, opening_balance, active, price_list_id, credit_limit, tax_exempt, eta_buyer_type, national_id
+        payment_terms_days, currency, opening_balance, active, price_list_id, credit_limit, tax_exempt, eta_buyer_type,
+        commercial_registration_number, address, logo_attachment_id, national_id
       ) VALUES (
         @id, @code, @nameAr, @nameEn, @phone, @email, @contactPerson, @taxNumber, @category, @notes,
-        @paymentTermsDays, @currency, @openingBalance, @active, @priceListId, @creditLimit, @taxExempt, @etaBuyerType, @nationalId
+        @paymentTermsDays, @currency, @openingBalance, @active, @priceListId, @creditLimit, @taxExempt, @etaBuyerType,
+        @commercialRegistrationNumber, @address, @logoAttachmentId, @nationalId
       )
       ON CONFLICT(id) DO UPDATE SET
         code = @code, name_ar = @nameAr, name_en = @nameEn, phone = @phone, email = @email,
         contact_person = @contactPerson, tax_number = @taxNumber, category = @category, notes = @notes,
         payment_terms_days = @paymentTermsDays, currency = @currency, opening_balance = @openingBalance,
         active = @active, price_list_id = @priceListId, credit_limit = @creditLimit,
-        tax_exempt = @taxExempt, eta_buyer_type = @etaBuyerType, national_id = @nationalId
+        tax_exempt = @taxExempt, eta_buyer_type = @etaBuyerType,
+        commercial_registration_number = @commercialRegistrationNumber, address = @address,
+        logo_attachment_id = @logoAttachmentId, national_id = @nationalId
     `);
     this.selectAll = sqlite.prepare(`SELECT * FROM customer ORDER BY code ASC`);
     this.selectById = sqlite.prepare(`SELECT * FROM customer WHERE id = ?`);
@@ -141,6 +167,9 @@ class SqliteCustomerRepository implements CustomerRepository {
       creditLimit: customer.creditLimit.toScaledNumber(),
       taxExempt: customer.taxExempt ? 1 : 0,
       etaBuyerType: customer.etaBuyerType,
+      commercialRegistrationNumber: customer.commercialRegistrationNumber,
+      address: customer.address,
+      logoAttachmentId: customer.logoAttachmentId,
       nationalId: customer.nationalId,
     });
   }
@@ -154,6 +183,7 @@ export interface SqliteCustomerRepositoryHandle extends CustomerRepository {
 export function createSqliteCustomerRepository(path: SqliteConnectionInput = ":memory:"): SqliteCustomerRepositoryHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addMissingColumns(sqlite);
   const repo = new SqliteCustomerRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

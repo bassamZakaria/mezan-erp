@@ -917,7 +917,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
     );
   }
   if (options.treasuryAccountRepo) {
-    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, options.resolveAuthContext));
+    app.route("/treasury-accounts", createTreasuryAccountsRoutes(options.treasuryAccountRepo, options.resolveAuthContext, options.gl?.ledger));
   }
   if (options.fiscalPeriodRepo) {
     app.route("/fiscal-periods", createFiscalPeriodsRoutes(options.fiscalPeriodRepo, options.resolveAuthContext));

@@ -4,6 +4,7 @@ import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, ListCountsDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { ApiError, useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+  useTreasuryAccountStats,
 } from "../data/hooks";
 import { useApi } from "../data/ApiContext";
 import { treasuryBalanceById } from "../lib/partner-balances";
@@ -168,9 +169,15 @@ export function TreasuryAccountsScreen() {
   const trialBalance = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", { asOfDate: todayIso() });
   const liveBalance = useMemo(() => treasuryBalanceById(accounts, trialBalance.data?.rows ?? []), [accounts, trialBalance.data]);
   const balanceOf = (id: string) => liveBalance.get(id) ?? 0;
-  const totalBalance = accounts.reduce((sum, a) => sum + balanceOf(a.id), 0);
-  const cashBalance = accounts.filter((a) => a.type === "cash").reduce((sum, a) => sum + balanceOf(a.id), 0);
-  const bankBalance = accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + balanceOf(a.id), 0);
+  /**
+   * Summed on the SERVER over the whole filtered set, in Money, from the GL
+   * (R1.1) — the browser sum below is the fallback for a backend with no ledger
+   * wired, and adds JS numbers, which is exactly what R1.1 exists to remove.
+   */
+  const stats = useTreasuryAccountStats().data;
+  const totalBalance = stats?.liveTotal !== undefined ? Number(stats.liveTotal) : accounts.reduce((sum, a) => sum + balanceOf(a.id), 0);
+  const cashBalance = stats?.liveCash !== undefined ? Number(stats.liveCash) : accounts.filter((a) => a.type === "cash").reduce((sum, a) => sum + balanceOf(a.id), 0);
+  const bankBalance = stats?.liveBank !== undefined ? Number(stats.liveBank) : accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + balanceOf(a.id), 0);
 
   const selected = selectedId ? accounts.find((a) => a.id === selectedId) ?? null : null;
 

@@ -24,7 +24,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
       - [x] Own six columns — الكود · الاسم · النوع · مرتبط بـ · المركز الرئيسي · الحالة, rendered by the screen itself rather than by the chart-of-accounts tree, with type labels and names resolved per locale
       - [x] "Create from departments" — `GET /cost-centers/importable-departments` + `POST /cost-centers/from-departments`; each new centre is linked to its department, so a second import adds nothing
 - [x] **D45** Seed configurable-products, custom-manufacturing, installment-follow-ups; add all three to `pnpm check:seed`
-- [~] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
+- [x] **R1.1** Add `…/counts` and `…/stats` endpoints to every list resource; move chip counts and KPI money off the loaded page and onto the server
       - [x] Sales invoices — `/sales-invoices/counts` + `/stats`, derived `open`/`overdue` chips resolved server-side, `branchId`/`warehouseId`/`search` added to the list query
       - [x] Purchase invoices — `/purchases/invoices/counts` + `/stats`, payment states (`overdue`/`due_soon`/`partially_paid`/`paid`) resolved server-side
       - [x] The float defect underneath it: 22 money sums across 14 screens moved to bigint (`apps/web/src/lib/money.ts`)
@@ -47,10 +47,13 @@ Tick an item only when it has been driven in the running app on seeded data, in
             The customers strip's «إجمالي المستحق» now ties to the cent to `/sales-invoices/stats` remaining
             (43,880.88), and `?q=مؤسسه` finds «مؤسسة النور» — the server search forgives ة/ه, the old browser
             `includes` did not (D32)
-      - [ ] The treasury-accounts money tiles stay client-side on purpose: they are LIVE GL balances read from the
-            trial balance, and `/treasury-accounts/stats` answers opening balances. Publishing an opening balance
-            under a live-balance label is the defect `73381da` fixed; the endpoint needs a ledger source before
-            those three tiles can move
+      - [x] The treasury-accounts money tiles: `/treasury-accounts/stats` gained a ledger source and now answers
+            `liveTotal`/`liveCash`/`liveBank` ALONGSIDE the opening figures, summed in `Money` per account from the
+            GL — a treasury balance IS its control account's balance. The live keys are ABSENT, never zero, when no
+            ledger is wired, so "not measured" cannot be read as "the tills are empty". Verified on the seeded
+            tenant: liveTotal 144,335.12 = 4,879.12 + 137,956.00 + 1,500.00, against an openingTotal of 0.000000 —
+            which is exactly why publishing the opening figure under «إجمالي الأرصدة» would have reported a tenant
+            holding 144k as having nothing. Guarded by scenario **x67**
 - [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 
 ## P1 — shell and navigation
@@ -169,7 +172,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R3.13** المركبات — a van registry owning each vehicle's warehouse, till and branch. `POST /field/van-trips` takes `vanId` alone and derives the rest, refusing a body that names a van and a different warehouse or till; the crew binds to real employees. The three cascaded fields are read-only and stay empty until a van is chosen
 - [x] **R4.6** GRN from PO only — the create form is a creation-method STEP whose «استلام مباشر» card is offered only when the tenant's «إلزام أمر الشراء قبل الاستلام» setting is off. The screen READS that setting; the server gate was already live and now refuses in Arabic
 - [x] **R4.7** Landed-cost allocation basis and typed cost lines — a third basis (حسب الوزن) beside value and quantity, the shipped weight carried on the persisted line so a confirmed document still states its basis, and the entered cost broken down by نوع التكلفة on both the form and the document
-- [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
+- [x] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
   - [x] description, default supplier (bound to a real supplier), season, brand, specifications
   - [x] image — chosen from the item's own attachments, so the file lives in the attachments resource and the item holds only the id
   - [x] channels & visibility — **dropped for v1** (owner's call). The reference carries channels because it sells online; this is a desktop ERP for a shop, where the branch and the warehouse already carry that dimension and are already scoped

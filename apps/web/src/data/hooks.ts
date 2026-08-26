@@ -7205,3 +7205,35 @@ export function useUpdatePromotion() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["promotions"] }),
   });
 }
+
+export interface TreasuryAccountStatsDTO {
+  readonly count: number;
+  readonly active: number;
+  readonly inactive: number;
+  readonly openingTotal: string;
+  readonly openingCash: string;
+  readonly openingBank: string;
+  /** Absent when no ledger is wired — "not measured", never zero. */
+  readonly liveTotal?: string;
+  readonly liveCash?: string;
+  readonly liveBank?: string;
+}
+
+/**
+ * The treasury strip's figures, computed over the whole filtered set (R1.1).
+ * The live figures come from the GL, because a treasury account's balance IS
+ * its control account's balance.
+ */
+export function useTreasuryAccountStats(): UseQueryResult<TreasuryAccountStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<TreasuryAccountStatsDTO, ApiError>({
+    queryKey: ["treasury-accounts", "stats"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/treasury-accounts/stats");
+      if (!res.ok) throw new ApiError(res.status, t("api.treasuryAccountsCouldNotBe"));
+      return res.json<TreasuryAccountStatsDTO>();
+    },
+  });
+}

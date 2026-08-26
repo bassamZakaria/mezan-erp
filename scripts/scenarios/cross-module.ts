@@ -1520,6 +1520,32 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X37 — a backdated document changes the past, not the present
   // ---------------------------------------------------------------------------
+  await scenario("x67 · the treasury strip reports LIVE balances from the ledger, never an opening balance under a live label", async () => {
+    const stats = (await req("GET", "/treasury-accounts/stats")).body;
+    check("the strip's figures are computed server-side", stats !== undefined && stats.count > 0, JSON.stringify(stats));
+    check("live figures are present, not merely opening ones", stats?.liveTotal !== undefined, JSON.stringify(stats));
+
+    // The seeded tenant holds money and carries no opening balances at all,
+    // which is exactly what made this dangerous: publishing openingTotal under
+    // «إجمالي الأرصدة» would report a tenant with money as having none.
+    checkEq("the seeded accounts carry no opening balance", n(stats?.openingTotal), 0);
+    check("while the live total is not zero", n(stats?.liveTotal) > 0, `liveTotal=${stats?.liveTotal}`);
+
+    const tb = ctx.rows((await req("GET", "/financial-reports/trial-balance?asOfDate=2099-12-31")).body);
+    const accounts = ctx.rows((await req("GET", "/treasury-accounts")).body);
+    const glOf = (id: string) => {
+      const row = tb.find((r: any) => r.accountId === id);
+      return row ? n(row.debit) - n(row.credit) : 0;
+    };
+    // Summed over the accounts that ARE treasury accounts; other 13xx accounts
+    // exist and are none of this strip's business.
+    const expected = accounts.reduce((sum: number, a: any) => sum + (a.glAccountId ? glOf(a.glAccountId) : 0), 0);
+    checkEq("and the total ties to the ledger exactly — a treasury balance IS its control account's balance", n(stats?.liveTotal), expected);
+    const expectedCash = accounts.filter((a: any) => a.type === "cash").reduce((sum: number, a: any) => sum + (a.glAccountId ? glOf(a.glAccountId) : 0), 0);
+    checkEq("the cash split ties too", n(stats?.liveCash), expectedCash);
+    checkEq("and cash plus bank accounts for the whole total", n(stats?.liveCash) + n(stats?.liveBank), n(stats?.liveTotal));
+  });
+
   await scenario("x37 · a document posted into an earlier open period restates that period's reports and leaves the current one alone", async () => {
     const julyBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-07-01&periodTo=2026-07-31")).body?.grandTotals?.amount);
     const augustBefore = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2026-08-01&periodTo=2026-08-31")).body?.grandTotals?.amount);

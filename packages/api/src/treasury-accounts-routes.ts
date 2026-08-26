@@ -50,6 +50,13 @@ function handleDomainError(c: Context, err: unknown) {
 export function createTreasuryAccountsRoutes(
   repo: TreasuryAccountRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
+  /**
+   * A treasury account's LIVE balance is its GL account's balance. Without this
+   * the strip can only report opening balances, and publishing one under a
+   * live-balance label is the defect `73381da` fixed — so the live figures are
+   * omitted rather than approximated when no ledger is wired.
+   */
+  ledger?: { accountBalance(accountId: string, asOfDate?: string): Promise<{ balance: Money }> },
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -145,6 +152,21 @@ export function createTreasuryAccountsRoutes(
       if (account.type === "cash") openingCash = openingCash.add(account.openingBalance);
       if (account.type === "bank") openingBank = openingBank.add(account.openingBalance);
     }
+    // Summed from the ledger, per account, rather than from the documents —
+    // the balance IS the control account, and any other route to it can drift.
+    let liveTotal = Money.zero();
+    let liveCash = Money.zero();
+    let liveBank = Money.zero();
+    if (ledger) {
+      for (const account of accounts) {
+        if (!account.glAccountId) continue;
+        const { balance } = await ledger.accountBalance(account.glAccountId);
+        liveTotal = liveTotal.add(balance);
+        if (account.type === "cash") liveCash = liveCash.add(balance);
+        if (account.type === "bank") liveBank = liveBank.add(balance);
+      }
+    }
+
     return c.json({
       count: accounts.length,
       active,
@@ -152,6 +174,11 @@ export function createTreasuryAccountsRoutes(
       openingTotal: openingTotal.toString(),
       openingCash: openingCash.toString(),
       openingBank: openingBank.toString(),
+      // Absent, not zero, when no ledger is wired: a zero here would read as
+      // "the tills are empty" rather than "not measured".
+      ...(ledger
+        ? { liveTotal: liveTotal.toString(), liveCash: liveCash.toString(), liveBank: liveBank.toString() }
+        : {}),
     });
   });
 

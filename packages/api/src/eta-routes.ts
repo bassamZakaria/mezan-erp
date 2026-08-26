@@ -1,5 +1,6 @@
 import { Hono, type Context } from "hono";
 import {
+  ETA_ACTIVITY_CODES,
   ETA_UNIT_CODES,
   EtaService,
   isEtaUnitCode,
@@ -169,7 +170,9 @@ export function createEtaRoutes(
   });
 
   app.get("/activity-codes", gate("accounting.eta.view"), (c) => {
-    return c.json(searchEtaActivityCodes(c.req.query("q") ?? ""));
+    // The picker filters client-side over whatever this returns, so a truncated
+    // list is a lookup that silently cannot find half the codes.
+    return c.json(searchEtaActivityCodes(c.req.query("q") ?? "", ETA_ACTIVITY_CODES.length));
   });
 
   app.get("/unit-codes", gate("accounting.eta.view"), (c) => c.json(ETA_UNIT_CODES));

@@ -122,7 +122,7 @@ describe("EtaScreen", () => {
       clientId: "client-1",
       hasClientSecret: true,
     };
-    const readiness: EtaReadinessDTO = { percent: 80, items: [{ key: "config", labelAr: "الإعدادات", complete: true }] };
+    const readiness: EtaReadinessDTO = { percent: 80, items: [{ key: "config", labelAr: "الإعدادات", complete: true, missing: 0 }] };
     let submissions: EtaSubmissionDTO[] = [
       { id: "s1", internalId: "INV-000014", documentType: "invoice", status: "ready", etaUuid: null, errors: [], exclusionReason: null, createdAt: "2026-08-22T10:00:00.000Z", updatedAt: "2026-08-22T10:00:00.000Z", submittedAt: null },
     ];

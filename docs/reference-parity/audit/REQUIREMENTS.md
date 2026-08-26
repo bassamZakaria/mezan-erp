@@ -190,3 +190,84 @@ is allowed to do. Mezan collapses all of them into one "policies" tab.
 | X6 | **Forms carry almost no HTML validation attributes** (no `required` on the invoice form at all). Rules live only in JavaScript, so they are invisible to anyone reading the markup — and unverifiable in a read-only audit. |
 | X7 | **No export on any of the 22 operational reports.** |
 | X8 | Eight `/{module}/hub` pages are **built and unreachable** from the nav. |
+
+---
+
+# Round 4 — additions
+
+A second read-only pass over the routes not reached in round 3. **Verified before
+and after: the only non-GET request in the entire session is Cloudflare's
+`/cdn-cgi/rum` telemetry beacon (344×, HTTP 204). Zero writes to the application —
+nothing created, edited or deleted.** The click filter was hardened first so that
+حفظ / إضافة / إنشاء / تعديل / تأكيد / حذف and their English equivalents are never
+clicked anywhere, and no `type="submit"` control is ever activated.
+
+## 13. Patterns confirmed across more screens
+
+| # | Requirement | Pri |
+|---|---|---|
+| R13.1 | **The row's primary inline action is the next step in its workflow.** Work orders show بدء الإنتاج on a planned order, صرف المواد on one in progress, استلام المنتج when materials are issued, إكمال أمر العمل when production is received. Sales invoices show تحصيل, purchase invoices صرف دفعة, draft transfers تأكيد, calculated payroll runs اعتماد. The list is where work gets done, not just where it is listed. | **P1** |
+| R13.2 | **Duplicate as a row action** (تكرار أمر التصنيع). | **P3** |
+| R13.3 | **Priority as a first-class document field** with its own filter (منخفضة / عادية / عالية / عاجلة) and a column. | **P2** |
+| R13.4 | **Progress shown as a fraction plus a bar** in the row (`0/50` produced, partial-payment bars on invoices). | **P2** |
+| R13.5 | **Overdue dates render in red in the cell**, with "متأخر N يوم" beneath. | **P2** |
+
+## 14. Workflow — the approvable document set
+
+| # | Requirement | Pri |
+|---|---|---|
+| R14.1 | Approvals tabs carry columns المستند / نوع المستند / **المبلغ** / الحالة / **التقدم** (or إجرائي) / تاريخ التقديم, a status filter, and a **document-type filter over the 16 approvable types**: sales invoice, sales return, quote, purchase invoice, purchase order, goods receipt, purchase return, landed-cost voucher, cash voucher, stock transfer, stock adjustment, journal entry, payroll run, leave request, work order. | **P1** |
+
+## 15. Accounting — journal list
+
+| # | Requirement | Pri |
+|---|---|---|
+| R15.1 | Every journal row carries a **source-module badge** (manufacturing material issue, stock adjustment, purchase invoice, sales invoice, manual entry, finished-goods receipt, manufacturing run cost, manufacturing labour cost), and the list has a **source filter**: sales / purchases / treasury / inventory / POS / installments / manual. | **P1** |
+| R15.2 | **طباعة القيود** — print the journal listing. | **P2** |
+| R15.3 | **عكس القيد** appears in the row menu only on posted entries, never on reversed ones. Correction is by reversal, never edit. | **P0** (already Mezan's rule — protect it) |
+
+## 16. Inventory — corrections and additions
+
+| # | Requirement | Pri |
+|---|---|---|
+| R16.1 | **Six label templates, not three**: thermal 40×30mm, shelf 50×25mm, product 100×50mm, A4 21-up (63.5×38.1), A4 65-up (38.1×21.2), A4 14-up (99.1×38.1). Plus **item vs document** label modes, a required branch selector (labels print that branch's price list), a print-price toggle and a **show-price-before-discount** toggle that strikes through the original. | **P2** |
+| R16.2 | **Product template detail**: tabs الخصائص / المتغيرات / الوحدات البديلة / الحسابات / السجل, a **generate-variants** action driven by the attribute matrix, and a live "matrix = N combinations" counter with an attention banner when variants have not been generated. | **P2** |
+| R16.3 | **Physical count detail is a count sheet** — one "actual count" input per item, entered against the system quantity. | **P1** |
+| R16.4 | Adjustment list shows the **reason as a badge** under the warehouse and filters by it. | **P1** |
+
+## 17. Treasury — cheques
+
+| # | Requirement | Pri |
+|---|---|---|
+| R17.1 | Cheque states: قيد الانتظار / تحت التحصيل / **المستحقة اليوم** / مودع / محصل / مرتد / مستبدل, with a **direction filter** (واردة / صادرة), branch filter and date range. | **P1** |
+
+## 18. HR — payroll
+
+| # | Requirement | Pri |
+|---|---|---|
+| R18.1 | Payroll run states مسودة / محتسب / معتمد / مصروف / ملغى, an inline **اعتماد** on a calculated run, and **إعادة الاحتساب** in the row menu. | **P2** |
+
+## 19. Report design — the pattern to build to
+
+Read off the customer-aging report, which is the clearest example:
+
+| # | Requirement | Pri |
+|---|---|---|
+| R19.1 | **A question as the subtitle**, not a description — "أين خطر التحصيل؟ العملاء المتأخرون 90 يوماً أو أكثر يحتاجون تدخلاً فورياً". Every report states the decision it supports. | **P2** |
+| R19.2 | **KPI strip** — customer count, total receivable, customers with overdue, overdue 90+. | **P1** |
+| R19.3 | **A distribution bar**: one stacked horizontal bar for the whole population, each segment labelled with its amount and percentage. | **P2** |
+| R19.4 | **A per-entity stacked bar, top 10**, colour-graded by bucket (green = current → red = severely overdue) with a legend, and a caption explaining the colour scale. | **P2** |
+| R19.5 | Then the table, with the same buckets as columns. Seven chart surfaces total on this one report. | **P1** |
+
+## 20. Print designer
+
+| # | Requirement | Pri |
+|---|---|---|
+| R20.1 | Nine configuration tabs (identity, header, document content, line columns, totals, footer, watermark, cash receipt, per-document override) **beside a live A4 preview** that re-renders as settings change, with a document-type selector driving the preview, and a **reset to defaults** action. | **P2** |
+
+## Reference defects — additions
+
+| # | Finding |
+|---|---|
+| X9 | The **purchase-invoice row menu offers "إنشاء مرتجع مبيعات"** — a *sales* return action on a purchase document. |
+| X10 | On the reference's own tenant, **14 of 24 work orders are overdue** and 693 of 713 stock rows read "out of stock", so both attention banners are permanently red and carry no signal. |

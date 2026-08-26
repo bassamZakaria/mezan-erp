@@ -36,6 +36,7 @@ import {
   Qty,
   purchaseReturnGrandTotal,
   salesReturnGrandTotal,
+  SalesReturnNotRefundableError,
   totalLandedCost,
   Money,
   getAdjustmentReasonDefinition,
@@ -1678,6 +1679,70 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
               taxAmount: Money.zero(),
             })),
           };
+        },
+      },
+      /**
+       * «استرداد للعميل» (R3.9). A confirmed return credits AR and moves no
+       * money; this pays the credit note out as a REAL رد مبلغ لعميل voucher —
+       * debit AR 1105, credit the till — so the sub-ledger and the ledger move
+       * together. `list` recomputes what has already been refunded from the
+       * confirmed vouchers rather than from a stored flag, so reversing one
+       * restores the ledger AND the awaiting-refund state in a single act.
+       *
+       * The voucher id encodes the return it settles (`REFUND:<returnId>:…`);
+       * that prefix is the only link between the two, so it must not change.
+       */
+      refunds: {
+        async list(returnId: string) {
+          const prefix = `REFUND:${returnId}:`;
+          const all = await vouchers.documents.list();
+          return all
+            .filter((doc) => doc.id.startsWith(prefix) && doc.status === "confirmed" && doc.reversesDocId === null)
+            .map((doc) => ({
+              voucherId: doc.id,
+              voucherNo: doc.docNo,
+              date: doc.date,
+              amount: doc.lines[0]?.amount ?? Money.zero(),
+            }));
+        },
+        async post(command) {
+          const treasury = await treasuryAccounts.findById(command.treasuryAccountId);
+          if (!treasury?.glAccountId) {
+            throw new SalesReturnNotRefundableError("حساب الخزينة غير موجود أو بلا حساب دفتري.");
+          }
+          const customer = await customers.findById(command.customerId);
+          const voucherId = `REFUND:${command.returnId}:${randomUUID()}`;
+          const service = new VoucherService({
+            documents: vouchers.documents,
+            ledger,
+            accounts,
+            periods: fiscalPeriods,
+            numbering: ledger.numbering,
+            treasuryAccounts,
+            allocations: vouchers.allocations,
+            invoices: vouchers.invoices,
+            settings,
+            audit: auditSink,
+            actor: command.actor,
+          });
+          await service.createVoucher({
+            id: voucherId,
+            date: command.date,
+            memo: command.memo ?? undefined,
+            voucherType: "customer_refund",
+            amount: command.amount,
+            branchId: treasury.branchId,
+            paymentMethod: command.paymentMethod,
+            treasuryAccountId: command.treasuryAccountId,
+            treasuryGlAccountId: treasury.glAccountId,
+            counterpartyGlAccountId: "1105",
+            customerId: customer?.id ?? command.customerId,
+            referenceNo: command.referenceNo,
+          });
+          await service.confirmVoucher(voucherId);
+          // The number is stamped by the confirm, not the create.
+          const posted = await vouchers.documents.findById(voucherId);
+          return { voucherId, voucherNo: posted?.docNo ?? null };
         },
       },
     },

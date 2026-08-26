@@ -15,6 +15,13 @@ import type { SourceSalesInvoice } from "./ports.js";
 export interface SalesReturnRequestedQty {
   readonly itemId: string;
   readonly qty: Qty;
+  /**
+   * سبب الإرجاع for THIS line (R3.9). A document can return one item because
+   * it arrived broken and another because the wrong one was picked, so the
+   * reason belongs to the line; the document-level reason is only the default
+   * for lines that name none.
+   */
+  readonly reason?: SalesReturnReason;
 }
 
 /** One line per requested item with qty > 0; lines with 0/omitted qty are excluded (docs: "اتركه صفر لاستثنائه"). */
@@ -24,10 +31,11 @@ export function buildSalesReturnLinesFromInvoice(
   reason: SalesReturnReason,
   requested: readonly SalesReturnRequestedQty[],
 ): SalesReturnLine[] {
-  const requestedByItem = new Map(requested.map((r) => [r.itemId, r.qty]));
+  const requestedByItem = new Map(requested.map((r) => [r.itemId, r]));
   const lines: SalesReturnLine[] = [];
   for (const invLine of invoice.lines) {
-    const qty = requestedByItem.get(invLine.itemId);
+    const request = requestedByItem.get(invLine.itemId);
+    const qty = request?.qty;
     if (!qty || qty.isZero()) continue;
     const availableQty = invLine.qty.subtract(invLine.alreadyReturnedQty);
     const taxShare =
@@ -40,7 +48,7 @@ export function buildSalesReturnLinesFromInvoice(
       customerId: invoice.customerId,
       sourceInvoiceId: invoice.id,
       sourceInvoiceNumber: invoice.number,
-      reason,
+      reason: request.reason ?? reason,
       availableQty,
       qty,
       unitPrice: invLine.unitPrice,

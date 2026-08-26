@@ -42,6 +42,8 @@ export const createSalesReturnSchema = z.object({
 export const salesReturnRequestedQtySchema = z.object({
   itemId: z.string().min(1),
   qty: positiveDecimalString,
+  /** Per-line سبب الإرجاع (R3.9); omitted lines fall back to the document's reason. */
+  reason: salesReturnReasonSchema.optional(),
 });
 
 export const buildSalesReturnFromInvoiceSchema = z.object({
@@ -69,7 +71,28 @@ export const salesReturnDocumentSchema = z.object({
   reversedByDocId: z.string().nullable(),
   workflowRequestId: z.string().nullable(),
   journalEntryId: z.string().nullable(),
+  /** بانتظار دفع المبلغ — derived from the refund vouchers posted, never a stored flag. */
   awaitingRefund: z.boolean(),
+  refundDue: z.string(),
+  refundedTotal: z.string(),
+  refunds: z.array(
+    z.object({
+      voucherId: z.string(),
+      voucherNo: z.string().nullable(),
+      date: z.string(),
+      amount: z.string(),
+    }),
+  ),
+});
+
+/** POST /sales-returns/:id/refund — استرداد للعميل, a real treasury disbursement. */
+export const refundSalesReturnSchema = z.object({
+  amount: positiveDecimalString,
+  treasuryAccountId: z.string().min(1),
+  paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
+  date: z.string().min(1).optional(),
+  referenceNo: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
 });
 
 export type SalesReturnReasonDTO = z.infer<typeof salesReturnReasonSchema>;
@@ -77,3 +100,4 @@ export type SalesReturnLineDTO = z.infer<typeof salesReturnLineSchema>;
 export type CreateSalesReturnDTO = z.infer<typeof createSalesReturnSchema>;
 export type BuildSalesReturnFromInvoiceDTO = z.infer<typeof buildSalesReturnFromInvoiceSchema>;
 export type SalesReturnDocumentDTO = z.infer<typeof salesReturnDocumentSchema>;
+export type RefundSalesReturnDTO = z.infer<typeof refundSalesReturnSchema>;

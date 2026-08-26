@@ -637,11 +637,13 @@ export {
   salesReturnRequestedQtySchema,
   buildSalesReturnFromInvoiceSchema,
   salesReturnDocumentSchema,
+  refundSalesReturnSchema,
   type SalesReturnReasonDTO,
   type SalesReturnLineDTO,
   type CreateSalesReturnDTO,
   type BuildSalesReturnFromInvoiceDTO,
   type SalesReturnDocumentDTO,
+  type RefundSalesReturnDTO,
 } from "./sales-returns.js";
 
 export {

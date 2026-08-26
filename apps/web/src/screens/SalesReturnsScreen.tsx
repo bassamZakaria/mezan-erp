@@ -2,33 +2,38 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
+  Chip,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
+  RowMenu,
   StatusPill,
-  SidePanel,
   TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
-  type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, SalesReturnLineDTO, SalesReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField } from "../settings/form-controls";
 import {
   useCancelSalesReturn,
   useConfirmSalesReturn,
-  useCreateSalesReturn,
+  useCreateSalesReturnFromInvoice,
   useCustomers,
   useItems,
+  useRefundSalesReturn,
   useSalesInvoices,
   useSalesReturns,
+  useTreasuryAccounts,
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
+import { sumMajor } from "../lib/money";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -48,12 +53,16 @@ interface LineDraft {
   key: string;
   itemId: string;
   qty: number;
+  /** سبب الإرجاع per line (R3.9) — one item can come back broken and another as the wrong pick. */
+  reason: SalesReturnReasonDTO;
 }
 let lineSeq = 0;
-function blankLine(defaultItemId: string): LineDraft {
+function blankLine(defaultItemId: string, reason: SalesReturnReasonDTO): LineDraft {
   lineSeq += 1;
-  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1 };
+  return { key: `l${lineSeq}`, itemId: defaultItemId, qty: 1, reason };
 }
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function SalesReturnsScreen() {
   const { t } = useAppTranslation();
@@ -62,7 +71,8 @@ export function SalesReturnsScreen() {
   const warehousesQuery = useWarehouses();
   const customersQuery = useCustomers();
   const itemsQuery = useItems();
-  const createReturn = useCreateSalesReturn();
+  const createReturn = useCreateSalesReturnFromInvoice();
+  const refundReturn = useRefundSalesReturn();
   const confirmReturn = useConfirmSalesReturn();
   const cancelReturn = useCancelSalesReturn();
 
@@ -83,6 +93,7 @@ export function SalesReturnsScreen() {
 
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
+  const { openScreenAt } = useNavigation();
   const [firstSegment] = subPage.segments;
   useScreenIntent((intent) => {
     const invoiceId = intent.prefill?.invoiceId;
@@ -117,6 +128,19 @@ export function SalesReturnsScreen() {
   const [reason, setReason] = useState<SalesReturnReasonDTO>("DEFECTIVE");
   const [lines, setLines] = useState<LineDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [awaitingOnly, setAwaitingOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [refundTreasuryId, setRefundTreasuryId] = useState("");
+  const [refundMethod, setRefundMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
+  const [refundNotice, setRefundNotice] = useState<string | null>(null);
+
+  const treasuryAccounts = useTreasuryAccounts().data ?? [];
+  useEffect(() => {
+    if (refundTreasuryId !== "") return;
+    const firstOpen = treasuryAccounts.find((a) => a.status === "active") ?? treasuryAccounts[0];
+    if (firstOpen) setRefundTreasuryId(firstOpen.id);
+  }, [treasuryAccounts, refundTreasuryId]);
 
   /**
    * Seeds the line grid once the chosen invoice resolves. It does NOT choose an
@@ -131,8 +155,8 @@ export function SalesReturnsScreen() {
     const invoice = invoices.find((i) => i.id === invoiceId);
     if (!invoice) return;
     const firstLine = invoice.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
-  }, [firstSegment, invoices, invoiceId, lines.length]);
+    setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
+  }, [firstSegment, invoices, invoiceId, lines.length, reason]);
 
   useEffect(() => {
     if (firstSegment !== "new" || warehouseId !== "") return;
@@ -165,6 +189,7 @@ export function SalesReturnsScreen() {
    */
   const filtered = useMemo(() => {
     let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+    if (awaitingOnly) rows = rows.filter((d) => d.awaitingRefund);
     if (customerFilter) rows = rows.filter((d) => d.lines.some((l) => l.customerId === customerFilter.id));
     if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
     if (toDate) rows = rows.filter((d) => d.date <= toDate);
@@ -178,7 +203,17 @@ export function SalesReturnsScreen() {
       );
     }
     return rows;
-  }, [documents, statusFilter, customerFilter, fromDate, toDate, search, customerName, sourceInvoiceNo]);
+  }, [documents, statusFilter, awaitingOnly, customerFilter, fromDate, toDate, search, customerName, sourceInvoiceNo]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (awaitingOnly ? 1 : 0) + (customerFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
+
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
       ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
@@ -191,7 +226,7 @@ export function SalesReturnsScreen() {
     setWarehouseId(warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
+    setLines(firstLine ? [blankLine(firstLine.itemId, "DEFECTIVE")] : []);
     subPage.open("new");
   }
 
@@ -199,7 +234,7 @@ export function SalesReturnsScreen() {
     setInvoiceId(id);
     const invoice = invoices.find((i) => i.id === id) ?? null;
     const firstLine = invoice?.lines.find((l) => l.isStock && l.unitCost !== null);
-    setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
+    setLines(firstLine ? [blankLine(firstLine.itemId, reason)] : []);
   }
 
   async function submit(confirmAfter: boolean) {
@@ -209,37 +244,52 @@ export function SalesReturnsScreen() {
       setError(t("salesReturns.error.needInvoice"));
       return;
     }
-    const returnLines: SalesReturnLineDTO[] = lines
+    // Only the invoice and a quantity per item leave the browser. Price, cost,
+    // tax share and what is still returnable are all read off the source
+    // invoice server-side — a screen that computed them would be a second
+    // opinion the books never asked for.
+    const requested = lines
       .filter((l) => l.qty > 0 && l.itemId !== "")
-      .map((l) => {
-        const source = returnableLines.find((sl) => sl.itemId === l.itemId);
-        const unitPrice = source?.unitPrice ?? "0";
-        const unitCost = source?.unitCost ?? "0";
-        const taxRate = source?.taxRatePercent ?? 0;
-        const taxAmount = ((Number(unitPrice) * l.qty * taxRate) / 100).toFixed(6);
-        return {
-          itemId: l.itemId,
-          warehouseId,
-          customerId: invoice.customerId,
-          sourceInvoiceId: invoice.id,
-          sourceInvoiceNumber: invoice.docNo,
-          reason,
-          availableQty: source?.qty ?? String(l.qty),
-          qty: String(l.qty),
-          unitPrice,
-          unitCost,
-          taxAmount,
-        };
-      });
-    if (returnLines.length === 0) {
+      .map((l) => ({ itemId: l.itemId, qty: String(l.qty), reason: l.reason }));
+    if (requested.length === 0) {
       setError(t("salesReturns.error.needLine"));
       return;
     }
     try {
       const id = crypto.randomUUID();
-      const created = await createReturn.mutateAsync({ id, date: todayIso(), memo: "", lines: returnLines });
+      const created = await createReturn.mutateAsync({
+        id,
+        date: todayIso(),
+        memo: "",
+        sourceInvoiceId: invoice.id,
+        warehouseId,
+        reason,
+        requested,
+      });
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function refundExisting(id: string) {
+    setError(null);
+    const doc = documents.find((d) => d.id === id);
+    if (!doc) return;
+    if (refundTreasuryId === "") {
+      setError(t("salesReturns.refund.needTreasury"));
+      return;
+    }
+    try {
+      const settled = await refundReturn.mutateAsync({
+        id,
+        amount: doc.refundDue,
+        treasuryAccountId: refundTreasuryId,
+        paymentMethod: refundMethod,
+        date: doc.date,
+      });
+      setRefundNotice(t("salesReturns.refund.done", { voucher: settled.voucherNo ?? settled.voucherId }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -282,7 +332,24 @@ export function SalesReturnsScreen() {
       ),
     },
     { key: "customer", header: t("common.customer"), render: (d) => (d.lines[0] ? customerName(d.lines[0].customerId) : "—") },
+    {
+      key: "reasons",
+      header: t("salesReturns.col.reasons"),
+      render: (d) => (
+        <div className="flex flex-wrap gap-1">
+          {[...new Set(d.lines.map((l) => l.reason))].map((r) => (
+            <StatusPill key={r} label={t(REASON_KEY[r])} tone="neutral" />
+          ))}
+        </div>
+      ),
+    },
     { key: "total", header: t("salesReturns.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + lineTotal(l), 0)} /> },
+    {
+      key: "refundDue",
+      header: t("salesReturns.col.refundDue"),
+      align: "end",
+      render: (d) => (num(d.refundDue) > 0 ? <MoneyDisplay value={num(d.refundDue)} /> : "—"),
+    },
     {
       key: "status",
       header: t("common.status"),
@@ -318,8 +385,15 @@ export function SalesReturnsScreen() {
           <SelectField
             label={t("salesReturns.field.reason")}
             value={reason}
-            onChange={(v) => setReason(v as SalesReturnReasonDTO)}
+            onChange={(v) => {
+              const next = v as SalesReturnReasonDTO;
+              setReason(next);
+              // The header reason is the DEFAULT for the lines, not a
+              // replacement: a line already given its own reason keeps it.
+              setLines((prev) => prev.map((l) => (l.reason === reason ? { ...l, reason: next } : l)));
+            }}
             options={Object.entries(REASON_KEY).map(([value, key]) => ({ value, label: t(key) }))}
+            hint={t("salesReturns.field.reasonHint")}
           />
 
           <div className="flex flex-col gap-2">
@@ -345,12 +419,22 @@ export function SalesReturnsScreen() {
                     min={0}
                   />
                 </div>
+                <div className="w-[160px]">
+                  <SelectField
+                    label={t("salesReturns.field.lineReason")}
+                    value={line.reason}
+                    onChange={(v) =>
+                      setLines((prev) => prev.map((l) => (l.key === line.key ? { ...l, reason: v as SalesReturnReasonDTO } : l)))
+                    }
+                    options={Object.entries(REASON_KEY).map(([value, key]) => ({ value, label: t(key) }))}
+                  />
+                </div>
                 <Button variant="ghost" onClick={() => setLines((prev) => prev.filter((l) => l.key !== line.key))} disabled={lines.length === 1}>
                   {t("common.delete")}
                 </Button>
               </div>
             ))}
-            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.itemId ?? "")])}>
+            <Button variant="default" disabled={returnableLines.length === 0} onClick={() => setLines((prev) => [...prev, blankLine(returnableLines[0]?.itemId ?? "", reason)])}>
               {t("salesReturns.addLine")}
             </Button>
           </div>
@@ -386,11 +470,24 @@ export function SalesReturnsScreen() {
               <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
               {selected.awaitingRefund ? <StatusPill label={t("salesReturns.awaitingRefund")} tone="warning" /> : null}
             </div>
-            <div className="text-[12.5px] text-ink-muted">{t("salesReturns.sourceInvoice", { number: selected.lines[0]?.sourceInvoiceNumber ?? "—" })}</div>
+            <div className="flex flex-wrap items-center gap-[10px] text-[12.5px] text-ink-muted">
+              <span>{t("salesReturns.sourceInvoice", { number: sourceInvoiceNo(selected.lines[0]) ?? "—" })}</span>
+              {selected.lines[0] ? (
+                <Button
+                  size="sm"
+                  onClick={() => openScreenAt("sales-invoices", [selected.lines[0]?.sourceInvoiceId ?? ""])}
+                >
+                  {t("salesReturns.row.viewSourceInvoice")}
+                </Button>
+              ) : null}
+            </div>
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
-                <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
-                  <span>{itemName(l.itemId)}</span>
+                <div key={i} className="flex items-center justify-between gap-[10px] rounded-[8px] border border-border px-3 py-2 text-[13px]">
+                  <span className="flex items-center gap-[8px]">
+                    {itemName(l.itemId)}
+                    <StatusPill label={t(REASON_KEY[l.reason])} tone="neutral" />
+                  </span>
                   <span className="mz-num text-ink-muted">
                     {l.qty} × <MoneyDisplay value={num(l.unitPrice)} />
                   </span>
@@ -398,6 +495,7 @@ export function SalesReturnsScreen() {
               ))}
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
+            {refundNotice ? <div className="rounded-[8px] border border-border px-3 py-2 text-[12.5px] text-success-ink">{refundNotice}</div> : null}
             {selected.status === "draft" ? (
               <div className="flex gap-2">
                 <Button variant="primary" onClick={() => confirmExisting(selected.id)}>
@@ -408,6 +506,69 @@ export function SalesReturnsScreen() {
                 </Button>
               </div>
             ) : null}
+
+            {selected.status === "confirmed" && selected.awaitingRefund ? (
+              <Card className="p-[16px_18px]">
+                <h3 className="font-display text-[13.5px] font-bold text-ink">{t("salesReturns.refund.heading")}</h3>
+                <p className="mt-[4px] max-w-[62ch] text-[12px] text-ink-muted">{t("salesReturns.refund.hint")}</p>
+                <div className="mt-[10px] flex flex-wrap items-end gap-[10px]">
+                  <div className="min-w-[220px] flex-1">
+                    <SelectField
+                      label={t("salesReturns.refund.treasury")}
+                      value={refundTreasuryId}
+                      onChange={setRefundTreasuryId}
+                      options={treasuryAccounts.map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }))}
+                    />
+                  </div>
+                  <div className="w-[160px]">
+                    <SelectField
+                      label={t("salesReturns.refund.method")}
+                      value={refundMethod}
+                      onChange={(v) => setRefundMethod(v as typeof refundMethod)}
+                      options={[
+                        { value: "cash", label: t("salesReturns.refund.method.cash") },
+                        { value: "bank", label: t("salesReturns.refund.method.bank") },
+                        { value: "cheque", label: t("salesReturns.refund.method.cheque") },
+                      ]}
+                    />
+                  </div>
+                  <div className="text-[12.5px] text-ink">
+                    <div className="text-[11px] font-semibold text-ink-faint">{t("salesReturns.refund.due")}</div>
+                    <MoneyDisplay value={num(selected.refundDue)} className="text-[14px] font-bold" />
+                  </div>
+                  <Button variant="primary" disabled={refundReturn.isPending} onClick={() => refundExisting(selected.id)}>
+                    {t("salesReturns.refund.submit")}
+                  </Button>
+                </div>
+              </Card>
+            ) : null}
+
+            {selected.refunds.length > 0 ? (
+              <Card className="p-[16px_18px]">
+                <h3 className="mb-[8px] font-display text-[13.5px] font-bold text-ink">{t("salesReturns.refund.postedHeading")}</h3>
+                <table className="w-full text-[12.5px]">
+                  <thead>
+                    <tr className="text-ink-faint">
+                      <th className="p-[6px] text-start font-semibold">{t("salesReturns.refund.voucher")}</th>
+                      <th className="p-[6px] text-start font-semibold">{t("common.date")}</th>
+                      <th className="p-[6px] text-end font-semibold">{t("common.amount")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {selected.refunds.map((r) => (
+                      <tr key={r.voucherId} className="border-t border-border">
+                        <td className="mz-num p-[6px] text-ink">{r.voucherNo ?? r.voucherId}</td>
+                        <td className="mz-num p-[6px] text-ink-muted">{r.date}</td>
+                        <td className="p-[6px] text-end">
+                          <MoneyDisplay value={num(r.amount)} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            ) : null}
+
             {selected.status === "confirmed" ? (
               <Button variant="default" onClick={() => cancelExisting(selected.id)}>
                 {t("salesReturns.void")}
@@ -445,6 +606,10 @@ export function SalesReturnsScreen() {
           { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
           { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
           { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{counts.awaitingRefund}</span> },
+          {
+            label: t("salesReturns.stat.refundDue"),
+            value: <MoneyDisplay value={sumMajor(documents.map((d) => d.refundDue))} showUnit={false} />,
+          },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
@@ -452,6 +617,8 @@ export function SalesReturnsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("salesReturns.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-center gap-[10px]">
             <div className="min-w-[210px]">
@@ -465,20 +632,69 @@ export function SalesReturnsScreen() {
             </div>
             <TextInput numeric type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} aria-label={t("common.fromDate")} />
             <TextInput numeric type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} aria-label={t("common.toDate")} />
+            <Chip
+              active={awaitingOnly}
+              onClick={() => {
+                setAwaitingOnly((on) => !on);
+                setPage(1);
+              }}
+            >
+              {t("salesReturns.awaitingRefund")}
+            </Chip>
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => subPage.open(d.docNo ?? d.id)}
-        page={1}
-        pageCount={1}
+        rowAction={(d) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("salesReturns.row.view"), onSelect: () => subPage.open(d.docNo ?? d.id) },
+            ...(d.lines[0]
+              ? [
+                  {
+                    key: "source",
+                    label: t("salesReturns.row.viewSourceInvoice"),
+                    onSelect: () => openScreenAt("sales-invoices", [d.lines[0]?.sourceInvoiceId ?? ""]),
+                  },
+                ]
+              : []),
+            ...(d.status === "draft"
+              ? [
+                  { key: "confirm", label: t("salesReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) },
+                ]
+              : []),
+            ...(d.awaitingRefund
+              ? [{ key: "refund", label: t("salesReturns.refund.submit"), onSelect: () => subPage.open(d.docNo ?? d.id) }]
+              : []),
+            ...(d.status === "confirmed"
+              ? [{ key: "void", label: t("salesReturns.void"), tone: "danger" as const, onSelect: () => void cancelExisting(d.id) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("salesReturns.row.actionsFor", { doc: d.docNo ?? d.id })} />;
+        }}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesReturns.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("salesReturns.empty")}
+            description={t("salesReturns.emptyBody")}
+            action={{ label: t("salesReturns.new"), onClick: openCreate }}
+          />
+        }
       />
 
 

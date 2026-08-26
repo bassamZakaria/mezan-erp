@@ -31,6 +31,7 @@ import {
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 import { sumMajor } from "../lib/money";
@@ -568,6 +569,11 @@ export function SalesReturnsScreen() {
                 </table>
               </Card>
             ) : null}
+
+            <Card className="p-[16px_18px]">
+              <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("attachments.tab")}</h3>
+              <AttachmentsTab entityType="sales-return" entityId={selected.id} />
+            </Card>
 
             {selected.status === "confirmed" ? (
               <Button variant="default" onClick={() => cancelExisting(selected.id)}>

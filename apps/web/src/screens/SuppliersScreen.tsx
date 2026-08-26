@@ -38,6 +38,7 @@ import { TextField, NumberField, ToggleField } from "../settings/form-controls";
 import { supplierPayableById } from "../lib/partner-balances";
 import { useNavigation } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /**
  * الموردون (Suppliers) — docs/catalog/02-purchases.md "الموردون". The mirror
@@ -598,6 +599,7 @@ function SupplierDetail({ supplier, onBack, onEdit }: { supplier: SupplierDTO; o
         },
         { key: "invoices", label: t("suppliers.tab.invoices"), content: <SupplierInvoicesTab supplierId={supplier.id} /> },
         { key: "statement", label: t("suppliers.tab.statement"), content: <SupplierStatementTab supplier={supplier} /> },
+        { key: "attachments", label: t("attachments.tab"), content: <AttachmentsTab entityType="supplier" entityId={supplier.id} /> },
       ]}
     />
   );

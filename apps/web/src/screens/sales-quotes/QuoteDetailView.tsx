@@ -16,6 +16,7 @@ import { useAuditLog } from "../../data/platform-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
 import { useNavigation } from "../../navigation";
+import { AttachmentsTab } from "../../attachments/AttachmentsTab";
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine } from "@mezan/domain";
 import {
   AR_ACCOUNT_ID,
@@ -282,6 +283,7 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
         effects={effects}
         tabs={[
           { key: "details", label: t("quotes.tab.details"), content: detailsTab },
+          { key: "attachments", label: t("attachments.tab"), content: <AttachmentsTab entityType="sales-quote" entityId={quote.id} /> },
           { key: "audit", label: t("quotes.tab.audit"), content: auditTab },
         ]}
         aside={

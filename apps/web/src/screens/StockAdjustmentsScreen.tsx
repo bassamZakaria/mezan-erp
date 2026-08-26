@@ -42,6 +42,7 @@ import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
 import { todayIso } from "../lib/dates";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -290,6 +291,11 @@ export function StockAdjustmentsScreen() {
               key: "gl",
               label: t("stockAdj.accounting"),
               content: <AdjustmentGlTab docId={selected.id} />,
+            },
+            {
+              key: "attachments",
+              label: t("attachments.tab"),
+              content: <AttachmentsTab entityType="stock-adjustment" entityId={selected.id} />,
             },
           ]}
         />

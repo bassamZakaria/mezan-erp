@@ -36,6 +36,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -137,6 +138,11 @@ function OrderDetail({
               </table>
             </div>
           ),
+        },
+        {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="purchase-order" entityId={order.id} />,
         },
       ]}
     />

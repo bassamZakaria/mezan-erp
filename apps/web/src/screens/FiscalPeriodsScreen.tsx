@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   Chip,
   DocumentList,
+  EmptyState,
   FulcrumRule,
   Select,
   StatusPill,
@@ -59,6 +60,8 @@ function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
   return TODAY >= period.startDate && TODAY <= period.endDate;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function FiscalPeriodsScreen() {
   const { t } = useAppTranslation();
   const query = useFiscalPeriods();
@@ -71,6 +74,8 @@ export function FiscalPeriodsScreen() {
   const [year, setYear] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<FiscalPeriodStatusDTO | "all">("all");
   const [actionError, setActionError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const years = useMemo(() => [...new Set(periods.map((p) => p.year))].sort((a, b) => a - b), [periods]);
   const selectedYear = year ?? years[years.length - 1] ?? new Date().getUTCFullYear();
@@ -82,6 +87,14 @@ export function FiscalPeriodsScreen() {
     () => (statusFilter === "all" ? periodsInYear : periodsInYear.filter((p) => p.status === statusFilter)),
     [periodsInYear, statusFilter],
   );
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
 
   const currentPeriod = periods.find(isCurrentPeriod) ?? null;
   const stalePeriods = periodsInYear.filter((p) => p.status === "open" && p.endDate < TODAY);
@@ -243,6 +256,8 @@ export function FiscalPeriodsScreen() {
 
       <DocumentList<FiscalPeriodDTO>
         title=""
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {(
@@ -253,23 +268,43 @@ export function FiscalPeriodsScreen() {
                 ["locked", t("fiscalPeriods.filterLocked", { count: String(periodsInYear.filter((p) => p.status === "locked").length) })],
               ] as const
             ).map(([value, label]) => (
-              <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>
+              <Chip
+                key={value}
+                active={statusFilter === value}
+                onClick={() => {
+                  setStatusFilter(value);
+                  setPage(1);
+                }}
+              >
                 {label}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(p) => p.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{periodsInYear.length}</span> {t("fiscalPeriods.periods")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{periodsInYear.length}</span> {t("fiscalPeriods.periods")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fiscalPeriods.noMatchingPeriods")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("fiscalPeriods.noMatchingPeriods")}
+            description={t("fiscalPeriods.emptyBody")}
+            action={{ label: t("fiscalPeriods.createNextYear"), onClick: generateNextYear }}
+          />
+        }
       />
     </div>
   );

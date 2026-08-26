@@ -4,6 +4,7 @@ import {
   Card,
   Chip,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Field,
   FulcrumRule,
@@ -82,6 +83,8 @@ const READINESS_KEYS: Record<string, AppTranslationKey> = {
 };
 
 const STATUS_TABS: Array<EtaSubmissionStatusDTO | "all"> = ["all", "ready", "pending_signature", "submitted", "accepted", "error", "excluded"];
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 type EtaTab = "general" | "credentials" | "items" | "units" | "submissions";
 const TABS: Array<{ id: EtaTab; labelKey: AppTranslationKey }> = [
@@ -516,8 +519,16 @@ function ItemMappingTab() {
   const save = useSaveEtaItemMapping();
   const [drafts, setDrafts] = useState<Record<string, { etaCodeType: string; etaItemCode: string; gpcCode: string }>>({});
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const rows = mappings.data?.rows ?? [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+  const activeFilterCount = unmappedOnly ? 1 : 0;
   const draftOf = (row: EtaItemMappingRowDTO) =>
     drafts[row.itemId] ?? {
       etaCodeType: row.etaCodeType ?? "EGS",
@@ -608,20 +619,38 @@ function ItemMappingTab() {
     <DocumentList<EtaItemMappingRowDTO>
       title=""
       searchValue={search}
-      onSearchChange={setSearch}
+      onSearchChange={(value) => {
+        setSearch(value);
+        setPage(1);
+      }}
       searchPlaceholder={t("eta.searchItems")}
+      filterBarCollapsible
+      activeFilterCount={activeFilterCount}
       filterBarExtra={
-        <Chip active={unmappedOnly} onClick={() => setUnmappedOnly((v) => !v)}>
+        <Chip
+          active={unmappedOnly}
+          onClick={() => {
+            setUnmappedOnly((v) => !v);
+            setPage(1);
+          }}
+        >
           {t("eta.unmappedOnly")} ({mappings.data?.unmapped ?? 0})
         </Chip>
       }
       columns={columns}
-      rows={rows}
+      rows={pageRows}
       rowKey={(row) => row.itemId}
-      page={1}
-      pageCount={1}
-      pageSummary={<>{t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{mappings.data?.total ?? 0}</span> {t("eta.items")}</>}
-      emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("eta.noMatchingItems")}</div>}
+      page={page}
+      pageCount={pageCount}
+      onPageChange={setPage}
+      pageSize={pageSize}
+      pageSizeOptions={PAGE_SIZES}
+      onPageSizeChange={(size) => {
+        setPageSize(size);
+        setPage(1);
+      }}
+      pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{mappings.data?.total ?? 0}</span> {t("eta.items")}</>}
+      emptyState={<EmptyState title={t("eta.noMatchingItems")} description={t("eta.emptyBody")} />}
     />
   );
 }
@@ -635,8 +664,15 @@ function UnitMappingTab() {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [pendingCode, setPendingCode] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ applied: number; unresolved: number } | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const rows = unitMappings.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
   const options = (unitCodes.data ?? []).map((u) => ({ value: u.code, label: `${u.code} — ${locale === "ar" ? u.labelAr : u.labelEn}` }));
   const valueOf = (row: EtaUnitMappingRowDTO) => drafts[row.unitCode] ?? row.etaUnitCode ?? "";
 
@@ -709,12 +745,19 @@ function UnitMappingTab() {
       <DocumentList<EtaUnitMappingRowDTO>
         title=""
         columns={columns}
-        rows={rows}
+        rows={pageRows}
         rowKey={(row) => row.unitCode}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{rows.length}</span></>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("eta.noUnits")}</div>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{rows.length}</span></>}
+        emptyState={<EmptyState title={t("eta.noUnits")} description={t("eta.emptyBody")} />}
       />
     </div>
   );
@@ -731,9 +774,17 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
   const [excludingId, setExcludingId] = useState<string | null>(null);
   const [reason, setReason] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const allSubs = submissionsQuery.data ?? [];
   const filtered = statusFilter === "all" ? allSubs : allSubs.filter((s) => s.status === statusFilter);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
   const countBy = (status: EtaSubmissionStatusDTO) => allSubs.filter((s) => s.status === status).length;
   const actionable = (status: EtaSubmissionStatusDTO) => status === "ready" || status === "pending_signature" || status === "error";
 
@@ -805,22 +856,38 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
 
       <DocumentList<EtaSubmissionDTO>
         title=""
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {STATUS_TABS.map((tab) => (
-              <Chip key={tab} active={statusFilter === tab} onClick={() => setStatusFilter(tab)}>
+              <Chip
+                key={tab}
+                active={statusFilter === tab}
+                onClick={() => {
+                  setStatusFilter(tab);
+                  setPage(1);
+                }}
+              >
                 {tab === "all" ? t("eta.tabAll", { count: String(allSubs.length) }) : t("eta.tabCount", { label: t(statusKeys[tab]), count: String(countBy(tab)) })}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(s) => s.id}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{allSubs.length}</span> {t("eta.documents")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("eta.noDocumentsInThisState")}</div>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{allSubs.length}</span> {t("eta.documents")}</>}
+        emptyState={<EmptyState title={t("eta.noDocumentsInThisState")} />}
       />
     </div>
   );

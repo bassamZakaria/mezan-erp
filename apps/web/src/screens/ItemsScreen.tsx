@@ -5,6 +5,7 @@ import {
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   IconButton,
   RowMenu,
@@ -75,7 +76,7 @@ const NO_CATEGORY_ID = "__none__";
 const NO_CATEGORY_KEY = "common.uncategorized" as const;
 const DEFAULT_GL_ID = "__default__";
 const DEFAULT_GL_KEY = "items.defaultForTheItemType" as const;
-const PAGE_SIZE = 5;
+const PAGE_SIZES = [5, 10, 25, 50, 100] as const;
 
 /** Draft shape for the add/edit panel. Money fields are plain numbers here (MoneyInput's contract) — converted to/from the ItemDTO's decimal-string wire shape on submit/load. */
 interface ItemDraft {
@@ -570,6 +571,7 @@ export function ItemsScreen() {
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [sort, setSort] = useState<DocumentListSort>({ key: "code", direction: "asc" });
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(5);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -627,8 +629,15 @@ export function ItemsScreen() {
     return sorted;
   }, [baseRows, statusChipKey, sort]);
 
-  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  const pageRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+
+  const activeFilterCount =
+    (statusChipKey !== "all" ? 1 : 0) +
+    (categoryFilter !== "all" ? 1 : 0) +
+    (brandFilter !== "" ? 1 : 0) +
+    (seasonFilter !== "" ? 1 : 0) +
+    (unitFilter !== "all" ? 1 : 0);
 
   const categoryOptions: EntityPickerOption[] = useMemo(
     () => [{ id: NO_CATEGORY_ID, label: t(NO_CATEGORY_KEY) }, ...itemCategories.map((c) => ({ id: c.id, label: c.nameAr }))],
@@ -1360,6 +1369,8 @@ export function ItemsScreen() {
           setPage(1);
         }}
         searchPlaceholder={t("items.searchByNameOrCode")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <>
             <Select
@@ -1429,13 +1440,25 @@ export function ItemsScreen() {
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)}</span> {t("common.of")}{" "}
+            {t("common.show")} <span className="mz-num">{pageRows.length === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(page * pageSize, filtered.length)}</span> {t("common.of")}{" "}
             <span className="mz-num">{filtered.length}</span> {t("items.items2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("items.noMatchingItems")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("items.noMatchingItems")}
+            description={t("items.emptyBody")}
+            action={{ label: t("items.addItem"), onClick: openCreateForm }}
+          />
+        }
       />
       {formPanel}
     </div>

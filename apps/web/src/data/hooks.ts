@@ -193,6 +193,7 @@ import type {
   PurchaseInvoiceFulfilmentDTO,
   PurchaseInvoicePaymentDTO,
   ListCountsDTO,
+  ListStatsDTO,
   AccountRoutingDTO,
   TaxGroupDTO,
   UpsertTaxGroupDTO,
@@ -519,16 +520,71 @@ export function useUpdateItem() {
 }
 
 /** العملاء (docs/catalog/01) — list, create, edit; also used for pickers on other real-data screens (e.g. quotes). */
-export function useCustomers(): UseQueryResult<CustomerDTO[], ApiError> {
+export interface CustomerListFilter {
+  /** `all` / `active` / `inactive` — the list's own chip axis. */
+  readonly status?: string;
+  readonly q?: string;
+  readonly priceListId?: string;
+  readonly overLimit?: boolean;
+}
+
+/**
+ * The one place the customer list's filters become a query string, so the
+ * rows, the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function customerParams(filter: CustomerListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.q) params.set("q", filter.q);
+  if (filter.priceListId) params.set("priceListId", filter.priceListId);
+  if (filter.overLimit) params.set("overLimit", "true");
+  return params;
+}
+
+export function useCustomers(filter: CustomerListFilter = {}): UseQueryResult<CustomerDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<CustomerDTO[], ApiError>({
-    queryKey: ["customers"],
+    queryKey: ["customers", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/customers");
+      const qs = customerParams(filter).toString();
+      const res = await request(`/customers${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
       return res.json<CustomerDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useCustomerCounts(filter: CustomerListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["customers", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = customerParams(rest).toString();
+      const res = await request(`/customers/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useCustomerStats(filter: CustomerListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["customers", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = customerParams(filter).toString();
+      const res = await request(`/customers/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.customersCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -562,16 +618,62 @@ export function useUpdateCustomer() {
 }
 
 /** الموردون (docs/catalog/02) — list, create, edit. */
-export function useSuppliers(): UseQueryResult<SupplierDTO[], ApiError> {
+export interface SupplierListFilter {
+  readonly status?: string;
+  readonly q?: string;
+}
+
+function supplierParams(filter: SupplierListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.q) params.set("q", filter.q);
+  return params;
+}
+
+export function useSuppliers(filter: SupplierListFilter = {}): UseQueryResult<SupplierDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SupplierDTO[], ApiError>({
-    queryKey: ["suppliers"],
+    queryKey: ["suppliers", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/suppliers");
+      const qs = supplierParams(filter).toString();
+      const res = await request(`/suppliers${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
       return res.json<SupplierDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useSupplierCounts(filter: SupplierListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["suppliers", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = supplierParams(rest).toString();
+      const res = await request(`/suppliers/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useSupplierStats(filter: SupplierListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["suppliers", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = supplierParams(filter).toString();
+      const res = await request(`/suppliers/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.suppliersCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -769,17 +871,80 @@ export function useCreatePromotion() {
   });
 }
 
+export interface SalesQuoteListFilter {
+  /** A stored status, or one of the derived axis keys `all` / `expired`. */
+  readonly status?: string;
+  readonly customerId?: string;
+  readonly branchId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the quote list's filters become a query string. The rows, the
+ * chip counts and the KPI strip all go through it, so a filter can never reach
+ * one of the three and not the others.
+ */
+function salesQuoteParams(filter: SalesQuoteListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.customerId) params.set("customerId", filter.customerId);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** عروض الأسعار / sales quotes (docs/catalog/01) — real list off `/sales-quotes`. */
-export function useSalesQuotes(): UseQueryResult<SalesQuoteRecord[], ApiError> {
+export function useSalesQuotes(filter: SalesQuoteListFilter = {}): UseQueryResult<SalesQuoteRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesQuoteRecord[], ApiError>({
-    queryKey: ["sales-quotes"],
+    queryKey: ["sales-quotes", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/sales-quotes");
+      const qs = salesQuoteParams(filter).toString();
+      const res = await request(`/sales-quotes${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
       return res.json<SalesQuoteRecord[]>();
+    },
+  });
+}
+
+/**
+ * The status-chip counts (R1.1). The status filter is intentionally NOT sent:
+ * every chip has to state its own total, not the active one's.
+ */
+export function useSalesQuoteCounts(filter: SalesQuoteListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["sales-quotes", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesQuoteParams(rest).toString();
+      const res = await request(`/sales-quotes/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useSalesQuoteStats(filter: SalesQuoteListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["sales-quotes", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesQuoteParams(filter).toString();
+      const res = await request(`/sales-quotes/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.quotesCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
     },
   });
 }

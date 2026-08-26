@@ -1773,6 +1773,8 @@ export function SalesInvoicesScreen() {
               setPage(1);
             }}
             searchPlaceholder={t("salesInvoices.searchPlaceholder")}
+            filterBarCollapsible
+            activeFilterCount={activeFilterCount}
             filterBarExtra={
               <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
                 <SelectField
@@ -1873,7 +1875,13 @@ export function SalesInvoicesScreen() {
               setPageSize(size);
               setPage(1);
             }}
-            emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesInvoices.empty")}</div>}
+            emptyState={
+              <EmptyState
+                title={t("salesInvoices.empty")}
+                description={t("salesInvoices.emptyBody")}
+                action={{ label: t("salesInvoices.new"), onClick: () => subPage.open("new") }}
+              />
+            }
           />
         </div>
       )}

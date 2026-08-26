@@ -1,10 +1,11 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import {
   Button,
   Card,
   Checkbox,
   Chip,
   DocumentList,
+  EmptyState,
   FulcrumRule,
   StatCard,
   TextInput,
@@ -34,6 +35,8 @@ function fmt(value: string, digits = 2): string {
  * `computeFxRevaluation` / `postFxRevaluation` domain services server-side
  * via `POST /revaluation/preview` and `/revaluation/post`.
  */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function FxRevaluationScreen() {
   const { t } = useAppTranslation();
   const previewMutation = useFxRevaluationPreview();
@@ -48,6 +51,8 @@ export function FxRevaluationScreen() {
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [posted, setPosted] = useState<{ entryNo: string | null; reversalNo: string | null } | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   function toggleCurrency(c: string) {
     setSelected((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -94,6 +99,12 @@ export function FxRevaluationScreen() {
   ];
 
   const p = previewMutation.data ?? null;
+  const details = p?.details ?? [];
+  const pageCount = Math.max(1, Math.ceil(details.length / pageSize));
+  const pageRows = details.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   return (
     <div className="w-full">
@@ -144,12 +155,19 @@ export function FxRevaluationScreen() {
           <DocumentList<FxRevaluationDetailDTO>
             title=""
             columns={columns}
-            rows={p.details}
+            rows={pageRows}
             rowKey={(d) => `${d.accountId}-${d.currency}`}
-            page={1}
-            pageCount={1}
-            pageSummary={<>{t("common.show")} <span className="mz-num">{p.details.length}</span> {t("fx.balancesToRevalue")}</>}
-            emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fx.noOpenForeignCurrencyBalances")}</div>}
+            page={page}
+            pageCount={pageCount}
+            onPageChange={setPage}
+            pageSize={pageSize}
+            pageSizeOptions={PAGE_SIZES}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
+            pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("fx.balancesToRevalue")}</>}
+            emptyState={<EmptyState title={t("fx.noOpenForeignCurrencyBalances")} description={t("fx.emptyBody")} />}
           />
         </>
       ) : (

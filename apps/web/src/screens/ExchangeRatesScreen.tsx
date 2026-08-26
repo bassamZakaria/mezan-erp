@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Button,
   Card,
   Chip,
   DocumentList,
+  EmptyState,
   FulcrumRule,
   Select,
   StatusPill,
@@ -27,6 +28,8 @@ const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning
  * revaluation, with the بانتظار الاعتماد → معتمد → مقفل approval lifecycle.
  * Base currency is EGP; every rate is quoted foreign→EGP.
  */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ExchangeRatesScreen() {
   const { t, locale } = useAppTranslation();
   const query = useExchangeRates();
@@ -48,6 +51,8 @@ export function ExchangeRatesScreen() {
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const filtered = rates.filter((r) => {
     if (statusFilter !== "all" && r.status !== statusFilter) return false;
@@ -58,6 +63,14 @@ export function ExchangeRatesScreen() {
     const term = search.trim().toUpperCase();
     return term === "" || r.currency.toUpperCase().includes(term);
   });
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   async function approve(id: string) {
     try {
@@ -148,28 +161,71 @@ export function ExchangeRatesScreen() {
       <DocumentList<ExchangeRateDTO>
         title=""
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("fxRates.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex w-full flex-col gap-[10px]">
             <div className="flex flex-wrap gap-[8px]">
               {([["all", t("common.all")], ["pending", t("fxRates.awaitingApproval")], ["approved", t("fxRates.approved")], ["locked", t("fxRates.locked")]] as const).map(([value, label]) => (
-                <Chip key={value} active={statusFilter === value} onClick={() => setStatusFilter(value)}>{label}</Chip>
+                <Chip
+                  key={value}
+                  active={statusFilter === value}
+                  onClick={() => {
+                    setStatusFilter(value);
+                    setPage(1);
+                  }}
+                >
+                  {label}
+                </Chip>
               ))}
             </div>
             <div className="grid w-full gap-2 sm:grid-cols-2">
-              <TextField label={t("fxRates.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-              <TextField label={t("fxRates.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+              <TextField
+                label={t("fxRates.filter.fromDate")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
+              <TextField
+                label={t("fxRates.filter.toDate")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("fxRates.rates")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("fxRates.noExchangeRates")}</div>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("fxRates.rates")}</>}
+        emptyState={
+          <EmptyState
+            title={t("fxRates.noExchangeRates")}
+            description={t("fxRates.emptyBody")}
+            action={{ label: t("fxRates.addRate"), onClick: () => setAdding((v) => !v) }}
+          />
+        }
       />
     </div>
   );

@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType } from "@mezan/domain";
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
 import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpdateTaxRate } from "../data/hooks";
@@ -227,6 +227,8 @@ function TaxGroupsTab() {
   );
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function TaxesScreen() {
   const { t } = useAppTranslation();
   const query = useTaxRates();
@@ -237,6 +239,8 @@ export function TaxesScreen() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"rates" | "groups">("rates");
   const [statusFilter, setStatusFilter] = useState<TaxRateStatusDTO | "all">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -252,6 +256,14 @@ export function TaxesScreen() {
     }
     return rows;
   }, [taxes, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = statusFilter === "all" ? 0 : 1;
 
   function openCreateForm() {
     setEditingId(null);
@@ -387,13 +399,21 @@ export function TaxesScreen() {
           { label: t("common.inactive"), value: <span className="mz-num">{taxes.filter((tax) => tax.status === "inactive").length}</span> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("taxes.search")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <SelectField
             label=""
             value={statusFilter}
-            onChange={(v) => setStatusFilter(v as TaxRateStatusDTO | "all")}
+            onChange={(v) => {
+              setStatusFilter(v as TaxRateStatusDTO | "all");
+              setPage(1);
+            }}
             options={[
               { value: "all", label: t("taxes.allStatuses") },
               { value: "active", label: t("common.active") },
@@ -402,16 +422,29 @@ export function TaxesScreen() {
           />
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(tax) => tax.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{taxes.length}</span> {t("taxes.taxes2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{taxes.length}</span> {t("taxes.taxes2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("taxes.noMatchingTaxes")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("taxes.noMatchingTaxes")}
+            description={t("taxes.emptyBody")}
+            action={{ label: t("taxes.addTax"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel

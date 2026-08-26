@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
@@ -161,6 +162,8 @@ export function StockAdjustmentsScreen() {
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0 };

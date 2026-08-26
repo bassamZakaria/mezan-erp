@@ -131,9 +131,14 @@ import {
 import {
   EtaService,
   DuplicateEtaSubmissionError,
+  resolveEtaVatSubType,
+  type EtaBranchCodeRepository,
+  type EtaUnitMappingRepository,
   type SalesInvoiceRepository,
   type SalesInvoiceLine,
   type CustomerRepository,
+  type ItemRepository,
+  type TaxRateRepository,
 } from "@mezan/domain";
 import { createAuthRoutes } from "./auth-routes.js";
 import { createDashboardRoutes } from "./dashboard-routes.js";
@@ -312,11 +317,17 @@ function createDocumentEventBridge(
 }
 
 /**
- * The producer the ETA queue never had (D5): every confirmed sales invoice is
- * built into an ETA submission in status جاهز, ready for the e-invoicing screen
- * to submit. `EtaService.enqueue` and the whole submission lifecycle existed
+ * The producer the ETA queue never had (D5): a confirmed sales invoice is built
+ * into an ETA submission in status جاهز, ready for the e-invoicing screen to
+ * submit. `EtaService.enqueue` and the whole submission lifecycle existed
  * already — no route and no event bridge ever called it, so `/eta/submissions`
- * could not have a row no matter what the user did.
+ * could not have a row no matter what the user did, and الإرسال التلقائي عند
+ * التأكيد was a setting nothing read.
+ *
+ * The payload carries the registered codes, not the tenant's own: the item's
+ * EGS/GPC code, the unit's mapped code, the branch's code with the authority
+ * and the tax rate's VAT sub-type. An unregistered record falls back to the
+ * tenant's own value, which is what the readiness checklist is counting.
  *
  * Deliberately fire-and-forget, like the notification and webhook bridges: a
  * queueing failure must never fail the confirm that emitted it. A document
@@ -326,34 +337,52 @@ function createEtaEnqueueBridge(deps: {
   readonly eta: EtaService;
   readonly invoices: Pick<SalesInvoiceRepository, "findById">;
   readonly customers: Pick<CustomerRepository, "findById">;
+  readonly items: Pick<ItemRepository, "findById">;
+  readonly taxRates: Pick<TaxRateRepository, "list">;
+  readonly branchCodes: EtaBranchCodeRepository;
+  readonly unitMappings: EtaUnitMappingRepository;
 }): DocumentEventPublisher {
   return {
     publish(event) {
       if (event.type !== "DOCUMENT_CONFIRMED" || event.docType !== "SALES_INVOICE") return;
       void (async () => {
+        const config = await deps.eta.getConfig();
+        if (!config.autoSubmitOnConfirm) return;
         const invoice = await deps.invoices.findById(event.docId);
         if (!invoice) return;
         const customer = await deps.customers.findById(invoice.customerId);
         const totals = salesInvoiceTotals(invoice);
         const lineTotals = new Map(totals.lines.map((l) => [l.lineId, l]));
+        const [taxRates, branchCodes, unitMappings] = await Promise.all([
+          deps.taxRates.list(),
+          deps.branchCodes.list(),
+          deps.unitMappings.list(),
+        ]);
+        const unitByCode = new Map(unitMappings.map((m) => [m.unitCode, m.etaUnitCode]));
+        const lineItems = await Promise.all(invoice.lines.map((line: SalesInvoiceLine) => deps.items.findById(line.itemId)));
         await deps.eta.enqueue({
           internalId: invoice.docNo ?? invoice.id,
           documentType: "invoice",
           issueDateTime: event.occurredAt,
+          branchCode: branchCodes.find((b) => b.branchId === invoice.branchId)?.etaBranchCode ?? null,
           receiver: {
             registrationNumber: customer?.taxNumber ?? null,
             name: invoice.customerNameAr,
             type: customer?.taxNumber ? "B" : "P",
           },
-          lines: invoice.lines.map((line: SalesInvoiceLine) => {
+          lines: invoice.lines.map((line: SalesInvoiceLine, index: number) => {
             const lt = lineTotals.get(line.lineId);
+            const item = lineItems[index] ?? null;
+            const unitCode = item?.baseUnitCode ?? "";
+            const taxRate = taxRates.find((r) => r.status === "active" && r.rate === line.taxRatePercent);
             return {
               description: line.itemNameAr,
-              itemCode: line.itemId,
+              itemCode: item?.etaItemCode ?? item?.code ?? line.itemId,
               quantity: line.qty.toString(),
+              unitType: unitByCode.get(unitCode) ?? unitCode,
               unitPrice: line.unitPrice.toString(),
               netTotal: (lt?.taxableBase ?? Money.zero()).toString(),
-              taxSubType: "V009",
+              taxSubType: resolveEtaVatSubType(taxRate?.etaSubType, line.taxRatePercent),
               taxRate: String(line.taxRatePercent),
               taxAmount: (lt?.tax ?? Money.zero()).toString(),
             };
@@ -659,7 +688,15 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
 
   const salesInvoiceEvents = fanOutDocumentEvents(
     salesInvoiceEventBridge,
-    createEtaEnqueueBridge({ eta: etaService, invoices: salesInvoices, customers }),
+    createEtaEnqueueBridge({
+      eta: etaService,
+      invoices: salesInvoices,
+      customers,
+      items,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    }),
   );
 
   const salesReturns = new DocumentService(createSalesReturnDocumentType(SALES_RETURN_GL_ACCOUNTS), {
@@ -1166,7 +1203,16 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       gainAccountId: "4900",
       lossAccountId: "5900",
     },
-    eta: { service: etaService, setClientSecret: (secret) => etaStore.config.setClientSecret(secret) },
+    eta: {
+      service: etaService,
+      setClientSecret: (secret) => etaStore.config.setClientSecret(secret),
+      items,
+      units: itemCatalog.units,
+      branches,
+      taxRates,
+      branchCodes: etaStore.branchCodes,
+      unitMappings: etaStore.unitMappings,
+    },
     reconciliation: { ledger, resolveControls: resolveReconciliationControls },
     // --- phase4/inventory-ops ---
     stockAdjustments: { service: stockAdjustments },

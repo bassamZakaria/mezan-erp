@@ -31,48 +31,95 @@ export type AdjustmentDirection = "IN" | "OUT" | "EITHER";
 export interface AdjustmentReasonDefinition {
   readonly code: AdjustmentReason;
   readonly labelAr: string;
+  readonly labelEn: string;
   readonly descriptionAr: string;
+  readonly descriptionEn: string;
   readonly direction: AdjustmentDirection;
+  /**
+   * The GL account the value moves to or from (R5.9). Every reason has one:
+   * an adjustment that changes inventory value and posts nothing leaves the
+   * stock sub-ledger and its control account permanently out of agreement,
+   * which is what seven of these eight reasons did.
+   */
+  readonly counterpartAccountId: string;
 }
 
 export const ADJUSTMENT_REASON_DEFINITIONS: readonly AdjustmentReasonDefinition[] = [
   {
     code: "INITIAL_STOCK",
     labelAr: "رصيد افتتاحي",
+    labelEn: "Opening balance",
     descriptionAr: "تسجيل رصيد المخزون الأولي",
+    descriptionEn: "Record the starting stock balance",
     direction: "IN",
+    // Opening stock is funded by owner's capital, not by an expense.
+    counterpartAccountId: "3100",
   },
   {
     code: "PHYSICAL_COUNT",
     labelAr: "تصحيح جرد",
+    labelEn: "Count correction",
     descriptionAr: "تعديل المخزون بناء على الجرد الفعلي",
+    descriptionEn: "Correct stock against a physical count",
     direction: "EITHER",
+    counterpartAccountId: "5074",
   },
-  { code: "DAMAGE", labelAr: "تلف", descriptionAr: "خصم الأصناف التالفة", direction: "OUT" },
-  { code: "THEFT", labelAr: "سرقة", descriptionAr: "خصم الأصناف المسروقة", direction: "OUT" },
+  {
+    code: "DAMAGE",
+    labelAr: "تلف",
+    labelEn: "Damage",
+    descriptionAr: "خصم الأصناف التالفة",
+    descriptionEn: "Write off damaged goods",
+    direction: "OUT",
+    counterpartAccountId: "5070",
+  },
+  {
+    code: "THEFT",
+    labelAr: "سرقة",
+    labelEn: "Theft",
+    descriptionAr: "خصم الأصناف المسروقة",
+    descriptionEn: "Write off stolen goods",
+    direction: "OUT",
+    counterpartAccountId: "5071",
+  },
   {
     code: "EXPIRY",
     labelAr: "انتهاء صلاحية",
+    labelEn: "Expiry",
     descriptionAr: "خصم الأصناف منتهية الصلاحية",
+    descriptionEn: "Write off expired goods",
     direction: "OUT",
+    counterpartAccountId: "5072",
   },
   {
     code: "SHORTAGE",
     labelAr: "نقص / فقدان",
+    labelEn: "Shortage or loss",
     descriptionAr: "خصم العجز غير المبرر",
+    descriptionEn: "Write off an unexplained shortfall",
     direction: "OUT",
+    counterpartAccountId: "5073",
   },
   {
     code: "SUPPLIER_RETURN",
     labelAr: "مرتجع للمورد",
+    labelEn: "Return to supplier",
     descriptionAr: "خصم الأصناف المرتجعة للمورد",
+    descriptionEn: "Send goods back to the supplier",
     direction: "OUT",
+    // Goods going back reduce what is owed to the supplier — a payable, not
+    // a loss. A purchase return document is the fuller path; this is the
+    // stock-only shortcut.
+    counterpartAccountId: "2100",
   },
   {
     code: "OTHER",
     labelAr: "أخرى",
+    labelEn: "Other",
     descriptionAr: "تسوية أخرى، حدد الاتجاه والكمية",
+    descriptionEn: "Another adjustment — pick the direction and quantity",
     direction: "EITHER",
+    counterpartAccountId: "5075",
   },
 ] as const satisfies readonly AdjustmentReasonDefinition[];
 

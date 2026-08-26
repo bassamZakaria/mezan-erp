@@ -153,10 +153,16 @@ export const postAdjustmentSchema = z.object({
   reason: adjustmentReasonSchema,
   lines: z.array(adjustmentLineSchema).min(1),
   occurredAt: z.string().min(1).optional(),
+  /**
+   * Accepted but no longer authoritative for `counterpartAccountId`: which
+   * account absorbs a theft loss is the reason's business rule, not the
+   * caller's choice, so the server derives it from `reason` (R5.9). Only
+   * `inventoryAccountId` is still honoured as an override.
+   */
   gl: z
     .object({
       inventoryAccountId: z.string().min(1),
-      counterpartAccountId: z.string().min(1),
+      counterpartAccountId: z.string().min(1).optional(),
     })
     .optional(),
 });

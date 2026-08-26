@@ -39,6 +39,7 @@ import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useDomainLabels } from "../lib/domain-labels";
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -48,6 +49,15 @@ const STEPPER_KEYS = [
   { key: "draft", labelKey: "docStatus.draft" },
   { key: "confirmed", labelKey: "docStatus.confirmed" },
 ] as const;
+
+/**
+ * The reason's helper text. `useDomainLabels` reads labelAr/labelEn and
+ * subtitleAr/subtitleEn; a reason's helper text is descriptionAr/descriptionEn,
+ * so it is picked here rather than bending the field names.
+ */
+function reasonDescription(def: AdjustmentReasonDefinition, locale: string): string {
+  return locale === "en" ? def.descriptionEn : def.descriptionAr;
+}
 
 function headerOf(doc: StockAdjustmentDocumentDTO): { warehouseId: string; reason: AdjustmentReason } {
   const first = doc.lines[0];
@@ -99,8 +109,14 @@ function blankLine(direction: StockMovementDirection): LineDraft {
 }
 
 export function StockAdjustmentsScreen() {
-  const { t } = useAppTranslation();
-  const query = useStockAdjustments();
+  const { t, locale } = useAppTranslation();
+  const { label: domainLabel } = useDomainLabels();
+  const [reasonFilter, setReasonFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const query = useStockAdjustments({
+    ...(reasonFilter ? { reason: reasonFilter } : {}),
+    ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
+  });
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
   const documents = query.data ?? [];
@@ -159,7 +175,7 @@ export function StockAdjustmentsScreen() {
         const { warehouseId, reason } = headerOf(d);
         return (
           <span className="text-ink">
-            {warehouseLabel(warehouseId)} — {getAdjustmentReasonDefinition(reason).labelAr}
+            {warehouseLabel(warehouseId)} — {domainLabel(getAdjustmentReasonDefinition(reason))}
           </span>
         );
       },
@@ -194,8 +210,8 @@ export function StockAdjustmentsScreen() {
               }}
               className="flex flex-col gap-[6px] rounded-lg border border-border bg-surface p-[16px] text-start transition-colors hover:border-brand hover:bg-brand-soft"
             >
-              <span className="font-display text-[14px] font-bold text-ink">{def.labelAr}</span>
-              <span className="text-[12px] text-ink-muted">{def.descriptionAr}</span>
+              <span className="font-display text-[14px] font-bold text-ink">{domainLabel(def)}</span>
+              <span className="text-[12px] text-ink-muted">{reasonDescription(def, locale)}</span>
             </button>
           ))}
         </div>
@@ -232,7 +248,7 @@ export function StockAdjustmentsScreen() {
           actions={<Button onClick={subPage.close}>{t("common.back")}</Button>}
           summary={[
             { label: t("common.warehouse"), value: warehouseLabel(warehouseId) },
-            { label: t("stockAdj.reason"), value: def.labelAr },
+            { label: t("stockAdj.reason"), value: domainLabel(def) },
             { label: t("common.date"), value: <span className="mz-num">{selected.date}</span> },
             { label: t("stockAdj.lines"), value: <span className="mz-num">{selected.lines.length}</span> },
           ]}
@@ -295,6 +311,28 @@ export function StockAdjustmentsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("stockAdj.searchByAdjustmentNumber")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2">
+            <SelectField
+              label={t("stockAdj.filter.reason")}
+              value={reasonFilter}
+              onChange={setReasonFilter}
+              options={[
+                { value: "", label: t("stockAdj.filter.allReasons") },
+                ...ADJUSTMENT_REASON_DEFINITIONS.map((def) => ({ value: def.code, label: domainLabel(def) })),
+              ]}
+            />
+            <SelectField
+              label={t("stockAdj.filter.warehouse")}
+              value={warehouseFilter}
+              onChange={setWarehouseFilter}
+              options={[
+                { value: "", label: t("stockAdj.filter.allWarehouses") },
+                ...warehouses.map((w) => ({ value: w.id, label: w.name })),
+              ]}
+            />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(d) => d.id}
@@ -422,6 +460,8 @@ function CreateAdjustmentView({
   onBack: () => void;
 }) {
   const { t } = useAppTranslation();
+  const { label: reasonLabelOf } = useDomainLabels();
+  const reasonLabel = reasonLabelOf(reason);
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
   const [date, setDate] = useState("2026-08-22");
@@ -488,7 +528,7 @@ function CreateAdjustmentView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? t("stockAdj.openingBalance") : t("stockAdj.titleForReason", { reason: reason.labelAr })}</h1>
+          <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? t("stockAdj.openingBalance") : t("stockAdj.titleForReason", { reason: reasonLabel })}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
           <Button onClick={onBack}>{t("common.back")}</Button>

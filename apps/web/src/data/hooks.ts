@@ -3275,14 +3275,25 @@ interface DocumentStatusFilter {
   readonly status?: DocumentStatusDTO;
 }
 
-export function useStockAdjustments(filter: DocumentStatusFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
+export interface StockAdjustmentFilter extends DocumentStatusFilter {
+  /** The 8 adjustment reasons — the list filters by the one on its lines (R5.9). */
+  readonly reason?: string;
+  readonly warehouseId?: string;
+}
+
+export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockAdjustmentDocumentDTO[], ApiError>({
     queryKey: ["stock-adjustments", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request(`/inventory/stock-adjustments${filter.status ? `?status=${filter.status}` : ""}`);
+      const params = new URLSearchParams();
+      if (filter.status) params.set("status", filter.status);
+      if (filter.reason) params.set("reason", filter.reason);
+      if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+      const qs = params.toString();
+      const res = await request(`/inventory/stock-adjustments${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO[]>();
     },

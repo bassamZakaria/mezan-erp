@@ -214,9 +214,16 @@ export function createStockAdjustmentsRoutes(
     // transfers screens actually call — the raw-engine routes were scoped
     // first and these were missed, so the selector still did nothing here.
     const scope = warehouseScopeOf(c);
-    const visible = !scope
-      ? docs
-      : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId)));
+    let visible = !scope ? docs : docs.filter((d) => d.lines.some((l) => scope.includes(l.warehouseId)));
+
+    // The reason lives on the lines too, and every line of one adjustment
+    // carries the same one — the reason is picked before the form opens
+    // (R5.9).
+    const reason = c.req.query("reason");
+    if (reason) visible = visible.filter((d) => d.lines.some((l) => l.reason === reason));
+    const warehouseId = c.req.query("warehouseId");
+    if (warehouseId) visible = visible.filter((d) => d.lines.some((l) => l.warehouseId === warehouseId));
+
     return c.json(visible.map(serializeAdjustment));
   });
 

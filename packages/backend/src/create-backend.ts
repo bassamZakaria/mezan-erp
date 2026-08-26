@@ -30,6 +30,7 @@ import {
   salesReturnGrandTotal,
   totalLandedCost,
   Money,
+  getAdjustmentReasonDefinition,
   type AdjustmentReason,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
@@ -205,17 +206,21 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
 };
 
 /**
- * Stock-adjustment reason → GL account mapping (docs/catalog/03 §تسويات
- * المخزون). Only INITIAL_STOCK posts a balancing journal entry — the opening
- * stock funded by owner's capital — mirroring
- * packages/api/src/stock-documents-routes.test.ts's own harness. The other 7
- * reasons (DAMAGE/THEFT/EXPIRY/SHORTAGE/SUPPLIER_RETURN/PHYSICAL_COUNT/OTHER)
- * move quantity/value through the stock ledger only: no dedicated inventory
- * shrinkage/write-off leaf exists yet in the standard COA template
- * (packages/domain/src/accounts/coa-template.ts) to post them against.
+ * Stock-adjustment reason → GL account mapping (R5.9). Every reason posts a
+ * balanced entry now: the account each one moves value against is part of the
+ * reason's own definition (packages/domain/src/inventory/reasons.ts), so it
+ * cannot be decided per caller or omitted.
+ *
+ * Before this, only INITIAL_STOCK posted anything. The other seven — damage,
+ * theft, expiry, shortage, supplier return, count correction and other —
+ * moved value out of inventory and told the GL nothing, so the stock
+ * sub-ledger and its 1200 control account drifted apart with no trace.
  */
-function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } | null {
-  return reason === "INITIAL_STOCK" ? { inventoryAccountId: "1200", counterpartAccountId: "3100" } : null;
+function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } {
+  return {
+    inventoryAccountId: "1200",
+    counterpartAccountId: getAdjustmentReasonDefinition(reason).counterpartAccountId,
+  };
 }
 
 /**

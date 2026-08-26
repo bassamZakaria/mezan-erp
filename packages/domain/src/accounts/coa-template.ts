@@ -73,6 +73,20 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // debits this expense account and credits the 1190 contra-asset provision
   // — the write-down never touches the item's recorded WAC/cost layers.
   { id: "5060", code: "5060", nameAr: "مصروف هبوط قيمة المخزون", nameEn: "Inventory Write-down Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Stock-adjustment contra accounts (R5.9). Seven of the eight adjustment
+  // reasons used to post nothing at all, because the template held no account
+  // to post them against — damage, theft, expiry and shortage took value out
+  // of inventory and the GL never heard about it, so the stock sub-ledger and
+  // its 1200 control account drifted apart permanently and silently.
+  { id: "5070", code: "5070", nameAr: "مصروف تلف المخزون", nameEn: "Inventory Damage Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5071", code: "5071", nameAr: "خسائر سرقة المخزون", nameEn: "Inventory Theft Loss", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5072", code: "5072", nameAr: "مصروف انتهاء صلاحية المخزون", nameEn: "Inventory Expiry Expense", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5073", code: "5073", nameAr: "عجز وفقد المخزون", nameEn: "Inventory Shrinkage", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Count corrections and unclassified adjustments swing both ways, so this
+  // one is a variance account rather than a pure loss: it is debited on a
+  // shortfall and credited on an overage.
+  { id: "5074", code: "5074", nameAr: "فروق الجرد", nameEn: "Physical Count Variance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  { id: "5075", code: "5075", nameAr: "تسويات مخزون أخرى", nameEn: "Other Inventory Adjustments", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.

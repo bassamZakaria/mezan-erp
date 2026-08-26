@@ -13,6 +13,7 @@ import {
   type StockBalanceRow,
   type PostedAdjustment,
   type PostedTransfer,
+  getAdjustmentReasonDefinition,
 } from "@mezan/domain";
 import {
   postAdjustmentSchema,
@@ -253,6 +254,12 @@ export function createInventoryRoutes(
     }
   });
 
+  /**
+   * The stock control account every adjustment moves against. Overridable per
+   * request only for editions that remap 1200.
+   */
+  const DEFAULT_INVENTORY_ACCOUNT_ID = "1200";
+
   app.post("/adjustments", gate("inventory.adjustment.create"), async (c) => {
     const parsed = postAdjustmentSchema.safeParse(await c.req.json());
     if (!parsed.success) {
@@ -265,7 +272,12 @@ export function createInventoryRoutes(
         warehouseId: parsed.data.warehouseId,
         reason: parsed.data.reason,
         occurredAt: parsed.data.occurredAt,
-        gl: parsed.data.gl,
+        // The reason decides which account absorbs the value, not the caller
+        // (R5.9). Seven of the eight reasons previously posted nothing at all.
+        gl: {
+          inventoryAccountId: parsed.data.gl?.inventoryAccountId ?? DEFAULT_INVENTORY_ACCOUNT_ID,
+          counterpartAccountId: getAdjustmentReasonDefinition(parsed.data.reason).counterpartAccountId,
+        },
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,
           direction: l.direction,

@@ -6096,6 +6096,30 @@ const webAr = {
 
   // settingsGeneral
   "settingsGeneral.currency": "العملة",
+
+  // attachments (R1.4)
+  "attachments.tab": "المرفقات",
+  "attachments.empty": "لا توجد مرفقات",
+  "attachments.upload": "إرفاق ملف",
+  "attachments.uploading": "جارٍ الرفع…",
+  "attachments.chooseFile": "اختيار ملف للإرفاق",
+  "attachments.download": "تنزيل",
+  "attachments.deleteFile": "حذف الملف {name}",
+  "attachments.fileName": "اسم الملف",
+  "attachments.actions": "إجراءات",
+  "attachments.size": "الحجم",
+  "attachments.uploadedBy": "أرفقه",
+  "attachments.uploadedAt": "تاريخ الإرفاق",
+  "attachments.sizeBytes": "{value} بايت",
+  "attachments.sizeKilobytes": "{value} ك.ب",
+  "attachments.sizeMegabytes": "{value} م.ب",
+  "attachments.storedFilesHint": "الملفات المرفقة بهذا السجل. الحد الأقصى لحجم الملف {limit}.",
+  "attachments.tooLarge": "حجم الملف يتجاوز الحد المسموح ({limit})",
+  "attachments.emptyFileRejected": "لا يمكن إرفاق ملف فارغ",
+  "attachments.couldNotBeLoaded": "تعذّر تحميل المرفقات",
+  "attachments.uploadFailed": "تعذّر رفع الملف",
+  "attachments.downloadFailed": "تعذّر تنزيل الملف",
+  "attachments.deleteFailed": "تعذّر حذف الملف",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12197,6 +12221,30 @@ const webEn: Record<WebTranslationKey, string> = {
 
   // settingsGeneral
   "settingsGeneral.currency": "Currency",
+
+  // attachments (R1.4)
+  "attachments.tab": "Attachments",
+  "attachments.empty": "No attachments",
+  "attachments.upload": "Attach a file",
+  "attachments.uploading": "Uploading…",
+  "attachments.chooseFile": "Choose a file to attach",
+  "attachments.download": "Download",
+  "attachments.deleteFile": "Delete the file {name}",
+  "attachments.fileName": "File name",
+  "attachments.actions": "Actions",
+  "attachments.size": "Size",
+  "attachments.uploadedBy": "Uploaded by",
+  "attachments.uploadedAt": "Uploaded at",
+  "attachments.sizeBytes": "{value} B",
+  "attachments.sizeKilobytes": "{value} KB",
+  "attachments.sizeMegabytes": "{value} MB",
+  "attachments.storedFilesHint": "Files attached to this record. Maximum file size {limit}.",
+  "attachments.tooLarge": "The file is over the {limit} limit",
+  "attachments.emptyFileRejected": "An empty file cannot be attached",
+  "attachments.couldNotBeLoaded": "Attachments could not be loaded",
+  "attachments.uploadFailed": "The file could not be uploaded",
+  "attachments.downloadFailed": "The file could not be downloaded",
+  "attachments.deleteFailed": "The file could not be deleted",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

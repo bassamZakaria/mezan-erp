@@ -39,6 +39,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { TextAreaField } from "../settings/form-controls";
 
 import { categoryLabel, unitLabel } from "../lib/item-labels";
@@ -1107,6 +1108,11 @@ export function ItemsScreen() {
         key: "priceLists",
         label: t("items.tab.priceLists"),
         content: <ItemPriceListsTab item={item} />,
+      },
+      {
+        key: "attachments",
+        label: t("attachments.tab"),
+        content: <AttachmentsTab entityType="item" entityId={item.id} />,
       },
     ];
 

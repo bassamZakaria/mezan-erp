@@ -32,7 +32,26 @@ export function TrialBalanceReportScreen() {
   const query = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", params, { enabled: hasRun });
 
   const fieldErrors = query.error?.fieldErrors;
-  const result = query.data ?? null;
+  const raw = query.data ?? null;
+
+  /**
+   * The trial balance's whole claim is that it balances (R21.10). Making the
+   * reader add two columns to find out is the report failing at its one job,
+   * so it is stated as a banner — derived from the reconciliation the report
+   * already computes, never asserted separately.
+   */
+  const result =
+    raw === null
+      ? null
+      : {
+          ...raw,
+          balanceCheck: raw.reconciliation
+            ? {
+                label: raw.reconciliation.withinTolerance ? t("trialBalance.balanced") : t("trialBalance.unbalanced"),
+                balanced: raw.reconciliation.withinTolerance,
+              }
+            : null,
+        };
 
   return (
     <ReportRunner

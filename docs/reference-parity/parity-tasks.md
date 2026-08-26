@@ -57,6 +57,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **A6 / R21.6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson — rendered as an inline bar, not a bare number
 - [x] **A7** GL-reconciliation tile on sales-by-item and purchases-by-item — both tie to the cent
 - [x] **R21.1** Every report subtitle is the question that report answers, in both languages (29 rewritten)
+- [x] **R21.10** The trial balance states that it balances, as a banner above the table
 - [ ] **A5** Drill-down side panel from entity cells
 - [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
 - [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)

@@ -147,8 +147,6 @@ export {
   type TopbarProps,
   type ShellNotification,
   type TopbarScopeOption,
-  type TopbarSystemStatus,
-  type TopbarSupportItem,
 } from "./shell/Topbar";
 export { CommandPalette, type CommandPaletteProps } from "./shell/CommandPalette";
 export { CommandBar, type CommandBarProps } from "./shell/CommandBar";

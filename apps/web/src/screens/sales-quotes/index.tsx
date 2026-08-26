@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Button,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   StatusPill,
@@ -17,6 +18,8 @@ import { useAppTranslation } from "../../i18n";
 import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
 import { STATUS_KEY, STATUS_TONE, daysExpired, isExpired, type QuoteFilterKey } from "./quote-model";
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /**
  * عروض الأسعار / Sales Quotations (docs/catalog/01) — list, create and detail,
@@ -51,7 +54,7 @@ export function SalesQuotesScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 25;
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const counts = useMemo(() => {
     const c: Record<QuoteFilterKey, number> = {
@@ -104,6 +107,13 @@ export function SalesQuotesScreen() {
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
   const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) +
+    (branchFilter ? 1 : 0) +
+    (customerFilter ? 1 : 0) +
+    (fromDate ? 1 : 0) +
+    (toDate ? 1 : 0);
 
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
@@ -207,6 +217,8 @@ export function SalesQuotesScreen() {
           setPage(1);
         }}
         searchPlaceholder={t("quotes.search.placeholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
             <SelectField
@@ -255,6 +267,12 @@ export function SalesQuotesScreen() {
         page={currentPage}
         pageCount={pageCount}
         onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
             {t("common.show")} <span className="mz-num">{format.number(pageRows.length)}</span> {t("common.of")}{" "}
@@ -262,9 +280,15 @@ export function SalesQuotesScreen() {
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("quotes.empty")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("quotes.empty")}
+              description={t("quotes.emptyBody")}
+              action={{ label: t("quotes.new"), onClick: () => subPage.open("new") }}
+            />
+          )
         }
       />
     </div>

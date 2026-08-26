@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
 import { useAccountLedger, useBranches, useCreateJournalEntry, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
@@ -19,6 +19,8 @@ import { todayIso } from "../lib/dates";
  * would still show as balanced.
  */
 const OPENING_BALANCE_EQUITY_ACCOUNT = "3210";
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
@@ -94,6 +96,8 @@ export function TreasuryAccountsScreen() {
   const branches = branchesQuery.data ?? [];
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "active" | "cash" | "bank" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [openingFor, setOpeningFor] = useState<TreasuryAccountDTO | null>(null);

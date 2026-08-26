@@ -324,6 +324,51 @@ export function createVouchersRoutes(
     return c.json(counts);
   });
 
+  /**
+   * The KPI strip (R1.1), summed in `Money` over the SAME chokepoint the rows
+   * come from. Unlike `/counts` this one honours the status filter, because
+   * the strip describes the rows on screen rather than the chips above them.
+   *
+   * A تحويل (transfer) moves money between two treasury accounts, so it is one
+   * of the counted rows but belongs in neither money total — adding it to
+   * either side would invent cash the business never received or paid.
+   */
+  app.get("/stats", gate("treasury.cash_voucher.view"), async (c) => {
+    const parsed = parseListQuery(c);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const rows = await listFilteredVouchers(c, parsed.data);
+    let confirmed = 0;
+    let draft = 0;
+    let needsAllocation = 0;
+    let receipts = Money.zero();
+    let payments = Money.zero();
+    let unallocated = Money.zero();
+    for (const row of rows) {
+      if (row.status === "draft") draft += 1;
+      if (row.status !== "confirmed") continue;
+      confirmed += 1;
+      const amount = Money.fromMajor(row.amount);
+      if (row.direction === "receipt") receipts = receipts.add(amount);
+      if (row.direction === "payment") payments = payments.add(amount);
+      if (row.allocatable && row.allocationSummary.needsAllocation) {
+        needsAllocation += 1;
+        unallocated = unallocated.add(Money.fromMajor(row.allocationSummary.unallocated));
+      }
+    }
+    return c.json({
+      count: rows.length,
+      confirmed,
+      needsAllocation,
+      draft,
+      receipts: receipts.toString(),
+      payments: payments.toString(),
+      net: Money.fromScaled(receipts.scaled - payments.scaled).toString(),
+      unallocated: unallocated.toString(),
+    });
+  });
+
   app.get("/:id", gate("treasury.cash_voucher.view"), async (c) => {
     const svc = serviceFor(c);
     const doc = await svc.findById(c.req.param("id"));

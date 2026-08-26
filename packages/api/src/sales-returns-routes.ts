@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   Money,
   Qty,
@@ -6,6 +6,7 @@ import {
   buildSalesReturnLinesFromInvoice,
   isAwaitingRefund,
   refundDue,
+  salesReturnGrandTotal,
   sumRefunds,
   SalesReturnNotRefundableError,
   type DocumentService,
@@ -116,14 +117,47 @@ export function createSalesReturnsRoutes(
     return line.qty.subtract(line.alreadyReturnedQty);
   }
 
-  app.get("/", gate("sales.return.view"), async (c) => {
+  interface SalesReturnListFilter {
+    readonly status?: string;
+    readonly customerId?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly awaitingRefund?: boolean;
+    readonly search?: string;
+  }
+
+  function parseListQuery(c: Context): SalesReturnListFilter {
     const status = c.req.query("status");
-    const fromDate = c.req.query("fromDate");
-    const toDate = c.req.query("toDate");
+    return {
+      status: status && status !== "all" ? status : undefined,
+      customerId: c.req.query("customerId") || undefined,
+      fromDate: c.req.query("fromDate") || undefined,
+      toDate: c.req.query("toDate") || undefined,
+      awaitingRefund: c.req.query("awaitingRefund") === "true",
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  interface FilteredReturns {
+    readonly rows: readonly FrameworkDocument<SalesReturnLine>[];
+    readonly refunds: ReadonlyMap<string, readonly SalesReturnRefund[]>;
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1). The screen narrowed by customer, date and free text in the
+   * browser while its three tiles counted every return the server had sent, so
+   * applying a filter moved the rows and left the header alone.
+   *
+   * `customerId`/`search`/`awaitingRefund` are presentation filters over an
+   * already-scoped set — `warehouseScopeOf` still decides what this user may
+   * see at all, and no query parameter widens it.
+   */
+  async function listFilteredReturns(c: Context, filter: SalesReturnListFilter): Promise<FilteredReturns> {
     const list = await service.list({
-      status: status as never,
-      fromDate: fromDate ?? undefined,
-      toDate: toDate ?? undefined,
+      status: filter.status as never,
+      fromDate: filter.fromDate,
+      toDate: filter.toDate,
     });
     // A return moves stock back into a warehouse, so the header's warehouse
     // scope has to narrow it (R1.14).
@@ -131,8 +165,94 @@ export function createSalesReturnsRoutes(
     // scope when any of its lines is — the same rule the stock-document
     // routes already apply.
     const scope = warehouseScopeOf(c);
-    const scoped = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
-    return c.json(await Promise.all(scoped.map(async (doc) => serialize(doc, await refundsOf(doc.id)))));
+    let rows = !scope ? list : list.filter((doc) => doc.lines.some((line) => scope.includes(line.warehouseId)));
+    if (filter.customerId) {
+      rows = rows.filter((doc) => doc.lines.some((line) => line.customerId === filter.customerId));
+    }
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (doc) =>
+          (doc.docNo ?? "").toLowerCase().includes(term) ||
+          doc.lines.some(
+            (line) =>
+              (line.sourceInvoiceNumber ?? "").toLowerCase().includes(term) ||
+              line.customerId.toLowerCase().includes(term),
+          ),
+      );
+    }
+
+    const refunds = new Map<string, readonly SalesReturnRefund[]>();
+    for (const doc of rows) refunds.set(doc.id, await refundsOf(doc.id));
+    if (filter.awaitingRefund) {
+      rows = rows.filter((doc) => isAwaitingRefund(doc, refunds.get(doc.id) ?? []));
+    }
+    return { rows, refunds };
+  }
+
+  app.get("/", gate("sales.return.view"), async (c) => {
+    const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
+    return c.json(rows.map((doc) => serialize(doc, refunds.get(doc.id) ?? [])));
+  });
+
+  /**
+   * The status chips. Deliberately ignores its own `status` axis — and the
+   * بانتظار دفع المبلغ toggle that sits beside it — because a chip states how
+   * many rows it WOULD show; counting the already-filtered set renders every
+   * chip but the active one as zero. Every other filter still applies.
+   */
+  app.get("/counts", gate("sales.return.view"), async (c) => {
+    const { status: _status, awaitingRefund: _awaiting, ...withoutStatus } = parseListQuery(c);
+    const { rows, refunds } = await listFilteredReturns(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      pending: 0,
+      confirmed: 0,
+      cancelled: 0,
+      reversed: 0,
+      awaitingRefund: 0,
+    };
+    for (const doc of rows) {
+      counts[doc.status] = (counts[doc.status] ?? 0) + 1;
+      if (isAwaitingRefund(doc, refunds.get(doc.id) ?? [])) counts.awaitingRefund! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip, summed in `Money` over the whole filtered set. Only a
+   * confirmed return has taken anything off the customer's receivable, so a
+   * draft's value is not returned money.
+   */
+  app.get("/stats", gate("sales.return.view"), async (c) => {
+    const { rows, refunds } = await listFilteredReturns(c, parseListQuery(c));
+    let confirmed = 0;
+    let awaitingRefund = 0;
+    let returnedTotal = Money.zero();
+    let refundedTotal = Money.zero();
+    let refundDueTotal = Money.zero();
+    for (const doc of rows) {
+      const paid = refunds.get(doc.id) ?? [];
+      if (doc.status === "confirmed") {
+        confirmed += 1;
+        returnedTotal = returnedTotal.add(salesReturnGrandTotal(doc));
+      }
+      refundedTotal = refundedTotal.add(sumRefunds(paid));
+      const due = refundDue(doc, paid);
+      if (due.scaled > 0n) {
+        awaitingRefund += 1;
+        refundDueTotal = refundDueTotal.add(due);
+      }
+    }
+    return c.json({
+      count: rows.length,
+      confirmed,
+      awaitingRefund,
+      returnedTotal: returnedTotal.toString(),
+      refundedTotal: refundedTotal.toString(),
+      refundDue: refundDueTotal.toString(),
+    });
   });
 
   app.get("/:id", gate("sales.return.view"), async (c) => {

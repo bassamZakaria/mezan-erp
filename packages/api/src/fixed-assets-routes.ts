@@ -29,6 +29,7 @@ import {
   type JournalPostingDeps,
   type SettingsRepository,
   createDefaultSettings,
+  matchesSearch,
 } from "@mezan/domain";
 import { createAssetCategorySchema, createAssetSchema, createDepreciationRunSchema, disposeAssetSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver, branchScopeOf, withinScope } from "./permission-gate.js";
@@ -170,9 +171,81 @@ export function createFixedAssetsRoutes(
     return c.json(serializeCategory(category));
   });
 
+  interface AssetListFilter {
+    readonly status?: string;
+    readonly categoryId?: string;
+    readonly branchId?: string;
+    readonly search?: string;
+  }
+
+  /** The screen sends "all" for a cleared select, which is the absence of a filter, not a value to match. */
+  function optionalQuery(c: Context, name: string): string | undefined {
+    const value = c.req.query(name);
+    return !value || value === "all" ? undefined : value;
+  }
+
+  function parseAssetListQuery(c: Context): AssetListFilter {
+    return {
+      status: optionalQuery(c, "status"),
+      categoryId: optionalQuery(c, "categoryId"),
+      branchId: optionalQuery(c, "branchId"),
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through. The register used to narrow by category, branch and free text in
+   * the browser while its three tiles counted every asset the server had sent,
+   * so applying a filter moved the rows and left the header alone.
+   *
+   * `branchScopeOf` is the scope, not a presentation filter — the `branchId`
+   * query parameter narrows the already-scoped set and can never widen it.
+   */
+  async function listFilteredAssets(c: Context, filter: AssetListFilter): Promise<readonly Asset[]> {
+    let rows = withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId);
+    if (filter.status) rows = rows.filter((a) => a.status === filter.status);
+    if (filter.categoryId) rows = rows.filter((a) => a.categoryId === filter.categoryId);
+    if (filter.branchId) rows = rows.filter((a) => a.branchId === filter.branchId);
+    if (filter.search) rows = rows.filter((a) => matchesSearch(filter.search, a.nameAr, a.nameEn, a.code));
+    return rows;
+  }
+
   app.get("/", gate("assets.view"), async (c) => {
-    const assets = withinScope(await deps.assets.list(), branchScopeOf(c), (a) => a.branchId);
+    const assets = await listFilteredAssets(c, parseAssetListQuery(c));
     return c.json(assets.map(serializeAsset));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   * Every other filter still applies.
+   */
+  app.get("/counts", gate("assets.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseAssetListQuery(c);
+    const assets = await listFilteredAssets(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: assets.length,
+      active: 0,
+      under_maintenance: 0,
+      fully_depreciated: 0,
+      disposed: 0,
+    };
+    for (const asset of assets) counts[asset.status] = (counts[asset.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip, over the whole filtered set rather than the page the screen happens to hold. */
+  app.get("/stats", gate("assets.view"), async (c) => {
+    const assets = await listFilteredAssets(c, parseAssetListQuery(c));
+    let active = 0;
+    let fullyDepreciated = 0;
+    for (const asset of assets) {
+      if (asset.status === "active") active += 1;
+      if (asset.status === "fully_depreciated") fullyDepreciated += 1;
+    }
+    return c.json({ count: assets.length, active, fully_depreciated: fullyDepreciated });
   });
 
   app.post("/", gate("assets.create"), async (c) => {
@@ -255,9 +328,48 @@ export function createFixedAssetsRoutes(
     }
   });
 
+  /**
+   * The single filter the runs list, its chips and its KPI strip all go
+   * through. A run with no branch belongs to every branch, so `withinScope`
+   * keeps it visible under a narrowed scope rather than dropping it.
+   */
+  async function listFilteredRuns(c: Context, status?: string): Promise<readonly DepreciationRun[]> {
+    const rows = withinScope(await deps.runs.list(), branchScopeOf(c), (r) => r.branchId);
+    return status ? rows.filter((r) => r.status === status) : rows;
+  }
+
+  function runStatusQuery(c: Context): string | undefined {
+    const status = c.req.query("status");
+    return !status || status === "all" ? undefined : status;
+  }
+
   app.get("/depreciation/runs", gate("assets.depreciation.view"), async (c) => {
-    const runs = await deps.runs.list();
+    const runs = await listFilteredRuns(c, runStatusQuery(c));
     return c.json(runs.map(serializeRun));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   */
+  app.get("/depreciation/runs/counts", gate("assets.depreciation.view"), async (c) => {
+    const runs = await listFilteredRuns(c);
+    const counts: Record<string, number> = { all: runs.length, draft: 0, posted: 0, cancelled: 0 };
+    for (const run of runs) counts[run.status] = (counts[run.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip, over the whole filtered set rather than the page the screen happens to hold. */
+  app.get("/depreciation/runs/stats", gate("assets.depreciation.view"), async (c) => {
+    const runs = await listFilteredRuns(c, runStatusQuery(c));
+    let draft = 0;
+    let posted = 0;
+    for (const run of runs) {
+      if (run.status === "draft") draft += 1;
+      if (run.status === "posted") posted += 1;
+    }
+    return c.json({ count: runs.length, draft, posted });
   });
 
   app.post("/depreciation/runs", gate("assets.depreciation.run"), async (c) => {

@@ -73,6 +73,8 @@ import {
   getAuthContext,
   headerAuthContextResolver,
   type AuthContextResolver,
+  warehouseScopeOf,
+  withinScope,
 } from "./permission-gate.js";
 
 /**
@@ -529,9 +531,91 @@ export function createManufacturingRoutes(
     }
   });
 
+  interface WorkOrderListFilter {
+    readonly status?: string;
+    readonly priority?: string;
+    readonly stage?: string;
+    readonly search?: string;
+  }
+
+  function parseWorkOrderListQuery(c: Context): WorkOrderListFilter {
+    return {
+      status: c.req.query("status") || undefined,
+      priority: c.req.query("priority") || undefined,
+      stage: c.req.query("stage") || undefined,
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through. The screen used to narrow by status, priority, stage and free
+   * text in the browser while its four tiles counted every work order the
+   * server had sent, so applying a filter moved the rows and left the header
+   * alone.
+   *
+   * `warehouseScopeOf` is the scope, not a presentation filter: a run issues
+   * its materials from the source warehouse, so a user scoped to one warehouse
+   * may not see another's orders, and no query parameter widens that.
+   */
+  async function listFilteredWorkOrders(c: Context, filter: WorkOrderListFilter): Promise<readonly WorkOrder[]> {
+    let rows = withinScope(await deps.workOrders.list(), warehouseScopeOf(c), (o) => o.sourceWarehouseId);
+    if (filter.status && filter.status !== "all") rows = rows.filter((o) => o.status === filter.status);
+    if (filter.priority) rows = rows.filter((o) => o.priority === filter.priority);
+    if (filter.stage) rows = rows.filter((o) => o.stage === filter.stage);
+    const term = filter.search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (o) => o.number.toLowerCase().includes(term) || o.productItemId.toLowerCase().includes(term),
+      );
+    }
+    return rows;
+  }
+
+  function isWorkOrderOverdue(order: WorkOrder, today: string): boolean {
+    if (order.status !== "planned" && order.status !== "in_progress") return false;
+    return order.scheduledEndDate !== null && order.scheduledEndDate < today;
+  }
+
   app.get("/work-orders", gate("manufacturing.wo.view"), async (c) => {
     const onHand = await onHandByPosition();
-    return c.json((await deps.workOrders.list()).map((order) => serializeWorkOrder(order, onHand)));
+    const orders = await listFilteredWorkOrders(c, parseWorkOrderListQuery(c));
+    return c.json(orders.map((order) => serializeWorkOrder(order, onHand)));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   * Every other filter still applies.
+   */
+  app.get("/work-orders/counts", gate("manufacturing.wo.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseWorkOrderListQuery(c);
+    const orders = await listFilteredWorkOrders(c, withoutStatus);
+    const counts: Record<string, number> = {
+      all: orders.length,
+      planned: 0,
+      in_progress: 0,
+      completed: 0,
+      cancelled: 0,
+    };
+    for (const order of orders) counts[order.status] = (counts[order.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip, over the whole filtered set rather than the page the screen happens to hold. */
+  app.get("/work-orders/stats", gate("manufacturing.wo.view"), async (c) => {
+    const orders = await listFilteredWorkOrders(c, parseWorkOrderListQuery(c));
+    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+    let planned = 0;
+    let inProgress = 0;
+    let overdue = 0;
+    for (const order of orders) {
+      if (order.status === "planned") planned += 1;
+      if (order.status === "in_progress") inProgress += 1;
+      if (isWorkOrderOverdue(order, today)) overdue += 1;
+    }
+    return c.json({ count: orders.length, planned, in_progress: inProgress, overdue });
   });
 
   app.get("/work-orders/:id", gate("manufacturing.wo.view"), async (c) => {

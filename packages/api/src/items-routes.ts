@@ -14,7 +14,10 @@ import {
   type AuditSink,
   type ItemRepository,
   type AlternateUnit,
-  type WacSnapshotRepository, matchesSearch } from "@mezan/domain";
+  type WacSnapshotRepository,
+  ITEM_TYPES,
+  itemTypeTracksStock,
+  matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
 import { createPermissionGate, getAuthContext, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
@@ -144,26 +147,136 @@ export function createItemsRouter(
    * Computed from one `snapshots.list()` rather than a lookup per item: the
    * per-item version is an N+1 that gets slower with the catalogue.
    */
-  app.get("/", gate("inventory.item.view"), async (c) => {
+  interface ItemListFilter {
+    /** The chip key the list is narrowed by: all/active/inactive/`type:<code>`/low_stock/out_of_stock. */
+    readonly status?: string;
+    readonly categoryId?: string;
+    readonly brandId?: string;
+    readonly seasonId?: string;
+    readonly unitCode?: string;
+    readonly search?: string;
+  }
+
+  interface ItemRow {
+    readonly item: Item;
+    readonly onHand: Qty | null;
+    readonly stockState: "out" | "low" | "ok" | null;
+  }
+
+  function parseItemListQuery(c: Context): ItemListFilter {
+    return {
+      status: c.req.query("status") || undefined,
+      categoryId: c.req.query("categoryId") || undefined,
+      brandId: c.req.query("brandId") || undefined,
+      seasonId: c.req.query("seasonId") || undefined,
+      unitCode: c.req.query("unitCode") || undefined,
+      // `q` is the parameter the list has always taken; `search` is the name
+      // every other list resource uses. Both reach the same filter.
+      search: c.req.query("search") || c.req.query("q") || undefined,
+    };
+  }
+
+  /**
+   * The one filter the rows, the chip counts and the KPI strip all go through
+   * (R1.1). Nothing else computes item rows — the three routes below must not
+   * be able to disagree about what the catalogue contains.
+   */
+  async function listFilteredItems(filter: ItemListFilter): Promise<readonly ItemRow[]> {
     const items = await repo.list();
     // Narrow first, then price the survivors: computing a stock state for rows
     // the search is about to drop is work nobody reads.
-    const q = c.req.query("q");
-    const matched = items.filter((item) => matchesSearch(q, item.nameAr, item.nameEn, item.code, ...(item.barcodes ?? [])));
-    if (!snapshots) return c.json(matched.map((item) => ({ ...serialize(item), onHand: null, stockState: null })));
-    const onHandByItem = new Map<string, Qty>();
-    for (const position of await snapshots.list()) {
-      onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
-    }
-    return c.json(
-      matched.map((item) => {
-        // An item that does not hold stock has no quantity — reporting zero
-        // would put a service in the "out of stock" chip.
-        if (!item.trackInventory) return { ...serialize(item), onHand: null, stockState: null };
-        const onHand = onHandByItem.get(item.id) ?? Qty.zero();
-        return { ...serialize(item), onHand: onHand.toString(), stockState: stockStateOf(onHand, item.reorderPoint) };
-      }),
+    let matched = items.filter((item) =>
+      matchesSearch(filter.search, item.nameAr, item.nameEn, item.code, ...(item.barcodes ?? [])),
     );
+    if (filter.categoryId) matched = matched.filter((i) => i.categoryId === filter.categoryId);
+    if (filter.brandId) matched = matched.filter((i) => i.brandId === filter.brandId);
+    if (filter.seasonId) matched = matched.filter((i) => i.seasonId === filter.seasonId);
+    if (filter.unitCode) matched = matched.filter((i) => i.baseUnitCode === filter.unitCode);
+
+    const onHandByItem = new Map<string, Qty>();
+    if (snapshots) {
+      for (const position of await snapshots.list()) {
+        onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
+      }
+    }
+    let rows: ItemRow[] = matched.map((item) => {
+      // An item that does not hold stock has no quantity — reporting zero
+      // would put a service in the "out of stock" chip.
+      if (!snapshots || !item.trackInventory) return { item, onHand: null, stockState: null };
+      const onHand = onHandByItem.get(item.id) ?? Qty.zero();
+      return { item, onHand, stockState: stockStateOf(onHand, item.reorderPoint) };
+    });
+
+    const chip = filter.status;
+    if (chip && chip !== "all") {
+      if (chip === "active" || chip === "inactive") rows = rows.filter((r) => r.item.status === chip);
+      else if (chip === "low_stock") rows = rows.filter((r) => r.stockState === "low");
+      else if (chip === "out_of_stock") rows = rows.filter((r) => r.stockState === "out");
+      else {
+        const type = chip.startsWith("type:") ? chip.slice("type:".length) : chip;
+        if ((ITEM_TYPES as readonly string[]).includes(type)) rows = rows.filter((r) => r.item.type === type);
+      }
+    }
+    return rows;
+  }
+
+  function serializeRow(row: ItemRow) {
+    return { ...serialize(row.item), onHand: row.onHand?.toString() ?? null, stockState: row.stockState };
+  }
+
+  app.get("/", gate("inventory.item.view"), async (c) => {
+    const rows = await listFilteredItems(parseItemListQuery(c));
+    return c.json(rows.map(serializeRow));
+  });
+
+  /**
+   * The chip counts. Deliberately drops its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already chip-filtered set
+   * renders every chip but the active one as zero. Every other filter — the
+   * category, brand, season, unit and search the user set — still applies.
+   *
+   * The chip row carries two axes: active/inactive and the item type. Type
+   * buckets are keyed `type:<code>` so a type can never collide with a status
+   * or a stock-state key.
+   */
+  app.get("/counts", gate("inventory.item.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseItemListQuery(c);
+    const rows = await listFilteredItems(withoutStatus);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      active: 0,
+      inactive: 0,
+      low_stock: 0,
+      out_of_stock: 0,
+    };
+    // Every type gets a key, including the ones with no items — a chip that
+    // only appears once a type is used cannot be used to find that it has none.
+    for (const type of ITEM_TYPES) counts[`type:${type}`] = 0;
+    for (const row of rows) {
+      counts[row.item.status] = (counts[row.item.status] ?? 0) + 1;
+      counts[`type:${row.item.type}`] = (counts[`type:${row.item.type}`] ?? 0) + 1;
+      if (row.stockState === "low") counts.low_stock! += 1;
+      if (row.stockState === "out") counts.out_of_stock! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip. Unlike `/counts` this DOES honour the chip, so the strip
+   * describes the rows on screen. Stock-holding is counted by capability, not
+   * by the literal type "stock" — raw materials, finished goods and
+   * consumables hold stock too (R5.1).
+   */
+  app.get("/stats", gate("inventory.item.view"), async (c) => {
+    const rows = await listFilteredItems(parseItemListQuery(c));
+    const active = rows.filter((r) => r.item.status === "active").length;
+    const stockTracked = rows.filter((r) => itemTypeTracksStock(r.item.type)).length;
+    return c.json({
+      count: rows.length,
+      active,
+      stockTracked,
+      nonStock: rows.length - stockTracked,
+    });
   });
 
   app.get("/:id", gate("inventory.item.view"), async (c) => {

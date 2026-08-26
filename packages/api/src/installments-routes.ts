@@ -1,6 +1,7 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import {
   Money,
+  FOLLOW_UP_STATUSES,
   createFollowUp,
   completeFollowUp,
   cancelFollowUp,
@@ -84,8 +85,9 @@ export interface InstallmentsRoutesDeps {
 
 /**
  * Installments routes (docs/catalog/05 §"خطط الأقساط" + §"متابعة التحصيل"),
- * mounted under `/installments`: `/installments/plans` (+ `/overdue/process`
- * — معالجة المتأخرات) and `/installments/follow-ups`.
+ * mounted under `/installments`: `/installments/plans` (+ `/counts`, `/stats`
+ * and `/overdue/process` — معالجة المتأخرات) and `/installments/follow-ups`
+ * (+ its own `/counts` and `/stats`).
  */
 export function createInstallmentsRoutes(
   deps: InstallmentsRoutesDeps,
@@ -115,10 +117,95 @@ export function createInstallmentsRoutes(
     });
   });
 
+  /**
+   * The plan list's status axis carries a derived متأخر bucket the document
+   * framework's stored status set has no value for, so only a real stored
+   * status is ever forwarded to the repository — sending `overdue` would match
+   * none.
+   */
+  const DERIVED_PLAN_FILTERS = new Set(["all", "overdue"]);
+
+  /** A plan is متأخر when it is live and any one of its installments is. */
+  function isPlanOverdue(plan: InstallmentPlanDocument): boolean {
+    return plan.status === "confirmed" && plan.lines.some((l) => l.status === "overdue");
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1). Nothing else computes plan rows, so the three can never
+   * disagree.
+   */
+  async function listFilteredPlans(status: string | undefined): Promise<readonly InstallmentPlanDocument[]> {
+    const stored = status && !DERIVED_PLAN_FILTERS.has(status) ? status : undefined;
+    const rows = (await deps.plans.list(stored ? { status: stored as never } : undefined)) as readonly InstallmentPlanDocument[];
+    return status === "overdue" ? rows.filter(isPlanOverdue) : rows;
+  }
+
   plans.get("/", gate("installments.plan.view"), async (c) => {
-    const status = c.req.query("status");
-    const list = await deps.plans.list({ status: status as never });
+    const list = await listFilteredPlans(c.req.query("status") || undefined);
     return c.json(list.map(serializePlan));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   */
+  plans.get("/counts", gate("installments.plan.view"), async (c) => {
+    const rows = await listFilteredPlans(undefined);
+    const counts: Record<string, number> = {
+      all: rows.length,
+      draft: 0,
+      pending: 0,
+      confirmed: 0,
+      posted: 0,
+      cancelled: 0,
+      reversed: 0,
+      overdue: 0,
+    };
+    for (const plan of rows) {
+      counts[plan.status] = (counts[plan.status] ?? 0) + 1;
+      if (isPlanOverdue(plan)) counts.overdue! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip, summed in `Money` over the whole filtered set (R1.1).
+   * Unlike `/counts` it honours the status filter. A cancelled installment is
+   * no longer scheduled money, so it enters none of the three totals.
+   */
+  plans.get("/stats", gate("installments.plan.view"), async (c) => {
+    const rows = await listFilteredPlans(c.req.query("status") || undefined);
+    let active = 0;
+    let overdue = 0;
+    let scheduled = Money.zero();
+    let paid = Money.zero();
+    let remaining = Money.zero();
+    let lateFees = Money.zero();
+    for (const plan of rows) {
+      if (plan.status === "confirmed") active += 1;
+      if (isPlanOverdue(plan)) overdue += 1;
+      for (const line of plan.lines) {
+        if (line.status === "cancelled") continue;
+        scheduled = scheduled.add(line.amount);
+        paid = paid.add(line.paidAmount);
+        lateFees = lateFees.add(line.lateFeeAmount);
+        // An overpaid installment must not cancel what another still owes —
+        // "remaining" is what is outstanding, not a net position.
+        const owed = line.amount.scaled - line.paidAmount.scaled;
+        if (owed > 0n) remaining = remaining.add(Money.fromScaled(owed));
+      }
+    }
+    return c.json({
+      count: rows.length,
+      active,
+      overdue,
+      scheduled: scheduled.toString(),
+      paid: paid.toString(),
+      remaining: remaining.toString(),
+      lateFees: lateFees.toString(),
+    });
   });
 
   plans.get("/:id", gate("installments.plan.view"), async (c) => {
@@ -188,14 +275,64 @@ export function createInstallmentsRoutes(
   // --- متابعة التحصيل ----------------------------------------------------
   const followUps = new Hono();
 
-  followUps.get("/", gate("installments.follow_up.view"), async (c) => {
-    const status = c.req.query("status");
-    const customerId = c.req.query("customerId");
-    const list = await deps.followUps.list({
-      status: status as never,
-      customerId: customerId ?? undefined,
+  interface FollowUpListFilter {
+    readonly status?: string;
+    readonly customerId?: string;
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1).
+   */
+  async function listFilteredFollowUps(filter: FollowUpListFilter): Promise<readonly CollectionFollowUp[]> {
+    return deps.followUps.list({
+      status: (filter.status === "all" ? undefined : filter.status) as never,
+      customerId: filter.customerId,
     });
+  }
+
+  function parseFollowUpQuery(c: Context): FollowUpListFilter {
+    return {
+      status: c.req.query("status") || undefined,
+      customerId: c.req.query("customerId") || undefined,
+    };
+  }
+
+  followUps.get("/", gate("installments.follow_up.view"), async (c) => {
+    const list = await listFilteredFollowUps(parseFollowUpQuery(c));
     return c.json(list.map(serializeFollowUp));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   */
+  followUps.get("/counts", gate("installments.follow_up.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseFollowUpQuery(c);
+    const rows = await listFilteredFollowUps(withoutStatus);
+    const counts: Record<string, number> = { all: rows.length };
+    for (const status of FOLLOW_UP_STATUSES) counts[status] = 0;
+    for (const followUp of rows) counts[followUp.status] = (counts[followUp.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip. A follow-up is a worklog entry and carries no amount, so
+   * this strip is counted rather than summed — there is no money on this
+   * resource to report.
+   */
+  followUps.get("/stats", gate("installments.follow_up.view"), async (c) => {
+    const rows = await listFilteredFollowUps(parseFollowUpQuery(c));
+    let pending = 0;
+    let completed = 0;
+    let cancelled = 0;
+    for (const followUp of rows) {
+      if (followUp.status === "pending") pending += 1;
+      if (followUp.status === "completed") completed += 1;
+      if (followUp.status === "cancelled") cancelled += 1;
+    }
+    return c.json({ count: rows.length, pending, completed, cancelled });
   });
 
   followUps.post("/", gate("installments.follow_up.manage"), async (c) => {

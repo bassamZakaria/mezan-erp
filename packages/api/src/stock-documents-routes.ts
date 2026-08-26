@@ -24,6 +24,8 @@ import {
   type PhysicalCountService,
   type PhysicalCount,
   type PhysicalCountStatus,
+  PHYSICAL_COUNT_STATUSES,
+  matchesSearch,
 } from "@mezan/domain";
 import {
   createStockAdjustmentSchema,
@@ -133,6 +135,44 @@ function serializeCount(count: PhysicalCount) {
   };
 }
 
+/**
+ * Every stored lifecycle status gets a count key, including the ones the
+ * screen's chip row does not currently show: a chip that only appears once a
+ * status has been used cannot be used to find that it has none.
+ */
+const DOCUMENT_STATUS_KEYS: readonly DocumentStatus[] = [
+  "draft",
+  "pending",
+  "confirmed",
+  "posted",
+  "cancelled",
+  "reversed",
+];
+
+/** The shared shape of the adjustments/transfers list filter. */
+interface StockDocListFilter {
+  readonly status?: string;
+  readonly warehouseId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly search?: string;
+}
+
+function parseStockDocQuery(c: Context): StockDocListFilter {
+  return {
+    status: c.req.query("status") || undefined,
+    warehouseId: c.req.query("warehouseId") || undefined,
+    fromDate: c.req.query("fromDate") || undefined,
+    toDate: c.req.query("toDate") || undefined,
+    search: c.req.query("search") || undefined,
+  };
+}
+
+/** The chip key `all` is not a stored status — forwarding it would match nothing. */
+function storedStatus(status: string | undefined): DocumentStatus | undefined {
+  return status && status !== "all" ? (status as DocumentStatus) : undefined;
+}
+
 function handleDocumentError(c: Context, err: unknown): Response {
   if (err instanceof DocumentNotFoundError || err instanceof PhysicalCountNotFoundError) {
     return c.json({ error: err.code, message: err.message }, 404);
@@ -202,12 +242,27 @@ export function createStockAdjustmentsRoutes(
     }
   });
 
-  app.get("/", gate("inventory.adjustment.view"), async (c) => {
-    const status = c.req.query("status") as DocumentStatus | undefined;
+  interface AdjustmentListFilter extends StockDocListFilter {
+    readonly reason?: string;
+  }
+
+  function parseAdjustmentQuery(c: Context): AdjustmentListFilter {
+    return { ...parseStockDocQuery(c), reason: c.req.query("reason") || undefined };
+  }
+
+  /**
+   * The one filter the rows, the chip counts and the KPI strip all go through
+   * (R1.1). Nothing else selects adjustment rows, so the three routes below
+   * cannot disagree about what the list holds.
+   */
+  async function listFilteredAdjustments(
+    c: Context,
+    filter: AdjustmentListFilter,
+  ): Promise<readonly FrameworkDocument<StockAdjustmentDocLine>[]> {
     const docs = await service.list({
-      status,
-      fromDate: c.req.query("fromDate"),
-      toDate: c.req.query("toDate"),
+      status: storedStatus(filter.status),
+      fromDate: filter.fromDate,
+      toDate: filter.toDate,
     });
     // The warehouse is on the LINES, not the header, so a document is in scope
     // when any of its lines is. These are the routes the adjustments and
@@ -219,12 +274,42 @@ export function createStockAdjustmentsRoutes(
     // The reason lives on the lines too, and every line of one adjustment
     // carries the same one — the reason is picked before the form opens
     // (R5.9).
-    const reason = c.req.query("reason");
-    if (reason) visible = visible.filter((d) => d.lines.some((l) => l.reason === reason));
-    const warehouseId = c.req.query("warehouseId");
-    if (warehouseId) visible = visible.filter((d) => d.lines.some((l) => l.warehouseId === warehouseId));
+    if (filter.reason) visible = visible.filter((d) => d.lines.some((l) => l.reason === filter.reason));
+    if (filter.warehouseId) visible = visible.filter((d) => d.lines.some((l) => l.warehouseId === filter.warehouseId));
+    if (filter.search) visible = visible.filter((d) => matchesSearch(filter.search, d.docNo, d.memo));
 
-    return c.json(visible.map(serializeAdjustment));
+    return visible;
+  }
+
+  app.get("/", gate("inventory.adjustment.view"), async (c) => {
+    const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
+    return c.json(docs.map(serializeAdjustment));
+  });
+
+  /**
+   * The status chips. Deliberately drops its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero. The warehouse, reason, date
+   * and search filters still apply — and so does the warehouse SCOPE, which no
+   * query parameter can widen.
+   */
+  app.get("/counts", gate("inventory.adjustment.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseAdjustmentQuery(c);
+    const docs = await listFilteredAdjustments(c, withoutStatus);
+    const counts: Record<string, number> = { all: docs.length };
+    for (const status of DOCUMENT_STATUS_KEYS) counts[status] = 0;
+    for (const doc of docs) counts[doc.status] = (counts[doc.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip. Unlike `/counts` this DOES honour the status filter. */
+  app.get("/stats", gate("inventory.adjustment.view"), async (c) => {
+    const docs = await listFilteredAdjustments(c, parseAdjustmentQuery(c));
+    return c.json({
+      count: docs.length,
+      draft: docs.filter((d) => d.status === "draft").length,
+      confirmed: docs.filter((d) => d.status === "confirmed").length,
+    });
   });
 
   app.get("/:id", gate("inventory.adjustment.view"), async (c) => {
@@ -274,20 +359,61 @@ export function createStockTransfersRoutes(
     }
   });
 
-  app.get("/", gate("inventory.transfer.view"), async (c) => {
-    const status = c.req.query("status") as DocumentStatus | undefined;
+  /**
+   * The one filter the rows, the chip counts and the KPI strip all go through
+   * (R1.1). A transfer has two warehouses, and BOTH the scope and the
+   * `warehouseId` filter match on either end — hiding a transfer from the
+   * receiving warehouse would make its stock appear from nowhere.
+   */
+  async function listFilteredTransfers(
+    c: Context,
+    filter: StockDocListFilter,
+  ): Promise<readonly FrameworkDocument<StockTransferDocLine>[]> {
     const docs = await service.list({
-      status,
-      fromDate: c.req.query("fromDate"),
-      toDate: c.req.query("toDate"),
+      status: storedStatus(filter.status),
+      fromDate: filter.fromDate,
+      toDate: filter.toDate,
     });
-    // Visible from EITHER end: hiding a transfer from the receiving warehouse
-    // would make its stock appear from nowhere.
     const scope = warehouseScopeOf(c);
-    const visible = !scope
+    let visible = !scope
       ? docs
       : docs.filter((d) => d.lines.some((l) => scope.includes(l.fromWarehouseId) || scope.includes(l.toWarehouseId)));
-    return c.json(visible.map(serializeTransfer));
+    if (filter.warehouseId) {
+      visible = visible.filter((d) =>
+        d.lines.some((l) => l.fromWarehouseId === filter.warehouseId || l.toWarehouseId === filter.warehouseId),
+      );
+    }
+    if (filter.search) visible = visible.filter((d) => matchesSearch(filter.search, d.docNo, d.memo));
+    return visible;
+  }
+
+  app.get("/", gate("inventory.transfer.view"), async (c) => {
+    const docs = await listFilteredTransfers(c, parseStockDocQuery(c));
+    return c.json(docs.map(serializeTransfer));
+  });
+
+  /**
+   * The status chips. Deliberately drops its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero.
+   */
+  app.get("/counts", gate("inventory.transfer.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseStockDocQuery(c);
+    const docs = await listFilteredTransfers(c, withoutStatus);
+    const counts: Record<string, number> = { all: docs.length };
+    for (const status of DOCUMENT_STATUS_KEYS) counts[status] = 0;
+    for (const doc of docs) counts[doc.status] = (counts[doc.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip. Unlike `/counts` this DOES honour the status filter. */
+  app.get("/stats", gate("inventory.transfer.view"), async (c) => {
+    const docs = await listFilteredTransfers(c, parseStockDocQuery(c));
+    return c.json({
+      count: docs.length,
+      draft: docs.filter((d) => d.status === "draft").length,
+      confirmed: docs.filter((d) => d.status === "confirmed").length,
+    });
   });
 
   app.get("/:id", gate("inventory.transfer.view"), async (c) => {
@@ -367,14 +493,64 @@ export function createPhysicalCountsRoutes(
     }
   });
 
-  app.get("/", gate("inventory.count.view"), async (c) => {
-    const status = c.req.query("status") as PhysicalCountStatus | undefined;
-    const counts = withinScope(
-      await service.list({ status, warehouseId: c.req.query("warehouseId") }),
+  interface CountListFilter {
+    readonly status?: string;
+    readonly warehouseId?: string;
+    readonly search?: string;
+  }
+
+  function parseCountListQuery(c: Context): CountListFilter {
+    return {
+      status: c.req.query("status") || undefined,
+      warehouseId: c.req.query("warehouseId") || undefined,
+      search: c.req.query("search") || undefined,
+    };
+  }
+
+  /**
+   * The one filter the rows, the chip counts and the KPI strip all go through
+   * (R1.1). `warehouseScopeOf` decides what this user may see at all; the
+   * `warehouseId` parameter only narrows the already-scoped set.
+   */
+  async function listFilteredCounts(c: Context, filter: CountListFilter): Promise<readonly PhysicalCount[]> {
+    const status = filter.status && filter.status !== "all" ? (filter.status as PhysicalCountStatus) : undefined;
+    const rows = withinScope(
+      await service.list({ status, warehouseId: filter.warehouseId }),
       warehouseScopeOf(c),
       (count) => count.warehouseId,
     );
-    return c.json(counts.map(serializeCount));
+    if (!filter.search) return rows;
+    return rows.filter((count) => matchesSearch(filter.search, count.countNo, count.memo));
+  }
+
+  app.get("/", gate("inventory.count.view"), async (c) => {
+    const rows = await listFilteredCounts(c, parseCountListQuery(c));
+    return c.json(rows.map(serializeCount));
+  });
+
+  /**
+   * The status chips. Deliberately drops its own `status` axis: a chip states
+   * how many rows it WOULD show, so counting the already status-filtered set
+   * renders every chip but the active one as zero.
+   */
+  app.get("/counts", gate("inventory.count.view"), async (c) => {
+    const { status: _ignored, ...withoutStatus } = parseCountListQuery(c);
+    const rows = await listFilteredCounts(c, withoutStatus);
+    const counts: Record<string, number> = { all: rows.length };
+    for (const status of PHYSICAL_COUNT_STATUSES) counts[status] = 0;
+    for (const row of rows) counts[row.status] = (counts[row.status] ?? 0) + 1;
+    return c.json(counts);
+  });
+
+  /** The KPI strip. Unlike `/counts` this DOES honour the status filter. */
+  app.get("/stats", gate("inventory.count.view"), async (c) => {
+    const rows = await listFilteredCounts(c, parseCountListQuery(c));
+    return c.json({
+      count: rows.length,
+      IN_PROGRESS: rows.filter((r) => r.status === "IN_PROGRESS").length,
+      COMPLETED: rows.filter((r) => r.status === "COMPLETED").length,
+      ADJUSTMENT_GENERATED: rows.filter((r) => r.status === "ADJUSTMENT_GENERATED").length,
+    });
   });
 
   app.get("/:id", gate("inventory.count.view"), async (c) => {

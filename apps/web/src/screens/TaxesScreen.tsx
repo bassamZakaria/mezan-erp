@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, StatusPill, Button, Card, RowMenu, SidePanel, type DocumentListColumn, type PillTone, type RowMenuItem } from "@mezan/ui";
 import { ETA_VAT_SUBTYPE_DEFINITIONS, getEtaVatSubTypeLabel, type EtaVatSubType } from "@mezan/domain";
 import type { TaxCalculationTypeDTO, TaxRateDTO, TaxRateStatusDTO } from "@mezan/contracts";
 import { useCreateTaxGroup, useCreateTaxRate, useTaxGroups, useTaxRates, useUpdateTaxRate } from "../data/hooks";
@@ -242,6 +242,8 @@ export function TaxesScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<TaxDraft>(BLANK_DRAFT);
   const [formError, setFormError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     let rows = taxes;
@@ -265,6 +267,19 @@ export function TaxesScreen() {
     setDraft(draftFromTax(tax));
     setFormError(null);
     setFormOpen(true);
+  }
+
+  async function deactivateTax(tax: TaxRateDTO) {
+    if (pendingId) return;
+    setPendingId(tax.id);
+    setActionError(null);
+    try {
+      await updateTaxRate.mutateAsync({ id: tax.id, patch: { status: "inactive" } });
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("taxes.theTaxCouldNotBe"));
+    } finally {
+      setPendingId(null);
+    }
   }
 
   async function handleSubmit(event: FormEvent) {
@@ -331,15 +346,6 @@ export function TaxesScreen() {
     { key: "rate", header: t("taxes.taxRate"), render: (tax) => <span className="mz-num">{tax.rate.toFixed(2)}%</span> },
     { key: "type", header: t("common.type"), render: (tax) => t(CALC_TYPE_KEY[tax.calculationType]) },
     { key: "status", header: t("common.status"), render: (tax) => <StatusPill label={t(STATUS_KEY[tax.status])} tone={STATUS_TONE[tax.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      render: (tax) => (
-        <Button size="sm" onClick={() => openEditForm(tax)}>
-          {t("common.edit")}
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -370,6 +376,11 @@ export function TaxesScreen() {
             {t("common.retry")}
           </Button>
         </Card>
+      ) : null}
+      {actionError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
+        </div>
       ) : null}
       <DocumentList<TaxRateDTO>
         title={t("taxes.taxes")}
@@ -404,6 +415,21 @@ export function TaxesScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(tax) => tax.id}
+        rowAction={(tax) => {
+          const items: RowMenuItem[] = [
+            { key: "edit", label: t("common.edit"), onSelect: () => openEditForm(tax) },
+          ];
+          if (tax.status === "active") {
+            items.push({
+              key: "deactivate",
+              label: t("taxes.deactivate"),
+              tone: "danger",
+              disabled: pendingId === tax.id,
+              onSelect: () => void deactivateTax(tax),
+            });
+          }
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: tax.name })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

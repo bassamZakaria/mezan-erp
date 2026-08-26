@@ -5,6 +5,7 @@ import {
   StatusPill,
   Card,
   Button,
+  RowMenu,
   SidePanel,
   MoneyInput,
   EntityPicker,
@@ -12,6 +13,7 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { canTransitionProject, matchesSearch } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
@@ -114,6 +116,8 @@ export function ProjectsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusDraft, setStatusDraft] = useState<ProjectStatusDTO>("planned");
   const [statusError, setStatusError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   function customerName(customerId: string | null): string {
     if (customerId === null) return t("projects.noCustomer");
@@ -199,6 +203,19 @@ export function ProjectsScreen() {
     }
   }
 
+  async function changeStatusFromRow(project: ProjectDTO, status: ProjectStatusDTO) {
+    if (pendingId) return;
+    setPendingId(project.id);
+    setActionError(null);
+    try {
+      await updateProject.mutateAsync({ id: project.id, patch: { status } });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : t("projects.theProjectSStatusCould"));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   const columns: DocumentListColumn<ProjectDTO>[] = [
     { key: "code", header: t("projects.projectCode"), render: (p) => <span className="mz-num font-semibold text-ink">{p.code}</span> },
     { key: "nameAr", header: t("projects.projectName"), render: (p) => <span className="font-semibold text-ink">{p.nameAr}</span> },
@@ -227,6 +244,11 @@ export function ProjectsScreen() {
           </Button>
         </Card>
       ) : null}
+      {actionError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
+        </div>
+      ) : null}
       <DocumentList<ProjectDTO>
         title={t("projects.projectsAndContracting")}
         description={t("projects.trackingEachProjectSCost")}
@@ -253,6 +275,21 @@ export function ProjectsScreen() {
         rows={filtered}
         rowKey={(p) => p.id}
         onRowClick={openDetail}
+        rowAction={(p) => {
+          const items: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => openDetail(p) },
+            ...statusOptionsFrom(p.status, t)
+              .filter((option) => option.value !== p.status)
+              .map((option) => ({
+                key: option.value,
+                label: option.label,
+                tone: option.value === "cancelled" ? ("danger" as const) : ("default" as const),
+                disabled: pendingId === p.id,
+                onSelect: () => void changeStatusFromRow(p, option.value),
+              })),
+          ];
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: p.nameAr })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

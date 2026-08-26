@@ -57,7 +57,8 @@ CREATE TABLE IF NOT EXISTS journal_line (
   memo          TEXT,
   cost_center_id TEXT,
   currency      TEXT,
-  fx_rate       TEXT
+  fx_rate       TEXT,
+  tax_rate_percent REAL
 );
 CREATE INDEX IF NOT EXISTS idx_journal_line_entry ON journal_line(entry_id);
 CREATE INDEX IF NOT EXISTS idx_journal_line_account ON journal_line(account_id);
@@ -95,6 +96,7 @@ interface LineRow {
   cost_center_id: string | null;
   currency: string | null;
   fx_rate: string | null;
+  tax_rate_percent: number | null;
 }
 
 /**
@@ -150,14 +152,14 @@ class SqliteLedgerRepository implements LedgerRepository {
       WHERE id = @id
     `);
     this.insertLine = sqlite.prepare(`
-      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate)
-      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate)
+      INSERT INTO journal_line (entry_id, line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent)
+      VALUES (@entry_id, @line_no, @account_id, @debit, @credit, @memo, @cost_center_id, @currency, @fx_rate, @tax_rate_percent)
     `);
     this.selectEntryById = sqlite.prepare(`SELECT * FROM journal_entry WHERE id = ?`);
     this.selectEntryByNo = sqlite.prepare(`SELECT * FROM journal_entry WHERE entry_no = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
+        `SELECT line_no, account_id, debit, credit, memo, cost_center_id, currency, fx_rate, tax_rate_percent FROM journal_line WHERE entry_id = ? ORDER BY line_no`,
       )
       .safeIntegers();
   }
@@ -175,6 +177,7 @@ class SqliteLedgerRepository implements LedgerRepository {
         cost_center_id: line.costCenterId ?? null,
         currency: line.currency ?? null,
         fx_rate: line.fxRate ?? null,
+        tax_rate_percent: line.taxRatePercent ?? null,
       });
     });
   }
@@ -366,6 +369,7 @@ class SqliteLedgerRepository implements LedgerRepository {
       credit: Money.fromScaled(l.credit),
       memo: l.memo,
       costCenterId: l.cost_center_id,
+      taxRatePercent: l.tax_rate_percent === null ? null : Number(l.tax_rate_percent),
       currency: l.currency,
       fxRate: l.fx_rate,
     }));
@@ -432,6 +436,10 @@ export function createSqliteLedgerStore(
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  // journal_line predates the tax-rate dimension (D28); an existing books file
+  // has the table already, so CREATE TABLE IF NOT EXISTS alone never adds it.
+  const lineColumns = new Set((sqlite.prepare(`PRAGMA table_info(journal_line)`).all() as { name: string }[]).map((c) => c.name));
+  if (!lineColumns.has("tax_rate_percent")) sqlite.exec(`ALTER TABLE journal_line ADD COLUMN tax_rate_percent REAL`);
   const repo = new SqliteLedgerRepository(sqlite);
   const numbering = new NextNumberService(new SharedSequenceStore(sqlite), configStore);
   return Object.assign(repo, {

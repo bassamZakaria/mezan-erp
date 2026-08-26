@@ -91,6 +91,45 @@ export function vatNetPayable(rows: readonly VatReturnRow[]): number {
   return diffOf(output, input);
 }
 
+
+/**
+ * Per-rate (base, tax) pairs read straight off an entry's tagged lines.
+ *
+ * Returns [] when no line of this entry carries a rate, which is the signal to
+ * fall back to the per-entry division. `side` is the direction the VAT and its
+ * base both move in: credit for output (revenue), debit for input (purchases).
+ */
+function ratedBuckets(
+  entry: JournalEntry,
+  vatAccountId: string,
+  isBaseAccount: (accountId: string) => boolean,
+  side: "debit" | "credit",
+): { rate: number; base: number; tax: number }[] {
+  const byRate = new Map<number, { base: number; tax: number }>();
+  let sawRate = false;
+  for (const line of entry.lines) {
+    const rate = line.taxRatePercent;
+    if (rate === null || rate === undefined) continue;
+    const amount = side === "credit" ? moneyToNumber(line.credit) - moneyToNumber(line.debit) : moneyToNumber(line.debit) - moneyToNumber(line.credit);
+    if (amount === 0) continue;
+    const slot = byRate.get(rate) ?? { base: 0, tax: 0 };
+    if (line.accountId === vatAccountId) {
+      sawRate = true;
+      slot.tax += amount;
+    } else if (isBaseAccount(line.accountId)) {
+      sawRate = true;
+      slot.base += amount;
+    } else {
+      continue;
+    }
+    byRate.set(rate, slot);
+  }
+  if (!sawRate) return [];
+  return [...byRate.entries()]
+    .map(([rate, v]) => ({ rate, base: v.base, tax: v.tax }))
+    .filter((b) => b.base !== 0 || b.tax !== 0);
+}
+
 export function createVatReturnReport(
   defaultParams: VatReturnParams,
 ): ReportDefinition<VatReturnParams, VatReturnRow, VatReturnContext> {
@@ -157,14 +196,26 @@ export function createVatReturnReport(
         const outputTax = outVat.credit - outVat.debit;
         const revenueBase = creditsToTypes(entry, isRevenue);
 
-        if (revenueBase > 0) {
+        // The rates the LINES recorded, when they recorded any. Dividing tax by
+        // base per entry — which is all this report could do before the ledger
+        // carried a rate — reports a 14%/5%/zero-rated invoice as a single
+        // ~6.3% bucket that was never charged to anyone (D28). Entries posted
+        // before the dimension existed carry none, and still fall back to the
+        // old derivation so history keeps reporting.
+        const outputTagged = ratedBuckets(entry, ctx.outputVatAccountId, isRevenue, "credit");
+        if (outputTagged.length > 0) {
+          for (const b of outputTagged) bump(outputBuckets, b.rate, b.base, b.tax);
+        } else if (revenueBase > 0) {
           const rate = outputTax > 0 ? Math.round((outputTax / revenueBase) * 100) : 0;
           bump(outputBuckets, rate, revenueBase, outputTax > 0 ? outputTax : 0);
         }
 
         const inVat = lineNet(entry, ctx.inputVatAccountId);
         const inputTax = inVat.debit - inVat.credit;
-        if (inputTax > 0) {
+        const inputTagged = ratedBuckets(entry, ctx.inputVatAccountId, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id), "debit");
+        if (inputTagged.length > 0) {
+          for (const b of inputTagged) bump(inputBuckets, b.rate, b.base, b.tax);
+        } else if (inputTax > 0) {
           // Exclude the input-VAT account itself from the base (it's an asset too).
           const purchaseBase = debitsToTypes(entry, (id) => id !== ctx.inputVatAccountId && isPurchaseBase(id));
           const rate = purchaseBase > 0 ? Math.round((inputTax / purchaseBase) * 100) : 0;

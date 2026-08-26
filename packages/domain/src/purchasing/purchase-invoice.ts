@@ -441,7 +441,23 @@ export function buildInvoicePosting(
     lines.push({ accountId: expenseAccountId, debit: expenseBase, credit: Money.zero() });
   }
   if (tax.scaled !== 0n) {
-    lines.push({ accountId: accounts.taxAccountId, debit: tax, credit: Money.zero() });
+    // One input-VAT line per rate charged, not one blended lump. The VAT return
+    // reports the rates actually charged, and it can only do that if the ledger
+    // recorded them (D28). The parts are summed from the per-line tax so they
+    // still add to exactly `tax` — the payable above is unchanged.
+    const taxByRate = new Map<number, Money>();
+    for (const line of invoice.lines) {
+      const lineTax = convert(purchaseInvoiceLineTax(line));
+      if (lineTax.scaled === 0n) continue;
+      taxByRate.set(line.taxRatePercent, (taxByRate.get(line.taxRatePercent) ?? Money.zero()).add(lineTax));
+    }
+    if (taxByRate.size === 0) {
+      lines.push({ accountId: accounts.taxAccountId, debit: tax, credit: Money.zero() });
+    } else {
+      for (const [rate, amount] of taxByRate) {
+        lines.push({ accountId: accounts.taxAccountId, debit: amount, credit: Money.zero(), taxRatePercent: rate });
+      }
+    }
   }
   lines.push({ accountId: accounts.payableAccountId, debit: Money.zero(), credit: payable, ...fxTag });
 

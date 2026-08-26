@@ -39,6 +39,7 @@ export function createSalesInvoiceGlHook(deps: JournalPostingDeps): DocumentGlHo
             // converted amount with no currency on it is indistinguishable
             // from a base-currency one (D24, D26).
             costCenterId: l.costCenterId ?? null,
+            taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),

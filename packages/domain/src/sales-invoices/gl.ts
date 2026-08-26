@@ -55,28 +55,41 @@ export function buildSalesInvoiceGlPosting(
   const fxTag = fx ? { currency: invoice.currency, fxRate: fx.rate } : {};
 
   // --- Revenue side ---
-  const revenueByAccount = new Map<string, Money>();
+  // Grouped by revenue account AND by the rate the line was taxed at, so a
+  // 14% / 5% / zero-rated invoice posts one base line per rate instead of one
+  // blended line. The VAT return reports the rates actually charged, and it can
+  // only do that if the ledger recorded them (D28).
+  const revenueByAccountAndRate = new Map<string, { accountId: string; rate: number; amount: Money }>();
+  const taxByRate = new Map<number, Money>();
   for (let i = 0; i < invoice.lines.length; i++) {
     const line = invoice.lines[i];
     const lineTotals = totals.lines[i];
     if (!line || !lineTotals) continue;
-    sumInto(revenueByAccount, line.revenueAccountId, convert(lineTotals.taxableBase));
+    const rate = line.taxRatePercent;
+    const key = `${line.revenueAccountId}|${rate}`;
+    const bucket = revenueByAccountAndRate.get(key);
+    const base = convert(lineTotals.taxableBase);
+    if (bucket) revenueByAccountAndRate.set(key, { ...bucket, amount: bucket.amount.add(base) });
+    else revenueByAccountAndRate.set(key, { accountId: line.revenueAccountId, rate, amount: base });
+    const lineTax = convert(lineTotals.tax);
+    if (lineTax.scaled !== 0n) taxByRate.set(rate, (taxByRate.get(rate) ?? Money.zero()).add(lineTax));
   }
-  const taxTotal = convert(totals.taxTotal);
 
   // AR is the SUM of the converted parts, never the conversion of the sum:
   // rounding each component once is what keeps Σ debits == Σ credits exactly.
-  let receivable = taxTotal;
-  for (const amount of revenueByAccount.values()) receivable = receivable.add(amount);
+  let receivable = Money.zero();
+  for (const amount of taxByRate.values()) receivable = receivable.add(amount);
+  for (const bucket of revenueByAccountAndRate.values()) receivable = receivable.add(bucket.amount);
   debits.push({ accountId: invoice.arAccountId, debit: receivable, credit: Money.zero(), ...fxTag });
 
-  for (const [accountId, amount] of revenueByAccount) {
+  for (const { accountId, rate, amount } of revenueByAccountAndRate.values()) {
     if (amount.scaled === 0n) continue;
-    credits.push({ accountId, debit: Money.zero(), credit: amount });
+    credits.push({ accountId, debit: Money.zero(), credit: amount, taxRatePercent: rate });
   }
 
-  if (taxTotal.scaled !== 0n) {
-    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: taxTotal });
+  for (const [rate, amount] of taxByRate) {
+    if (amount.scaled === 0n) continue;
+    credits.push({ accountId: invoice.taxAccountId, debit: Money.zero(), credit: amount, taxRatePercent: rate });
   }
 
   // --- COGS side ---

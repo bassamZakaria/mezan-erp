@@ -78,6 +78,12 @@ export interface PurchaseGlPostingLine {
    */
   readonly currency?: string | null;
   readonly fxRate?: string | null;
+  /**
+   * The VAT rate this line was charged at (14, 5, 0…). Carried on the input-VAT
+   * line so the VAT return reports the rates actually charged instead of
+   * dividing tax by base per entry (D28).
+   */
+  readonly taxRatePercent?: number | null;
 }
 
 /**

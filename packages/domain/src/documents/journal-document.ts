@@ -149,6 +149,7 @@ export function createJournalGlHook(deps: JournalPostingDeps): DocumentGlHook {
             // cost-centre P&L and the FX revaluation both read them off the
             // posted line and can never recover them afterwards (D24, D26).
             costCenterId: l.costCenterId ?? null,
+            taxRatePercent: l.taxRatePercent ?? null,
             currency: l.currency ?? null,
             fxRate: l.fxRate ?? null,
           })),

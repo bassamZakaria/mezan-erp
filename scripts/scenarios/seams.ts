@@ -630,7 +630,17 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X46 — VAT that is not "14% of everything"
   // ---------------------------------------------------------------------------
-  await scenario("x46 · the VAT return must separate the rates it collected; today it re-derives one blended rate per document and loses them", async () => {
+  await scenario("x46 · the VAT return separates the rates it actually collected, per line, not one blended rate per document", async () => {
+    // The buckets are tenant-wide and earlier scenarios have already posted at
+    // these rates, so what this invoice proves is the DELTA it contributes.
+    const bucketOf = (rowsIn: any[], rate: number) => {
+      const row = rowsIn.filter((r: any) => r.side === "output").find((r: any) => n(r.rate) === rate);
+      return { base: row ? n(row.base) : 0, tax: row ? n(row.tax) : 0 };
+    };
+    const before = await vatReturn();
+    const fiveBefore = bucketOf(before.rows, 5);
+    const fourteenBefore = bucketOf(before.rows, 14);
+
     const created = await req("POST", "/sales-invoices", {
       id: "SCN-S-INV-RATES", date: TODAY, dueDate: "2026-09-23", customerId: CUSTOMER, customerNameAr: "عميل",
       warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
@@ -647,12 +657,23 @@ export async function run(ctx: Ctx): Promise<void> {
     const { rows: vatRows } = await vatReturn();
     const output = vatRows.filter((r: any) => r.side === "output");
     const rates = output.map((r: any) => n(r.rate));
+    // The regression guard for D28. Each posted line now carries the rate it was
+    // charged at, so the report groups by a recorded fact instead of dividing
+    // tax by base per entry — which reported this invoice at a blended ~6.3%
+    // that matched no line and no legal rate.
     check(
-      "FINDING — the VAT return cannot report the rates that were charged: `createVatReturnReport` (packages/domain/src/reports/vat-return.ts) re-derives ONE rate per journal entry from tax ÷ base, " +
-        `so this invoice appears at a blended ~6.3% that matches no line and no legal rate. Rates seen: ${rates.join(", ") || "(none)"}. An ETA filing needs 14%, 5% and zero-rated separated.`,
-      !rates.includes(5),
-      `output rows=${JSON.stringify(output).slice(0, 300)}`,
+      "the 5% supply is reported as 5%, in its own bucket — an ETA filing needs the rates separated",
+      rates.includes(5),
+      `rates seen: ${rates.join(", ") || "(none)"} · rows=${JSON.stringify(output).slice(0, 300)}`,
     );
+    check("and the 14% supply keeps its own bucket rather than being blended with the 5% one", rates.includes(14), `rates seen: ${rates.join(", ")}`);
+    check("no blended rate that was never charged to anyone appears", !rates.some((r: number) => r !== 0 && r !== 5 && r !== 14), `rates seen: ${rates.join(", ")}`);
+    const fiveAfter = bucketOf(vatRows, 5);
+    const fourteenAfter = bucketOf(vatRows, 14);
+    checkEq("the 5% bucket grew by exactly the tax that line charged, and by nothing else", fiveAfter.tax - fiveBefore.tax, 50);
+    checkEq("and by exactly the base it was charged on", fiveAfter.base - fiveBefore.base, 1000);
+    checkEq("the 14% bucket took its own line's tax, not a share of the 5% one", fourteenAfter.tax - fourteenBefore.tax, 140);
+    checkEq("and its own base", fourteenAfter.base - fourteenBefore.base, 1000);
 
     const exemptRate = await req("POST", "/tax-rates", {
       id: "SCN-S-TAX-CONSTRUCTION", code: "SCN-S-C36", name: "مقاولات — ١٤٪ على ٣٦٪ من القيمة", rate: 14,

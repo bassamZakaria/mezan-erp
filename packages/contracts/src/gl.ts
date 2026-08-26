@@ -21,6 +21,8 @@ export const glJournalLineSchema = z.object({
   currency: z.string().nullish(),
   /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
   fxRate: z.string().nullish(),
+  /** VAT rate this line was charged at, so the VAT return reports the rates actually charged (D28). */
+  taxRatePercent: z.number().nullish(),
 });
 
 /** Create (and post) a journal entry. */

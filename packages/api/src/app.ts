@@ -1207,9 +1207,11 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
               debit: l.debit,
               credit: l.credit,
               // Carried through, or the FX revaluation engine can never find
-              // the foreign balance this entry created (D24).
+              // the foreign balance this entry created (D24), and the VAT
+              // return can never report the rate this line was charged at (D28).
               currency: l.currency ?? null,
               fxRate: l.fxRate ?? null,
+              taxRatePercent: l.taxRatePercent ?? null,
             })),
           },
           purchases.gl,

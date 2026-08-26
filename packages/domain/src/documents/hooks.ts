@@ -49,6 +49,17 @@ export interface DocumentGlPostingLine {
   readonly currency?: string | null;
   /** Foreign→base rate applied at confirm, as an exact decimal string. */
   readonly fxRate?: string | null;
+  /**
+   * The VAT rate this line was charged at, as a percentage (14, 5, 0…).
+   *
+   * Carried on BOTH the taxable base line and the VAT line it produced, because
+   * the VAT return needs to report the rates actually charged. Without it the
+   * report could only divide tax by base per ENTRY, which blends a 14% / 5% /
+   * zero-rated invoice into one meaningless ~6.3% bucket (D28). Null on lines
+   * that carry no tax dimension at all, and on entries posted before the field
+   * existed — the report falls back to the old derivation for those.
+   */
+  readonly taxRatePercent?: number | null;
 }
 
 /**

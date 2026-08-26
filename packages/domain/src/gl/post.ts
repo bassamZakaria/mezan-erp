@@ -41,6 +41,8 @@ export interface JournalLineInput {
   readonly currency?: string | null;
   /** Foreign→base exchange rate applied at confirmation, as an exact decimal string. */
   readonly fxRate?: string | null;
+  /** VAT rate this line was charged at, so the VAT return can report the rates actually charged (D28). */
+  readonly taxRatePercent?: number | null;
 }
 
 /** Command to create/post a journal entry. */
@@ -101,6 +103,7 @@ function toLine(input: JournalLineInput): JournalLine {
     costCenterId: input.costCenterId ?? null,
     currency: input.currency ?? null,
     fxRate: input.fxRate ?? null,
+    taxRatePercent: input.taxRatePercent ?? null,
   };
 }
 

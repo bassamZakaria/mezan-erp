@@ -244,3 +244,6 @@ export * from "./tax/vat-filing.js";
 
 /** المرفقات — files attached to a document or an entity (R1.4). */
 export * from "./attachments/index.js";
+
+/** Unit-of-measure conversion — an entered alternate unit into the base quantity the stock ledger moves. */
+export * from "./units/index.js";

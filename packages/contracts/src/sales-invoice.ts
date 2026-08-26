@@ -28,9 +28,25 @@ export const createSalesInvoiceLineSchema = z.object({
   itemId: z.string().min(1),
   itemNameAr: z.string().min(1),
   isStock: z.boolean(),
+  /** The quantity as entered, in `unitCode` — NOT the base quantity. */
   qty: z.string(),
+  /**
+   * The unit the quantity is stated in (the item's base unit code or one of its
+   * alternate-unit codes). Omit for the base unit.
+   */
+  unitCode: z.string().min(1).nullish(),
+  /**
+   * Base units per one `unitCode`, taken from the item's unit setup. It rides
+   * on the line rather than being re-resolved server-side so that editing an
+   * item's unit setup later cannot restate a document already in the books.
+   */
+  unitFactor: z.number().positive().nullish(),
   unitPrice: z.string(),
+  /** Whether `discountPercent` or `discountAmount` is the live field. */
+  discountType: z.enum(["percent", "amount"]).optional(),
   discountPercent: z.number().min(0).max(100).optional(),
+  /** Fixed line discount as an exact decimal string; capped at the line's gross. */
+  discountAmount: z.string().optional(),
   taxRatePercent: z.number().min(0).optional(),
   revenueAccountId: z.string().min(1),
   cogsAccountId: z.string().min(1).nullish(),

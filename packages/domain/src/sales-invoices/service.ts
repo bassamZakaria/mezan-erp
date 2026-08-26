@@ -13,6 +13,7 @@
  */
 
 import { Money, Qty } from "../money/index.js";
+import { toBaseQty } from "../units/index.js";
 import { occurredAtFromDocumentDate } from "../inventory/movement.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { recordSensitiveEvent, type AuditSink } from "../audit/index.js";
@@ -30,6 +31,7 @@ import type {
   SalesInvoice,
   SalesInvoiceDiscount,
   SalesInvoiceLine,
+  SalesInvoiceLineDiscountType,
   SalesInvoiceStatus,
 } from "./sales-invoice.js";
 import { assertTransition } from "./status.js";
@@ -141,8 +143,14 @@ export interface CreateSalesInvoiceLine {
   readonly itemNameAr: string;
   readonly isStock: boolean;
   readonly qty: Qty;
+  /** The unit the quantity is stated in; omit for the item's base unit. */
+  readonly unitCode?: string | null;
+  /** Base units per one `unitCode`, from the item's unit setup. Defaults to 1. */
+  readonly unitFactor?: number | null;
   readonly unitPrice: Money;
+  readonly discountType?: SalesInvoiceLineDiscountType;
   readonly discountPercent?: number;
+  readonly discountAmount?: Money;
   readonly taxRatePercent?: number;
   readonly revenueAccountId: string;
   readonly cogsAccountId?: string | null;
@@ -292,7 +300,10 @@ export class SalesInvoiceService {
           sourceDocNumber: docNo,
           warehouseId: promoted.warehouseId,
           occurredAt,
-          lines: stockLines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
+          // BASE units, never the entered ones: a line sold in cartons must
+          // take pieces out of the ledger, and the cost that comes back — and
+          // therefore the COGS leg — is the cost of those pieces.
+          lines: stockLines.map((l) => ({ itemId: l.itemId, qty: l.baseQty })),
         });
         costByLineId = new Map(stockLines.map((l, i) => [l.lineId, result.lines[i]?.cost ?? Money.zero()]));
       }
@@ -464,20 +475,31 @@ export class SalesInvoiceService {
 
   private buildDraft(cmd: CreateSalesInvoiceCommand, taxPolicy: SalesInvoiceTaxPolicy): SalesInvoice {
     const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
-    const lines: SalesInvoiceLine[] = cmd.lines.map((l) => ({
+    const lines: SalesInvoiceLine[] = cmd.lines.map((l) => {
+      const unitFactor = l.unitFactor ?? 1;
+      return {
       lineId: l.lineId,
       itemId: l.itemId,
       itemNameAr: l.itemNameAr,
       isStock: l.isStock,
       qty: l.qty,
+      unitCode: (l.unitCode ?? "").trim(),
+      unitFactor,
+      // Computed once, at draft time, from the factor the item master held
+      // then: re-deriving it later would restate a document already in the
+      // books if someone edits the item's unit setup.
+      baseQty: Number.isFinite(unitFactor) && unitFactor > 0 ? toBaseQty(l.qty, unitFactor) : l.qty,
       unitPrice: l.unitPrice,
+      discountType: l.discountType ?? "percent",
       discountPercent: l.discountPercent ?? 0,
+      discountAmount: l.discountAmount ?? Money.zero(),
       taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent),
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
       unitCost: null,
-    }));
+      };
+    });
     return {
       id: cmd.id,
       docType: "SALES_INVOICE",
@@ -526,7 +548,17 @@ export class SalesInvoiceService {
       if (line.unitPrice.scaled < 0n) {
         reasons.push(`الصنف "${line.itemNameAr}": السعر لا يقبل قيمة سالبة.`);
       }
-      if (line.discountPercent < 0 || line.discountPercent > 100) {
+      if (!Number.isFinite(line.unitFactor) || line.unitFactor <= 0) {
+        reasons.push(`الصنف "${line.itemNameAr}": معامل تحويل الوحدة يجب أن يكون أكبر من صفر.`);
+      }
+      if (line.baseQty.isNegative() || line.baseQty.isZero()) {
+        reasons.push(`الصنف "${line.itemNameAr}": الكمية بالوحدة الأساسية يجب أن تكون أكبر من صفر.`);
+      }
+      if (line.discountType === "amount") {
+        if (line.discountAmount.scaled < 0n) {
+          reasons.push(`الصنف "${line.itemNameAr}": قيمة الخصم لا تقبل قيمة سالبة.`);
+        }
+      } else if (line.discountPercent < 0 || line.discountPercent > 100) {
         reasons.push(`الصنف "${line.itemNameAr}": نسبة الخصم يجب أن تكون بين 0 و 100.`);
       }
       if (line.isStock && (!line.cogsAccountId || !line.inventoryAccountId)) {

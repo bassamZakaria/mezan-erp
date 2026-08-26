@@ -21,7 +21,9 @@ function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
     cogsAccountId: "5000",
     inventoryAccountId: "1200",
     unitCost: null,
+    unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(),
     ...overrides,
+    baseQty: overrides.baseQty ?? overrides.qty ?? Qty.fromMajor("1"),
   };
 }
 

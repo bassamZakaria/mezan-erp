@@ -5,7 +5,7 @@ import { createAgingCustomersReport } from "./aging-customers.js";
 import type { SalesInvoice, SalesInvoiceLine } from "../sales-invoices/sales-invoice.js";
 
 function line(overrides: Partial<SalesInvoiceLine> = {}): SalesInvoiceLine {
-  return { lineId: "l1", itemId: "item-1", itemNameAr: "صنف", isStock: true, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("200.00"), discountPercent: 0, taxRatePercent: 0, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null, unitCost: null, ...overrides };
+  return { lineId: "l1", itemId: "item-1", itemNameAr: "صنف", isStock: true, qty: Qty.fromMajor("1"), unitPrice: Money.fromMajor("200.00"), discountPercent: 0, taxRatePercent: 0, revenueAccountId: "4100", cogsAccountId: null, inventoryAccountId: null, unitCost: null, unitCode: "", unitFactor: 1, discountType: "percent" as const, discountAmount: Money.zero(), ...overrides, baseQty: overrides.baseQty ?? overrides.qty ?? Qty.fromMajor("1") };
 }
 function invoice(overrides: Partial<SalesInvoice> = {}): SalesInvoice {
   return {

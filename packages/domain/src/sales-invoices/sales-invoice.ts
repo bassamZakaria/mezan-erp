@@ -54,6 +54,9 @@ export type SalesInvoiceDiscount =
   | { readonly type: "percent"; readonly percent: number }
   | { readonly type: "amount"; readonly amount: Money };
 
+/** A line-level discount is stated the same two ways the header one is. */
+export type SalesInvoiceLineDiscountType = SalesInvoiceDiscountType;
+
 /** One line of a sales invoice. */
 export interface SalesInvoiceLine {
   readonly lineId: string;
@@ -62,10 +65,28 @@ export interface SalesInvoiceLine {
   readonly itemNameAr: string;
   /** Whether this line moves inventory (a stock item) vs. a service line. */
   readonly isStock: boolean;
+  /** The quantity as ENTERED, in {@link unitCode} — the figure the price multiplies. */
   readonly qty: Qty;
+  /**
+   * The unit the quantity was entered in. Empty on an invoice raised before
+   * per-line units existed, which means "the item's base unit".
+   */
+  readonly unitCode: string;
+  /** Base units per one {@link unitCode} — 1 when the line is in the base unit. */
+  readonly unitFactor: number;
+  /**
+   * qty × unitFactor. The stock ledger moves THIS, never `qty`: a line sold in
+   * cartons has to issue pieces, and COGS is derived from what actually left.
+   */
+  readonly baseQty: Qty;
+  /** The price of one {@link unitCode}, not of one base unit. */
   readonly unitPrice: Money;
-  /** Line-level discount percentage (0–100). */
+  /** Whether this line's discount is a percentage of its gross or a fixed amount. */
+  readonly discountType: SalesInvoiceLineDiscountType;
+  /** Line-level discount percentage (0–100) — read only when `discountType` is `percent`. */
   readonly discountPercent: number;
+  /** Fixed line discount, capped at the line's gross — read only when `discountType` is `amount`. */
+  readonly discountAmount: Money;
   /** Output VAT percentage applied to this line (0 for exempt). */
   readonly taxRatePercent: number;
   /** Revenue GL account this line credits on confirm. */
@@ -77,6 +98,8 @@ export interface SalesInvoiceLine {
   /**
    * Moving-average unit cost captured when the line was issued on confirm
    * (null while draft). Retained so the detail view can show التكلفة / الربح.
+   * Stated per ENTERED unit, like `unitPrice`, so cost × qty and price × qty
+   * are the same multiplication and the margin on screen ties to the GL.
    */
   readonly unitCost: Money | null;
 }

@@ -1799,9 +1799,19 @@ export interface SalesInvoiceLineRowDTO {
   readonly itemId: string;
   readonly itemNameAr: string;
   readonly isStock: boolean;
+  /** As entered, in `unitCode` — the figure `unitPrice` multiplies. */
   readonly qty: string;
+  /** The unit the line was entered in; "" on invoices raised before per-line units (R2.4). */
+  readonly unitCode?: string;
+  /** Base units per one `unitCode`. */
+  readonly unitFactor?: number;
+  /** qty × unitFactor — what the stock ledger actually moved. */
+  readonly baseQty?: string;
   readonly unitPrice: string;
+  /** Whether `discountPercent` or `discountAmount` is the live field (R2.5). */
+  readonly discountType?: "percent" | "amount";
   readonly discountPercent: number;
+  readonly discountAmount?: string;
   readonly taxRatePercent: number;
   readonly revenueAccountId: string;
   readonly cogsAccountId: string | null;

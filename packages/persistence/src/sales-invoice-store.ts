@@ -68,7 +68,12 @@ CREATE TABLE IF NOT EXISTS sales_invoice_line (
   item_name_ar         TEXT NOT NULL,
   is_stock             INTEGER NOT NULL,
   qty                  INTEGER NOT NULL,
+  unit_code            TEXT,
+  unit_factor          REAL,
+  base_qty             INTEGER,
   unit_price           INTEGER NOT NULL,
+  line_discount_type   TEXT,
+  line_discount_amount INTEGER,
   discount_percent     REAL NOT NULL,
   tax_rate_percent     REAL NOT NULL,
   revenue_account_id   TEXT NOT NULL,
@@ -115,12 +120,27 @@ const ADDED_COLUMNS: readonly (readonly [string, string])[] = [
   ["tax_inclusive", "INTEGER"],
 ];
 
+/** Line columns added after the table shipped — see {@link ADDED_COLUMNS}. */
+const ADDED_LINE_COLUMNS: readonly [string, string][] = [
+  ["unit_code", "TEXT"],
+  ["unit_factor", "REAL"],
+  ["base_qty", "INTEGER"],
+  ["line_discount_type", "TEXT"],
+  ["line_discount_amount", "INTEGER"],
+];
+
 function addMissingColumns(sqlite: Database.Database): void {
   const existing = new Set(
     (sqlite.prepare(`PRAGMA table_info(sales_invoice)`).all() as { name: string }[]).map((c) => c.name),
   );
   for (const [name, type] of ADDED_COLUMNS) {
     if (!existing.has(name)) sqlite.exec(`ALTER TABLE sales_invoice ADD COLUMN ${name} ${type}`);
+  }
+  const existingLine = new Set(
+    (sqlite.prepare(`PRAGMA table_info(sales_invoice_line)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_LINE_COLUMNS) {
+    if (!existingLine.has(name)) sqlite.exec(`ALTER TABLE sales_invoice_line ADD COLUMN ${name} ${type}`);
   }
 }
 
@@ -170,7 +190,12 @@ interface LineRow {
   item_name_ar: string;
   is_stock: number;
   qty: bigint;
+  unit_code: string | null;
+  unit_factor: number | null;
+  base_qty: bigint | null;
   unit_price: bigint;
+  line_discount_type: string | null;
+  line_discount_amount: bigint | null;
   discount_percent: number;
   tax_rate_percent: number;
   revenue_account_id: string;
@@ -194,7 +219,15 @@ function toLine(row: LineRow): SalesInvoiceLine {
     // The line SELECT uses .safeIntegers(), so INTEGER columns arrive as bigint.
     isStock: Number(row.is_stock) === 1,
     qty: Qty.fromScaled(row.qty),
+    unitCode: row.unit_code ?? "",
+    // A line written before per-line units existed is a base-unit line, so its
+    // base quantity is its quantity — never null, or the stock plan would
+    // silently move nothing.
+    unitFactor: row.unit_factor ?? 1,
+    baseQty: row.base_qty === null ? Qty.fromScaled(row.qty) : Qty.fromScaled(row.base_qty),
     unitPrice: Money.fromScaled(row.unit_price),
+    discountType: row.line_discount_type === "amount" ? "amount" : "percent",
+    discountAmount: Money.fromScaled(row.line_discount_amount ?? 0n),
     discountPercent: row.discount_percent,
     taxRatePercent: row.tax_rate_percent,
     revenueAccountId: row.revenue_account_id,
@@ -362,11 +395,15 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     this.deleteLines = sqlite.prepare(`DELETE FROM sales_invoice_line WHERE invoice_id = ?`);
     this.insertLine = sqlite.prepare(`
       INSERT INTO sales_invoice_line (
-        invoice_id, line_no, line_id, item_id, item_name_ar, is_stock, qty, unit_price,
+        invoice_id, line_no, line_id, item_id, item_name_ar, is_stock, qty,
+        unit_code, unit_factor, base_qty, unit_price,
+        line_discount_type, line_discount_amount,
         discount_percent, tax_rate_percent, revenue_account_id, cogs_account_id,
         inventory_account_id, unit_cost
       ) VALUES (
-        @invoice_id, @line_no, @line_id, @item_id, @item_name_ar, @is_stock, @qty, @unit_price,
+        @invoice_id, @line_no, @line_id, @item_id, @item_name_ar, @is_stock, @qty,
+        @unit_code, @unit_factor, @base_qty, @unit_price,
+        @line_discount_type, @line_discount_amount,
         @discount_percent, @tax_rate_percent, @revenue_account_id, @cogs_account_id,
         @inventory_account_id, @unit_cost
       )
@@ -374,7 +411,8 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
     this.selectInvoiceById = sqlite.prepare(`SELECT * FROM sales_invoice WHERE id = ?`);
     this.selectLines = sqlite
       .prepare(
-        `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_price, discount_percent,
+        `SELECT line_id, item_id, item_name_ar, is_stock, qty, unit_code, unit_factor, base_qty,
+                unit_price, line_discount_type, line_discount_amount, discount_percent,
                 tax_rate_percent, revenue_account_id, cogs_account_id, inventory_account_id, unit_cost
            FROM sales_invoice_line WHERE invoice_id = ? ORDER BY line_no`,
       )
@@ -437,7 +475,12 @@ class SqliteSalesInvoiceRepository implements SalesInvoiceRepository {
         item_name_ar: line.itemNameAr,
         is_stock: line.isStock ? 1 : 0,
         qty: line.qty.toScaledNumber(),
+        unit_code: line.unitCode === "" ? null : line.unitCode,
+        unit_factor: line.unitFactor,
+        base_qty: line.baseQty.toScaledNumber(),
         unit_price: line.unitPrice.toScaledNumber(),
+        line_discount_type: line.discountType,
+        line_discount_amount: line.discountAmount.toScaledNumber(),
         discount_percent: line.discountPercent,
         tax_rate_percent: line.taxRatePercent,
         revenue_account_id: line.revenueAccountId,

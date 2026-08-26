@@ -167,6 +167,8 @@ export {
   ReportRunner,
   type ReportRunnerProps,
   type ReportRunnerColumn,
+  type ReportRunnerKpi,
+  type ReportRunnerSummary,
   type ReportRunnerColumnFormat,
   type ReportRunnerParamField,
   type ReportRunnerGroup,

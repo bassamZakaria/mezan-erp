@@ -54,11 +54,44 @@ export interface ReportRunnerReconciliation {
   readonly withinTolerance: boolean;
 }
 
+/**
+ * One figure in a report's summary strip (R21.2). `format` decides how it
+ * renders, so a report never hands over a pre-formatted string it will then be
+ * unable to export or re-localise.
+ */
+export interface ReportRunnerKpi {
+  readonly key: string;
+  readonly label: string;
+  readonly value: number;
+  readonly format?: ReportRunnerColumnFormat;
+  readonly tone?: "default" | "success" | "danger";
+  /** Shown under the figure — what it means, not what it is called. */
+  readonly hint?: string;
+}
+
+/**
+ * The collapsible summary strip (R21.2): one line that stays visible when
+ * collapsed, expanding into the KPI cards. The one-liner is the point — a
+ * report you have to expand to learn anything from has buried its answer.
+ */
+export interface ReportRunnerSummary {
+  readonly headline: string;
+  readonly kpis: readonly ReportRunnerKpi[];
+}
+
 export interface ReportRunnerResult<Row> {
   readonly rows: readonly Row[];
   readonly groups: readonly ReportRunnerGroup<Row>[];
   readonly grandTotals: Readonly<Record<string, number>>;
   readonly reconciliation: ReportRunnerReconciliation | null;
+  /** Computed server-side over the whole result, not the visible page. */
+  readonly summary?: ReportRunnerSummary | null;
+  /**
+   * States that the two sides agree, as a banner above the table (R21.10).
+   * The trial balance's whole claim is that it balances; making the reader
+   * add two columns to find out is the report failing at its one job.
+   */
+  readonly balanceCheck?: { readonly label: string; readonly balanced: boolean } | null;
 }
 
 export interface ReportRunnerProps<Row> {
@@ -80,6 +113,16 @@ export interface ReportRunnerProps<Row> {
   columns: readonly ReportRunnerColumn<Row>[];
   rowKey: (row: Row) => string;
   chart?: ReactNode;
+  /**
+   * How to read the chart (R21.3) — "start at the total, subtract the discount
+   * in red…". A chart nobody can read is decoration.
+   */
+  chartCaption?: string;
+  /**
+   * The basis behind the figures, where it is not obvious (R21.9): which
+   * entries are included, in what currency, and what is deliberately left out.
+   */
+  methodology?: string;
   formatOptions?: UseFormatOptions;
   exportBaseFilename?: string;
   /**
@@ -186,6 +229,8 @@ export function ReportRunner<Row>({
   columns,
   rowKey,
   chart,
+  chartCaption,
+  methodology,
   formatOptions,
   exportBaseFilename,
   showGrandTotal = true,
@@ -194,6 +239,9 @@ export function ReportRunner<Row>({
   const { t } = useUiTranslation();
   const fmt = useFormat(formatOptions);
   const [exporting, setExporting] = useState<ReportExportFormat | null>(null);
+  // Expanded by default: the KPIs are the answer, and hiding them behind a
+  // click would make the strip a decoration rather than the summary.
+  const [summaryOpen, setSummaryOpen] = useState(true);
   const totalColumns = new Set(columns.filter((c) => c.total).map((c) => c.key));
   const hasResult = result !== null;
 
@@ -279,7 +327,59 @@ export function ReportRunner<Row>({
             </Card>
           ) : null}
 
-          {chart ? <div className="mb-[16px]">{chart}</div> : null}
+          {result.balanceCheck ? (
+            <Card
+              role="status"
+              className={cn(
+                "mb-[16px] flex items-center gap-[10px] p-[13px_16px] text-[12.5px] font-semibold",
+                result.balanceCheck.balanced ? "border-success text-success-ink" : "border-danger text-danger-ink",
+              )}
+            >
+              <span aria-hidden>{result.balanceCheck.balanced ? "✓" : "✕"}</span>
+              <span>{result.balanceCheck.label}</span>
+            </Card>
+          ) : null}
+
+          {result.summary ? (
+            <Card className="mb-[16px] overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setSummaryOpen((open) => !open)}
+                aria-expanded={summaryOpen}
+                className="flex w-full items-center justify-between gap-[10px] px-[16px] py-[11px] text-start text-[12.5px] font-semibold text-ink transition-colors hover:bg-surface-2"
+              >
+                <span>{result.summary.headline}</span>
+                <span className="text-[11px] font-normal text-ink-muted">
+                  {summaryOpen ? t("ui.report.summaryCollapse") : t("ui.report.summaryExpand")}
+                </span>
+              </button>
+              {summaryOpen ? (
+                <div className="grid gap-[1px] border-t border-border bg-border sm:grid-cols-2 lg:grid-cols-4">
+                  {result.summary.kpis.map((kpi) => (
+                    <div key={kpi.key} className="flex flex-col gap-[3px] bg-surface p-[13px_16px]">
+                      <span className="text-[11.5px] text-ink-muted">{kpi.label}</span>
+                      <span
+                        className={cn(
+                          "text-[16px] font-bold",
+                          kpi.tone === "success" ? "text-success-ink" : kpi.tone === "danger" ? "text-danger-ink" : "text-ink",
+                        )}
+                      >
+                        {formatCell(kpi.value, kpi.format ?? "money", fmt)}
+                      </span>
+                      {kpi.hint ? <span className="text-[11px] text-ink-faint">{kpi.hint}</span> : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </Card>
+          ) : null}
+
+          {chart ? (
+            <div className="mb-[16px]">
+              {chart}
+              {chartCaption ? <p className="mt-[6px] text-[11.5px] text-ink-muted">{chartCaption}</p> : null}
+            </div>
+          ) : null}
 
           <Card className="overflow-hidden rounded-md">
             <div className="max-h-[min(68vh,760px)] overflow-auto">
@@ -324,6 +424,12 @@ export function ReportRunner<Row>({
               {result.rows.length === 0 ? <div className="p-[16px] text-center text-[12.5px] text-ink-muted">{t("ui.report.noRows")}</div> : null}
             </div>
           </Card>
+
+          {methodology ? (
+            <p className="mt-[10px] max-w-[80ch] text-[11.5px] text-ink-faint">
+              <span className="font-semibold">{t("ui.report.methodology")}:</span> {methodology}
+            </p>
+          ) : null}
         </>
       )}
     </div>

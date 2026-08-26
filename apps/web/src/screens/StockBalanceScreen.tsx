@@ -4,6 +4,7 @@ import type { StockBalanceRowDTO } from "@mezan/contracts";
 import { useItems, useStockBalance, useWarehouses } from "../data/hooks";
 import { SelectField, NumberField } from "../settings/form-controls";
 import { useAppTranslation } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { majorOf } from "../lib/money";
 
 /**
@@ -16,6 +17,7 @@ type StatusFilter = "all" | "in_stock" | "low" | "out";
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 export function StockBalanceScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -39,7 +41,7 @@ export function StockBalanceScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
   function warehouseLabel(id: string): string {
-    return warehouses.find((w) => w.id === id)?.name ?? id;
+    return nameOf(warehouses.find((w) => w.id === id), id);
   }
   /**
    * The reorder point is master data on the item, not on the position — the

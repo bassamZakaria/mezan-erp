@@ -45,7 +45,7 @@ const items: ItemDTO[] = [
   },
 ];
 
-const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "MAIN", type: "MAIN", isDefault: true, active: true }];
+const warehouses: WarehouseDTO[] = [{ id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: true, active: true }];
 
 const accounts: AccountDTO[] = [
   { id: "1105", code: "1105", nameAr: "ذمم عملاء تجاريين", nameEn: null, type: "asset", naturalBalance: "debit", parentId: null, isHeader: false, status: "active" },

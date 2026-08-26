@@ -5,6 +5,7 @@ import { ApiError, useBranches, useWarehouses } from "./hooks";
 import type { ScopeSelection } from "./session";
 import webPackageJson from "../../package.json";
 import { useAppTranslation } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 
 /**
  * Data hooks for the domain hub landing pages, the manufacturing production
@@ -178,6 +179,7 @@ export interface UseScopeSelectorResult {
 /** Backs the topbar's branch/warehouse dropdowns; the actual header-narrowing lives in `authHeaders` (data/session.ts) via `ApiContext.scopeSelection`. */
 export function useScopeSelector(): UseScopeSelectorResult {
   const { session, scopeSelection, setScopeSelection } = useApi();
+  const nameOf = useEntityName();
   const branchesQuery = useBranches();
   const warehousesQuery = useWarehouses();
 
@@ -188,8 +190,8 @@ export function useScopeSelector(): UseScopeSelectorResult {
     const branches = branchesQuery.data ?? [];
     return branches
       .filter((b) => b.active && (allowedBranchIds === null || allowedBranchIds.has(b.id)))
-      .map((b) => ({ id: b.id, label: b.name }));
-  }, [branchesQuery.data, session?.branchScope]);
+      .map((b) => ({ id: b.id, label: nameOf(b) }));
+  }, [branchesQuery.data, session?.branchScope, nameOf]);
 
   const warehouseOptions = useMemo<ScopeOption[]>(() => {
     const warehouses = warehousesQuery.data ?? [];
@@ -200,8 +202,8 @@ export function useScopeSelector(): UseScopeSelectorResult {
           (allowedWarehouseIds === null || allowedWarehouseIds.has(w.id)) &&
           (!scopeSelection.branchId || w.branchId === scopeSelection.branchId),
       )
-      .map((w) => ({ id: w.id, label: w.name }));
-  }, [warehousesQuery.data, session?.warehouseScope, scopeSelection.branchId]);
+      .map((w) => ({ id: w.id, label: nameOf(w) }));
+  }, [warehousesQuery.data, session?.warehouseScope, scopeSelection.branchId, nameOf]);
 
   function setBranch(branchId: string | null) {
     const stillValid = branchId

@@ -7,7 +7,7 @@ import { PhysicalCountsScreen } from "./PhysicalCountsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 const warehouses: WarehouseDTO[] = [
-  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
 ];
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {

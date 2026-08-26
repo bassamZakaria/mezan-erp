@@ -54,6 +54,8 @@ export interface InventoryExpiringParams {
 export interface InventoryExpiringRow {
   readonly key: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly warehouseName: string;
   readonly batchNo: string;
   readonly expiryDate: string;
@@ -127,6 +129,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
     },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);
@@ -139,6 +142,8 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
         if (params.warehouseId !== "" && layer.warehouseId !== params.warehouseId) continue;
 
         const itemNameAr = itemNames.get(layer.itemId) ?? layer.itemId;
+
+        const itemNameEn = itemNamesEn.get(layer.itemId) ?? null;
         const batchNo = layer.batchNo ?? "";
         if (search && !`${itemNameAr} ${batchNo}`.toLowerCase().includes(search)) continue;
 
@@ -151,6 +156,7 @@ export function createInventoryExpiringReport(today: string): ReportDefinition<
         rows.push({
           key: layer.id,
           itemNameAr,
+          itemNameEn,
           warehouseName: warehouseNames.get(layer.warehouseId) ?? layer.warehouseId,
           batchNo,
           expiryDate,

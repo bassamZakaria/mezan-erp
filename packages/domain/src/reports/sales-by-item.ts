@@ -13,6 +13,12 @@ import { aggregateItemSales } from "./sales-item-aggregation.js";
 export interface SalesByItemContext {
   readonly invoices: readonly SalesInvoice[];
   /**
+   * The item catalogue, for the English name only. An invoice LINE stores just
+   * the Arabic name it was written with, so without this the report cannot be
+   * read in English (D57). Optional: omit it and the Arabic name stands.
+   */
+  readonly items?: readonly { readonly id: string; readonly nameEn: string | null }[];
+  /**
    * Revenue posted to the GL over the same period (A7). Optional: without it
    * the report still runs, it simply cannot claim to tie to the ledger —
    * which is more honest than a reconciliation panel comparing a figure to
@@ -29,6 +35,8 @@ export interface SalesByItemParams {
 export interface SalesByItemRow {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly qty: number;
   readonly revenue: number;
   readonly contributionPercent: number;
@@ -83,9 +91,10 @@ export function createSalesByItemReport(
     ],
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
+      const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       return aggregates
-        .map((a) => ({ ...a, contributionPercent: totalRevenue > 0 ? (a.revenue / totalRevenue) * 100 : 0 }))
+        .map((a) => ({ ...a, itemNameEn: namesEn.get(a.itemId) ?? null, contributionPercent: totalRevenue > 0 ? (a.revenue / totalRevenue) * 100 : 0 }))
         .sort((a, b) => b.revenue - a.revenue);
     },
   };

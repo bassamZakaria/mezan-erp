@@ -514,7 +514,7 @@ describe("createBackend — CRM, Projects, Fixed Assets, Field/Van Sales (phase1
   it("opens a van trip (real treasury transfer + real stock transfer) and settles it with cash + stock variance", async () => {
     const app = await newBackend();
 
-    const van = await post(app, "/warehouses", { id: "wh-van1", code: "WH-VAN1", name: "مستودع الڤان 1", branchId: "BR-MAIN", type: "VAN" }, ADMIN);
+    const van = await post(app, "/warehouses", { id: "wh-van1", code: "WH-VAN1", name: "مستودع الڤان 1", nameEn: null, branchId: "BR-MAIN", type: "VAN" }, ADMIN);
     expect(van.status).toBe(201);
     const sourceTa = await post(
       app,

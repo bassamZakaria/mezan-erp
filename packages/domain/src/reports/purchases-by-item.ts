@@ -31,6 +31,8 @@ export interface PurchasesByItemParams {
 export interface PurchasesByItemRow {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly qty: number;
   readonly cost: number;
   readonly costPercent: number;
@@ -84,6 +86,7 @@ export function createPurchasesByItemReport(
     ],
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const byItem = new Map<string, { qty: Qty; cost: Money }>();
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
@@ -100,6 +103,7 @@ export function createPurchasesByItemReport(
       const rows = [...byItem.entries()].map(([itemId, agg]) => ({
         itemId,
         itemNameAr: itemNames.get(itemId) ?? itemId,
+          itemNameEn: itemNamesEn.get(itemId) ?? null,
         qty: Number(agg.qty.toString()),
         cost: Number(agg.cost.toString()),
       }));

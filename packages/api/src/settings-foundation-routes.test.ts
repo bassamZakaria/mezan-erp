@@ -216,7 +216,7 @@ describe("warehouses routes", () => {
       new Request("http://x/warehouses", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: "w2", code: "VAN", name: "سياره نقل", branchId: "b1", type: "VAN" }),
+        body: JSON.stringify({ id: "w2", code: "VAN", name: "سياره نقل", nameEn: null, branchId: "b1", type: "VAN" }),
       }),
     );
     expect(vanRes.status).toBe(201);

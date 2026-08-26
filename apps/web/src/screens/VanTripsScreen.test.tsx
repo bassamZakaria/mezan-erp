@@ -13,8 +13,8 @@ function typeMoney(input: HTMLElement, value: string) {
 }
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-van1", code: "VAN-01", name: "ڤان القاهرة", branchId: "b1", type: "VAN", isDefault: false, active: true },
-  { id: "wh-main1", code: "MAIN-01", name: "المخزن الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "wh-van1", code: "VAN-01", name: "ڤان القاهرة", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
+  { id: "wh-main1", code: "MAIN-01", name: "المخزن الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
 ];
 
 const treasuryAccounts: TreasuryAccountDTO[] = [

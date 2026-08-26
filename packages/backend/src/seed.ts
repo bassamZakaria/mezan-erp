@@ -136,6 +136,7 @@ export async function seedIfEmpty(stores: SeedStores, now: () => Date = () => ne
       id: SEED_MAIN_WAREHOUSE_ID,
       code: "WH-MAIN",
       name: "المستودع الرئيسي",
+      nameEn: "Main Warehouse",
       branchId: SEED_MAIN_BRANCH_ID,
       type: "MAIN",
       isDefault: true,

@@ -28,6 +28,8 @@ export interface PurchasesBySupplierParams {
 export interface PurchasesBySupplierRow {
   readonly supplierId: string;
   readonly supplierNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly supplierNameEn: string | null;
   readonly count: number;
   readonly total: number;
   readonly outstanding: number;
@@ -72,6 +74,7 @@ export function createPurchasesBySupplierReport(
     ],
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
+      const supplierNamesEn = new Map(ctx.suppliers.map((s) => [s.id, s.nameEn ?? null]));
       const bySupplier = new Map<string, { count: number; total: Money }>();
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
@@ -83,6 +86,7 @@ export function createPurchasesBySupplierReport(
       const rows = [...bySupplier.entries()].map(([supplierId, agg]) => ({
         supplierId,
         supplierNameAr: supplierNames.get(supplierId) ?? supplierId,
+          supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
         count: agg.count,
         total: Number(agg.total.toString()),
         outstanding: Number(agg.total.toString()),

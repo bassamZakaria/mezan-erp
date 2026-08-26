@@ -7,6 +7,7 @@ import { branchName } from "./branch-name";
 import { SelectField, TextField, ToggleField } from "./form-controls";
 import { warehouseTypeLabel } from "../domain-labels";
 import { useAppTranslation } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 
 /**
  * المستودعات (Warehouses) — docs/catalog/09 §"إدارة المستودعات". Surfaces
@@ -16,6 +17,7 @@ import { useAppTranslation } from "../i18n";
  */
 
 export function WarehousesPage() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const typeOptions = WAREHOUSE_TYPE_DEFINITIONS.map((d) => ({ value: d.code, label: warehouseTypeLabel(d.code, t) }));
   const query = useWarehouses();
@@ -27,7 +29,7 @@ export function WarehousesPage() {
   const [typeFilter, setTypeFilter] = useState<WarehouseType | "all">("all");
   const [panelOpen, setPanelOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState({ name: "", code: "", branchId: "", type: "MAIN" as WarehouseType, isDefault: false });
+  const [form, setForm] = useState({ name: "", nameEn: "", code: "", branchId: "", type: "MAIN" as WarehouseType, isDefault: false });
 
   useEffect(() => {
     if (form.branchId === "" && branches.length > 0) {
@@ -40,13 +42,13 @@ export function WarehousesPage() {
     if (typeFilter !== "all") rows = rows.filter((w) => w.type === typeFilter);
     if (search.trim() !== "") {
       const q = search.trim();
-      rows = rows.filter((w) => w.name.includes(q) || w.code.toLowerCase().includes(q.toLowerCase()));
+      rows = rows.filter((w) => w.name.includes(q) || (w.nameEn ?? "").toLowerCase().includes(q.toLowerCase()) || w.code.toLowerCase().includes(q.toLowerCase()));
     }
     return rows;
   }, [warehouses, typeFilter, search]);
 
   const columns: DocumentListColumn<WarehouseDTO>[] = [
-    { key: "name", header: t("warehouses.col.name"), render: (w) => <span className="font-semibold text-ink">{w.name}</span> },
+    { key: "name", header: t("warehouses.col.name"), render: (w) => <span className="font-semibold text-ink">{nameOf(w)}</span> },
     { key: "code", header: t("warehouses.col.code"), render: (w) => <span className="mz-num">{w.code}</span> },
     { key: "branch", header: t("warehouses.col.branch"), render: (w) => branchName(w.branchId, branches) },
     { key: "type", header: t("warehouses.col.type"), render: (w) => <StatusPill label={warehouseTypeLabel(w.type, t)} tone="info" /> },
@@ -65,12 +67,13 @@ export function WarehousesPage() {
         id: crypto.randomUUID(),
         code: form.code.toUpperCase(),
         name: form.name,
+        nameEn: form.nameEn.trim() === "" ? null : form.nameEn.trim(),
         branchId: form.branchId,
         type: form.type,
         isDefault: form.isDefault,
       });
       setPanelOpen(false);
-      setForm({ name: "", code: "", branchId: branches[0]?.id ?? "", type: "MAIN", isDefault: false });
+      setForm({ name: "", nameEn: "", code: "", branchId: branches[0]?.id ?? "", type: "MAIN", isDefault: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("warehouses.createFailed"));
     }
@@ -134,6 +137,7 @@ export function WarehousesPage() {
         <div className="flex flex-col gap-[14px]">
           {error ? <StatusPill label={error} tone="danger" /> : null}
           <TextField label={t("warehouses.col.name")} value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} />
+          <TextField label={t("warehouses.col.nameEn")} value={form.nameEn} onChange={(v) => setForm((f) => ({ ...f, nameEn: v }))} />
           <TextField label={t("warehouses.col.code")} value={form.code} onChange={(v) => setForm((f) => ({ ...f, code: v }))} placeholder="WH-ALEX" />
           <SelectField
             label={t("warehouses.col.branch")}

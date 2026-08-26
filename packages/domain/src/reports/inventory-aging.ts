@@ -48,6 +48,8 @@ export interface InventoryAgingParams {
 export interface InventoryAgingRow {
   readonly key: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly warehouseName: string;
   readonly qty: number;
   readonly totalValue: number;
@@ -115,6 +117,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
     },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
       const search = params.search.trim().toLowerCase();
       const todayMs = Date.parse(`${today}T00:00:00Z`);
@@ -133,6 +136,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
       for (const [key, layers] of byPosition) {
         const [itemId, warehouseId] = key.split("|") as [string, string];
         const itemNameAr = itemNames.get(itemId) ?? itemId;
+        const itemNameEn = itemNamesEn.get(itemId) ?? null;
         if (search && !itemNameAr.toLowerCase().includes(search)) continue;
         const oldest = layers.reduce((a, b) => (a.createdAt < b.createdAt ? a : b));
         const ageDays = Math.max(0, Math.round((todayMs - Date.parse(oldest.createdAt)) / 86_400_000));
@@ -142,6 +146,7 @@ export function createInventoryAgingReport(today: string): ReportDefinition<
         rows.push({
           key,
           itemNameAr,
+          itemNameEn,
           warehouseName: warehouseNames.get(warehouseId) ?? warehouseId,
           qty: Number(Qty.sum(layers.map((l) => l.remainingQty)).toString()),
           totalValue: Number(Money.sum(layers.map(layerRemainingValue)).toString()),

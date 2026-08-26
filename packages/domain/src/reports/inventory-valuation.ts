@@ -25,6 +25,8 @@ export interface InventoryValuationParams {
 export interface InventoryValuationRow {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly onHand: number;
   readonly unitCost: number;
   readonly totalValue: number;
@@ -86,6 +88,7 @@ export function createInventoryValuationReport(): ReportDefinition<
         rows.push({
           itemId: item.id,
           itemNameAr: item.nameAr,
+          itemNameEn: item.nameEn ?? null,
           onHand: onHandNumber,
           unitCost: onHandNumber !== 0 ? Number(value.toString()) / onHandNumber : 0,
           totalValue: Number(value.toString()),

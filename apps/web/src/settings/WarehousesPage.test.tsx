@@ -12,11 +12,11 @@ const sampleBranches: BranchDTO[] = [
 ];
 
 const sampleWarehouses: WarehouseDTO[] = [
-  { id: "w1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true },
-  { id: "w2", code: "VAN-01", name: "سياره نقل ١", branchId: "b1", type: "VAN", isDefault: false, active: true },
-  { id: "w3", code: "WH-RET", name: "مستودع المرتجعات", branchId: "b1", type: "RETURNS", isDefault: false, active: true },
-  { id: "w4", code: "WH-ALEX", name: "مستودع فرع الإسكندرية", branchId: "b2", type: "MAIN", isDefault: true, active: true },
-  { id: "w5", code: "WH-PROD", name: "مستودع الإنتاج", branchId: "b2", type: "PRODUCTION", isDefault: false, active: true },
+  { id: "w1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true },
+  { id: "w2", code: "VAN-01", name: "سياره نقل ١", nameEn: null, branchId: "b1", type: "VAN", isDefault: false, active: true },
+  { id: "w3", code: "WH-RET", name: "مستودع المرتجعات", nameEn: null, branchId: "b1", type: "RETURNS", isDefault: false, active: true },
+  { id: "w4", code: "WH-ALEX", name: "مستودع فرع الإسكندرية", nameEn: null, branchId: "b2", type: "MAIN", isDefault: true, active: true },
+  { id: "w5", code: "WH-PROD", name: "مستودع الإنتاج", nameEn: null, branchId: "b2", type: "PRODUCTION", isDefault: false, active: true },
 ];
 
 function renderScreen(warehouses: WarehouseDTO[] = sampleWarehouses, branches: BranchDTO[] = sampleBranches) {
@@ -30,6 +30,7 @@ function renderScreen(warehouses: WarehouseDTO[] = sampleWarehouses, branches: B
         id: body.id,
         code: body.code,
         name: body.name,
+        nameEn: body.nameEn ?? null,
         branchId: body.branchId,
         type: body.type ?? "MAIN",
         isDefault: body.isDefault ?? false,

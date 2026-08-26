@@ -16,6 +16,12 @@ import { withinDateRange } from "./period-bucket.js";
 
 export interface SalesByCustomerContext {
   readonly invoices: readonly SalesInvoice[];
+  /**
+   * The customer list, for the English name only. An invoice stores just the
+   * Arabic name it was written with, so without this the report cannot be read
+   * in English (D57). Optional: omit it and the Arabic name stands.
+   */
+  readonly customers?: readonly { readonly id: string; readonly nameEn: string | null }[];
 }
 
 export interface SalesByCustomerParams {
@@ -27,6 +33,8 @@ export interface SalesByCustomerParams {
 export interface SalesByCustomerRow {
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly customerNameEn: string | null;
   readonly count: number;
   readonly total: number;
   readonly outstanding: number;
@@ -82,6 +90,7 @@ export function createSalesByCustomerReport(
       { key: "avgPerCustomer", labelAr: "متوسط الإيراد لكل عميل", hintAr: "الإيراد ÷ عدد العملاء", format: "money", value: (rows) => averageOf(sumRows(rows, (r) => r.total), rows.length) },
     ],
     run: (params, ctx) => {
+      const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
       const byCustomer = new Map<
         string,
         { customerNameAr: string; count: number; total: Money; outstanding: Money }
@@ -108,6 +117,7 @@ export function createSalesByCustomerReport(
       const rows = [...byCustomer.entries()].map(([customerId, agg]) => ({
         customerId,
         customerNameAr: agg.customerNameAr,
+        customerNameEn: namesEn.get(customerId) ?? null,
         count: agg.count,
         total: Number(agg.total.toString()),
         outstanding: Number(agg.outstanding.toString()),

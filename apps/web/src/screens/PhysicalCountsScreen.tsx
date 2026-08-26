@@ -36,6 +36,7 @@ import {
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 
 /**
@@ -92,6 +93,7 @@ function fromScaled(value: bigint): string {
 }
 
 export function PhysicalCountsScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
@@ -125,7 +127,7 @@ export function PhysicalCountsScreen() {
   const items = itemsQuery.data ?? [];
 
   const warehouseLabel = useMemo(() => {
-    const map = new Map(warehouses.map((w) => [w.id, w.name]));
+    const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
   }, [warehouses]);
   const itemLabel = useMemo(() => {

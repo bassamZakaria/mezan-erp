@@ -25,6 +25,7 @@ import {
   useTopProducts,
   type DashboardRangeValue,
 } from "./dashboard-hooks";
+import { entityName } from "../lib/entity-names";
 
 type QuickAction = { labelKey: AppTranslationKey; screen: ScreenKey; intent?: ScreenIntentInput; primary?: boolean };
 
@@ -281,7 +282,7 @@ export function DashboardScreen() {
   const topItemRows: TopItemRow[] = (topProducts.data?.rows ?? []).map((row) => ({
     key: row.itemId,
     rank: row.rank,
-    name: row.itemNameAr,
+    name: entityName({ nameAr: row.itemNameAr, nameEn: row.itemNameEn }, locale),
     qty: row.qty,
     revenue: row.revenue,
     sharePercent: row.contributionPercent,

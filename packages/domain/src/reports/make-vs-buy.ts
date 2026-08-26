@@ -54,6 +54,8 @@ export interface MakeVsBuyRow {
   readonly itemId: string;
   readonly itemCode: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly bomNumber: string;
   /** BOM standard cost (material at weighted-average purchase cost + standard labour/overhead) ÷ standard qty. `null` when a component was never purchased. */
   readonly makeCost: number | null;
@@ -161,6 +163,7 @@ export function createMakeVsBuyReport(): ReportDefinition<MakeVsBuyParams, MakeV
           itemId: item.id,
           itemCode: item.code,
           itemNameAr: item.nameAr,
+          itemNameEn: item.nameEn ?? null,
           bomNumber: bom.number,
           makeCost: makeCostMoney !== null ? Number(makeCostMoney.toString()) : null,
           buyCost: buyCostMoney !== null ? Number(buyCostMoney.toString()) : null,

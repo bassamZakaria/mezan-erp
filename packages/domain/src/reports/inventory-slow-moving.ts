@@ -44,6 +44,8 @@ export interface InventorySlowMovingParams {
 export interface InventorySlowMovingRow {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly onHand: number;
   readonly value: number;
   readonly daysSinceLastSale: number | null;
@@ -136,6 +138,7 @@ export function createInventorySlowMovingReport(today: string): ReportDefinition
         rows.push({
           itemId: item.id,
           itemNameAr: item.nameAr,
+          itemNameEn: item.nameEn ?? null,
           onHand,
           value,
           daysSinceLastSale,

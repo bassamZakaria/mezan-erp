@@ -29,7 +29,7 @@ describe("createWarehouse", () => {
   });
 
   it("creates a VAN-type warehouse (field-sales vehicle stock)", () => {
-    const wh = createWarehouse({ id: "w2", code: "VAN", name: "سياره نقل", branchId: "b1", type: "VAN" });
+    const wh = createWarehouse({ id: "w2", code: "VAN", name: "سياره نقل", nameEn: null, branchId: "b1", type: "VAN" });
     expect(wh.type).toBe("VAN");
   });
 

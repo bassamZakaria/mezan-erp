@@ -30,6 +30,12 @@ export interface Warehouse {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  /**
+   * The English name. Null on warehouses created before the field existed and
+   * on tenants that never fill it in — every reader falls back to `name`,
+   * because a blank warehouse picker is worse than an Arabic one (D58).
+   */
+  readonly nameEn: string | null;
   readonly branchId: string;
   readonly type: WarehouseType;
   readonly isDefault: boolean;
@@ -48,6 +54,7 @@ export interface CreateWarehouseInput {
   readonly id: string;
   readonly code: string;
   readonly name: string;
+  readonly nameEn?: string | null;
   readonly branchId: string;
   readonly type?: WarehouseType;
   readonly isDefault?: boolean;
@@ -74,6 +81,7 @@ export function createWarehouse(input: CreateWarehouseInput): Warehouse {
     id: input.id,
     code: input.code,
     name: input.name,
+    nameEn: input.nameEn ?? null,
     branchId: input.branchId,
     type: input.type ?? "MAIN",
     isDefault: input.isDefault ?? false,

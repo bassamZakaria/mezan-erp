@@ -29,6 +29,8 @@ export interface InventoryStockLevelsParams {
 export interface InventoryStockLevelsRow {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly sku: string;
   readonly warehouseCount: number;
   readonly onHand: number;
@@ -102,6 +104,7 @@ export function createInventoryStockLevelsReport(): ReportDefinition<
         rows.push({
           itemId: item.id,
           itemNameAr: item.nameAr,
+          itemNameEn: item.nameEn ?? null,
           sku: item.code,
           warehouseCount: positions.length,
           onHand: onHandNumber,

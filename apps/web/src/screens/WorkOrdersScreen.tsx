@@ -44,6 +44,7 @@ import {
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
@@ -456,6 +457,7 @@ function WorkOrderDetail({
 }
 
 export function WorkOrdersScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const bomsQuery = useBoms();
   const itemsQuery = useItems();
@@ -477,9 +479,9 @@ export function WorkOrdersScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
   const bomOptions: EntityPickerOption[] = boms.map((b) => ({ id: b.id, label: `${b.number} — ${itemName(b.productItemId)}`, sublabel: `v${b.version}` }));
-  const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: w.name, sublabel: w.code }));
+  const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
   const warehouseName = useMemo(() => {
-    const map = new Map(warehouses.map((w) => [w.id, w.name]));
+    const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
   }, [warehouses]);
 

@@ -33,6 +33,7 @@ import {
 import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { useDocumentEffectText } from "../lib/document-effects";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { todayIso } from "../lib/dates";
@@ -89,6 +90,7 @@ function blankLine(): LineDraft {
 }
 
 export function StockTransfersScreen() {
+  const nameOf = useEntityName();
   const effectText = useDocumentEffectText();
   const { t } = useAppTranslation();
   const warehousesQuery = useWarehouses();
@@ -97,7 +99,7 @@ export function StockTransfersScreen() {
   const items = itemsQuery.data ?? [];
 
   function warehouseLabel(id: string): string {
-    return warehouses.find((w) => w.id === id)?.name ?? id;
+    return nameOf(warehouses.find((w) => w.id === id), id);
   }
   function itemLabel(id: string): string {
     const item = items.find((i) => i.id === id);
@@ -379,6 +381,7 @@ function CreateTransferView({
   onDone: () => void;
   initialItemId?: string | null;
 }) {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const createTransfer = useCreateStockTransfer();
   const confirmTransfer = useConfirmStockTransfer();
@@ -395,7 +398,7 @@ function CreateTransferView({
   const [error, setError] = useState<string | null>(null);
 
   function warehouseLabel(id: string): string {
-    return warehouseList.find((w) => w.id === id)?.name ?? id;
+    return nameOf(warehouseList.find((w) => w.id === id), id);
   }
 
   const itemOptions = useMemo(

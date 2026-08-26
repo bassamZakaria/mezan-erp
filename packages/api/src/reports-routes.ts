@@ -324,18 +324,18 @@ export function createReportsRoutes(
   app.get("/sales/by-item", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByItemReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
+    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
     const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
     const params = { ...definition.defaultParams, ...queryParams(c) };
     const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
-    return respond(c, runReport(definition, params, { invoices, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
+    return respond(c, runReport(definition, params, { invoices, items, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
   });
 
   app.get("/sales/by-customer", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createSalesByCustomerReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const [invoices, customers] = await Promise.all([deps.salesInvoices.list(), deps.customers.findAll()]);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, customers }));
   });
 
   app.get("/sales/by-salesperson", gate("sales.invoice.view"), async (c) => {
@@ -348,8 +348,8 @@ export function createReportsRoutes(
   app.get("/sales/top-products", gate("sales.invoice.view"), async (c) => {
     const today = todayIso(deps);
     const definition = createTopProductsReport(firstOfMonth(today), today);
-    const invoices = await deps.salesInvoices.list();
-    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices }));
+    const [invoices, items] = await Promise.all([deps.salesInvoices.list(), deps.items.list()]);
+    return respond(c, runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, { invoices, items }));
   });
 
   // --- المشتريات -----------------------------------------------------
@@ -457,16 +457,18 @@ export function createReportsRoutes(
 
   app.get("/aging/customers", gate("sales.invoice.view"), async (c) => {
     const definition = createAgingCustomersReport(todayIso(deps));
-    const [invoices, allocatedByInvoiceId, returns, credits] = await Promise.all([
+    const [invoices, allocatedByInvoiceId, returns, credits, customers] = await Promise.all([
       deps.salesInvoices.list(),
       settledByInvoiceId(deps, "sales"),
       returnsByInvoiceId(deps),
       unappliedCustomerCredits(deps),
+      deps.customers.findAll(),
     ]);
     return respond(
       c,
       runReport(definition, { ...definition.defaultParams, ...queryParams(c) }, {
         invoices,
+        customers,
         allocatedByInvoiceId,
         returnsByInvoiceId: returns,
         unappliedCreditsByCustomerId: credits,

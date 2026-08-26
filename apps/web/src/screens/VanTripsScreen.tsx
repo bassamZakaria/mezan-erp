@@ -135,7 +135,7 @@ export function VanTripsScreen() {
   const employees = employeesQuery.data ?? [];
 
   const warehouseName = useMemo(() => {
-    const map = new Map(warehouses.map((w) => [w.id, w.name]));
+    const map = new Map(warehouses.map((w) => [w.id, nameOf(w)]));
     return (id: string) => map.get(id) ?? id;
   }, [warehouses]);
   const branchName = useMemo(() => {

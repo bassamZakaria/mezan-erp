@@ -31,6 +31,8 @@ export interface AgingSuppliersParams {
 export interface AgingSuppliersRow {
   readonly supplierId: string;
   readonly supplierNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly supplierNameEn: string | null;
   readonly current: number;
   readonly d31to60: number;
   readonly d61to90: number;
@@ -102,6 +104,7 @@ export function createAgingSuppliersReport(
     ],
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
+      const supplierNamesEn = new Map(ctx.suppliers.map((s) => [s.id, s.nameEn ?? null]));
       const byBucketTotals = new Map<string, AgingBucketTotals>();
       for (const invoice of ctx.invoices) {
         if (invoice.status !== "confirmed") continue;
@@ -117,6 +120,7 @@ export function createAgingSuppliersReport(
       return [...byBucketTotals.entries()].map(([supplierId, agg]) => ({
         supplierId,
         supplierNameAr: supplierNames.get(supplierId) ?? supplierId,
+          supplierNameEn: supplierNamesEn.get(supplierId) ?? null,
         current: Number(agg.current.toString()),
         d31to60: Number(agg.d31to60.toString()),
         d61to90: Number(agg.d61to90.toString()),

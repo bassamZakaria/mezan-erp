@@ -6,7 +6,8 @@ here, it is not tracked.
 
 Updated 2026-08-27. The defect-clearing pass closed every defect that was open —
 D28, D38, D46, D48, D49, D51, D52, D54 (both of them) and D55, as F93–F102 — and
-opened D57 and D58 by driving the seeded app in the English UI afterwards.
+then closed D57 and D58, which that same pass opened by driving the seeded app
+in the English UI. The register is empty of open defects.
 
 The same pass repaired the register itself: 23 rows sat in BOTH the Open and the
 Fixed table, so this file reported 32 open while its own prose said four; F13–F26
@@ -38,22 +39,18 @@ through as "oh, that's the known one".
 
 ## Open
 
-Every defect filed up to D56 is closed — they are in the Fixed table below, and
-`pnpm scenarios` passes 3740 assertions with all four invariants at exactly zero
-on the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs
-GL 1105.
+**Nothing is open.** Every defect filed — D1 through D58 — is in the Fixed table
+below, and `pnpm scenarios` passes 3740 assertions with all four invariants at
+exactly zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs
+GL 2100, AR vs GL 1105.
 
 This table used to carry 23 rows that the Fixed table ALSO carried — a defect
 was moved without being removed, so the register said 32 open while its own
 prose said four. Those rows are gone; a defect now appears exactly once.
 
-Two open, both found by driving the seeded app in the English UI after the
-D46/D49/D51 pass, and both the same shape as the ones that pass closed:
-
-| # | Area | Defect | Measured evidence | Severity |
-|---|---|---|---|---|
-| D57 | Reports / i18n | **Every report that names an item, customer or supplier renders the Arabic name unconditionally.** The row types carry `itemNameAr` and nothing else — `inventory-expiring.ts:56`, `inventory-movement.ts:33`, `inventory-ledger.ts:34`, top-products and the aging ladders all build their name map from `nameAr`. The same shape as D46, which was fixed for the three financial statements by giving their rows a `nameEn`; the operational reports were not touched | Live, English UI, dashboard: "Top-selling items" lists «أرز أبيض ٥ كجم» and "Items at reorder point" lists «خليط شاي بالنعناع ١ كجم», while `/items` serves "White Rice 5kg" and "Mint Tea Blend 1kg" for those same ids. Fixing it means `nameEn` on each report row type and its builder, as `trial-balance.ts`/`income-statement.ts`/`balance-sheet.ts` now have | Medium |
-| D58 | Inventory / i18n | **A warehouse has no English name at all** — `warehouseSchema` carries one `name`, so every warehouse picker, the scope selector in the top bar and the document-effects panel print Arabic inside the English UI. Exactly D51's shape, which was closed for treasury accounts by adding `nameEn` end to end; warehouses were not in that pass | Live, English UI, ADJ-000001: the Warehouse field and the effects sentence both read «المستودع الرئيسي». `packages/contracts/src/warehouse.ts:12` has `name` and no `nameEn`, so unlike D46 there is nothing stored to read | Low |
+D57 and D58 were filed and closed inside this same pass: the i18n fixes were
+verified by driving the seeded app in English, that surfaced two more of the
+same shape, and both were fixed rather than left on the list (F117, F118).
 
 
 And a closed register is not the same as a clean product: it means the ones
@@ -185,6 +182,9 @@ hears about.
 
 `pnpm lint` now fails on F2's whole class: `scripts/check-color-tokens.mjs`
 checks every colour utility against the compiled stylesheet.
+| F117 | **Every operational report rendered the Arabic name of an item, customer or supplier unconditionally** (D57). D46 had given the three financial statements a `nameEn`; the ~20 operational reports were not touched, so the whole reports section printed Arabic names in the English UI. Each affected row type now carries the English name its record stores, and `ReportScreen` swaps the pair over in ONE place rather than in twenty column definitions the server owns. Two reports build from invoice LINES, which store only the Arabic snapshot they were written with, so those take the English name from the item/customer catalogue the route now passes. Found while fixing: the table renders `groups[].rows`, not `rows`, so swapping only the top level left the chart in English and the table beneath it in Arabic. Verified live: "Sales by item" chart and table both read White Rice 5kg / Black Tea 500g, and the dashboard's top-sellers and reorder tile with them | this commit |
+| F118 | **A warehouse had no English name at all** (D58) — the record carried one `name`, so there was nothing to read, exactly as D51 for treasury accounts. `nameEn` added end to end: domain type and create input, SQLite column, wire contract, the warehouse form and its search, and the four seeded warehouses. Every warehouse label — the pickers, the document-effects sentence, and the top bar's scope selector — now reads it. Verified live: the scope selector lists Main Warehouse / Goods in Transit / Delivery Van 1 | this commit |
+
 
 `pnpm scenarios` asserts the FIXED behaviour throughout, so a regression in any
 of these turns it red. It passes 3740 assertions with 0 failures, and no

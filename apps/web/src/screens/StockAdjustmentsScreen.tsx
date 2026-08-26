@@ -154,7 +154,7 @@ export function StockAdjustmentsScreen() {
   const items = itemsQuery.data ?? [];
 
   function warehouseLabel(id: string): string {
-    return warehouses.find((w) => w.id === id)?.name ?? id;
+    return nameOf(warehouses.find((w) => w.id === id), id);
   }
   function itemLabel(id: string): string {
     const item = items.find((i) => i.id === id);
@@ -605,7 +605,7 @@ function CreateAdjustmentView({
   const itemList = items ?? [];
 
   function warehouseLabel(id: string): string {
-    return warehouseList.find((w) => w.id === id)?.name ?? id;
+    return nameOf(warehouseList.find((w) => w.id === id), id);
   }
 
   const itemOptions = useMemo(

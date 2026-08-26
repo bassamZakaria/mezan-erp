@@ -40,8 +40,8 @@ const items: ItemDTO[] = [
 ];
 
 const warehouses: WarehouseDTO[] = [
-  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
-  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  { id: "wh-raw", code: "RAW-WH", name: "مستودع الخامات", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
+  { id: "wh-fg", code: "FG-WH", name: "مستودع المنتجات التامة", nameEn: null, branchId: "MAIN", type: "MAIN", isDefault: false, active: true },
 ];
 
 const boms: BomRecord[] = [

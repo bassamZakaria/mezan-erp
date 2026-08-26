@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { entityName } from "../lib/entity-names";
+import { useAppTranslation } from "../i18n";
 import type {
   AgingCustomersRow,
   AgingSuppliersRow,
@@ -172,6 +173,7 @@ function outstanding(invoice: SalesInvoiceDTO): number {
  * payables from the supplier aging buckets past 30 days.
  */
 export function useAttentionData(window: ReportWindow, today = new Date()): AttentionData {
+  const { locale } = useAppTranslation();
   const invoices = useSalesInvoices();
   const vat = useVatReturn(window);
   const stock = useStockLevels();
@@ -200,8 +202,8 @@ export function useAttentionData(window: ReportWindow, today = new Date()): Atte
       // reported tax DUE when the return said REFUNDABLE.
       taxDue: vat.data ? vatNetPayable(vat.data.rows) : 0,
       lowStockCount: low.length,
-      lowStockFirstName: low[0]?.itemNameAr ?? null,
+      lowStockFirstName: low[0] ? entityName({ nameAr: low[0].itemNameAr, nameEn: low[0].itemNameEn }, locale) : null,
       agedPayables,
     };
-  }, [invoices.data, vat.data, stock.data, suppliers.data, today]);
+  }, [invoices.data, vat.data, stock.data, suppliers.data, today, locale]);
 }

@@ -94,6 +94,7 @@ async function seedTreasuryAccountAndWarehouse(app: App): Promise<void> {
     id: VAN_WAREHOUSE_ID,
     code: "WH-VAN",
     name: "عربة توزيع رقم ١",
+    nameEn: "Delivery Van 1",
     branchId: BRANCH_ID,
     type: "VAN",
   });

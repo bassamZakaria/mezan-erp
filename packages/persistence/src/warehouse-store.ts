@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS warehouse (
   id          TEXT PRIMARY KEY,
   code        TEXT NOT NULL UNIQUE,
   name        TEXT NOT NULL,
+  name_en     TEXT,
   branch_id   TEXT NOT NULL,
   type        TEXT NOT NULL,
   is_default  INTEGER NOT NULL,
@@ -21,6 +22,7 @@ interface WarehouseRow {
   id: string;
   code: string;
   name: string;
+  name_en: string | null;
   branch_id: string;
   type: string;
   is_default: number;
@@ -32,6 +34,7 @@ function toWarehouse(row: WarehouseRow): Warehouse {
     id: row.id,
     code: row.code,
     name: row.name,
+    nameEn: row.name_en,
     branchId: row.branch_id,
     type: row.type as WarehouseType,
     isDefault: row.is_default === 1,
@@ -47,10 +50,10 @@ class SqliteWarehouseStore implements WarehouseRepository {
 
   constructor(private readonly sqlite: Database.Database) {
     this.upsert = sqlite.prepare(
-      `INSERT INTO warehouse (id, code, name, branch_id, type, is_default, active)
-       VALUES (@id, @code, @name, @branchId, @type, @isDefault, @active)
+      `INSERT INTO warehouse (id, code, name, name_en, branch_id, type, is_default, active)
+       VALUES (@id, @code, @name, @nameEn, @branchId, @type, @isDefault, @active)
        ON CONFLICT(id) DO UPDATE SET
-         code = @code, name = @name, branch_id = @branchId,
+         code = @code, name = @name, name_en = @nameEn, branch_id = @branchId,
          type = @type, is_default = @isDefault, active = @active`,
     );
     this.selectAll = sqlite.prepare(`SELECT * FROM warehouse ORDER BY code ASC`);
@@ -76,6 +79,7 @@ class SqliteWarehouseStore implements WarehouseRepository {
       id: warehouse.id,
       code: warehouse.code,
       name: warehouse.name,
+      nameEn: warehouse.nameEn ?? null,
       branchId: warehouse.branchId,
       type: warehouse.type,
       isDefault: warehouse.isDefault ? 1 : 0,

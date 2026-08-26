@@ -11,7 +11,7 @@ afterEach(() => {
   document.documentElement.removeAttribute("data-theme");
 });
 
-const warehouses: WarehouseDTO[] = [{ id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", branchId: "b1", type: "MAIN", isDefault: true, active: true }];
+const warehouses: WarehouseDTO[] = [{ id: "WH-MAIN", code: "WH-MAIN", name: "المستودع الرئيسي", nameEn: null, branchId: "b1", type: "MAIN", isDefault: true, active: true }];
 
 function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
   return {

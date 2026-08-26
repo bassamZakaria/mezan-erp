@@ -14,6 +14,8 @@ import { withinDateRange } from "./period-bucket.js";
 export interface ItemSalesAggregate {
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly qty: number;
   readonly revenue: number;
 }
@@ -41,9 +43,14 @@ export function aggregateItemSales(
       });
     });
   }
+  // The English name is left null here on purpose: this aggregates INVOICE
+  // LINES, and a line stores only the Arabic name it was written with. The
+  // report that calls this fills it from the item catalogue, which is the only
+  // place an English name lives (D57).
   return [...byItem.entries()].map(([itemId, agg]) => ({
     itemId,
     itemNameAr: agg.itemNameAr,
+    itemNameEn: null,
     qty: Number(agg.qty.toString()),
     revenue: Number(agg.revenue.toString()),
   }));

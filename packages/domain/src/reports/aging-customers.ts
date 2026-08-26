@@ -19,6 +19,12 @@ import { sumRows, percentOf } from "./kpi.js";
 export interface AgingCustomersContext {
   readonly invoices: readonly SalesInvoice[];
   /**
+   * The customer list, for the English name only. An invoice stores just the
+   * Arabic name it was written with, so without this the report cannot be read
+   * in English (D57). Optional: omit it and the Arabic name stands.
+   */
+  readonly customers?: readonly { readonly id: string; readonly nameEn: string | null }[];
+  /**
    * Amount already settled per invoice id, from the allocation sub-ledger. A
    * collection can be recorded either as `amountPaid` on the invoice or as a
    * voucher allocation, so the outstanding balance nets whichever is larger —
@@ -47,6 +53,8 @@ export interface AgingCustomersParams {
 export interface AgingCustomersRow {
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly customerNameEn: string | null;
   readonly current: number;
   readonly d31to60: number;
   readonly d61to90: number;
@@ -66,6 +74,8 @@ function daysPastDue(dueDate: string, asOfDate: string): number {
 
 interface AgingBucketTotals {
   readonly customerNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly customerNameEn: string | null;
   readonly current: Money;
   readonly d31to60: Money;
   readonly d61to90: Money;
@@ -73,8 +83,8 @@ interface AgingBucketTotals {
   readonly over120: Money;
 }
 
-function emptyBucketTotals(customerNameAr: string): AgingBucketTotals {
-  return { customerNameAr, current: Money.zero(), d31to60: Money.zero(), d61to90: Money.zero(), d91to120: Money.zero(), over120: Money.zero() };
+function emptyBucketTotals(customerNameAr: string, customerNameEn: string | null): AgingBucketTotals {
+  return { customerNameAr, customerNameEn, current: Money.zero(), d31to60: Money.zero(), d61to90: Money.zero(), d91to120: Money.zero(), over120: Money.zero() };
 }
 
 function addToBucket(totals: AgingBucketTotals, days: number, amount: Money): AgingBucketTotals {
@@ -136,6 +146,7 @@ export function createAgingCustomersReport(
       { key: "customerCount", labelAr: "عدد العملاء المدينين", format: "qty", value: (rows) => rows.length },
     ],
     run: (params, ctx) => {
+      const namesEn = new Map((ctx.customers ?? []).map((c) => [c.id, c.nameEn ?? null]));
       const byCustomer = new Map<string, AgingBucketTotals>();
       for (const invoice of ctx.invoices) {
         if (!SALES_INVOICE_ACTIVE_STATUSES.has(invoice.status)) continue;
@@ -146,7 +157,7 @@ export function createAgingCustomersReport(
         const returned = ctx.returnsByInvoiceId?.get(invoice.id) ?? Money.zero();
         const balance = Money.fromScaled(totals.grandTotal.scaled - settled.scaled - returned.scaled);
         if (balance.scaled <= 0n) continue;
-        const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr);
+        const existing = byCustomer.get(invoice.customerId) ?? emptyBucketTotals(invoice.customerNameAr, namesEn.get(invoice.customerId) ?? null);
         const days = daysPastDue(invoice.dueDate, params.asOfDate);
         byCustomer.set(invoice.customerId, addToBucket(existing, days, balance));
       }
@@ -158,6 +169,7 @@ export function createAgingCustomersReport(
       return [...byCustomer.entries()].map(([customerId, agg]) => ({
         customerId,
         customerNameAr: agg.customerNameAr,
+        customerNameEn: agg.customerNameEn,
         current: Number(agg.current.toString()),
         d31to60: Number(agg.d31to60.toString()),
         d61to90: Number(agg.d61to90.toString()),

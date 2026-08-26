@@ -7,7 +7,7 @@ import { WritedownRunsScreen } from "./WritedownRunsScreen";
 import { renderWithProviders, stubTransport, testAdminSession } from "../data/test-support";
 
 const sampleWarehouses: WarehouseDTO[] = [
-  { id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", branchId: "br-1", type: "MAIN", isDefault: true, active: true },
+  { id: "wh-1", code: "WH-MAIN", name: "مستودع الفرع الرئيسي", nameEn: null, branchId: "br-1", type: "MAIN", isDefault: true, active: true },
 ];
 
 const sampleRuns: WritedownRunDTO[] = [

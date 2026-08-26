@@ -23,9 +23,9 @@ describe("SqliteWarehouseStore", () => {
   it("scopes findByBranch to the given branch and preserves the 5 types", async () => {
     const store = createSqliteWarehouseStore();
     try {
-      await store.save(createWarehouse({ id: "w1", code: "WH-MAIN", name: "مستودع رئيسي", branchId: "b1", type: "MAIN" }));
-      await store.save(createWarehouse({ id: "w2", code: "VAN", name: "سياره نقل", branchId: "b1", type: "VAN" }));
-      await store.save(createWarehouse({ id: "w3", code: "WH-B2", name: "مستودع فرع 2", branchId: "b2", type: "TRANSIT" }));
+      await store.save(createWarehouse({ id: "w1", code: "WH-MAIN", name: "مستودع رئيسي", nameEn: null, branchId: "b1", type: "MAIN" }));
+      await store.save(createWarehouse({ id: "w2", code: "VAN", name: "سياره نقل", nameEn: null, branchId: "b1", type: "VAN" }));
+      await store.save(createWarehouse({ id: "w3", code: "WH-B2", name: "مستودع فرع 2", nameEn: null, branchId: "b2", type: "TRANSIT" }));
 
       const b1Warehouses = await store.findByBranch("b1");
       expect(b1Warehouses.map((w) => w.code).sort()).toEqual(["VAN", "WH-MAIN"]);

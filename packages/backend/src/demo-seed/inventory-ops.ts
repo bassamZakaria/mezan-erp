@@ -35,8 +35,8 @@ const SLOW_MOVING_OPENING = {
 };
 
 const WAREHOUSES = [
-  { id: GIZA_WAREHOUSE_ID, code: "WH-GIZA", name: "مستودع فرع الجيزة", type: "MAIN" as const },
-  { id: TRANSIT_WAREHOUSE_ID, code: "WH-TRANSIT", name: "مخزون بالطريق", type: "TRANSIT" as const },
+  { id: GIZA_WAREHOUSE_ID, code: "WH-GIZA", name: "مستودع فرع الجيزة", nameEn: "Giza Branch Warehouse", type: "MAIN" as const },
+  { id: TRANSIT_WAREHOUSE_ID, code: "WH-TRANSIT", name: "مخزون بالطريق", nameEn: "Goods in Transit", type: "TRANSIT" as const },
 ];
 
 const SPECIFICATIONS = [

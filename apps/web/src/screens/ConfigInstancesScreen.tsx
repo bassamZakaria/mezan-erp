@@ -30,6 +30,7 @@ import {
 } from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { useEntityName } from "../lib/entity-names";
 import { todayIso } from "../lib/dates";
 
 type Status = ConfigInstanceRecord["status"];
@@ -172,6 +173,7 @@ function InstanceDetail({
 }
 
 export function ConfigInstancesScreen() {
+  const nameOf = useEntityName();
   const { t } = useAppTranslation();
   const query = useConfigInstances();
   const productsQuery = useConfigurableProducts();
@@ -204,7 +206,7 @@ export function ConfigInstancesScreen() {
 
   const productOptions: EntityPickerOption[] = products.map((p) => ({ id: p.id, label: p.nameAr, sublabel: p.code }));
   const customerOptions: EntityPickerOption[] = customers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code }));
-  const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: w.name, sublabel: w.code }));
+  const warehouseOptions: EntityPickerOption[] = warehouses.map((w) => ({ id: w.id, label: nameOf(w), sublabel: w.code }));
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<Status | "all">("all");

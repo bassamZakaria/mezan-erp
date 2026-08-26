@@ -41,6 +41,8 @@ export interface InstallmentsOverdueRow {
   readonly lineId: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly customerNameEn: string | null;
   readonly planNo: string;
   readonly amount: number;
   readonly remaining: number;
@@ -117,6 +119,7 @@ export function createInstallmentsOverdueReport(
     },
     run: (params, ctx) => {
       const customerNames = new Map(ctx.customers.map((c) => [c.id, c.nameAr]));
+      const customerNamesEn = new Map(ctx.customers.map((c) => [c.id, c.nameEn ?? null]));
       const rows: Omit<InstallmentsOverdueRow, "rank">[] = [];
       for (const plan of ctx.plans) {
         if (plan.status !== "confirmed") continue;
@@ -128,6 +131,7 @@ export function createInstallmentsOverdueReport(
             lineId: `${plan.id}|${line.no}`,
             customerId: line.customerId,
             customerNameAr: customerNames.get(line.customerId) ?? line.customerId,
+          customerNameEn: customerNamesEn.get(line.customerId) ?? null,
             planNo: plan.docNo ?? plan.id,
             amount: Number(line.amount.toString()),
             remaining: Number(lineRemaining(line).toString()),

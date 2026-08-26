@@ -38,6 +38,8 @@ export interface InventoryDriftParams {
 export interface InventoryDriftRow {
   readonly key: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly warehouseName: string;
   readonly onHand: number;
   readonly recomputedAverageCost: number;
@@ -97,6 +99,7 @@ export function createInventoryDriftReport(): ReportDefinition<
     },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
       const rows: InventoryDriftRow[] = [];
 
@@ -124,6 +127,7 @@ export function createInventoryDriftReport(): ReportDefinition<
         rows.push({
           key: `${snapshot.itemId}|${snapshot.warehouseId}`,
           itemNameAr: itemNames.get(snapshot.itemId) ?? snapshot.itemId,
+          itemNameEn: itemNamesEn.get(snapshot.itemId) ?? null,
           warehouseName: warehouseNames.get(snapshot.warehouseId) ?? snapshot.warehouseId,
           onHand: Number(report.onHand.toString()),
           recomputedAverageCost: Number(report.recomputedAverageCost.toString()),

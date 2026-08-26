@@ -31,6 +31,8 @@ export interface InventoryMovementRow {
   readonly movementId: string;
   readonly date: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly warehouseName: string;
   readonly direction: "وارد" | "صادر";
   readonly qty: number;
@@ -96,6 +98,7 @@ export function createInventoryMovementReport(
     },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
       return ctx.movements
         .filter((m) => withinDateRange(m.occurredAt.slice(0, 10), params.dateFrom, params.dateTo))
@@ -106,6 +109,7 @@ export function createInventoryMovementReport(
           movementId: m.id,
           date: m.occurredAt.slice(0, 10),
           itemNameAr: itemNames.get(m.itemId) ?? m.itemId,
+          itemNameEn: itemNamesEn.get(m.itemId) ?? null,
           warehouseName: warehouseNames.get(m.warehouseId) ?? m.warehouseId,
           direction: m.direction === "IN" ? ("وارد" as const) : ("صادر" as const),
           qty: Number(m.qty.toString()),

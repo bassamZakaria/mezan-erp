@@ -32,6 +32,8 @@ export interface InventoryLedgerRow {
   readonly movementId: string;
   readonly event: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly warehouseName: string;
   readonly movementQty: number;
   readonly unitCost: number;
@@ -85,6 +87,7 @@ export function createInventoryLedgerReport(): ReportDefinition<
     },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
+      const itemNamesEn = new Map(ctx.items.map((i) => [i.id, i.nameEn ?? null]));
       const warehouseNames = new Map(ctx.warehouses.map((w) => [w.id, w.name]));
 
       const filtered = ctx.movements
@@ -104,6 +107,7 @@ export function createInventoryLedgerReport(): ReportDefinition<
           movementId: m.id,
           event: `${m.occurredAt.slice(0, 10)} — ${STOCK_SOURCE_DOC_TYPE_LABELS_AR[m.sourceDocType]} ${m.sourceDocNumber ?? m.sourceDocId}`,
           itemNameAr: itemNames.get(m.itemId) ?? m.itemId,
+          itemNameEn: itemNamesEn.get(m.itemId) ?? null,
           warehouseName: warehouseNames.get(m.warehouseId) ?? m.warehouseId,
           movementQty: signed,
           unitCost: Number(m.unitCost.toString()),

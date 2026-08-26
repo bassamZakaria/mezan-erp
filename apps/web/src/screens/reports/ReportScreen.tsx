@@ -50,7 +50,7 @@ function toStringParams(defaults: object): Record<string, string> {
 }
 
 export function ReportScreen<TParams extends object, Row>({ definition: rawDefinition, apiPath, renderSummary, onDemand: onDemandOverride }: ReportScreenProps<TParams, Row>) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const definition = localizeReportDefinition(rawDefinition, t);
   const onDemand = onDemandOverride ?? definition.onDemand ?? false;
   const [params, setParams] = useState<Record<string, string>>(() => toStringParams(definition.defaultParams));
@@ -81,9 +81,45 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
    * translate before either the table header or the chart reads them — the two
    * must name the same section identically.
    */
+  /**
+   * Report rows name items, customers and suppliers by their Arabic name, which
+   * is what the column definitions read — so the whole reports section printed
+   * Arabic names inside the English UI (D57). Each row now also carries the
+   * English name its record stores, and this swaps the pair over in one place
+   * rather than in twenty column definitions the server owns.
+   *
+   * A record with no English name keeps the Arabic one: a blank cell is worse
+   * than the wrong language, because the row stops being findable.
+   */
+  const withReadableNames = <T,>(rows: readonly T[]): T[] =>
+    rows.map((row) => {
+      const r = row as Record<string, unknown>;
+      let next: Record<string, unknown> | null = null;
+      for (const key of Object.keys(r)) {
+        if (!key.endsWith("NameEn")) continue;
+        const arKey = `${key.slice(0, -2)}Ar`;
+        if (!(arKey in r)) continue;
+        const en = r[key];
+        if (typeof en !== "string" || en.trim() === "") continue;
+        next ??= { ...r };
+        next[arKey] = en;
+      }
+      return (next ?? r) as T;
+    });
+
   const localized = raw === null
     ? null
-    : { ...raw, groups: raw.groups.map((group) => ({ ...group, label: localizeGroupLabel(group.label, t) })) };
+    : {
+        ...raw,
+        rows: locale === "en" ? withReadableNames(raw.rows) : raw.rows,
+        // The TABLE renders `groups[].rows`, not `rows` — swapping only the top
+        // level left the chart in English and the table beneath it in Arabic.
+        groups: raw.groups.map((group) => ({
+          ...group,
+          label: localizeGroupLabel(group.label, t),
+          rows: locale === "en" ? withReadableNames(group.rows) : group.rows,
+        })),
+      };
 
   const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, localized);
 

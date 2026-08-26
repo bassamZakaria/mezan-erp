@@ -29,6 +29,8 @@ export interface InstallmentsOverviewRow {
   readonly planNo: string;
   readonly customerId: string;
   readonly customerNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly customerNameEn: string | null;
   readonly totalAmount: number;
   readonly percentPaid: number;
   readonly remaining: number;
@@ -88,6 +90,7 @@ export function createInstallmentsOverviewReport(
     ],
     run: (_params, ctx) => {
       const customerNames = new Map(ctx.customers.map((c) => [c.id, c.nameAr]));
+      const customerNamesEn = new Map(ctx.customers.map((c) => [c.id, c.nameEn ?? null]));
       return ctx.plans
         .filter((plan) => plan.status === "confirmed")
         .map((plan) => {
@@ -98,6 +101,7 @@ export function createInstallmentsOverviewReport(
             planNo: plan.docNo ?? plan.id,
             customerId,
             customerNameAr: customerNames.get(customerId) ?? customerId,
+          customerNameEn: customerNamesEn.get(customerId) ?? null,
             totalAmount: Number(grandTotal.toString()),
             percentPaid: grandTotal.scaled === 0n ? 0 : (Number(paid.scaled) / Number(grandTotal.scaled)) * 100,
             remaining: Number(remaining.toString()),

@@ -12,6 +12,12 @@ import { aggregateItemSales } from "./sales-item-aggregation.js";
 
 export interface TopProductsContext {
   readonly invoices: readonly SalesInvoice[];
+  /**
+   * The item catalogue, for the English name only. An invoice LINE stores just
+   * the Arabic name it was written with, so without this the report cannot be
+   * read in English (D57). Optional: omit it and the Arabic name stands.
+   */
+  readonly items?: readonly { readonly id: string; readonly nameEn: string | null }[];
 }
 
 export interface TopProductsParams {
@@ -25,6 +31,8 @@ export interface TopProductsRow {
   readonly rank: number;
   readonly itemId: string;
   readonly itemNameAr: string;
+  /** The English name, so the report can be read in English (D57). Null when the record has none. */
+  readonly itemNameEn: string | null;
   readonly qty: number;
   readonly revenue: number;
   readonly contributionPercent: number;
@@ -82,6 +90,7 @@ export function createTopProductsReport(
     ],
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
+      const namesEn = new Map((ctx.items ?? []).map((i) => [i.id, i.nameEn ?? null]));
       const totalRevenue = sumRows(aggregates, (a) => a.revenue);
       const ranked = aggregates
         .sort((a, b) => (params.rankBy === "revenue" ? b.revenue - a.revenue : b.qty - a.qty))
@@ -89,6 +98,7 @@ export function createTopProductsReport(
       return ranked.map((a, i) => ({
         rank: i + 1,
         ...a,
+        itemNameEn: namesEn.get(a.itemId) ?? null,
         contributionPercent: totalRevenue > 0 ? (a.revenue / totalRevenue) * 100 : 0,
       }));
     },

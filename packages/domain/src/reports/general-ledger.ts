@@ -71,7 +71,6 @@ export function createGeneralLedgerReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "accountLabel",
       valueColumn: "debit",
       maxPoints: 8,
       captionAr: "الحسابات مرتبة حسب ما تحرك عليها مديناً في الفترة.",

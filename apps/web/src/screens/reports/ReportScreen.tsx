@@ -2,7 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ReportChart, ReportRunner, type ReportRunnerEntityRef } from "@mezan/ui";
 import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
-import { localizeReportDefinition, tryReportLabel } from "../../report-labels";
+import { localizeGroupLabel, localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
 import { reportChartPoints } from "./chart-points";
 import { ReportDrillDownPanel } from "./ReportDrillDownPanel";
@@ -76,17 +76,34 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
    * The chart's points are read off the SAME rows (or the SAME group subtotals)
    * the table renders, through the columns the definition names — so the chart
    * cannot drift from the figures beneath it.
+   *
+   * Section names are domain enums (account type, cash-flow activity), so they
+   * translate before either the table header or the chart reads them — the two
+   * must name the same section identically.
    */
-  const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, raw);
+  const localized = raw === null
+    ? null
+    : { ...raw, groups: raw.groups.map((group) => ({ ...group, label: localizeGroupLabel(group.label, t) })) };
 
-  const result = raw === null
+  const chartPoints = reportChartPoints(definition.chart, definition.columns, definition.rowKey, localized);
+
+  const result = localized === null
     ? null
     : {
-        ...raw,
+        ...localized,
+        // The banner's copy arrives from the server in Arabic like every other
+        // report label; without this overlay the English trial balance stated
+        // its own headline claim in Arabic.
+        reconciliation: localized.reconciliation
+          ? {
+              ...localized.reconciliation,
+              labelAr: tryReportLabel(`report.${definition.id}.recon`, localized.reconciliation.labelAr, t),
+            }
+          : null,
         summary:
-          raw.kpis && raw.kpis.length > 0
+          localized.kpis && localized.kpis.length > 0
             ? {
-                kpis: raw.kpis.map((kpi) => ({
+                kpis: localized.kpis.map((kpi) => ({
                   key: kpi.key,
                   label: tryReportLabel(`report.${definition.id}.kpi.${kpi.key}`, kpi.labelAr, t),
                   value: kpi.value,
@@ -121,7 +138,7 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
           ? <ReportChart
               title={definition.titleAr}
               points={chartPoints}
-              caption={definition.chart?.captionAr}
+              caption={definition.chart?.captionAr ? tryReportLabel(`report.${definition.id}.chartCaption`, definition.chart.captionAr, t) : undefined}
             />
           : result && renderSummary
             ? renderSummary(result.rows)

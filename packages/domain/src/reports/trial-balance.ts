@@ -100,7 +100,6 @@ export function createTrialBalanceReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "typeLabel",
       valueColumn: "debit",
       captionAr: "إجمالي الأرصدة المدينة في كل نوع حساب — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },

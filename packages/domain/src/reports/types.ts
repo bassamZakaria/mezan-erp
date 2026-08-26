@@ -154,7 +154,8 @@ export interface ReportKpiResult {
  * it.
  */
 export interface ReportChartSpec {
-  readonly labelColumn: string;
+  /** Omitted with `source: "groups"` — the point's name is the section's own label. */
+  readonly labelColumn?: string;
   readonly valueColumn: string;
   /** Charting fifty rows produces a hairbrush; the top slice is the readable part. */
   readonly maxPoints?: number;

@@ -49,13 +49,13 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 ## P2 — reports engine
 
-- [~] **A2 / R21.2** `ReportDefinition` gains `kpis`; the server returns the aggregates; `ReportRunner` renders a collapsible KPI strip
+- [x] **A2 / R21.2** `ReportDefinition` gains `kpis`; the server returns the aggregates; `ReportRunner` renders a collapsible KPI strip
   - [x] the mechanism, and a default that gives EVERY report a strip from its own total columns
   - [x] chart captions (R21.3), methodology footnote (R21.9) and the balance banner (R21.10) as runner capabilities
-  - [x] charts — eight reports declare one, rendered from the SAME rows the table shows
+  - [x] charts — rendered from the SAME rows (or the same group subtotals) the table shows
   - [x] **R21.4** chart view toggles (bars / pie / table / hide) on the chart card
-  - [ ] per-report `kpis` overrides where the column totals do not say enough
-  - [ ] charts on the remaining inventory / accounting reports
+  - [x] per-report `kpis` on all 30 reports — figures the column totals could not say (share overdue, capital tied up, net income, cash variance), each computed server-side over the whole filtered set through the same `sumRows` the grand total uses
+  - [x] the float defect underneath it: twelve headline reducers (both ledger reconciliations, net income, total assets, net cash change, VAT net payable, five contribution denominators) were adding piastre-exact money as doubles; VAT net payable reported −12,072.199999999999
 - [x] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة) — on every report that has a date range
 - [x] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date — and fix the UTC day-shift in every `toISOString()` "today" across 21 screens
 - [x] **A6 / R21.6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson — rendered as an inline bar, not a bare number
@@ -67,9 +67,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R9.1** Work-order shop-floor actions — extra issue, return, scrap, record a cost; all five routes existed with no hook and no UI
 - [x] **R9.2** Work-order detail: materials with available/shortage, shop floor, costs, movements, receipts, journal entries and audit — all seven tabs
 - [x] **R9.3** Production dashboard: the start-production bucket the board was missing
-- [ ] **A5** Drill-down side panel from entity cells
-- [ ] Roll across all 22 reports, then the 7 financial statements (**R6.6** KPI totals + charts)
-- [ ] Keep CSV/Excel export everywhere — the reference has none (**X7**)
+- [x] **A5** Drill-down side panel from entity cells — a customer/supplier/item/account cell opens a panel with that entity and the posted documents behind the figure (`GET /reports/drill-down/<kind>/<id>`, gated by the entity's own permission, capped server-side at 25 with the true total stated). Wired on the 16 columns whose rows carry a real entity id; a document with its own page links to it
+- [x] Rolled across all 22 reports and the 8 financial statements (**R6.6** KPI totals + charts) — every report answers with a strip, and every chart carries a caption
+- [x] Keep CSV/Excel export everywhere — the reference has none (**X7**); verified live on the balance sheet, both formats
 
 ## P3 — document surfaces
 

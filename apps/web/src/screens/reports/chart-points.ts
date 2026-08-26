@@ -21,21 +21,26 @@ export function reportChartPoints<Row>(
   result: ChartPointSource<Row> | null,
 ): ReportChartPoint[] | null {
   if (!chart || !result) return null;
-  const labelColumn = columns.find((c) => c.key === chart.labelColumn);
   const valueColumn = columns.find((c) => c.key === chart.valueColumn);
-  if (!labelColumn || !valueColumn) return null;
+  if (!valueColumn) return null;
 
   const maxPoints = chart.maxPoints ?? 8;
   const take = (points: ReportChartPoint[]): ReportChartPoint[] =>
     chart.slice === "last" ? points.slice(Math.max(0, points.length - maxPoints)) : points.slice(0, maxPoints);
 
   if (chart.source === "groups") {
+    // A section's own name, not a cell's: the grouping key is rarely a column
+    // (the trial balance groups by account type and never prints it), so
+    // requiring one here silently produced no chart at all.
     return take(
       result.groups
         .filter((group) => group.label !== "")
         .map((group) => ({ key: group.key, label: group.label, value: group.totals[chart.valueColumn] ?? 0 })),
     );
   }
+
+  const labelColumn = columns.find((c) => c.key === chart.labelColumn);
+  if (!labelColumn) return null;
 
   if (chart.aggregate) {
     const buckets = new Map<string, Row[]>();

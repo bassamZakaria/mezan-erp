@@ -27,7 +27,7 @@ export {
   canTransitionEmployee,
 } from "./employee.js";
 export { createEmployee, updateEmployee, type CreateEmployeeCommand, type EmployeeEditableFields } from "./create-employee.js";
-export { transitionEmployee, terminateEmployee } from "./transition-employee.js";
+export { transitionEmployee, terminateEmployee, rehireEmployee } from "./transition-employee.js";
 
 export type {
   Contract,

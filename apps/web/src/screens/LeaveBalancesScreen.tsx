@@ -5,6 +5,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useEmployees, useLeaveBalances, useUpsertLeaveBalance } from "../data/hooks";
 import { formatDays, LEAVE_TYPE_KEY, leaveTypeOptions } from "./hr-leave-labels";
 import { useAppTranslation } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** أرصدة الإجازات (Leave Balances) — per-employee, per-leave-type position for a year: what accrual credited, what carried over, what approved leave consumed. */
 
@@ -20,7 +21,7 @@ interface BalanceDraft {
 }
 
 export function LeaveBalancesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [year, setYear] = useState(CURRENT_YEAR);
   const [employeeId, setEmployeeId] = useState("");
 
@@ -37,7 +38,7 @@ export function LeaveBalancesScreen() {
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
     if (!employee) return id;
-    return [employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ").trim() || `${employee.firstName} ${employee.lastName}`.trim();
+    return employeeDisplayName(employee, locale);
   };
 
   function openForm(balance?: LeaveBalanceDTO) {

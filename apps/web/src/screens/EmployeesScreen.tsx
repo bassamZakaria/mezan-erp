@@ -2,11 +2,13 @@ import { useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
+  DocumentDetail,
   DocumentList,
   EntityPicker,
   Money as MoneyDisplay,
   SidePanel,
   StatusPill,
+  type DocumentDetailTab,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
@@ -25,8 +27,15 @@ import {
   useJobTitles,
   useTerminateEmployee,
   useTransitionEmployee,
+  useAttendance,
+  useLeaveBalances,
+  useLeaveRequests,
+  useRehireEmployee,
 } from "../data/hooks";
+import { useEmployeeAdvances, useEmployeePayslips } from "../data/hr-payroll-hooks";
+import { ATTENDANCE_STATUS_KEY, LEAVE_STATUS_KEY, LEAVE_STATUS_TONE, LEAVE_TYPE_KEY } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** الموظفون (Employees) — docs/catalog/06 §"الموظفون". The HR hub record: personal info, department/job-title/manager/branch, hire date, worker category, overtime/standard hours, probation end, prior-service years (Article 47), attendance clock-in flags. */
 
@@ -149,7 +158,7 @@ function blankDraft(): EmployeeDraft {
 }
 
 export function EmployeesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useEmployees();
   const departmentsQuery = useDepartments();
   const jobTitlesQuery = useJobTitles();
@@ -179,10 +188,20 @@ export function EmployeesScreen() {
 
   const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
   const contractsQuery = useEmployeeContracts(selectedId);
+  const [detailTab, setDetailTab] = useState("personal");
+  const [rehireOpen, setRehireOpen] = useState(false);
+  const [rehireDate, setRehireDate] = useState("");
+  const rehireEmployee = useRehireEmployee();
+
+  const currentYear = new Date().getUTCFullYear();
+  const leaveBalancesQuery = useLeaveBalances(selectedId, currentYear);
+  const leaveRequestsQuery = useLeaveRequests({ employeeId: selectedId, status: null, leaveType: null, from: null, to: null });
+  const payslipsQuery = useEmployeePayslips(selectedId);
+  const advancesQuery = useEmployeeAdvances();
+  const attendanceQuery = useAttendance({ employeeId: selectedId, from: null, to: null, status: null });
 
   function employeeName(e: Pick<EmployeeDTO, "firstNameAr" | "lastNameAr" | "firstName" | "lastName">): string {
-    const ar = [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ").trim();
-    return ar || `${e.firstName} ${e.lastName}`.trim();
+    return employeeDisplayName(e, locale);
   }
 
   function departmentName(id: string | null): string {
@@ -323,6 +342,27 @@ export function EmployeesScreen() {
     ...(Object.keys(STATUS_KEY) as EmployeeStatusDTO[]).map((s) => ({ key: s, label: t(STATUS_KEY[s]), count: employees.filter((e) => e.status === s).length })),
   ];
 
+  const employeeAdvances = (advancesQuery.data ?? []).filter((a) => a.employeeId === selectedId);
+
+  async function runRehire() {
+    if (!selected || pendingAction) return;
+    if (rehireDate.trim() === "") {
+      setDetailError(t("employees.aRehireDateIsRequired"));
+      return;
+    }
+    setPendingAction(true);
+    setDetailError(null);
+    try {
+      await rehireEmployee.mutateAsync({ id: selected.id, hireDate: rehireDate.trim() });
+      setRehireOpen(false);
+      setRehireDate("");
+    } catch (err) {
+      setDetailError(err instanceof ApiError ? err.message : t("employees.theEmployeeCouldNotBe"));
+    } finally {
+      setPendingAction(false);
+    }
+  }
+
   const columns: DocumentListColumn<EmployeeDTO>[] = [
     {
       key: "name",
@@ -336,7 +376,7 @@ export function EmployeesScreen() {
     },
     { key: "department", header: t("employees.department"), render: (e) => departmentName(e.departmentId) },
     { key: "jobTitle", header: t("employees.jobTitle"), render: (e) => jobTitleName(e.jobTitleId) },
-    { key: "branch", header: t("employees.branch"), render: (e) => branchName(e.branchId) },
+    { key: "branch", header: t("employees.branchColumn"), render: (e) => branchName(e.branchId) },
     {
       key: "contract",
       header: t("employees.contract"),
@@ -355,6 +395,318 @@ export function EmployeesScreen() {
     { key: "hireDate", header: t("employees.hireDate"), render: (e) => <span className="mz-num">{e.hireDate}</span> },
     { key: "status", header: t("common.status"), render: (e) => <StatusPill label={t(STATUS_KEY[e.status])} tone={STATUS_TONE[e.status]} /> },
   ];
+
+  const rehirePanel = (
+      <SidePanel open={rehireOpen} onClose={() => setRehireOpen(false)} title={t("employees.rehire")} description={t("employees.theYearsAlreadyServedAre")}>
+      <div className="flex flex-col gap-[14px]">
+        <TextField label={t("employees.rehireDate")} value={rehireDate} onChange={setRehireDate} placeholder="YYYY-MM-DD" />
+        <div className="flex justify-end gap-[9px]">
+          <Button type="button" onClick={() => setRehireOpen(false)}>
+            {t("common.cancel")}
+          </Button>
+          <Button type="button" variant="primary" disabled={pendingAction} onClick={runRehire}>
+            {t("employees.rehire")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
+
+  const detailTabs: DocumentDetailTab[] = selected
+    ? [
+        {
+          key: "personal",
+          label: t("employees.personalInformation"),
+          content: (
+            <dl className="grid grid-cols-1 gap-[12px] text-[12.5px] sm:grid-cols-3">
+              <div>
+                <dt className="text-ink-faint">{t("employees.dateOfBirth")}</dt>
+                <dd className="mz-num text-ink">{selected.birthDate ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.gender")}</dt>
+                <dd className="text-ink">{selected.gender ? t(GENDER_KEY[selected.gender]) : "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.maritalStatus")}</dt>
+                <dd className="text-ink">{selected.maritalStatus ? t(MARITAL_KEY[selected.maritalStatus]) : "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.employmentType")}</dt>
+                <dd className="text-ink">{selected.employmentType === "full_time" ? t("employees.fullTime") : t("employees.partTime")}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.probationEndDate")}</dt>
+                <dd className="mz-num text-ink">{selected.probationEndDate ?? "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.priorYearsOfService")}</dt>
+                <dd className="mz-num text-ink">{selected.priorServiceYears}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.overtimeCalculation")}</dt>
+                <dd className="text-ink">{t(OVERTIME_KEY[selected.overtimeEligibility])}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.workerCategory")}</dt>
+                <dd className="text-ink">{t(WORKER_CATEGORY_KEY[selected.workerCategory])}</dd>
+              </div>
+              <div>
+                <dt className="text-ink-faint">{t("employees.phone")}</dt>
+                <dd className="mz-num text-ink">{selected.phone ?? "—"}</dd>
+              </div>
+            </dl>
+          ),
+        },
+        {
+          key: "contract",
+          label: t("employees.contracts"),
+          content:
+            (contractsQuery.data ?? []).length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted">{t("employees.noContractsLinkedToThis")}</p>
+            ) : (
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border text-ink-faint">
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractNumber")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("contracts.contractType")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("contracts.basicSalary")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(contractsQuery.data ?? []).map((c) => (
+                    <tr key={c.id} className="border-b border-border last:border-0">
+                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{c.number}</span></td>
+                      <td className="px-[8px] py-[7px] text-ink">{t(CONTRACT_TYPE_KEY[c.type])}</td>
+                      <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{c.startDate} — {c.endDate ?? "—"}</span></td>
+                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(c.monthlySalary)} /></td>
+                      <td className="px-[8px] py-[7px]">
+                        <StatusPill
+                          label={c.status === "active" ? t("contracts.active") : t("contracts.terminated")}
+                          tone={c.status === "active" ? "success" : "neutral"}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ),
+        },
+        {
+          key: "leave",
+          label: t("employees.leave"),
+          content: (
+            <div className="flex flex-col gap-[16px]">
+              <div>
+                <h4 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("employees.leaveBalances")}</h4>
+                {(leaveBalancesQuery.data ?? []).length === 0 ? (
+                  <p className="text-[12.5px] text-ink-muted">{t("employees.noLeaveBalanceForThis")}</p>
+                ) : (
+                  <table className="w-full border-collapse text-[12.5px]">
+                    <thead>
+                      <tr className="border-b border-border text-ink-faint">
+                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("hrDashboard.leaveType")}</th>
+                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.entitled")}</th>
+                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("hrDashboard.taken")}</th>
+                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.remaining")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(leaveBalancesQuery.data ?? []).map((b) => (
+                        <tr key={b.id} className="border-b border-border last:border-0">
+                          <td className="px-[8px] py-[7px] font-semibold text-ink">{t(LEAVE_TYPE_KEY[b.leaveType])}</td>
+                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.entitled) + Number(b.carriedOver)}</span></td>
+                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{Number(b.used)}</span></td>
+                          <td className="px-[8px] py-[7px] text-end">
+                            <span className="mz-num font-semibold text-ink">{Number(b.entitled) + Number(b.carriedOver) - Number(b.used)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+              <div>
+                <h4 className="mb-[8px] text-[12.5px] font-bold text-ink">{t("leaveRequests.leaveRequests")}</h4>
+                {(leaveRequestsQuery.data ?? []).length === 0 ? (
+                  <p className="text-[12.5px] text-ink-muted">{t("employees.noLeaveRequestsForThis")}</p>
+                ) : (
+                  <table className="w-full border-collapse text-[12.5px]">
+                    <thead>
+                      <tr className="border-b border-border text-ink-faint">
+                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.requestNumber")}</th>
+                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("leaveRequests.leaveType")}</th>
+                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                        <th className="px-[8px] py-[7px] text-end font-semibold">{t("leaveRequests.days")}</th>
+                        <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(leaveRequestsQuery.data ?? []).map((r) => (
+                        <tr key={r.id} className="border-b border-border last:border-0">
+                          <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{r.number}</span></td>
+                          <td className="px-[8px] py-[7px] text-ink">{t(LEAVE_TYPE_KEY[r.leaveType])}</td>
+                          <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{r.startDate} — {r.endDate}</span></td>
+                          <td className="px-[8px] py-[7px] text-end"><span className="mz-num text-ink">{r.days}</span></td>
+                          <td className="px-[8px] py-[7px]"><StatusPill label={t(LEAVE_STATUS_KEY[r.status])} tone={LEAVE_STATUS_TONE[r.status]} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          ),
+        },
+        {
+          key: "payslips",
+          label: t("employees.payslips"),
+          content:
+            (payslipsQuery.data ?? []).length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted">{t("employees.noPayslipsForThisEmployee")}</p>
+            ) : (
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border text-ink-faint">
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.payslipNumber")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.period")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.gross")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.deductions")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.net")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(payslipsQuery.data ?? []).map((slip) => (
+                    <tr key={slip.id} className="border-b border-border last:border-0">
+                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{slip.number}</span></td>
+                      <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{slip.periodStart} — {slip.periodEnd}</span></td>
+                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.grossEarnings)} /></td>
+                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(slip.totalDeductions)} /></td>
+                      <td className="px-[8px] py-[7px] text-end font-semibold"><MoneyDisplay value={Number(slip.netPay)} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ),
+        },
+        {
+          key: "advances",
+          label: t("employees.advances"),
+          content:
+            employeeAdvances.length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted">{t("employees.noAdvancesForThisEmployee")}</p>
+            ) : (
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border text-ink-faint">
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.advanceNumber")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.advanceAmount")}</th>
+                    <th className="px-[8px] py-[7px] text-end font-semibold">{t("employees.outstanding")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {employeeAdvances.map((advance) => (
+                    <tr key={advance.id} className="border-b border-border last:border-0">
+                      <td className="px-[8px] py-[7px]"><span className="mz-num font-semibold text-ink">{advance.number}</span></td>
+                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.amount)} /></td>
+                      <td className="px-[8px] py-[7px] text-end"><MoneyDisplay value={Number(advance.outstanding)} /></td>
+                      <td className="px-[8px] py-[7px] text-ink">{advance.status}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ),
+        },
+        {
+          key: "attendance",
+          label: t("employees.attendance"),
+          content:
+            (attendanceQuery.data ?? []).length === 0 ? (
+              <p className="text-[12.5px] text-ink-muted">{t("employees.noAttendanceForThisEmployee")}</p>
+            ) : (
+              <table className="w-full border-collapse text-[12.5px]">
+                <thead>
+                  <tr className="border-b border-border text-ink-faint">
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.attendanceDate")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkIn")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("employees.checkOut")}</th>
+                    <th className="px-[8px] py-[7px] text-start font-semibold">{t("common.status")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...(attendanceQuery.data ?? [])]
+                    .sort((a, b) => (a.date < b.date ? 1 : -1))
+                    .slice(0, 60)
+                    .map((entry) => (
+                      <tr key={entry.id} className="border-b border-border last:border-0">
+                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.date}</span></td>
+                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkIn ?? "—"}</span></td>
+                        <td className="px-[8px] py-[7px]"><span className="mz-num text-ink">{entry.checkOut ?? "—"}</span></td>
+                        <td className="px-[8px] py-[7px] text-ink">{t(ATTENDANCE_STATUS_KEY[entry.status])}</td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            ),
+        },
+      ]
+    : [];
+
+  if (selected) {
+    return (
+      <div className="w-full">
+        <DocumentDetail
+          title={employeeName(selected)}
+          statusLabel={t(STATUS_KEY[selected.status])}
+          statusTone={STATUS_TONE[selected.status]}
+          subtitle={<span className="mz-num">{selected.code}</span>}
+          actions={
+            <>
+              <Button onClick={() => setSelectedId(null)}>{t("employees.backToTheList")}</Button>
+              {selected.status === "terminated" ? (
+                <Button variant="primary" disabled={pendingAction} onClick={() => setRehireOpen(true)}>
+                  {t("employees.rehire")}
+                </Button>
+              ) : (
+                <>
+                  {validTransitions(selected.status).map((status) => (
+                    <Button key={status} disabled={pendingAction} onClick={() => runTransition(status)}>
+                      {t(STATUS_KEY[status])}
+                    </Button>
+                  ))}
+                  <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
+                    {t("employees.terminate")}
+                  </Button>
+                </>
+              )}
+            </>
+          }
+          summary={[
+            { label: t("employees.department"), value: departmentName(selected.departmentId) },
+            { label: t("employees.jobTitle"), value: jobTitleName(selected.jobTitleId) },
+            { label: t("common.branch"), value: branchName(selected.branchId) },
+            { label: t("employees.hireDate"), value: <span className="mz-num">{selected.hireDate}</span> },
+            {
+              label: t("employees.outstanding"),
+              value: <MoneyDisplay value={employeeAdvances.reduce((sum, a) => sum + Number(a.outstanding), 0)} />,
+            },
+          ]}
+          tabs={detailTabs}
+          activeTabKey={detailTab}
+          onTabChange={setDetailTab}
+        />
+        {detailError ? (
+          <div role="alert" className="mt-[14px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {detailError}
+          </div>
+        ) : null}
+        {rehirePanel}
+      </div>
+    );
+  }
 
   return (
     <div className="w-full">
@@ -412,109 +764,6 @@ export function EmployeesScreen() {
         }
       />
 
-      {/* -------- Employee detail panel -------- */}
-      <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? employeeName(selected) : ""}>
-        {selected ? (
-          <div className="flex flex-col gap-[16px]">
-            <div className="flex items-center gap-[10px]">
-              <StatusPill label={t(STATUS_KEY[selected.status])} tone={STATUS_TONE[selected.status]} />
-              <span className="mz-num text-[12px] text-ink-faint">{selected.code}</span>
-            </div>
-
-            <Card className="grid grid-cols-2 overflow-hidden">
-              <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("employees.department")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{departmentName(selected.departmentId)}</div>
-              </div>
-              <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("employees.jobTitle")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{jobTitleName(selected.jobTitleId)}</div>
-              </div>
-              <div className="border-e border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("common.branch")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{branchName(selected.branchId)}</div>
-              </div>
-              <div className="border-b border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("employees.hireDate")}</div>
-                <div className="mz-num mt-[5px] text-[14px] font-bold text-ink">{selected.hireDate}</div>
-              </div>
-              <div className="border-e border-border p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("employees.workerCategory")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(WORKER_CATEGORY_KEY[selected.workerCategory])}</div>
-              </div>
-              <div className="p-[13px_15px]">
-                <div className="text-[11px] font-semibold text-ink-faint">{t("employees.overtimeCalculation")}</div>
-                <div className="mt-[5px] text-[14px] font-bold text-ink">{t(OVERTIME_KEY[selected.overtimeEligibility])}</div>
-              </div>
-            </Card>
-
-            <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("employees.personalInformation")}</h3>
-              <dl className="grid grid-cols-2 gap-[10px] text-[12.5px]">
-                <div>
-                  <dt className="text-ink-faint">{t("employees.dateOfBirth")}</dt>
-                  <dd className="mz-num text-ink">{selected.birthDate ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("employees.gender")}</dt>
-                  <dd className="text-ink">{selected.gender ? t(GENDER_KEY[selected.gender]) : "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("employees.maritalStatus")}</dt>
-                  <dd className="text-ink">{selected.maritalStatus ? t(MARITAL_KEY[selected.maritalStatus]) : "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("employees.employmentType")}</dt>
-                  <dd className="text-ink">{selected.employmentType === "full_time" ? t("employees.fullTime") : t("employees.partTime")}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("employees.probationEndDate")}</dt>
-                  <dd className="mz-num text-ink">{selected.probationEndDate ?? "—"}</dd>
-                </div>
-                <div>
-                  <dt className="text-ink-faint">{t("employees.priorYearsOfService")}</dt>
-                  <dd className="mz-num text-ink">{selected.priorServiceYears}</dd>
-                </div>
-              </dl>
-            </div>
-
-            <div className="rounded-lg border border-border p-[14px]">
-              <h3 className="mb-[10px] font-display text-[13px] font-bold text-ink">{t("employees.contracts")}</h3>
-              {contractsQuery.data && contractsQuery.data.length > 0 ? (
-                <ul className="flex flex-col gap-[8px]">
-                  {contractsQuery.data.map((c) => (
-                    <li key={c.id} className="flex items-center justify-between text-[12.5px]">
-                      <span className="mz-num text-ink">{c.number}</span>
-                      <MoneyDisplay value={Number(c.monthlySalary)} className="text-[12.5px] font-semibold" />
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-[12.5px] text-ink-muted">{t("employees.noContractsLinkedToThis")}</p>
-              )}
-            </div>
-
-            {detailError ? (
-              <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
-                {detailError}
-              </div>
-            ) : null}
-
-            {selected.status !== "terminated" ? (
-              <div className="flex flex-col gap-[8px]">
-                {validTransitions(selected.status).map((status) => (
-                  <Button key={status} disabled={pendingAction} onClick={() => runTransition(status)}>
-                    {t(STATUS_KEY[status])}
-                  </Button>
-                ))}
-                <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
-                  {t("employees.terminate")}
-                </Button>
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </SidePanel>
 
       {/* -------- Create employee panel -------- */}
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("employees.newEmployee")} description={t("employees.basicEmployeeDetails")}>

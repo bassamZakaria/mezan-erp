@@ -12,6 +12,7 @@ import {
 } from "../data/hooks";
 import { ATTENDANCE_STATUS_KEY, ATTENDANCE_STATUS_TONE, formatWorkedDuration } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** الحضور والانصراف (Attendance) — docs/catalog/06 §"الحضور والانصراف". Per-employee daily check-in/out with a computed worked duration and a day status resolved against the official holiday calendar and approved leave. */
 
@@ -56,7 +57,7 @@ function EditIcon() {
 }
 
 export function AttendanceScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const [month, setMonth] = useState(currentMonth());
   const [employeeId, setEmployeeId] = useState("");
   const [status, setStatus] = useState("");
@@ -78,7 +79,7 @@ export function AttendanceScreen() {
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
     if (!employee) return id;
-    return [employee.firstNameAr, employee.lastNameAr].filter(Boolean).join(" ").trim() || `${employee.firstName} ${employee.lastName}`.trim();
+    return employeeDisplayName(employee, locale);
   };
 
   function openCreate() {

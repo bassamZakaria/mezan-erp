@@ -25,6 +25,7 @@ import {
 } from "../data/hr-payroll-hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { employeeDisplayName } from "./hr-employee-name";
 
 /** سلف الموظفين (Employee Advances) — docs/catalog/06 §"سلف الموظفين". A cash advance is a DEBT on the employee (an asset, 1160), recovered from payroll in instalments — never an expense. */
 
@@ -57,7 +58,7 @@ function blankDraft(): AdvanceDraft {
 }
 
 export function EmployeeAdvancesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
   const balancesQuery = useEmployeeAdvanceBalances();
   const employeesQuery = useEmployees();
@@ -87,8 +88,7 @@ export function EmployeeAdvancesScreen() {
   function employeeName(employeeId: string): string {
     const e = employees.find((row) => row.id === employeeId);
     if (!e) return employeeId;
-    const ar = [e.firstNameAr, e.lastNameAr].filter(Boolean).join(" ").trim();
-    return ar || `${e.firstName} ${e.lastName}`;
+    return employeeDisplayName(e, locale);
   }
 
   const filtered = useMemo(() => {

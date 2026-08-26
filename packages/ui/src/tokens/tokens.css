@@ -286,6 +286,14 @@ h4 {
   display: inline-block;
 }
 
+/* A cell carrying .mz-num must stay a table cell: inline-block drops it out of
+   the column grid, and every figure in the table then bunches up against the
+   first column instead of lining up under its header. */
+td.mz-num,
+th.mz-num {
+  display: table-cell;
+}
+
 .mz-disp {
   font-family: var(--font-display);
   line-height: 1.4;

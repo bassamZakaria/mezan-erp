@@ -13,6 +13,7 @@ import {
   updateEmployee,
   transitionEmployee,
   terminateEmployee,
+  rehireEmployee,
   createContract,
   terminateContract,
   isContractExpiringSoon,
@@ -62,6 +63,7 @@ import {
   createEmployeeSchema,
   updateEmployeeSchema,
   transitionEmployeeSchema,
+  rehireEmployeeSchema,
   createContractSchema,
   createHolidaySchema,
   updateHolidaySchema,
@@ -494,6 +496,20 @@ export function createHrRoutes(deps: HrRoutesDeps, resolveAuthContext: AuthConte
     if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
     try {
       const next = terminateEmployee(current);
+      await deps.employees.update(next);
+      return c.json(serializeEmployee(next));
+    } catch (err) {
+      return handleDomainError(c, err);
+    }
+  });
+
+  app.post("/employees/:id/rehire", gate("hr.employee.create"), async (c) => {
+    const current = await deps.employees.findById(c.req.param("id"));
+    if (!current) return c.json({ error: "EMPLOYEE_NOT_FOUND" }, 404);
+    const parsed = rehireEmployeeSchema.safeParse(await c.req.json().catch(() => ({})));
+    if (!parsed.success) return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    try {
+      const next = rehireEmployee(current, parsed.data.hireDate);
       await deps.employees.update(next);
       return c.json(serializeEmployee(next));
     } catch (err) {

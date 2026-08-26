@@ -46,6 +46,8 @@ import { todayIso } from "../lib/dates";
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 /** Keys, not copy — the stepper's labels are built with the translator at render. */
 const STEPPER_KEYS = [
   { key: "draft", labelKey: "docStatus.draft" },
@@ -178,6 +180,14 @@ export function StockAdjustmentsScreen() {
     }
     return rows;
   }, [documents, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (reasonFilter ? 1 : 0) + (warehouseFilter ? 1 : 0);
 
   const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
 
@@ -331,16 +341,27 @@ export function StockAdjustmentsScreen() {
           { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | DocumentStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("stockAdj.searchByAdjustmentNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2">
             <SelectField
               label={t("stockAdj.filter.reason")}
               value={reasonFilter}
-              onChange={setReasonFilter}
+              onChange={(v) => {
+                setReasonFilter(v);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("stockAdj.filter.allReasons") },
                 ...ADJUSTMENT_REASON_DEFINITIONS.map((def) => ({ value: def.code, label: domainLabel(def) })),
@@ -349,7 +370,10 @@ export function StockAdjustmentsScreen() {
             <SelectField
               label={t("stockAdj.filter.warehouse")}
               value={warehouseFilter}
-              onChange={setWarehouseFilter}
+              onChange={(v) => {
+                setWarehouseFilter(v);
+                setPage(1);
+              }}
               options={[
                 { value: "", label: t("stockAdj.filter.allWarehouses") },
                 ...warehouses.map((w) => ({ value: w.id, label: w.name })),
@@ -358,17 +382,30 @@ export function StockAdjustmentsScreen() {
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockAdj.adjustments")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("stockAdj.adjustments")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockAdj.noMatchingAdjustments")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("stockAdj.noMatchingAdjustments")}
+            description={t("stockAdj.emptyBody")}
+            action={{ label: t("stockAdj.newAdjustment"), onClick: () => { setSelectedReason(null); subPage.open("new"); } }}
+          />
+        }
       />
     </div>
   );

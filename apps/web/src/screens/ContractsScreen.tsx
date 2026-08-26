@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
@@ -42,6 +43,7 @@ const PAY_FREQUENCY_KEY: Record<PayFrequencyDTO, AppTranslationKey> = { monthly:
 const STATUS_KEY: Record<ContractStatusDTO, AppTranslationKey> = { active: "contracts.status.active", terminated: "contracts.status.terminated" };
 const STATUS_TONE: Record<ContractStatusDTO, PillTone> = { active: "success", terminated: "neutral" };
 const CURRENCIES = ["EGP", "SAR", "AED", "QAR", "KWD", "BHD", "OMR", "JOD", "USD", "EUR", "GBP"];
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface ContractDraft {
   employeeId: string;
@@ -93,6 +95,8 @@ export function ContractsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ContractStatusDTO | "expiring_soon">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ContractDraft>(blankDraft());
@@ -118,6 +122,12 @@ export function ContractsScreen() {
     }
     return rows;
   }, [contracts, statusFilter, search, employees]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selected = selectedId ? (contracts.find((c) => c.id === selectedId) ?? null) : null;
 
@@ -264,30 +274,52 @@ export function ContractsScreen() {
             label: t("contracts.contractsEndingWithin30", { count: expiringSoonCount }),
             count: expiringSoonCount,
             tone: "warning",
-            onApply: () => setStatusFilter("expiring_soon"),
+            onApply: () => {
+              setStatusFilter("expiring_soon");
+              setPage(1);
+            },
           },
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon")}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | ContractStatusDTO | "expiring_soon");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("contracts.searchByContractNumberOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
         onRowClick={(c) => {
           setDetailError(null);
           setSelectedId(c.id);
         }}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{contracts.length}</span> {t("contracts.contracts2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{contracts.length}</span> {t("contracts.contracts2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("contracts.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("contracts.nothingToShow")}
+            description={t("contracts.emptyBody")}
+            action={{ label: t("contracts.addContract"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>

@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import { Button, Card, DocumentList, EmptyState, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
 import type { ActivityDTO, ActivityStatusDTO, ActivityTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelActivity, useCompleteActivity, useCreateActivity, useCrmActivities } from "../data/hooks";
@@ -11,6 +11,8 @@ const TYPE_KEY: Record<ActivityTypeDTO, AppTranslationKey> = { call: "activities
 const STATUS_KEY: Record<ActivityStatusDTO, AppTranslationKey> = { pending: "activities.status.pending", completed: "activities.status.completed", cancelled: "activities.status.cancelled" };
 const STATUS_TONE: Record<ActivityStatusDTO, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
 const ACTIVITY_STATUSES: ActivityStatusDTO[] = ["pending", "completed", "cancelled"];
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface ActivityDraft {
   subject: string;
@@ -40,6 +42,8 @@ export function ActivitiesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | ActivityStatusDTO>("all");
   const [formOpen, setFormOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [draft, setDraft] = useState<ActivityDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -54,6 +58,10 @@ export function ActivitiesScreen() {
     }
     return rows;
   }, [activities, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   function openCreateForm() {
     setDraft(blankDraft());
@@ -160,21 +168,40 @@ export function ActivitiesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ActivityStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | ActivityStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("activities.searchBySubject")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(a) => a.id}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{activities.length}</span> {t("activities.activities2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("activities.activities2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("activities.noActivities")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("activities.noActivities")}
+            description={t("activities.emptyBody")}
+            action={{ label: t("activities.newActivity"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("activities.newActivity")} description={t("activities.activityDetails")}>

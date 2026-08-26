@@ -1,6 +1,11 @@
 import { Hono } from "hono";
 import {
   Money,
+  salesInvoiceTotals,
+  salesReturnCreditByInvoice,
+  purchaseInvoiceTotal,
+  extend,
+  voucherLine,
   postJournalEntrySpike,
   UnbalancedEntryError,
   InvalidJournalEntryError,
@@ -109,8 +114,8 @@ import { createSettingsRoutes } from "./settings-routes.js";
 import { createCurrencyCheck, type CurrencyCheck } from "./currency-policy.js";
 import { createBranchesRoutes } from "./branches-routes.js";
 import { createWarehousesRoutes } from "./warehouses-routes.js";
-import { createCustomersRouter } from "./customers-routes.js";
-import { createSuppliersRouter } from "./suppliers-routes.js";
+import { createCustomersRouter, type CustomerReceivablesSource } from "./customers-routes.js";
+import { createSuppliersRouter, type SupplierPayablesSource } from "./suppliers-routes.js";
 import { createItemsRouter } from "./items-routes.js";
 import {
   createItemCategoriesRoutes,
@@ -802,14 +807,98 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.warehouseStore) {
     app.route("/warehouses", createWarehousesRoutes(options.warehouseStore, options.resolveAuthContext));
   }
+  /**
+   * What each customer still owes, for the customers list's own KPI strip and
+   * its over-credit-limit filter (R1.1). It is the SAME derivation
+   * `/sales-invoices/stats` reports as `remaining` — grand total less what has
+   * been collected less what has been credited back by a confirmed return,
+   * over the live invoices only — rolled up by customer. The customers screen
+   * used to add those figures as JS numbers over whatever page it held; two
+   * screens reading the same fact must read it from the same place.
+   */
+  const customerReceivables: CustomerReceivablesSource | undefined = options.salesInvoices
+    ? {
+        async outstandingByCustomer() {
+          const invoices = await options.salesInvoices!.repo.list();
+          const credits = options.salesReturns
+            ? salesReturnCreditByInvoice(await options.salesReturns.service.list())
+            : new Map<string, Money>();
+          const out = new Map<string, Money>();
+          for (const invoice of invoices) {
+            if (invoice.status === "draft" || invoice.status === "cancelled") continue;
+            const remaining = salesInvoiceTotals(invoice)
+              .grandTotal.add(invoice.amountPaid.negate())
+              .add((credits.get(invoice.id) ?? Money.zero()).negate());
+            out.set(invoice.customerId, (out.get(invoice.customerId) ?? Money.zero()).add(remaining));
+          }
+          return out;
+        },
+      }
+    : undefined;
+
+  /**
+   * What each supplier is still owed. A purchase invoice carries no
+   * `amountPaid` of its own, so payment is read from the vouchers that name
+   * the supplier, from confirmed purchase returns, and from outgoing cheques —
+   * a cheque debits AP the moment it is handed over, and only a bounce puts
+   * the debt back.
+   */
+  const supplierPayables: SupplierPayablesSource | undefined = options.purchases
+    ? {
+        async outstandingBySupplier() {
+          const out = new Map<string, Money>();
+          const add = (supplierId: string, amount: Money) =>
+            out.set(supplierId, (out.get(supplierId) ?? Money.zero()).add(amount));
+
+          for (const invoice of await options.purchases!.invoices.list()) {
+            if (invoice.status !== "confirmed") continue;
+            add(invoice.supplierId, purchaseInvoiceTotal(invoice));
+          }
+          if (options.vouchers) {
+            for (const doc of await options.vouchers.documents.list()) {
+              if (doc.status !== "confirmed" && doc.status !== "posted") continue;
+              const line = voucherLine(doc);
+              if (!line.supplierId) continue;
+              // A payment to the supplier clears debt; a refund from them raises it again.
+              if (line.direction === "payment") add(line.supplierId, line.amount.negate());
+              else if (line.direction === "receipt") add(line.supplierId, line.amount);
+            }
+          }
+          if (options.purchaseReturns) {
+            for (const doc of await options.purchaseReturns.service.list()) {
+              if (doc.status !== "confirmed") continue;
+              // The supplier is on the LINE, not the header, so a return that
+              // spans two suppliers has to be split rather than attributed whole.
+              for (const line of doc.lines) {
+                add(line.supplierId, extend(line.qty, line.unitCost).add(line.taxAmount).negate());
+              }
+            }
+          }
+          if (options.cheques) {
+            for (const cheque of await options.cheques.cheques.list()) {
+              if (cheque.direction !== "outgoing" || cheque.status === "bounced") continue;
+              add(cheque.partyId, cheque.amount.negate());
+            }
+          }
+          return out;
+        },
+      }
+    : undefined;
+
   if (options.customerStore) {
     app.route(
       "/customers",
-      createCustomersRouter(options.customerStore, options.resolveAuthContext, options.auditSink, options.priceListRepo),
+      createCustomersRouter(
+        options.customerStore,
+        options.resolveAuthContext,
+        options.auditSink,
+        options.priceListRepo,
+        customerReceivables,
+      ),
     );
   }
   if (options.supplierStore) {
-    app.route("/suppliers", createSuppliersRouter(options.supplierStore, options.resolveAuthContext));
+    app.route("/suppliers", createSuppliersRouter(options.supplierStore, options.resolveAuthContext, supplierPayables));
   }
 
   if (options.accounts) {

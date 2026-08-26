@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   SidePanel,
   StatusPill,
   TextInput,
@@ -26,6 +27,8 @@ function today(): string {
   return todayIso();
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function InstallmentFollowUpsScreen() {
   const { t } = useAppTranslation();
   const query = useFollowUps();
@@ -44,6 +47,8 @@ export function InstallmentFollowUpsScreen() {
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [statusFilter, setStatusFilter] = useState<"all" | FollowUpStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [customerId, setCustomerId] = useState("");
   const [type, setType] = useState<FollowUpTypeDTO>("CALL");
   const [followUpDate, setFollowUpDate] = useState(today());
@@ -62,6 +67,9 @@ export function InstallmentFollowUpsScreen() {
   }, [followUps]);
 
   const filtered = statusFilter === "all" ? followUps : followUps.filter((f) => f.status === statusFilter);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (followUps.find((f) => f.id === panel.id) ?? null) : null;
 
   // Defaults the create form's customer picker once the customers query resolves —
@@ -166,19 +174,35 @@ export function InstallmentFollowUpsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | FollowUpStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | FollowUpStatusDTO);
+          setPage(1);
+        }}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(f) => f.id}
         onRowClick={(f) => setPanel({ id: f.id })}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("followUps.followUps")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("followUps.followUps")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("followUps.noFollowUpsCreatedYet")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("followUps.noFollowUpsCreatedYet")}
+            description={t("followUps.emptyBody")}
+            action={{ label: t("followUps.newFollowUp"), onClick: openCreate }}
+          />
+        }
       />
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("followUps.newFollowUp")}>

@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
@@ -23,6 +24,8 @@ import { sumMajor } from "../lib/money";
 
 const STATUS_KEY: Record<OpportunityStatusDTO, AppTranslationKey> = { open: "opportunities.status.open", won: "opportunities.status.won", lost: "opportunities.status.lost" };
 const STATUS_TONE: Record<OpportunityStatusDTO, PillTone> = { open: "info", won: "success", lost: "danger" };
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface OpportunityDraft {
   title: string;
@@ -168,6 +171,8 @@ export function OpportunitiesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OpportunityStatusDTO>("all");
   const [formOpen, setFormOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const filtered = useMemo(() => {
     let rows = opportunities;
@@ -178,6 +183,10 @@ export function OpportunitiesScreen() {
     }
     return rows;
   }, [opportunities, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const openCount = opportunities.filter((o) => o.status === "open").length;
   const wonCount = opportunities.filter((o) => o.status === "won").length;
@@ -228,21 +237,40 @@ export function OpportunitiesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | OpportunityStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | OpportunityStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("opportunities.searchByTitle")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(o) => o.id}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{opportunities.length}</span> {t("opportunities.opportunities2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("opportunities.opportunities2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("opportunities.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("opportunities.nothingToShow")}
+            description={t("opportunities.emptyBody")}
+            action={{ label: t("opportunities.newOpportunity"), onClick: () => setFormOpen(true) }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("opportunities.newOpportunity")} description={t("opportunities.opportunityDetails")}>

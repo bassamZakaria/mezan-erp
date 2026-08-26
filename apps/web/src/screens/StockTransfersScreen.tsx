@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
   DocumentStatusStepper,
+  EmptyState,
   FulcrumRule,
   IconButton,
   Select,
@@ -25,6 +26,8 @@ import { todayIso } from "../lib/dates";
 
 /** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** Keys, not copy — the stepper's labels are built with the translator at render. */
 const STEPPER_KEYS = [
@@ -97,6 +100,8 @@ export function StockTransfersScreen() {
   const routedItemId = firstSegment === "new" ? (subPage.segments[1] ?? null) : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0 };
@@ -116,6 +121,12 @@ export function StockTransfersScreen() {
     }
     return rows;
   }, [documents, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
@@ -248,22 +259,41 @@ export function StockTransfersScreen() {
           { key: "confirmed", label: t("docStatus.confirmed"), count: counts.confirmed },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | DocumentStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("stockXfer.searchByTransferNumber")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("stockXfer.transfers")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("stockXfer.transfers")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("stockXfer.noMatchingTransfers")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("stockXfer.noMatchingTransfers")}
+            description={t("stockXfer.emptyBody")}
+            action={{ label: t("stockXfer.newTransfer"), onClick: () => subPage.open("new") }}
+          />
+        }
       />
     </div>
   );

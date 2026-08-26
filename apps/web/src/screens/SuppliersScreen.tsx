@@ -5,6 +5,7 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   Money as MoneyValue,
   StatusPill,
   SidePanel,
@@ -511,6 +512,8 @@ const BLANK_DRAFT: SupplierDraft = {
   active: true,
 };
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 function draftFromSupplier(supplier: SupplierDTO): SupplierDraft {
   return {
     code: supplier.code,
@@ -625,6 +628,8 @@ export function SuppliersScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<SupplierDraft>(BLANK_DRAFT);
@@ -643,6 +648,10 @@ export function SuppliersScreen() {
     }
     return rows;
   }, [suppliers, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: suppliers.length },
@@ -809,22 +818,41 @@ export function SuppliersScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as typeof statusFilter)}
+        onStatusChange={(key) => {
+          setStatusFilter(key as typeof statusFilter);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("suppliers.searchPlaceholder")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(s) => s.id}
         onRowClick={(s) => setSelectedId(s.id)}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{suppliers.length}</span> {t("suppliers.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("suppliers.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("suppliers.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("suppliers.empty")}
+            description={t("suppliers.emptyBody")}
+            action={{ label: t("suppliers.addSupplier"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? t("suppliers.editSupplier") : t("suppliers.addSupplier")} description={t("suppliers.panel.description")}>

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { DocumentList, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
+import { DocumentList, EmptyState, StatusPill, Button, Card, SidePanel, formatDateTime, type DocumentListColumn, type Locale, type PillTone } from "@mezan/ui";
 import type { AuditEventDTO, AuditSeverityDTO, AuditStreamDTO } from "@mezan/contracts";
 import { useAuditLog } from "../data/platform-hooks";
 import { useBranches } from "../data/hooks";
@@ -15,7 +15,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  * evidence, not editable state.
  */
 
-const PAGE_SIZE = 25;
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const STREAM_KEY: Record<AuditStreamDTO, AppTranslationKey> = {
   security: "audit.securityEvents",
@@ -83,6 +83,7 @@ export function AuditLogScreen() {
   const branches = useMemo(() => branchesQuery.data ?? [], [branchesQuery.data]);
   const [filters, setFilters] = useState<Filters>(BLANK_FILTERS);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [selected, setSelected] = useState<AuditEventDTO | null>(null);
 
   function updateFilters(patch: Partial<Filters>) {

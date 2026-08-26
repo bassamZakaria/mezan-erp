@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
@@ -57,6 +58,8 @@ function blankDraft(): AdvanceDraft {
   return { employeeId: "", amount: null, installmentCount: 3, firstDeductionDate: "", reason: "" };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function EmployeeAdvancesScreen() {
   const { t, locale } = useAppTranslation();
   const query = useEmployeeAdvances();
@@ -76,6 +79,8 @@ export function EmployeeAdvancesScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeAdvanceStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<AdvanceDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
@@ -100,6 +105,12 @@ export function EmployeeAdvancesScreen() {
     }
     return rows;
   }, [advances, statusFilter, search, employees]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selected = selectedId ? (advances.find((a) => a.id === selectedId) ?? null) : null;
   const employeeOptions: EntityPickerOption[] = employees.map((e) => ({ id: e.id, label: `${e.code} — ${employeeName(e.id)}` }));
@@ -222,25 +233,44 @@ export function EmployeeAdvancesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | EmployeeAdvanceStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | EmployeeAdvanceStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("advances.searchByAdvanceNumberOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(a) => a.id}
         onRowClick={(a) => {
           setDetailError(null);
           setSelectedId(a.id);
         }}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{advances.length}</span> {t("advances.advances")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{advances.length}</span> {t("advances.advances")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("advances.noAdvancesStartByRecording")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("advances.noAdvancesStartByRecording")}
+            description={t("advances.emptyBody")}
+            action={{ label: t("advances.requestAnAdvance"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? selected.number : ""}>

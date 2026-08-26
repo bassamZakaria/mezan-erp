@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { Button, Card, DocumentList, EmptyState, SidePanel, StatusPill, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
 import type { DepartmentDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateDepartment } from "../data/hooks";
@@ -7,6 +7,8 @@ import { useAppTranslation } from "../i18n";
 import { bilingualName } from "./hr-employee-name";
 
 /** الأقسام (Departments) — docs/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface DepartmentDraft {
   code: string;
@@ -43,6 +45,8 @@ export function DepartmentsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<DepartmentDraft>(blankDraft());
@@ -77,6 +81,12 @@ export function DepartmentsScreen() {
     }
     return rows;
   }, [departments, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selected = selectedId ? (departments.find((d) => d.id === selectedId) ?? null) : null;
 
@@ -186,22 +196,41 @@ export function DepartmentsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | "active" | "inactive")}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | "active" | "inactive");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("departments.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={openEdit}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{departments.length}</span> {t("departments.departments2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{departments.length}</span> {t("departments.departments2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("departments.noDepartmentsAddTheFirst")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("departments.noDepartmentsAddTheFirst")}
+            description={t("departments.emptyBody")}
+            action={{ label: t("departments.addDepartment"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("departments.editDepartment") : ""}>

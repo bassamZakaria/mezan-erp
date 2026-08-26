@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import {
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
   StatusPill,
   Card,
@@ -48,6 +49,8 @@ function statusOptionsFrom(current: ProjectStatusDTO, t: (key: AppTranslationKey
     .filter((value) => canTransitionProject(current, value))
     .map((value) => ({ value, label: t(STATUS_KEY[value]) }));
 }
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const NO_CUSTOMER_ID = "__none__";
 const NO_MANAGER_ID = "__none__";
@@ -106,6 +109,8 @@ export function ProjectsScreen() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<ProjectDraft>(blankDraft());
@@ -134,6 +139,10 @@ export function ProjectsScreen() {
     }
     return rows;
   }, [projects, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const totalCount = projects.length;
   const activeCount = projects.filter((p) => p.status === "active").length;
@@ -245,25 +254,40 @@ export function ProjectsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={setStatusFilter}
+        onStatusChange={(k) => {
+          setStatusFilter(k);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(v) => {
+          setSearch(v);
+          setPage(1);
+        }}
         searchPlaceholder={t("projects.searchByCodeOrName")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(p) => p.id}
         onRowClick={openDetail}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("projects.projects")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("projects.projects")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {t("projects.noProjectsCreateTheFirst")}
-          </div>
+          <EmptyState
+            title={t("projects.noProjectsCreateTheFirst")}
+            description={t("projects.emptyBody")}
+            action={{ label: t("projects.newProject"), onClick: openCreateForm }}
+          />
         }
       />
 

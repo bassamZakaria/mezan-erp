@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Button, Card, Chip, DocumentList, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Card, Chip, DocumentList, EmptyState, SidePanel, StatusPill, type DocumentListColumn } from "@mezan/ui";
 import type { LeaveAccrualBatchDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useLeaveAccrualBatches, useRunLeaveAccrual } from "../data/hooks";
@@ -26,6 +26,8 @@ function today(): string {
   return todayIso();
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function LeaveAccrualBatchesScreen() {
   const { t } = useAppTranslation();
   const [runType, setRunType] = useState("");
@@ -36,8 +38,15 @@ export function LeaveAccrualBatchesScreen() {
   const [draft, setDraft] = useState<RunDraft>({ runDate: today(), frequency: "monthly", notes: "" });
   const [formError, setFormError] = useState<string | null>(null);
   const [banner, setBanner] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const batches = query.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(batches.length / pageSize));
+  const pageRows = batches.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   function openForm() {
     setDraft({ runDate: today(), frequency: "monthly", notes: "" });
@@ -103,7 +112,15 @@ export function LeaveAccrualBatchesScreen() {
 
       <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveAccrual.runType")}>
         {RUN_TYPE_FILTERS.map((filter) => (
-          <Chip key={filter.key} type="button" active={runType === filter.key} onClick={() => setRunType(filter.key)}>
+          <Chip
+            key={filter.key}
+            type="button"
+            active={runType === filter.key}
+            onClick={() => {
+              setRunType(filter.key);
+              setPage(1);
+            }}
+          >
             {t(filter.labelKey)}
           </Chip>
         ))}
@@ -127,17 +144,28 @@ export function LeaveAccrualBatchesScreen() {
           },
         ]}
         columns={columns}
-        rows={batches}
+        rows={pageRows}
         rowKey={(b) => b.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{batches.length}</span> {t("leaveAccrual.batches2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{batches.length}</span> {t("leaveAccrual.batches2")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">{t("leaveAccrual.noAccrualBatchesYetScheduled")}</div>
+          <EmptyState
+            title={t("leaveAccrual.noAccrualBatchesYetScheduled")}
+            description={t("leaveAccrual.emptyBody")}
+            action={{ label: t("leaveAccrual.runAccrualNow"), onClick: openForm }}
+          />
         }
       />
 

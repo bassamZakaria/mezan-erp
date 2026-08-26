@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { Button, Card, DocumentList, EmptyState, IconButton, SidePanel, StatusPill, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { PipelineStageDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePipelineStage, useMovePipelineStage, usePipelineStages } from "../data/hooks";
@@ -35,6 +35,8 @@ function blankDraft(): StageDraft {
   return { name: "", defaultProbability: 50, color: "#3b82f6", isWinStage: false, isLossStage: false };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 /** Returns a catalogue KEY, so the caller decides the locale. */
 function validateDraft(draft: StageDraft): AppTranslationKey | null {
   if (draft.name.trim() === "") return "pipelineStages.nameRequired";
@@ -53,6 +55,12 @@ export function PipelineStagesScreen() {
   const [formError, setFormError] = useState<string | null>(null);
   const [movingId, setMovingId] = useState<string | null>(null);
   const [moveError, setMoveError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
+  const pageCount = Math.max(1, Math.ceil(stages.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = stages.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const activeCount = stages.filter((s) => s.active).length;
   const winStage = stages.find((s) => s.isWinStage);
@@ -170,16 +178,29 @@ export function PipelineStagesScreen() {
           { label: t("pipelineStages.lostStage2"), value: lossStage?.name ?? "—" },
         ]}
         columns={columns}
-        rows={stages}
+        rows={pageRows}
         rowKey={(s) => s.id}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{stages.length}</span> {t("common.of")} <span className="mz-num">{stages.length}</span> {t("pipelineStages.stages")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{stages.length}</span> {t("pipelineStages.stages")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("pipelineStages.noStages")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("pipelineStages.noStages")}
+            description={t("pipelineStages.emptyBody")}
+            action={{ label: t("pipelineStages.addStage"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel

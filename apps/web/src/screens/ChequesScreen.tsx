@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FulcrumRule,
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
@@ -97,6 +98,8 @@ const ACTION_KEY = {
   replace: "cheques.action.replace",
 } as const;
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ChequesScreen() {
   const { t } = useAppTranslation();
   const [mode, setMode] = useState<"list" | "create">("list");
@@ -105,6 +108,8 @@ export function ChequesScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
@@ -161,6 +166,15 @@ export function ChequesScreen() {
       .filter((c) => (statusFilter === "all" ? true : c.effectiveStatus === statusFilter))
       .filter((c) => (q === "" ? true : c.chequeNumber.toLowerCase().includes(q)));
   }, [cheques, search, statusFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (directionFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const totals = useMemo(() => {
     let value = 0;
@@ -282,17 +296,28 @@ export function ChequesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | ChequeStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | ChequeStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("cheques.searchByChequeNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="w-[150px]">
               <SelectField
                 label={t("cheques.direction")}
                 value={directionFilter}
-                onChange={(v) => setDirectionFilter(v as "all" | ChequeDirectionDTO)}
+                onChange={(v) => {
+                  setDirectionFilter(v as "all" | ChequeDirectionDTO);
+                  setPage(1);
+                }}
                 options={[
                   { value: "all", label: t("cheques.allDirections") },
                   { value: "incoming", label: t("cheques.incoming") },
@@ -301,27 +326,58 @@ export function ChequesScreen() {
               />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("cheques.from")} value={fromDate} onChange={setFromDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("cheques.from")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
             <div className="w-[150px]">
-              <TextField label={t("cheques.to")} value={toDate} onChange={setToDate} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("cheques.to")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={rows}
+        rows={pageRows}
         rowKey={(c) => c.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{rows.length}</span> {t("common.of")} <span className="mz-num">{totals.count}</span> {t("cheques.cheques")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totals.count}</span> {t("cheques.cheques")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : query.isError ? (query.error?.message ?? t("cheques.chequesCouldNotBeLoaded")) : t("cheques.noCheques")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{query.error?.message ?? t("cheques.chequesCouldNotBeLoaded")}</div>
+          ) : (
+            <EmptyState
+              title={t("cheques.noCheques")}
+              description={t("cheques.emptyBody")}
+              action={{ label: t("cheques.newCheque"), onClick: () => setMode("create") }}
+            />
+          )
         }
       />
 

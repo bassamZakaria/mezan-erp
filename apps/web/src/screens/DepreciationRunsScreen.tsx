@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
 import type { CreateDepreciationRunDTO, DepreciationRunDTO, DepreciationRunStatusDTO } from "@mezan/contracts";
 import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, usePostDepreciationRun } from "../data/hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
@@ -9,6 +9,7 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<DepreciationRunStatusDTO, AppTranslationKey> = { draft: "depreciation.status.draft", posted: "depreciation.status.posted", cancelled: "depreciation.status.cancelled" };
 const STATUS_TONE: Record<DepreciationRunStatusDTO, PillTone> = { draft: "neutral", posted: "success", cancelled: "danger" };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -47,6 +48,8 @@ export function DepreciationRunsScreen() {
   const branches = branchesQuery.data ?? [];
 
   const [statusFilter, setStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<RunDraft>(blankDraft());
@@ -66,6 +69,12 @@ export function DepreciationRunsScreen() {
     if (statusFilter === "all") return runs;
     return runs.filter((r) => r.status === statusFilter);
   }, [runs, statusFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const totalCount = runs.length;
   const draftCount = runs.filter((r) => r.status === "draft").length;
@@ -179,19 +188,35 @@ export function DepreciationRunsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={setStatusFilter}
+        onStatusChange={(key) => {
+          setStatusFilter(key);
+          setPage(1);
+        }}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelectedId(r.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("depreciation.runs")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("depreciation.runs")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("depreciation.noDepreciationRunsYet")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("depreciation.noDepreciationRunsYet")}
+            description={t("depreciation.emptyBody")}
+            action={{ label: t("depreciation.runDepreciation"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("depreciation.detailTitle", { period: selected.period }) : ""}>

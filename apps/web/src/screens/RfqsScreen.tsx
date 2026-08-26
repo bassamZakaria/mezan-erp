@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   DocumentList,
@@ -60,6 +60,8 @@ const STATUS_TONE: Record<PurchaseRfqStatusDTO, PillTone> = {
   closed: "success",
   cancelled: "danger",
 };
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface DraftLine {
   itemId: string;
@@ -393,6 +395,8 @@ export function RfqsScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseRfqStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -429,6 +433,14 @@ export function RfqsScreen() {
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
   }, [rfqs, statusFilter, search, fromDate, toDate]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const counts = useMemo(() => {
     const c: Record<"all" | PurchaseRfqStatusDTO, number> = { all: rfqs.length, draft: 0, sent: 0, closed: 0, cancelled: 0 };
@@ -586,27 +598,64 @@ export function RfqsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as PurchaseRfqStatusDTO | "all")}
+        onStatusChange={(key) => {
+          setStatusFilter(key as PurchaseRfqStatusDTO | "all");
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("rfqs.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="grid w-full gap-2 sm:grid-cols-2">
-            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+            <TextField
+              label={t("common.fromDate")}
+              value={fromDate}
+              onChange={(v) => {
+                setFromDate(v);
+                setPage(1);
+              }}
+              type="date"
+            />
+            <TextField
+              label={t("common.toDate")}
+              value={toDate}
+              onChange={(v) => {
+                setToDate(v);
+                setPage(1);
+              }}
+              type="date"
+            />
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => subPage.open(r.number ?? r.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("rfqs.showingSuffix")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {rfqsQuery.isLoading ? t("common.loading") : t("rfqs.empty")}
-          </div>
+          rfqsQuery.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("rfqs.empty")}
+              description={t("rfqs.emptyBody")}
+              action={{ label: t("rfqs.new"), onClick: openCreate }}
+            />
+          )
         }
       />
     </>

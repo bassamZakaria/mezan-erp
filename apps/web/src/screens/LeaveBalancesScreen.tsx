@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Button, Card, Chip, DocumentList, SidePanel, type DocumentListColumn } from "@mezan/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Card, Chip, DocumentList, EmptyState, SidePanel, type DocumentListColumn } from "@mezan/ui";
 import type { LeaveBalanceDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { ApiError, useEmployees, useLeaveBalances, useUpsertLeaveBalance } from "../data/hooks";
@@ -11,6 +11,7 @@ import { employeeDisplayName } from "./hr-employee-name";
 
 const CURRENT_YEAR = new Date().getUTCFullYear();
 const YEAR_OPTIONS = [CURRENT_YEAR - 1, CURRENT_YEAR, CURRENT_YEAR + 1];
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 interface BalanceDraft {
   employeeId: string;
@@ -33,8 +34,17 @@ export function LeaveBalancesScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<BalanceDraft>({ employeeId: "", leaveType: "annual", entitled: "0", carriedOver: "0", used: "0" });
   const [formError, setFormError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const balances = query.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(balances.length / pageSize));
+  const pageRows = balances.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = employeeId !== "" ? 1 : 0;
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
     if (!employee) return id;
@@ -116,7 +126,15 @@ export function LeaveBalancesScreen() {
 
       <div className="mb-[14px] flex flex-wrap gap-[6px]" role="group" aria-label={t("leaveBalances.year")}>
         {YEAR_OPTIONS.map((y) => (
-          <Chip key={y} type="button" active={year === y} onClick={() => setYear(y)}>
+          <Chip
+            key={y}
+            type="button"
+            active={year === y}
+            onClick={() => {
+              setYear(y);
+              setPage(1);
+            }}
+          >
             <span className="mz-num">{y}</span>
           </Chip>
         ))}
@@ -133,27 +151,45 @@ export function LeaveBalancesScreen() {
         listKey="leave-balances"
         statsCollapsible
         stats={[{ label: t("leaveBalances.balances"), value: <span className="mz-num">{balances.length}</span> }]}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="min-w-[220px]">
             <SelectField
               label={t("leaveBalances.employee")}
               value={employeeId}
-              onChange={setEmployeeId}
+              onChange={(v) => {
+                setEmployeeId(v);
+                setPage(1);
+              }}
               options={[{ value: "", label: t("leaveBalances.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
             />
           </div>
         }
         columns={columns}
-        rows={balances}
+        rows={pageRows}
         rowKey={(b) => b.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{balances.length}</span> {t("leaveBalances.balancesFor")} <span className="mz-num">{year}</span>
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{balances.length}</span> {t("leaveBalances.balancesFor")} <span className="mz-num">{year}</span>
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leaveBalances.noLeaveBalancesRunAn")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("leaveBalances.noLeaveBalancesRunAn")}
+            description={t("leaveBalances.emptyBody")}
+            action={{ label: t("leaveBalances.adjustBalance"), onClick: () => openForm() }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("leaveBalances.adjustLeaveBalance")}>

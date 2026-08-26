@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from "react";
-import { Button, Card, DocumentList, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type EntityPickerOption } from "@mezan/ui";
+import { useEffect, useState, type FormEvent } from "react";
+import { Button, Card, DocumentList, EmptyState, EntityPicker, SidePanel, StatusPill, type DocumentListColumn, type EntityPickerOption } from "@mezan/ui";
 import type { LeaveRequestDTO, LeaveRequestStatusDTO, LeaveTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateLeaveRequest, useDecideLeaveRequest, useEmployees, useLeaveRequestCounts, useLeaveRequests } from "../data/hooks";
@@ -29,6 +29,8 @@ function blankDraft(): LeaveDraft {
   return { employeeId: "", leaveType: "annual", halfDay: false, startDate: "", endDate: "", reason: "" };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function LeaveRequestsScreen() {
   const { t, locale } = useAppTranslation();
   const [employeeId, setEmployeeId] = useState("");
@@ -51,8 +53,17 @@ export function LeaveRequestsScreen() {
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeaveDraft>(blankDraft());
   const [formError, setFormError] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const requests = query.data ?? [];
+  const pageCount = Math.max(1, Math.ceil(requests.length / pageSize));
+  const pageRows = requests.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (status !== "" ? 1 : 0) + (employeeId !== "" ? 1 : 0) + (leaveType !== "" ? 1 : 0) + (from !== "" ? 1 : 0) + (to !== "" ? 1 : 0);
   const counts = countsQuery.data;
   const employeeName = (id: string) => {
     const employee = employees.find((e) => e.id === id);
@@ -195,14 +206,22 @@ export function LeaveRequestsScreen() {
           count: chip.key === "" ? requests.length : requests.filter((r) => r.status === chip.key).length,
         }))}
         activeStatusKey={status}
-        onStatusChange={setStatus}
+        onStatusChange={(key) => {
+          setStatus(key);
+          setPage(1);
+        }}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap items-end gap-[10px]">
             <div className="min-w-[200px]">
               <SelectField
                 label={t("leaveRequests.employee2")}
                 value={employeeId}
-                onChange={setEmployeeId}
+                onChange={(v) => {
+                  setEmployeeId(v);
+                  setPage(1);
+                }}
                 options={[{ value: "", label: t("leaveRequests.allEmployees") }, ...employees.map((e) => ({ value: e.id, label: employeeName(e.id) }))]}
               />
             </div>
@@ -210,29 +229,61 @@ export function LeaveRequestsScreen() {
               <SelectField
                 label={t("leaveRequests.leaveType")}
                 value={leaveType}
-                onChange={setLeaveType}
+                onChange={(v) => {
+                  setLeaveType(v);
+                  setPage(1);
+                }}
                 options={[{ value: "", label: t("leaveRequests.allTypes") }, ...leaveTypeOptions(t)]}
               />
             </div>
             <div className="min-w-[150px]">
-              <TextField label={t("leaveRequests.from")} value={from} onChange={setFrom} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("leaveRequests.from")}
+                value={from}
+                onChange={(v) => {
+                  setFrom(v);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
             <div className="min-w-[150px]">
-              <TextField label={t("leaveRequests.to")} value={to} onChange={setTo} placeholder="YYYY-MM-DD" />
+              <TextField
+                label={t("leaveRequests.to")}
+                value={to}
+                onChange={(v) => {
+                  setTo(v);
+                  setPage(1);
+                }}
+                placeholder="YYYY-MM-DD"
+              />
             </div>
           </div>
         }
         columns={columns}
-        rows={requests}
+        rows={pageRows}
         rowKey={(r) => r.id}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{requests.length}</span> {t("leaveRequests.requests")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{requests.length}</span> {t("leaveRequests.requests")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("leaveRequests.nothingMatchesTheCurrentFilter")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("leaveRequests.nothingMatchesTheCurrentFilter")}
+            description={t("leaveRequests.emptyBody")}
+            action={{ label: t("leaveRequests.newLeaveRequest"), onClick: openForm }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("leaveRequests.newLeaveRequest")}>

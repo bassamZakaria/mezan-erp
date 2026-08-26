@@ -1,5 +1,5 @@
-import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
 import { ApiError, useAccounts, useAssetCategories, useAssets, useBranches, useCreateAsset, useDisposeAsset } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -24,6 +24,8 @@ const STATUS_TONE: Record<AssetStatusDTO, PillTone> = {
 
 const SCOPE_KEY: Record<AssetScopeDTO, AppTranslationKey> = { general: "asset.scopeGeneral", branch: "asset.scopeBranch", warehouse: "asset.scopeWarehouse" };
 const SCOPE_VALUES = Object.keys(SCOPE_KEY) as AssetScopeDTO[];
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function toMajor(scaledDecimalString: string): number {
   return Number(scaledDecimalString);
@@ -92,6 +94,8 @@ export function AssetRegisterScreen() {
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [branchFilter, setBranchFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const disposeAsset = useDisposeAsset();
@@ -133,6 +137,14 @@ export function AssetRegisterScreen() {
     }
     return rows;
   }, [assets, categoryFilter, branchFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (categoryFilter === "all" ? 0 : 1) + (branchFilter === "all" ? 0 : 1);
 
   const totalCount = assets.length;
   const activeCount = assets.filter((a) => a.status === "active").length;
@@ -212,15 +224,23 @@ export function AssetRegisterScreen() {
           { label: t("asset.fullyDepreciated"), value: <span className="mz-num">{fullyDepreciatedCount}</span> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("asset.searchAssets")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[10px]">
             <div className="min-w-[200px]">
               <SelectField
                 label={t("common.category")}
                 value={categoryFilter}
-                onChange={setCategoryFilter}
+                onChange={(v) => {
+                  setCategoryFilter(v);
+                  setPage(1);
+                }}
                 options={[{ value: "all", label: t("asset.allCategories") }, ...categories.map((c) => ({ value: c.id, label: `${c.code} — ${c.nameAr}` }))]}
               />
             </div>
@@ -228,24 +248,40 @@ export function AssetRegisterScreen() {
               <SelectField
                 label={t("common.branch")}
                 value={branchFilter}
-                onChange={setBranchFilter}
+                onChange={(v) => {
+                  setBranchFilter(v);
+                  setPage(1);
+                }}
                 options={[{ value: "all", label: t("asset.allBranches") }, ...branches.map((b) => ({ value: b.id, label: b.name }))]}
               />
             </div>
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("asset.asset2")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{totalCount}</span> {t("asset.asset2")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("asset.noAssetsNothingHasBeen")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("asset.noAssetsNothingHasBeen")}
+            description={t("asset.emptyBody")}
+            action={{ label: t("asset.registerAnAsset"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={selected !== null} onClose={() => setSelectedId(null)} title={selected ? t("asset.panelTitle", { name: selected.nameAr }) : ""}>

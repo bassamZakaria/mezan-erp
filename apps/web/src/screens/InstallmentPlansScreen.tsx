@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
   SidePanel,
   StatusPill,
@@ -57,6 +58,8 @@ function today(): string {
   return todayIso();
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function InstallmentPlansScreen() {
   const { t } = useAppTranslation();
   const query = useInstallmentPlans();
@@ -81,6 +84,8 @@ export function InstallmentPlansScreen() {
     setPanel("create");
   });
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [invoiceId, setInvoiceId] = useState("");
   const [installmentCount, setInstallmentCount] = useState(6);
   const [frequency, setFrequency] = useState<InstallmentFrequencyDTO>("MONTHLY");
@@ -121,6 +126,9 @@ export function InstallmentPlansScreen() {
   }, [documents]);
 
   const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
 
   function openCreate() {
@@ -245,19 +253,35 @@ export function InstallmentPlansScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | DocumentStatusDTO);
+          setPage(1);
+        }}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}
-        page={1}
-        pageCount={1}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("instalments.plans")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("instalments.plans")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("instalments.createAnInstalmentPlanTo")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("instalments.createAnInstalmentPlanTo")}
+            description={t("instalments.emptyBody")}
+            action={{ label: t("instalments.newPlan"), onClick: openCreate }}
+          />
+        }
       />
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("instalments.newInstalmentPlan")}>

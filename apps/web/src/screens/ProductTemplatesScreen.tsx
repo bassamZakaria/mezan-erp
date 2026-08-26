@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   Checkbox,
   DocumentList,
+  EmptyState,
   SidePanel,
   StatusPill,
   TextInput,
@@ -62,6 +63,8 @@ function comboLabel(attributes: ProductTemplateDTO["attributes"], values: Record
   return attributes.map((a) => values[a.id]).join(" / ");
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function ProductTemplatesScreen() {
   const { t } = useAppTranslation();
   const query = useProductTemplates();
@@ -73,6 +76,14 @@ export function ProductTemplatesScreen() {
   const generate = useGenerateVariants();
 
   const templates = query.data ?? [];
+
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const pageCount = Math.max(1, Math.ceil(templates.length / pageSize));
+  const pageRows = templates.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<CreateDraft>(blankCreateDraft());
@@ -232,21 +243,34 @@ export function ProductTemplatesScreen() {
         statsCollapsible
         stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
         columns={columns}
-        rows={templates}
+        rows={pageRows}
         rowKey={(t) => t.id}
         onRowClick={(t) => {
           setSelectedId(t.id);
           setSelectedCombos(new Set());
           setAttrError(null);
         }}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{templates.length}</span> {t("common.of")} <span className="mz-num">{templates.length}</span> {t("templates.templates")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{templates.length}</span> {t("templates.templates")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("templates.noProductTemplatesYetCreate")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("templates.noProductTemplatesYetCreate")}
+            description={t("templates.emptyBody")}
+            action={{ label: t("templates.newTemplate"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={formOpen} onClose={() => setFormOpen(false)} title={t("templates.newProductTemplate")}>

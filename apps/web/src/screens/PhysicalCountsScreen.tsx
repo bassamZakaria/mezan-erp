@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   FulcrumRule,
   StatusPill,
   TextInput,
@@ -64,6 +65,7 @@ function qtyDisplay(value: string | null, digits = 2): string {
 }
 
 const QTY_SCALE = 1_000_000n;
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 /** Exact decimal string → scaled bigint (1e-6), the wire scale. Null when unparseable. */
 function toScaled(value: string): bigint | null {
@@ -91,6 +93,8 @@ export function PhysicalCountsScreen() {
   const [firstSegment, secondSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const counts = useMemo(() => query.data ?? [], [query.data]);
   const warehouses = warehousesQuery.data ?? [];
@@ -120,6 +124,12 @@ export function PhysicalCountsScreen() {
     }
     return rows;
   }, [counts, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
@@ -209,29 +219,46 @@ export function PhysicalCountsScreen() {
           { key: "CANCELLED", label: t("docStatus.cancelled"), count: stats.CANCELLED },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PhysicalCountStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | PhysicalCountStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("counts.searchByCountNumber")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
         onRowClick={(c) => openDetail(c.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{stats.all}</span> {t("counts.counts")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("counts.counts")}
           </>
         }
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading
-              ? t("common.loading")
-              : query.isError
-                ? (query.error?.message ?? t("counts.physicalCountsCouldNotBe"))
-                : t("counts.noCountsYetStartOne")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : query.isError ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{query.error?.message ?? t("counts.physicalCountsCouldNotBe")}</div>
+          ) : (
+            <EmptyState
+              title={t("counts.noCountsYetStartOne")}
+              description={t("counts.emptyBody")}
+              action={{ label: t("counts.newCount"), onClick: () => subPage.open("new") }}
+            />
+          )
         }
       />
     </div>

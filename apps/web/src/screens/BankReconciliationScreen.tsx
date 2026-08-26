@@ -3,6 +3,7 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   SidePanel,
@@ -52,6 +53,8 @@ function formatPercent(rate: number): string {
   return `${Math.round(rate * 100)}%`;
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function BankReconciliationScreen() {
   const { t } = useAppTranslation();
   const [statusFilter, setStatusFilter] = useState<"all" | BankStatementStatusDTO>("all");
@@ -59,6 +62,8 @@ export function BankReconciliationScreen() {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [importOpen, setImportOpen] = useState(false);
   const [openStatementId, setOpenStatementId] = useState<string | null>(null);
 
@@ -92,6 +97,15 @@ export function BankReconciliationScreen() {
         `${s.periodStart} ${s.periodEnd}`.includes(q),
     );
   }, [statements, search, accountName]);
+
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageRows = rows.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (treasuryAccountId ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const counts = useMemo(() => {
     const c = { all: statements.length, imported: 0, in_progress: 0, completed: 0 };

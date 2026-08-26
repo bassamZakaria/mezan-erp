@@ -1,9 +1,10 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentDetail,
   DocumentList,
+  EmptyState,
   EntityPicker,
   Money as MoneyDisplay,
   SidePanel,
@@ -67,6 +68,8 @@ const MARITAL_KEY: Record<MaritalStatusDTO, AppTranslationKey> = {
   divorced: "employees.divorced",
   widowed: "employees.widowed",
 };
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 const WORKER_CATEGORY_KEY: Record<WorkerCategoryDTO, AppTranslationKey> = { staff: "employees.employee", worker: "employees.worker" };
 const OVERTIME_KEY: Record<OvertimeEligibilityDTO, AppTranslationKey> = {
   inherit_department: "employees.byDepartment",
@@ -177,6 +180,8 @@ export function EmployeesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | EmployeeStatusDTO>("all");
   const [departmentFilter, setDepartmentFilter] = useState("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<EmployeeDraft>(blankDraft());
@@ -240,6 +245,14 @@ export function EmployeesScreen() {
     }
     return rows;
   }, [employees, statusFilter, departmentFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (departmentFilter === "all" ? 0 : 1);
 
   const departmentJobTitles = jobTitles.filter((j) => j.departmentId === draft.departmentId);
 
@@ -737,30 +750,54 @@ export function EmployeesScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | EmployeeStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | EmployeeStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("employees.searchByNameOrNumber")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(e) => e.id}
         onRowClick={(e) => {
           setDetailError(null);
           setSelectedId(e.id);
         }}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{employees.length}</span> {t("employees.employee")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{employees.length}</span> {t("employees.employee")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("employees.noData")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("employees.noData")}
+            description={t("employees.emptyBody")}
+            action={{ label: t("employees.addEmployee"), onClick: openCreateForm }}
+          />
+        }
         filterBarExtra={
           <SelectField
             label={t("employees.department")}
             value={departmentFilter}
-            onChange={setDepartmentFilter}
+            onChange={(v) => {
+              setDepartmentFilter(v);
+              setPage(1);
+            }}
             options={[{ value: "all", label: t("employees.allDepartments") }, ...departments.map((d) => ({ value: d.id, label: bilingualName(d, locale) }))]}
           />
         }

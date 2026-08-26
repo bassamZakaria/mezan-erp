@@ -1,8 +1,9 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
   SidePanel,
   StatusPill,
@@ -56,6 +57,8 @@ const LINE_KIND_KEY = {
   employer_contribution: "payroll.lineKind.employer_contribution",
 } as const;
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 const UNIVERSAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => r.appliesToEveryPayslip);
 const SITUATIONAL_UNIMPLEMENTED_RULES = PAYROLL_UNIMPLEMENTED_RULES.filter((r) => !r.appliesToEveryPayslip);
 
@@ -88,6 +91,8 @@ export function PayrollRunsScreen() {
   const now = new Date();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | PayrollRunStatusDTO>("all");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
   const [formOpen, setFormOpen] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [year, setYear] = useState(now.getUTCFullYear());
@@ -116,6 +121,12 @@ export function PayrollRunsScreen() {
     }
     return rows;
   }, [runs, statusFilter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -222,25 +233,44 @@ export function PayrollRunsScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | PayrollRunStatusDTO)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as "all" | PayrollRunStatusDTO);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("payroll.searchByRunNumberOr")}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(r) => r.id}
         onRowClick={(r) => {
           setDetailError(null);
           setSelectedId(r.id);
         }}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{runs.length}</span> {t("payroll.runs")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{runs.length}</span> {t("payroll.runs")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("payroll.nothingToShow")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("payroll.nothingToShow")}
+            description={t("payroll.emptyBody")}
+            action={{ label: t("payroll.newPayrollRun"), onClick: () => setFormOpen(true) }}
+          />
+        }
       />
 
       <SidePanel open={selectedId !== null} onClose={() => setSelectedId(null)} title={detail ? detail.number : ""}>

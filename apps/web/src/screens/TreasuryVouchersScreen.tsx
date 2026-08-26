@@ -1,9 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   FulcrumRule,
   DocumentList,
   DocumentDetail,
   DocumentStatusStepper,
+  EmptyState,
   Money as MoneyDisplay,
   StatusPill,
   Chip,
@@ -155,6 +156,8 @@ function toPreviewDoc(line: VoucherLine, extra: { id: string; date: string; memo
   };
 }
 
+const PAGE_SIZES = [10, 25, 50, 100] as const;
+
 export function TreasuryVouchersScreen() {
   const { t } = useAppTranslation();
   const { label: voucherLabel, subtitle: voucherSubtitle } = useDomainLabels();
@@ -186,6 +189,8 @@ export function TreasuryVouchersScreen() {
   const [branchFilter, setBranchFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
 
   const debouncedSearch = useDebounced(search);
   /**
@@ -255,6 +260,15 @@ export function TreasuryVouchersScreen() {
   );
 
   const filtered = documents;
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount =
+    (statusFilter === "all" ? 0 : 1) + (typeFilter === "all" ? 0 : 1) + (branchFilter ? 1 : 0) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   const columns: DocumentListColumn<VoucherRowDTO>[] = [
     {
@@ -361,7 +375,10 @@ export function TreasuryVouchersScreen() {
             label: t("vouchers.banner.needsAllocation", { count: counts.needsAllocation }),
             count: counts.needsAllocation,
             tone: "warning",
-            onApply: () => setStatusFilter("needs_allocation"),
+            onApply: () => {
+              setStatusFilter("needs_allocation");
+              setPage(1);
+            },
           },
         ]}
         statusChips={[
@@ -374,31 +391,71 @@ export function TreasuryVouchersScreen() {
           { key: "cancelled", label: t("docStatus.cancelled"), count: counts.cancelled },
         ]}
         activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as typeof statusFilter)}
+        onStatusChange={(k) => {
+          setStatusFilter(k as typeof statusFilter);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("vouchers.searchByVoucherNumberReference")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex w-full flex-col gap-[10px]">
             <div className="grid w-full gap-2 sm:grid-cols-3">
               <SelectField
                 label={t("vouchers.filter.branch")}
                 value={branchFilter}
-                onChange={setBranchFilter}
+                onChange={(value) => {
+                  setBranchFilter(value);
+                  setPage(1);
+                }}
                 options={[
                   { value: "", label: t("vouchers.filter.allBranches") },
                   ...branches.map((b) => ({ value: b.id, label: b.name })),
                 ]}
               />
-              <TextField label={t("vouchers.filter.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
-              <TextField label={t("vouchers.filter.toDate")} value={toDate} onChange={setToDate} type="date" />
+              <TextField
+                label={t("vouchers.filter.fromDate")}
+                value={fromDate}
+                onChange={(value) => {
+                  setFromDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
+              <TextField
+                label={t("vouchers.filter.toDate")}
+                value={toDate}
+                onChange={(value) => {
+                  setToDate(value);
+                  setPage(1);
+                }}
+                type="date"
+              />
             </div>
           <div className="flex flex-wrap gap-[8px]">
-            <Chip active={typeFilter === "all"} onClick={() => setTypeFilter("all")}>
+            <Chip
+              active={typeFilter === "all"}
+              onClick={() => {
+                setTypeFilter("all");
+                setPage(1);
+              }}
+            >
               {t("vouchers.allTypes")}
             </Chip>
             {typeBreakdown.map(([type, n]) => (
-              <Chip key={type} active={typeFilter === type} onClick={() => setTypeFilter(type)}>
+              <Chip
+                key={type}
+                active={typeFilter === type}
+                onClick={() => {
+                  setTypeFilter(type);
+                  setPage(1);
+                }}
+              >
                 {voucherLabel(getVoucherTypeDefinition(type))} ({n})
               </Chip>
             ))}
@@ -406,7 +463,7 @@ export function TreasuryVouchersScreen() {
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
         rowAction={(d) => (
@@ -434,14 +491,27 @@ export function TreasuryVouchersScreen() {
             ]}
           />
         )}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("vouchers.vouchers")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("vouchers.vouchers")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("vouchers.noMatchingVouchers")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("vouchers.noMatchingVouchers")}
+            description={t("vouchers.emptyBody")}
+            action={{ label: t("vouchers.newVoucher"), onClick: () => setMode("create") }}
+          />
+        }
       />
     </div>
   );

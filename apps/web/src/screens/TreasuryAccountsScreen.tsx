@@ -1,4 +1,4 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Chip, Card, Button, RowMenu, SidePanel, MoneyInput, useFormat, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
@@ -122,6 +122,14 @@ export function TreasuryAccountsScreen() {
     }
     return rows;
   }, [accounts, filter, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = filter === "all" ? 0 : 1;
 
   // A treasury account's balance IS its GL account's balance. Reporting the
   // opening figure under "الرصيد" left the screen at 0.00 with ten confirmed
@@ -253,8 +261,13 @@ export function TreasuryAccountsScreen() {
           { label: t("treasuryAcc.bankBalance"), value: <MoneyDisplay value={bankBalance} /> },
         ]}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("treasuryAcc.searchByName")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">
             {(
@@ -266,24 +279,44 @@ export function TreasuryAccountsScreen() {
                 ["inactive", t("common.inactive")],
               ] as const
             ).map(([value, label]) => (
-              <Chip key={value} active={filter === value} onClick={() => setFilter(value)}>
+              <Chip
+                key={value}
+                active={filter === value}
+                onClick={() => {
+                  setFilter(value);
+                  setPage(1);
+                }}
+              >
                 {label}
               </Chip>
             ))}
           </div>
         }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
-        page={1}
-        pageCount={1}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{accounts.length}</span> {t("treasuryAcc.accounts")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{accounts.length}</span> {t("treasuryAcc.accounts")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("treasuryAcc.noMatchingTreasuryAccounts")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("treasuryAcc.noMatchingTreasuryAccounts")}
+            description={t("treasuryAcc.emptyBody")}
+            action={{ label: t("treasuryAcc.addAccount"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel

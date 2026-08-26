@@ -57,6 +57,21 @@ CREATE TABLE IF NOT EXISTS promotion_bundle_component (
 CREATE INDEX IF NOT EXISTS idx_promotion_bundle_component_promotion ON promotion_bundle_component(promotion_id);
 `;
 
+/** Columns added after the first release — an existing database keeps both null (no threshold, no cap). */
+const ADDED_COLUMNS: readonly [string, string][] = [
+  ["min_qty", "INTEGER"],
+  ["max_discount_amount", "INTEGER"],
+];
+
+function addMissingColumns(sqlite: Database.Database): void {
+  const existing = new Set(
+    (sqlite.prepare(`PRAGMA table_info(promotion)`).all() as { name: string }[]).map((c) => c.name),
+  );
+  for (const [name, type] of ADDED_COLUMNS) {
+    if (!existing.has(name)) sqlite.exec(`ALTER TABLE promotion ADD COLUMN ${name} ${type}`);
+  }
+}
+
 interface PromotionRow {
   id: string;
   code: string;
@@ -68,6 +83,8 @@ interface PromotionRow {
   percent_value: number | null;
   amount_value: bigint | null;
   min_invoice_value: bigint | null;
+  min_qty: bigint | null;
+  max_discount_amount: bigint | null;
   buy_qty: bigint | null;
   get_qty: bigint | null;
   requires_coupon: bigint;
@@ -109,6 +126,11 @@ function toPromotion(row: PromotionRow, bundleComponents: readonly PromotionBund
     percentValue: row.percent_value,
     amountValue: row.amount_value === null ? null : Money.fromScaled(row.amount_value),
     minInvoiceValue: row.min_invoice_value === null ? null : Money.fromScaled(row.min_invoice_value),
+    minQty: row.min_qty === null || row.min_qty === undefined ? null : Qty.fromScaled(row.min_qty),
+    maxDiscountAmount:
+      row.max_discount_amount === null || row.max_discount_amount === undefined
+        ? null
+        : Money.fromScaled(row.max_discount_amount),
     buyQty: row.buy_qty === null ? null : Number(row.buy_qty),
     getQty: row.get_qty === null ? null : Number(row.get_qty),
     bundleComponents,
@@ -134,6 +156,8 @@ function promotionParams(promotion: Promotion) {
     percent_value: promotion.percentValue,
     amount_value: promotion.amountValue === null ? null : promotion.amountValue.toScaledNumber(),
     min_invoice_value: promotion.minInvoiceValue === null ? null : promotion.minInvoiceValue.toScaledNumber(),
+    min_qty: promotion.minQty === null ? null : promotion.minQty.toScaledNumber(),
+    max_discount_amount: promotion.maxDiscountAmount === null ? null : promotion.maxDiscountAmount.toScaledNumber(),
     buy_qty: promotion.buyQty,
     get_qty: promotion.getQty,
     requires_coupon: promotion.requiresCoupon ? 1 : 0,
@@ -159,12 +183,12 @@ class SqlitePromotionRepository implements PromotionRepository {
     this.insertPromotion = sqlite.prepare(`
       INSERT INTO promotion (
         id, code, priority, name_ar, name_en, description, type, percent_value, amount_value,
-        min_invoice_value, buy_qty, get_qty, requires_coupon, day_hour_restriction, scope_type,
-        scope_ids, start_date, end_date, active, created_at
+        min_invoice_value, min_qty, max_discount_amount, buy_qty, get_qty, requires_coupon,
+        day_hour_restriction, scope_type, scope_ids, start_date, end_date, active, created_at
       ) VALUES (
         @id, @code, @priority, @name_ar, @name_en, @description, @type, @percent_value, @amount_value,
-        @min_invoice_value, @buy_qty, @get_qty, @requires_coupon, @day_hour_restriction, @scope_type,
-        @scope_ids, @start_date, @end_date, @active, @created_at
+        @min_invoice_value, @min_qty, @max_discount_amount, @buy_qty, @get_qty, @requires_coupon,
+        @day_hour_restriction, @scope_type, @scope_ids, @start_date, @end_date, @active, @created_at
       )
     `);
     this.updatePromotionStmt = sqlite.prepare(`
@@ -178,6 +202,8 @@ class SqlitePromotionRepository implements PromotionRepository {
         percent_value = @percent_value,
         amount_value = @amount_value,
         min_invoice_value = @min_invoice_value,
+        min_qty = @min_qty,
+        max_discount_amount = @max_discount_amount,
         buy_qty = @buy_qty,
         get_qty = @get_qty,
         requires_coupon = @requires_coupon,
@@ -258,6 +284,7 @@ export function createSqlitePromotionStore(path: SqliteConnectionInput = ":memor
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.pragma("foreign_keys = ON");
   sqlite.exec(CREATE_TABLES);
+  addMissingColumns(sqlite);
   const repo = new SqlitePromotionRepository(sqlite);
   return Object.assign(repo, {
     close: () => { if (owned) sqlite.close(); },

@@ -171,6 +171,11 @@ const SALESPEOPLE = [
  * so the engine picks it up on any qualifying invoice — the seeded promoted
  * invoice therefore earns its discount from the real engine, not a literal.
  */
+/**
+ * The two coupon-gated campaigns exist to exercise R3.12's caps, thresholds
+ * and bundles without changing what the seeded invoices take: a promotion
+ * that requires a coupon never applies to a document that carries none.
+ */
 const PROMOTIONS = [
   {
     id: "PROMO-DEMO-1",
@@ -180,8 +185,41 @@ const PROMOTIONS = [
     type: "percentage" as const,
     percentValue: 10,
     minInvoiceValue: "2000",
+    requiresCoupon: false,
     scope: { type: "item" as const, ids: ["ITEM-DEMO-4"] },
     startDate: "2026-08-19",
+    endDate: "2026-12-31",
+  },
+  {
+    id: "PROMO-DEMO-2",
+    code: "BULK15",
+    nameAr: "خصم الجملة ١٥٪ بسقف ٥٠٠",
+    nameEn: "Bulk 15% capped at 500",
+    type: "percentage" as const,
+    percentValue: 15,
+    minQty: "20",
+    maxDiscountAmount: "500",
+    priority: 5,
+    requiresCoupon: true,
+    scope: { type: "item" as const, ids: ["ITEM-DEMO-1"] },
+    startDate: "2026-07-01",
+    endDate: "2026-12-31",
+  },
+  {
+    id: "PROMO-DEMO-3",
+    code: "COMBO",
+    nameAr: "حزمة الطابعة والحبر",
+    nameEn: "Printer and ink bundle",
+    type: "bundle" as const,
+    amountValue: "300",
+    priority: 3,
+    requiresCoupon: true,
+    bundleComponents: [
+      { itemId: "ITEM-DEMO-1", qty: "1" },
+      { itemId: "ITEM-DEMO-2", qty: "2" },
+    ],
+    scope: { type: "all" as const, ids: [] },
+    startDate: "2026-07-01",
     endDate: "2026-12-31",
   },
 ];
@@ -434,7 +472,7 @@ export async function seedDemoTenant(app: App): Promise<void> {
     await step(app, "POST", "/hr/employees", { ...person, branchId: BRANCH_ID });
   }
   for (const promotion of PROMOTIONS) {
-    await step(app, "POST", "/promotions", { ...promotion, requiresCoupon: false, active: true });
+    await step(app, "POST", "/promotions", { ...promotion, active: true });
   }
   for (const costCenter of COST_CENTERS) {
     await step(app, "POST", "/cost-centers", { ...costCenter, branchId: BRANCH_ID });

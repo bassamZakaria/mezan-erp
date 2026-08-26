@@ -45,6 +45,19 @@ export interface Promotion {
   readonly amountValue: Money | null;
   /** "حد أدنى لقيمة الفاتورة" — turns it into a spend->discount offer; incompatible with special_price (validated). */
   readonly minInvoiceValue: Money | null;
+  /**
+   * "حد أدنى للكمية" — the promotion applies only once the lines IN SCOPE
+   * reach this total quantity. A per-cart threshold, not a per-line one: three
+   * lines of 4 satisfy a minimum of 10 the way one line of 12 does.
+   */
+  readonly minQty: Qty | null;
+  /**
+   * "الحد الأقصى للخصم" — caps what this campaign may ever give away on one
+   * document. The cap is applied AFTER the type's own arithmetic and
+   * re-allocated across the same lines by largest remainder, so the parts
+   * still sum exactly to the capped total.
+   */
+  readonly maxDiscountAmount: Money | null;
   /** buy-X-get-Y quantities (type "buy_x_get_y"). */
   readonly buyQty: number | null;
   readonly getQty: number | null;
@@ -117,6 +130,20 @@ export function collectPromotionValidationReasons(draft: PromotionDraft): string
 
   if (draft.minInvoiceValue !== null && draft.type === "special_price") {
     reasons.push('الحد الأدنى لقيمة الفاتورة لا يتوافق مع نوع "السعر الخاص".');
+  }
+
+  if (draft.minQty !== null && draft.minQty.scaled <= 0n) {
+    reasons.push("الحد الأدنى للكمية يجب أن يكون أكبر من صفر.");
+  }
+
+  if (draft.maxDiscountAmount !== null && draft.maxDiscountAmount.scaled <= 0n) {
+    reasons.push("الحد الأقصى للخصم يجب أن يكون أكبر من صفر.");
+  }
+
+  // A buy-X-get-Y promotion gives away UNITS, not a sum; capping the money
+  // without cutting the free units would let the document exceed its own cap.
+  if (draft.maxDiscountAmount !== null && draft.type === "buy_x_get_y") {
+    reasons.push('الحد الأقصى للخصم لا يتوافق مع نوع "اشترِ X واحصل على Y" — الخصم فيه أصناف مجانية لا مبلغ.');
   }
 
   if (draft.scope.type !== "all" && draft.scope.ids.length === 0) {

@@ -1,4 +1,4 @@
-import { Money } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import { assertValidPromotion, type Promotion, type PromotionBundleComponent, type PromotionDayHourRestriction, type PromotionScope, type PromotionType } from "./promotion.js";
 import { DuplicatePromotionError } from "./errors.js";
 import type { PromotionRepository } from "./ports.js";
@@ -14,6 +14,8 @@ export interface CreatePromotionCommand {
   readonly percentValue?: number | null;
   readonly amountValue?: Money | null;
   readonly minInvoiceValue?: Money | null;
+  readonly minQty?: Qty | null;
+  readonly maxDiscountAmount?: Money | null;
   readonly buyQty?: number | null;
   readonly getQty?: number | null;
   readonly bundleComponents?: readonly PromotionBundleComponent[];
@@ -48,6 +50,8 @@ export async function createPromotion(command: CreatePromotionCommand, repo: Pro
     percentValue: command.percentValue ?? null,
     amountValue: command.amountValue ?? null,
     minInvoiceValue: command.minInvoiceValue ?? null,
+    minQty: command.minQty ?? null,
+    maxDiscountAmount: command.maxDiscountAmount ?? null,
     buyQty: command.buyQty ?? null,
     getQty: command.getQty ?? null,
     bundleComponents: command.bundleComponents ?? [],

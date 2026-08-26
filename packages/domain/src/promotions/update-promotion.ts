@@ -1,4 +1,4 @@
-import { Money } from "../money/index.js";
+import { Money, Qty } from "../money/index.js";
 import { assertValidPromotion, type Promotion, type PromotionBundleComponent, type PromotionDayHourRestriction, type PromotionScope, type PromotionType } from "./promotion.js";
 import { DuplicatePromotionError, PromotionNotFoundError } from "./errors.js";
 import type { PromotionRepository } from "./ports.js";
@@ -13,6 +13,8 @@ export interface UpdatePromotionCommand {
   readonly percentValue?: number | null;
   readonly amountValue?: Money | null;
   readonly minInvoiceValue?: Money | null;
+  readonly minQty?: Qty | null;
+  readonly maxDiscountAmount?: Money | null;
   readonly buyQty?: number | null;
   readonly getQty?: number | null;
   readonly bundleComponents?: readonly PromotionBundleComponent[];
@@ -56,6 +58,8 @@ export async function updatePromotion(
     percentValue: command.percentValue !== undefined ? command.percentValue : current.percentValue,
     amountValue: command.amountValue !== undefined ? command.amountValue : current.amountValue,
     minInvoiceValue: command.minInvoiceValue !== undefined ? command.minInvoiceValue : current.minInvoiceValue,
+    minQty: command.minQty !== undefined ? command.minQty : current.minQty,
+    maxDiscountAmount: command.maxDiscountAmount !== undefined ? command.maxDiscountAmount : current.maxDiscountAmount,
     buyQty: command.buyQty !== undefined ? command.buyQty : current.buyQty,
     getQty: command.getQty !== undefined ? command.getQty : current.getQty,
     bundleComponents: command.bundleComponents ?? current.bundleComponents,

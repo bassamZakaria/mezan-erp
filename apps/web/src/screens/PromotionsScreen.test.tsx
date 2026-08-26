@@ -19,6 +19,8 @@ function promotion(overrides: Partial<PromotionDTO> = {}): PromotionDTO {
     percentValue: 25,
     amountValue: null,
     minInvoiceValue: null,
+    minQty: null,
+    maxDiscountAmount: null,
     buyQty: null,
     getQty: null,
     bundleComponents: [],

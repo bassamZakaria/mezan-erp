@@ -4,7 +4,9 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   Chip,
@@ -13,6 +15,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type {
@@ -47,7 +50,8 @@ import { majorOf } from "../lib/money";
 import { useDebounced } from "../lib/use-debounced";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
+import { AttachmentsTab } from "../attachments/AttachmentsTab";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
 import { todayIso } from "../lib/dates";
@@ -77,6 +81,7 @@ const LANDED_COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
 const LANDED_COST_BASIS_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey> = {
   BY_VALUE: "landedCosts.method.BY_VALUE",
   BY_QUANTITY: "landedCosts.method.BY_QUANTITY",
+  BY_WEIGHT: "landedCosts.method.BY_WEIGHT",
 };
 
 /** The three things a purchase-invoice line can be (R4.2) — each routes its debit to a different account. */
@@ -340,6 +345,11 @@ function InvoiceDetail({
           ),
         },
         {
+          key: "attachments",
+          label: t("attachments.tab"),
+          content: <AttachmentsTab entityType="purchase-invoice" entityId={invoice.id} />,
+        },
+        {
           key: "payments",
           label: t("purchaseInvoices.tab.payments"),
           content: (
@@ -464,6 +474,9 @@ export function PurchaseInvoicesScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseInvoiceFilterKey>("all");
   const [search, setSearch] = useState("");
+  const { navigate } = useNavigation();
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
 
   /**
    * One filter object drives the rows, the chip counts and the KPI strip
@@ -498,6 +511,13 @@ export function PurchaseInvoicesScreen() {
     openCreate(...(supplierId ? [supplierId] : []));
   });
   const [method, setMethod] = useState<"manual" | "from-receipt">("manual");
+  /**
+   * The creation method is a STEP, not a field (R2.1): the reference asks how
+   * you want to build the document and only then shows the form. Two forms
+   * behind one heading is how a user fills the manual lines and then converts
+   * a receipt over the top of them.
+   */
+  const [methodChosen, setMethodChosen] = useState(false);
   /**
    * Arriving from «فاتورة مشتريات جديدة» on a supplier's page, the supplier is
    * already known and rides in the URL. Derived, not synchronised: `undefined`
@@ -546,6 +566,11 @@ export function PurchaseInvoicesScreen() {
   }, []);
 
   const filtered = useMemo(() => [...invoices].sort((a, b) => b.number.localeCompare(a.number)), [invoices]);
+  /** Only the collapsed filter bar's own controls — the chips and the search box stay visible. */
+  const activeFilterCount = [branchFilter, warehouseFilter, supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const money = {
     purchases: majorOf(stats?.purchases),
@@ -582,6 +607,7 @@ export function PurchaseInvoicesScreen() {
 
   function openCreate(supplierId?: string) {
     setMethod("manual");
+    setMethodChosen(false);
     // `undefined` = untouched, so a supplier carried in from the supplier's page applies.
     setSupplierChoice(undefined);
     setPickedReceipt(null);
@@ -670,15 +696,53 @@ export function PurchaseInvoicesScreen() {
             {formError}
           </div>
         ) : null}
-        <div className="flex flex-col gap-[6px]">
-          <span className="text-[12.5px] font-semibold text-ink">{t("purchaseInvoices.methodHeading")}</span>
-          <div className="flex gap-[8px]">
-            <Chip type="button" active={method === "manual"} onClick={() => setMethod("manual")}>{t("purchaseInvoices.method.manual")}</Chip>
-            <Chip type="button" active={method === "from-receipt"} onClick={() => setMethod("from-receipt")}>{t("purchaseInvoices.method.fromReceipt")}</Chip>
+        {!methodChosen ? (
+          <div className="rounded-lg border border-border p-[14px_16px]">
+            <h3 className="mb-[4px] font-display text-[13.5px] font-bold text-ink">{t("purchaseInvoices.methodHeading")}</h3>
+            <p className="mb-[10px] text-[12.5px] text-ink-muted">{t("purchaseInvoices.method.stepHint")}</p>
+            <div className="grid gap-[10px] sm:grid-cols-2">
+              {(["manual", "from-receipt"] as const).map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setMethod(value)}
+                  aria-pressed={method === value}
+                  className={
+                    method === value
+                      ? "rounded-lg border border-brand bg-brand-soft p-[12px] text-start"
+                      : "rounded-lg border border-border p-[12px] text-start hover:border-brand"
+                  }
+                >
+                  <span className="block font-display text-[13px] font-bold text-ink">
+                    {value === "manual" ? t("purchaseInvoices.method.manual") : t("purchaseInvoices.method.fromReceipt")}
+                  </span>
+                  <span className="block text-[12px] text-ink-muted">
+                    {value === "manual" ? t("purchaseInvoices.method.manualHint") : t("purchaseInvoices.method.fromReceiptHint")}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="mt-[12px] flex justify-end">
+              <Button variant="primary" onClick={() => setMethodChosen(true)}>
+                {t("purchaseInvoices.method.continue")}
+              </Button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-[10px] rounded-lg border border-border p-[10px_16px]">
+            <span className="text-[12.5px] text-ink-muted">
+              {t("purchaseInvoices.method.chosen")}:{" "}
+              <span className="font-semibold text-ink">
+                {method === "manual" ? t("purchaseInvoices.method.manual") : t("purchaseInvoices.method.fromReceipt")}
+              </span>
+            </span>
+            <Button size="sm" onClick={() => setMethodChosen(false)}>
+              {t("purchaseInvoices.method.change")}
+            </Button>
+          </div>
+        )}
 
-        {method === "from-receipt" ? (
+        {!methodChosen ? null : method === "from-receipt" ? (
           <>
             <EntityPicker label={t("purchaseInvoices.field.receipt")} value={pickedReceipt} onChange={setPickedReceipt} options={receiptOptions} placeholder={t("purchaseInvoices.field.receiptPlaceholder")} emptyMessage={t("purchaseInvoices.field.receiptEmpty")} />
             {receiptLines.length > 0 ? (
@@ -771,12 +835,16 @@ export function PurchaseInvoicesScreen() {
           </>
         )}
 
-        <TextField label={t("purchaseInvoices.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
-        <TextField label={t("purchaseInvoices.detail.supplierInvoiceNo")} value={supplierInvoiceNumber} onChange={setSupplierInvoiceNumber} />
-        <div className="flex justify-end gap-[9px]">
-          <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
-          <Button variant="primary" onClick={save} disabled={!canSave}>{t("purchaseInvoices.saveDraft")}</Button>
-        </div>
+        {methodChosen ? (
+          <>
+            <TextField label={t("purchaseInvoices.field.date")} value={date} onChange={setDate} placeholder="YYYY-MM-DD" />
+            <TextField label={t("purchaseInvoices.detail.supplierInvoiceNo")} value={supplierInvoiceNumber} onChange={setSupplierInvoiceNumber} />
+            <div className="flex justify-end gap-[9px]">
+              <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
+              <Button variant="primary" onClick={save} disabled={!canSave}>{t("purchaseInvoices.saveDraft")}</Button>
+            </div>
+          </>
+        ) : null}
       </div>
     </div>
   );
@@ -863,14 +931,63 @@ export function PurchaseInvoicesScreen() {
             <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
           </div>
         }
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(inv) => inv.id}
         onRowClick={(inv) => subPage.open(inv.number ?? inv.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{invoices.length}</span> {t("purchaseInvoices.showingSuffix")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseInvoices.empty")}</div>}
+        rowAction={(inv) => {
+          // Derived from THIS row's state (R1.3): only a draft can be confirmed,
+          // and only a confirmed invoice with a balance can be paid or costed.
+          const owing = num(inv.remainingBalance) > 0 && inv.status === "confirmed";
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.number ?? inv.id) },
+            ...(inv.status === "draft"
+              ? [{ key: "confirm", label: t("purchaseInvoices.confirm"), onSelect: () => void confirmSelected(inv.id) }]
+              : []),
+            ...(inv.status === "confirmed"
+              ? [
+                  {
+                    key: "landed",
+                    label: t("purchaseInvoices.row.newLandedCost"),
+                    onSelect: () => navigate("landed-costs", { kind: "create", prefill: { invoiceId: inv.id } }),
+                  },
+                  {
+                    key: "return",
+                    label: t("purchaseInvoices.row.newReturn"),
+                    onSelect: () => navigate("purchase-returns", { kind: "create", prefill: { invoiceId: inv.id } }),
+                  },
+                ]
+              : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              {owing ? (
+                <Button size="sm" variant="default" onClick={() => subPage.open(inv.number ?? inv.id)}>
+                  {t("purchaseInvoices.pay.submit")}
+                </Button>
+              ) : null}
+              <RowMenu items={menuItems} label={t("purchaseInvoices.row.actionsFor", { doc: inv.number ?? inv.id })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("purchaseInvoices.showingSuffix")}</>}
+        emptyState={
+          <EmptyState
+            title={t("purchaseInvoices.empty")}
+            description={t("purchaseInvoices.emptyHint")}
+            action={{ label: t("purchaseInvoices.new"), onClick: () => openCreate() }}
+          />
+        }
       />
     </>
   );

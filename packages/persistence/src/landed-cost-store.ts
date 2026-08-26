@@ -23,6 +23,7 @@ interface WireLine {
   sourceInvoiceNumber: string | null;
   qty: string;
   unitCost: string;
+  weight?: string;
   allocatedAmount: string;
   newUnitCost: string;
   distributionMethod: string;
@@ -37,6 +38,7 @@ function serializeLine(line: LandedCostLine): WireLine {
     sourceInvoiceNumber: line.sourceInvoiceNumber,
     qty: line.qty.toString(),
     unitCost: line.unitCost.toString(),
+    weight: line.weight.toString(),
     allocatedAmount: line.allocatedAmount.toString(),
     newUnitCost: line.newUnitCost.toString(),
     distributionMethod: line.distributionMethod,
@@ -57,6 +59,8 @@ function deserializeLine(wire: unknown): LandedCostLine {
     sourceInvoiceNumber: w.sourceInvoiceNumber,
     qty: Qty.fromMajor(w.qty),
     unitCost: Money.fromMajor(w.unitCost),
+    // Rows written before the BY_WEIGHT basis existed carry no weight.
+    weight: Qty.fromMajor(w.weight ?? "0"),
     allocatedAmount: Money.fromMajor(w.allocatedAmount),
     newUnitCost: Money.fromMajor(w.newUnitCost),
     distributionMethod: w.distributionMethod as LandedCostLine["distributionMethod"],

@@ -16,8 +16,8 @@ import { EmptyLandedCostTargetsError, ZeroLandedCostWeightError } from "./errors
 export const LANDED_COST_TYPES = ["SHIPPING", "CUSTOMS", "INSURANCE", "CLEARANCE", "OTHER"] as const;
 export type LandedCostType = (typeof LANDED_COST_TYPES)[number];
 
-/** docs/catalog/02 §"طريقة التوزيع *". */
-export const LANDED_COST_DISTRIBUTION_METHODS = ["BY_VALUE", "BY_QUANTITY"] as const;
+/** docs/catalog/02 §"طريقة التوزيع *" — حسب القيمة / حسب الكمية / حسب الوزن (R4.7). */
+export const LANDED_COST_DISTRIBUTION_METHODS = ["BY_VALUE", "BY_QUANTITY", "BY_WEIGHT"] as const;
 export type LandedCostDistributionMethod = (typeof LANDED_COST_DISTRIBUTION_METHODS)[number];
 
 /** One row of "بنود التكلفة" — the additional cost being distributed. */
@@ -36,6 +36,12 @@ export interface LandedCostAllocationTarget {
   readonly qty: Qty;
   /** The item's current landed unit cost (pre-allocation). */
   readonly unitCost: Money;
+  /**
+   * Total shipped weight of this line, in the tenant's own weight unit. Only
+   * BY_WEIGHT reads it; it stays on the persisted line either way so a
+   * confirmed document still states the basis it was allocated on.
+   */
+  readonly weight: Qty;
 }
 
 /** A target line after allocation — what a `LandedCostLine` (the document type's line shape) carries. */
@@ -45,10 +51,17 @@ export interface AllocatedLandedCostLine extends LandedCostAllocationTarget {
   readonly newUnitCost: Money;
 }
 
+function basisWeight(target: LandedCostAllocationTarget, method: LandedCostDistributionMethod): bigint {
+  if (method === "BY_QUANTITY") return target.qty.scaled;
+  if (method === "BY_WEIGHT") return target.weight.scaled;
+  return extend(target.qty, target.unitCost).scaled;
+}
+
 /**
- * Distributes `Σ costItems.amount` across `targets` by value (qty × unitCost)
- * or by quantity, largest-remainder rounded so the allocated amounts sum
- * EXACTLY to the total cost entered (docs/catalog/02: "إجمالي التكلفة").
+ * Distributes `Σ costItems.amount` across `targets` by value (qty × unitCost),
+ * by quantity or by shipped weight, largest-remainder rounded so the allocated
+ * amounts sum EXACTLY to the total cost entered (docs/catalog/02: "إجمالي
+ * التكلفة").
  */
 export function distributeLandedCost(
   costItems: readonly LandedCostItemEntry[],
@@ -58,7 +71,7 @@ export function distributeLandedCost(
   if (targets.length === 0) throw new EmptyLandedCostTargetsError();
   const totalCost = Money.sum(costItems.map((c) => c.amount));
 
-  const weights = targets.map((t) => (method === "BY_QUANTITY" ? t.qty.scaled : extend(t.qty, t.unitCost).scaled));
+  const weights = targets.map((t) => basisWeight(t, method));
   if (weights.every((w) => w <= 0n)) {
     throw new ZeroLandedCostWeightError(method);
   }
@@ -74,4 +87,22 @@ export function distributeLandedCost(
 /** Total cost entered ("إجمالي التكلفة"), summed once — used for validation/effects/GL. */
 export function totalLandedCost(costItems: readonly LandedCostItemEntry[]): Money {
   return Money.sum(costItems.map((c) => c.amount));
+}
+
+/**
+ * The entered cost broken down by نوع التكلفة (R4.7) — what the شحن / جمارك /
+ * تأمين / تخليص split of one document actually was. Types with nothing entered
+ * are omitted, and the parts sum to `totalLandedCost` exactly.
+ */
+export function landedCostTotalsByType(
+  costItems: readonly LandedCostItemEntry[],
+): { readonly costType: LandedCostType; readonly amount: Money }[] {
+  const byType = new Map<LandedCostType, Money>();
+  for (const entry of costItems) {
+    byType.set(entry.costType, (byType.get(entry.costType) ?? Money.zero()).add(entry.amount));
+  }
+  return LANDED_COST_TYPES.filter((type) => byType.has(type)).map((costType) => ({
+    costType,
+    amount: byType.get(costType) as Money,
+  }));
 }

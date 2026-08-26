@@ -54,7 +54,7 @@ function landedCost(overrides: Partial<LandedCostDocumentDTO> = {}): LandedCostD
     lines: [
       {
         itemId: "item-cement", warehouseId: "MAIN-WH", sourceInvoiceId: "pi-1", sourceInvoiceNumber: "PI-000001",
-        qty: "20.000000", unitCost: "85.000000", allocatedAmount: "200.000000", newUnitCost: "95.000000",
+        qty: "20.000000", unitCost: "85.000000", weight: "0.000000", allocatedAmount: "200.000000", newUnitCost: "95.000000",
         distributionMethod: "BY_VALUE", costItems: [{ costType: "SHIPPING", description: "شحن", amount: "200.000000" }],
       },
     ],

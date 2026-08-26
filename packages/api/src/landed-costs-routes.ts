@@ -22,6 +22,7 @@ function serializeLine(l: LandedCostLine) {
     sourceInvoiceNumber: l.sourceInvoiceNumber,
     qty: l.qty.toString(),
     unitCost: l.unitCost.toString(),
+    weight: l.weight.toString(),
     allocatedAmount: l.allocatedAmount.toString(),
     newUnitCost: l.newUnitCost.toString(),
     distributionMethod: l.distributionMethod,
@@ -92,6 +93,7 @@ export function createLandedCostsRoutes(
         sourceInvoiceNumber: t.sourceInvoiceNumber,
         qty: Qty.fromMajor(t.qty),
         unitCost: Money.fromMajor(t.unitCost),
+        weight: Qty.fromMajor(t.weight),
       }));
       const allocated = distributeLandedCost(costItems, parsed.data.distributionMethod, targets);
       const lines: LandedCostLine[] = allocated.map((a) => ({

@@ -100,7 +100,7 @@ describe("LandedCostService — GL + landed unit-cost revaluation", () => {
     const [allocated] = distributeLandedCost(
       [{ costType: "SHIPPING", description: "شحن", amount: Money.fromMajor("100") }],
       "BY_VALUE",
-      [{ itemId: "ITEM1", warehouseId: "WH1", sourceInvoiceId: "PI1", sourceInvoiceNumber: "PI-000002", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("50") }],
+      [{ itemId: "ITEM1", warehouseId: "WH1", sourceInvoiceId: "PI1", sourceInvoiceNumber: "PI-000002", qty: Qty.fromMajor("10"), unitCost: Money.fromMajor("50"), weight: Qty.fromMajor("0") }],
     );
 
     await documents.createDraft({

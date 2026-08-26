@@ -6,12 +6,14 @@ import {
   DocumentList,
   EmptyState,
   FulcrumRule,
+  RowMenu,
   Select,
   StatusPill,
   TextInput,
   formatNumber,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { foreignCurrencies } from "@mezan/domain";
@@ -53,6 +55,7 @@ export function ExchangeRatesScreen() {
   const [toDate, setToDate] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(25);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const filtered = rates.filter((r) => {
     if (statusFilter !== "all" && r.status !== statusFilter) return false;
@@ -73,10 +76,15 @@ export function ExchangeRatesScreen() {
   const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (fromDate ? 1 : 0) + (toDate ? 1 : 0);
 
   async function approve(id: string) {
+    if (pendingId) return;
+    setPendingId(id);
+    setError(null);
     try {
       await approveExchangeRate.mutateAsync(id);
     } catch (err) {
       setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot"));
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -106,7 +114,6 @@ export function ExchangeRatesScreen() {
     { key: "date", header: t("fxRates.effectiveFrom"), render: (r) => <span className="mz-num text-ink-muted">{r.effectiveDate}</span> },
     { key: "source", header: t("fxRates.source"), render: (r) => <span className="text-ink-muted">{r.source === "manual" ? t("fxRates.manual") : t("fxRates.automatic")}</span> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
-    { key: "actions", header: "", render: (r) => (r.status === "pending" ? <div className="flex justify-end"><Button size="sm" onClick={() => approve(r.id)}>{t("fxRates.approve")}</Button></div> : null) },
   ];
 
   if (query.isError) {
@@ -209,6 +216,13 @@ export function ExchangeRatesScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(r) => r.id}
+        rowAction={(r) => {
+          const menuItems: RowMenuItem[] =
+            r.status === "pending"
+              ? [{ key: "approve", label: t("fxRates.approve"), disabled: pendingId === r.id, onSelect: () => void approve(r.id) }]
+              : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.currency })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

@@ -7,12 +7,14 @@ import {
   DocumentDetail,
   EmptyState,
   EntityPicker,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import {
   useConfigurableProducts,
@@ -201,6 +203,8 @@ export function ConfigurableProductsScreen() {
   const [overheadFormula, setOverheadFormula] = useState("");
   const [itemPolicy, setItemPolicy] = useState<"per_order" | "per_spec">("per_order");
   const [formError, setFormError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selected = products.find((p) => p.id === selectedId) ?? null;
 
@@ -290,10 +294,15 @@ export function ConfigurableProductsScreen() {
   }
 
   async function deactivate(id: string) {
+    if (pendingId) return;
+    setPendingId(id);
+    setActionError(null);
     try {
       await deactivateProduct.mutateAsync(id);
-    } catch {
-      // The list/detail re-render from the failed mutation's settled cache; nothing further to do here.
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : t("api.theProductCouldNotBe2"));
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -436,12 +445,17 @@ export function ConfigurableProductsScreen() {
   if (selected) {
     return (
       <>
+        {actionError ? (
+          <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+            {actionError}
+          </div>
+        ) : null}
         <ProductDetail
           product={selected}
           itemName={itemName}
           onBack={() => setSelectedId(null)}
-          onDeactivate={() => deactivate(selected.id)}
-          deactivating={deactivateProduct.isPending}
+          onDeactivate={() => void deactivate(selected.id)}
+          deactivating={pendingId === selected.id}
         />
         {panel}
       </>
@@ -457,6 +471,11 @@ export function ConfigurableProductsScreen() {
             {t("common.retry")}
           </Button>
         </Card>
+      ) : null}
+      {actionError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {actionError}
+        </div>
       ) : null}
       <DocumentList<ConfigurableProductRecord>
         title={t("configProducts.configurableProducts")}
@@ -489,6 +508,19 @@ export function ConfigurableProductsScreen() {
         rows={pageRows}
         rowKey={(p) => p.id}
         onRowClick={(p) => setSelectedId(p.id)}
+        rowAction={(p) => {
+          const items: RowMenuItem[] = [{ key: "view", label: t("common.view"), onSelect: () => setSelectedId(p.id) }];
+          if (p.status === "active") {
+            items.push({
+              key: "deactivate",
+              label: t("configProducts.deactivate"),
+              tone: "danger",
+              disabled: pendingId === p.id,
+              onSelect: () => void deactivate(p.id),
+            });
+          }
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: p.nameAr })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

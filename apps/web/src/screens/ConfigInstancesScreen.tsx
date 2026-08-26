@@ -7,12 +7,14 @@ import {
   EmptyState,
   EntityPicker,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import {
   useCancelConfigInstance,
@@ -46,6 +48,9 @@ const STATUS_TONE: Record<Status, PillTone> = {
   closed: "success",
   cancelled: "danger",
 };
+/** The single notion of "still open" shared by the row menu and the detail header. */
+const canActOn = (status: Status) => status !== "closed" && status !== "cancelled";
+
 const num = (v: string) => Number(v);
 const PAGE_SIZES = [10, 25, 50, 100] as const;
 const today = () => todayIso();
@@ -78,7 +83,7 @@ function InstanceDetail({
   cancelling: boolean;
 }) {
   const { t } = useAppTranslation();
-  const canAct = instance.status !== "closed" && instance.status !== "cancelled";
+  const canAct = canActOn(instance.status);
   const actualCost = instance.actualCost !== null ? num(instance.actualCost) : num(instance.estimatedUnitCost) * num(instance.qty);
   const profitMargin = num(instance.sellTotal) - actualCost;
 
@@ -220,6 +225,7 @@ export function ConfigInstancesScreen() {
   const [scheduledEndDate, setScheduledEndDate] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selectedProduct = products.find((p) => p.id === product?.id) ?? null;
 
@@ -338,6 +344,17 @@ export function ConfigInstancesScreen() {
       await cancelInstance.mutateAsync(id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : t("customOrders.theOrderCouldNotBe2"));
+    }
+  }
+
+  async function runRowAction(id: string, action: "close" | "cancel") {
+    if (pendingId) return;
+    setPendingId(id);
+    try {
+      if (action === "close") await doClose(id);
+      else await doCancel(id);
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -513,6 +530,27 @@ export function ConfigInstancesScreen() {
         rows={pageRows}
         rowKey={(i) => i.id}
         onRowClick={(i) => setSelectedId(i.id)}
+        rowAction={(i) => {
+          const items: RowMenuItem[] = [{ key: "view", label: t("common.view"), onSelect: () => setSelectedId(i.id) }];
+          if (canActOn(i.status)) {
+            items.push(
+              {
+                key: "close",
+                label: t("customOrders.closeOrder"),
+                disabled: pendingId === i.id,
+                onSelect: () => void runRowAction(i.id, "close"),
+              },
+              {
+                key: "cancel",
+                label: t("common.cancel"),
+                tone: "danger",
+                disabled: pendingId === i.id,
+                onSelect: () => void runRowAction(i.id, "cancel"),
+              },
+            );
+          }
+          return <RowMenu items={items} label={t("common.rowActionsFor", { name: i.number })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

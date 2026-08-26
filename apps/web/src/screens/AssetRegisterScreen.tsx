@@ -1,5 +1,18 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
-import { DocumentList, EmptyState, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  DocumentList,
+  EmptyState,
+  Money as MoneyDisplay,
+  StatusPill,
+  Card,
+  Button,
+  RowMenu,
+  SidePanel,
+  MoneyInput,
+  type DocumentListColumn,
+  type PillTone,
+  type RowMenuItem,
+} from "@mezan/ui";
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
 import {
   ApiError,
@@ -268,6 +281,33 @@ export function AssetRegisterScreen() {
         rows={pageRows}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
+        rowAction={(a) => {
+          const menuItems: RowMenuItem[] = [
+            {
+              key: "view",
+              label: t("common.view"),
+              onSelect: () => {
+                setDisposeOpen(false);
+                setSelectedId(a.id);
+              },
+            },
+            ...(a.status !== "disposed"
+              ? [
+                  {
+                    key: "dispose",
+                    label: t("assets.dispose"),
+                    tone: "danger" as const,
+                    onSelect: () => {
+                      setDisposeError(null);
+                      setSelectedId(a.id);
+                      setDisposeOpen(true);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.nameAr })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

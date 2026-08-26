@@ -477,16 +477,75 @@ async function readError(res: { json<T>(): Promise<T> }, fallback: string): Prom
 }
 
 /** الأصناف (docs/catalog/03) — list, create, edit. */
-export function useItems(): UseQueryResult<ItemDTO[], ApiError> {
+export interface ItemListFilter {
+  /** A chip key: `all`, `active`, `inactive`, `low_stock`, `out_of_stock`, or an item type. */
+  readonly status?: string;
+  readonly categoryId?: string;
+  readonly brandId?: string;
+  readonly seasonId?: string;
+  readonly unitCode?: string;
+  readonly search?: string;
+}
+
+function itemParams(filter: ItemListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.categoryId && filter.categoryId !== "all") params.set("categoryId", filter.categoryId);
+  if (filter.brandId) params.set("brandId", filter.brandId);
+  if (filter.seasonId) params.set("seasonId", filter.seasonId);
+  if (filter.unitCode && filter.unitCode !== "all") params.set("unitCode", filter.unitCode);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
+export function useItems(filter: ItemListFilter = {}): UseQueryResult<ItemDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<ItemDTO[], ApiError>({
-    queryKey: ["items"],
+    queryKey: ["items", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/items");
+      const qs = itemParams(filter).toString();
+      const res = await request(`/items${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
       return res.json<ItemDTO[]>();
+    },
+  });
+}
+
+/**
+ * Chip counts (R1.1). Two axes share one `status` parameter here — active/
+ * inactive, the stock states and the item types — so the route answers with a
+ * `type:<code>` key for the type axis; the caller reads that prefix.
+ */
+export function useItemCounts(filter: ItemListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["items", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = itemParams(rest).toString();
+      const res = await request(`/items/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useItemStats(filter: ItemListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["items", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = itemParams(filter).toString();
+      const res = await request(`/items/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.itemsCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
     },
   });
 }

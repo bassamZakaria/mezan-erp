@@ -6,6 +6,7 @@ import { seedInventoryOps } from "./demo-seed/inventory-ops.js";
 import { seedPurchasing } from "./demo-seed/purchasing.js";
 import { seedTreasury } from "./demo-seed/treasury.js";
 import { seedPlatform } from "./demo-seed/platform.js";
+import { seedAttachments } from "./demo-seed/attachments.js";
 
 /**
  * SEED PROFILE FOR TESTS AND LOCAL DEVELOPMENT ONLY.
@@ -536,6 +537,7 @@ export async function seedDemoTenant(app: App): Promise<void> {
   await seedPurchasing(app);
   await seedTreasury(app);
   await seedPlatform(app);
+  await seedAttachments(app);
 }
 
 /**

@@ -1,0 +1,13 @@
+{
+  "name": "site-feature-audit-crawler",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Deterministic crawler for the site-feature-audit skill",
+  "scripts": {
+    "crawl": "node crawl.mjs --config ./audit.config.json"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}

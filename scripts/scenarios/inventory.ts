@@ -16,6 +16,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx);
   await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
   await itemTypeCapabilitiesBind_R51(ctx);
+  await itemImageBindsToARealAttachment_R54(ctx);
   await openingBalanceShortcutTargetsARealItem_R53(ctx);
   await catalogFacetsAreEntities_R510(ctx);
   await itemDefaultSupplierIsBound_R54(ctx);
@@ -536,6 +537,34 @@ async function draftsReserveStockAndConfirmingConvertsIt_R56(ctx: Ctx): Promise<
  * on "stock". The reports that value stock must include every type that holds
  * it, and a type that cannot hold stock must not be able to track inventory.
  */
+/**
+ * R5.4 — the item's picture. Guarded because the first cut of it answered 200
+ * and stored nothing: the field existed on the wire and on the record, and the
+ * update path in between did not carry it. That shape has cost this codebase a
+ * currency, a cost centre and a withholding already.
+ */
+async function itemImageBindsToARealAttachment_R54(ctx: Ctx): Promise<void> {
+  const attachments = ctx.rows((await ctx.req("GET", "/attachments?entityType=item&entityId=ITEM-DEMO-1")).body);
+  ctx.check("the seeded item carries at least one attachment to choose from", attachments.length > 0, `attachments=${attachments.length}`);
+  const image = attachments[0] as { id: string };
+
+  const patched = await ctx.req("PATCH", "/items/ITEM-DEMO-1", { imageAttachmentId: image.id });
+  ctx.checkEq("the item accepts an image", patched.status, 200);
+  ctx.check("and answers with it rather than dropping it at the wire", patched.body?.imageAttachmentId === image.id, `got=${patched.body?.imageAttachmentId}`);
+
+  const reread = (await ctx.req("GET", "/items/ITEM-DEMO-1")).body;
+  ctx.check("a fresh read still has it — stored, not merely echoed", reread?.imageAttachmentId === image.id, `got=${reread?.imageAttachmentId}`);
+
+  const cleared = await ctx.req("PATCH", "/items/ITEM-DEMO-1", { imageAttachmentId: null });
+  ctx.check("and it can be cleared back to none", cleared.body?.imageAttachmentId === null, `got=${cleared.body?.imageAttachmentId}`);
+
+  // An unrelated edit must LEAVE it alone: a patch that rewrites every field
+  // from its own body would silently drop the image on any other change.
+  await ctx.req("PATCH", "/items/ITEM-DEMO-1", { imageAttachmentId: image.id });
+  const afterOther = await ctx.req("PATCH", "/items/ITEM-DEMO-1", { reorderPoint: 7 });
+  ctx.check("an edit that never mentions the image keeps it", afterOther.body?.imageAttachmentId === image.id, `got=${afterOther.body?.imageAttachmentId}`);
+}
+
 async function itemTypeCapabilitiesBind_R51(ctx: Ctx): Promise<void> {
   await ctx.scenario("item types: capabilities bind on the server, not just in the picker (R5.1)", async () => {
     const items = await ctx.req("GET", "/items");

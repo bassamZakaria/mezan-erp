@@ -46,6 +46,7 @@ const items: ItemDTO[] = [
     trackBatches: false,
     trackExpiry: false,
     reorderPoint: null,
+    imageAttachmentId: null,
     reorderQty: null,
     revenueAccountId: null,
     cogsAccountId: null,

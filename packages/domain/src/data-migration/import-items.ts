@@ -67,6 +67,7 @@ function buildCandidate(row: ItemImportRowInput, id: string): Item {
     trackBatches: row.trackBatches ?? false,
     trackExpiry: row.trackExpiry ?? false,
     reorderPoint: row.reorderPoint ?? null,
+    imageAttachmentId: null,
     reorderQty: row.reorderQty ?? null,
     revenueAccountId: null,
     cogsAccountId: null,

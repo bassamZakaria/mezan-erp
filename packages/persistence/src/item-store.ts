@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS item (
   track_batches        INTEGER NOT NULL,
   track_expiry         INTEGER NOT NULL,
   reorder_point        REAL,
+  image_attachment_id  TEXT,
   reorder_qty          REAL,
   revenue_account_id   TEXT,
   cogs_account_id      TEXT,
@@ -74,6 +75,7 @@ interface ItemRow {
   track_batches: number;
   track_expiry: number;
   reorder_point: number | null;
+  image_attachment_id: string | null;
   reorder_qty: number | null;
   revenue_account_id: string | null;
   cogs_account_id: string | null;
@@ -109,6 +111,7 @@ function toItem(row: ItemRow): Item {
     trackBatches: row.track_batches === 1,
     trackExpiry: row.track_expiry === 1,
     reorderPoint: row.reorder_point,
+    imageAttachmentId: row.image_attachment_id ?? null,
     reorderQty: row.reorder_qty,
     revenueAccountId: row.revenue_account_id,
     cogsAccountId: row.cogs_account_id,
@@ -131,13 +134,13 @@ class SqliteItemStore implements ItemRepository {
       INSERT INTO item (
         id, code, name_ar, name_en, type, base_unit_code, alternate_units, barcodes,
         category_id, brand, season_id, description, default_supplier_id, specifications, costing_method, sale_price, cost_price, tax_rate_percent,
-        track_inventory, track_batches, track_expiry, reorder_point, reorder_qty,
+        track_inventory, track_batches, track_expiry, reorder_point, image_attachment_id, reorder_qty,
         revenue_account_id, cogs_account_id, inventory_account_id,
         eta_code_type, eta_item_code, gpc_code, status
       ) VALUES (
         @id, @code, @name_ar, @name_en, @type, @base_unit_code, @alternate_units, @barcodes,
         @category_id, @brand, @season_id, @description, @default_supplier_id, @specifications, @costing_method, @sale_price, @cost_price, @tax_rate_percent,
-        @track_inventory, @track_batches, @track_expiry, @reorder_point, @reorder_qty,
+        @track_inventory, @track_batches, @track_expiry, @reorder_point, @image_attachment_id, @reorder_qty,
         @revenue_account_id, @cogs_account_id, @inventory_account_id,
         @eta_code_type, @eta_item_code, @gpc_code, @status
       )
@@ -163,6 +166,7 @@ class SqliteItemStore implements ItemRepository {
         track_batches = excluded.track_batches,
         track_expiry = excluded.track_expiry,
         reorder_point = excluded.reorder_point,
+        image_attachment_id = excluded.image_attachment_id,
         reorder_qty = excluded.reorder_qty,
         revenue_account_id = excluded.revenue_account_id,
         cogs_account_id = excluded.cogs_account_id,
@@ -224,6 +228,7 @@ class SqliteItemStore implements ItemRepository {
       track_batches: item.trackBatches ? 1 : 0,
       track_expiry: item.trackExpiry ? 1 : 0,
       reorder_point: item.reorderPoint,
+      image_attachment_id: item.imageAttachmentId,
       reorder_qty: item.reorderQty,
       revenue_account_id: item.revenueAccountId,
       cogs_account_id: item.cogsAccountId,
@@ -241,9 +246,18 @@ export interface SqliteItemStoreHandle extends ItemRepository {
 }
 
 /** Open a SQLite-backed ItemRepository. ":memory:" for tests, a path for real. */
+/** Adds `image_attachment_id` to a database created before the column existed. */
+function addImageColumnIfMissing(sqlite: Database.Database): void {
+  const columns = sqlite.prepare(`PRAGMA table_info(item)`).all() as { name: string }[];
+  if (!columns.some((c) => c.name === "image_attachment_id")) {
+    sqlite.exec(`ALTER TABLE item ADD COLUMN image_attachment_id TEXT`);
+  }
+}
+
 export function createSqliteItemStore(path: SqliteConnectionInput = ":memory:"): SqliteItemStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_TABLE);
+  addImageColumnIfMissing(sqlite);
   const store = new SqliteItemStore(sqlite);
   return Object.assign(store, {
     close: () => { if (owned) sqlite.close(); },

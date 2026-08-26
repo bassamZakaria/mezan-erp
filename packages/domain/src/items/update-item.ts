@@ -30,6 +30,7 @@ export interface UpdateItemCommand {
   readonly trackBatches?: boolean;
   readonly trackExpiry?: boolean;
   readonly reorderPoint?: number | null;
+  readonly imageAttachmentId?: string | null;
   readonly reorderQty?: number | null;
   readonly revenueAccountId?: string | null;
   readonly cogsAccountId?: string | null;
@@ -77,6 +78,8 @@ export async function updateItem(
     trackBatches: command.trackBatches ?? current.trackBatches,
     trackExpiry: command.trackExpiry ?? current.trackExpiry,
     reorderPoint: command.reorderPoint !== undefined ? command.reorderPoint : current.reorderPoint,
+    imageAttachmentId:
+      command.imageAttachmentId !== undefined ? command.imageAttachmentId : current.imageAttachmentId,
     reorderQty: command.reorderQty !== undefined ? command.reorderQty : current.reorderQty,
     revenueAccountId: command.revenueAccountId !== undefined ? command.revenueAccountId : current.revenueAccountId,
     cogsAccountId: command.cogsAccountId !== undefined ? command.cogsAccountId : current.cogsAccountId,

@@ -43,6 +43,7 @@ function serialize(item: Item) {
     trackBatches: item.trackBatches,
     trackExpiry: item.trackExpiry,
     reorderPoint: item.reorderPoint,
+    imageAttachmentId: item.imageAttachmentId,
     reorderQty: item.reorderQty,
     revenueAccountId: item.revenueAccountId,
     cogsAccountId: item.cogsAccountId,

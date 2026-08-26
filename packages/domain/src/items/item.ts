@@ -75,6 +75,12 @@ export interface Item {
   readonly trackBatches: boolean;
   readonly trackExpiry: boolean;
   readonly reorderPoint: number | null;
+  /**
+   * The item's picture, held as an attachment id rather than as bytes on the
+   * item — the file lives in the attachments resource, which already owns
+   * storage, permissions and deletion.
+   */
+  readonly imageAttachmentId: string | null;
   readonly reorderQty: number | null;
   /** GL mapping overrides (docs/catalog/03 "الحسابات") — null means "use the system default for this item type". */
   readonly revenueAccountId: string | null;

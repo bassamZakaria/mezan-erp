@@ -42,6 +42,7 @@ import {
 } from "../data/hooks";
 import { useItemSpecifications } from "../data/item-catalog-hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { useAttachments } from "../data/attachment-hooks";
 import { TextAreaField } from "../settings/form-controls";
 
 import { categoryLabel, unitLabel } from "../lib/item-labels";
@@ -99,6 +100,7 @@ interface ItemDraft {
   trackInventory: boolean;
   trackBatches: boolean;
   reorderPoint: number | null;
+  imageAttachmentId: string | null;
   reorderQty: number | null;
   revenueAccountId: string | null;
   cogsAccountId: string | null;
@@ -130,6 +132,7 @@ const BLANK_DRAFT: ItemDraft = {
   trackInventory: true,
   trackBatches: false,
   reorderPoint: null,
+  imageAttachmentId: null,
   reorderQty: null,
   revenueAccountId: null,
   cogsAccountId: null,
@@ -162,6 +165,7 @@ function draftFromItem(item: ItemDTO): ItemDraft {
     trackInventory: item.trackInventory,
     trackBatches: item.trackBatches || item.trackExpiry,
     reorderPoint: item.reorderPoint,
+    imageAttachmentId: item.imageAttachmentId,
     reorderQty: item.reorderQty,
     revenueAccountId: item.revenueAccountId,
     cogsAccountId: item.cogsAccountId,
@@ -240,6 +244,7 @@ function draftToItem(draft: ItemDraft, id: string): ItemDTO {
     trackBatches: itemTypeTracksStock(draft.type) && draft.trackInventory ? draft.trackBatches : false,
     trackExpiry: itemTypeTracksStock(draft.type) && draft.trackInventory ? draft.trackBatches : false,
     reorderPoint: draft.reorderPoint,
+    imageAttachmentId: draft.imageAttachmentId,
     reorderQty: draft.reorderQty,
     revenueAccountId: draft.revenueAccountId,
     cogsAccountId: draft.cogsAccountId,
@@ -375,6 +380,50 @@ function ItemPriceListsTab({ item }: { item: ItemDTO }) {
  * than by the raw code. The definition carries nameEn, so the label follows the
  * reading language instead of printing Arabic into the English UI (D49).
  */
+/**
+ * The item's picture, chosen from the item's OWN attachments. The bytes live in
+ * the attachments resource, which already owns storage, permissions and
+ * deletion — the item record holds only the id. A brand-new item has nothing to
+ * attach to yet, which is why it gets a hint instead of a dead control.
+ */
+function ItemImageField({
+  itemId,
+  value,
+  onChange,
+}: {
+  itemId: string | null;
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const { t } = useAppTranslation();
+  const attachments = useAttachments("item", itemId).data ?? [];
+  const images = attachments.filter((a) => a.mimeType.startsWith("image/"));
+
+  if (!itemId) {
+    return (
+      <div className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12px] text-ink-muted">
+        {t("items.image.newItem")}
+      </div>
+    );
+  }
+  if (images.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12px] text-ink-muted">
+        {t("items.image.noImages")}
+      </div>
+    );
+  }
+  return (
+    <SelectField
+      label={t("items.field.image")}
+      value={value ?? ""}
+      onChange={(v) => onChange(v === "" ? null : v)}
+      options={[{ value: "", label: t("items.image.none") }, ...images.map((a) => ({ value: a.id, label: a.fileName }))]}
+      hint={t("items.image.hint")}
+    />
+  );
+}
+
 function ItemSpecificationsTab({ item }: { item: ItemDTO }) {
   const { t, locale } = useAppTranslation();
   const definitions = useItemSpecifications().data ?? [];
@@ -1010,6 +1059,11 @@ export function ItemsScreen() {
               hint={t("items.fefoEarliestExpiryFirstFor")}
             />
             <NumberField label={t("items.reorderPoint")} value={draft.reorderPoint} onChange={(v) => setDraft((d) => ({ ...d, reorderPoint: v }))} min={0} />
+            <ItemImageField
+              itemId={editingId}
+              value={draft.imageAttachmentId}
+              onChange={(id) => setDraft((d) => ({ ...d, imageAttachmentId: id }))}
+            />
             <NumberField label={t("items.reorderQuantity")} value={draft.reorderQty} onChange={(v) => setDraft((d) => ({ ...d, reorderQty: v }))} min={0} />
           </Card>
         ) : null}

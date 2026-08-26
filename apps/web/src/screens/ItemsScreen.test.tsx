@@ -32,6 +32,7 @@ function item(overrides: Partial<ItemDTO> = {}): ItemDTO {
     trackBatches: false,
     trackExpiry: false,
     reorderPoint: null,
+    imageAttachmentId: null,
     reorderQty: null,
     revenueAccountId: null,
     cogsAccountId: null,

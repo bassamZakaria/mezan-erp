@@ -25,6 +25,7 @@ function item(overrides: Partial<Item> = {}): Item {
     trackBatches: false,
     trackExpiry: false,
     reorderPoint: null,
+    imageAttachmentId: null,
     reorderQty: null,
     revenueAccountId: null,
     cogsAccountId: null,

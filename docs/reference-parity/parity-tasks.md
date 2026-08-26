@@ -143,7 +143,7 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R4.7** Landed-cost allocation basis and typed cost lines — a third basis (حسب الوزن) beside value and quantity, the shipped weight carried on the persisted line so a confirmed document still states its basis, and the entered cost broken down by نوع التكلفة on both the form and the document
 - [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
   - [x] description, default supplier (bound to a real supplier), season, brand, specifications
-  - [ ] image — needs the attachments resource (R1.4)
+  - [x] image — chosen from the item's own attachments, so the file lives in the attachments resource and the item holds only the id
   - [ ] channels & visibility — no sales-channel concept exists anywhere in the product yet; needs a decision before it can be built
   - [ ] editing a per-price-list price from the item form (the read-only view landed with R5.5)
 - [~] **R5.8** Transfer import — paste a range straight from Excel (the clipboard gives TSV) or choose a CSV file; the delimiter is detected per file, quoted fields and Arabic-Indic numerals are handled, and every row is resolved against the REAL item catalogue by code or barcode. A row that matches nothing, or names a service item, is rejected WITH its reason rather than carried through as a plausible id

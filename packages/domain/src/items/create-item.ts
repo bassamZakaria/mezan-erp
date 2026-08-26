@@ -28,6 +28,7 @@ export interface CreateItemCommand {
   readonly trackBatches?: boolean;
   readonly trackExpiry?: boolean;
   readonly reorderPoint?: number | null;
+  readonly imageAttachmentId?: string | null;
   readonly reorderQty?: number | null;
   readonly revenueAccountId?: string | null;
   readonly cogsAccountId?: string | null;
@@ -62,6 +63,7 @@ function buildCandidate(command: CreateItemCommand): Item {
     trackBatches: command.trackBatches ?? false,
     trackExpiry: command.trackExpiry ?? false,
     reorderPoint: command.reorderPoint ?? null,
+    imageAttachmentId: command.imageAttachmentId ?? null,
     reorderQty: command.reorderQty ?? null,
     revenueAccountId: command.revenueAccountId ?? null,
     cogsAccountId: command.cogsAccountId ?? null,

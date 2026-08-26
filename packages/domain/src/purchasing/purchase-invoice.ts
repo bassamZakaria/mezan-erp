@@ -418,7 +418,21 @@ export function buildInvoicePosting(
 
   const lines: PurchaseGlPostingLine[] = [];
   if (inventoryBase.scaled !== 0n) {
-    lines.push({ accountId: accounts.inventoryAccountId, debit: inventoryBase, credit: Money.zero() });
+    /**
+     * Whichever document MOVED the stock is the one that debits inventory, and
+     * only that one (D53). When a goods receipt brought the goods in, it has
+     * already debited 1200 and credited بضاعة واردة لم تُفوتر; this invoice
+     * clears that credit instead, so inventory is not debited twice and the
+     * liability moves from "received, not invoiced" to a real payable. With no
+     * receipt behind it, the invoice IS the stock-in document and debits
+     * inventory itself.
+     */
+    const clearsGrni = invoice.receiptId !== null && accounts.goodsReceivedNotInvoicedAccountId !== undefined;
+    lines.push({
+      accountId: clearsGrni ? (accounts.goodsReceivedNotInvoicedAccountId as string) : accounts.inventoryAccountId,
+      debit: inventoryBase,
+      credit: Money.zero(),
+    });
   }
   if (freightBase.scaled !== 0n) {
     lines.push({ accountId: freightAccountId, debit: freightBase, credit: Money.zero() });

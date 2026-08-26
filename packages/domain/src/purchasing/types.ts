@@ -86,7 +86,7 @@ export interface PurchaseGlPostingLine {
  * lines) + Dr Input VAT / Cr Accounts Payable.
  */
 export interface PurchaseGlPosting {
-  readonly sourceDocType: "PURCHASE_INVOICE";
+  readonly sourceDocType: "PURCHASE_INVOICE" | "PURCHASE_RECEIPT";
   readonly sourceDocId: string;
   readonly sourceDocNumber: string | null;
   readonly date: string;
@@ -110,6 +110,13 @@ export interface PurchaseGlAccounts {
   readonly freightAccountId?: string;
   /** Booked for general purchase-expense lines (مصروف); falls back to freight, then inventory (R4.2). */
   readonly expenseAccountId?: string;
+  /**
+   * بضاعة واردة لم تُفوتر — credited when goods are RECEIVED and cleared when
+   * they are invoiced (D53). Optional: without it a receipt posts nothing, which
+   * is the behaviour that predates this and is still what an installation with
+   * no such account configured must fall back to.
+   */
+  readonly goodsReceivedNotInvoicedAccountId?: string;
 }
 
 /**

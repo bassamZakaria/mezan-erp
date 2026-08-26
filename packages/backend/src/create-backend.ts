@@ -175,6 +175,9 @@ const PURCHASE_GL_ACCOUNTS = {
   // R4.2: a general expense line on a purchase invoice is not freight; routing
   // it to 5200 made "مصروفات الشحن والنقل" the bin for everything non-stock.
   expenseAccountId: "5910",
+  // D53: receiving goods now posts Dr 1200 / Cr 2120, and the invoice clears
+  // 2120 rather than debiting inventory a second time.
+  goodsReceivedNotInvoicedAccountId: "2120",
 };
 
 /**

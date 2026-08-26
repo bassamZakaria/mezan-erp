@@ -51,6 +51,14 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // built from purchase documents and would never learn about it, and the two
   // would part company. It lands here instead, and the purchase-return
   // document — which does name a supplier — is what clears it against 2100.
+  /**
+   * بضاعة واردة لم تُفوتر — what is owed for goods already received but not yet
+   * invoiced. Receiving creates both the asset and the liability; without this
+   * account the receipt could post nothing, and between receiving and invoicing
+   * the goods sat in the warehouse, off the balance sheet, owed to nobody (D53).
+   * The purchase invoice clears it against the real payable.
+   */
+  { id: "2120", code: "2120", nameAr: "بضاعة واردة لم تُفوتر", nameEn: "Goods Received Not Invoiced", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2110", code: "2110", nameAr: "مرتجعات موردين تحت التسوية", nameEn: "Supplier Returns Clearing", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2150", code: "2150", nameAr: "شيكات صادرة", nameEn: "Cheques Payable", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },
   { id: "2160", code: "2160", nameAr: "دفعات مقدمة من عملاء", nameEn: "Customer Advances", type: "liability", naturalBalance: "credit", parentId: "2000", isHeader: false },

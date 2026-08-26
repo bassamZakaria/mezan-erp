@@ -15,6 +15,7 @@ const BRANCH_ID = "BR-MAIN";
 const WAREHOUSE_ID = "WH-MAIN";
 const VAT = 14;
 
+
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, n, check, checkEq, scenario } = ctx;
 
@@ -119,13 +120,15 @@ export async function run(ctx: Ctx): Promise<void> {
     check("receipt confirm: draft -> confirmed", grnConfirm.status === 200 && grnConfirm.body.status === "confirmed", grnConfirm.body?.status);
 
     const afterReceipt = await ctx.invariants();
+    // Since D53 the receipt posts Dr 1200 / Cr 2120 for the same 16,550 it
+    // moved, so the sub-ledger and its control account never diverge.
     checkEq(
-      "receipt-confirm moves stock (+16,550) with NO GL movement — inventory sub-ledger runs exactly that far ahead of GL 1200",
-      afterReceipt.inventory - beforeReceipt.inventory,
-      16550,
+      "receipt-confirm moves stock AND posts for it — the sub-ledger stays level with GL 1200",
+      afterReceipt.inventory,
+      beforeReceipt.inventory,
     );
-    checkEq("receipt-confirm does not touch AP at all", afterReceipt.ap, beforeReceipt.ap);
-    checkEq("trial balance is untouched by a receipt confirm (no GL posted)", afterReceipt.tb, beforeReceipt.tb);
+    checkEq("receipt-confirm still does not touch AP — nothing is owed to the supplier until they invoice", afterReceipt.ap, beforeReceipt.ap);
+    checkEq("and the entry it posts balances, so the trial balance still nets to zero", afterReceipt.tb, beforeReceipt.tb);
 
     const poAfterReceipt = await req("GET", "/purchases/orders/SCN-PO-1");
     check(
@@ -669,7 +672,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
   // --- 10. The documented no-GL-entry gap on a confirmed-but-uninvoiced receipt ---
   await scenario(
-    "purchases: confirming GRN-DEMO-3 moves stock with NO GL entry (documented, correct) — invoicing it afterward closes the gap",
+    "purchases: confirming GRN-DEMO-3 posts Dr inventory / Cr بضاعة واردة لم تُفوتر, and invoicing it moves the liability to the supplier (D53 fixed)",
     async () => {
       const before = await req("GET", "/purchases/receipts/GRN-DEMO-3");
       check("GRN-DEMO-3 starts draft and uninvoiced (seeded that way on purpose)", before.body?.status === "draft" && before.body?.invoiced === false, JSON.stringify(before.body).slice(0, 120));
@@ -682,12 +685,17 @@ export async function run(ctx: Ctx): Promise<void> {
       check("PO-DEMO-4 (sugar's only PO) advances to fully_received", po.body?.status === "fully_received", po.body?.status);
 
       const afterReceipt = await ctx.invariants();
-      // 250 sugar @ 31 = 7,750, matching GRN-DEMO-3's totalCost.
+      // 250 sugar @ 31 = 7,750, matching GRN-DEMO-3's totalCost. That value now
+      // reaches the GL as it moves: this scenario used to assert the sub-ledger
+      // running 7,750 ahead of its control account and called it correct.
       checkEq(
-        "documented behavior: inventory sub-ledger runs exactly +7,750 ahead of GL 1200 (no goods-received-not-invoiced accrual account exists) — NOT a defect, do not re-file",
-        afterReceipt.inventory - start.inventory,
-        7750,
+        "the sub-ledger does NOT run ahead of GL 1200 any more — receiving posts the asset and the obligation together",
+        afterReceipt.inventory,
+        start.inventory,
       );
+      const grniAfterReceipt = await ctx.req("GET", "/gl/journal-entries?sourceModule=purchases");
+      const receiptEntry = ctx.rows(grniAfterReceipt.body).find((e: any) => e.sourceDocId === "GRN-DEMO-3");
+      checkEq("crediting بضاعة واردة لم تُفوتر by the goods' value", n(receiptEntry?.lines?.find((l: any) => l.accountId === "2120")?.credit), 7750);
 
       const invoice = await req("POST", "/purchases/invoices", {
         id: "SCN-PI-GRN3",
@@ -703,7 +711,14 @@ export async function run(ctx: Ctx): Promise<void> {
       check("invoice confirms, closing the gap", invConfirm.status === 200 && invConfirm.body?.status === "confirmed", invConfirm.status.toString());
 
       const afterInvoice = await ctx.invariants();
-      checkEq("the +7,750 gap opened by the receipt confirm is fully closed by the invoice confirm", afterInvoice.inventory, start.inventory);
+      checkEq("the books stay reconciled through the invoice too", afterInvoice.inventory, start.inventory);
+      const invoiceEntry = ctx.rows((await ctx.req("GET", "/gl/journal-entries?sourceModule=purchases")).body).find((e: any) => e.sourceDocId === "SCN-PI-GRN3");
+      checkEq("and the invoice DEBITS 2120, clearing what the receipt credited", n(invoiceEntry?.lines?.find((l: any) => l.accountId === "2120")?.debit), 7750);
+      check(
+        "without debiting inventory a second time — the receipt already owns that debit",
+        !(invoiceEntry?.lines ?? []).some((l: any) => l.accountId === "1200" && n(l.debit) > 0),
+        JSON.stringify(invoiceEntry?.lines),
+      );
     },
   );
 

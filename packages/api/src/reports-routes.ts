@@ -188,20 +188,25 @@ async function postedGross(
   side: "debit" | "credit",
   /**
    * Restricts the ledger side to entries a given document type produced.
-   * Inventory is debited by goods receipts, landed costs and opening balances
-   * as well as purchase invoices, so a purchases report compared against ALL
-   * inventory debits reports a difference on books that agree — the figures
-   * are simply not the same question. Available because journal entries carry
-   * the document that made them (R6.3).
+   * Inventory is debited by landed costs and opening balances as well as by
+   * the purchase chain, so a purchases report compared against ALL inventory
+   * debits reports a difference on books that agree — the figures are simply
+   * not the same question. Available because journal entries carry the document
+   * that made them (R6.3).
+   *
+   * The purchase chain needs BOTH of its document types: since D53 a receipt
+   * debits inventory and its invoice clears GRNI instead, while an invoice
+   * raised with no receipt behind it still debits inventory itself. Naming only
+   * one of the two counts half the purchases.
    */
-  sourceDocType?: string,
+  sourceDocTypes?: readonly string[],
 ): Promise<number> {
   const entries = await deps.ledger.list({ status: "posted" });
   const allowed = new Set(accountIds);
   let total = 0;
   for (const entry of entries) {
     if (entry.date < range.dateFrom || entry.date > range.dateTo) continue;
-    if (sourceDocType && entry.sourceDocType !== sourceDocType) continue;
+    if (sourceDocTypes && !sourceDocTypes.includes(entry.sourceDocType ?? "")) continue;
     for (const line of entry.lines) {
       if (!allowed.has(line.accountId)) continue;
       const amount = side === "debit" ? line.debit : line.credit;
@@ -322,7 +327,7 @@ export function createReportsRoutes(
     const invoices = await deps.salesInvoices.list();
     const allocatedByInvoiceId = await settledByInvoiceId(deps, "sales");
     const params = { ...definition.defaultParams, ...queryParams(c) };
-    const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", "SALES_INVOICE");
+    const postedRevenue = await postedGross(deps, REVENUE_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "credit", ["SALES_INVOICE"]);
     return respond(c, runReport(definition, params, { invoices, allocatedByInvoiceId, postedRevenue: () => postedRevenue }));
   });
 
@@ -372,7 +377,7 @@ export function createReportsRoutes(
     const definition = createPurchasesByItemReport(firstOfMonth(today), today);
     const [invoices, items] = await Promise.all([deps.purchaseInvoices.list(), deps.items.list()]);
     const params = { ...definition.defaultParams, ...queryParams(c) };
-    const postedInventory = await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", "PURCHASE_INVOICE");
+    const postedInventory = await postedGross(deps, INVENTORY_ACCOUNT_IDS, params as { dateFrom: string; dateTo: string }, "debit", ["PURCHASE_INVOICE", "PURCHASE_RECEIPT"]);
     return respond(c, runReport(definition, params, { invoices, items, postedInventory: () => postedInventory }));
   });
 

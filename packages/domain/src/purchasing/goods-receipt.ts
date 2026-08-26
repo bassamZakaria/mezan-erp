@@ -24,6 +24,9 @@ import {
   type GoodsReceiptStatus,
   type PurchasePolicy,
   type PurchaseStockPostingPort,
+  type PurchaseGlAccounts,
+  type PurchaseGlPosting,
+  type PurchaseGlPostingPort,
 } from "./types.js";
 import {
   DuplicatePurchaseDocumentError,
@@ -123,6 +126,9 @@ export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
   readonly receipts: GoodsReceiptRepository;
   readonly orders: PurchaseOrderRepository;
   readonly stock: PurchaseStockPostingPort;
+  /** Both optional together: without them a receipt moves stock and posts nothing, which is what predates D53. */
+  readonly gl?: PurchaseGlPostingPort;
+  readonly accounts?: PurchaseGlAccounts;
   readonly now?: () => string;
 }
 
@@ -327,6 +333,32 @@ async function createAdHocGoodsReceipt(
  * quantities into the PO (advancing it to partially/fully received). Gateable
  * action PURCHASE_RECEIPT_CONFIRM is enforced by the workflow gate at the edge.
  */
+/**
+ * Dr المخزون / Cr بضاعة واردة لم تُفوتر for what the receipt brought in (D53).
+ *
+ * Receiving goods makes them the buyer's asset and creates the obligation to
+ * pay for them; both halves belong on the books from that moment. The purchase
+ * invoice later clears the GRNI credit against the real payable, so inventory
+ * is debited exactly once, by whichever document actually moved the stock.
+ */
+export function buildGoodsReceiptPosting(
+  receipt: GoodsReceipt,
+  accounts: { readonly inventoryAccountId: string; readonly goodsReceivedNotInvoicedAccountId: string },
+): PurchaseGlPosting {
+  const value = Money.sum(receipt.lines.map((l) => extend(l.qty, l.unitCost)));
+  return {
+    sourceDocType: "PURCHASE_RECEIPT",
+    sourceDocId: receipt.id,
+    sourceDocNumber: receipt.number,
+    date: receipt.date,
+    memo: `إذن استلام ${receipt.number}`,
+    lines: [
+      { accountId: accounts.inventoryAccountId, debit: value, credit: Money.zero() },
+      { accountId: accounts.goodsReceivedNotInvoicedAccountId, debit: Money.zero(), credit: value },
+    ],
+  };
+}
+
 export async function confirmGoodsReceipt(
   id: string,
   deps: ConfirmGoodsReceiptDeps,
@@ -351,6 +383,18 @@ export async function confirmGoodsReceipt(
     })),
     occurredAt: occurredAtFromDocumentDate(receipt.date),
   });
+
+  // Stock first here, unlike the invoice: a receipt's movement is always an IN,
+  // which no stock policy refuses, and the GL entry is what must not be left
+  // behind if something later fails.
+  if (deps.gl && deps.accounts?.goodsReceivedNotInvoicedAccountId) {
+    await deps.gl.post(
+      buildGoodsReceiptPosting(receipt, {
+        inventoryAccountId: deps.accounts.inventoryAccountId,
+        goodsReceivedNotInvoicedAccountId: deps.accounts.goodsReceivedNotInvoicedAccountId,
+      }),
+    );
+  }
 
   if (receipt.purchaseOrderId) {
     const order = await deps.orders.findById(receipt.purchaseOrderId);

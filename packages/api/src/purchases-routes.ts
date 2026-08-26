@@ -631,6 +631,8 @@ export function createPurchasesRoutes(
         receipts: deps.receipts,
         orders: deps.orders,
         stock: deps.stock,
+        gl: deps.gl,
+        accounts: deps.accounts,
         audit: audit(c),
         actor: actor(c),
         now: deps.now,

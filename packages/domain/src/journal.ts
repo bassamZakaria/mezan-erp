@@ -124,6 +124,8 @@ const MODULE_BY_DOC_TYPE: Readonly<Record<string, JournalSourceModule>> = {
   PURCHASE_RETURN: "purchases",
   PURCHASE_ORDER: "purchases",
   GOODS_RECEIPT: "purchases",
+  // The stock ledger and the GL name a receipt differently; both reach here.
+  PURCHASE_RECEIPT: "purchases",
   LANDED_COST: "purchases",
   ADJUSTMENT: "inventory",
   STOCK_ADJUSTMENT: "inventory",

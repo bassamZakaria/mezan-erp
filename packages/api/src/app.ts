@@ -133,7 +133,7 @@ import { createLandedCostsRoutes } from "./landed-costs-routes.js";
 import { createInstallmentsRoutes, type InstallmentsRoutesDeps } from "./installments-routes.js";
 import { createDocumentsRoutes } from "./documents-routes.js";
 import { createPurchasesRoutes } from "./purchases-routes.js";
-import { createManufacturingRoutes } from "./manufacturing-routes.js";
+import { createManufacturingRoutes, type ManufacturingRoutesDeps } from "./manufacturing-routes.js";
 import { createRfqRoutes } from "./rfq-routes.js";
 import { createHistoricalImportRoutes } from "./historical-import-routes.js";
 import { createPrintTemplateConfigRoutes } from "./print-template-config-routes.js";
@@ -563,6 +563,10 @@ export interface CreateAppOptions {
     readonly stock: StockLedgerService;
     /** On-hand per (item, warehouse) for the materials tab's available/shortage columns (R9.2). */
     readonly positions?: () => Promise<readonly { itemId: string; warehouseId: string; onHand: number }[]>;
+    /** The movements / journal-entries / audit feeds behind the detail tabs (R9.2). */
+    readonly movementsOfDocument?: ManufacturingRoutesDeps["movementsOfDocument"];
+    readonly journalEntriesOfDocument?: ManufacturingRoutesDeps["journalEntriesOfDocument"];
+    readonly auditOfDocument?: ManufacturingRoutesDeps["auditOfDocument"];
     /** GL posting engine deps — the work-order complete builds a JE and posts it here. */
     readonly gl: JournalPostingDeps;
     readonly accounts: WorkOrderGlAccounts;
@@ -1065,6 +1069,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
             date: posting.date,
             memo: posting.memo,
             source: "system",
+            // The posting has carried these all along; this adapter dropped
+            // them, so a completed work order's entry named no source document
+            // and the journal filed it as manual.
+            sourceDocType: posting.sourceDocType,
+            sourceDocId: posting.sourceDocId,
+            sourceDocNumber: posting.sourceDocNumber ?? null,
             lines: posting.lines.map((l) => ({
               accountId: l.accountId,
               debit: l.debit,
@@ -1086,6 +1096,9 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           numbering: mfg.numbering,
           stock: mfg.stock,
           positions: mfg.positions,
+          movementsOfDocument: mfg.movementsOfDocument,
+          journalEntriesOfDocument: mfg.journalEntriesOfDocument,
+          auditOfDocument: mfg.auditOfDocument,
           gl: glPort,
           accounts: mfg.accounts,
           resolveUnitCost: mfg.resolveUnitCost,

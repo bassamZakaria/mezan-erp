@@ -74,6 +74,33 @@ import {
  * configurable products, wo.view/create/execute for work orders + custom
  * manufacturing. Money/Qty serialize as exact decimal strings.
  */
+export interface WorkOrderMovementView {
+  readonly id: string;
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly direction: string;
+  readonly qty: string;
+  readonly unitCost: string;
+  readonly occurredAt: string;
+}
+
+export interface WorkOrderJournalView {
+  readonly id: string;
+  readonly entryNo: string | null;
+  readonly date: string;
+  readonly memo: string | null;
+  readonly status: string;
+  readonly totalDebit: string;
+  readonly totalCredit: string;
+}
+
+export interface WorkOrderAuditView {
+  readonly action: string;
+  readonly actor: string;
+  readonly timestamp: string;
+  readonly severity: string;
+}
+
 export interface ManufacturingRoutesDeps {
   readonly boms: BomRepository;
   readonly workOrders: WorkOrderRepository;
@@ -88,6 +115,18 @@ export interface ManufacturingRoutesDeps {
    * stock" on a full warehouse.
    */
   readonly positions?: () => Promise<readonly { itemId: string; warehouseId: string; onHand: number }[]>;
+  /**
+   * The three activity feeds behind a work order's movements, journal-entries
+   * and audit tabs (R9.2). All optional: without one the tab reports an empty
+   * feed rather than the route 500-ing, which is what an installation with no
+   * ledger wired would otherwise do.
+   *
+   * Every one of them SELECTS by the work order's id rather than reading a list
+   * stored on the order — a stored list cannot survive a reversal.
+   */
+  readonly movementsOfDocument?: (sourceDocId: string) => Promise<readonly WorkOrderMovementView[]>;
+  readonly journalEntriesOfDocument?: (sourceDocId: string) => Promise<readonly WorkOrderJournalView[]>;
+  readonly auditOfDocument?: (entityId: string) => Promise<readonly WorkOrderAuditView[]>;
   readonly gl: ManufacturingGlPostingPort;
   readonly accounts: WorkOrderGlAccounts;
   /** Item → moving-average unit cost (for BOM/config cost estimates). Defaults to 0. */
@@ -421,6 +460,34 @@ export function createManufacturingRoutes(
     const order = await deps.workOrders.findById(c.req.param("id"));
     if (!order) return c.json({ error: "NOT_FOUND" }, 404);
     return c.json(serializeWorkOrder(order));
+  });
+
+  /**
+   * Everything that happened to one work order, in the three shapes its detail
+   * tabs read: the stock it moved, the entries it posted, and who touched it.
+   *
+   * Material movements and finished-goods receipts come out of the SAME ledger
+   * query and are split here rather than by two round trips: a movement of the
+   * order's own product INTO stock is a receipt, everything else is material.
+   * Splitting on the item rather than on the direction matters because a
+   * material RETURN is also an inbound movement, and filing it as a receipt
+   * would report goods produced that never were.
+   */
+  app.get("/work-orders/:id/activity", gate("manufacturing.wo.view"), async (c) => {
+    const order = await deps.workOrders.findById(c.req.param("id"));
+    if (!order) return c.json({ error: "NOT_FOUND" }, 404);
+
+    const movements = deps.movementsOfDocument ? await deps.movementsOfDocument(order.id) : [];
+    // The ledger writes the direction uppercase ("IN"/"OUT"); compare case-
+    // insensitively so a receipt is not silently filed as a material movement.
+    const isReceipt = (m: WorkOrderMovementView) =>
+      m.itemId === order.productItemId && m.direction.toUpperCase() === "IN";
+    return c.json({
+      movements: movements.filter((m) => !isReceipt(m)),
+      receipts: movements.filter(isReceipt),
+      journalEntries: deps.journalEntriesOfDocument ? await deps.journalEntriesOfDocument(order.id) : [],
+      auditEvents: deps.auditOfDocument ? await deps.auditOfDocument(order.id) : [],
+    });
   });
 
   app.post("/work-orders", gate("manufacturing.wo.create"), async (c) => {

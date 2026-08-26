@@ -130,6 +130,16 @@ export interface PostReceiptCommand {
   readonly warehouseId: string;
   /** The document that received the goods (a purchase receipt/invoice, or a work-order finished-goods receipt). */
   readonly sourceDocType: Extract<StockSourceDocType, "PURCHASE_RECEIPT" | "PURCHASE_INVOICE" | "WORK_ORDER">;
+  /**
+   * The document the goods came from, when it is NOT the receipt itself.
+   *
+   * A purchase receipt is its own source document, so this defaults to
+   * `receiptId`. A work order is not: its finished-goods receipt is keyed
+   * `WO-RECEIVE:<orderId>` to keep the movement ids clear of the issue's, and
+   * without this the receipt filed under a different source document from the
+   * issue that fed it — one work order appearing in the ledger as two.
+   */
+  readonly sourceDocId?: string;
   readonly lines: readonly ReceiptLine[];
   readonly occurredAt?: string;
 }
@@ -583,7 +593,7 @@ export class StockLedgerService {
           qty: line.qty,
           unitCost: line.unitCost,
           sourceDocType: command.sourceDocType,
-          sourceDocId: command.receiptId,
+          sourceDocId: command.sourceDocId ?? command.receiptId,
           sourceDocNumber: command.receiptNumber ?? null,
           reason: null,
           occurredAt,
@@ -804,6 +814,15 @@ export class StockLedgerService {
   /** Movements for a position in ledger order. */
   async getMovements(itemId: string, warehouseId: string): Promise<readonly StockMovement[]> {
     return this.deps.ledger.listByPosition(itemId, warehouseId);
+  }
+
+  /**
+   * Every movement a single source document produced, across whatever positions
+   * it touched. Derived from the ledger rather than from a list stored on the
+   * document, which could not stay right through a reversal.
+   */
+  async getMovementsOfDocument(sourceDocId: string): Promise<readonly StockMovement[]> {
+    return this.movementsOfSourceDoc(sourceDocId);
   }
 
   /** Every movement in the ledger, gathered position by position. */

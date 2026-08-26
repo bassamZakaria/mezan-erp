@@ -77,6 +77,8 @@ export interface JournalListFilter {
   readonly fromDate?: string;
   /** ISO date (YYYY-MM-DD), inclusive upper bound on entry date. */
   readonly toDate?: string;
+  /** Every entry one source document posted — its own GL trail. */
+  readonly sourceDocId?: string;
 }
 
 /** Aggregated debit/credit and net balance (debit − credit) for one account. */

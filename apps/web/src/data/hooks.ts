@@ -2718,6 +2718,27 @@ export function useWorkOrders(): UseQueryResult<WorkOrderRecord[], ApiError> {
   });
 }
 
+export interface WorkOrderActivity {
+  readonly movements: readonly { id: string; itemId: string; warehouseId: string; direction: string; qty: string; unitCost: string; occurredAt: string }[];
+  readonly receipts: readonly { id: string; itemId: string; warehouseId: string; direction: string; qty: string; unitCost: string; occurredAt: string }[];
+  readonly journalEntries: readonly { id: string; entryNo: string | null; date: string; memo: string | null; status: string; totalDebit: string; totalCredit: string }[];
+  readonly auditEvents: readonly { action: string; actor: string; timestamp: string; severity: string }[];
+}
+
+export function useWorkOrderActivity(id: string | null): UseQueryResult<WorkOrderActivity, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<WorkOrderActivity, ApiError>({
+    queryKey: ["work-order-activity", id],
+    enabled: session !== null && id !== null,
+    queryFn: async () => {
+      const res = await request(`/manufacturing/work-orders/${id}/activity`);
+      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      return res.json<WorkOrderActivity>();
+    },
+  });
+}
+
 export function useCreateWorkOrder() {
   const { t } = useAppTranslation();
   const { request } = useApi();

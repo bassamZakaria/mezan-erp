@@ -1116,6 +1116,34 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
           onHand: Number(position.onHand.toString()),
         }));
       },
+      /** The three activity feeds behind the movements, journal and audit tabs (R9.2). */
+      movementsOfDocument: async (sourceDocId: string) =>
+        (await stockService.getMovementsOfDocument(sourceDocId)).map((m) => ({
+          id: m.id,
+          itemId: m.itemId,
+          warehouseId: m.warehouseId,
+          direction: m.direction,
+          qty: m.qty.toString(),
+          unitCost: m.unitCost.toString(),
+          occurredAt: m.occurredAt,
+        })),
+      journalEntriesOfDocument: async (sourceDocId: string) =>
+        (await ledger.list({ sourceDocId })).map((entry) => ({
+          id: entry.id,
+          entryNo: entry.entryNo ?? null,
+          date: entry.date,
+          memo: entry.memo ?? null,
+          status: entry.status,
+          totalDebit: Money.sum(entry.lines.map((line) => line.debit)).toString(),
+          totalCredit: Money.sum(entry.lines.map((line) => line.credit)).toString(),
+        })),
+      auditOfDocument: async (entityId: string) =>
+        (await auditSink.queryEvents({ entityId })).events.map((event) => ({
+          action: event.action,
+          actor: event.actor,
+          timestamp: event.timestamp,
+          severity: event.severity,
+        })),
       gl: salesInvoiceGl,
       accounts: MANUFACTURING_GL_ACCOUNTS,
       resolveUnitCost: async (itemId: string) => {

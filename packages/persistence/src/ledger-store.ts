@@ -221,6 +221,10 @@ class SqliteLedgerRepository implements LedgerRepository {
       clauses.push("date <= ?");
       params.push(filter.toDate);
     }
+    if (filter.sourceDocId) {
+      clauses.push("source_doc_id = ?");
+      params.push(filter.sourceDocId);
+    }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     const rows = this.sqlite
       .prepare(`SELECT * FROM journal_entry ${where} ORDER BY date, id`)

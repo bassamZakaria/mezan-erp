@@ -425,6 +425,7 @@ export async function returnWorkOrderMaterials(
   const occurredAt = nowIso(deps);
   await deps.stock.postReceipt({
     receiptId: `WO-RETURN:${order.id}:${occurredAt}`,
+    sourceDocId: order.id,
     receiptNumber: order.number,
     warehouseId: order.sourceWarehouseId,
     sourceDocType: "WORK_ORDER",
@@ -521,6 +522,7 @@ export async function receiveWorkOrderProduct(
   const occurredAt = nowIso(deps);
   await deps.stock.postReceipt({
     receiptId: `WO-RECEIVE:${order.id}`,
+    sourceDocId: order.id,
     receiptNumber: order.number,
     warehouseId: order.destinationWarehouseId,
     sourceDocType: "WORK_ORDER",

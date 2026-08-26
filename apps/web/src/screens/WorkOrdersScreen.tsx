@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
@@ -28,6 +28,7 @@ import {
   useStartWorkOrder,
   useWarehouses,
   useWorkOrders,
+  useWorkOrderActivity,
   type WorkOrderRecord,
   type WorkOrderStageRecord,
   type WorkOrderStatusRecord,
@@ -183,6 +184,41 @@ function ShopFloorPanel({ order, itemName }: { order: WorkOrderRecord; itemName:
   );
 }
 
+
+/**
+ * A work order's history, in the four shapes the reference splits it into.
+ *
+ * All four come off ONE request: the split between material movements and
+ * finished-goods receipts is a property of the same ledger rows, so asking the
+ * server twice would only invite the two halves to disagree.
+ */
+function ActivityTable({ head, rows, empty }: { head: readonly string[]; rows: readonly (readonly ReactNode[])[]; empty: string }) {
+  const emptyState = <p className="p-[18px] text-center text-[12.5px] text-ink-muted">{empty}</p>;
+  if (rows.length === 0) return emptyState;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[520px] border-collapse text-[13px]">
+        <thead>
+          <tr className="border-b border-border text-[11px] uppercase text-ink-muted">
+            {head.map((h, i) => (
+              <th key={h} className={`px-[12px] py-[9px] ${i === 0 ? "text-start" : "text-end"}`}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((cells, r) => (
+            <tr key={r} className="border-b border-border last:border-b-0">
+              {cells.map((cell, i) => (
+                <td key={i} className={`px-[12px] py-[10px] ${i === 0 ? "text-start" : "mz-num text-end"}`}>{cell}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function WorkOrderDetail({
   order,
   itemName,
@@ -200,6 +236,8 @@ function WorkOrderDetail({
 }) {
   const { t } = useAppTranslation();
   const action = STAGE_ACTION[order.stage];
+  const activity = useWorkOrderActivity(order.id).data;
+  const dirLabel = (d: string) => (d.toUpperCase() === "IN" ? t("workOrders.direction.in") : t("workOrders.direction.out"));
   return (
     <DocumentDetail
       title={t("workOrders.detailTitle", { number: order.number })}
@@ -292,6 +330,66 @@ function WorkOrderDetail({
               <div><dt className="text-ink-muted">{t("workOrders.overhead")}</dt><dd className="mz-num"><MoneyValue value={num(order.overheadCost)} /></dd></div>
               <div><dt className="text-ink-muted">{t("workOrders.totalWorkInProgress")}</dt><dd className="mz-num"><MoneyValue value={num(order.wipTotal)} /></dd></div>
             </dl>
+          ),
+        },
+        {
+          key: "movements",
+          label: t("workOrders.tab.movements"),
+          content: (
+            <ActivityTable
+              head={[t("common.item"), t("workOrders.rawMaterialsWarehouse"), t("workOrders.direction.in"), t("common.qty"), t("workOrders.materialCost")]}
+              rows={(activity?.movements ?? []).map((m) => [
+                itemName(m.itemId),
+                warehouseName(m.warehouseId),
+                dirLabel(m.direction),
+                m.qty,
+                <MoneyValue value={num(m.unitCost)} />,
+              ])}
+              empty={t("workOrders.noMovements")}
+            />
+          ),
+        },
+        {
+          key: "receipts",
+          label: t("workOrders.tab.receipts"),
+          content: (
+            <ActivityTable
+              head={[t("common.item"), t("workOrders.finishedGoodsWarehouse"), t("common.qty"), t("workOrders.materialCost")]}
+              rows={(activity?.receipts ?? []).map((m) => [
+                itemName(m.itemId),
+                warehouseName(m.warehouseId),
+                m.qty,
+                <MoneyValue value={num(m.unitCost)} />,
+              ])}
+              empty={t("workOrders.noReceipts")}
+            />
+          ),
+        },
+        {
+          key: "journal",
+          label: t("workOrders.tab.journal"),
+          content: (
+            <ActivityTable
+              head={[t("common.date"), t("workOrders.tab.journal"), t("common.debit"), t("common.credit")]}
+              rows={(activity?.journalEntries ?? []).map((e) => [
+                e.date,
+                e.entryNo ?? e.id,
+                <MoneyValue value={num(e.totalDebit)} />,
+                <MoneyValue value={num(e.totalCredit)} />,
+              ])}
+              empty={t("workOrders.noJournal")}
+            />
+          ),
+        },
+        {
+          key: "audit",
+          label: t("workOrders.tab.audit"),
+          content: (
+            <ActivityTable
+              head={[t("common.date"), t("audit.action"), t("audit.user")]}
+              rows={(activity?.auditEvents ?? []).map((e) => [e.timestamp, e.action, e.actor])}
+              empty={t("workOrders.noAudit")}
+            />
           ),
         },
       ]}

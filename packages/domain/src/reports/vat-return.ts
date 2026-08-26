@@ -138,7 +138,6 @@ export function createVatReturnReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "sideLabel",
       valueColumn: "tax",
       captionAr: "ضريبة المخرجات مقابل ضريبة المدخلات — الفرق بينهما هو صافي الإقرار.",
     },

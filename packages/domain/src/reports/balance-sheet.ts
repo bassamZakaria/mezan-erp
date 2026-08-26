@@ -94,7 +94,6 @@ export function createBalanceSheetReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "sectionLabel",
       valueColumn: "amount",
       captionAr: "أقسام الميزانية بمجاميعها — نفس المجاميع الفرعية المطبوعة في الجدول.",
     },

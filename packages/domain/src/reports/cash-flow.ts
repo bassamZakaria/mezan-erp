@@ -196,7 +196,6 @@ export function createCashFlowReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "activityLabel",
       valueColumn: "amount",
       captionAr: "صافي التدفق النقدي في كل نشاط — تشغيلي واستثماري وتمويلي.",
     },

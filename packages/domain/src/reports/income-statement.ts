@@ -106,7 +106,6 @@ export function createIncomeStatementReport(
     ],
     chart: {
       source: "groups",
-      labelColumn: "sectionLabel",
       valueColumn: "amount",
       captionAr: "الإيرادات والمصروفات في الفترة حسب القسم — المصروفات سالبة لأنها تُطرح من صافي الدخل.",
     },

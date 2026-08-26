@@ -124,6 +124,41 @@ function localizeCell(value: string | number | null, t: Translate): string | num
   return value;
 }
 
+/**
+ * A report SECTION's own name — the trial balance's account types, the balance
+ * sheet's sections, the cash-flow activities. These are domain enums, not
+ * tenant data, so they must translate; the section headers, their subtotal rows
+ * and the group-sourced charts all read this one map.
+ */
+const GROUP_LABEL_KEYS: Readonly<Record<string, string>> = {
+  "الأصول": "reportGroup.accountType.asset",
+  "الالتزامات": "reportGroup.accountType.liability",
+  "حقوق الملكية": "reportGroup.accountType.equity",
+  "الإيرادات": "reportGroup.accountType.revenue",
+  "المصروفات": "reportGroup.accountType.expense",
+  "تكلفة البضاعة المباعة": "reportGroup.section.cogs",
+  "المصاريف التشغيلية": "reportGroup.section.opex",
+  "النقدية وما في حكمها": "reportGroup.section.cash",
+  "الأصول المتداولة": "reportGroup.section.currentAsset",
+  "الأصول غير المتداولة": "reportGroup.section.nonCurrentAsset",
+  "الالتزامات المتداولة": "reportGroup.section.currentLiability",
+  "الالتزامات غير المتداولة": "reportGroup.section.nonCurrentLiability",
+  "الأنشطة التشغيلية": "reportGroup.activity.operating",
+  "الأنشطة الاستثمارية": "reportGroup.activity.investing",
+  "الأنشطة التمويلية": "reportGroup.activity.financing",
+  "ضريبة المخرجات (المبيعات)": "reportGroup.vat.output",
+  "ضريبة المدخلات (المشتريات)": "reportGroup.vat.input",
+  "جارية": "reportGroup.vanTrip.ongoing",
+  "مسواة": "reportGroup.vanTrip.settled",
+  "ملغاة": "reportGroup.vanTrip.cancelled",
+};
+
+/** A section name the map does not know is tenant data (an account, a customer) and stays as it is. */
+export function localizeGroupLabel(label: string, t: Translate): string {
+  const key = GROUP_LABEL_KEYS[label];
+  return key ? t(key as AppTranslationKey) : label;
+}
+
 export function localizeReportDefinition<TParams, Row>(
   definition: ReportScreenDefinition<TParams, Row>,
   t: Translate,

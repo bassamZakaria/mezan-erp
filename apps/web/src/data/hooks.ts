@@ -1104,24 +1104,76 @@ export interface JournalEntryDTO {
   readonly lines: ReadonlyArray<{ accountId: string; debit: string; credit: string; memo: string | null }>;
 }
 
+export interface JournalEntryListFilter {
+  /** A stored status, or the chip key `all` — the route drops `all` rather than matching it. */
+  readonly status?: JournalEntryStatusDTO | "all";
+  readonly source?: JournalEntrySourceDTO;
+  readonly sourceModule?: JournalSourceModuleDTO;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the register's filters become a query string, so the rows, the
+ * chip counts and the debit/credit totals cannot be narrowed differently.
+ */
+function journalEntryParams(filter: JournalEntryListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.source) params.set("source", filter.source);
+  if (filter.sourceModule) params.set("sourceModule", filter.sourceModule);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** القيود المحاسبية (docs/catalog/04) — the GL posting engine mounted under /gl. */
-export function useJournalEntries(filter: GlJournalListQueryDTO = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
+export function useJournalEntries(filter: JournalEntryListFilter = {}): UseQueryResult<JournalEntryDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<JournalEntryDTO[], ApiError>({
     queryKey: ["journal-entries", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter.status) params.set("status", filter.status);
-      if (filter.source) params.set("source", filter.source);
-      if (filter.sourceModule) params.set("sourceModule", filter.sourceModule);
-      if (filter.fromDate) params.set("fromDate", filter.fromDate);
-      if (filter.toDate) params.set("toDate", filter.toDate);
-      const qs = params.toString();
+      const qs = journalEntryParams(filter).toString();
       const res = await request(`/gl/journal-entries${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
       return res.json<JournalEntryDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useJournalEntryCounts(filter: JournalEntryListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["journal-entries", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = journalEntryParams(rest).toString();
+      const res = await request(`/gl/journal-entries/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useJournalEntryStats(filter: JournalEntryListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["journal-entries", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = journalEntryParams(filter).toString();
+      const res = await request(`/gl/journal-entries/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.journalEntriesCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -1360,16 +1412,21 @@ export interface ChequeListFilters {
   readonly status?: ChequeStatusDTO;
   readonly fromDate?: string;
   readonly toDate?: string;
+  readonly search?: string;
 }
 
-function chequeQueryString(filters: ChequeListFilters): string {
+/**
+ * The one place the register's filters become a query string, so the rows, the
+ * chip counts and the KPI strip cannot be narrowed differently.
+ */
+function chequeParams(filters: ChequeListFilters): URLSearchParams {
   const params = new URLSearchParams();
   if (filters.direction) params.set("direction", filters.direction);
   if (filters.status) params.set("status", filters.status);
   if (filters.fromDate) params.set("fromDate", filters.fromDate);
   if (filters.toDate) params.set("toDate", filters.toDate);
-  const qs = params.toString();
-  return qs === "" ? "" : `?${qs}`;
+  if (filters.search) params.set("search", filters.search);
+  return params;
 }
 
 /**
@@ -1384,9 +1441,43 @@ export function useCheques(filters: ChequeListFilters = {}): UseQueryResult<Cheq
     queryKey: ["cheques", filters],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request(`/cheques${chequeQueryString(filters)}`);
+      const qs = chequeParams(filters).toString();
+      const res = await request(`/cheques${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
       return res.json<ChequeDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useChequeCounts(filter: ChequeListFilters = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["cheques", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = chequeParams(rest).toString();
+      const res = await request(`/cheques/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useChequeStats(filter: ChequeListFilters = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["cheques", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = chequeParams(filter).toString();
+      const res = await request(`/cheques/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.chequesCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -1705,6 +1796,22 @@ export function useVoucherCounts(filter: VoucherListQueryDTO = {}): UseQueryResu
   });
 }
 
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useVoucherStats(filter: VoucherListQueryDTO = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["vouchers", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = voucherParams(filter).toString();
+      const res = await request(`/vouchers/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.vouchersCouldNotBeLoaded"));
+      return res.json<ListStatsDTO>();
+    },
+  });
+}
+
 export function useVouchers(filter: VoucherListQueryDTO = {}): UseQueryResult<VoucherRowDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
@@ -1847,17 +1954,78 @@ export function useOpenInvoices(kind?: "sales" | "purchase", partyId?: string | 
   });
 }
 
+export interface PurchaseOrderListFilter {
+  /** A stored status, or the chip key `all`. */
+  readonly status?: string;
+  readonly supplierId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly branchId?: string;
+  readonly warehouseId?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the order list's filters become a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function purchaseOrderParams(filter: PurchaseOrderListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.supplierId) params.set("supplierId", filter.supplierId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** أوامر الشراء (docs/catalog/02) — list, create, confirm (draft → sent). */
-export function usePurchaseOrders(): UseQueryResult<PurchaseOrderDTO[], ApiError> {
+export function usePurchaseOrders(filter: PurchaseOrderListFilter = {}): UseQueryResult<PurchaseOrderDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseOrderDTO[], ApiError>({
-    queryKey: ["purchase-orders"],
+    queryKey: ["purchase-orders", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/purchases/orders");
+      const qs = purchaseOrderParams(filter).toString();
+      const res = await request(`/purchases/orders${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
       return res.json<PurchaseOrderDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function usePurchaseOrderCounts(filter: PurchaseOrderListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["purchase-orders", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseOrderParams(rest).toString();
+      const res = await request(`/purchases/orders/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function usePurchaseOrderStats(filter: PurchaseOrderListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["purchase-orders", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseOrderParams(filter).toString();
+      const res = await request(`/purchases/orders/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseOrdersCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -1890,17 +2058,79 @@ export function useConfirmPurchaseOrder() {
   });
 }
 
+export interface GoodsReceiptListFilter {
+  /** A stored status, or the chip key `all`. */
+  readonly status?: string;
+  readonly supplierId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly warehouseId?: string;
+  /** The second chip axis — مفوتر / غير مفوتر. */
+  readonly invoiced?: boolean;
+  readonly search?: string;
+}
+
+/**
+ * The one place the receipt list's filters become a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function goodsReceiptParams(filter: GoodsReceiptListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.supplierId) params.set("supplierId", filter.supplierId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.invoiced !== undefined) params.set("invoiced", filter.invoiced ? "true" : "false");
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** إيصالات الاستلام (docs/catalog/02) — list, create (from a sent/partially-received PO), confirm. */
-export function useGoodsReceipts(): UseQueryResult<GoodsReceiptDTO[], ApiError> {
+export function useGoodsReceipts(filter: GoodsReceiptListFilter = {}): UseQueryResult<GoodsReceiptDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<GoodsReceiptDTO[], ApiError>({
-    queryKey: ["goods-receipts"],
+    queryKey: ["goods-receipts", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/purchases/receipts");
+      const qs = goodsReceiptParams(filter).toString();
+      const res = await request(`/purchases/receipts${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
       return res.json<GoodsReceiptDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useGoodsReceiptCounts(filter: GoodsReceiptListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["goods-receipts", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = goodsReceiptParams(rest).toString();
+      const res = await request(`/purchases/receipts/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useGoodsReceiptStats(filter: GoodsReceiptListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["goods-receipts", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = goodsReceiptParams(filter).toString();
+      const res = await request(`/purchases/receipts/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.goodsReceiptsCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -2514,16 +2744,71 @@ export function useCreateAssetCategory() {
   });
 }
 
-export function useAssets(): UseQueryResult<AssetDTO[], ApiError> {
+export interface AssetListFilter {
+  /** A stored status, or the chip key `all`. */
+  readonly status?: string;
+  readonly categoryId?: string;
+  readonly branchId?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the register's filters become a query string, so the rows, the
+ * chip counts and the KPI strip cannot be narrowed differently.
+ */
+function assetParams(filter: AssetListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.categoryId && filter.categoryId !== "all") params.set("categoryId", filter.categoryId);
+  if (filter.branchId && filter.branchId !== "all") params.set("branchId", filter.branchId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
+export function useAssets(filter: AssetListFilter = {}): UseQueryResult<AssetDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<AssetDTO[], ApiError>({
-    queryKey: ["assets"],
+    queryKey: ["assets", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/assets");
+      const qs = assetParams(filter).toString();
+      const res = await request(`/assets${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
       return res.json<AssetDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useAssetCounts(filter: AssetListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["assets", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = assetParams(rest).toString();
+      const res = await request(`/assets/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useAssetStats(filter: AssetListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["assets", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = assetParams(filter).toString();
+      const res = await request(`/assets/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.theAssetRegisterCouldNot"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -2982,17 +3267,72 @@ export interface WorkOrderRecord {
   readonly completedAt: string | null;
 }
 
+export interface WorkOrderListFilter {
+  /** A stored status, or the chip key `all`. */
+  readonly status?: string;
+  readonly priority?: string;
+  readonly stage?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the work-order list's filters become a query string, so the
+ * rows, the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function workOrderParams(filter: WorkOrderListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.priority) params.set("priority", filter.priority);
+  if (filter.stage) params.set("stage", filter.stage);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** أوامر التصنيع (docs/catalog/07) — a production run against a BOM, tracked through its 4-stage lifecycle. */
-export function useWorkOrders(): UseQueryResult<WorkOrderRecord[], ApiError> {
+export function useWorkOrders(filter: WorkOrderListFilter = {}): UseQueryResult<WorkOrderRecord[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<WorkOrderRecord[], ApiError>({
-    queryKey: ["work-orders"],
+    queryKey: ["work-orders", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/manufacturing/work-orders");
+      const qs = workOrderParams(filter).toString();
+      const res = await request(`/manufacturing/work-orders${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
       return res.json<WorkOrderRecord[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useWorkOrderCounts(filter: WorkOrderListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["work-orders", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = workOrderParams(rest).toString();
+      const res = await request(`/manufacturing/work-orders/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useWorkOrderStats(filter: WorkOrderListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["work-orders", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = workOrderParams(filter).toString();
+      const res = await request(`/manufacturing/work-orders/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.workOrdersCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -3966,14 +4306,39 @@ export function useEtaTaxSubTypes(): UseQueryResult<EtaTaxSubTypeRowDTO[], ApiEr
 /* تسويات وتحويلات وجرد المخزون — Inventory Ops document layer (docs/catalog/03) */
 /* -------------------------------------------------------------------- */
 
-interface DocumentStatusFilter {
-  readonly status?: DocumentStatusDTO;
+export interface StockDocumentListFilter {
+  /** A stored document status, or the chip key `all`. */
+  readonly status?: DocumentStatusDTO | "all";
+  readonly warehouseId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly search?: string;
 }
 
-export interface StockAdjustmentFilter extends DocumentStatusFilter {
+export interface StockAdjustmentFilter extends StockDocumentListFilter {
   /** The 8 adjustment reasons — the list filters by the one on its lines (R5.9). */
   readonly reason?: string;
-  readonly warehouseId?: string;
+}
+
+/**
+ * The one place the adjustment/transfer lists' filters become a query string,
+ * so the rows, the chip counts and the KPI strip cannot be narrowed
+ * differently.
+ */
+function stockDocumentParams(filter: StockDocumentListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
+function stockAdjustmentParams(filter: StockAdjustmentFilter): URLSearchParams {
+  const params = stockDocumentParams(filter);
+  if (filter.reason) params.set("reason", filter.reason);
+  return params;
 }
 
 export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQueryResult<StockAdjustmentDocumentDTO[], ApiError> {
@@ -3983,14 +4348,43 @@ export function useStockAdjustments(filter: StockAdjustmentFilter = {}): UseQuer
     queryKey: ["stock-adjustments", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter.status) params.set("status", filter.status);
-      if (filter.reason) params.set("reason", filter.reason);
-      if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
-      const qs = params.toString();
+      const qs = stockAdjustmentParams(filter).toString();
       const res = await request(`/inventory/stock-adjustments${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
       return res.json<StockAdjustmentDocumentDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useStockAdjustmentCounts(filter: StockAdjustmentFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["stock-adjustments", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = stockAdjustmentParams(rest).toString();
+      const res = await request(`/inventory/stock-adjustments/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useStockAdjustmentStats(filter: StockAdjustmentFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["stock-adjustments", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = stockAdjustmentParams(filter).toString();
+      const res = await request(`/inventory/stock-adjustments/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockAdjustmentsCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4026,16 +4420,50 @@ export function useConfirmStockAdjustment() {
   });
 }
 
-export function useStockTransfers(filter: DocumentStatusFilter = {}): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
+export function useStockTransfers(filter: StockDocumentListFilter = {}): UseQueryResult<StockTransferDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<StockTransferDocumentDTO[], ApiError>({
     queryKey: ["stock-transfers", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request(`/inventory/stock-transfers${filter.status ? `?status=${filter.status}` : ""}`);
+      const qs = stockDocumentParams(filter).toString();
+      const res = await request(`/inventory/stock-transfers${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
       return res.json<StockTransferDocumentDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useStockTransferCounts(filter: StockDocumentListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["stock-transfers", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = stockDocumentParams(rest).toString();
+      const res = await request(`/inventory/stock-transfers/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useStockTransferStats(filter: StockDocumentListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["stock-transfers", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = stockDocumentParams(filter).toString();
+      const res = await request(`/inventory/stock-transfers/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.stockTransfersCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4071,9 +4499,23 @@ export function useConfirmStockTransfer() {
   });
 }
 
-interface PhysicalCountFilter {
-  readonly status?: PhysicalCountStatusDTO;
+export interface PhysicalCountFilter {
+  /** A stored count status, or the chip key `all`. */
+  readonly status?: PhysicalCountStatusDTO | "all";
   readonly warehouseId?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the count list's filters become a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function physicalCountParams(filter: PhysicalCountFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
 }
 
 export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryResult<PhysicalCountDTO[], ApiError> {
@@ -4083,13 +4525,43 @@ export function usePhysicalCounts(filter: PhysicalCountFilter = {}): UseQueryRes
     queryKey: ["physical-counts", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter.status) params.set("status", filter.status);
-      if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
-      const qs = params.toString();
+      const qs = physicalCountParams(filter).toString();
       const res = await request(`/inventory/physical-counts${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
       return res.json<PhysicalCountDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function usePhysicalCountCounts(filter: PhysicalCountFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["physical-counts", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = physicalCountParams(rest).toString();
+      const res = await request(`/inventory/physical-counts/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function usePhysicalCountStats(filter: PhysicalCountFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["physical-counts", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = physicalCountParams(filter).toString();
+      const res = await request(`/inventory/physical-counts/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.physicalCountsCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4288,17 +4760,76 @@ export interface RfqComparisonRecord {
   readonly totalsBySupplier: Record<string, string>;
 }
 
+export interface RfqListFilter {
+  /** A stored status, or the chip key `all`. */
+  readonly status?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly branchId?: string;
+  readonly warehouseId?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the RFQ list's filters become a query string, so the rows, the
+ * chip counts and the KPI strip cannot be narrowed differently.
+ */
+function rfqParams(filter: RfqListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** طلبات عروض الأسعار / RFQs (docs/catalog/02) — list, create, and the draft → sent → closed/cancelled lifecycle. */
-export function useRfqs(): UseQueryResult<PurchaseRfqDTO[], ApiError> {
+export function useRfqs(filter: RfqListFilter = {}): UseQueryResult<PurchaseRfqDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseRfqDTO[], ApiError>({
-    queryKey: ["rfqs"],
+    queryKey: ["rfqs", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const res = await request("/rfqs");
+      const qs = rfqParams(filter).toString();
+      const res = await request(`/rfqs${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
       return res.json<PurchaseRfqDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useRfqCounts(filter: RfqListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["rfqs", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = rfqParams(rest).toString();
+      const res = await request(`/rfqs/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, computed on the server over the whole filtered set. */
+export function useRfqStats(filter: RfqListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["rfqs", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = rfqParams(filter).toString();
+      const res = await request(`/rfqs/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.requestsForQuotationCouldNot"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4413,18 +4944,77 @@ export function useConvertRfq() {
   });
 }
 
+export interface SalesReturnListFilter {
+  /** A stored document status, or the chip key `all`. */
+  readonly status?: DocumentStatusDTO | "all";
+  readonly customerId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  /** The second chip axis — بانتظار دفع المبلغ. */
+  readonly awaitingRefund?: boolean;
+  readonly search?: string;
+}
+
+/**
+ * The one place the return list's filters become a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function salesReturnParams(filter: SalesReturnListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.customerId) params.set("customerId", filter.customerId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.awaitingRefund) params.set("awaitingRefund", "true");
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** مرتجعات المبيعات (docs/catalog/01) — list, create draft (against a confirmed sales invoice), confirm, cancel/void. */
-export function useSalesReturns(status?: DocumentStatusDTO): UseQueryResult<SalesReturnDocumentDTO[], ApiError> {
+export function useSalesReturns(filter: SalesReturnListFilter = {}): UseQueryResult<SalesReturnDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<SalesReturnDocumentDTO[], ApiError>({
-    queryKey: ["sales-returns", status ?? null],
+    queryKey: ["sales-returns", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = status ? `?status=${status}` : "";
-      const res = await request(`/sales-returns${qs}`);
+      const qs = salesReturnParams(filter).toString();
+      const res = await request(`/sales-returns${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
       return res.json<SalesReturnDocumentDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useSalesReturnCounts(filter: SalesReturnListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["sales-returns", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesReturnParams(rest).toString();
+      const res = await request(`/sales-returns/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useSalesReturnStats(filter: SalesReturnListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["sales-returns", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesReturnParams(filter).toString();
+      const res = await request(`/sales-returns/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.salesReturnsCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4471,18 +5061,74 @@ export function useCancelSalesReturn() {
   });
 }
 
+export interface PurchaseReturnListFilter {
+  /** A stored document status, or the chip key `all`. */
+  readonly status?: DocumentStatusDTO | "all";
+  readonly supplierId?: string;
+  readonly fromDate?: string;
+  readonly toDate?: string;
+  readonly search?: string;
+}
+
+/**
+ * The one place the return list's filters become a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function purchaseReturnParams(filter: PurchaseReturnListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  if (filter.supplierId) params.set("supplierId", filter.supplierId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
 /** مرتجعات المشتريات (docs/catalog/02) — list, create draft (against a confirmed purchase invoice), confirm, cancel/void. */
-export function usePurchaseReturns(status?: DocumentStatusDTO): UseQueryResult<PurchaseReturnDocumentDTO[], ApiError> {
+export function usePurchaseReturns(filter: PurchaseReturnListFilter = {}): UseQueryResult<PurchaseReturnDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<PurchaseReturnDocumentDTO[], ApiError>({
-    queryKey: ["purchase-returns", status ?? null],
+    queryKey: ["purchase-returns", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = status ? `?status=${status}` : "";
-      const res = await request(`/purchase-returns${qs}`);
+      const qs = purchaseReturnParams(filter).toString();
+      const res = await request(`/purchase-returns${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
       return res.json<PurchaseReturnDocumentDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function usePurchaseReturnCounts(filter: PurchaseReturnListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["purchase-returns", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseReturnParams(rest).toString();
+      const res = await request(`/purchase-returns/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function usePurchaseReturnStats(filter: PurchaseReturnListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["purchase-returns", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = purchaseReturnParams(filter).toString();
+      const res = await request(`/purchase-returns/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.purchaseReturnsCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4590,18 +5236,66 @@ export function useCancelLandedCost() {
   });
 }
 
+export interface InstallmentPlanListFilter {
+  /** A stored document status, or one of the derived axis keys `all` / `overdue`. */
+  readonly status?: DocumentStatusDTO | "all" | "overdue";
+}
+
+/**
+ * The one place the plan list's filter becomes a query string, so the rows,
+ * the chip counts and the KPI strip cannot be narrowed differently.
+ */
+function installmentPlanParams(filter: InstallmentPlanListFilter): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status && filter.status !== "all") params.set("status", filter.status);
+  return params;
+}
+
 /** خطط الأقساط (docs/catalog/05) — list, create (server builds the payment schedule), confirm, cancel/void, and the معالجة المتأخرات overdue batch. */
-export function useInstallmentPlans(status?: DocumentStatusDTO): UseQueryResult<InstallmentPlanDocumentDTO[], ApiError> {
+export function useInstallmentPlans(filter: InstallmentPlanListFilter = {}): UseQueryResult<InstallmentPlanDocumentDTO[], ApiError> {
   const { t } = useAppTranslation();
   const { request, session } = useApi();
   return useQuery<InstallmentPlanDocumentDTO[], ApiError>({
-    queryKey: ["installment-plans", status ?? null],
+    queryKey: ["installment-plans", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const qs = status ? `?status=${status}` : "";
-      const res = await request(`/installments/plans${qs}`);
+      const qs = installmentPlanParams(filter).toString();
+      const res = await request(`/installments/plans${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
       return res.json<InstallmentPlanDocumentDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useInstallmentPlanCounts(filter: InstallmentPlanListFilter = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["installment-plans", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = installmentPlanParams(rest).toString();
+      const res = await request(`/installments/plans/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useInstallmentPlanStats(filter: InstallmentPlanListFilter = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["installment-plans", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = installmentPlanParams(filter).toString();
+      const res = await request(`/installments/plans/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.instalmentPlansCouldNotBe"));
+      return res.json<ListStatsDTO>();
     },
   });
 }
@@ -4663,8 +5357,20 @@ export function useProcessOverdueInstallments() {
 }
 
 export interface FollowUpListFilters {
-  readonly status?: FollowUpStatusDTO;
+  /** A stored status, or the chip key `all`. */
+  readonly status?: FollowUpStatusDTO | "all";
   readonly customerId?: string;
+}
+
+/**
+ * The one place the worklist's filters become a query string, so the rows, the
+ * chip counts and the KPI strip cannot be narrowed differently.
+ */
+function followUpParams(filters: FollowUpListFilters): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filters.status && filters.status !== "all") params.set("status", filters.status);
+  if (filters.customerId) params.set("customerId", filters.customerId);
+  return params;
 }
 
 /** متابعة التحصيل (docs/catalog/05) — list (filterable by status/customer), create, complete (records an outcome), cancel. */
@@ -4675,13 +5381,43 @@ export function useFollowUps(filters: FollowUpListFilters = {}): UseQueryResult<
     queryKey: ["follow-ups", filters.status ?? null, filters.customerId ?? null],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filters.status) params.set("status", filters.status);
-      if (filters.customerId) params.set("customerId", filters.customerId);
-      const qs = params.toString();
+      const qs = followUpParams(filters).toString();
       const res = await request(`/installments/follow-ups${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
       return res.json<CollectionFollowUpDTO[]>();
+    },
+  });
+}
+
+/** Chip counts (R1.1); the status axis is withheld so every chip reports its own total. */
+export function useFollowUpCounts(filter: FollowUpListFilters = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["follow-ups", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = followUpParams(rest).toString();
+      const res = await request(`/installments/follow-ups/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, counted on the server over the whole filtered set — a follow-up carries no money. */
+export function useFollowUpStats(filter: FollowUpListFilters = {}): UseQueryResult<ListStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ListStatsDTO, ApiError>({
+    queryKey: ["follow-ups", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = followUpParams(filter).toString();
+      const res = await request(`/installments/follow-ups/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.collectionFollowUpsCouldNot"));
+      return res.json<ListStatsDTO>();
     },
   });
 }

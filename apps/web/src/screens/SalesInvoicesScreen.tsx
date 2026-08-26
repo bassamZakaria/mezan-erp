@@ -62,6 +62,7 @@ import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { salesInvoiceStatusLabel } from "../domain-labels";
 import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
  * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
@@ -88,10 +89,6 @@ const LIST_STATUSES: SalesInvoiceStatusDTO[] = ["draft", "confirmed", "partially
 
 function toMajor(v: string): number {
   return Number(v);
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 /** The list's own status axis: the stored statuses plus the derived مفتوحة / متأخرة. */
@@ -147,7 +144,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const branches = branchesQuery.data ?? [];
   const priceLists = priceListsQuery.data ?? [];
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   /**
    * Arriving from a customer's page («إنشاء فاتورة») the customer is already
    * known and rides in the URL, so the form opens bound to it instead of
@@ -1172,7 +1169,7 @@ export function SalesInvoicesScreen() {
     subPage.open(...(customerId ? ["new", customerId] : ["new"]));
   });
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const [firstSegment] = subPage.segments;
   const selected =
     firstSegment !== undefined && firstSegment !== "new"

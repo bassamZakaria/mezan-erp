@@ -105,7 +105,12 @@ export interface ReportsRoutesDeps {
 }
 
 function todayIso(deps: ReportsRoutesDeps): string {
-  return deps.today ? deps.today() : new Date().toISOString().slice(0, 10);
+  if (deps.today) return deps.today();
+  // Local calendar day, not `toISOString()`: that is UTC, so it hands back
+  // YESTERDAY for anyone east of Greenwich until the small hours — which is
+  // everyone this product ships to.
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 function firstOfMonth(today: string): string {

@@ -12,6 +12,7 @@ import {
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { monthEndIso, monthStartIso } from "../lib/dates";
 
 /** Display-only formatter for a 6-dp exact decimal string (ledger math stays in Money). */
 function fmt(value: string): string {
@@ -26,8 +27,8 @@ function fmt(value: string): string {
  */
 export function CostCenterPnLScreen() {
   const { t } = useAppTranslation();
-  const [fromDate, setFromDate] = useState("2026-08-01");
-  const [toDate, setToDate] = useState("2026-08-31");
+  const [fromDate, setFromDate] = useState(monthStartIso());
+  const [toDate, setToDate] = useState(monthEndIso());
   const query = useCostCenterPnL(fromDate, toDate);
   const report = query.data ?? null;
 

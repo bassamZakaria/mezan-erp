@@ -19,6 +19,7 @@ import {
   useReopenPeriod,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /**
  * الفترات المالية (Fiscal Periods) — docs/catalog/04 §"الفترات المالية".
@@ -52,7 +53,7 @@ function monthLabel(periodNumber: number, t: (key: AppTranslationKey) => string)
   return key ? t(key) : String(periodNumber);
 }
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = todayIso();
 
 function isCurrentPeriod(period: FiscalPeriodDTO): boolean {
   return TODAY >= period.startDate && TODAY <= period.endDate;

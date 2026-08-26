@@ -10,6 +10,7 @@ import type { TrialBalanceRow } from "@mezan/domain";
 import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /** حسابات الخزينة (Treasury Accounts) — docs/catalog/04 §"حسابات الخزينة". List + detail + add dialog. */
 
@@ -110,7 +111,7 @@ export function TreasuryAccountsScreen() {
   // vouchers posted (D41); re-deriving it from vouchers disagreed with the
   // ledger by 248,900 on the bank account, because cheques and settlements post
   // there too.
-  const trialBalance = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", { asOfDate: new Date().toISOString().slice(0, 10) });
+  const trialBalance = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", { asOfDate: todayIso() });
   const liveBalance = useMemo(() => treasuryBalanceById(accounts, trialBalance.data?.rows ?? []), [accounts, trialBalance.data]);
   const balanceOf = (id: string) => liveBalance.get(id) ?? 0;
   const totalBalance = accounts.reduce((sum, a) => sum + balanceOf(a.id), 0);

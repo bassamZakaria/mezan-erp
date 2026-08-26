@@ -31,6 +31,7 @@ import {
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 /** التكاليف الإضافية (Landed Costs) — docs/catalog/02. Distributes freight/customs/etc across a confirmed purchase invoice's item costs, by value or by quantity. */
 
@@ -223,7 +224,7 @@ export function LandedCostsScreen() {
       const id = crypto.randomUUID();
       const created = await createLandedCost.mutateAsync({
         id,
-        date: new Date().toISOString().slice(0, 10),
+        date: todayIso(),
         memo: "",
         distributionMethod: method,
         costItems: costItemEntries,

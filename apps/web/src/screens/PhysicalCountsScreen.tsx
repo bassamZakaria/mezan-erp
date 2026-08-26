@@ -26,6 +26,7 @@ import { useItems, useWarehouses, ApiError } from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /**
  * الجرد الفعلي (Physical Counts) — docs/catalog/03: start → record counts →
@@ -251,7 +252,7 @@ function NewCountView({
   const { t } = useAppTranslation();
   const start = useStartPhysicalCount();
   const [warehouseId, setWarehouseId] = useState(warehouses[0]?.id ?? "");
-  const [date, setDate] = useState("2026-08-22");
+  const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [blind, setBlind] = useState(false);
   const [error, setError] = useState<string | null>(null);

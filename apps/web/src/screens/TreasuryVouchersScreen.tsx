@@ -62,6 +62,7 @@ import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useDomainLabels } from "../lib/domain-labels";
 import { useDebounced } from "../lib/use-debounced";
+import { todayIso } from "../lib/dates";
 
 /** السندات النقدية (Treasury Vouchers) — docs/catalog/04, on the real `/vouchers` API. */
 
@@ -755,7 +756,7 @@ function CreateVoucherView({
     counterTreasuryAccountId: treasuryAccounts[1]?.id ?? "",
     counterpartyGlAccountId: "4900",
     partyId: initialCustomerId ?? initialSupplierId ?? "",
-    date: new Date().toISOString().slice(0, 10),
+    date: todayIso(),
     referenceNo: "",
     memo: "",
   });

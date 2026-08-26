@@ -52,8 +52,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
   - [x] chart captions (R21.3), methodology footnote (R21.9) and the balance banner (R21.10) as runner capabilities
   - [ ] per-report `kpis` overrides where the column totals do not say enough
   - [ ] charts themselves
-- [ ] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة)
-- [ ] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date
+- [x] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة) — on every report that has a date range
+- [x] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date — and fix the UTC day-shift in every `toISOString()` "today" across 21 screens
 - [ ] **A6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson
 - [ ] **A7** GL-reconciliation tile on sales-by-item and purchases-by-item
 - [ ] **A5** Drill-down side panel from entity cells

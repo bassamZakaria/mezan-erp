@@ -33,6 +33,7 @@ import { useSubPage } from "../navigation";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
+import { todayIso } from "../lib/dates";
 
 /**
  * طلبات عروض الأسعار (RFQs — docs/catalog/02 §"طلبات عروض الأسعار"): مسودة →
@@ -72,10 +73,6 @@ interface QuoteDraftLine {
 
 function fmtDate(iso: string | null): string {
   return iso ? iso.split("-").reverse().join("/") : "—";
-}
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function RfqDetail({

@@ -14,6 +14,7 @@ import {
 import { ReportScreen } from "./reports/ReportScreen";
 import { useAccounts } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso, yearStartIso } from "../lib/dates";
 
 /**
  * التقارير المالية (docs/catalog/08-reports.md) — the seven financial
@@ -27,8 +28,8 @@ import { useAppTranslation, type AppTranslationKey } from "../i18n";
  */
 
 const EYEBROW = "eyebrow.reports.statements" as const;
-const TODAY = "2026-08-22";
-const YEAR_START = "2026-01-01";
+const TODAY = todayIso();
+const YEAR_START = yearStartIso();
 
 const trialBalance = createTrialBalanceReport(TODAY);
 const incomeStatement = createIncomeStatementReport({ periodFrom: YEAR_START, periodTo: TODAY });

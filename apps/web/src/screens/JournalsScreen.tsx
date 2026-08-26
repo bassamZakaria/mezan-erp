@@ -22,6 +22,7 @@ import { useAccounts, useCreateJournalEntry, useJournalEntries, useReverseJourna
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 /** القيود المحاسبية (Journal Entries) — docs/catalog/04. List + detail + create, on the real GL posting engine (/gl). */
 
@@ -345,7 +346,7 @@ function CreateJournalView({
   onDone: () => void;
 }) {
   const { t } = useAppTranslation();
-  const [date, setDate] = useState("2026-08-22");
+  const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<LineDraft[]>([blankLine(), blankLine()]);
   const [error, setError] = useState<string | null>(null);

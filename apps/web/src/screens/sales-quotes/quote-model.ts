@@ -3,6 +3,7 @@ import type { ItemDTO } from "@mezan/contracts";
 import type { SalesQuoteRecord } from "../../data/hooks";
 import type { AppTranslationKey } from "../../i18n";
 import type { PillTone } from "@mezan/ui";
+import { todayIso } from "../../lib/dates";
 
 export type QuoteStatus = SalesQuoteRecord["status"];
 /** The list's own status axis: the stored statuses plus the derived منتهي (expired). */
@@ -33,7 +34,7 @@ export const COGS_ACCOUNT_ID = "5100";
 export const INVENTORY_ACCOUNT_ID = "1200";
 
 export function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 export function plusDays(days: number): string {

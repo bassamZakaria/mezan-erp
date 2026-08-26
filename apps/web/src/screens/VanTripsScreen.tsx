@@ -28,6 +28,7 @@ import {
 import { SelectField, TextField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 /** رحلات المندوبين (Van/Rep Trips — Field Sales) — docs/catalog/07 §"رحلات المندوبين". List + open-trip form + detail with cash-movement/settle actions. */
 
@@ -43,7 +44,7 @@ function toMajor(scaledDecimalString: string): number {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 interface CrewDraftRow {

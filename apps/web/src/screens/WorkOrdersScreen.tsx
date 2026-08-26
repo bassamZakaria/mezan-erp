@@ -30,6 +30,7 @@ import {
 } from "../data/hooks";
 import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<WorkOrderStatusRecord, AppTranslationKey> = {
   planned: "workOrders.status.planned",
@@ -56,7 +57,7 @@ const PRIORITY_KEY: Record<string, AppTranslationKey> = {
 };
 const num = (v: string) => Number(v);
 const pct = (f: number) => `${Math.round(f * 100)}%`;
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 const STAGE_STEPS: readonly { key: string; labelKey: AppTranslationKey }[] = [
   { key: "started", labelKey: "workOrders.stage.started" },

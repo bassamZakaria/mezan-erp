@@ -32,6 +32,7 @@ import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { itemTypeIsPurchasable } from "@mezan/domain";
+import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
   draft: "purchaseOrders.status.draft",
@@ -192,7 +193,7 @@ export function PurchaseOrdersScreen() {
   const supplier =
     supplierChoice !== undefined ? supplierChoice : (supplierOptions.find((option) => option.id === prefilledSupplierId) ?? null);
   const setSupplier = setSupplierChoice;
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayIso());
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -239,7 +240,7 @@ export function PurchaseOrdersScreen() {
 
   function openCreate(supplierId?: string) {
     setSupplierChoice(undefined);
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(todayIso());
     setNotes("");
     setLines([{ itemId: "", qty: 1, unitPrice: 0 }]);
     setFormError(null);

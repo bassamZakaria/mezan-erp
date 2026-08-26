@@ -15,6 +15,7 @@ import type { FxRevaluationDetailDTO } from "@mezan/contracts";
 import { nextDay } from "@mezan/domain";
 import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { monthEndIso } from "../lib/dates";
 
 function fmt(value: string, digits = 2): string {
   return formatNumber(Number(value), { minimumFractionDigits: digits, maximumFractionDigits: digits });
@@ -33,7 +34,7 @@ export function FxRevaluationScreen() {
   const { t } = useAppTranslation();
   const previewMutation = useFxRevaluationPreview();
   const postMutation = useFxRevaluationPost();
-  const [toDate, setToDate] = useState("2026-08-31");
+  const [toDate, setToDate] = useState(monthEndIso());
   const [autoReverse, setAutoReverse] = useState(true);
   const [selected, setSelected] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);

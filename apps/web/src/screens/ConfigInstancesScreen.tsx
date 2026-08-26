@@ -27,6 +27,7 @@ import {
 } from "../data/hooks";
 import { TextField, NumberField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 type Status = ConfigInstanceRecord["status"];
 
@@ -45,7 +46,7 @@ const STATUS_TONE: Record<Status, PillTone> = {
   cancelled: "danger",
 };
 const num = (v: string) => Number(v);
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => todayIso();
 
 function specLabel(spec: Record<string, string>): string {
   const entries = Object.entries(spec);

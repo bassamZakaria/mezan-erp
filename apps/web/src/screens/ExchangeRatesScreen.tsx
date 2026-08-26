@@ -16,6 +16,7 @@ import type { ExchangeRateDTO, ExchangeRateStatusDTO } from "@mezan/contracts";
 import { useApproveExchangeRate, useCreateExchangeRate, useExchangeRates } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { TextField } from "../settings/form-controls";
+import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<ExchangeRateStatusDTO, AppTranslationKey> = { pending: "fxRates.status.pending", approved: "fxRates.status.approved", locked: "fxRates.status.locked" };
 const STATUS_TONE: Record<ExchangeRateStatusDTO, PillTone> = { pending: "warning", approved: "success", locked: "neutral" };
@@ -35,7 +36,7 @@ export function ExchangeRatesScreen() {
   const rates = query.data ?? [];
   const [statusFilter, setStatusFilter] = useState<ExchangeRateStatusDTO | "all">("all");
   const [adding, setAdding] = useState(false);
-  const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+  const [draft, setDraft] = useState({ currency: "USD", rate: "", effectiveDate: todayIso() });
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -73,7 +74,7 @@ export function ExchangeRatesScreen() {
         status: "pending",
       });
       setAdding(false);
-      setDraft({ currency: "USD", rate: "", effectiveDate: "2026-08-31" });
+      setDraft({ currency: "USD", rate: "", effectiveDate: todayIso() });
     } catch (err) {
       setError(err instanceof Error ? err.message : t("fxRates.theExchangeRateCouldNot2"));
     }

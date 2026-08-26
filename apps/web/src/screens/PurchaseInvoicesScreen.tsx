@@ -42,6 +42,7 @@ import { SelectField, TextField, NumberField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsPurchasable } from "@mezan/domain";
+import { todayIso } from "../lib/dates";
 
 /** Document states plus the payment states derived from the allocation sub-ledger. */
 type PurchaseInvoiceFilterKey = PurchaseInvoiceStatusDTO | "all" | "overdue" | "due_soon" | "partially_paid" | "paid";
@@ -258,7 +259,7 @@ export function PurchaseInvoicesScreen() {
     supplierChoice !== undefined ? supplierChoice : (supplierOptions.find((option) => option.id === prefilledSupplierId) ?? null);
   const setSupplier = setSupplierChoice;
   const [pickedReceipt, setPickedReceipt] = useState<EntityPickerOption | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayIso());
   const [supplierInvoiceNumber, setSupplierInvoiceNumber] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
   const [formError, setFormError] = useState<string | null>(null);
@@ -280,7 +281,7 @@ export function PurchaseInvoicesScreen() {
    * the only place a supplier payment is recorded.
    */
   const payment = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayIso();
     const settled = (inv: PurchaseInvoiceDTO) => num(inv.remainingBalance) <= 0;
     const live = (inv: PurchaseInvoiceDTO) => inv.status === "confirmed";
     return {
@@ -335,7 +336,7 @@ export function PurchaseInvoicesScreen() {
     // `undefined` = untouched, so a supplier carried in from the supplier's page applies.
     setSupplierChoice(undefined);
     setPickedReceipt(null);
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(todayIso());
     setSupplierInvoiceNumber("");
     setLines([{ itemId: "", kind: "inventory", qty: 1, unitCost: 0, taxRatePercent: 14, description: "" }]);
     setFormError(null);

@@ -25,6 +25,7 @@ import {
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { useScreenIntent } from "../navigation";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 /** خطط الأقساط (Installment Plans) — docs/catalog/05. Splits an invoice's balance into a scheduled series of payments; posts no GL, moves no stock. */
 
@@ -53,7 +54,7 @@ const STATUS_TONE: Record<DocumentStatusDTO, PillTone> = {
 };
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 export function InstallmentPlansScreen() {

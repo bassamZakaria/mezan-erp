@@ -41,6 +41,7 @@ import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useDomainLabels } from "../lib/domain-labels";
+import { todayIso } from "../lib/dates";
 
 /** تسويات المخزون (Stock Adjustments) — docs/catalog/03. List + detail + create, on the real document-framework API. */
 
@@ -482,7 +483,7 @@ function CreateAdjustmentView({
   const reasonLabel = reasonLabelOf(reason);
   const createAdjustment = useCreateStockAdjustment();
   const confirmAdjustment = useConfirmStockAdjustment();
-  const [date, setDate] = useState("2026-08-22");
+  const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [warehouseId, setWarehouseId] = useState(warehouses?.[0]?.id ?? "");
   const defaultDirection: StockMovementDirection = reason.direction === "OUT" ? "OUT" : "IN";

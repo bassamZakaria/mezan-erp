@@ -4,6 +4,7 @@ import { createTrialBalanceReport, type TrialBalanceRow } from "@mezan/domain";
 import { useFinancialReport } from "../data/financial-reports-hooks";
 import { localizeReportDefinition } from "../report-labels";
 import { useAppTranslation } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /**
  * ميزان المراجعة (docs/catalog/08-reports.md), wired to `GET
@@ -13,7 +14,7 @@ import { useAppTranslation } from "../i18n";
  * live posted general ledger via `useFinancialReport`, never a fixture.
  */
 
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = todayIso();
 const rawDefinition = createTrialBalanceReport(TODAY);
 
 function toStringParams(defaults: object): Record<string, string> {

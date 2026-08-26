@@ -145,6 +145,54 @@ export interface ReportRunnerProps<Row> {
  * figures, rendered. Composed here rather than server-side because this is
  * where the currency and number formatting live.
  */
+/**
+ * The quick periods (A3). Ranges are computed at click time, not at module
+ * load — a chip built once at startup would still be offering last month's
+ * range to a session left open overnight.
+ *
+ * Local calendar days, never `toISOString()`: that shifts the day backwards
+ * for anyone east of Greenwich, which is everyone this product ships to.
+ */
+function isoDay(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+const QUICK_PERIODS = [
+  {
+    key: "thisMonth",
+    labelKey: "ui.report.period.thisMonth" as const,
+    range: () => {
+      const now = new Date();
+      return { from: isoDay(new Date(now.getFullYear(), now.getMonth(), 1)), to: isoDay(new Date(now.getFullYear(), now.getMonth() + 1, 0)) };
+    },
+  },
+  {
+    key: "lastMonth",
+    labelKey: "ui.report.period.lastMonth" as const,
+    range: () => {
+      const now = new Date();
+      return { from: isoDay(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: isoDay(new Date(now.getFullYear(), now.getMonth(), 0)) };
+    },
+  },
+  {
+    key: "thisQuarter",
+    labelKey: "ui.report.period.thisQuarter" as const,
+    range: () => {
+      const now = new Date();
+      const firstMonth = Math.floor(now.getMonth() / 3) * 3;
+      return { from: isoDay(new Date(now.getFullYear(), firstMonth, 1)), to: isoDay(new Date(now.getFullYear(), firstMonth + 3, 0)) };
+    },
+  },
+  {
+    key: "thisYear",
+    labelKey: "ui.report.period.thisYear" as const,
+    range: () => {
+      const now = new Date();
+      return { from: isoDay(new Date(now.getFullYear(), 0, 1)), to: isoDay(new Date(now.getFullYear(), 11, 31)) };
+    },
+  },
+] as const;
+
 function summaryHeadline(kpis: readonly ReportRunnerKpi[], fmt: ReturnType<typeof useFormat>): string {
   return kpis
     .slice(0, 2)
@@ -262,6 +310,7 @@ export function ReportRunner<Row>({
   // Expanded by default: the KPIs are the answer, and hiding them behind a
   // click would make the strip a decoration rather than the summary.
   const [summaryOpen, setSummaryOpen] = useState(true);
+  const dateRangeField = paramFields.find((field) => field.kind === "dateRange");
   const totalColumns = new Set(columns.filter((c) => c.total).map((c) => c.key));
   const hasResult = result !== null;
 
@@ -311,6 +360,37 @@ export function ReportRunner<Row>({
 
       {paramFields.length > 0 ? (
         <Card className="mb-[16px] flex flex-wrap items-end gap-[16px] p-[14px_16px]">
+          {/*
+            Quick period chips (A3). Rendered only where the report actually
+            has a date range to set — a chip that silently set nothing would be
+            worse than no chip.
+          */}
+          {dateRangeField ? (
+            <div className="flex w-full flex-wrap gap-[6px]">
+              {QUICK_PERIODS.map((period) => {
+                const range = period.range();
+                const active = params[dateRangeField.fromKey] === range.from && params[dateRangeField.toKey] === range.to;
+                return (
+                  <button
+                    key={period.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() =>
+                      onParamsChange({ ...params, [dateRangeField.fromKey]: range.from, [dateRangeField.toKey]: range.to })
+                    }
+                    className={cn(
+                      "rounded-full border px-[11px] py-[4px] text-[11.5px] font-semibold transition-colors",
+                      active
+                        ? "border-brand bg-brand-soft text-brand"
+                        : "border-border bg-surface text-ink-muted hover:border-brand hover:text-brand",
+                    )}
+                  >
+                    {t(period.labelKey)}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
           {paramFields.map((field) => (
             <ParamField key={field.kind === "dateRange" ? field.fromKey : field.key} field={field} params={params} onParamsChange={onParamsChange} fieldErrors={fieldErrors} />
           ))}

@@ -4,6 +4,7 @@ import type { PromotionDTO, PromotionTypeDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useCreatePromotion, usePromotionUsageReport, usePromotions } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 const TYPE_KEY: Record<PromotionTypeDTO, AppTranslationKey> = {
   percentage: "promotions.type.percentage",
@@ -15,7 +16,7 @@ const TYPE_KEY: Record<PromotionTypeDTO, AppTranslationKey> = {
 
 type DerivedState = "active" | "scheduled" | "expiring" | "ended";
 
-function deriveState(p: PromotionDTO, today = new Date().toISOString().slice(0, 10)): DerivedState {
+function deriveState(p: PromotionDTO, today = todayIso()): DerivedState {
   if (today < p.startDate) return "scheduled";
   if (today > p.endDate) return "ended";
   const daysLeft = (new Date(p.endDate).getTime() - new Date(today).getTime()) / 86_400_000;
@@ -113,8 +114,8 @@ export function PromotionsScreen() {
   const [type, setType] = useState<PromotionTypeDTO>("percentage");
   const [percentValue, setPercentValue] = useState(10);
   const [priority, setPriority] = useState(1);
-  const [startDate, setStartDate] = useState(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState(new Date().toISOString().slice(0, 10));
+  const [startDate, setStartDate] = useState(todayIso());
+  const [endDate, setEndDate] = useState(todayIso());
   const [requiresCoupon, setRequiresCoupon] = useState(false);
 
   const counts = useMemo(() => {

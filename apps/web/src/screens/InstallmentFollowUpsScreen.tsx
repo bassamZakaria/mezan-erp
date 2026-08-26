@@ -14,6 +14,7 @@ import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /** متابعة التحصيل (Collection Follow-ups) — docs/catalog/05. A collections-agent worklog against customers with overdue installment balances. */
 
@@ -22,7 +23,7 @@ const STATUS_KEY: Record<FollowUpStatusDTO, AppTranslationKey> = { pending: "fol
 const STATUS_TONE: Record<FollowUpStatusDTO, PillTone> = { pending: "warning", completed: "success", cancelled: "neutral" };
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 export function InstallmentFollowUpsScreen() {

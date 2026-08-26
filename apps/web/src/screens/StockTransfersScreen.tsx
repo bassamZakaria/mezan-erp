@@ -21,6 +21,7 @@ import { TextField, SelectField } from "../settings/form-controls";
 import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { todayIso } from "../lib/dates";
 
 /** تحويلات المخزون (Stock Transfers) — docs/catalog/03. Valuation-neutral, one-way confirm. On the real document-framework API. */
 
@@ -282,7 +283,7 @@ function CreateTransferView({
   const warehouseList = warehouses ?? [];
   const itemList = items ?? [];
 
-  const [date, setDate] = useState("2026-08-22");
+  const [date, setDate] = useState(todayIso());
   const [memo, setMemo] = useState("");
   const [fromWarehouseId, setFromWarehouseId] = useState(warehouseList[0]?.id ?? "");
   const [toWarehouseId, setToWarehouseId] = useState(warehouseList[1]?.id ?? warehouseList[0]?.id ?? "");

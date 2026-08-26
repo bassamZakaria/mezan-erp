@@ -30,6 +30,7 @@ import {
   useTreasuryAccounts,
 } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /**
  * سجل الشيكات — Cheque Register (docs/catalog/04, route `/financial-papers/cheques`
@@ -67,7 +68,7 @@ const DIRECTION_ACCOUNTS: Record<ChequeDirectionDTO, { counterparty: string; und
 const BANK_GL_ACCOUNT_ID = "1310";
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 function plusDays(days: number): string {

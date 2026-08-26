@@ -24,6 +24,7 @@ import { SelectField, TextField } from "../settings/form-controls";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 const STATUS_KEY: Record<GoodsReceiptStatusDTO, AppTranslationKey> = {
   draft: "goodsReceipts.status.draft",
@@ -180,7 +181,7 @@ export function GoodsReceiptsScreen() {
   const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   useScreenIntent(() => openCreate());
   const [pickedOrder, setPickedOrder] = useState<EntityPickerOption | null>(null);
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayIso());
   const [formError, setFormError] = useState<string | null>(null);
 
   const selected = selectedId === null ? null : (receipts.find((r) => r.id === selectedId || r.number === selectedId) ?? null);
@@ -233,7 +234,7 @@ export function GoodsReceiptsScreen() {
 
   function openCreate() {
     setPickedOrder(null);
-    setDate(new Date().toISOString().slice(0, 10));
+    setDate(todayIso());
     setFormError(null);
     subPage.open("new");
   }

@@ -6,6 +6,7 @@ import { ApiError, useLeaveAccrualBatches, useRunLeaveAccrual } from "../data/ho
 import { formatDays } from "./hr-leave-labels";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
+import { todayIso } from "../lib/dates";
 
 /** استحقاقات الإجازات (Leave Accrual Batches) — docs/catalog/06 §"استحقاقات الإجازات". Manual and scheduled runs that credit entitlement across every eligible employee; a period already run is never credited twice. */
 
@@ -22,7 +23,7 @@ interface RunDraft {
 }
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIso();
 }
 
 export function LeaveAccrualBatchesScreen() {

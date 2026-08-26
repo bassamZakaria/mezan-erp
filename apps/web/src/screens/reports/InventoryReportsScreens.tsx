@@ -9,11 +9,12 @@ import {
   createInventoryDriftReport,
 } from "@mezan/domain";
 import { ReportScreen } from "./ReportScreen";
+import { monthStartIso, todayIso } from "../../lib/dates";
 
 /** المخزون — Inventory reports (docs/catalog/08-reports.md), each a thin `ReportScreen` over `/reports/inventory/*`. */
 
-const TODAY = "2026-08-22";
-const MONTH_START = "2026-08-01";
+const TODAY = todayIso();
+const MONTH_START = monthStartIso();
 
 export function InventoryStockLevelsReportScreen() {
   return <ReportScreen definition={createInventoryStockLevelsReport()} apiPath="/inventory/stock-levels" />;

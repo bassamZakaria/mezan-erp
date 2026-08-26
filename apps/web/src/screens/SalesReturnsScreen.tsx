@@ -28,6 +28,7 @@ import {
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
+import { todayIso } from "../lib/dates";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
 
@@ -236,7 +237,7 @@ export function SalesReturnsScreen() {
     }
     try {
       const id = crypto.randomUUID();
-      const created = await createReturn.mutateAsync({ id, date: new Date().toISOString().slice(0, 10), memo: "", lines: returnLines });
+      const created = await createReturn.mutateAsync({ id, date: todayIso(), memo: "", lines: returnLines });
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
       subPage.close();
     } catch (err) {

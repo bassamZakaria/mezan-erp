@@ -4,7 +4,9 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   EntityPicker,
@@ -12,6 +14,7 @@ import {
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
+  type RowMenuItem,
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
@@ -28,7 +31,7 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
 import { SelectField, TextField, NumberField } from "../settings/form-controls";
-import { useScreenIntent, useSubPage } from "../navigation";
+import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { itemTypeIsPurchasable } from "@mezan/domain";
@@ -179,6 +182,9 @@ export function PurchaseOrdersScreen() {
 
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const { navigate } = useNavigation();
   // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
   const subPage = useSubPage();
   const [firstSegment] = subPage.segments;
@@ -214,6 +220,11 @@ export function PurchaseOrdersScreen() {
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
   }, [orders, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
+
+  const activeFilterCount = [branchFilter, warehouseFilter, supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: orders.length },
@@ -414,14 +425,52 @@ export function PurchaseOrdersScreen() {
             <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
           </div>
         }
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(o) => o.id}
         onRowClick={(o) => subPage.open(o.number ?? o.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("purchaseOrders.showingSuffix")}</>}
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseOrders.empty")}</div>}
+        rowAction={(o) => {
+          // Only a sent or partly-received order still has goods to receive (R1.3).
+          const receivable = o.status === "sent" || o.status === "partially_received";
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(o.number ?? o.id) },
+            ...(o.status === "draft"
+              ? [{ key: "confirm", label: t("purchaseOrders.confirmSend"), onSelect: () => void confirmSelected(o.id) }]
+              : []),
+            ...(receivable
+              ? [
+                  {
+                    key: "receive",
+                    label: t("purchaseOrders.row.newReceipt"),
+                    onSelect: () => navigate("goods-receipts", { kind: "create", prefill: { purchaseOrderId: o.id } }),
+                  },
+                ]
+              : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <RowMenu items={menuItems} label={t("purchaseOrders.row.actionsFor", { doc: o.number ?? o.id })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("purchaseOrders.showingSuffix")}</>}
+        emptyState={
+          <EmptyState
+            title={t("purchaseOrders.empty")}
+            description={t("purchaseOrders.emptyHint")}
+            action={{ label: t("purchaseOrders.new"), onClick: () => openCreate() }}
+          />
+        }
       />
     </>
   );

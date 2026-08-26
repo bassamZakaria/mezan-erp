@@ -8,6 +8,7 @@ export {
   LANDED_COST_TYPES,
   LANDED_COST_DISTRIBUTION_METHODS,
   distributeLandedCost,
+  landedCostTotalsByType,
   totalLandedCost,
   type LandedCostType,
   type LandedCostDistributionMethod,

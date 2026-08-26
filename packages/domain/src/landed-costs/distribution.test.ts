@@ -17,6 +17,7 @@ function target(overrides: Partial<LandedCostAllocationTarget> = {}): LandedCost
     sourceInvoiceNumber: "PI-000002",
     qty: Qty.fromMajor("10"),
     unitCost: Money.fromMajor("50"),
+    weight: Qty.fromMajor("0"),
     ...overrides,
   };
 }

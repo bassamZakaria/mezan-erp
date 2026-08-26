@@ -3,12 +3,15 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
 import { SelectField, NumberField, TextField } from "../settings/form-controls";
@@ -23,7 +26,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
-import { useSubPage } from "../navigation";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { todayIso } from "../lib/dates";
 
@@ -112,6 +115,8 @@ export function PurchaseReturnsScreen() {
   );
 
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [supplierFilter, setSupplierFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
@@ -137,14 +142,23 @@ export function PurchaseReturnsScreen() {
     }
     return rows;
   }, [documents, statusFilter, supplierFilter, fromDate, toDate, search, supplierName]);
+
+  const activeFilterCount = [supplierFilter, fromDate, toDate].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected =
     firstSegment !== undefined && firstSegment !== "new"
       ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
       : null;
 
-  function openCreate() {
+  useScreenIntent((intent) => {
+    openCreate(intent.prefill?.invoiceId);
+  });
+
+  function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    const firstInvoice = invoices[0] ?? null;
+    const firstInvoice = invoices.find((i) => i.id === sourceInvoiceId) ?? invoices[0] ?? null;
     setInvoiceId(firstInvoice?.id ?? "");
     setWarehouseId(warehouses[0]?.id ?? "");
     setReason("DEFECTIVE");
@@ -382,7 +396,7 @@ export function PurchaseReturnsScreen() {
         title={t("purchaseReturns.title")}
         description={t("purchaseReturns.description")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
+          <Button variant="primary" onClick={() => openCreate()}>
             {t("purchaseReturns.new")}
           </Button>
         }
@@ -409,17 +423,48 @@ export function PurchaseReturnsScreen() {
             <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
           </div>
         }
-        rows={filtered}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => subPage.open(d.docNo ?? d.id)}
-        page={1}
-        pageCount={1}
+        rowAction={(d) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => subPage.open(d.docNo ?? d.id) },
+            ...(d.status === "draft"
+              ? [
+                  { key: "confirm", label: t("purchaseReturns.confirm"), onSelect: () => void confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                ]
+              : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("purchaseReturns.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <RowMenu items={menuItems} label={t("purchaseReturns.row.actionsFor", { doc: d.docNo ?? d.id })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("purchaseReturns.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("purchaseReturns.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseReturns.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("purchaseReturns.empty")}
+            description={t("purchaseReturns.emptyHint")}
+            action={{ label: t("purchaseReturns.new"), onClick: () => openCreate() }}
+          />
+        }
       />
 
 

@@ -6,7 +6,7 @@ import { documentStatusSchema } from "./documents.js";
 const positiveDecimalString = z.string().regex(/^\d+(\.\d+)?$/, "must be a non-negative decimal string");
 
 export const landedCostTypeSchema = z.enum(["SHIPPING", "CUSTOMS", "INSURANCE", "CLEARANCE", "OTHER"]);
-export const landedCostDistributionMethodSchema = z.enum(["BY_VALUE", "BY_QUANTITY"]);
+export const landedCostDistributionMethodSchema = z.enum(["BY_VALUE", "BY_QUANTITY", "BY_WEIGHT"]);
 
 export const landedCostItemEntrySchema = z.object({
   costType: landedCostTypeSchema,
@@ -21,6 +21,8 @@ export const landedCostTargetSchema = z.object({
   sourceInvoiceNumber: z.string().nullable(),
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
+  /** Shipped weight of the line — the basis BY_WEIGHT allocates on (R4.7). */
+  weight: positiveDecimalString.default("0"),
 });
 
 /**
@@ -45,6 +47,7 @@ export const landedCostLineSchema = z.object({
   sourceInvoiceNumber: z.string().nullable(),
   qty: positiveDecimalString,
   unitCost: positiveDecimalString,
+  weight: positiveDecimalString,
   allocatedAmount: positiveDecimalString,
   newUnitCost: positiveDecimalString,
   distributionMethod: landedCostDistributionMethodSchema,

@@ -3,14 +3,17 @@ import {
   Button,
   Card,
   DocumentList,
+  EmptyState,
   Money as MoneyDisplay,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
-import { Money, Qty, distributeLandedCost, type AllocatedLandedCostLine } from "@mezan/domain";
+import { Money, Qty, distributeLandedCost, landedCostTotalsByType, type AllocatedLandedCostLine } from "@mezan/domain";
 import type {
   DocumentStatusDTO,
   LandedCostDistributionMethodDTO,
@@ -29,6 +32,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useScreenIntent } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 import { todayIso } from "../lib/dates";
@@ -43,7 +47,18 @@ const COST_TYPE_KEY: Record<LandedCostTypeDTO, AppTranslationKey> = {
   OTHER: "landedCosts.type.OTHER",
 };
 
-const METHOD_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey> = { BY_VALUE: "landedCosts.method.BY_VALUE", BY_QUANTITY: "landedCosts.method.BY_QUANTITY" };
+const METHOD_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey> = {
+  BY_VALUE: "landedCosts.method.BY_VALUE",
+  BY_QUANTITY: "landedCosts.method.BY_QUANTITY",
+  BY_WEIGHT: "landedCosts.method.BY_WEIGHT",
+};
+
+/** What each basis actually divides the cost by — the difference is the whole point of the field. */
+const METHOD_HINT_KEY: Record<LandedCostDistributionMethodDTO, AppTranslationKey> = {
+  BY_VALUE: "landedCosts.methodHint.BY_VALUE",
+  BY_QUANTITY: "landedCosts.methodHint.BY_QUANTITY",
+  BY_WEIGHT: "landedCosts.methodHint.BY_WEIGHT",
+};
 
 
 const num = (v: string) => Number(v);
@@ -59,6 +74,7 @@ interface TargetDraft {
   itemId: string;
   qty: number;
   unitCost: number;
+  weight: number;
 }
 let seq = 0;
 function blankCostItem(): CostItemDraft {
@@ -67,7 +83,7 @@ function blankCostItem(): CostItemDraft {
 }
 function blankTarget(itemId: string, qty: number, unitCost: number): TargetDraft {
   seq += 1;
-  return { key: `t${seq}`, itemId, qty, unitCost };
+  return { key: `t${seq}`, itemId, qty, unitCost, weight: 0 };
 }
 
 export function LandedCostsScreen() {
@@ -95,6 +111,9 @@ export function LandedCostsScreen() {
   const [search, setSearch] = useState("");
   const [warehouseFilter, setWarehouseFilter] = useState("");
   const [methodFilter, setMethodFilter] = useState("");
+  const [costTypeFilter, setCostTypeFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -140,6 +159,7 @@ export function LandedCostsScreen() {
     let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
     if (warehouseFilter) rows = rows.filter((d) => d.lines.some((l) => l.warehouseId === warehouseFilter));
     if (methodFilter) rows = rows.filter((d) => (d.lines[0]?.distributionMethod ?? "BY_VALUE") === methodFilter);
+    if (costTypeFilter) rows = rows.filter((d) => d.lines.some((l) => l.costItems.some((ci) => ci.costType === costTypeFilter)));
     if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
     if (toDate) rows = rows.filter((d) => d.date <= toDate);
     if (search.trim() !== "") {
@@ -147,10 +167,42 @@ export function LandedCostsScreen() {
       rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.lines.some((l) => (l.sourceInvoiceNumber ?? "").toLowerCase().includes(q)));
     }
     return rows;
-  }, [documents, statusFilter, warehouseFilter, methodFilter, fromDate, toDate, search]);
+  }, [documents, statusFilter, warehouseFilter, methodFilter, costTypeFilter, fromDate, toDate, search]);
+
+  /** Only the filter-bar controls count towards the badge — the status chips and the search box are always visible. */
+  const activeFilterCount = [warehouseFilter, costTypeFilter, methodFilter, fromDate, toDate].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+  /**
+   * `costItems` is denormalized onto EVERY line, so the document's cost breakdown
+   * is read off one line — summing across lines would multiply it by the line count.
+   */
+  const selectedByType = useMemo(
+    () =>
+      landedCostTotalsByType(
+        (selected?.lines[0]?.costItems ?? []).map((ci) => ({
+          costType: ci.costType,
+          description: ci.description,
+          amount: Money.fromMajor(ci.amount),
+        })),
+      ),
+    [selected],
+  );
 
   const totalCost = costItems.reduce((s, c) => s + (c.amount || 0), 0);
+
+  /** بنود التكلفة grouped by نوع التكلفة (R4.7) — a typed cost line is only useful if the split is visible. */
+  const costTypeBreakdown = useMemo(
+    () =>
+      landedCostTotalsByType(
+        costItems
+          .filter((c) => c.amount > 0)
+          .map((c) => ({ costType: c.costType, description: c.description, amount: Money.fromMajor(String(c.amount)) })),
+      ),
+    [costItems],
+  );
 
   const preview: AllocatedLandedCostLine[] | null = useMemo(() => {
     const usableCosts = costItems.filter((c) => c.amount > 0);
@@ -166,6 +218,7 @@ export function LandedCostsScreen() {
           sourceInvoiceNumber: selectedInvoice?.number ?? null,
           qty: Qty.fromMajor(String(target.qty)),
           unitCost: Money.fromMajor(String(target.unitCost)),
+          weight: Qty.fromMajor(String(target.weight || 0)),
         })),
       );
     } catch {
@@ -173,9 +226,14 @@ export function LandedCostsScreen() {
     }
   }, [costItems, method, targets, warehouseId, invoiceId, selectedInvoice]);
 
-  function openCreate() {
+  // Arriving from a confirmed purchase invoice's row menu, the funding document is already known.
+  useScreenIntent((intent) => {
+    openCreate(intent.prefill?.invoiceId);
+  });
+
+  function openCreate(sourceInvoiceId?: string) {
     setError(null);
-    const firstInvoice = invoices[0] ?? null;
+    const firstInvoice = invoices.find((i) => i.id === sourceInvoiceId) ?? invoices[0] ?? null;
     setInvoiceId(firstInvoice?.id ?? "");
     setWarehouseId(warehouses[0]?.id ?? "");
     setMethod("BY_VALUE");
@@ -219,6 +277,7 @@ export function LandedCostsScreen() {
       sourceInvoiceNumber: selectedInvoice?.number ?? null,
       qty: String(target.qty),
       unitCost: String(target.unitCost),
+      weight: String(target.weight || 0),
     }));
     try {
       const id = crypto.randomUUID();
@@ -296,7 +355,7 @@ export function LandedCostsScreen() {
         title={t("landedCosts.title")}
         description={t("landedCosts.description")}
         actions={
-          <Button variant="primary" onClick={openCreate}>
+          <Button variant="primary" onClick={() => openCreate()}>
             {t("landedCosts.new")}
           </Button>
         }
@@ -314,7 +373,7 @@ export function LandedCostsScreen() {
         onSearchChange={setSearch}
         searchPlaceholder={t("landedCosts.searchPlaceholder")}
         filterBarExtra={
-          <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <SelectField
               label={t("common.warehouse")}
               value={warehouseFilter}
@@ -322,30 +381,71 @@ export function LandedCostsScreen() {
               options={[{ value: "", label: t("common.allWarehouses") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
             />
             <SelectField
+              label={t("landedCosts.field.type")}
+              value={costTypeFilter}
+              onChange={setCostTypeFilter}
+              options={[
+                { value: "", label: t("landedCosts.allCostTypes") },
+                ...Object.entries(COST_TYPE_KEY).map(([value, key]) => ({ value, label: t(key) })),
+              ]}
+            />
+            <SelectField
               label={t("landedCosts.col.method")}
               value={methodFilter}
               onChange={setMethodFilter}
               options={[
                 { value: "", label: t("landedCosts.allMethods") },
-                { value: "BY_VALUE", label: t(METHOD_KEY.BY_VALUE) },
-                { value: "BY_QUANTITY", label: t(METHOD_KEY.BY_QUANTITY) },
+                ...Object.entries(METHOD_KEY).map(([value, key]) => ({ value, label: t(key) })),
               ]}
             />
             <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
             <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
           </div>
         }
-        rows={filtered}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        rows={pageRows}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}
-        page={1}
-        pageCount={1}
+        rowAction={(d) => {
+          // Derived from THIS document's state: a draft can still be confirmed or
+          // dropped, a confirmed one can only be reversed (R1.3).
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setPanel({ id: d.id }) },
+            ...(d.status === "draft"
+              ? [
+                  { key: "confirm", label: t("landedCosts.confirm"), onSelect: () => void confirmExisting(d.id) },
+                  { key: "cancel", label: t("common.cancel"), onSelect: () => void cancelExisting(d.id) },
+                ]
+              : []),
+            ...(d.status === "confirmed" ? [{ key: "void", label: t("landedCosts.void"), onSelect: () => void cancelExisting(d.id) }] : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <RowMenu items={menuItems} label={t("landedCosts.row.actionsFor", { doc: d.docNo ?? d.id })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("landedCosts.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("landedCosts.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("landedCosts.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("landedCosts.empty")}
+            description={t("landedCosts.emptyHint")}
+            action={{ label: t("landedCosts.new"), onClick: () => openCreate() }}
+          />
+        }
       />
 
       <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("landedCosts.panel.title")}>
@@ -363,6 +463,12 @@ export function LandedCostsScreen() {
             onChange={(v) => setMethod(v as LandedCostDistributionMethodDTO)}
             options={Object.entries(METHOD_KEY).map(([value, key]) => ({ value, label: t(key) }))}
           />
+          <p className="-mt-2 text-[11.5px] leading-[1.9] text-ink-muted">{t(METHOD_HINT_KEY[method])}</p>
+          {method === "BY_WEIGHT" && targets.every((target) => (target.weight || 0) <= 0) ? (
+            <div role="alert" className="rounded-[8px] border border-warning bg-warning-soft px-3 py-2 text-[12.5px] text-warning-ink">
+              {t("landedCosts.error.needWeight")}
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <span className="text-[12px] font-bold text-ink-muted">{t("landedCosts.costLinesHeading")}</span>
@@ -393,6 +499,19 @@ export function LandedCostsScreen() {
             <div className="text-end text-[13px] font-bold text-ink">
               {t("landedCosts.totalCost")} <MoneyDisplay value={totalCost} />
             </div>
+            {costTypeBreakdown.length > 0 ? (
+              <div className="rounded-[10px] border border-border bg-surface-2 p-[10px_12px]">
+                <div className="mb-[6px] text-[11.5px] font-bold text-ink-muted">{t("landedCosts.byTypeHeading")}</div>
+                <ul className="flex flex-col gap-[4px]">
+                  {costTypeBreakdown.map((row) => (
+                    <li key={row.costType} className="flex items-center justify-between text-[12.5px] text-ink">
+                      <span>{t(COST_TYPE_KEY[row.costType])}</span>
+                      <MoneyDisplay value={Number(row.amount.toString())} showUnit={false} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-2">
@@ -416,6 +535,11 @@ export function LandedCostsScreen() {
                 <div className="w-[90px]">
                   <NumberField label={t("landedCosts.field.currentCost")} value={target.unitCost} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, unitCost: v } : x)))} min={0} />
                 </div>
+                {method === "BY_WEIGHT" ? (
+                  <div className="w-[90px]">
+                    <NumberField label={t("landedCosts.field.weight")} value={target.weight} onChange={(v) => setTargets((prev) => prev.map((x) => (x.key === target.key ? { ...x, weight: v } : x)))} min={0} />
+                  </div>
+                ) : null}
                 <Button variant="ghost" onClick={() => setTargets((prev) => prev.filter((x) => x.key !== target.key))} disabled={targets.length === 1}>
                   {t("common.delete")}
                 </Button>
@@ -467,15 +591,41 @@ export function LandedCostsScreen() {
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
+            <div className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[12.5px]">
+              <span className="text-ink-muted">{t("landedCosts.field.method")}</span>
+              <span className="font-semibold text-ink">{t(METHOD_KEY[selected.lines[0]?.distributionMethod ?? "BY_VALUE"])}</span>
+            </div>
+            {selectedByType.length > 0 ? (
+              <div className="rounded-[10px] border border-border bg-surface-2 p-[10px_12px]">
+                <div className="mb-[6px] text-[11.5px] font-bold text-ink-muted">{t("landedCosts.byTypeHeading")}</div>
+                <ul className="flex flex-col gap-[4px]">
+                  {selectedByType.map((row) => (
+                    <li key={row.costType} className="flex items-center justify-between text-[12.5px] text-ink">
+                      <span>{t(COST_TYPE_KEY[row.costType])}</span>
+                      <MoneyDisplay value={Number(row.amount.toString())} showUnit={false} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
             <div className="flex flex-col gap-1.5">
               {selected.lines.map((l, i) => (
                 <div key={i} className="flex items-center justify-between rounded-[8px] border border-border px-3 py-2 text-[13px]">
-                  <span>{itemName(l.itemId)}</span>
+                  <span>
+                    {itemName(l.itemId)}
+                    {l.distributionMethod === "BY_WEIGHT" ? (
+                      <span className="mz-num ms-[6px] text-[11.5px] text-ink-faint">{t("landedCosts.weightOf", { weight: l.weight })}</span>
+                    ) : null}
+                  </span>
                   <span className="mz-num text-ink-muted">
                     +<MoneyDisplay value={num(l.allocatedAmount)} /> → {t("landedCosts.newUnitCost")} <MoneyDisplay value={num(l.newUnitCost)} />
                   </span>
                 </div>
               ))}
+            </div>
+            <div className="flex items-center justify-between border-t border-border pt-2 text-[13px] font-bold text-ink">
+              <span>{t("landedCosts.totalAllocated")}</span>
+              <MoneyDisplay value={sumMajor(selected.lines.map((l) => l.allocatedAmount))} />
             </div>
             {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}
             {selected.status === "draft" ? (

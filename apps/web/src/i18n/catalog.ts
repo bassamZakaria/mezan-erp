@@ -6232,6 +6232,64 @@ const webAr = {
   "purchaseInvoices.pay.errorPositive": "قيمة السداد يجب أن تكون أكبر من صفر.",
   "purchaseInvoices.pay.errorTreasury": "اختر الخزينة التي سيُصرف منها.",
   "purchaseInvoices.pay.errorFailed": "تعذّر تسجيل السداد.",
+  // purchaseInvoices — creation-method step (R2.1)
+  "purchaseInvoices.method.stepHint": "اختر كيف تريد بناء هذه الفاتورة قبل إدخال البيانات.",
+  "purchaseInvoices.method.manualHint": "إدخال بنود الفاتورة يدوياً",
+  "purchaseInvoices.method.fromReceiptHint": "اختر إيصال استلام مؤكد لم تُصدر له فاتورة بعد",
+  "purchaseInvoices.method.continue": "متابعة",
+  "purchaseInvoices.method.change": "تغيير طريقة الإنشاء",
+  "purchaseInvoices.method.chosen": "طريقة الإنشاء",
+  "purchaseInvoices.emptyHint": "سجّل أول فاتورة مشتريات ليبدأ رصيد الموردين والمخزون في التحرك.",
+  "purchaseInvoices.row.actionsFor": "إجراءات الفاتورة {doc}",
+  "purchaseInvoices.row.newLandedCost": "توزيع تكلفة إضافية",
+  "purchaseInvoices.row.newReturn": "مرتجع مشتريات",
+
+  // purchaseOrders — list polish (R1.3 · R1.10 · R1.12 · R1.13)
+  "purchaseOrders.emptyHint": "أنشئ أمر شراء لتسجيل التزام الشراء لدى المورد قبل استلام البضاعة.",
+  "purchaseOrders.row.actionsFor": "إجراءات أمر الشراء {doc}",
+  "purchaseOrders.row.newReceipt": "إذن استلام من هذا الأمر",
+
+  // purchaseReturns — list polish
+  "purchaseReturns.emptyHint": "ابدأ مرتجعاً من فاتورة مشتريات مؤكدة لإرجاع البضاعة وتخفيض المستحق للمورد.",
+  "purchaseReturns.row.actionsFor": "إجراءات المرتجع {doc}",
+
+  // goodsReceipts — creation-method step driven by إلزام أمر الشراء قبل الاستلام (R4.6)
+  "goodsReceipts.method.title": "طريقة الإنشاء",
+  "goodsReceipts.method.stepHint": "اختر مصدر إذن الاستلام قبل إدخال البيانات.",
+  "goodsReceipts.method.fromOrder": "من أمر شراء",
+  "goodsReceipts.method.fromOrderHint": "اختر أمر شراء مرسلاً أو مستلماً جزئياً لاستلام الكميات المتبقية",
+  "goodsReceipts.method.adHoc": "استلام مباشر",
+  "goodsReceipts.method.adHocHint": "إدخال المورد والأصناف يدوياً بدون أمر شراء",
+  "goodsReceipts.method.adHocBlocked": "غير متاح: سياسة «إلزام أمر الشراء قبل الاستلام» مفعّلة",
+  "goodsReceipts.method.continue": "متابعة",
+  "goodsReceipts.method.change": "تغيير طريقة الإنشاء",
+  "goodsReceipts.method.chosen": "طريقة الإنشاء",
+  "goodsReceipts.policy.on": "سياسة «إلزام أمر الشراء قبل الاستلام» مفعّلة في الإعدادات، فكل إذن استلام يجب أن يستند إلى أمر شراء مؤكد.",
+  "goodsReceipts.policy.off": "سياسة «إلزام أمر الشراء قبل الاستلام» غير مفعّلة في الإعدادات، فالاستلام المباشر مسموح.",
+  "goodsReceipts.policy.loading": "جارٍ قراءة سياسة المشتريات…",
+  "goodsReceipts.field.supplier": "المورد *",
+  "goodsReceipts.field.supplierPlaceholder": "اختر المورد…",
+  "goodsReceipts.field.warehouse": "المستودع *",
+  "goodsReceipts.field.itemPlaceholder": "اختر صنفاً…",
+  "goodsReceipts.addLine": "إضافة صنف",
+  "goodsReceipts.deleteLine": "حذف البند",
+  "goodsReceipts.emptyHint": "سجّل إذن استلام لإدخال البضاعة إلى المخزن قبل استلام فاتورة المورد.",
+  "goodsReceipts.row.actionsFor": "إجراءات إذن الاستلام {doc}",
+  "goodsReceipts.row.newInvoice": "فاتورة مشتريات من هذا الإذن",
+
+  // landedCosts — allocation basis and typed cost lines (R4.7)
+  "landedCosts.method.BY_WEIGHT": "حسب الوزن",
+  "landedCosts.methodHint.BY_VALUE": "تُقسَّم التكلفة بنسبة قيمة كل بند (الكمية × التكلفة).",
+  "landedCosts.methodHint.BY_QUANTITY": "تُقسَّم التكلفة بنسبة الكمية المستلمة من كل صنف.",
+  "landedCosts.methodHint.BY_WEIGHT": "تُقسَّم التكلفة بنسبة وزن الشحنة لكل بند — أدخل وزن كل بند أدناه.",
+  "landedCosts.field.weight": "الوزن",
+  "landedCosts.error.needWeight": "التوزيع حسب الوزن يحتاج وزناً أكبر من صفر لبند واحد على الأقل.",
+  "landedCosts.byTypeHeading": "التكلفة حسب النوع",
+  "landedCosts.allCostTypes": "كل الأنواع",
+  "landedCosts.row.actionsFor": "إجراءات مستند التكلفة {doc}",
+  "landedCosts.emptyHint": "أنشئ مستند تكلفة لتحميل الشحن والجمارك على تكلفة البضاعة المستلمة.",
+  "landedCosts.totalAllocated": "إجمالي الموزَّع",
+  "landedCosts.weightOf": "الوزن {weight}",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12469,6 +12527,64 @@ const webEn: Record<WebTranslationKey, string> = {
   "purchaseInvoices.pay.errorPositive": "The payment amount must be greater than zero.",
   "purchaseInvoices.pay.errorTreasury": "Choose the treasury account the money leaves.",
   "purchaseInvoices.pay.errorFailed": "The payment could not be recorded.",
+  // purchaseInvoices — creation-method step (R2.1)
+  "purchaseInvoices.method.stepHint": "Choose how you want to build this invoice before entering any data.",
+  "purchaseInvoices.method.manualHint": "Enter the invoice lines by hand",
+  "purchaseInvoices.method.fromReceiptHint": "Pick a confirmed goods receipt that has not been invoiced yet",
+  "purchaseInvoices.method.continue": "Continue",
+  "purchaseInvoices.method.change": "Change creation method",
+  "purchaseInvoices.method.chosen": "Creation method",
+  "purchaseInvoices.emptyHint": "Record the first purchase invoice to start the supplier balance and the stock moving.",
+  "purchaseInvoices.row.actionsFor": "Actions for invoice {doc}",
+  "purchaseInvoices.row.newLandedCost": "Allocate a landed cost",
+  "purchaseInvoices.row.newReturn": "Purchase return",
+
+  // purchaseOrders — list polish (R1.3 · R1.10 · R1.12 · R1.13)
+  "purchaseOrders.emptyHint": "Raise a purchase order to record the commitment to the supplier before the goods arrive.",
+  "purchaseOrders.row.actionsFor": "Actions for purchase order {doc}",
+  "purchaseOrders.row.newReceipt": "Goods receipt from this order",
+
+  // purchaseReturns — list polish
+  "purchaseReturns.emptyHint": "Start a return from a confirmed purchase invoice to send goods back and reduce what you owe.",
+  "purchaseReturns.row.actionsFor": "Actions for return {doc}",
+
+  // goodsReceipts — creation-method step driven by the require-PO-before-GRN policy (R4.6)
+  "goodsReceipts.method.title": "Creation method",
+  "goodsReceipts.method.stepHint": "Choose where this goods receipt comes from before entering any data.",
+  "goodsReceipts.method.fromOrder": "From a purchase order",
+  "goodsReceipts.method.fromOrderHint": "Pick a sent or partly-received order and receive what is still outstanding",
+  "goodsReceipts.method.adHoc": "Direct receipt",
+  "goodsReceipts.method.adHocHint": "Enter the supplier and the items by hand, with no purchase order",
+  "goodsReceipts.method.adHocBlocked": "Unavailable: the \u201crequire a purchase order before receiving\u201d policy is on",
+  "goodsReceipts.method.continue": "Continue",
+  "goodsReceipts.method.change": "Change creation method",
+  "goodsReceipts.method.chosen": "Creation method",
+  "goodsReceipts.policy.on": "The \u201crequire a purchase order before receiving\u201d policy is on in settings, so every goods receipt must come from a confirmed purchase order.",
+  "goodsReceipts.policy.off": "The \u201crequire a purchase order before receiving\u201d policy is off in settings, so a direct receipt is allowed.",
+  "goodsReceipts.policy.loading": "Reading the purchasing policy\u2026",
+  "goodsReceipts.field.supplier": "Supplier *",
+  "goodsReceipts.field.supplierPlaceholder": "Choose a supplier\u2026",
+  "goodsReceipts.field.warehouse": "Warehouse *",
+  "goodsReceipts.field.itemPlaceholder": "Choose an item\u2026",
+  "goodsReceipts.addLine": "Add an item",
+  "goodsReceipts.deleteLine": "Remove line",
+  "goodsReceipts.emptyHint": "Record a goods receipt to bring stock into the warehouse before the supplier invoice arrives.",
+  "goodsReceipts.row.actionsFor": "Actions for goods receipt {doc}",
+  "goodsReceipts.row.newInvoice": "Purchase invoice from this receipt",
+
+  // landedCosts — allocation basis and typed cost lines (R4.7)
+  "landedCosts.method.BY_WEIGHT": "By weight",
+  "landedCosts.methodHint.BY_VALUE": "The cost splits in proportion to each line\u2019s value (quantity \u00d7 unit cost).",
+  "landedCosts.methodHint.BY_QUANTITY": "The cost splits in proportion to the quantity received of each item.",
+  "landedCosts.methodHint.BY_WEIGHT": "The cost splits in proportion to each line\u2019s shipped weight \u2014 enter the weights below.",
+  "landedCosts.field.weight": "Weight",
+  "landedCosts.error.needWeight": "Allocating by weight needs a weight above zero on at least one line.",
+  "landedCosts.byTypeHeading": "Cost by type",
+  "landedCosts.allCostTypes": "All cost types",
+  "landedCosts.row.actionsFor": "Actions for cost document {doc}",
+  "landedCosts.emptyHint": "Create a cost document to load freight and customs onto the cost of the goods received.",
+  "landedCosts.totalAllocated": "Total allocated",
+  "landedCosts.weightOf": "weight {weight}",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

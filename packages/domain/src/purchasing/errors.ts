@@ -88,9 +88,9 @@ export class OverReceiptError extends Error {
 export class PurchaseOrderRequiredError extends Error {
   readonly code = "PURCHASE_ORDER_REQUIRED";
   constructor() {
-    super(
-      "A confirmed purchase order is required before a goods receipt may be created (strictness gate is on).",
-    );
+    // The message reaches an Arabic UI verbatim (the API forwards `message`),
+    // so the refusal names the setting the tenant can change.
+    super("سياسة «إلزام أمر الشراء قبل الاستلام» مفعّلة: لا يمكن إنشاء إذن استلام بدون أمر شراء مؤكد.");
     this.name = "PurchaseOrderRequiredError";
   }
 }

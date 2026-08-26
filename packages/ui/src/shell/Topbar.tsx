@@ -203,6 +203,27 @@ function HeaderNavButton({ item, active }: { item: NavItem; active: boolean }) {
   );
 }
 
+function UtilityMenuRow({ item, active, close }: { item: NavItem; active: boolean; close: () => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        role="menuitem"
+        onClick={() => {
+          item.onClick?.();
+          close();
+        }}
+        className={cn(
+          "w-full px-[14px] py-[7px] text-start text-sm transition-colors hover:bg-surface-2",
+          active ? "bg-surface-2 font-semibold text-ink" : "text-ink",
+        )}
+      >
+        {item.label}
+      </button>
+    </li>
+  );
+}
+
 /** The gear menu — settings and system, grouped, opened from the header. */
 function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; activeNavKey?: string }) {
   const { t } = useUiTranslation();
@@ -238,24 +259,21 @@ function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; ac
               <div className="px-[14px] pb-[4px] pt-[10px] text-2xs font-bold uppercase tracking-wide text-ink-faint">{group.label}</div>
               <ul className="pb-[6px]">
                 {group.items.map((item) => (
-                  <li key={item.key}>
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={() => {
-                        item.onClick?.();
-                        close();
-                      }}
-                      className={cn(
-                        "w-full px-[14px] py-[7px] text-start text-sm transition-colors hover:bg-surface-2",
-                        item.key === activeNavKey ? "bg-surface-2 font-semibold text-ink" : "text-ink",
-                      )}
-                    >
-                      {item.label}
-                    </button>
-                  </li>
+                  <UtilityMenuRow key={item.key} item={item} active={item.key === activeNavKey} close={close} />
                 ))}
               </ul>
+              {/* الإعدادات keeps all but one of its screens in sections; listing
+                  `items` alone hides fifteen of them from this menu entirely. */}
+              {(group.sections ?? []).map((section) => (
+                <div key={section.key}>
+                  <div className="px-[14px] pb-[2px] pt-[4px] text-2xs font-semibold text-ink-faint">{section.label}</div>
+                  <ul className="pb-[6px]">
+                    {section.items.map((item) => (
+                      <UtilityMenuRow key={item.key} item={item} active={item.key === activeNavKey} close={close} />
+                    ))}
+                  </ul>
+                </div>
+              ))}
             </div>
           ))}
         </>

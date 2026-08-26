@@ -40,6 +40,9 @@ function login() {
 describe("App", () => {
   afterEach(() => {
     persistSession(null);
+    // The shell routes on the hash, and jsdom keeps one location per file —
+    // without this a test that navigates leaves the next one on its screen.
+    window.location.hash = "";
   });
 
   it("shows the login screen first, and لوحة التحكم is the landing screen after a real sign-in", async () => {
@@ -59,11 +62,17 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
+    fireEvent.click(screen.getByRole("button", { name: "المحاسبة" }));
     fireEvent.click(screen.getByRole("button", { name: "دليل الحسابات" }));
+    // Navigation goes through the hash, and jsdom delivers `hashchange` on a
+    // later tick — a synchronous assertion here reads the previous screen.
+    expect(await screen.findByRole("heading", { name: "دليل الحسابات" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "لوحة التحكم" }));
-    expect(screen.getByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
+    // The breadcrumb offers لوحة التحكم too once you are off it; the rail's
+    // top item is the first in document order.
+    fireEvent.click(screen.getAllByRole("button", { name: "لوحة التحكم" })[0]!);
+    expect(await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" })).toBeInTheDocument();
   });
 
   it("reaches the first-run wizard from the login screen and can cancel back to it", () => {
@@ -98,11 +107,23 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    const navButton = await screen.findByRole("button", { name: "الموافقات" });
+    const navButton = await screen.findByRole("button", { name: /الموافقات/ });
     expect(await screen.findByText("2")).toBeInTheDocument();
 
     fireEvent.click(navButton);
     expect(await screen.findByRole("heading", { name: "الموافقات" })).toBeInTheDocument();
+  });
+
+  it("keeps التقارير on the rail and routes to a report that lives in a section", async () => {
+    renderWithProviders(<App />, { transport: appTransport() });
+    login();
+    await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
+
+    // التقارير carries every one of its screens in sections and none directly;
+    // a rail that counts only direct items drops the whole group.
+    fireEvent.click(screen.getByRole("button", { name: "التقارير" }));
+    fireEvent.click(screen.getByRole("button", { name: "المبيعات حسب الفترة" }));
+    expect(await screen.findByRole("heading", { name: "المبيعات حسب الفترة" })).toBeInTheDocument();
   });
 
   it("routes to إعدادات الموافقات from the collapsed settings group", async () => {
@@ -116,7 +137,9 @@ describe("App", () => {
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
     fireEvent.click(screen.getByRole("button", { name: "الإعدادات والنظام" }));
-    fireEvent.click(screen.getByRole("button", { name: "إعدادات الموافقات" }));
+    // The gear menu's rows are menuitems, and إعدادات الموافقات hangs off a
+    // section rather than the group itself.
+    fireEvent.click(screen.getByRole("menuitem", { name: "إعدادات الموافقات" }));
     expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
   });
 });

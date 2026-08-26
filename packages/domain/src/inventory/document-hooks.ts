@@ -37,7 +37,11 @@ export interface AdjustmentGlAccounts {
  */
 export function createInventoryOpsStockHook(
   service: StockLedgerService,
-  glAccountsForReason: (reason: AdjustmentReason) => AdjustmentGlAccounts | null = () => null,
+  /**
+   * Async so the caller can consult the tenant's account-routing table (R6.1)
+   * rather than a constant compiled into the binary.
+   */
+  glAccountsForReason: (reason: AdjustmentReason) => Promise<AdjustmentGlAccounts | null> | AdjustmentGlAccounts | null = () => null,
 ): DocumentStockHook {
   return {
     async apply(plan: DocumentStockPlan): Promise<DocumentStockResult> {
@@ -67,7 +71,7 @@ export function createInventoryOpsStockHook(
           qty: l.qty,
           unitCost: l.unitCost,
         })),
-        gl: glAccountsForReason(reason) ?? undefined,
+        gl: (await glAccountsForReason(reason)) ?? undefined,
       });
       // postAdjustment posts its own balanced entry, so the caller has nothing
       // further to book.

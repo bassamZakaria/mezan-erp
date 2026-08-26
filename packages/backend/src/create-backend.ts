@@ -32,6 +32,8 @@ import {
   Money,
   getAdjustmentReasonDefinition,
   type AdjustmentReason,
+  type AccountRouting,
+  routedAccountId,
   type StockAdjustmentDocLine,
   type StockTransferDocLine,
   EventBus,
@@ -94,6 +96,7 @@ import {
   createSqlitePrintTemplateConfigStore,
   createSqliteInventoryOpsStore,
   createSqliteItemCatalogStores,
+  createSqliteAccountRoutingStore,
   createSqliteItemSpecificationRepository,
   createSqliteDepartmentRepository,
   createSqliteJobTitleRepository,
@@ -217,10 +220,18 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
  * moved value out of inventory and told the GL nothing, so the stock
  * sub-ledger and its 1200 control account drifted apart with no trace.
  */
-function adjustmentGlAccountsForReason(reason: AdjustmentReason): { inventoryAccountId: string; counterpartAccountId: string } {
+function adjustmentGlAccountsForReason(
+  reason: AdjustmentReason,
+  routing: AccountRouting | null,
+): { inventoryAccountId: string; counterpartAccountId: string } {
   return {
-    inventoryAccountId: "1200",
-    counterpartAccountId: getAdjustmentReasonDefinition(reason).counterpartAccountId,
+    inventoryAccountId: routedAccountId(routing, "item_type.inventory") ?? "1200",
+    // The tenant's routing table wins; the reason's own account is the
+    // shipped default, so a tenant that never opens the routing screen posts
+    // exactly where the hard-coded version did (R6.1).
+    counterpartAccountId:
+      routedAccountId(routing, `inventory_adjustment.${reason}`) ??
+      getAdjustmentReasonDefinition(reason).counterpartAccountId,
   };
 }
 
@@ -440,6 +451,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   const suppliers = createSqliteSupplierRepository(sqlite);
   const items = createSqliteItemStore(sqlite);
   const itemCatalog = createSqliteItemCatalogStores(sqlite);
+  const accountRouting = createSqliteAccountRoutingStore(sqlite);
   const itemSpecifications = createSqliteItemSpecificationRepository(sqlite);
   const taxRates = createSqliteTaxRateRepository(sqlite);
   const costCenters = createSqliteCostCenterRepository(sqlite);
@@ -675,7 +687,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
   // themselves when a mapping is given — see document-hooks.ts); Physical
   // Count is a bespoke service that drives the SAME adjustments DocumentService
   // (create draft → confirm) to post its reconciling adjustment. ---
-  const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, adjustmentGlAccountsForReason);
+  const inventoryOpsStockHook = createInventoryOpsStockHook(stockService, async (reason) =>
+    adjustmentGlAccountsForReason(reason, await accountRouting.get()),
+  );
   const stockAdjustments = new DocumentService<StockAdjustmentDocLine>(stockAdjustmentDocumentType, {
     repo: inventoryOps.stockAdjustments,
     numbering: { next: () => ledger.numbering.next("STOCK_ADJUSTMENT") },
@@ -834,6 +848,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     supplierStore: suppliers,
     accounts: { repo: accounts },
     items: { repo: items, snapshots: stockLedger.snapshots },
+    accountRouting: { repo: accountRouting },
     itemCatalog: {
       units: itemCatalog.units,
       categories: itemCatalog.categories,

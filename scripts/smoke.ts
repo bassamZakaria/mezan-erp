@@ -40,6 +40,7 @@ const READ_PATHS = [
   "/label-layouts",
   "/inventory/product-templates",
   "/accounts",
+  "/accounting/account-routing",
   "/tax-rates",
   "/cost-centers",
   "/cost-center-pl",

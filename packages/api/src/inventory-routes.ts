@@ -14,6 +14,8 @@ import {
   type PostedAdjustment,
   type PostedTransfer,
   getAdjustmentReasonDefinition,
+  routedAccountId,
+  type AccountRoutingRepository,
   buildStockReservations,
   availableQty,
   type StockReservationSource,
@@ -166,6 +168,8 @@ export function createInventoryRoutes(
    * figure it cannot substantiate.
    */
   reservations?: StockReservationSource,
+  /** The tenant's account-routing table (R6.1); omit to use the shipped defaults. */
+  accountRouting?: AccountRoutingRepository,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -323,7 +327,9 @@ export function createInventoryRoutes(
         // (R5.9). Seven of the eight reasons previously posted nothing at all.
         gl: {
           inventoryAccountId: parsed.data.gl?.inventoryAccountId ?? DEFAULT_INVENTORY_ACCOUNT_ID,
-          counterpartAccountId: getAdjustmentReasonDefinition(parsed.data.reason).counterpartAccountId,
+          counterpartAccountId:
+            routedAccountId(await accountRouting?.get(), `inventory_adjustment.${parsed.data.reason}`) ??
+            getAdjustmentReasonDefinition(parsed.data.reason).counterpartAccountId,
         },
         lines: parsed.data.lines.map((l) => ({
           itemId: l.itemId,

@@ -19,9 +19,24 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import type { AccountDTO, AccountStatusDTO, AccountTypeDTO, NaturalBalanceDTO } from "@mezan/contracts";
+import type {
+  AccountDTO,
+  AccountRoutingSlotDTO,
+  AccountStatusDTO,
+  AccountTypeDTO,
+  NaturalBalanceDTO,
+  UpdateAccountRoutingDTO,
+} from "@mezan/contracts";
 import { buildAccountTree, hasChildAccounts, isDescendantOf, type AccountTreeNode } from "../lib/account-tree";
-import { useAccountLedger, useAccounts, useCreateAccount, useUpdateAccount } from "../data/hooks";
+import {
+  useAccountLedger,
+  useAccountRouting,
+  useAccounts,
+  useCreateAccount,
+  useUpdateAccount,
+  useUpdateAccountRouting,
+} from "../data/hooks";
+import { SelectField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const TYPE_KEY: Record<AccountTypeDTO, AppTranslationKey> = {
@@ -127,6 +142,129 @@ function draftFromAccount(account: AccountDTO): AccountDraft {
   };
 }
 
+/**
+ * توجيه الحسابات (R6.1) — the second tab on the chart of accounts.
+ *
+ * These mappings all existed before, hard-coded at the point of posting. The
+ * screen matters because a tenant whose chart differs from the template had no
+ * way to change where a theft loss or a partner's drawing landed except by
+ * editing the source.
+ */
+function AccountRoutingTab() {
+  const { t, locale } = useAppTranslation();
+  const routingQuery = useAccountRouting();
+  const updateRouting = useUpdateAccountRouting();
+  const accounts = useAccounts().data ?? [];
+  const [savedAt, setSavedAt] = useState<number | null>(null);
+
+  const routing = routingQuery.data;
+  const accountOptions = accounts
+    .filter((account) => !account.isHeader)
+    .map((account) => ({ value: account.id, label: `${account.code} · ${account.nameAr}` }));
+
+  const SECTION_LABEL: Record<AccountRoutingSlotDTO["section"], AppTranslationKey> = {
+    tax: "routing.section.tax",
+    leave: "routing.section.leave",
+    contracting: "routing.section.contracting",
+    sales_discount: "routing.section.salesDiscount",
+    inventory_adjustment: "routing.section.inventoryAdjustment",
+    payroll: "routing.section.payroll",
+    item_type: "routing.section.itemType",
+  };
+
+  if (routingQuery.isLoading) {
+    return <div className="p-[18px] text-center text-[12.5px] text-ink-muted">{t("common.loading")}</div>;
+  }
+  if (!routing) {
+    return (
+      <Card className="p-[18px_20px]">
+        <p className="text-[13px] font-semibold text-danger-ink">{t("coa.theChartOfAccountsCould")}</p>
+        <Button size="sm" className="mt-[10px]" onClick={() => routingQuery.refetch()}>
+          {t("common.retry")}
+        </Button>
+      </Card>
+    );
+  }
+
+  function save(body: UpdateAccountRoutingDTO) {
+    updateRouting.mutate(body, { onSuccess: () => setSavedAt(Date.now()) });
+  }
+
+  const sections = [...new Set(routing.slots.map((slot) => slot.section))];
+
+  return (
+    <div className="flex flex-col gap-[14px]">
+      <p className="max-w-[74ch] text-[12.5px] text-ink-muted">{t("routing.description")}</p>
+      {savedAt !== null ? <p className="text-[12.5px] font-semibold text-success-ink">{t("routing.saved")}</p> : null}
+
+      <Card className="p-[16px_18px]">
+        <div className="grid gap-[12px] sm:grid-cols-2">
+          <SelectField
+            label={t("routing.latePenalty")}
+            value={routing.options.latePenaltyTreatment}
+            onChange={(value) => save({ options: { latePenaltyTreatment: value as "revenue_deduction" | "expense" } })}
+            options={[
+              { value: "revenue_deduction", label: t("routing.latePenaltyRevenue") },
+              { value: "expense", label: t("routing.latePenaltyExpense") },
+            ]}
+          />
+          <div className="flex flex-col justify-end gap-[8px]">
+            <ToggleField
+              label={t("routing.separateDiscountAccount")}
+              checked={routing.options.useSeparateDiscountAccount}
+              onChange={(checked) => save({ options: { useSeparateDiscountAccount: checked } })}
+            />
+            <ToggleField
+              label={t("routing.discountOnLines")}
+              checked={routing.options.applyDiscountAccountToLines}
+              onChange={(checked) => save({ options: { applyDiscountAccountToLines: checked } })}
+              disabled={!routing.options.useSeparateDiscountAccount}
+            />
+          </div>
+        </div>
+      </Card>
+
+      {sections.map((section) => (
+        <Card key={section} className="overflow-hidden">
+          <div className="border-b border-border bg-surface-2 px-[16px] py-[9px] text-[12px] font-bold text-ink">
+            {t(SECTION_LABEL[section])}
+          </div>
+          <div className="flex flex-col">
+            {routing.slots
+              .filter((slot) => slot.section === section)
+              .map((slot) => (
+                <div key={slot.key} className="flex flex-wrap items-end gap-[12px] border-b border-border px-[16px] py-[10px] last:border-b-0">
+                  <div className="min-w-[200px] flex-1">
+                    <SelectField
+                      label={locale === "en" ? slot.labelEn : slot.labelAr}
+                      value={slot.accountId}
+                      onChange={(value) => save({ overrides: { [slot.key]: value } })}
+                      options={accountOptions}
+                    />
+                  </div>
+                  <div className="flex items-center gap-[8px] pb-[6px]">
+                    {slot.overridden ? (
+                      <>
+                        <StatusPill label={t("routing.overridden")} tone="info" />
+                        <Button size="sm" onClick={() => save({ overrides: { [slot.key]: null } })}>
+                          {t("routing.reset")}
+                        </Button>
+                      </>
+                    ) : (
+                      <span className="mz-num text-[11px] text-ink-faint">
+                        {t("routing.default")} · {slot.defaultAccountId}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+          </div>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
 export function ChartOfAccountsScreen() {
   const { t } = useAppTranslation();
   const query = useAccounts();
@@ -138,6 +276,7 @@ export function ChartOfAccountsScreen() {
   const [typeFilter, setTypeFilter] = useState<AccountTypeDTO | "all">("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatusDTO | "all">("all");
   const [expandedOverride, setExpandedOverride] = useState<Set<string> | null>(null);
+  const [activeTab, setActiveTab] = useState<"accounts" | "routing">("accounts");
 
   const [selectedAccountId, setSelectedAccountId] = useState<string | null>(null);
   const [detailTab, setDetailTab] = useState<"movements" | "audit">("movements");
@@ -274,6 +413,25 @@ export function ChartOfAccountsScreen() {
           </Button>
         </div>
       </div>
+      <div className="mb-[14px] flex gap-[6px] border-b border-border">
+        {(["accounts", "routing"] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            aria-current={activeTab === tab ? "page" : undefined}
+            className={`-mb-px border-b-2 px-[14px] py-[8px] text-[12.5px] font-semibold transition-colors ${
+              activeTab === tab ? "border-brand text-brand" : "border-transparent text-ink-muted hover:text-ink"
+            }`}
+          >
+            {tab === "accounts" ? t("coa.tab.accounts") : t("coa.tab.routing")}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "routing" ? <AccountRoutingTab /> : null}
+      {activeTab === "accounts" ? (
+      <>
       <FulcrumRule />
 
       {query.isError ? (
@@ -583,6 +741,8 @@ export function ChartOfAccountsScreen() {
           </div>
         </form>
       </SidePanel>
+      </>
+      ) : null}
     </div>
   );
 }

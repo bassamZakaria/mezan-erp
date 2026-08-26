@@ -18,6 +18,7 @@ async function accountBalance(ctx: Ctx, accountId: string, asOf?: string): Promi
 export async function run(ctx: Ctx): Promise<void> {
   await voucherTypesRouteToTheirOwnAccounts_R81(ctx);
   await voucherQueuesAreAServerConcern_R82_R83(ctx);
+  await accountRoutingDecidesWherePostingsLand_R61(ctx);
   await ctx.scenario("reconciliation — sub-ledgers vs GL control accounts", async () => {
     const res = await ctx.req("GET", "/reconciliation");
     const rows = ctx.rows(res.body);
@@ -622,4 +623,67 @@ export async function voucherQueuesAreAServerConcern_R82_R83(ctx: Ctx): Promise<
       ctx.check("every payment in the queue is a money-OUT type", row.voucherType === "supplier_payment", row.voucherType);
     }
   });
+}
+
+/**
+ * R6.1 — the account-routing table must actually decide where a posting
+ * lands. A settings screen that stores a preference nothing reads is the
+ * defect this codebase keeps finding, so the check overrides a slot and then
+ * confirms the LEDGER moved.
+ */
+export async function accountRoutingDecidesWherePostingsLand_R61(ctx: Ctx): Promise<void> {
+  await ctx.scenario("the account-routing table changes where a posting actually lands (R6.1)", async () => {
+    const initial = await ctx.req("GET", "/accounting/account-routing");
+    ctx.check("the routing table loads", initial.status === 200, JSON.stringify(initial.body).slice(0, 200));
+    const slots = (initial.body?.slots ?? []) as Array<{ key: string; accountId: string; defaultAccountId: string; overridden: boolean }>;
+
+    // Every slot is listed and resolved, not just the overridden ones — a
+    // screen showing only what you changed cannot tell you where things post.
+    ctx.check("every slot is listed with a resolved account", slots.length > 0 && slots.every((s) => s.accountId !== ""), `${slots.length} slots`);
+    ctx.check("and the sections cover the documented set", new Set(slots.map((s: any) => s.section)).size === 7, JSON.stringify([...new Set(slots.map((s: any) => s.section))]));
+
+    const damage = slots.find((s) => s.key === "inventory_adjustment.DAMAGE");
+    ctx.check("the damage-adjustment slot exists", damage !== undefined, JSON.stringify(slots.map((s) => s.key)).slice(0, 200));
+    if (!damage) return;
+
+    const unknown = await ctx.req("PUT", "/accounting/account-routing", { overrides: { "not.a.slot": "1200" } });
+    ctx.checkEq("an unknown routing key is refused rather than silently stored", unknown.status, 422);
+
+    // Point damage at the shortage account instead, then post a damage
+    // adjustment and read the entry back.
+    const changed = await ctx.req("PUT", "/accounting/account-routing", { overrides: { "inventory_adjustment.DAMAGE": "5073" } });
+    ctx.check("the override saves", changed.status === 200, JSON.stringify(changed.body).slice(0, 200));
+
+    const { draft, confirm } = await draftAndConfirmAdjustment(ctx, "SCN-ADJ-R61", "DAMAGE");
+    ctx.check("a damage adjustment drafts", draft.status === 201, JSON.stringify(draft.body));
+    ctx.check("and confirms", confirm.status === 200, JSON.stringify(confirm.body));
+
+    const je = await ctx.req("GET", "/gl/journal-entries/SCN-ADJ-R61");
+    const lines = (je.body?.lines ?? []) as Array<{ accountId: string }>;
+    ctx.check(
+      "the damage posted to the OVERRIDDEN account, not its shipped default",
+      lines.some((l) => l.accountId === "5073") && !lines.some((l) => l.accountId === damage.defaultAccountId),
+      JSON.stringify(lines.map((l) => l.accountId)),
+    );
+
+    // And clearing the override puts it back, so the default is a real
+    // fallback rather than a one-way door.
+    const cleared = await ctx.req("PUT", "/accounting/account-routing", { overrides: { "inventory_adjustment.DAMAGE": null } });
+    const back = ((cleared.body?.slots ?? []) as Array<{ key: string; accountId: string; overridden: boolean }>).find(
+      (s) => s.key === "inventory_adjustment.DAMAGE",
+    );
+    ctx.checkEq("clearing the override restores the shipped default", back?.accountId, damage.defaultAccountId);
+    ctx.check("and the slot no longer reads as overridden", back?.overridden === false, JSON.stringify(back));
+  });
+}
+
+async function draftAndConfirmAdjustment(ctx: Ctx, id: string, reason: string) {
+  const draft = await ctx.req("POST", "/inventory/stock-adjustments/draft", {
+    id,
+    date: "2026-08-26",
+    memo: `routing check ${reason}`,
+    lines: [{ itemId: "ITEM-DEMO-1", warehouseId: "WH-MAIN", reason, direction: "OUT", qty: "1" }],
+  });
+  const confirm = await ctx.req("POST", `/inventory/stock-adjustments/${id}/confirm`, {});
+  return { draft, confirm };
 }

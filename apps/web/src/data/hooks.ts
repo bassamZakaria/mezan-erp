@@ -161,6 +161,8 @@ import type {
   PurchaseInvoiceListQueryDTO,
   PurchaseInvoiceStatsDTO,
   ListCountsDTO,
+  AccountRoutingDTO,
+  UpdateAccountRoutingDTO,
   SalesReturnDocumentDTO,
   SessionDTO,
   SettleVanTripDTO,
@@ -5380,6 +5382,41 @@ export function useDecideLeaveRequest() {
       queryClient.invalidateQueries({ queryKey: ["hr-leave-request-counts"] });
       queryClient.invalidateQueries({ queryKey: ["hr-leave-balances"] });
       queryClient.invalidateQueries({ queryKey: ["hr-my-leave"] });
+    },
+  });
+}
+
+/**
+ * توجيه الحسابات (R6.1) — where each kind of posting lands. Always returns
+ * every slot resolved, so the screen can show where things currently post
+ * rather than only what a tenant has already changed.
+ */
+export function useAccountRouting(): UseQueryResult<AccountRoutingDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<AccountRoutingDTO, ApiError>({
+    queryKey: ["account-routing"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/accounting/account-routing");
+      if (!res.ok) throw new ApiError(res.status, t("api.theChartOfAccountsCould"));
+      return res.json<AccountRoutingDTO>();
+    },
+  });
+}
+
+export function useUpdateAccountRouting() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AccountRoutingDTO, ApiError, UpdateAccountRoutingDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/accounting/account-routing", { method: "PUT", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theChartOfAccountsCould")));
+      return res.json<AccountRoutingDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["account-routing"] });
     },
   });
 }

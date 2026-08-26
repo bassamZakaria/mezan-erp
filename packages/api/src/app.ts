@@ -17,6 +17,7 @@ import {
   type ItemRepository,
   type ItemUnitRepository,
   type ItemCategoryRepository,
+  type AccountRoutingRepository,
   type ItemBrandRepository,
   type ItemSeasonRepository,
   type ItemSpecificationRepository,
@@ -113,6 +114,7 @@ import {
   createItemUnitsRoutes,
 } from "./item-catalog-routes.js";
 import { createItemSpecificationsRoutes } from "./item-specifications-routes.js";
+import { createAccountRoutingRoutes } from "./account-routing-routes.js";
 import { createRolesRoutes } from "./roles-routes.js";
 import { createUsersRoutes } from "./users-routes.js";
 import { createTaxRatesRoutes } from "./tax-rates-routes.js";
@@ -275,6 +277,11 @@ export interface CreateAppOptions {
    * القياس" / §"تصنيفات الأصناف") when present — the item master-data
    * catalogs an item's `baseUnitCode` / `categoryId` resolve against.
    */
+  /** توجيه الحسابات (R6.1) — mounts `/accounting/account-routing` when present. */
+  readonly accountRouting?: {
+    readonly repo: AccountRoutingRepository;
+    readonly resolveAuthContext?: AuthContextResolver;
+  };
   readonly itemCatalog?: {
     readonly units: ItemUnitRepository;
     readonly categories: ItemCategoryRepository;
@@ -907,6 +914,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.items) {
     app.route("/items", createItemsRouter(options.items.repo, options.items.resolveAuthContext, options.items.snapshots));
   }
+  if (options.accountRouting) {
+    app.route(
+      "/accounting/account-routing",
+      createAccountRoutingRoutes(options.accountRouting.repo, options.accountRouting.resolveAuthContext),
+    );
+  }
   if (options.itemCatalog) {
     app.route("/item-units", createItemUnitsRoutes(options.itemCatalog.units, options.itemCatalog.resolveAuthContext));
     app.route(
@@ -941,7 +954,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.inventory) {
     app.route(
       "/inventory",
-      createInventoryRoutes(options.inventory.service, options.inventory.resolveAuthContext, options.inventory.reservations),
+      createInventoryRoutes(
+        options.inventory.service,
+        options.inventory.resolveAuthContext,
+        options.inventory.reservations,
+        options.accountRouting?.repo,
+      ),
     );
   }
   // Mounted BEFORE `/purchases` (below): Hono matches registration order for

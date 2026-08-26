@@ -45,3 +45,42 @@ export type AccountStatusDTO = z.infer<typeof accountStatusSchema>;
 export type AccountDTO = z.infer<typeof accountSchema>;
 export type CreateAccountDTO = z.infer<typeof createAccountSchema>;
 export type UpdateAccountDTO = z.infer<typeof updateAccountSchema>;
+
+// --- توجيه الحسابات (R6.1) ---------------------------------------------
+
+export const latePenaltyTreatmentSchema = z.enum(["revenue_deduction", "expense"]);
+
+export const accountRoutingOptionsSchema = z.object({
+  latePenaltyTreatment: latePenaltyTreatmentSchema,
+  useSeparateDiscountAccount: z.boolean(),
+  applyDiscountAccountToLines: z.boolean(),
+});
+
+export const accountRoutingSlotSchema = z.object({
+  key: z.string(),
+  section: z.enum(["tax", "leave", "contracting", "sales_discount", "inventory_adjustment", "payroll", "item_type"]),
+  labelAr: z.string(),
+  labelEn: z.string(),
+  defaultAccountId: z.string(),
+  /** What this slot resolves to right now — the override if set, else the default. */
+  accountId: z.string(),
+  /** Whether a tenant has overridden it, so the screen can show what it changed. */
+  overridden: z.boolean(),
+});
+
+export const accountRoutingSchema = z.object({
+  slots: z.array(accountRoutingSlotSchema),
+  options: accountRoutingOptionsSchema,
+});
+
+export const updateAccountRoutingSchema = z.object({
+  /** Slot key → account id. A key mapped to null clears the override. */
+  overrides: z.record(z.string(), z.string().nullable()).optional(),
+  options: accountRoutingOptionsSchema.partial().optional(),
+});
+
+export type LatePenaltyTreatmentDTO = z.infer<typeof latePenaltyTreatmentSchema>;
+export type AccountRoutingOptionsDTO = z.infer<typeof accountRoutingOptionsSchema>;
+export type AccountRoutingSlotDTO = z.infer<typeof accountRoutingSlotSchema>;
+export type AccountRoutingDTO = z.infer<typeof accountRoutingSchema>;
+export type UpdateAccountRoutingDTO = z.infer<typeof updateAccountRoutingSchema>;

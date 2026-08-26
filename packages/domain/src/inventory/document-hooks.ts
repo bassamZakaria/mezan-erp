@@ -15,9 +15,10 @@
  */
 
 import { postJournalEntry, type JournalPostingDeps } from "../gl/index.js";
-import type { DocumentStockHook, DocumentStockPlan } from "../documents/hooks.js";
+import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "../documents/hooks.js";
 import type { InventoryGlPosting, InventoryGlPostingPort } from "./ports.js";
 import { occurredAtFromDocumentDate } from "./movement.js";
+import { Money } from "../money/index.js";
 import type { AdjustmentReason } from "./reasons.js";
 import type { StockLedgerService } from "./stock-ledger-service.js";
 
@@ -39,7 +40,7 @@ export function createInventoryOpsStockHook(
   glAccountsForReason: (reason: AdjustmentReason) => AdjustmentGlAccounts | null = () => null,
 ): DocumentStockHook {
   return {
-    async apply(plan: DocumentStockPlan): Promise<void> {
+    async apply(plan: DocumentStockPlan): Promise<DocumentStockResult> {
       if (plan.toWarehouseId) {
         await service.postTransfer({
           transferId: plan.sourceDocId,
@@ -49,7 +50,8 @@ export function createInventoryOpsStockHook(
           occurredAt: plan.date ? occurredAtFromDocumentDate(plan.date) : undefined,
           lines: plan.lines.map((l) => ({ itemId: l.itemId, qty: l.qty })),
         });
-        return;
+        // A transfer moves value between warehouses; the total is unchanged.
+        return { valueMoved: Money.zero() };
       }
 
       const reason = plan.reason as AdjustmentReason;
@@ -67,6 +69,9 @@ export function createInventoryOpsStockHook(
         })),
         gl: glAccountsForReason(reason) ?? undefined,
       });
+      // postAdjustment posts its own balanced entry, so the caller has nothing
+      // further to book.
+      return { valueMoved: Money.zero() };
     },
   };
 }

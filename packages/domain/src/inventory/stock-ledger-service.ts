@@ -197,6 +197,19 @@ export interface PostIssueResult {
   readonly lines: readonly IssueLineCost[];
 }
 
+/**
+ * What a document's stock plan actually moved, in money.
+ *
+ * A document cannot post an honest journal entry without this. A purchase
+ * return, for instance, credits the supplier at the invoice price but removes
+ * stock at the position's live moving average; crediting inventory by the
+ * invoice price instead left the sub-ledger and the 1200 control account
+ * permanently apart (D47). Signed: positive when the document added value.
+ */
+export interface DocumentStockPlanResult {
+  readonly valueMoved: Money;
+}
+
 export class StockLedgerService {
   constructor(private readonly deps: StockLedgerServiceDeps) {}
 
@@ -668,14 +681,15 @@ export class StockLedgerService {
       readonly unitCost?: Money;
     }[];
     readonly occurredAt?: string;
-  }): Promise<void> {
-    if (plan.lines.length === 0) return;
+  }): Promise<DocumentStockPlanResult> {
+    if (plan.lines.length === 0) return { valueMoved: Money.zero() };
     const occurredAt = plan.occurredAt ?? this.now();
 
+    let valueMoved = Money.zero();
     await this.runInTransaction(async () => {
       for (let i = 0; i < plan.lines.length; i++) {
         const line = plan.lines[i] as (typeof plan.lines)[number];
-        await this.applyMovement({
+        const { signedValue } = await this.applyMovement({
           movementId: `${plan.sourceDocId}:${i}`,
           itemId: line.itemId,
           warehouseId: plan.warehouseId,
@@ -688,8 +702,10 @@ export class StockLedgerService {
           reason: null,
           occurredAt,
         });
+        valueMoved = valueMoved.add(signedValue);
       }
     });
+    return { valueMoved };
   }
 
   /**

@@ -53,6 +53,12 @@ export interface PurchaseReturnGlAccounts {
   readonly accountsPayableId: string;
   readonly inputTaxPayableId: string;
   readonly inventoryAccountId: string;
+  /**
+   * Absorbs the difference between what the supplier credits (the invoice
+   * price) and what the goods were actually carrying when they left stock
+   * (the position's moving average).
+   */
+  readonly priceVarianceAccountId: string;
 }
 
 function totals(lines: readonly PurchaseReturnLine[]) {
@@ -116,9 +122,26 @@ export function createPurchaseReturnDocumentType(
       };
     },
 
-    buildGlPosting(doc): DocumentGlPosting | null {
+    buildGlPosting(doc, stock): DocumentGlPosting | null {
       const { costValue, taxValue, grandTotal } = totals(doc.lines);
       if (grandTotal.scaled === 0n) return null;
+      /**
+       * Inventory is credited by what the STOCK LEDGER actually removed, not
+       * by the invoice price on the line. The two differ whenever receipts
+       * since the purchase have moved the item's moving average, and crediting
+       * the invoice figure left the sub-ledger and the 1200 control account
+       * permanently apart with nothing on screen showing it (D47).
+       *
+       * `stock.valueMoved` is negative here — the plan takes goods out — so
+       * its magnitude is the credit. Falling back to `costValue` keeps the
+       * entry balanced for callers that post no stock plan at all.
+       */
+      const removed = stock ? stock.valueMoved.negate() : costValue;
+      const inventoryCredit = removed.scaled > 0n ? removed : costValue;
+      // Supplier credit minus what actually left stock. Positive = the goods
+      // were carrying less than the supplier refunds, so the difference is a
+      // gain and the variance account is credited.
+      const variance = Money.fromScaled(costValue.scaled - inventoryCredit.scaled);
       return {
         sourceDocType: DOC_TYPE,
         sourceDocId: doc.id,
@@ -130,7 +153,12 @@ export function createPurchaseReturnDocumentType(
           ...(taxValue.scaled > 0n
             ? [{ accountId: accounts.inputTaxPayableId, debit: Money.zero(), credit: taxValue }]
             : []),
-          { accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: costValue },
+          { accountId: accounts.inventoryAccountId, debit: Money.zero(), credit: inventoryCredit },
+          ...(variance.scaled === 0n
+            ? []
+            : variance.scaled > 0n
+              ? [{ accountId: accounts.priceVarianceAccountId, debit: Money.zero(), credit: variance }]
+              : [{ accountId: accounts.priceVarianceAccountId, debit: variance.negate(), credit: Money.zero() }]),
         ],
       };
     },

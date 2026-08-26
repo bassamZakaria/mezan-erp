@@ -104,7 +104,7 @@ describe("DocumentService — generic lifecycle with hooks", () => {
     const calls: string[] = [];
 
     const numbering = { next: async () => (calls.push("number"), { value: 1, formatted: "SO-000001" }) };
-    const stock = { apply: async () => void calls.push("stock") };
+    const stock = { apply: async () => (calls.push("stock"), { valueMoved: Money.zero() }) };
     const gl = {
       post: async () => (calls.push("gl"), { journalEntryId: "je-x", journalEntryNo: "JE-000001" }),
       reverse: async () => ({ journalEntryId: "je-r", journalEntryNo: "JE-000002" }),

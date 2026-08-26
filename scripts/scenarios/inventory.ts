@@ -293,14 +293,30 @@ async function physicalCountAdjustmentPostsNoJournalEntry_D2(ctx: Ctx): Promise<
     adjustment?.lines?.[0]?.direction === "IN" && ctx.n(adjustment.lines[0].qty) === 5,
     JSON.stringify(adjustment),
   );
+  // D2 is fixed (F23/R5.9): every adjustment reason now carries its own GL
+  // contra account, so a count correction posts Dr/Cr 1200 ↔ 5074 instead of
+  // moving stock silently. These two assertions used to record the defect;
+  // inverted, they are its regression test.
   const je = await ctx.req("GET", "/gl/journal-entries/SCN-ADJ-D2");
-  ctx.check("D2 — the PHYSICAL_COUNT adjustment posts NO journal entry", je.status === 404, `status ${je.status}: ${JSON.stringify(je.body)}`);
+  ctx.check(
+    "D2 fixed — the PHYSICAL_COUNT adjustment posts a journal entry",
+    je.status === 200,
+    `status ${je.status}: ${JSON.stringify(je.body)}`,
+  );
+  const jeLines: { accountId: string; debit: string; credit: string }[] = je.body?.lines ?? [];
+  ctx.check(
+    "D2 fixed — it moves 1200 against the count-variance account 5074, and balances",
+    jeLines.some((l) => l.accountId === "1200") &&
+      jeLines.some((l) => l.accountId === "5074") &&
+      jeLines.reduce((sum, l) => sum + ctx.n(l.debit), 0) === jeLines.reduce((sum, l) => sum + ctx.n(l.credit), 0),
+    JSON.stringify(jeLines),
+  );
 
   const after = await ctx.invariants();
   ctx.checkEq(
-    "D2 — the one-sided count leaves the inventory sub-ledger off GL 1200 by exactly the variance value",
+    "D2 fixed — the count leaves the inventory sub-ledger and GL 1200 in step",
     after.inventory - before.inventory,
-    netValue,
+    0,
   );
 }
 

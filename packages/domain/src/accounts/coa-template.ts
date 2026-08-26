@@ -87,6 +87,11 @@ export const STANDARD_COA_TEMPLATE: readonly CreateAccountCommand[] = [
   // shortfall and credited on an overage.
   { id: "5074", code: "5074", nameAr: "فروق الجرد", nameEn: "Physical Count Variance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5075", code: "5075", nameAr: "تسويات مخزون أخرى", nameEn: "Other Inventory Adjustments", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
+  // Where the difference lands when a document settles with a supplier at the
+  // invoice price but the goods leave stock at their moving-average cost
+  // (D47). Without it, a purchase return credited inventory by the invoice
+  // figure and the stock sub-ledger and 1200 diverged by the drift.
+  { id: "5080", code: "5080", nameAr: "فروق أسعار الشراء", nameEn: "Purchase Price Variance", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5100", code: "5100", nameAr: "تكلفة البضاعة المباعة", nameEn: "Cost of Goods Sold", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   { id: "5110", code: "5110", nameAr: "العمالة المحمّلة", nameEn: "Labor Applied", type: "expense", naturalBalance: "debit", parentId: "5000", isHeader: false },
   // hr/master-data — appended for the same reason as 2170/2180 above.

@@ -14,16 +14,16 @@
  */
 
 import { occurredAtFromDocumentDate, type StockLedgerService, type StockSourceDocType } from "../inventory/index.js";
-import type { DocumentStockHook, DocumentStockPlan } from "./hooks.js";
+import type { DocumentStockHook, DocumentStockPlan, DocumentStockResult } from "./hooks.js";
 
 export function createInventoryStockHook(service: StockLedgerService): DocumentStockHook {
   return {
-    async apply(plan: DocumentStockPlan): Promise<void> {
+    async apply(plan: DocumentStockPlan): Promise<DocumentStockResult> {
       // The framework's plan carries a plain `string` sourceDocType (it must
       // stay decoupled from the inventory engine's closed union); every
       // concrete document type that ships a `buildStockPlan` is required to use
       // one of `STOCK_SOURCE_DOC_TYPES` (movement.ts) as its own doc-type code.
-      await service.applyDocumentStockPlan({
+      return await service.applyDocumentStockPlan({
         sourceDocType: plan.sourceDocType as StockSourceDocType,
         sourceDocId: plan.sourceDocId,
         sourceDocNumber: plan.sourceDocNumber,

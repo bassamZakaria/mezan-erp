@@ -103,8 +103,21 @@ export interface DocumentStockPlan {
   readonly date?: string;
 }
 
+/**
+ * What applying a stock plan actually moved, in money. Signed: positive when
+ * the document added inventory value.
+ *
+ * The framework hands this to `buildGlPosting` because a document that removes
+ * stock cannot post an honest entry without it — the value removed is decided
+ * by the position's live moving average, not by anything on the document
+ * (D47).
+ */
+export interface DocumentStockResult {
+  readonly valueMoved: Money;
+}
+
 export interface DocumentStockHook {
-  apply(plan: DocumentStockPlan): Promise<void>;
+  apply(plan: DocumentStockPlan): Promise<DocumentStockResult>;
 }
 
 /* --- Workflow-gate hook (via the workflow engine) ------------------------ */

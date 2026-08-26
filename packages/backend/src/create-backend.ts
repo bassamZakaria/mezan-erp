@@ -203,6 +203,7 @@ const PURCHASE_RETURN_GL_ACCOUNTS = {
   accountsPayableId: "2100",
   inputTaxPayableId: "1400",
   inventoryAccountId: "1200",
+  priceVarianceAccountId: "5080",
 };
 
 /**

@@ -89,6 +89,7 @@ export {
   type PostIssueResult,
   type ReverseReceiptPosition,
   type ReverseReceiptCommand,
+  type DocumentStockPlanResult,
 } from "./stock-ledger-service.js";
 
 // --- phase4/inventory-ops — document layer on top of the engine above -----

@@ -30,6 +30,7 @@ import {
   convertSalesQuoteToInvoiceSchema,
   type SalesQuoteDiscountDTO,
 } from "@mezan/contracts";
+import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -47,6 +48,8 @@ import {
  */
 export interface SalesQuoteRoutesDeps {
   readonly repo: SalesQuoteRepository;
+  /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
+  readonly itemCheck?: ItemCatalogCheck;
   readonly numbering: DocumentNumberingHook;
   readonly now?: () => string;
   /** Generates a quote id when the request omits one. Defaults to a UUID. */
@@ -209,6 +212,9 @@ export function createSalesQuotesRoutes(
         taxRatePercent: l.taxRatePercent,
       })),
     };
+    const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
+    if (refusal) return refusal;
+
     const svc = service(c);
     try {
       const quote = await svc.createDraft(cmd);

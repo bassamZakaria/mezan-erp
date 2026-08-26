@@ -767,4 +767,48 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     check("a negative line discount is refused rather than inflating the line", negative.status >= 400, JSON.stringify(negative.body).slice(0, 250));
   });
+
+  await scenario("sales: a quote or invoice line naming an item the catalogue does not hold is refused (D38)", async () => {
+    const customer = (rows((await req("GET", "/customers")).body))[0] as any;
+
+    const quote = await req("POST", "/sales-quotes", {
+      id: "SCN-D38-QUOTE",
+      date: TODAY,
+      expiryDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      lines: [{ lineId: "L1", itemId: "ITEM-INVENTED-BY-THE-CLIENT", itemNameAr: "صنف لا وجود له", qty: "1", unitPrice: "10", discountPercent: 0, taxRatePercent: 14 }],
+    });
+    check(
+      "a quote line's itemId is checked against the item catalogue, not just against being a non-empty string",
+      quote.status === 422 && quote.body?.error === "ITEM_NOT_FOUND",
+      `status ${quote.status} body ${JSON.stringify(quote.body).slice(0, 200)}`,
+    );
+    check("and the refusal names WHICH id was wrong, so the caller can find the line", Array.isArray(quote.body?.itemIds) && quote.body.itemIds.includes("ITEM-INVENTED-BY-THE-CLIENT"), JSON.stringify(quote.body?.itemIds));
+    check("the refusal reaches an Arabic UI in Arabic", typeof quote.body?.message === "string" && /[\u0600-\u06FF]/.test(quote.body.message), String(quote.body?.message));
+
+    const invoice = await req("POST", "/sales-invoices", {
+      id: "SCN-D38-INVOICE",
+      date: TODAY,
+      dueDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      lines: [{ lineId: "L1", itemId: "ITEM-INVENTED-BY-THE-CLIENT", itemNameAr: "صنف لا وجود له", isStock: true, qty: "1", unitPrice: "10", taxRatePercent: 14, revenueAccountId: "4100", cogsAccountId: "5100", inventoryAccountId: "1200" }],
+    });
+    check(
+      "the same check guards the sales-invoice line, which is where an invented id would have moved no stock and posted no COGS",
+      invoice.status === 422 && invoice.body?.error === "ITEM_NOT_FOUND",
+      `status ${invoice.status} body ${JSON.stringify(invoice.body).slice(0, 200)}`,
+    );
+
+    const nothingPersisted = await req("GET", "/sales-quotes/SCN-D38-QUOTE");
+    check("nothing was persisted by the refused request", nothingPersisted.status === 404, `status ${nothingPersisted.status}`);
+  });
 }

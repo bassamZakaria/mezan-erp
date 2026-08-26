@@ -53,6 +53,7 @@ import {
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
 import type { CurrencyCheck } from "./currency-policy.js";
+import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import {
   createAnyPermissionGate,
   createPermissionGate,
@@ -81,6 +82,8 @@ export interface SalesInvoiceRoutesDeps {
   readonly promotions?: SalesInvoicePromotionHook;
   /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
   readonly pricing?: SalesInvoicePricingDeps;
+  /** Refuses a line naming an item the catalogue does not hold (D38); omit for no check. */
+  readonly itemCheck?: ItemCatalogCheck;
   /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
   readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
@@ -446,6 +449,9 @@ export function createSalesInvoicesRoutes(
         inventoryAccountId: l.inventoryAccountId ?? null,
       })),
     };
+    const refusal = await refuseUnknownItems(c, deps.itemCheck, cmd.lines.map((l) => l.itemId));
+    if (refusal) return refusal;
+
     const svc = service(c);
     try {
       const invoice = await svc.createDraft(cmd);

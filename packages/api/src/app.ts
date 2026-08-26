@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { ItemCatalogCheck } from "./item-check.js";
 import {
   Money,
   salesInvoiceTotals,
@@ -528,6 +529,8 @@ export interface CreateAppOptions {
    * app behaves exactly as before (no `/purchases` routes).
    */
   readonly purchases?: {
+    /** Refuses a line naming an item the catalogue does not hold (D38's twin). */
+    readonly itemCheck?: ItemCatalogCheck;
     readonly orders: PurchaseOrderRepository;
     readonly receipts: GoodsReceiptRepository;
     readonly invoices: PurchaseInvoiceRepository;
@@ -1236,6 +1239,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
       "/purchases",
       createPurchasesRoutes(
         {
+          itemCheck: purchases.itemCheck,
           orders: purchases.orders,
           receipts: purchases.receipts,
           invoices: purchases.invoices,

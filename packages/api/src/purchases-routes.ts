@@ -69,6 +69,7 @@ import {
   purchaseInvoicePaymentSchema,
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
+import { refuseUnknownItems, type ItemCatalogCheck } from "./item-check.js";
 import type { CurrencyCheck } from "./currency-policy.js";
 import {
   createPermissionGate,
@@ -96,6 +97,8 @@ import {
  *   GET  /invoices[/:id]         list / get one             (purchases.invoice.view)
  */
 export interface PurchasesRoutesDeps {
+  /** Refuses a line naming an item the catalogue does not hold — D38's twin on the purchase side. */
+  readonly itemCheck?: ItemCatalogCheck;
   readonly orders: PurchaseOrderRepository;
   readonly receipts: GoodsReceiptRepository;
   readonly invoices: PurchaseInvoiceRepository;
@@ -441,6 +444,8 @@ export function createPurchasesRoutes(
     }
     const orderCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
     if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal }, 422);
+    const orderItemRefusal = await refuseUnknownItems(c, deps.itemCheck, parsed.data.lines.map((l) => l.itemId));
+    if (orderItemRefusal) return orderItemRefusal;
     try {
       const order = await createPurchaseOrder(
         {
@@ -591,6 +596,8 @@ export function createPurchasesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const receiptItemRefusal = await refuseUnknownItems(c, deps.itemCheck, (parsed.data.lines ?? []).map((l) => l.itemId));
+    if (receiptItemRefusal) return receiptItemRefusal;
     try {
       const receipt = await createGoodsReceipt(
         {
@@ -975,6 +982,14 @@ export function createPurchasesRoutes(
     }
     const invoiceCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
     if (invoiceCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: invoiceCurrencyRefusal }, 422);
+    // Only caller-supplied lines are checked: an expense or freight line carries
+    // no item at all, and a from-receipt build reuses ids already in the books.
+    const invoiceItemRefusal = await refuseUnknownItems(
+      c,
+      deps.itemCheck,
+      (parsed.data.lines ?? []).map((l) => l.itemId).filter((id): id is string => typeof id === "string" && id !== ""),
+    );
+    if (invoiceItemRefusal) return invoiceItemRefusal;
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;

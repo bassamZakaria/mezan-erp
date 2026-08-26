@@ -1226,6 +1226,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       },
     },
     purchases: {
+      itemCheck: items,
       orders: purchaseOrders,
       receipts: goodsReceipts,
       invoices: purchaseInvoices,
@@ -1299,6 +1300,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     },
     salesInvoices: {
       repo: salesInvoices,
+      itemCheck: items,
       numbering: { next: (opts) => ledger.numbering.next("SALES_INVOICE", { branchId: opts?.branchId }) },
       gl: createSalesInvoiceGlHook(salesInvoiceGl),
       // "السماح بالبيع من مستودع آخر": only when the document's warehouse holds
@@ -1410,6 +1412,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     promotionRepo: promotions,
     salesQuotes: {
       repo: salesQuotes,
+      itemCheck: items,
       numbering: { next: (opts) => ledger.numbering.next("SALES_QUOTE", { branchId: opts?.branchId }) },
     },
     // --- phase9/accounting-depth ---

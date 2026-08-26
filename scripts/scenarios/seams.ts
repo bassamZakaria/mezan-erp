@@ -73,6 +73,27 @@ export async function run(ctx: Ctx): Promise<void> {
    * numbering or pricing uses one, so a rounding sweep of 40 documents cannot
    * quietly drain the warehouse.
    */
+  /**
+   * Every service line below names this item. It used to be the bare string
+   * "SCN-S-SVC", which the catalogue never held — the suite was leaning on the
+   * very hole D38 records, so the guard that closed it turned this file red.
+   * Creating the item is the honest fix; weakening the guard would not be.
+   */
+  async function ensureServiceItem(): Promise<void> {
+    const existing = await req("GET", "/items/SCN-S-SVC");
+    if (existing.status === 200) return;
+    await req("POST", "/items", {
+      id: "SCN-S-SVC",
+      code: "SCN-S-SVC",
+      nameAr: "خدمة اختبار",
+      nameEn: "Scenario Service",
+      type: "service",
+      baseUnitCode: "PCS",
+      trackInventory: false,
+      revenueAccountId: REVENUE,
+    });
+  }
+
   async function serviceInvoice(
     id: string,
     lines: Array<{ qty: string; unitPrice: string; taxRatePercent?: number }>,
@@ -123,6 +144,9 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X23 — a foreign-currency liability, and what revaluation does to it
   // ---------------------------------------------------------------------------
+
+  await ensureServiceItem();
+
   await scenario("x23 · a foreign-currency balance is revalued at the closing rate, the restatement touches only the FX accounts, and its auto-reversal stops it being counted twice", async () => {
     const booked = await req("POST", "/exchange-rates", {
       id: "SCN-S-FX-USD-24", currency: "USD", rate: "48.00", effectiveDate: TODAY, rateType: "standard", source: "manual",

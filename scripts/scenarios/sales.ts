@@ -552,4 +552,219 @@ export async function run(ctx: Ctx): Promise<void> {
     const attempt = await req("POST", "/price-lists", { id: "SCN-PL-DUP", code: "PL-BASE", nameAr: "قائمة مكررة" });
     check("duplicate price-list code rejected (409)", attempt.status === 409, JSON.stringify(attempt.body));
   });
+
+  // --- 15. R2.4 — a line entered in cartons has to move PIECES ---
+
+  await scenario("R2.4 — a carton line issues the piece count, and COGS follows the pieces", async () => {
+    const customer = await customerOf("CUST-DEMO-3");
+    const item = await itemOf("ITEM-DEMO-1");
+    const carton = (item.alternateUnits ?? []).find((u: any) => u.code === "CTN");
+    check("the seeded item defines a carton of 12 pieces", carton?.factor === 12, JSON.stringify(item.alternateUnits));
+
+    const CARTONS = 5;
+    const PIECES_PER_CARTON = 12;
+    const EXPECTED_PIECES = CARTONS * PIECES_PER_CARTON; // 60
+    const PRICE_PER_CARTON = 2160; // 180 per piece × 12
+    const expectedNet = CARTONS * PRICE_PER_CARTON; // 10,800.00
+    const expectedTax = expectedNet * 0.14; // 1,512.00
+    const expectedGrand = expectedNet + expectedTax; // 12,312.00
+
+    // The line must be affordable in STOCK, not just in money: a carton line is
+    // exactly the case where a check against the entered quantity would pass
+    // while the warehouse comes up 55 pieces short.
+    const stockBefore = await stockOf(item.id);
+    if (n(stockBefore.onHand) < EXPECTED_PIECES) {
+      await req("POST", "/inventory/adjustments", {
+        id: "SCN-ADJ-UNITS",
+        date: TODAY,
+        warehouseId: WAREHOUSE_ID,
+        reason: "INITIAL_STOCK",
+        lines: [{ lineId: "L1", itemId: item.id, qty: String(EXPECTED_PIECES), unitCost: "140" }],
+      });
+      await req("POST", "/inventory/adjustments/SCN-ADJ-UNITS/confirm", {});
+    }
+    const stockAtStart = await stockOf(item.id);
+    check("the warehouse holds enough pieces to sell 5 cartons", n(stockAtStart.onHand) >= EXPECTED_PIECES, String(n(stockAtStart.onHand)));
+
+    const created = await req("POST", "/sales-invoices", {
+      id: "SCN-INV-UNITS",
+      date: TODAY,
+      dueDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      lines: [
+        {
+          ...stockLine("L1", item, String(CARTONS), String(PRICE_PER_CARTON)),
+          unitCode: "CTN",
+          unitFactor: PIECES_PER_CARTON,
+        },
+      ],
+    });
+    check("the carton invoice is created", created.status === 201, JSON.stringify(created.body).slice(0, 300));
+
+    const line = created.body?.lines?.[0];
+    check("the stored line keeps the unit it was ENTERED in", line?.unitCode === "CTN", JSON.stringify(line?.unitCode));
+    checkEq("the stored line keeps its conversion factor", n(line?.unitFactor), PIECES_PER_CARTON);
+    checkEq("the stored line carries the BASE quantity as well as the entered one", n(line?.baseQty), EXPECTED_PIECES);
+    checkEq("the entered quantity is still 5 cartons, not 60", n(line?.qty), CARTONS);
+    checkEq("the price is per carton, so the line extends to 5 × 2160", n(created.body?.totals?.grossTotal), expectedNet);
+    checkEq("and the grand total is priced by the carton, not by the piece", n(created.body?.totals?.grandTotal), expectedGrand);
+
+    const arBefore = n((await arBalance()).balance);
+    const confirmed = await req("POST", "/sales-invoices/SCN-INV-UNITS/confirm", {});
+    check("the carton invoice confirms", confirmed.status === 200 && confirmed.body?.status === "confirmed", JSON.stringify(confirmed.body).slice(0, 300));
+
+    const stockAfter = await stockOf(item.id);
+    checkEq(
+      "the stock ledger moved 60 PIECES, not 5 — the whole point of R2.4",
+      n(stockAtStart.onHand) - n(stockAfter.onHand),
+      EXPECTED_PIECES,
+    );
+
+    checkEq("AR (1105) rose by exactly the grand total", n((await arBalance()).balance) - arBefore, expectedGrand);
+
+    const entry = (await req("GET", `/gl/journal-entries/${confirmed.body?.journalEntryId}`)).body;
+    const debit = (entry?.lines ?? []).reduce((s: number, l: any) => s + n(l.debit), 0);
+    const credit = (entry?.lines ?? []).reduce((s: number, l: any) => s + n(l.credit), 0);
+    checkEq("the journal entry balances to the cent", debit, credit);
+    checkEq("it debits AR for the grand total", n((entry?.lines ?? []).find((l: any) => l.accountId === AR_ACCOUNT)?.debit), expectedGrand);
+    checkEq("it credits revenue for the net", n((entry?.lines ?? []).find((l: any) => l.accountId === REVENUE_ACCOUNT)?.credit), expectedNet);
+    checkEq("it credits output VAT for the tax", n((entry?.lines ?? []).find((l: any) => l.accountId === TAX_ACCOUNT)?.credit), expectedTax);
+
+    // COGS is the cost of the SIXTY pieces that left. Reading it off the entry
+    // and off the line's captured unit cost has to agree, or one of the two is
+    // quoting the wrong quantity.
+    const cogs = n((entry?.lines ?? []).find((l: any) => l.accountId === COGS_ACCOUNT)?.debit);
+    const inventoryCredit = n((entry?.lines ?? []).find((l: any) => l.accountId === INVENTORY_ACCOUNT)?.credit);
+    check("COGS was posted for the pieces that left", cogs > 0, String(cogs));
+    checkEq("and inventory was credited for exactly the same cost", inventoryCredit, cogs);
+
+    const confirmedLine = confirmed.body?.lines?.[0];
+    checkEq(
+      "the captured unit cost is per CARTON, so cost × entered qty reproduces COGS",
+      n(confirmedLine?.unitCost) * CARTONS,
+      cogs,
+    );
+
+    const reloaded = await req("GET", "/sales-invoices/SCN-INV-UNITS");
+    check("the unit survives a reload", reloaded.body?.lines?.[0]?.unitCode === "CTN", JSON.stringify(reloaded.body?.lines?.[0]));
+    checkEq("so does the base quantity", n(reloaded.body?.lines?.[0]?.baseQty), EXPECTED_PIECES);
+  });
+
+  // --- 16. R2.5 — a fixed line discount under a percentage document discount ---
+
+  await scenario("R2.5 — fixed line discounts plus a percentage document discount reconcile exactly", async () => {
+    const customer = await customerOf("CUST-DEMO-3");
+    const service = await itemOf("ITEM-DEMO-10");
+
+    /**
+     * Chosen so the largest-remainder split has a leftover to place: the
+     * document discount is 13.31, and proportional shares of it come to
+     * 674.68 / 0.07 / 656.24 minor units. A naive per-line round would spread
+     * 13.30 or 13.32 and the grand total would miss by a piastre.
+     */
+    function serviceLine(lineId: string, qty: string, unitPrice: string, discount: Record<string, unknown>) {
+      return {
+        lineId,
+        itemId: service.id,
+        itemNameAr: service.nameAr,
+        isStock: false,
+        qty,
+        unitPrice,
+        taxRatePercent: 0,
+        revenueAccountId: REVENUE_ACCOUNT,
+        ...discount,
+      };
+    }
+
+    const created = await req("POST", "/sales-invoices", {
+      id: "SCN-INV-DISC",
+      date: TODAY,
+      dueDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      discount: { type: "percent", percent: 7.5 },
+      lines: [
+        serviceLine("L1", "3", "33.33", { discountType: "amount", discountAmount: "10.00" }),
+        serviceLine("L2", "1", "0.01", {}),
+        serviceLine("L3", "7", "14.29", { discountType: "percent", discountPercent: 12.5 }),
+      ],
+    });
+    check("the mixed-discount invoice is created", created.status === 201, JSON.stringify(created.body).slice(0, 400));
+
+    const totals = created.body?.totals ?? {};
+    checkEq("gross = 99.99 + 0.01 + 100.03", n(totals.grossTotal), 200.03);
+    checkEq("line discounts = a fixed 10.00 plus 12.5% of 100.03 rounded to 12.50", n(totals.lineDiscountTotal), 22.5);
+    checkEq("subtotal is gross less the line discounts", n(totals.subtotal), 177.53);
+    checkEq("the document discount is 7.5% of 177.53, HALF_UP to the piastre", n(totals.invoiceDiscountTotal), 13.31);
+    checkEq(
+      "and the grand total is subtotal − document discount EXACTLY — no allocation drift",
+      n(totals.grandTotal),
+      177.53 - 13.31,
+    );
+    checkEq("the taxable base equals the grand total on a zero-rated invoice", n(totals.taxableTotal), n(totals.grandTotal));
+
+    const storedLines = created.body?.lines ?? [];
+    check("the fixed line discount is stored as an amount, not converted to a percentage", storedLines[0]?.discountType === "amount", JSON.stringify(storedLines[0]));
+    checkEq("with its amount intact", n(storedLines[0]?.discountAmount), 10);
+    check("and the percentage line stays a percentage", storedLines[2]?.discountType === "percent", JSON.stringify(storedLines[2]));
+
+    const arBefore = n((await arBalance()).balance);
+    const confirmed = await req("POST", "/sales-invoices/SCN-INV-DISC/confirm", {});
+    check("it confirms", confirmed.status === 200 && confirmed.body?.status === "confirmed", JSON.stringify(confirmed.body).slice(0, 300));
+
+    const entry = (await req("GET", `/gl/journal-entries/${confirmed.body?.journalEntryId}`)).body;
+    const debit = (entry?.lines ?? []).reduce((s: number, l: any) => s + n(l.debit), 0);
+    const credit = (entry?.lines ?? []).reduce((s: number, l: any) => s + n(l.credit), 0);
+    checkEq("the journal entry balances to the cent", debit, credit);
+    checkEq("AR is debited for the discounted grand total, not the gross", n((entry?.lines ?? []).find((l: any) => l.accountId === AR_ACCOUNT)?.debit), 164.22);
+    checkEq("and the ledger agrees", n((await arBalance()).balance) - arBefore, 164.22);
+
+    const reloaded = await req("GET", "/sales-invoices/SCN-INV-DISC");
+    checkEq("the totals survive a reload", n(reloaded.body?.totals?.grandTotal), 164.22);
+    check("so does the per-line discount type", reloaded.body?.lines?.[0]?.discountType === "amount", JSON.stringify(reloaded.body?.lines?.[0]));
+
+    // A fixed line discount larger than the line cannot make a line negative:
+    // an unvalidated one is how an invoice-level discount once turned 950 into
+    // 1,140 (docs/defects.md, discount validation).
+    const capped = await req("POST", "/sales-invoices", {
+      id: "SCN-INV-DISC-CAP",
+      date: TODAY,
+      dueDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      lines: [serviceLine("L1", "1", "50.00", { discountType: "amount", discountAmount: "500.00" })],
+    });
+    checkEq("a line discount above the line's gross is capped at the gross, never negative", n(capped.body?.totals?.grandTotal), 0);
+
+    const negative = await req("POST", "/sales-invoices", {
+      id: "SCN-INV-DISC-NEG",
+      date: TODAY,
+      dueDate: "2026-09-24",
+      customerId: customer.id,
+      customerNameAr: customer.nameAr,
+      warehouseId: WAREHOUSE_ID,
+      branchId: BRANCH_ID,
+      currency: "EGP",
+      arAccountId: AR_ACCOUNT,
+      taxAccountId: TAX_ACCOUNT,
+      lines: [serviceLine("L1", "1", "50.00", { discountType: "amount", discountAmount: "-25.00" })],
+    });
+    check("a negative line discount is refused rather than inflating the line", negative.status >= 400, JSON.stringify(negative.body).slice(0, 250));
+  });
 }

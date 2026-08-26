@@ -521,6 +521,7 @@ export interface CreateAppOptions {
      */
     readonly layers?: CostLayerRepository;
     readonly resolveTaxRate?: (itemId: string) => number;
+    readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
     readonly resolveAuthContext?: AuthContextResolver;
     /** Audit sink for the chain's confirm/cancel records; falls back to `options.auditSink`. */
     readonly audit?: AuditSink;
@@ -1006,6 +1007,17 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           policy,
           layers: purchases.layers,
           resolveTaxRate: purchases.resolveTaxRate,
+          autoBatchNo:
+            purchases.autoBatchNo ??
+            (options.settingsStore && options.items
+              ? async ({ itemId, receiptNumber, lineIndex }) => {
+                  const settings = (await options.settingsStore!.get()) ?? createDefaultSettings();
+                  if (!settings.autoGenerateBatchNumbers) return null;
+                  const item = await options.items!.repo.findById(itemId);
+                  if (!item?.trackBatches) return null;
+                  return `${receiptNumber}-${String(lineIndex + 1).padStart(2, "0")}`;
+                }
+              : undefined),
           audit: purchases.audit ?? options.auditSink,
           now: purchases.now,
         },

@@ -131,6 +131,7 @@ import {
 import {
   EtaService,
   DuplicateEtaSubmissionError,
+  createDefaultSettings,
   type SalesInvoiceRepository,
   type SalesInvoiceLine,
   type CustomerRepository,
@@ -614,7 +615,12 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
     ledger: stockLedger.ledger,
     layers: stockLedger.layers,
     snapshots: stockLedger.snapshots,
-    policy: { allowNegativeStock: false },
+    // Read per movement, not captured here: سياسة المخزون's two switches are
+    // tenant settings an administrator changes between one confirm and the next.
+    policy: async () => {
+      const current = (await settings.get()) ?? createDefaultSettings();
+      return { allowNegativeStock: current.allowNegativeStock, allowBackorder: current.allowBackorder };
+    },
     transaction: stockLedger.transaction,
     // Only activates when a caller ALSO passes a per-call `gl` (StockLedgerService
     // posts only when BOTH are present) — today that's every stock-adjustment
@@ -1221,6 +1227,7 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       stockLedger: stockLedger.ledger,
       gl: salesInvoiceGl,
       accounts: INVENTORY_WRITEDOWN_GL_ACCOUNTS,
+      settings,
     },
     productTemplates: {
       templates: productTemplateStore.templates,

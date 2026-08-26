@@ -77,6 +77,7 @@ export {
   StockLedgerService,
   type StockLedgerServiceDeps,
   type StockLedgerPolicy,
+  type StockLedgerPolicySource,
   type AdjustmentLine,
   type PostAdjustmentCommand,
   type TransferLine,
@@ -169,6 +170,7 @@ export {
 
 export {
   DEFAULT_AGING_WRITEDOWN_POLICY,
+  tenantAgingPolicy,
   periodEndDate,
   agingDaysBetween,
   writedownRateForAgingDays,

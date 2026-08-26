@@ -104,6 +104,12 @@ export interface PurchasesRoutesDeps {
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
   readonly resolveTaxRate?: (itemId: string) => number;
   /**
+   * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
+   * number to a receipt line the receiver left blank. Omit and a blank batch
+   * stays blank.
+   */
+  readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
+  /**
    * Cost-layer lookups the cancel endpoints use for the "sold-item" guard
    * (`trackSoldPurchaseItems`) and the stock-reversal ports use to find the
    * layers a receipt/invoice created. Omit and the two cancel endpoints are
@@ -378,6 +384,7 @@ export function createPurchasesRoutes(
           orders: deps.orders,
           numbering: deps.numbering,
           policy: await resolvePolicy(),
+          autoBatchNo: deps.autoBatchNo,
           now: deps.now,
         },
       );

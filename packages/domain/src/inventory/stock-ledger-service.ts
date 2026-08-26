@@ -51,15 +51,29 @@ import type {
 } from "./ports.js";
 
 export interface StockLedgerPolicy {
-  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`. */
+  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`: any OUT may drive a position below zero. */
   readonly allowNegativeStock: boolean;
+  /**
+   * §"سياسة المخزون" → `allowBackorder`: a SALE may be confirmed short, and the
+   * shortfall stands as a negative position until stock arrives. Narrower than
+   * `allowNegativeStock` on purpose — it never licenses an adjustment or a transfer.
+   */
+  readonly allowBackorder?: boolean;
 }
+
+/**
+ * The policy is resolved per movement, not captured at construction: it comes
+ * from tenant settings that an administrator can change between two confirms.
+ */
+export type StockLedgerPolicySource = StockLedgerPolicy | (() => Promise<StockLedgerPolicy> | StockLedgerPolicy);
+
+const BACKORDERABLE_SOURCES: readonly StockSourceDocType[] = ["SALES_INVOICE", "POS_SALE"];
 
 export interface StockLedgerServiceDeps {
   readonly ledger: StockLedgerRepository;
   readonly layers: CostLayerRepository;
   readonly snapshots: WacSnapshotRepository;
-  readonly policy: StockLedgerPolicy;
+  readonly policy: StockLedgerPolicySource;
   readonly events?: InventoryEventPublisher;
   readonly gl?: InventoryGlPostingPort;
   /** Wraps a compound operation in one atomic transaction. Defaults to direct execution. */
@@ -227,6 +241,17 @@ export class StockLedgerService {
    * (the moving average, for an OUT). Not transactional on its own — callers
    * wrap a sequence in `runInTransaction`.
    */
+  private async resolvePolicy(): Promise<StockLedgerPolicy> {
+    const source = this.deps.policy;
+    return typeof source === "function" ? await source() : source;
+  }
+
+  private async negativeAllowedFor(sourceDocType: StockSourceDocType): Promise<boolean> {
+    const policy = await this.resolvePolicy();
+    if (policy.allowNegativeStock) return true;
+    return policy.allowBackorder === true && BACKORDERABLE_SOURCES.includes(sourceDocType);
+  }
+
   private async applyMovement(input: {
     movementId: string;
     itemId: string;
@@ -264,7 +289,7 @@ export class StockLedgerService {
       signed = value;
     } else {
       const projected = snap.onHand.subtract(input.qty);
-      if (projected.isNegative() && !this.deps.policy.allowNegativeStock) {
+      if (projected.isNegative() && !(await this.negativeAllowedFor(input.sourceDocType))) {
         throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
       }
       unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average

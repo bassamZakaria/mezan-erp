@@ -1168,6 +1168,9 @@ export async function createBackend(options: CreateBackendOptions = {}): Promise
       exchangeRates,
       baseCurrency: "EGP",
       audit: auditSink,
+      // «من إيصال استلام» omits lines, so the route builds them from the receipt
+      // — and without this port every one of those lines was taxed at 0% (D50).
+      resolveTaxRate: async (itemId) => (await items.findById(itemId))?.taxRatePercent ?? 0,
       // Mounts POST /purchases/receipts/:id/cancel and /invoices/:id/cancel,
       // which 404 without it. app.ts derives the GL reversal port from this
       // being present, so omitting it silently disables both.

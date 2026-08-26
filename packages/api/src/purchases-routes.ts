@@ -105,8 +105,12 @@ export interface PurchasesRoutesDeps {
   readonly baseCurrency?: string;
   /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
   readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
-  /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
-  readonly resolveTaxRate?: (itemId: string) => number;
+  /**
+   * Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0,
+   * which is only ever right for a tenant with no VAT — leave it unsupplied and
+   * every «من إيصال استلام» invoice records no input VAT at all (D50).
+   */
+  readonly resolveTaxRate?: (itemId: string) => number | Promise<number>;
   /**
    * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
    * number to a receipt line the receiver left blank. Omit and a blank batch
@@ -651,7 +655,13 @@ export function createPurchasesRoutes(
       } else if (parsed.data.receiptId) {
         const receipt = await deps.receipts.findById(parsed.data.receiptId);
         if (!receipt) throw new GoodsReceiptNotFoundError(parsed.data.receiptId);
-        lines = buildInvoiceLinesFromReceipt(receipt, resolveTaxRate);
+        // The domain builder is pure and synchronous, so the per-item rates are
+        // resolved here first and handed to it as a plain lookup.
+        const rates = new Map<string, number>();
+        for (const line of receipt.lines) {
+          if (!rates.has(line.itemId)) rates.set(line.itemId, await resolveTaxRate(line.itemId));
+        }
+        lines = buildInvoiceLinesFromReceipt(receipt, (itemId) => rates.get(itemId) ?? 0);
       } else {
         return c.json({ error: "VALIDATION_ERROR", message: "lines or receiptId is required" }, 400);
       }

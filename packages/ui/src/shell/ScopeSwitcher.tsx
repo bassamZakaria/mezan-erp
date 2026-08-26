@@ -11,6 +11,7 @@ interface RailScopeSelectProps {
   options: readonly TopbarScopeOption[];
   icon: ReactNode;
   expanded: boolean;
+  widthClassName?: string;
 }
 
 /**
@@ -18,11 +19,14 @@ interface RailScopeSelectProps {
  * Collapsed, the trigger is the icon alone and the chosen scope moves to the
  * title attribute, so the rail stays 30px wide without hiding the value.
  */
-function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded }: RailScopeSelectProps) {
+function RailScopeSelect({ ariaLabel, value, onChange, allLabel, options, icon, expanded, widthClassName }: RailScopeSelectProps) {
   const selectedLabel = (value ? options.find((opt) => opt.id === value)?.label : null) ?? allLabel;
 
   return (
-    <div title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`} className={expanded ? "w-full" : "w-[30px]"}>
+    <div
+      title={expanded ? undefined : `${ariaLabel}: ${selectedLabel}`}
+      className={widthClassName ?? (expanded ? "w-full" : "w-[30px]")}
+    >
       <Select<string>
         variant="chrome"
         size="sm"
@@ -58,7 +62,10 @@ const WAREHOUSE_ICON = (
 );
 
 export interface ScopeSwitchersProps {
-  expanded: boolean;
+  /** Rail-only: the collapsed rail shows icon-only triggers. The header always renders full triggers. */
+  expanded?: boolean;
+  /** "header" lays the two selects out side by side on the topbar chrome. */
+  orientation?: "rail" | "header";
   branchAriaLabel: string;
   warehouseAriaLabel: string;
   branchOptions?: readonly TopbarScopeOption[];
@@ -71,9 +78,10 @@ export interface ScopeSwitchersProps {
   allWarehousesLabel: string;
 }
 
-/** Branch + warehouse narrowing controls, pinned above the nav (spec §5). Renders nothing when the caller has no branch options — never with a fabricated list. */
+/** Branch + warehouse narrowing controls, on the topbar chrome. Renders nothing when the caller has no branch options — never with a fabricated list. */
 export function ScopeSwitchers({
-  expanded,
+  expanded = true,
+  orientation = "rail",
   branchAriaLabel,
   warehouseAriaLabel,
   branchOptions,
@@ -87,11 +95,17 @@ export function ScopeSwitchers({
 }: ScopeSwitchersProps) {
   if (!branchOptions || branchOptions.length === 0) return null;
 
+  const header = orientation === "header";
+
   return (
     <div
       className={cn(
-        "flex flex-none flex-col gap-[6px]",
-        expanded ? "mx-[12px] mb-[10px]" : "mx-auto mb-[10px] items-center",
+        "flex flex-none",
+        header
+          ? "items-center gap-[8px]"
+          : expanded
+            ? "mx-[12px] mb-[10px] flex-col gap-[6px]"
+            : "mx-auto mb-[10px] flex-col items-center gap-[6px]",
       )}
     >
       <RailScopeSelect
@@ -101,7 +115,8 @@ export function ScopeSwitchers({
         allLabel={allBranchesLabel}
         options={branchOptions}
         icon={BRANCH_ICON}
-        expanded={expanded}
+        expanded={header || expanded}
+        widthClassName={header ? "w-[172px]" : undefined}
       />
       <RailScopeSelect
         ariaLabel={warehouseAriaLabel}
@@ -110,7 +125,8 @@ export function ScopeSwitchers({
         allLabel={allWarehousesLabel}
         options={warehouseOptions}
         icon={WAREHOUSE_ICON}
-        expanded={expanded}
+        expanded={header || expanded}
+        widthClassName={header ? "w-[172px]" : undefined}
       />
     </div>
   );

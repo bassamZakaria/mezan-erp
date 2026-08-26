@@ -70,7 +70,7 @@ describe("AppShell", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("wires the branch/warehouse switchers into the sidebar rail, not the topbar", () => {
+  it("wires the branch/warehouse switchers into the topbar, not the sidebar rail", () => {
     const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
     const onSelectBranch = vi.fn();
     render(
@@ -87,7 +87,8 @@ describe("AppShell", () => {
       </AppShell>,
     );
     const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
-    expect(branchSelect.closest("aside")).not.toBeNull();
+    expect(branchSelect.closest("aside")).toBeNull();
+    expect(branchSelect.closest("header")).not.toBeNull();
     fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
     expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
   });

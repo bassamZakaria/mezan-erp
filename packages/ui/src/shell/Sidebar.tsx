@@ -2,8 +2,6 @@ import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { BrandMark } from "./BrandMark";
-import { ScopeSwitchers } from "./ScopeSwitcher";
-import type { TopbarScopeOption } from "./Topbar";
 import type { NavGroup, NavItem } from "./types";
 
 export interface SidebarProps {
@@ -16,21 +14,6 @@ export interface SidebarProps {
   tenantName?: string;
   scopeLabel?: string;
   className?: string;
-  /**
-   * Working-branch / warehouse selectors — real dropdowns that narrow which
-   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
-   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
-   * not a cosmetic relabel. Omit `branchOptions` to render neither — never
-   * rendered with a fabricated option list.
-   */
-  branchOptions?: readonly TopbarScopeOption[];
-  warehouseOptions?: readonly TopbarScopeOption[];
-  selectedBranchId?: string | null;
-  selectedWarehouseId?: string | null;
-  onSelectBranch?: (branchId: string | null) => void;
-  onSelectWarehouse?: (warehouseId: string | null) => void;
-  allBranchesLabel?: string;
-  allWarehousesLabel?: string;
 }
 
 const RAIL_STORAGE_KEY = "mezan.sidebarCollapsed";
@@ -159,14 +142,6 @@ export function Sidebar({
   tenantName,
   scopeLabel,
   className,
-  branchOptions,
-  warehouseOptions,
-  selectedBranchId,
-  selectedWarehouseId,
-  onSelectBranch,
-  onSelectWarehouse,
-  allBranchesLabel,
-  allWarehousesLabel,
 }: SidebarProps) {
   const { t } = useUiTranslation();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
@@ -241,20 +216,6 @@ export function Sidebar({
           ) : null}
         </div>
       ) : null}
-
-      <ScopeSwitchers
-        expanded={expanded}
-        branchAriaLabel={t("shell.scope.branch")}
-        warehouseAriaLabel={t("shell.scope.warehouse")}
-        branchOptions={branchOptions}
-        warehouseOptions={warehouseOptions}
-        selectedBranchId={selectedBranchId}
-        selectedWarehouseId={selectedWarehouseId}
-        onSelectBranch={onSelectBranch}
-        onSelectWarehouse={onSelectWarehouse}
-        allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
-        allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
-      />
 
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>

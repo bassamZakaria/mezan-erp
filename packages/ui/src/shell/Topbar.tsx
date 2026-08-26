@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import type { ThemePreference } from "../hooks/useTheme";
 import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
 import { CommandBar } from "./CommandBar";
+import { ScopeSwitchers } from "./ScopeSwitcher";
 import { TopbarMenu } from "./TopbarMenu";
 import type { CommandItem, NavGroup, ShellUser, UserMenuItem } from "./types";
 
@@ -68,6 +69,19 @@ export interface TopbarProps {
    * settings and system. Their items keep the same `onClick` the rail gave
    * them, so routing is unchanged.
    */
+  /**
+   * Working-branch / warehouse selectors — real dropdowns that narrow which
+   * data the app queries, not a cosmetic relabel. Omit `branchOptions` to
+   * render neither; never rendered with a fabricated option list.
+   */
+  branchOptions?: readonly TopbarScopeOption[];
+  warehouseOptions?: readonly TopbarScopeOption[];
+  selectedBranchId?: string | null;
+  selectedWarehouseId?: string | null;
+  onSelectBranch?: (branchId: string | null) => void;
+  onSelectWarehouse?: (warehouseId: string | null) => void;
+  allBranchesLabel?: string;
+  allWarehousesLabel?: string;
   utilityGroups?: readonly NavGroup[];
   /** Highlights the matching utility item, mirroring the rail's active row. */
   activeNavKey?: string;
@@ -187,7 +201,7 @@ function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; ac
   );
 }
 
-/** Topbar — the persistent command bar, tenant chip, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
+/** Topbar — the persistent command bar, tenant chip, the branch/warehouse scope selectors, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
 export function Topbar({
   commandItems = [],
   searchPlaceholder,
@@ -195,6 +209,14 @@ export function Topbar({
   scopeLabel,
   theme,
   onToggleTheme,
+  branchOptions,
+  warehouseOptions,
+  selectedBranchId,
+  selectedWarehouseId,
+  onSelectBranch,
+  onSelectWarehouse,
+  allBranchesLabel,
+  allWarehousesLabel,
   utilityGroups = [],
   activeNavKey,
   notificationCount = 0,
@@ -226,7 +248,7 @@ export function Topbar({
           </div>
         ) : null}
 
-        {scopeLabel ? (
+        {scopeLabel && !branchOptions?.length ? (
           <div className="flex items-center gap-[7px] rounded-pill border border-chrome-border bg-chrome-hover px-[12px] py-[7px] text-xs font-medium text-chrome-ink">
             <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[13px] w-[13px] text-chrome-ink-muted">
               <path
@@ -239,6 +261,20 @@ export function Topbar({
             {scopeLabel}
           </div>
         ) : null}
+
+        <ScopeSwitchers
+          orientation="header"
+          branchAriaLabel={t("shell.scope.branch")}
+          warehouseAriaLabel={t("shell.scope.warehouse")}
+          branchOptions={branchOptions}
+          warehouseOptions={warehouseOptions}
+          selectedBranchId={selectedBranchId}
+          selectedWarehouseId={selectedWarehouseId}
+          onSelectBranch={onSelectBranch}
+          onSelectWarehouse={onSelectWarehouse}
+          allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
+          allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
+        />
 
         {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
 

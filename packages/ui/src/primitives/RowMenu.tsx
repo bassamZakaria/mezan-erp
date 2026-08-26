@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn";
 
 export interface RowMenuItem {
@@ -29,6 +29,40 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
+  const [dropUp, setDropUp] = useState(false);
+
+  /**
+   * Flip upward when opening downward would put the menu past the bottom of
+   * whatever actually clips it (D56).
+   *
+   * Measured against the nearest SCROLLING ancestor rather than the viewport:
+   * `DocumentList` caps its table at `max-h` with `overflow: auto`, so on the
+   * last rows of a long list a downward menu was inside the window and still
+   * unreachable — clipped by the table, not by the screen.
+   */
+  useLayoutEffect(() => {
+    if (!open) {
+      setDropUp(false);
+      return;
+    }
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (!trigger || !menu) return;
+
+    let clipper: HTMLElement | null = trigger.parentElement;
+    while (clipper) {
+      const { overflowY } = getComputedStyle(clipper);
+      if (overflowY === "auto" || overflowY === "scroll") break;
+      clipper = clipper.parentElement;
+    }
+    const bottom = clipper ? clipper.getBoundingClientRect().bottom : window.innerHeight;
+    const triggerBox = trigger.getBoundingClientRect();
+    const needed = menu.offsetHeight + 4;
+    // Only flip if there is room above; a menu taller than both sides stays
+    // downward, where at least the first items are reachable.
+    setDropUp(triggerBox.bottom + needed > bottom && triggerBox.top - needed > (clipper?.getBoundingClientRect().top ?? 0));
+  }, [open, items.length]);
 
   useEffect(() => {
     if (!open) return;
@@ -72,10 +106,14 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
 
       {open ? (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           aria-label={label}
-          className="absolute top-[calc(100%+4px)] end-0 z-30 min-w-[190px] overflow-hidden rounded-lg border border-border bg-surface py-[4px] shadow-2"
+          className={cn(
+            "absolute end-0 z-30 min-w-[190px] overflow-hidden rounded-lg border border-border bg-surface py-[4px] shadow-2",
+            dropUp ? "bottom-[calc(100%+4px)]" : "top-[calc(100%+4px)]",
+          )}
         >
           {items.map((item) => (
             <button

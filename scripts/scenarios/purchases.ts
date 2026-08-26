@@ -1073,6 +1073,22 @@ export async function run(ctx: Ctx): Promise<void> {
       const receipts = activity.body?.receipts ?? [];
       check("the finished-goods receipt carries the same two dimensions", receipts.length > 0 && receipts.every((m: any) => m.stationId !== null && m.operatorId !== null), JSON.stringify(receipts.map((m: any) => [m.stationId, m.operatorId])));
 
+      // The seeded run issued at خط الخلط and returned at خط التعبئة, within the
+      // same millisecond. Joining the attribution on the timestamp reported the
+      // LAST station on every row; the join is on the movement's own reference.
+      const issued = movements.filter((m: any) => m.direction.toUpperCase() === "OUT");
+      const returned = movements.filter((m: any) => m.direction.toUpperCase() === "IN");
+      check(
+        "the issues are attributed to the station they were actually made at (WST-DEMO-1), not to whichever action happened to be logged last",
+        issued.length > 0 && issued.every((m: any) => m.stationId === "WST-DEMO-1" && m.operatorId === "EMP-DEMO-3"),
+        issued.map((m: any) => `${m.id}=${m.stationId}/${m.operatorId}`).join(" · "),
+      );
+      check(
+        "and the return to its own station (WST-DEMO-2) and operator — two actions one millisecond apart keep two attributions",
+        returned.length > 0 && returned.every((m: any) => m.stationId === "WST-DEMO-2" && m.operatorId === "EMP-DEMO-4"),
+        returned.map((m: any) => `${m.id}=${m.stationId}/${m.operatorId}`).join(" · "),
+      );
+
       // The ids are checked against their registries, not trusted.
       const bogusStation = await req("POST", "/manufacturing/work-orders/WO-DEMO-2/issue", { stationId: "WST-DOES-NOT-EXIST" });
       checkEq("an issue naming a station that does not exist is refused", bogusStation.status, 422);

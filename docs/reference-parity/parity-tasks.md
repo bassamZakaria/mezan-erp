@@ -73,17 +73,17 @@ Tick an item only when it has been driven in the running app on seeded data, in
 
 ## P3 — document surfaces
 
-- [~] **R2.1** Creation-method step on sales and purchase invoices — done on sales; purchases still open
+- [x] **R2.1** Creation-method step on sales and purchase invoices — the purchase invoice now asks how the document is being built (يدوي / من إيصال استلام) as a STEP, the same two-card shape the sales invoice uses, and collapses to a «تغيير طريقة الإنشاء» summary once answered
 - [x] **R2.3** Live available-stock and out-of-stock badge per line — three states, measured against the line's BASE quantity
 - [x] **R2.4** Per-line unit of measure with conversion — the line stores the entered unit, its factor and the base quantity; the stock ledger moves the base quantity
 - [x] **R2.5** Per-line and per-document discount type (percentage / fixed) — fixed line discounts quantised at the discount boundary and capped at the line gross
 - [x] **R2.7** Totals block: subtotal and tax lines added, return-adjusted net kept
 - [x] **R2.8** Three-card "effects of this document" explainer including "no automatic collection" — on the create form and the invoice detail
-- [~] **R1.4** Attachments across documents and entities — resource built (domain, SQLite store, `/attachments` routes gated by the host entity's own permissions, reusable `AttachmentsTab`); wired on the item detail and the customer 360, the other screens adopt the tab in their own tasks
-- [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices — roll out to the rest)
+- [~] **R1.4** Attachments across documents and entities — resource built (domain, SQLite store, `/attachments` routes gated by the host entity's own permissions, reusable `AttachmentsTab`); wired on the item detail, the customer 360, the purchase-invoice detail and the work-order detail; the other screens adopt the tab in their own tasks
+- [~] **R1.3** State-dependent row overflow menus (primitive built; on sales invoices, and on the five purchase lists + work orders + BOMs — roll out to the rest)
 - [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
 - [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open
-- [~] **R4.4** Purchase-invoice detail: landed-costs tab, consumed/received/still-in-stock per line (read from the cost layers the funding document created) and an inline «تسجيل السداد» that posts a real سند صرف — the attachments tab waits on R1.4
+- [x] **R4.4** Purchase-invoice detail: landed-costs tab, consumed/received/still-in-stock per line (read from the cost layers the funding document created), an inline «تسجيل السداد» that posts a real سند صرف, and the attachments tab
 - [ ] **R2.6** Coupon codes · **R2.9** quick-preview panel · **R2.10** share document
 
 ## P4 — entity 360
@@ -121,7 +121,9 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [x] **R5.1** Item types 2 → 6, with the behavioural rules per type — capability table in the domain; pickers and reports ask the capability, never `type === "stock"`
 - [x] **R4.2** Purchase-invoice line types (stock / expense / freight) — three kinds, each routing its debit to its own account: 1200 / 5910 / 5200
 - [x] **R5.9** Stock-adjustment reason wizard, per-reason GL accounts, reason on the list and the journal entry, reason filter
-- [~] **R9.1** Work-order shop-floor panel exists (issue / extra issue / return / waste / log cost); the reference's station and operator tracking is not built. **R9.2** is done — all seven detail tabs
+- [x] **R9.1 / R9.2** Work-order shop-floor actions and the seven detail tabs with shortage tracking
+  - [x] محطة العمل + المشغّل on every issue, extra issue, return, scrap and product receipt — a `work_station` registry (`/manufacturing/work-stations`, managed from the production hub, seeded with three stations) and an employee id, BOTH resolved against their own register before anything is written
+  - [x] shown per row on the movements and receipts tabs, joined on the movement's own reference — joining on the timestamp reported one station on every row whenever two actions landed in the same millisecond
 - [x] **R7.1–R7.6** ETA: readiness meter, general settings, credentials with test-connection, item mapping, unit mapping with suggestions, submissions queue with exclude
 - [x] **R11.1–R11.8** Split settings into the policy tabs and make each toggle actually change document behaviour:
   - [ ] credit control mode (warn vs block)
@@ -136,7 +138,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [ ] **R3.9** Sales return: per-line reason, awaiting-refund state, refund action
 - [ ] **R3.11 / R3.12** Price-list min-quantity tiers; promotion types, caps, priority, bundles
 - [ ] **R3.13** Van trip crew roles and van→warehouse→treasury cascade
-- [ ] **R4.6 / R4.7** GRN from PO only; landed-cost allocation basis and typed cost lines
+- [x] **R4.6** GRN from PO only — the create form is a creation-method STEP whose «استلام مباشر» card is offered only when the tenant's «إلزام أمر الشراء قبل الاستلام» setting is off. The screen READS that setting; the server gate was already live and now refuses in Arabic
+- [x] **R4.7** Landed-cost allocation basis and typed cost lines — a third basis (حسب الوزن) beside value and quantity, the shipped weight carried on the persisted line so a confirmed document still states its basis, and the entered cost broken down by نوع التكلفة on both the form and the document
 - [~] **R5.4** Item form: image, description, default supplier, season, channels, per-price-list prices, specifications
   - [x] description, default supplier (bound to a real supplier), season, brand, specifications
   - [ ] image — needs the attachments resource (R1.4)

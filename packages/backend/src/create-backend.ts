@@ -173,7 +173,7 @@ const FIXED_ASSETS_GL_ACCOUNTS = {
 
 /**
  * GL accounts the inventory aging-based write-down batch posts to
- * (docs/tasks.md Phase 4 "Aging-based inventory write-down batch",
+ * (docs/backlog.md Phase 4 "aging-based inventory write-down batch",
  * packages/domain/src/accounts/coa-template.ts): 5060 the write-down expense,
  * 1190 the contra-asset provision.
  */

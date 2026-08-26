@@ -31,7 +31,7 @@ exists because something went wrong without it.
 | Scope, architecture, licensing, competitors | `references/product-and-market.md` |
 | The user's standing preferences and process rules | `references/working-agreement.md` |
 
-## The nine moves that found almost every real defect
+## The ten moves that found almost every real defect
 
 Apply these first — they have the highest yield per minute.
 
@@ -70,17 +70,27 @@ Apply these first — they have the highest yield per minute.
    mean the ledger alone cannot answer the question. When a report computes something
    the books should hold, that is the finding.
 
-10. **Two numbers can disagree because they mean different things, not because
+10. **Read every form field as "which entity does this bind to?"** A quote line let
+   the user *type* an item name and invented the id `ITEM-1` behind it; the screen
+   still called the real API, still returned 201, still passed typecheck, lint,
+   build and its own tests. Any field naming a domain entity — الصنف، المستودع،
+   الفرع، العميل، المورد، الحساب، مركز التكلفة — must be a picker over that
+   entity's endpoint, and the stored row must carry that entity's **real id**.
+   Check the id in the database, not in the UI: a plausible label is exactly what a
+   fabricated id looks like from the front. Free text where the reference picks an
+   entity is a defect even when everything downstream answers 200.
+11. **Two numbers can disagree because they mean different things, not because
    one is wrong.** The receivables tile and the aging ladder differed by 5,486.12
    because one summed a subtree and the other counted trade AR; three "AP"
    figures differed because one followed invoices, one allocations, one the GL.
    Before hunting arithmetic, ask what each figure is a count OF — and when they
    should be the same fact, make them read the same source.
-11. **A fix is not done until its assertion is flipped.** The suite documents
+12. **A fix is not done until its assertion is flipped.** The suite documents
    open defects by asserting the broken behaviour. Leave that in place after a
    fix and the suite goes red for the wrong reason; delete it and the regression
    has no guard. Rewrite it to assert what now holds, and say which defect it
    guards.
+
 
 ## Non-negotiables in this codebase
 

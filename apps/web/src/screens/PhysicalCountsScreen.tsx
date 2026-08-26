@@ -1,5 +1,17 @@
 import { useMemo, useState } from "react";
-import { FulcrumRule, DocumentList, DocumentDetail, StatusPill, VarianceBeam, Card, Button, trimMoneyString, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  FulcrumRule,
+  StatusPill,
+  TextInput,
+  VarianceBeam,
+  trimMoneyString,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { PhysicalCountDTO, PhysicalCountStatusDTO } from "@mezan/contracts";
 import {
   useCancelPhysicalCount,
@@ -12,6 +24,7 @@ import {
 } from "../data/inventory-ops-hooks";
 import { useItems, useWarehouses, ApiError } from "../data/hooks";
 import { TextField, SelectField, ToggleField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -72,9 +85,9 @@ export function PhysicalCountsScreen() {
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
 
-  const [mode, setMode] = useState<"list" | "new" | "count" | "detail">("list");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [activeCountId, setActiveCountId] = useState<string | null>(null);
+  // `#/inventory/physical-counts` · `…/new` · `…/<id>` · `…/<id>/count` (the counting sheet)
+  const subPage = useSubPage();
+  const [firstSegment, secondSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | PhysicalCountStatusDTO>("all");
   const [search, setSearch] = useState("");
 
@@ -107,8 +120,9 @@ export function PhysicalCountsScreen() {
     return rows;
   }, [counts, statusFilter, search]);
 
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const selected = selectedId ? (counts.find((c) => c.id === selectedId) ?? null) : null;
-  const active = activeCountId ? (counts.find((c) => c.id === activeCountId) ?? null) : null;
+  const active = secondSegment === "count" ? selected : null;
 
   const columns: DocumentListColumn<PhysicalCountDTO>[] = [
     { key: "countNo", header: t("counts.count"), sortable: true, render: (c) => <span className="mz-num font-semibold text-ink">{c.countNo ?? "—"}</span> },
@@ -132,48 +146,38 @@ export function PhysicalCountsScreen() {
   ];
 
   function openDetail(id: string) {
-    setSelectedId(id);
-    setMode("detail");
+    subPage.open(id);
   }
 
-  if (mode === "new") {
+  if (firstSegment === "new") {
     return (
       <NewCountView
         warehouses={warehouses}
-        onStarted={(id) => {
-          setActiveCountId(id);
-          setMode("count");
-        }}
-        onCancel={() => setMode("list")}
+        onStarted={(id) => subPage.open(id, "count")}
+        onCancel={subPage.close}
       />
     );
   }
 
-  if (mode === "count" && active) {
+  if (active && secondSegment === "count") {
     return (
       <CountEntryView
         count={active}
         itemLabel={itemLabel}
         warehouseLabel={warehouseLabel}
-        onDone={() => {
-          setActiveCountId(null);
-          setMode("list");
-        }}
+        onDone={subPage.close}
       />
     );
   }
 
-  if (mode === "detail" && selected) {
+  if (selected) {
     return (
       <CountDetailView
         count={selected}
         itemLabel={itemLabel}
         warehouseLabel={warehouseLabel}
-        onBack={() => setMode("list")}
-        onResume={() => {
-          setActiveCountId(selected.id);
-          setMode("count");
-        }}
+        onBack={subPage.close}
+        onResume={() => subPage.open(selected.id, "count")}
       />
     );
   }
@@ -181,11 +185,10 @@ export function PhysicalCountsScreen() {
   return (
     <div className="w-full">
       <DocumentList<PhysicalCountDTO>
-        eyebrow={t("eyebrow.inventory.physicalCounts")}
         title={t("counts.physicalCounts")}
         description={t("counts.inProgressCompletedAdjustmentCreated")}
         actions={
-          <Button variant="primary" onClick={() => setMode("new")}>
+          <Button variant="primary" onClick={() => subPage.open("new")}>
             {t("counts.newCount")}
           </Button>
         }
@@ -281,7 +284,6 @@ function NewCountView({
   return (
     <div className="w-full max-w-[560px]">
       <div className="mb-[16px]">
-        <div className="mz-eyebrow">{t("eyebrow.inventory.newPhysicalCount")}</div>
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("counts.newCount")}</h1>
       </div>
       <FulcrumRule />
@@ -362,7 +364,6 @@ function CountEntryView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.inventory.physicalCount")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{count.countNo} — {warehouseLabel(count.warehouseId)}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
@@ -417,15 +418,17 @@ function CountEntryView({
                       <td className="px-[15px] py-[11px] text-end mz-num text-ink-muted">{qtyDisplay(l.systemQty)}</td>
                     )}
                     <td className="px-[15px] py-[8px] text-end">
-                      <input
+                      <TextInput
                         type="number"
+                        size="sm"
+                        numeric
+                        className="w-[110px] text-end"
                         aria-label={t("counts.countedQtyFor", { item: itemLabel(l.itemId) })}
                         value={value}
                         min={0}
                         step="any"
                         disabled={!isInProgress}
                         onChange={(e) => setCounted((prev) => ({ ...prev, [l.itemId]: e.target.value }))}
-                        className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand disabled:bg-surface-3"
                       />
                     </td>
                     {blindOpen ? null : (

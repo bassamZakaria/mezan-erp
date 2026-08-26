@@ -2,7 +2,11 @@ import { useMemo, useState, type FormEvent } from "react";
 import { DocumentList, Money as MoneyDisplay, StatusPill, Chip, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
 import { TREASURY_ACCOUNT_TYPE_DEFINITIONS, getTreasuryAccountTypeLabel, type TreasuryAccountType as DomainTreasuryAccountType } from "@mezan/domain";
 import type { BranchDTO, TreasuryAccountDTO, TreasuryAccountStatusDTO, TreasuryAccountTypeDTO } from "@mezan/contracts";
-import { useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount } from "../data/hooks";
+import { useBranches, useCreateTreasuryAccount, useTreasuryAccounts, useUpdateTreasuryAccount,
+} from "../data/hooks";
+import { treasuryBalanceById } from "../lib/partner-balances";
+import { useFinancialReport } from "../data/financial-reports-hooks";
+import type { TrialBalanceRow } from "@mezan/domain";
 import { branchName } from "../settings/branch-name";
 import { SelectField, TextField, ToggleField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
@@ -101,9 +105,17 @@ export function TreasuryAccountsScreen() {
     return rows;
   }, [accounts, filter, search]);
 
-  const totalBalance = accounts.reduce((sum, a) => sum + toMajor(a.openingBalance), 0);
-  const cashBalance = accounts.filter((a) => a.type === "cash").reduce((sum, a) => sum + toMajor(a.openingBalance), 0);
-  const bankBalance = accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + toMajor(a.openingBalance), 0);
+  // A treasury account's balance IS its GL account's balance. Reporting the
+  // opening figure under "الرصيد" left the screen at 0.00 with ten confirmed
+  // vouchers posted (D41); re-deriving it from vouchers disagreed with the
+  // ledger by 248,900 on the bank account, because cheques and settlements post
+  // there too.
+  const trialBalance = useFinancialReport<TrialBalanceRow>("trial-balance", "/trial-balance", { asOfDate: new Date().toISOString().slice(0, 10) });
+  const liveBalance = useMemo(() => treasuryBalanceById(accounts, trialBalance.data?.rows ?? []), [accounts, trialBalance.data]);
+  const balanceOf = (id: string) => liveBalance.get(id) ?? 0;
+  const totalBalance = accounts.reduce((sum, a) => sum + balanceOf(a.id), 0);
+  const cashBalance = accounts.filter((a) => a.type === "cash").reduce((sum, a) => sum + balanceOf(a.id), 0);
+  const bankBalance = accounts.filter((a) => a.type === "bank").reduce((sum, a) => sum + balanceOf(a.id), 0);
 
   const selected = selectedId ? accounts.find((a) => a.id === selectedId) ?? null : null;
 
@@ -166,7 +178,7 @@ export function TreasuryAccountsScreen() {
     },
     { key: "type", header: t("treasuryAcc.accountType"), render: (a) => <StatusPill label={getTreasuryAccountTypeLabel(a.type as DomainTreasuryAccountType)} tone="info" /> },
     { key: "currency", header: t("treasuryAcc.currency"), render: (a) => a.currency },
-    { key: "balance", header: t("treasuryAcc.balance"), render: (a) => <MoneyDisplay value={toMajor(a.openingBalance)} /> },
+    { key: "balance", header: t("treasuryAcc.balance"), align: "end", render: (a) => <MoneyDisplay value={balanceOf(a.id)} /> },
     { key: "status", header: t("common.status"), render: (a) => <StatusPill label={t(STATUS_KEY[a.status])} tone={STATUS_TONE[a.status]} /> },
   ];
 
@@ -181,7 +193,6 @@ export function TreasuryAccountsScreen() {
         </Card>
       ) : null}
       <DocumentList<TreasuryAccountDTO>
-        eyebrow={t("eyebrow.treasury.accounts")}
         title={t("treasuryAcc.treasuryAccounts")}
         description={t("treasuryAcc.cashBoxesAndBankAccounts")}
         actions={

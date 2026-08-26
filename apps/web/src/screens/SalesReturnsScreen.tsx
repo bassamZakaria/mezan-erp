@@ -23,6 +23,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مرتجعات المبيعات (Sales Returns) — docs/catalog/01. Document-framework-backed (draft → confirmed, restocks at cost, reduces AR). */
@@ -76,7 +77,9 @@ export function SalesReturnsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
 
-  const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
   const [invoiceId, setInvoiceId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -85,21 +88,21 @@ export function SalesReturnsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   // Defaults the create form's invoice/warehouse pickers once their queries resolve —
-  // `openCreate` alone can't do this if the panel is opened before `invoices`/`warehouses` load.
+  // `openCreate` alone can't do this if the page is opened before `invoices`/`warehouses` load.
   useEffect(() => {
-    if (panel !== "create" || invoiceId !== "") return;
+    if (firstSegment !== "new" || invoiceId !== "") return;
     const firstInvoice = invoices[0];
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
     const firstLine = firstInvoice.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
-  }, [panel, invoices, invoiceId]);
+  }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
-    if (panel !== "create" || warehouseId !== "") return;
+    if (firstSegment !== "new" || warehouseId !== "") return;
     const firstWarehouse = warehouses[0];
     if (firstWarehouse) setWarehouseId(firstWarehouse.id);
-  }, [panel, warehouses, warehouseId]);
+  }, [firstSegment, warehouses, warehouseId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(
@@ -119,7 +122,10 @@ export function SalesReturnsScreen() {
   }, [documents]);
 
   const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+  const selected =
+    firstSegment !== undefined && firstSegment !== "new"
+      ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
+      : null;
 
   function openCreate() {
     setError(null);
@@ -129,7 +135,7 @@ export function SalesReturnsScreen() {
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.isStock && l.unitCost !== null);
     setLines(firstLine ? [blankLine(firstLine.itemId)] : []);
-    setPanel("create");
+    subPage.open("new");
   }
 
   function changeInvoice(id: string) {
@@ -176,7 +182,7 @@ export function SalesReturnsScreen() {
       const id = crypto.randomUUID();
       const created = await createReturn.mutateAsync({ id, date: new Date().toISOString().slice(0, 10), memo: "", lines: returnLines });
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
-      setPanel("none");
+      subPage.close();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -232,48 +238,18 @@ export function SalesReturnsScreen() {
     },
   ];
 
-  return (
+  const createPage = (
     <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("salesReturns.loadFailed")}</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            {t("common.retry")}
-          </Button>
-        </Card>
-      ) : null}
-      <DocumentList<(typeof documents)[number]>
-        eyebrow={t("eyebrow.sales.returns")}
-        title={t("salesReturns.title")}
-        description={t("salesReturns.description")}
-        actions={
-          <Button variant="primary" onClick={openCreate}>
-            {t("salesReturns.new")}
-          </Button>
-        }
-        stats={[
-          { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
-          { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{counts.awaitingRefund}</span> },
-        ]}
-        statusChips={statusChips}
-        activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
-        columns={columns}
-        rows={filtered}
-        rowKey={(d) => d.id}
-        onRowClick={(d) => setPanel({ id: d.id })}
-        page={1}
-        pageCount={1}
-        pageSummary={
-          <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
-          </>
-        }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesReturns.empty")}</div>}
-      />
-
-      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("salesReturns.panel.title")} description={t("salesReturns.panel.description")}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("salesReturns.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesReturns.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
             label={t("salesReturns.field.sourceInvoice")}
@@ -333,9 +309,20 @@ export function SalesReturnsScreen() {
             </Button>
           </div>
         </div>
-      </SidePanel>
+    </div>
+  );
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("salesReturns.detailTitle")}>
+  const detailPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.returns")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("salesReturns.detailTitle")}</h1>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <div className="flex items-center gap-1.5">
@@ -371,7 +358,53 @@ export function SalesReturnsScreen() {
             ) : null}
           </div>
         ) : null}
-      </SidePanel>
+    </div>
+  );
+
+  if (firstSegment === "new") return createPage;
+  if (selected) return detailPage;
+
+  return (
+    <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("salesReturns.loadFailed")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<(typeof documents)[number]>
+        title={t("salesReturns.title")}
+        description={t("salesReturns.description")}
+        actions={
+          <Button variant="primary" onClick={openCreate}>
+            {t("salesReturns.new")}
+          </Button>
+        }
+        stats={[
+          { label: t("salesReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("salesReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+          { label: t("salesReturns.awaitingRefund"), value: <span className="mz-num">{counts.awaitingRefund}</span> },
+        ]}
+        statusChips={statusChips}
+        activeStatusKey={statusFilter}
+        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        columns={columns}
+        rows={filtered}
+        rowKey={(d) => d.id}
+        onRowClick={(d) => subPage.open(d.docNo ?? d.id)}
+        page={1}
+        pageCount={1}
+        pageSummary={
+          <>
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("salesReturns.showingSuffix")}
+          </>
+        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesReturns.empty")}</div>}
+      />
+
+
     </div>
   );
 }

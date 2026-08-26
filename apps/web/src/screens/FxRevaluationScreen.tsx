@@ -1,5 +1,16 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatCard, Chip, Button, VarianceBeam, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  Checkbox,
+  Chip,
+  DocumentList,
+  FulcrumRule,
+  StatCard,
+  TextInput,
+  VarianceBeam,
+  formatNumber,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import type { FxRevaluationDetailDTO } from "@mezan/contracts";
 import { nextDay } from "@mezan/domain";
 import { useFxRevaluationPost, useFxRevaluationPreview } from "../data/hooks";
@@ -77,7 +88,6 @@ export function FxRevaluationScreen() {
   return (
     <div className="w-full">
       <div className="mb-[16px]">
-        <div className="mz-eyebrow">{t("eyebrow.accounting.fxRevaluation")}</div>
         <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fx.foreignCurrencyRevaluation")}</h1>
         <p className="mt-[5px] max-w-[70ch] text-[12.5px] text-ink-muted">{t("fx.thisPostsAnEntryRestating")}</p>
       </div>
@@ -86,12 +96,14 @@ export function FxRevaluationScreen() {
       <div className="mb-[18px] rounded-lg border border-border bg-surface p-[16px_18px]">
         <div className="flex flex-wrap items-end gap-[16px]">
           <label className="flex flex-col gap-[4px] text-[12px] text-ink-muted">{t("fx.asOfEntryDate")}
-            <input type="date" aria-label={t("fx.asOf")} value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+            <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("fx.asOf")} value={toDate} onChange={(e) => setToDate(e.target.value)} />
           </label>
-          <label className="flex items-center gap-[8px] text-[12.5px] text-ink">
-            <input type="checkbox" checked={autoReverse} onChange={(e) => setAutoReverse(e.target.checked)} />
-            {t("fx.reversesAutomaticallyReversingEntryOn")} {nextDay(toDate)})
-          </label>
+          <Checkbox
+            className="items-center"
+            checked={autoReverse}
+            onChange={(e) => setAutoReverse(e.target.checked)}
+            label={`${t("fx.reversesAutomaticallyReversingEntryOn")} ${nextDay(toDate)})`}
+          />
           <div className="flex-1" />
           <Button variant="primary" onClick={runPreview}>{t("fx.preview")}</Button>
           <Button onClick={runPost}>{t("fx.postRevaluation")}</Button>
@@ -120,7 +132,6 @@ export function FxRevaluationScreen() {
             <StatCard label={t("fx.reversalDate")} value={<span className="mz-num">{p.autoReverse ? p.reversalDate : "—"}</span>} />
           </div>
           <DocumentList<FxRevaluationDetailDTO>
-            eyebrow={t("eyebrow.accounting.fxRevaluation")}
             title=""
             columns={columns}
             rows={p.details}

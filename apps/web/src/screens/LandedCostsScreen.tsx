@@ -90,6 +90,11 @@ export function LandedCostsScreen() {
 
   const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
+  const [search, setSearch] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [methodFilter, setMethodFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [invoiceId, setInvoiceId] = useState("");
   const [method, setMethod] = useState<LandedCostDistributionMethodDTO>("BY_VALUE");
@@ -129,7 +134,18 @@ export function LandedCostsScreen() {
     return c;
   }, [documents]);
 
-  const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+  const filtered = useMemo(() => {
+    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+    if (warehouseFilter) rows = rows.filter((d) => d.lines.some((l) => l.warehouseId === warehouseFilter));
+    if (methodFilter) rows = rows.filter((d) => (d.lines[0]?.distributionMethod ?? "BY_VALUE") === methodFilter);
+    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
+    if (toDate) rows = rows.filter((d) => d.date <= toDate);
+    if (search.trim() !== "") {
+      const q = search.trim().toLowerCase();
+      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || d.lines.some((l) => (l.sourceInvoiceNumber ?? "").toLowerCase().includes(q)));
+    }
+    return rows;
+  }, [documents, statusFilter, warehouseFilter, methodFilter, fromDate, toDate, search]);
   const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
 
   const totalCost = costItems.reduce((s, c) => s + (c.amount || 0), 0);
@@ -245,7 +261,21 @@ export function LandedCostsScreen() {
 
   const columns: DocumentListColumn<(typeof documents)[number]>[] = [
     { key: "docNo", header: t("landedCosts.col.docNo"), render: (d) => <span className="mz-num font-semibold text-ink">{d.docNo ?? t("docStatus.draft")}</span> },
+    { key: "date", header: t("common.date"), render: (d) => <span className="mz-num">{d.date}</span> },
+    {
+      key: "warehouse",
+      header: t("common.warehouse"),
+      render: (d) => warehouses.find((w) => w.id === d.lines[0]?.warehouseId)?.name ?? "—",
+    },
     { key: "method", header: t("landedCosts.col.method"), render: (d) => t(METHOD_KEY[d.lines[0]?.distributionMethod ?? "BY_VALUE"]) },
+    {
+      key: "linkedInvoices",
+      header: t("landedCosts.col.linkedInvoices"),
+      render: (d) => {
+        const numbers = [...new Set(d.lines.map((l) => l.sourceInvoiceNumber).filter(Boolean))];
+        return <span className="mz-num">{numbers.length > 0 ? numbers.join("، ") : "—"}</span>;
+      },
+    },
     { key: "total", header: t("landedCosts.col.total"), align: "end", render: (d) => <MoneyDisplay value={d.lines.reduce((s, l) => s + num(l.allocatedAmount), 0)} /> },
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
@@ -261,7 +291,6 @@ export function LandedCostsScreen() {
         </Card>
       ) : null}
       <DocumentList<(typeof documents)[number]>
-        eyebrow={t("eyebrow.purchases.landedCosts")}
         title={t("landedCosts.title")}
         description={t("landedCosts.description")}
         actions={
@@ -277,6 +306,31 @@ export function LandedCostsScreen() {
         activeStatusKey={statusFilter}
         onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
         columns={columns}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("landedCosts.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            <SelectField
+              label={t("common.warehouse")}
+              value={warehouseFilter}
+              onChange={setWarehouseFilter}
+              options={[{ value: "", label: t("common.allWarehouses") }, ...warehouses.map((w) => ({ value: w.id, label: w.name }))]}
+            />
+            <SelectField
+              label={t("landedCosts.col.method")}
+              value={methodFilter}
+              onChange={setMethodFilter}
+              options={[
+                { value: "", label: t("landedCosts.allMethods") },
+                { value: "BY_VALUE", label: t(METHOD_KEY.BY_VALUE) },
+                { value: "BY_QUANTITY", label: t(METHOD_KEY.BY_QUANTITY) },
+              ]}
+            />
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}

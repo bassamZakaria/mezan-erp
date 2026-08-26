@@ -15,11 +15,20 @@ import {
   Qty as QtyDisplay,
 } from "@mezan/ui";
 import type { PurchaseOrderDTO, PurchaseOrderLineDTO, PurchaseOrderStatusDTO } from "@mezan/contracts";
-import { useConfirmPurchaseOrder, useCreatePurchaseOrder, useItems, usePurchaseOrders, useSuppliers } from "../data/hooks";
+import {
+  useBranches,
+  useConfirmPurchaseOrder,
+  useCreatePurchaseOrder,
+  useItems,
+  usePurchaseOrders,
+  useSuppliers,
+  useUsers,
+  useWarehouses,
+} from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { TextField, NumberField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { SelectField, TextField, NumberField } from "../settings/form-controls";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 const STATUS_KEY: Record<PurchaseOrderStatusDTO, AppTranslationKey> = {
@@ -153,10 +162,22 @@ export function PurchaseOrdersScreen() {
   const unitLabel = useUnitLabel();
   const itemOptions: EntityPickerOption[] = items.map((i) => ({ id: i.id, label: i.nameAr, sublabel: unitLabel(i.baseUnitCode) }));
 
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const users = useUsers().data ?? [];
+  const filterBranches = useBranches().data ?? [];
+  const filterWarehouses = useWarehouses().data ?? [];
+  const [branchFilter, setBranchFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const userName = (id: string) => users.find((u) => u.id === id)?.fullName ?? id;
+
   const [statusFilter, setStatusFilter] = useState<PurchaseOrderStatusDTO | "all">("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   useScreenIntent(() => openCreate());
   const [supplier, setSupplier] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
@@ -164,17 +185,22 @@ export function PurchaseOrdersScreen() {
   const [lines, setLines] = useState<DraftLine[]>([{ itemId: "", qty: 1, unitPrice: 0 }]);
   const [formError, setFormError] = useState<string | null>(null);
 
-  const selected = orders.find((o) => o.id === selectedId) ?? null;
+  const selected = selectedId === null ? null : (orders.find((o) => o.id === selectedId || o.number === selectedId) ?? null);
 
   const filtered = useMemo(() => {
     let rows = orders;
     if (statusFilter !== "all") rows = rows.filter((o) => o.status === statusFilter);
+    if (branchFilter) rows = rows.filter((o) => o.branchId === branchFilter);
+    if (warehouseFilter) rows = rows.filter((o) => o.warehouseId === warehouseFilter);
+    if (supplierFilter) rows = rows.filter((o) => o.supplierId === supplierFilter);
+    if (fromDate) rows = rows.filter((o) => o.date >= fromDate);
+    if (toDate) rows = rows.filter((o) => o.date <= toDate);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((o) => o.number.toLowerCase().includes(q) || supplierName(o.supplierId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [orders, statusFilter, search, supplierName]);
+  }, [orders, statusFilter, search, supplierName, branchFilter, warehouseFilter, supplierFilter, fromDate, toDate]);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: orders.length },
@@ -190,7 +216,13 @@ export function PurchaseOrdersScreen() {
     { key: "supplier", header: t("common.supplier"), render: (o) => supplierName(o.supplierId) },
     { key: "date", header: t("common.date"), render: (o) => <span className="mz-num">{o.date.split("-").reverse().join("/")}</span> },
     { key: "total", header: t("common.total"), align: "end", render: (o) => <MoneyValue value={num(o.subtotal)} /> },
+    {
+      key: "expected",
+      header: t("purchaseOrders.col.expected"),
+      render: (o) => <span className="mz-num">{o.expectedDeliveryDate ? o.expectedDeliveryDate.split("-").reverse().join("/") : "—"}</span>,
+    },
     { key: "status", header: t("common.status"), render: (o) => <StatusPill label={t(STATUS_KEY[o.status])} tone={STATUS_TONE[o.status]} /> },
+    { key: "createdBy", header: t("common.createdBy"), render: (o) => <span className="text-ink-muted">{userName(o.createdBy)}</span> },
   ];
 
   function openCreate() {
@@ -199,7 +231,7 @@ export function PurchaseOrdersScreen() {
     setNotes("");
     setLines([{ itemId: "", qty: 1, unitPrice: 0 }]);
     setFormError(null);
-    setPanelOpen(true);
+    subPage.open("new");
   }
 
   async function confirmSelected(id: string) {
@@ -233,7 +265,7 @@ export function PurchaseOrdersScreen() {
           .filter((l) => l.itemId !== "" && l.qty > 0)
           .map((l) => ({ itemId: l.itemId, qty: String(l.qty), unitPrice: String(l.unitPrice || 0) })),
       });
-      setPanelOpen(false);
+      subPage.close();
     } catch (err) {
       setFormError(err instanceof Error ? err.message : t("purchaseOrders.error.saveFailed"));
     }
@@ -281,7 +313,7 @@ export function PurchaseOrdersScreen() {
         <MoneyValue value={draftSubtotal} />
       </div>
       <div className="flex justify-end gap-[9px]">
-        <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
+        <Button onClick={() => subPage.close()}>{t("common.cancel")}</Button>
         <Button variant="primary" onClick={save} disabled={!canSave}>
           {t("purchaseOrders.saveDraft")}
         </Button>
@@ -289,17 +321,28 @@ export function PurchaseOrdersScreen() {
     </div>
   );
 
-  const panel = (
-    <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={t("purchaseOrders.panel.title")} description={t("purchaseOrders.panel.description")}>
+  const createPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.orders")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("purchaseOrders.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("purchaseOrders.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       {form}
-    </SidePanel>
+    </div>
   );
+
+  if (firstSegment === "new") return createPage;
 
   if (selected) {
     return (
       <>
-        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => setSelectedId(null)} onConfirm={() => confirmSelected(selected.id)} />
-        {panel}
+        <OrderDetail order={selected} supplierName={supplierName} itemName={itemName} onBack={() => subPage.close()} onConfirm={() => confirmSelected(selected.id)} />
       </>
     );
   }
@@ -315,7 +358,6 @@ export function PurchaseOrdersScreen() {
         </Card>
       ) : null}
       <DocumentList<PurchaseOrderDTO>
-        eyebrow={t("eyebrow.purchases.orders")}
         title={t("purchaseOrders.title")}
         description={t("purchaseOrders.description")}
         actions={
@@ -335,16 +377,39 @@ export function PurchaseOrdersScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("purchaseOrders.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
+            <SelectField
+              label={t("common.branch")}
+              value={branchFilter}
+              onChange={setBranchFilter}
+              options={[{ value: "", label: t("common.allBranches") }, ...filterBranches.map((b) => ({ value: b.id, label: b.name }))]}
+            />
+            <SelectField
+              label={t("common.warehouse")}
+              value={warehouseFilter}
+              onChange={setWarehouseFilter}
+              options={[{ value: "", label: t("common.allWarehouses") }, ...filterWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
+            />
+            <SelectField
+              label={t("common.supplier")}
+              value={supplierFilter}
+              onChange={setSupplierFilter}
+              options={[{ value: "", label: t("common.allSuppliers") }, ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr }))]}
+            />
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
-        onRowClick={(o) => setSelectedId(o.id)}
+        onRowClick={(o) => subPage.open(o.number ?? o.id)}
         page={1}
         pageCount={1}
         pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{orders.length}</span> {t("purchaseOrders.showingSuffix")}</>}
         emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseOrders.empty")}</div>}
       />
-      {panel}
     </>
   );
 }

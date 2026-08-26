@@ -7,6 +7,10 @@ export type ScreenIntent = "create";
 
 type NavigationValue = {
   navigate: (screen: ScreenKey, intent?: ScreenIntent) => void;
+  /** Sub-page segments under the active screen — `["new"]`, `["<id>"]`, `[]`. */
+  segments: readonly string[];
+  /** Replace the active screen's sub-page: `openSubPage(["new"])` → `#/sales/quotes/new`. */
+  openSubPage: (segments: readonly string[]) => void;
   intent: ScreenIntent | null;
   clearIntent: () => void;
   /**
@@ -27,6 +31,8 @@ const FALLBACK: NavigationValue = {
   navigate: (screen) => {
     if (import.meta.env.DEV) console.warn(`navigate(${screen}) called outside <NavigationProvider> — no-op`);
   },
+  segments: [],
+  openSubPage: () => {},
   intent: null,
   clearIntent: () => {},
 };
@@ -52,4 +58,22 @@ export function useScreenIntent(onIntent: (intent: ScreenIntent) => void): void 
     handler.current(intent);
     clearIntent();
   }, [intent, clearIntent]);
+}
+
+/**
+ * A screen's own sub-page state, addressed in the URL rather than held in
+ * component state: `segments` is what follows the screen's path, `open` pushes
+ * a new sub-page, `close` returns to the screen's index.
+ */
+export function useSubPage(): {
+  segments: readonly string[];
+  open: (...segments: string[]) => void;
+  close: () => void;
+} {
+  const { segments, openSubPage } = useNavigation();
+  return {
+    segments,
+    open: (...next: string[]) => openSubPage(next),
+    close: () => openSubPage([]),
+  };
 }

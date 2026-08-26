@@ -10,7 +10,7 @@ import {
 } from "@mezan/domain";
 
 /**
- * SQLite-backed store for Inventory Write-down Runs (docs/tasks.md Phase 4
+ * SQLite-backed store for Inventory Write-down Runs (docs/backlog.md Phase 4
  * "Aging-based inventory write-down batch"). Document-shaped, same modelling
  * as `fixed-assets-store.ts`'s `depreciation_run` table: per-position lines
  * serialized as a JSON text column, Money/Qty round-tripped as exact decimal

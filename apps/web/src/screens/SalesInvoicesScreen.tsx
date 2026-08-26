@@ -2,21 +2,22 @@ import { useEffect, useMemo, useState } from "react";
 import {
   Button,
   Card,
-  DocumentList,
   DocumentDetail,
-  Money as MoneyDisplay,
-  StatusPill,
-  SidePanel,
-  IconButton,
+  DocumentList,
   EntityPicker,
+  IconButton,
+  Money as MoneyDisplay,
   MoneyInput,
+  Qty as QtyDisplay,
   QtyInput,
+  Select,
+  StatusPill,
+  TextInput,
+  useFormat,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
   type EntityPickerOption,
-  useFormat,
-  Qty as QtyDisplay,
 } from "@mezan/ui";
 import {
   Money,
@@ -30,27 +31,35 @@ import {
 import type { SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
+  useBranches,
   useConfirmSalesInvoice,
   useCreateSalesInvoice,
   useCustomers,
   useEmployees,
   useItems,
+  useConvertSalesQuoteToInvoice,
+  useEtaSubmissions,
   useJournalEntry,
+  usePriceLists,
+  useSalesQuotes,
   useRecordSalesInvoicePayment,
   useSalesInvoices,
+  useSalesReturns,
   useWarehouses,
   type SalesInvoiceDTO,
   useTreasuryAccounts,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
+import { useAuditLog } from "../data/platform-hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { SelectField, NumberField } from "../settings/form-controls";
-import { useScreenIntent } from "../navigation";
+import { SelectField, NumberField, TextAreaField, TextField } from "../settings/form-controls";
+import { useScreenIntent, useSubPage } from "../navigation";
 import { salesInvoiceStatusLabel } from "../domain-labels";
+import { documentStatusLabel } from "../doc-status";
 import { useAppTranslation } from "../i18n";
 
 /** فواتير المبيعات (Sales Invoices) — docs/catalog/01-sales.md. List + detail (with the
- * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm SidePanel form with live
+ * "تأثيرات هذه الفاتورة" effects panel) + a create/confirm sub-page form with live
  * totals, wired to the real `/sales-invoices` API (numbering + GL + stock engines). */
 
 /** GL accounts a manually-created invoice falls back to when an item has none configured — leaves of the standard COA (packages/domain/src/accounts/coa-template.ts). */
@@ -76,6 +85,13 @@ function toMajor(v: string): number {
   return Number(v);
 }
 
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/** The list's own status axis: the stored statuses plus the derived مفتوحة / متأخرة. */
+type InvoiceFilterKey = "all" | "open" | "overdue" | SalesInvoiceStatusDTO;
+
 function isOverdue(inv: { status: SalesInvoiceStatusDTO; dueDate: string }, today: string): boolean {
   return (inv.status === "confirmed" || inv.status === "partially_paid") && inv.dueDate < today;
 }
@@ -98,19 +114,22 @@ function blankLine(): InvoiceLineDraft {
   return { key: `l${lineSeq}`, itemId: "", qty: 1, unitPrice: null, discountPercent: 0 };
 }
 
-function CreateInvoicePanel({
-  open,
-  onClose,
-}: {
-  open: boolean;
-  onClose: () => void;
-}) {
+/**
+ * فاتورة مبيعات جديدة — a sub-PAGE at `#/sales/sales-invoices/new`, not a side
+ * panel: a create form is a place you can be, link to and come back to with the
+ * browser's Back button.
+ */
+function CreateInvoicePage({ onClose }: { onClose: () => void }) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees();
   const itemsQuery = useItems();
   const warehousesQuery = useWarehouses();
+  const branchesQuery = useBranches();
+  const priceListsQuery = usePriceLists();
+  const quotesQuery = useSalesQuotes();
+  const convertQuote = useConvertSalesQuoteToInvoice();
   const createInvoice = useCreateSalesInvoice();
   const confirmInvoice = useConfirmSalesInvoice();
   const unitLabel = useUnitLabel();
@@ -120,12 +139,23 @@ function CreateInvoicePanel({
   const employees = employeesQuery.data ?? [];
   const items = itemsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+  const priceLists = priceListsQuery.data ?? [];
 
   const today = new Date().toISOString().slice(0, 10);
   const [customer, setCustomer] = useState<EntityPickerOption | null>(null);
   const [date, setDate] = useState(today);
   const [dueDate, setDueDate] = useState(today);
   const [warehouseId, setWarehouseId] = useState("");
+  const [branchId, setBranchId] = useState("");
+  const [currency, setCurrency] = useState("EGP");
+  const [notes, setNotes] = useState("");
+  const [internalNotes, setInternalNotes] = useState("");
+  /** Whether the user edited the due date by hand — an untouched one keeps tracking the customer's terms. */
+  const [dueDateTouched, setDueDateTouched] = useState(false);
+  /** "إنشاء فاتورة جديدة" vs "إنشاء من عرض سعر" — the reference's own two creation methods. */
+  const [method, setMethod] = useState<"manual" | "fromQuote">("manual");
+  const [sourceQuoteId, setSourceQuoteId] = useState("");
   const [salesperson, setSalesperson] = useState<EntityPickerOption | null>(null);
   const [couponCode, setCouponCode] = useState("");
   const [discountType, setDiscountType] = useState<SalesInvoiceDiscountType>("amount");
@@ -138,7 +168,12 @@ function CreateInvoicePanel({
     setCustomer(null);
     setDate(today);
     setDueDate(today);
-    setWarehouseId(warehouses[0]?.id ?? "");
+    setWarehouseId(workingLocation.warehouseId ?? warehouses[0]?.id ?? "");
+    setBranchId(workingLocation.branchId ?? branches.find((b) => b.isMain)?.id ?? "");
+    setCurrency("EGP");
+    setNotes("");
+    setInternalNotes("");
+    setDueDateTouched(false);
     setSalesperson(null);
     setCouponCode("");
     setDiscountType("amount");
@@ -148,8 +183,61 @@ function CreateInvoicePanel({
   }
 
   useEffect(() => {
-    if (open) resetForm();
-  }, [open, warehouses]);
+    resetForm();
+    // Re-seed the defaults once the branch/warehouse lists arrive.
+  }, [warehouses, branches]);
+
+  const customerRecord = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
+
+  // تاريخ الاستحقاق follows the customer's payment terms — the reference computes
+  // it the moment a customer is chosen and lets the user override it.
+  useEffect(() => {
+    if (dueDateTouched || !customerRecord) return;
+    const due = new Date(date);
+    due.setDate(due.getDate() + (customerRecord.paymentTermsDays ?? 0));
+    setDueDate(due.toISOString().slice(0, 10));
+  }, [customerRecord, date, dueDateTouched]);
+
+  const acceptedQuotes = (quotesQuery.data ?? []).filter((q) => q.status === "accepted");
+
+  async function convertSelectedQuote() {
+    const quote = acceptedQuotes.find((q) => q.id === sourceQuoteId);
+    if (!quote) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await convertQuote.mutateAsync({
+        id: quote.id,
+        body: {
+          dueDate,
+          warehouseId,
+          arAccountId: AR_ACCOUNT_ID,
+          taxAccountId: TAX_ACCOUNT_ID,
+          lines: quote.lines.map((l) => {
+            const item = items.find((i) => i.id === l.itemId);
+            const isStock = item?.type === "stock";
+            return {
+              lineId: l.lineId,
+              isStock,
+              revenueAccountId: item?.revenueAccountId ?? REVENUE_ACCOUNT_ID,
+              cogsAccountId: isStock ? (item?.cogsAccountId ?? COGS_ACCOUNT_ID) : null,
+              inventoryAccountId: isStock ? (item?.inventoryAccountId ?? INVENTORY_ACCOUNT_ID) : null,
+            };
+          }),
+        },
+      });
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("salesInvoices.error.saveFailed"));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const priceList = useMemo(() => {
+    if (customerRecord?.priceListId) return priceLists.find((p) => p.id === customerRecord.priceListId) ?? null;
+    return priceLists.find((p) => p.isBase && p.active) ?? null;
+  }, [customerRecord, priceLists]);
 
   const customerOptions = useMemo<EntityPickerOption[]>(
     () => customers.filter((c) => c.active).map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code })),
@@ -167,7 +255,7 @@ function CreateInvoicePanel({
     [employees],
   );
   const itemOptions = useMemo<EntityPickerOption[]>(
-    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${i.salePrice ?? "0"} ${format.currencyLabel}` })),
+    () => items.filter((i) => i.status === "active").map((i) => ({ id: i.id, label: i.nameAr, sublabel: `${i.code} · ${format.money(Number(i.salePrice ?? "0"))} ${format.currencyLabel}` })),
     [items],
   );
 
@@ -239,11 +327,13 @@ function CreateInvoicePanel({
         customerNameAr: customerData.nameAr,
         customerTaxExempt: customerData.taxExempt,
         warehouseId,
-        branchId: workingLocation.branchId ?? "",
+        branchId: branchId || workingLocation.branchId || "",
         salespersonId: salesperson?.id ?? null,
         salespersonNameAr: salesperson?.label ?? null,
         couponCode: couponCode.trim() === "" ? null : couponCode.trim(),
-        currency: customerData.currency,
+        currency,
+        notes: notes.trim() === "" ? null : notes.trim(),
+        internalNotes: internalNotes.trim() === "" ? null : internalNotes.trim(),
         discount: discount.type === "percent" ? { type: "percent", percent: discount.percent } : { type: "amount", amount: discount.amount.toString() },
         arAccountId: AR_ACCOUNT_ID,
         taxAccountId: TAX_ACCOUNT_ID,
@@ -272,8 +362,66 @@ function CreateInvoicePanel({
   }
 
   return (
-    <SidePanel open={open} onClose={onClose} title={t("salesInvoices.panel.title")} description={t("salesInvoices.panel.description")}>
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.sales.invoices")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("salesInvoices.panel.title")}</h1>
+          <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesInvoices.panel.description")}</p>
+        </div>
+        <Button variant="default" onClick={onClose}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
       <div className="flex flex-col gap-[16px]">
+        <div className="rounded-lg border border-border p-[14px_16px]">
+          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.method.title")}</h3>
+          <div className="grid gap-[10px] sm:grid-cols-2">
+            {(["manual", "fromQuote"] as const).map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMethod(value)}
+                aria-pressed={method === value}
+                className={
+                  method === value
+                    ? "rounded-lg border border-brand bg-brand-soft p-[12px] text-start"
+                    : "rounded-lg border border-border p-[12px] text-start hover:border-brand"
+                }
+              >
+                <span className="block font-display text-[13px] font-bold text-ink">
+                  {value === "manual" ? t("salesInvoices.method.manual") : t("salesInvoices.method.fromQuote")}
+                </span>
+                <span className="block text-[12px] text-ink-muted">
+                  {value === "manual" ? t("salesInvoices.method.manualHint") : t("salesInvoices.method.fromQuoteHint")}
+                </span>
+              </button>
+            ))}
+          </div>
+          {method === "fromQuote" ? (
+            <div className="mt-[12px] flex flex-col gap-[10px]">
+              {acceptedQuotes.length === 0 ? (
+                <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.method.noAcceptedQuotes")}</p>
+              ) : (
+                <>
+                  <SelectField
+                    label={t("salesInvoices.method.chooseQuote")}
+                    value={sourceQuoteId}
+                    onChange={setSourceQuoteId}
+                    options={[
+                      { value: "", label: t("salesInvoices.method.chooseQuote") },
+                      ...acceptedQuotes.map((q) => ({ value: q.id, label: `${q.docNo ?? q.id} — ${q.customerNameAr}` })),
+                    ]}
+                  />
+                  <Button variant="primary" disabled={sourceQuoteId === "" || warehouseId === "" || busy} onClick={convertSelectedQuote}>
+                    {t("salesInvoices.method.convert")}
+                  </Button>
+                </>
+              )}
+            </div>
+          ) : null}
+        </div>
+
         {error ? (
           <div role="alert" className="rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
             {error}
@@ -285,30 +433,49 @@ function CreateInvoicePanel({
         <div className="grid grid-cols-2 gap-[10px]">
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.date")}</span>
-            <input
-              type="text"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="mz-num w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
-            />
+            <TextInput numeric type="date" value={date} onChange={(e) => setDate(e.target.value)} />
           </label>
           <label className="flex flex-col gap-[6px]">
             <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.dueDate")}</span>
-            <input
-              type="text"
+            <TextInput
+              numeric
+              type="date"
               value={dueDate}
-              onChange={(e) => setDueDate(e.target.value)}
-              className="mz-num w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
+              onChange={(e) => {
+                setDueDateTouched(true);
+                setDueDate(e.target.value);
+              }}
             />
+            <span className="text-xs text-ink-muted">{t("salesInvoices.field.dueDateHint")}</span>
           </label>
         </div>
 
-        <SelectField
-          label={t("salesInvoices.field.warehouse")}
-          value={warehouseId}
-          onChange={setWarehouseId}
-          options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
-        />
+        <div className="grid gap-[10px] sm:grid-cols-2">
+          <SelectField
+            label={t("salesInvoices.field.branch")}
+            value={branchId}
+            onChange={setBranchId}
+            options={[
+              { value: "", label: t("salesInvoices.field.chooseBranch") },
+              ...branches.filter((b) => b.active).map((b) => ({ value: b.id, label: `${b.name} · ${b.code}` })),
+            ]}
+          />
+          <SelectField
+            label={t("salesInvoices.field.warehouse")}
+            value={warehouseId}
+            onChange={setWarehouseId}
+            options={warehouses.map((w) => ({ value: w.id, label: w.name }))}
+          />
+          <SelectField
+            label={t("salesInvoices.field.currency")}
+            value={currency}
+            onChange={setCurrency}
+            options={[
+              { value: "EGP", label: t("quotes.field.baseCurrency") },
+              ...(customerRecord && customerRecord.currency !== "EGP" ? [{ value: customerRecord.currency, label: customerRecord.currency }] : []),
+            ]}
+          />
+        </div>
 
         <EntityPicker
           id="invoice-salesperson-picker"
@@ -321,12 +488,10 @@ function CreateInvoicePanel({
 
         <label className="flex flex-col gap-[6px]">
           <span className="text-[12.5px] font-semibold text-ink">{t("salesInvoices.field.coupon")}</span>
-          <input
-            type="text"
+          <TextInput
             value={couponCode}
             onChange={(e) => setCouponCode(e.target.value)}
             placeholder={t("salesInvoices.field.couponPlaceholder")}
-            className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand"
           />
           <span className="text-xs text-ink-muted">{t("salesInvoices.field.couponHint")}</span>
         </label>
@@ -424,9 +589,23 @@ function CreateInvoicePanel({
           />
         </div>
 
+        <div className="grid gap-[10px] sm:grid-cols-2">
+          <TextAreaField label={t("salesInvoices.field.notes")} value={notes} onChange={setNotes} />
+          <TextAreaField
+            label={t("salesInvoices.field.internalNotes")}
+            hint={t("salesInvoices.field.internalNotesHint")}
+            value={internalNotes}
+            onChange={setInternalNotes}
+          />
+        </div>
+
         <div className="rounded-lg border border-border bg-surface-2 p-[14px_16px]">
-          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.totalsHeading")}</h3>
+          <h3 className="mb-[10px] font-display text-[13.5px] font-bold text-ink">{t("salesInvoices.summary.title")}</h3>
           <dl className="flex flex-col gap-[7px] text-[13px]">
+            <div className="flex items-center justify-between">
+              <dt className="text-ink-muted">{t("salesInvoices.summary.priceList")}</dt>
+              <dd className="font-semibold text-ink">{priceList?.nameAr ?? t("salesInvoices.summary.noPriceList")}</dd>
+            </div>
             <div className="flex items-center justify-between">
               <dt className="text-ink-muted">{t("salesInvoices.subtotal")}</dt>
               <dd>
@@ -464,7 +643,7 @@ function CreateInvoicePanel({
           </Button>
         </div>
       </div>
-    </SidePanel>
+    </div>
   );
 }
 
@@ -487,9 +666,35 @@ function InvoiceDetailView({
   const warehousesQuery = useWarehouses();
   const journalEntryQuery = useJournalEntry(invoice.journalEntryId);
   const recordPayment = useRecordSalesInvoicePayment();
+  const branchesQuery = useBranches();
+  const returnsQuery = useSalesReturns();
+  const etaQuery = useEtaSubmissions();
+  const auditQuery = useAuditLog({ entityType: "SALES_INVOICE", limit: 100 });
 
   const accounts = accountsQuery.data ?? [];
   const warehouses = warehousesQuery.data ?? [];
+  const branches = branchesQuery.data ?? [];
+
+  /** Returns raised against THIS invoice — the reference shows them on the invoice itself. */
+  const invoiceReturns = (returnsQuery.data ?? []).filter((r) => r.lines.some((l: { sourceInvoiceId: string }) => l.sourceInvoiceId === invoice.id));
+  const etaRows = (etaQuery.data ?? []).filter((e: { internalId: string }) => e.internalId === invoice.docNo || e.internalId === invoice.id);
+  const auditRows = (auditQuery.data?.events ?? []).filter((e: { details: unknown }) => {
+    const d = e.details as Record<string, unknown> | null;
+    return d ? d.id === invoice.id || d.docNo === invoice.docNo : false;
+  });
+
+  /**
+   * تكلفة/ربح/هامش — the reference reports margin on the invoice, and every
+   * figure it needs is already on the wire: each line carries the `unitCost`
+   * the confirm consumed.
+   */
+  const margin = useMemo(() => {
+    let cost = 0;
+    for (const l of invoice.lines) cost += Number(l.unitCost ?? "0") * Number(l.qty);
+    const net = toMajor(invoice.totals.taxableTotal ?? invoice.totals.subtotal);
+    const profit = net - cost;
+    return { cost, profit, marginPct: net === 0 ? 0 : (profit / net) * 100 };
+  }, [invoice]);
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
@@ -588,6 +793,7 @@ function InvoiceDetailView({
         { label: t("common.customer"), value: invoice.customerNameAr },
         { label: t("salesInvoices.col.dueDate"), value: <span className="mz-num">{invoice.dueDate}</span>, valueTone: overdue ? "danger" : "default" },
         { label: t("common.warehouse"), value: warehouses.find((w) => w.id === invoice.warehouseId)?.name ?? invoice.warehouseId },
+        { label: t("salesInvoices.detail.branch"), value: branches.find((b) => b.id === invoice.branchId)?.name ?? invoice.branchId },
         { label: t("salesInvoices.detail.salesperson"), value: invoice.salespersonNameAr ?? t("salesInvoices.detail.unassigned") },
         ...(invoice.appliedPromotion
           ? [
@@ -618,6 +824,8 @@ function InvoiceDetailView({
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.price")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.field.discountPct")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.tax")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.detail.cost")}</th>
+                      <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("salesInvoices.detail.profit")}</th>
                       <th scope="col" className="border-b border-border bg-surface-2 px-[15px] py-[10px] text-end text-[11px] font-bold uppercase text-ink-muted">{t("common.total")}</th>
                     </tr>
                   </thead>
@@ -631,6 +839,16 @@ function InvoiceDetailView({
                           <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(l.unitPrice)} /></td>
                           <td className="mz-num px-[15px] py-[11px] text-end">{l.discountPercent}</td>
                           <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.tax.toString())} /> : "—"}</td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            {l.unitCost ? <MoneyDisplay value={toMajor(l.unitCost) * Number(l.qty)} /> : "—"}
+                          </td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            {l.unitCost && lt ? (
+                              <MoneyDisplay value={toMajor(lt.taxableBase.toString()) - toMajor(l.unitCost) * Number(l.qty)} />
+                            ) : (
+                              "—"
+                            )}
+                          </td>
                           <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.total.toString())} /> : "—"}</td>
                         </tr>
                       );
@@ -638,9 +856,35 @@ function InvoiceDetailView({
                   </tbody>
                   <tfoot>
                     <tr className="bg-surface-2 font-bold">
-                      <td className="px-[15px] py-[11px]" colSpan={5}>{t("salesInvoices.grandTotal")}</td>
+                      <td className="px-[15px] py-[11px]" colSpan={7}>{t("salesInvoices.grandTotal")}</td>
                       <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
+                    <tr className="text-ink-muted">
+                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.totalCost")}</td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.cost} /></td>
+                    </tr>
+                    <tr className="text-ink-muted">
+                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.totalProfit")}</td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.profit} /></td>
+                    </tr>
+                    <tr className="text-ink-muted">
+                      <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.grossMargin")}</td>
+                      <td className="mz-num px-[15px] py-[9px] text-end">{format.number(Math.round(margin.marginPct * 10) / 10)}%</td>
+                    </tr>
+                    {toMajor(invoice.returnedCredit) > 0 ? (
+                      <>
+                        <tr className="text-danger">
+                          <td className="px-[15px] py-[9px]" colSpan={7}>{t("salesInvoices.detail.returnsDeduction")}</td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={-toMajor(invoice.returnedCredit)} /></td>
+                        </tr>
+                        <tr className="bg-surface-2 font-bold">
+                          <td className="px-[15px] py-[11px]" colSpan={7}>{t("salesInvoices.detail.netAfterReturns")}</td>
+                          <td className="px-[15px] py-[11px] text-end">
+                            <MoneyDisplay value={toMajor(invoice.totals.grandTotal) - toMajor(invoice.returnedCredit)} />
+                          </td>
+                        </tr>
+                      </>
+                    ) : null}
                   </tfoot>
                 </table>
               </div>
@@ -752,6 +996,72 @@ function InvoiceDetailView({
             </div>
           ),
         },
+        {
+          key: "returns",
+          label: t("salesInvoices.tab.returns"),
+          content: (
+            <Card className="p-[16px_18px]">
+              {invoiceReturns.length === 0 ? (
+                <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.returns.empty")}</p>
+              ) : (
+                <ul className="flex flex-col gap-[8px] text-[12.5px]">
+                  {invoiceReturns.map((r) => (
+                    <li key={r.id} className="flex items-center justify-between rounded-md border border-border px-[12px] py-[9px]">
+                      <span className="mz-num font-semibold text-ink">{r.docNo ?? r.id}</span>
+                      <span className="text-ink-muted">
+                        <span className="mz-num">{r.date}</span> · {documentStatusLabel(r.status, t)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          ),
+        },
+        {
+          key: "eta",
+          label: t("salesInvoices.tab.eta"),
+          content: (
+            <Card className="p-[16px_18px]">
+              {etaRows.length === 0 ? (
+                <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.eta.empty")}</p>
+              ) : (
+                <ul className="flex flex-col gap-[8px] text-[12.5px]">
+                  {etaRows.map((e) => (
+                    <li key={e.id} className="flex items-center justify-between rounded-md border border-border px-[12px] py-[9px]">
+                      <span className="font-semibold text-ink">{e.status}</span>
+                      <span className="text-ink-muted">
+                        {e.etaUuid ?? "—"} · <span className="mz-num">{format.dateTime(e.updatedAt)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          ),
+        },
+        {
+          key: "audit",
+          label: t("salesInvoices.tab.audit"),
+          content: (
+            <Card className="p-[16px_18px]">
+              {auditRows.length === 0 ? (
+                <p className="text-[12.5px] text-ink-muted">{t("salesInvoices.audit.empty")}</p>
+              ) : (
+                <ul className="flex flex-col gap-[8px] text-[12.5px]">
+                  {auditRows.map((row, i) => (
+                    <li key={i} className="flex items-center justify-between rounded-md border border-border px-[12px] py-[9px]">
+                      <span className="text-ink">{row.action}</span>
+                      <span className="text-ink-muted">
+                        {row.actor} · <span className="mz-num">{format.dateTime(row.timestamp)}</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
+          ),
+        },
       ]}
     />
   );
@@ -765,20 +1075,37 @@ export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
   const query = useSalesInvoices();
   const invoices = query.data ?? [];
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<"all" | SalesInvoiceStatusDTO>("all");
+  const [statusFilter, setStatusFilter] = useState<InvoiceFilterKey>("all");
   const [search, setSearch] = useState("");
-  const [panelOpen, setPanelOpen] = useState(false);
-  useScreenIntent(() => setPanelOpen(true));
+  const [branchFilter, setBranchFilter] = useState("");
+  const [warehouseFilter, setWarehouseFilter] = useState("");
+  const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const listBranches = useBranches().data ?? [];
+  const listWarehouses = useWarehouses().data ?? [];
+  const listCustomers = useCustomers().data ?? [];
+  // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
+  const subPage = useSubPage();
+  useScreenIntent(() => subPage.open("new"));
 
   const today = new Date().toISOString().slice(0, 10);
-  const selected = selectedId ? (invoices.find((inv) => inv.id === selectedId) ?? null) : null;
+  const [firstSegment] = subPage.segments;
+  const selected =
+    firstSegment !== undefined && firstSegment !== "new"
+      ? (invoices.find((inv) => inv.id === firstSegment || inv.docNo === firstSegment) ?? null)
+      : null;
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { all: invoices.length };
+    const c: Record<string, number> = { all: invoices.length, open: 0, overdue: 0 };
     for (const s of LIST_STATUSES) c[s] = 0;
     for (const inv of invoices) {
       if (c[inv.status] !== undefined) c[inv.status] = (c[inv.status] ?? 0) + 1;
+      // مفتوحة = confirmed or partially paid with something still owed.
+      if ((inv.status === "confirmed" || inv.status === "partially_paid") && toMajor(inv.remainingBalance) > 0) c.open = (c.open ?? 0) + 1;
+      if (isOverdue(inv, todayIso())) c.overdue = (c.overdue ?? 0) + 1;
     }
     return c;
   }, [invoices]);
@@ -786,28 +1113,48 @@ export function SalesInvoicesScreen() {
   const kpi = useMemo(() => {
     let sales = 0;
     let collected = 0;
+    let returned = 0;
     let remaining = 0;
     for (const inv of invoices) {
       if (inv.status === "draft" || inv.status === "cancelled") continue;
       sales += toMajor(inv.totals.grandTotal);
       collected += toMajor(inv.amountPaid);
+      returned += toMajor(inv.returnedCredit ?? "0");
       remaining += toMajor(inv.remainingBalance);
     }
-    return { sales, collected, remaining };
+    return { sales, collected, returned, remaining };
   }, [invoices]);
 
   const filtered = useMemo(() => {
+    const now = todayIso();
     let rows = invoices;
-    if (statusFilter !== "all") rows = rows.filter((inv) => inv.status === statusFilter);
+    if (statusFilter === "open") {
+      rows = rows.filter((inv) => (inv.status === "confirmed" || inv.status === "partially_paid") && toMajor(inv.remainingBalance) > 0);
+    } else if (statusFilter === "overdue") {
+      rows = rows.filter((inv) => isOverdue(inv, now));
+    } else if (statusFilter !== "all") {
+      rows = rows.filter((inv) => inv.status === statusFilter);
+    }
+    if (branchFilter) rows = rows.filter((inv) => inv.branchId === branchFilter);
+    if (warehouseFilter) rows = rows.filter((inv) => inv.warehouseId === warehouseFilter);
+    if (customerFilter) rows = rows.filter((inv) => inv.customerId === customerFilter.id);
+    if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
+    if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
     if (search.trim() !== "") {
       const q = search.trim();
       rows = rows.filter((inv) => (inv.docNo ?? "").toLowerCase().includes(q.toLowerCase()) || inv.customerNameAr.includes(q));
     }
     return rows;
-  }, [invoices, statusFilter, search]);
+  }, [invoices, statusFilter, search, branchFilter, warehouseFilter, customerFilter, fromDate, toDate]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: counts.all ?? 0 },
+    { key: "open", label: t("salesInvoices.status.open"), count: counts.open ?? 0 },
+    { key: "overdue", label: t("salesInvoices.status.overdue"), count: counts.overdue ?? 0 },
     ...LIST_STATUSES.map((s) => ({ key: s, label: salesInvoiceStatusLabel(s, t), count: counts[s] ?? 0 })),
   ];
 
@@ -831,7 +1178,14 @@ export function SalesInvoicesScreen() {
       render: (inv) => (
         <div className="flex items-center gap-[8px]">
           <span className="mz-num text-ink-muted">{inv.dueDate}</span>
-          {isOverdue(inv, today) ? <StatusPill label={t("salesInvoices.overdueShort")} tone="danger" /> : null}
+          {isOverdue(inv, today) ? (
+            <StatusPill
+              label={t("salesInvoices.overdueBy", {
+                days: Math.max(0, Math.floor((new Date(today).getTime() - new Date(inv.dueDate).getTime()) / 86_400_000)),
+              })}
+              tone="danger"
+            />
+          ) : null}
         </div>
       ),
     },
@@ -839,7 +1193,28 @@ export function SalesInvoicesScreen() {
       key: "remaining",
       header: t("salesInvoices.col.remaining"),
       align: "end",
-      render: (inv) => <MoneyDisplay value={toMajor(inv.remainingBalance)} />,
+      render: (inv) => {
+        const grand = toMajor(inv.totals.grandTotal);
+        const paid = toMajor(inv.amountPaid);
+        const returned = toMajor(inv.returnedCredit);
+        const left = toMajor(inv.remainingBalance);
+        return (
+          <div className="flex flex-col items-end gap-[3px]">
+            <MoneyDisplay value={left} />
+            {returned > 0 ? (
+              <span className="text-[11px] text-danger">
+                − <MoneyDisplay value={returned} />
+              </span>
+            ) : null}
+            {paid > 0 ? (
+              <span className="text-[11px] text-success-ink">
+                <MoneyDisplay value={paid} /> {t("salesInvoices.payments.collected")}
+              </span>
+            ) : null}
+            {left <= 0 && grand > 0 ? <span className="text-[11px] text-success-ink">{t("salesInvoices.fullySettled")}</span> : null}
+          </div>
+        );
+      },
       total: (rows) => <MoneyDisplay value={rows.reduce((sum, inv) => sum + toMajor(inv.remainingBalance), 0)} />,
     },
     {
@@ -849,10 +1224,12 @@ export function SalesInvoicesScreen() {
     },
   ];
 
+  if (firstSegment === "new") return <CreateInvoicePage onClose={subPage.close} />;
+
   return (
     <>
       {selected ? (
-        <InvoiceDetailView invoice={selected} today={today} onBack={() => setSelectedId(null)} />
+        <InvoiceDetailView invoice={selected} today={today} onBack={subPage.close} />
       ) : (
         <div className="w-full">
           {query.isError ? (
@@ -863,44 +1240,120 @@ export function SalesInvoicesScreen() {
               </Button>
             </Card>
           ) : null}
+          {(counts.overdue ?? 0) > 0 ? (
+            <Card className="mb-[14px] flex flex-wrap items-center justify-between gap-[12px] border-s-[3px] border-s-danger p-[14px_18px]">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-danger">{t("salesInvoices.followUp.title")}</div>
+                <p className="mt-[4px] text-[12.5px] text-ink-muted">{t("salesInvoices.followUp.body", { count: counts.overdue ?? 0 })}</p>
+              </div>
+              <Button size="sm" onClick={() => { setStatusFilter("overdue"); setPage(1); }}>
+                {t("salesInvoices.followUp.action")}
+              </Button>
+            </Card>
+          ) : null}
+          {(counts.partially_paid ?? 0) > 0 ? (
+            <Card className="mb-[14px] flex items-center gap-[12px] p-[12px_18px]">
+              <span className="mz-num font-display text-[19px] font-bold text-ink">{counts.partially_paid}</span>
+              <span className="text-[12.5px] text-ink-muted">{t("salesInvoices.partiallyPaidCard")}</span>
+            </Card>
+          ) : null}
           <DocumentList<SalesInvoiceDTO>
-            eyebrow={t("eyebrow.sales.invoices")}
             title={t("salesInvoices.title")}
             description={t("salesInvoices.description")}
             actions={
-              <Button variant="primary" onClick={() => setPanelOpen(true)}>
+              <Button variant="primary" onClick={() => subPage.open("new")}>
                 {t("salesInvoices.new")}
               </Button>
             }
             stats={[
-              { label: t("salesInvoices.stat.total"), value: <span className="mz-num">{invoices.length}</span> },
               { label: t("salesInvoices.stat.sales"), value: <MoneyDisplay value={kpi.sales} /> },
               { label: t("salesInvoices.stat.collected"), value: <MoneyDisplay value={kpi.collected} /> },
+              { label: t("salesInvoices.stat.returned"), value: <MoneyDisplay value={kpi.returned} /> },
               { label: t("salesInvoices.stat.remaining"), value: <MoneyDisplay value={kpi.remaining} />, valueTone: kpi.remaining > 0 ? "danger" : "default" },
             ]}
             statusChips={statusChips}
             activeStatusKey={statusFilter}
-            onStatusChange={(key) => setStatusFilter(key as "all" | SalesInvoiceStatusDTO)}
+            onStatusChange={(key) => {
+              setStatusFilter(key as InvoiceFilterKey);
+              setPage(1);
+            }}
             searchValue={search}
-            onSearchChange={setSearch}
+            onSearchChange={(v) => {
+              setSearch(v);
+              setPage(1);
+            }}
             searchPlaceholder={t("salesInvoices.searchPlaceholder")}
+            filterBarExtra={
+              <div className="grid w-full gap-2 sm:grid-cols-2 lg:grid-cols-5">
+                <SelectField
+                  label={t("salesInvoices.filter.branch")}
+                  value={branchFilter}
+                  onChange={(v) => { setBranchFilter(v); setPage(1); }}
+                  options={[{ value: "", label: t("salesInvoices.filter.allBranches") }, ...listBranches.map((b) => ({ value: b.id, label: b.name }))]}
+                />
+                <SelectField
+                  label={t("salesInvoices.filter.warehouse")}
+                  value={warehouseFilter}
+                  onChange={(v) => { setWarehouseFilter(v); setPage(1); }}
+                  options={[{ value: "", label: t("salesInvoices.filter.allWarehouses") }, ...listWarehouses.map((w) => ({ value: w.id, label: w.name }))]}
+                />
+                <EntityPicker
+                  id="invoices-filter-customer"
+                  label={t("salesInvoices.filter.customer")}
+                  value={customerFilter}
+                  onChange={(opt) => { setCustomerFilter(opt); setPage(1); }}
+                  options={listCustomers.map((c) => ({ id: c.id, label: c.nameAr, sublabel: c.code }))}
+                  placeholder={t("salesInvoices.filter.anyCustomer")}
+                />
+                <TextField label={t("salesInvoices.filter.from")} value={fromDate} onChange={setFromDate} type="date" />
+                <TextField label={t("salesInvoices.filter.to")} value={toDate} onChange={setToDate} type="date" />
+              </div>
+            }
             columns={columns}
-            rows={filtered}
+            rows={pageRows}
             rowKey={(inv) => inv.id}
-            onRowClick={(inv) => setSelectedId(inv.id)}
-            page={1}
-            pageCount={1}
+            onRowClick={(inv) => subPage.open(inv.docNo ?? inv.id)}
+            rowAction={(inv) => (
+              <div className="flex items-center gap-2">
+                {toMajor(inv.remainingBalance) > 0 && (inv.status === "confirmed" || inv.status === "partially_paid") ? (
+                  <Button size="sm" variant="default" onClick={() => subPage.open(inv.docNo ?? inv.id)}>
+                    {t("salesInvoices.collect")}
+                  </Button>
+                ) : null}
+                <Button size="sm" variant="ghost" onClick={() => subPage.open(inv.docNo ?? inv.id)}>
+                  {t("common.show")}
+                </Button>
+              </div>
+            )}
+            page={currentPage}
+            pageCount={pageCount}
+            onPageChange={setPage}
             pageSummary={
-              <>
-                {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{invoices.length}</span> {t("salesInvoices.showingSuffix")}
-              </>
+              <span className="flex flex-wrap items-center gap-[10px]">
+                <span>
+                  {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
+                  <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
+                </span>
+                <span className="flex items-center gap-[6px] text-[12px] text-ink-muted">
+                  {t("salesInvoices.rowsPerPage")}
+                  <Select
+                    aria-label={t("salesInvoices.rowsPerPage")}
+                    size="sm"
+                    value={String(pageSize)}
+                    onChange={(v) => {
+                      setPageSize(Number(v));
+                      setPage(1);
+                    }}
+                    options={[10, 25, 50, 100].map((n) => ({ value: String(n), label: String(n) }))}
+                  />
+                </span>
+              </span>
             }
             emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesInvoices.empty")}</div>}
           />
         </div>
       )}
 
-      <CreateInvoicePanel open={panelOpen} onClose={() => setPanelOpen(false)} />
     </>
   );
 }

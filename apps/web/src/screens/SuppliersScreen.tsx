@@ -13,7 +13,16 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { PurchaseInvoiceStatusDTO, SupplierDTO } from "@mezan/contracts";
-import { useCreateSupplier, useOpenInvoices, usePurchaseInvoices, useSuppliers, useUpdateSupplier, useVouchers } from "../data/hooks";
+import {
+  useCheques,
+  useCreateSupplier,
+  useOpenInvoices,
+  usePurchaseInvoices,
+  usePurchaseReturns,
+  useSuppliers,
+  useUpdateSupplier,
+  useVouchers,
+} from "../data/hooks";
 import {
   MONEY_RECONCILIATION_TOLERANCE,
   agingBucketsFor,
@@ -26,6 +35,7 @@ import {
   useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, ToggleField } from "../settings/form-controls";
+import { supplierPayableById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -588,6 +598,18 @@ export function SuppliersScreen() {
   const createSupplier = useCreateSupplier();
   const updateSupplier = useUpdateSupplier();
   const suppliers = query.data ?? [];
+  // The payable a supplier list must answer is the LIVE one: opening balance plus
+  // confirmed invoices, less payments and returns. Reporting the opening figure
+  // left every row at 0.00 against 150,867.60 of confirmed invoices (D39).
+  const purchaseInvoices = usePurchaseInvoices().data ?? [];
+  const vouchers = useVouchers().data ?? [];
+  const purchaseReturns = usePurchaseReturns().data ?? [];
+  const cheques = useCheques().data ?? [];
+  const payableById = useMemo(
+    () => supplierPayableById(suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques),
+    [suppliers, purchaseInvoices, vouchers, purchaseReturns, cheques],
+  );
+  const payableOf = (id: string) => payableById.get(id) ?? 0;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -631,7 +653,7 @@ export function SuppliersScreen() {
     { key: "phone", header: t("common.phone"), render: (s) => s.phone ?? "—" },
     { key: "terms", header: t("suppliers.detail.paymentTerms"), render: (s) => <span className="mz-num">{t("suppliers.detail.days", { days: s.paymentTermsDays })}</span> },
     { key: "category", header: t("suppliers.detail.category"), render: (s) => s.category ?? t("common.uncategorized") },
-    { key: "openingBalance", header: t("suppliers.col.payable"), align: "end", render: (s) => <MoneyValue value={num(s.openingBalance)} /> },
+    { key: "payable", header: t("suppliers.col.payable"), align: "end", render: (s) => <MoneyValue value={payableOf(s.id)} /> },
     {
       key: "status",
       header: t("common.status"),
@@ -759,7 +781,6 @@ export function SuppliersScreen() {
         </Card>
       ) : null}
       <DocumentList<SupplierDTO>
-        eyebrow={t("eyebrow.purchases.suppliers")}
         title={t("suppliers.title")}
         description={t("suppliers.description")}
         actions={
@@ -772,7 +793,7 @@ export function SuppliersScreen() {
           { label: t("common.active"), value: <span className="mz-num">{suppliers.filter((s) => s.active).length}</span> },
           {
             label: t("suppliers.stat.payable"),
-            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + num(s.openingBalance), 0)} showUnit={false} />,
+            value: <MoneyValue value={suppliers.reduce((sum, s) => sum + payableOf(s.id), 0)} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

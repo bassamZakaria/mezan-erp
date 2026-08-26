@@ -34,6 +34,7 @@ import {
   useVoucherAllocations,
 } from "../data/partner-detail-hooks";
 import { TextField, NumberField, SelectField, ToggleField } from "../settings/form-controls";
+import { customerOwedById } from "../lib/partner-balances";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
@@ -474,7 +475,11 @@ function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
 
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
   const { t } = useAppTranslation();
-  const remainingCredit = num(customer.creditLimit) - num(customer.openingBalance);
+  // Credit left is the limit minus what the customer owes TODAY. Measuring it
+  // against the opening balance ignored every invoice since (D40).
+  const invoices = useSalesInvoices().data ?? [];
+  const owed = customerOwedById([customer], invoices).get(customer.id) ?? 0;
+  const remainingCredit = num(customer.creditLimit) - owed;
   return (
     <DocumentDetail
       title={`${customer.nameAr} · ${customer.code}`}
@@ -544,6 +549,9 @@ export function CustomersScreen() {
   const createCustomer = useCreateCustomer();
   const updateCustomer = useUpdateCustomer();
   const customers = query.data ?? [];
+  const invoices = useSalesInvoices().data ?? [];
+  const owedById = useMemo(() => customerOwedById(customers, invoices), [customers, invoices]);
+  const owedOf = (id: string) => owedById.get(id) ?? 0;
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
@@ -588,7 +596,7 @@ export function CustomersScreen() {
     { key: "terms", header: t("customers.detail.paymentTerms"), render: (c) => <span className="mz-num">{t("customers.detail.days", { days: c.paymentTermsDays })}</span> },
     { key: "category", header: t("customers.detail.category"), render: (c) => c.category ?? t("common.uncategorized") },
     { key: "creditLimit", header: t("customers.detail.creditLimit"), align: "end", render: (c) => <MoneyValue value={num(c.creditLimit)} /> },
-    { key: "openingBalance", header: t("customers.detail.openingBalance"), align: "end", render: (c) => <MoneyValue value={num(c.openingBalance)} /> },
+    { key: "owed", header: t("customers.col.owed"), align: "end", render: (c) => <MoneyValue value={owedOf(c.id)} /> },
     {
       key: "status",
       header: t("common.status"),
@@ -724,7 +732,6 @@ export function CustomersScreen() {
         </Card>
       ) : null}
       <DocumentList<CustomerDTO>
-        eyebrow={t("eyebrow.sales.customers")}
         title={t("customers.title")}
         description={t("customers.description")}
         actions={
@@ -740,8 +747,8 @@ export function CustomersScreen() {
             value: <MoneyValue value={customers.reduce((sum, c) => sum + num(c.creditLimit), 0)} showUnit={false} />,
           },
           {
-            label: t("customers.stat.openingBalances"),
-            value: <MoneyValue value={customers.reduce((sum, c) => sum + num(c.openingBalance), 0)} showUnit={false} />,
+            label: t("customers.stat.toCollect"),
+            value: <MoneyValue value={customers.reduce((sum, c) => sum + owedOf(c.id), 0)} showUnit={false} />,
           },
         ]}
         statusChips={statusChips}

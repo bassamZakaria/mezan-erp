@@ -1,14 +1,16 @@
 import { useMemo, useState } from "react";
 import {
-  FulcrumRule,
-  DocumentList,
-  DocumentDetail,
-  DocumentStatusStepper,
-  Money as MoneyDisplay,
-  StatusPill,
-  Card,
   Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  DocumentStatusStepper,
+  FulcrumRule,
   IconButton,
+  Money as MoneyDisplay,
+  Select,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -34,6 +36,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 
@@ -112,9 +115,11 @@ export function StockAdjustmentsScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
-  const [mode, setMode] = useState<"list" | "reason" | "create" | "detail">("list");
+  // `#/inventory/stock-adjustments` · `…/new` (reason picker, then the form) · `…/<docNo>`
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
   const [selectedReason, setSelectedReason] = useState<AdjustmentReasonDefinition | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
 
@@ -137,7 +142,7 @@ export function StockAdjustmentsScreen() {
     return rows;
   }, [documents, statusFilter, search]);
 
-  const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
+  const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
 
   const columns: DocumentListColumn<StockAdjustmentDocumentDTO>[] = [
     {
@@ -164,20 +169,19 @@ export function StockAdjustmentsScreen() {
   ];
 
   function openDetail(id: string) {
-    setSelectedId(id);
-    setMode("detail");
+    const doc = documents.find((d) => d.id === id);
+    subPage.open(doc?.docNo ?? id);
   }
 
-  if (mode === "reason") {
+  if (firstSegment === "new" && selectedReason === null) {
     return (
       <div className="w-full">
         <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
           <div>
-            <div className="mz-eyebrow">{t("eyebrow.inventory.newStockAdjustment")}</div>
             <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("stockAdj.chooseTheAdjustmentReason")}</h1>
             <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("stockAdj.theReasonDecidesHowThe")}</p>
           </div>
-          <Button onClick={() => setMode("list")}>{t("common.cancel")}</Button>
+          <Button onClick={subPage.close}>{t("common.cancel")}</Button>
         </div>
         <FulcrumRule />
         <div className="grid grid-cols-1 gap-[12px] sm:grid-cols-2 lg:grid-cols-4">
@@ -187,7 +191,6 @@ export function StockAdjustmentsScreen() {
               type="button"
               onClick={() => {
                 setSelectedReason(def);
-                setMode("create");
               }}
               className="flex flex-col gap-[6px] rounded-lg border border-border bg-surface p-[16px] text-start transition-colors hover:border-brand hover:bg-brand-soft"
             >
@@ -200,7 +203,7 @@ export function StockAdjustmentsScreen() {
     );
   }
 
-  if (mode === "create" && selectedReason) {
+  if (firstSegment === "new" && selectedReason) {
     return (
       <CreateAdjustmentView
         reason={selectedReason}
@@ -208,14 +211,14 @@ export function StockAdjustmentsScreen() {
         items={items}
         onDone={() => {
           setSelectedReason(null);
-          setMode("list");
+          subPage.close();
         }}
-        onBack={() => setMode("reason")}
+        onBack={() => setSelectedReason(null)}
       />
     );
   }
 
-  if (mode === "detail" && selected) {
+  if (selected) {
     const { warehouseId, reason } = headerOf(selected);
     const def = getAdjustmentReasonDefinition(reason);
     const effects = stockAdjustmentDocumentType.describeEffects(toDomainDoc(selected));
@@ -226,7 +229,7 @@ export function StockAdjustmentsScreen() {
           statusLabel={documentStatusLabel(selected.status, t)}
           statusTone={DOC_STATUS_TONE[selected.status]}
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
-          actions={<Button onClick={() => setMode("list")}>{t("common.back")}</Button>}
+          actions={<Button onClick={subPage.close}>{t("common.back")}</Button>}
           summary={[
             { label: t("common.warehouse"), value: warehouseLabel(warehouseId) },
             { label: t("stockAdj.reason"), value: def.labelAr },
@@ -270,11 +273,10 @@ export function StockAdjustmentsScreen() {
   return (
     <div className="w-full">
       <DocumentList<StockAdjustmentDocumentDTO>
-        eyebrow={t("eyebrow.inventory.stockAdjustments")}
         title={t("stockAdj.stockAdjustments")}
         description={t("stockAdj.draftConfirmedAdjustmentsThatChange")}
         actions={
-          <Button variant="primary" onClick={() => setMode("reason")}>
+          <Button variant="primary" onClick={() => { setSelectedReason(null); subPage.open("new"); }}>
             {t("stockAdj.newAdjustment")}
           </Button>
         }
@@ -486,7 +488,6 @@ function CreateAdjustmentView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.inventory.newStockAdjustment")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{reason.code === "INITIAL_STOCK" ? t("stockAdj.openingBalance") : t("stockAdj.titleForReason", { reason: reason.labelAr })}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
@@ -530,51 +531,53 @@ function CreateAdjustmentView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <select
+                        <Select
+                          size="sm"
+                          className="min-w-[160px]"
                           aria-label={t("stockAdj.lineItem", { number: i + 1 })}
                           value={line.itemId}
-                          onChange={(e) => updateLine(i, { itemId: e.target.value })}
-                          className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                        >
-                          {itemOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(value) => updateLine(i, { itemId: value })}
+                          options={itemOptions}
+                        />
                       </td>
                       {reason.direction === "EITHER" ? (
                         <td className="px-[12px] py-[8px]">
-                          <select
+                          <Select
+                            size="sm"
+                            className="min-w-[100px]"
                             aria-label={t("stockAdj.lineDirection", { number: i + 1 })}
                             value={line.direction}
-                            onChange={(e) => updateLine(i, { direction: e.target.value as StockMovementDirection })}
-                            className="w-full min-w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                          >
-                            <option value="IN">{t("stockAdj.increase")}</option>
-                            <option value="OUT">{t("stockAdj.decrease")}</option>
-                          </select>
+                            onChange={(value) => updateLine(i, { direction: value as StockMovementDirection })}
+                            options={[
+                              { value: "IN", label: t("stockAdj.increase") },
+                              { value: "OUT", label: t("stockAdj.decrease") },
+                            ]}
+                          />
                         </td>
                       ) : null}
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[100px] text-end"
                           aria-label={t("stockAdj.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[100px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("stockAdj.lineCost", { number: i + 1 })}
                           value={line.unitCost || ""}
                           min={0}
                           disabled={line.direction === "OUT"}
                           onChange={(e) => updateLine(i, { unitCost: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand disabled:bg-surface-3"
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">

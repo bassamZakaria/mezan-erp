@@ -2,27 +2,18 @@
 
 **Updated 2026-08-24** · Branch `main` · v1 = Electron desktop, SQLite, real data.
 
-> **This is the only status document.** Everything else under `docs/` is durable
-> reference that does not go stale. Point-in-time audits live in `docs/archive/`
-> and are kept for their evidence, not their conclusions — do not read them for
-> current state.
+> **This is the only status document.** Two other files are live alongside it and
+> own their own subject: `defects.md` (what is broken) and `decisions.md` (what is
+> waiting on a human). Everything else under `docs/` is durable reference or
+> procedure. Point-in-time audits live in `docs/archive/` and are kept for their
+> evidence, not their conclusions — do not read them for current state.
 
 ## Where to look
 
-| Question | Document |
-|---|---|
-| What is the architecture, and why? | `plan.md` |
-| What does the reference app actually do? | `catalog/01..10` — the spec, captured from the live product |
-| What is left to build, as issues? | `backlog.md` |
-| How do I wire a screen to data? | `web-data-wiring.md` |
-| How is anything verified now? | `testing-policy.md` |
-| How do I test after a big change? | `testing-plan.md` + `testing-scenarios.md` |
-| Is the UX enhancement signed off? | `enhancements/meeting/2026-08-23-design-review.md` |
-| What is the plan for HR / POS / Cloud? | `deferred-plan.md` |
-| How do we parallelise the build? | `execution-plan.md` |
-| What is done and what is left? | **this file** |
-| What is broken right now? | **`defects.md`** — the defect register |
-| What did an earlier audit find? | `archive/` |
+`README.md` in this directory is the map — every document, what it is for, and
+whether it goes stale. The three live documents are **this file** (what is done
+and what is broken), `defects.md` (the defect register) and `decisions.md`
+(what is waiting on a human).
 
 ## Current state
 
@@ -112,17 +103,20 @@ again" bugs.
 
 ## Known defects and open decisions
 
-Two need a decision before a patch, because each changes a shared contract —
-both are written up in full in `tasks.md`:
+**`docs/defects.md`** is the defect register — six open, six fixed, and a list
+of readings that look like defects and are not. It is read before every test run
+and updated after. Making all 102 list surfaces non-empty surfaced four of the
+six open ones; none was visible on an empty tenant, which is the argument for
+the seeding gate in `testing-plan.md`. Two of them the demo seed deliberately
+steers around: its physical counts net to zero and no work order is completed,
+both to keep the books exact — **so the demo data is not evidence those two
+paths are sound.**
 
-1. **Workflow `minAmount` is configurable but never enforced.**
-   `DocumentWorkflowInput` carries no amount field, so the gate cannot see the
-   threshold it is meant to compare against. Until decided, the field should be
-   labelled not-yet-enforced rather than shown as active.
-2. **The gate expects role codes; two routes pass permission codes.**
-   `sales-invoices-routes.ts` and `vouchers-routes.ts` pass the resolved
-   permission set as `actorRoles`, so a role-gated step can only be satisfied
-   there by the company-admin `"*"` bypass.
+**`docs/decisions.md`** is the decision register — seven open, each blocking its
+own issue rather than the build. The two that touch a shared contract and so
+cannot be patched in one line are the workflow `minAmount` that is configurable
+but never read (DEC-1), and the gate that expects role codes while two routes
+pass permission codes (DEC-2).
 
 Also outstanding: email and WhatsApp notification channels are modelled but
 unimplemented and labelled as such.
@@ -133,63 +127,12 @@ signature ports with a bounded 3-attempt retry, and a failing delivery cannot
 roll back the business operation that triggered it (verified: a confirm returned
 in 47 ms while its retries were still in flight).
 
-**This build emits 5 of the 39 catalogued events**, not the 9 this file and
-`tasks.md` have claimed. The number is derived live from the bridge mappings in
+**This build emits 5 of the 39 catalogued events**, not the 9 this file has
+claimed. The number is derived live from the bridge mappings in
 `create-backend.ts`, and `/notification-rules/triggers` and `/webhooks/events`
-agree with it exactly. The purchase order/receipt/invoice chain publishes
-nothing because it is not a `DocumentService` and so has no
-`DocumentEventPublisher` — **that is the decision to make**, and inventing
-bridges for it was declined.
-
-## Known defects
-
-**`docs/defects.md`** is the register — six open, six fixed, and a list of
-readings that look like defects and are not. It is read before every test run
-and updated after.
-
-Making all 102 list surfaces non-empty surfaced four of the six open ones. None
-was visible on an empty tenant, which is the argument for the seeding gate in
-`testing-plan.md`.
-
-Two of them the demo seed deliberately steers around: its physical counts net to
-zero and no work order is completed, both to keep the books exact. **So the demo
-data is not evidence those two paths are sound.**
-
-## Decisions waiting on you
-
-1. **`recordPayment` and the allocation sub-ledger are two stores of the same
-   fact** — tracked as **D1** in `defects.md`, now with a reproduction. The UI prefers allocations and the aging reports take the larger of
-   the two, but the backend can still record one collection twice. Converging
-   `recordPayment` onto allocations removes the fallback entirely.
-2. ~~**Purchase receipt/invoice cancel routes 404.**~~ **Done** — `create-backend`
-   now passes `purchases.layers`, which mounts both. Nothing that already worked
-   changed: the routes were fully built (domain guards, the GL reversal port in
-   `app.ts`, the sold-item gate) and only the composition root omitted one line.
-   Verified end to end — cancelling a confirmed invoice marks the original entry
-   `reversed` and posts a linked mirror entry («عكس فاتورة مشتريات»), the trial
-   balance drops by exactly the invoice's 300.00 and still balances, and an
-   invoice whose goods were already sold is refused with
-   `PURCHASE_ITEMS_ALREADY_CONSUMED` rather than silently reversing.
-3. **Two reports need schema changes, not report code** — sales-by-salesperson
-   needs a rep field on invoices; make-vs-buy needs purchase-cost comparison
-   data. (Expiring-soon (FEFO) was the third; stock layers now carry an optional
-   batch and expiry, so it is built — and FEFO consumption landed with it,
-   because costing is weighted-average and the layer draw never enters
-   valuation.)
-4. ~~**Promotions are never persisted to documents.**~~ **Done.** The invoice
-   stores a value snapshot of the promotion it applied — not a foreign key, so a
-   campaign edited or switched off later cannot retroactively change what a
-   historical invoice says it granted. It is evaluated server-side at confirm
-   against the invoice's real lines, so a browser can name a coupon but never a
-   discount. The report counts real usage, and a return reverses pro-rata.
-
-   One decision this surfaced and did **not** take: the promotion discount
-   reduces the revenue credit rather than posting to a contra-revenue
-   "discounts granted" account. That is a chart-of-accounts call.
-5. ~~**`AuditEvent` has no branch field.**~~ **Done** — `branchId` is recorded
-   from the scope the shell already sends, filterable in the viewer. Historical
-   rows stay null: the table is append-only by trigger, so a back-fill is
-   impossible by design and a default would fabricate evidence.
+agree with it exactly. The purchase order/receipt/invoice chain publishes nothing
+because it is not a `DocumentService` and so has no `DocumentEventPublisher` —
+that is DEC-5.
 
 ## Partial work parked, not lost
 

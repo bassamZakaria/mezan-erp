@@ -32,16 +32,23 @@ through as "oh, that's the known one".
 
 ## Open
 
-None. Every defect this register has carried is in the Fixed table below, and
-`pnpm scenarios` (2,020 assertions) passes with all four invariants at exactly
-zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100,
-AR vs GL 1105.
+The 24 defects D1–D37 carried are closed — they are in the Fixed table below,
+and `pnpm scenarios` passes with all four invariants at exactly zero on the
+seeded tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105.
 
-That is not the same as "there are no defects". It means the ones that were
-found and written down are closed, and the next one will be found the way these
-were — by driving a seeded app and comparing two numbers that must agree. Two
-things are open by DECISION rather than by patch, and stay listed so nobody
-re-files them:
+Two remain open, both found on `main` while that sweep was running and neither
+touched by it:
+
+| # | Area | Defect | Measured evidence | Severity |
+|---|---|---|---|---|
+| D38 | Sales / contracts | A quote or invoice line accepts **any** `itemId` string — no route checks it against the item catalogue | `createSalesQuoteLineSchema` and the sales-invoice line schema validate `itemId: z.string().min(1)` only; neither route holds an item repository. Until F34 the quotes screen exploited this by sending invented ids (`ITEM-1`, `ITEM-2`), and the convert step then hardcoded `isStock: false`, so a stock item converted into an invoice line that moves no stock and posts no COGS | Medium |
+| D42 | Purchases / AP | A landed cost credits the AP control account with **no supplier dimension**, so the payable exists in the ledger and on no supplier's account | `JE-000024` ("تكاليف توريد إذن الاستلام GR-000001") credits 2100 by **2,500.00**; `landedCostSchema` carries cost type, description, amount and targets — no supplier. Measured: the supplier sub-ledger now ties to GL 2100 to within exactly that 2,500.00 (112,076.00 vs 114,576.00) | Medium |
+
+And a closed register is not the same as a clean product: it means the ones
+found and written down are closed. The next one gets found the way these were —
+by driving a seeded app and comparing two numbers that must agree. Two things
+are open by DECISION rather than by patch, and stay listed so nobody re-files
+them:
 
 - workflow `minAmount` is configurable but never enforced (`DocumentWorkflowInput`
   carries no amount to compare)
@@ -89,6 +96,14 @@ hears about.
 | F31 | **`employees.xlsx` and `items.xlsx` shipped with a required column blank on every row** (D16), so each rejected all of its own rows. The generator's rows now carry hire date and base unit code | this commit |
 | F32 | **The branch selector filtered nothing** (D7) — the same failure F8 fixed for warehouses. Twelve branch-owned list routes now narrow; proven against a second branch that owns nothing | this commit |
 | F33 | **The ETA queue had no producer** (D5): `enqueue` existed and nothing called it, so `/eta/submissions` could not hold a row. A confirmed sales invoice now queues one, and `check:seed`'s exemption is gone — 102 surfaces populated, 0 empty | this commit |
+| F34 | **The quotes screen let you type an item name instead of choosing one** — every line invented an id (`ITEM-1`) with no price, VAT rate or GL accounts behind it, and the convert-to-invoice step then sent `isStock: false` and hardcoded accounts for every line, so a converted stock sale moved no stock and posted no COGS. The line is now an `EntityPicker` over `/items`; price, VAT rate and the revenue/COGS/inventory accounts come from the chosen item, branch comes from the caller's working location instead of the literal `"BR1"`, and the convert panel picks a real warehouse instead of typing `WH1`. Measured after the fix: a new draft stores `ITEM-DEMO-1` at 180.00 + 14% VAT = 205.20, and converting QT-000003 writes an invoice line with `is_stock=1`, inventory account 1200 | this commit |
+| F35 | **The quotes screen was a fraction of the reference screen** — no branch, currency, notes, internal notes, header discount, price list, per-line tax or discount, no search, no filters, no expiry bucket, count-based KPIs instead of value, and a side panel where the reference has a full create form and a document detail with lifecycle, effects and audit. Rebuilt from a LIVE enumeration of the reference product (2026-08-25, `docs/reference-parity/01-sales-quotes.md`) rather than from the label snapshot in `docs/catalog/`. Measured after: a draft for مؤسسة النور stores `price_list_id=PL-DEMO-2`, unit price 168.00 off that customer's wholesale list (not the item's 180.00 default), VAT 14% → 191.52, branch `BR-MAIN`; sending it stamps QT-000004 | this commit |
+| F36 | **Every create form and document detail was a side drawer with no address** — the shell had no routing at all, so no screen, create form or document could be linked, bookmarked, reloaded into or reached with the browser's Back button. Added hash routing (`apps/web/src/routing.ts` + `useSubPage()`; the hash, not the path, because the desktop edition loads from `file://`): every screen is now `#/<module>/<screen>`, and document screens carry `…/new` and `…/<docNo>` sub-pages, matching the reference product, which uses pages for documents and a modal only for short master-data forms. Converted: sales quotes, sales invoices, sales returns, purchase orders, goods receipts, purchase invoices, purchase returns, RFQs. Measured: `#/sales/quotes/QT-000001` survives a full reload and Back returns to the list | this commit |
+| F37 | **No page had a path back except the browser's Back button, and two screens had defects only a full sweep would find.** Added a shell breadcrumb (`apps/web/src/Breadcrumbs.tsx`): لوحة التحكم · module · screen · sub-page, every crumb but the last a real control — the module opens its hub (or its first screen, for groups without one) and the screen name drops the sub-page. The 75 duplicated `eyebrow` props and 32 `mz-eyebrow` divs that repeated the same trail as dead text are gone. Stock adjustments, transfers and physical counts moved from local `mode` state to addressed sub-pages (`#/inventory/stock-adjustments/new`), so تسوية جديدة is a place. Swept all 100 nav screens in the browser: 0 HTTP 4xx/5xx, and the two defects found are fixed — the audit log gave 9 duplicate-React-key errors (bulk writes share a millisecond, an actor and an action, so `rowKey` now takes the row index) and the print-templates screen had two `<h1>`s (the company name inside the print PREVIEW was a heading) | this commit |
+| F38 | **The sales-invoice screens were a fraction of the reference's** — no branch, currency, notes, internal notes, price list or creation-method on the form; no Open/Overdue buckets, filters, follow-up banner, returns or collected figures, rows-per-page on the list; no branch, cost, profit, margin, returns deduction, returns/ETA/audit tabs on the document. Rebuilt from a LIVE enumeration of the reference (2026-08-25, `docs/reference-parity/02-sales-invoices.md`), which also captured its row expander, its quick-preview panel and all eight of its tabs. Measured after: INV-000001 reports cost 9,320.00, profit 2,920.00, margin 23.9%, returns −1,197.00, net 12,756.60 — all from figures already on the wire (`unitCost`, `returnedCredit`) that nothing rendered; a draft for شركة الأمل auto-dated its due date to 2026-09-24 from the customer's 30-day terms and persisted `branch_id=BR-MAIN`, `currency=EGP` and its notes | this commit |
+| F39–D41 | every treasury balance is read from that account's own GL account. Measured: cash 2,379.12, bank 141,396.00, van 1,550.00 — each equal to GL 1300-1 / 1310 / 1300-2 to the piastre. Deriving it from vouchers instead was wrong by 248,900.00 on the bank, because cheques and settlements post there too | this commit |
+| F39–D40 | remaining customer credit is now measured against what the customer owes today, not their opening balance | this commit |
+| F39–D39 | the suppliers list now reports the live payable — opening balance plus confirmed invoices, less voucher payments, confirmed returns and issued cheques. Measured: 112,076.00 against GL 2100's 114,576.00, the 2,500.00 difference being D42's supplier-less landed cost | this commit |
 | F10 | `GET /items/:id` served `onHand: "0"` with `stockStubbed: true`, on a comment saying real figures arrive "once Phase 2 lands the movements ledger" — which it had | `46e527c` |
 | F34 | **A confirmed collection never moved the invoice's `amountPaid`, and the AP sub-ledger ignored payments entirely** (D1, D18). The reconciliation now follows the vouchers and cheques that actually move 1105/2100, and an allocation writes back to the invoice it settles. AP 35,554.00 → **0.00**, AR 13,529.12 → **0.00** | this commit |
 | F35 | **A `PHYSICAL_COUNT` adjustment moved stock with no journal entry** (D2) — only `INITIAL_STOCK` had a GL mapping. Every reason now posts, against a new 5070 shrinkage leaf | this commit |

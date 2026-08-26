@@ -1,13 +1,15 @@
 import { useMemo, useState } from "react";
 import {
-  FulcrumRule,
-  DocumentList,
-  DocumentDetail,
-  DocumentStatusStepper,
-  StatusPill,
-  Card,
   Button,
+  Card,
+  DocumentDetail,
+  DocumentList,
+  DocumentStatusStepper,
+  FulcrumRule,
   IconButton,
+  Select,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
@@ -16,6 +18,7 @@ import type { DocumentStatusDTO, StockTransferDocumentDTO } from "@mezan/contrac
 import { Qty, stockTransferDocumentType } from "@mezan/domain";
 import { useConfirmStockTransfer, useCreateStockTransfer, useItems, useStockTransfers, useWarehouses } from "../data/hooks";
 import { TextField, SelectField } from "../settings/form-controls";
+import { useSubPage } from "../navigation";
 import { useAppTranslation } from "../i18n";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
 
@@ -85,8 +88,9 @@ export function StockTransfersScreen() {
     return item ? `${item.nameAr} (${item.code})` : id;
   }
 
-  const [mode, setMode] = useState<"list" | "create" | "detail">("list");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // `#/inventory/stock-transfers` · `…/new` · `…/<docNo>`
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
 
@@ -109,7 +113,8 @@ export function StockTransfersScreen() {
     return rows;
   }, [documents, statusFilter, search]);
 
-  const selected = selectedId ? documents.find((d) => d.id === selectedId) ?? null : null;
+  const selectedId = firstSegment !== undefined && firstSegment !== "new" ? firstSegment : null;
+  const selected = selectedId ? (documents.find((d) => d.id === selectedId || d.docNo === selectedId) ?? null) : null;
 
   const columns: DocumentListColumn<StockTransferDocumentDTO>[] = [
     {
@@ -136,15 +141,15 @@ export function StockTransfersScreen() {
   ];
 
   function openDetail(id: string) {
-    setSelectedId(id);
-    setMode("detail");
+    const doc = documents.find((d) => d.id === id);
+    subPage.open(doc?.docNo ?? id);
   }
 
-  if (mode === "create") {
-    return <CreateTransferView warehouses={warehouses} items={items} onDone={() => setMode("list")} />;
+  if (firstSegment === "new") {
+    return <CreateTransferView warehouses={warehouses} items={items} onDone={subPage.close} />;
   }
 
-  if (mode === "detail" && selected) {
+  if (selected) {
     const { fromWarehouseId, toWarehouseId } = headerOf(selected);
     const effects = stockTransferDocumentType.describeEffects(toDomainDoc(selected));
     return (
@@ -154,7 +159,7 @@ export function StockTransfersScreen() {
           statusLabel={documentStatusLabel(selected.status, t)}
           statusTone={DOC_STATUS_TONE[selected.status]}
           subtitle={<DocumentStatusStepper steps={STEPPER_KEYS.map((step): DocumentStatusStep => ({ key: step.key, label: t(step.labelKey) }))} currentKey={selected.status} />}
-          actions={<Button onClick={() => setMode("list")}>{t("common.back")}</Button>}
+          actions={<Button onClick={subPage.close}>{t("common.back")}</Button>}
           summary={[
             { label: t("stockXfer.fromWarehouse"), value: warehouseLabel(fromWarehouseId) },
             { label: t("stockXfer.toWarehouse"), value: warehouseLabel(toWarehouseId) },
@@ -219,11 +224,10 @@ export function StockTransfersScreen() {
   return (
     <div className="w-full">
       <DocumentList<StockTransferDocumentDTO>
-        eyebrow={t("eyebrow.inventory.stockTransfers")}
         title={t("stockXfer.stockTransfers")}
         description={t("stockXfer.draftConfirmedMovingQuantityBetween")}
         actions={
-          <Button variant="primary" onClick={() => setMode("create")}>
+          <Button variant="primary" onClick={() => subPage.open("new")}>
             {t("stockXfer.newTransfer")}
           </Button>
         }
@@ -331,7 +335,6 @@ function CreateTransferView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.inventory.newStockTransfer")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("stockXfer.newStockTransfer")}</h1>
         </div>
         <div className="flex items-center gap-[9px]">
@@ -377,27 +380,25 @@ function CreateTransferView({
                   {lines.map((line, i) => (
                     <tr key={line.key} className="border-b border-border last:border-b-0">
                       <td className="px-[12px] py-[8px]">
-                        <select
+                        <Select
+                          size="sm"
+                          className="min-w-[160px]"
                           aria-label={t("stockXfer.lineItem", { number: i + 1 })}
                           value={line.itemId}
-                          onChange={(e) => updateLine(i, { itemId: e.target.value })}
-                          className="w-full min-w-[160px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-                        >
-                          {itemOptions.map((o) => (
-                            <option key={o.value} value={o.value}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(value) => updateLine(i, { itemId: value })}
+                          options={itemOptions}
+                        />
                       </td>
                       <td className="px-[12px] py-[8px]">
-                        <input
+                        <TextInput
                           type="number"
+                          size="sm"
+                          numeric
+                          className="w-[110px] text-end"
                           aria-label={t("stockXfer.lineQty", { number: i + 1 })}
                           value={line.qty || ""}
                           min={0}
                           onChange={(e) => updateLine(i, { qty: e.target.valueAsNumber || 0 })}
-                          className="mz-num w-[110px] rounded-md border border-border bg-surface px-[10px] py-[7px] text-end text-[12.5px] text-ink outline-none focus:border-brand"
                         />
                       </td>
                       <td className="px-[12px] py-[8px] text-center">

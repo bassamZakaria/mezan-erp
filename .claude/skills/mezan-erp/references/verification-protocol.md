@@ -65,6 +65,8 @@ seeding gap or a broken route — and testing past it tests nothing.
 | Contrast | ≥4.5:1, or ≥3:1 at ≥24px / ≥18.66px bold |
 | Labels | every input, select, textarea has an accessible name |
 | Placeholders | no «قريباً» outside HR |
+| Field binding | every field naming an entity (صنف، مستودع، فرع، عميل، مورد، حساب، مركز تكلفة) is a picker over that entity's endpoint — not a text input |
+| Persisted row | create one document, then read the row back from SQLite: every foreign id is a real id from the seed, not a client-invented string |
 
 Run in **both themes** and **both locales** (ar/RTL and en/LTR). Stub
 `window.confirm/alert/prompt` before the first click — a native dialog blocks the
@@ -75,6 +77,38 @@ Then activate every enabled control and record whether the app reacted (DOM muta
 network call, navigation, dialog). No reaction is a *candidate* dead control —
 confirm each by hand before reporting. Already-selected toggles and disabled controls
 are expected non-reactions.
+
+## Before building or reviewing a document screen
+
+`docs/catalog/` is a **label snapshot, not a spec of controls**. Its line
+`البنود: الصنف, الكمية, سعر الوحدة, الإجمالي` reads identically whether الصنف is a
+combobox over `/items` or a bare `<input type="text">`. A screen can match the catalog
+word for word and still let a user type an item that does not exist. It also omits
+defaults, validation, what each control does on save, and every field the capture
+missed.
+
+So before writing or judging a document form, **open the reference screen live** and
+enumerate, per field: label · control type · where its options come from · what is
+required · what the form does with it on save. The reference is credential-gated and
+login is the user's to perform — ask them to sign in on the tab in this session's
+Chrome tab group, then read the DOM (see the `reference-app-is-the-arbiter` memory).
+Write the enumeration down before building; that list, not the catalog line, is the
+acceptance criterion.
+
+**Sub-pages, not drawers.** In the reference product a *document* create form and a
+document itself are their own addressed pages (`/sales/quotes/new`,
+`/sales/quotes/<id>`), while a short *master-data* form (Add Customer) is a centred
+modal. Mezan's shell routes on the hash (`#/sales/quotes/new`) — see
+`apps/web/src/routing.ts` and `useSubPage()` — so a document screen must render its
+create form and its detail as sub-pages, and never as a `SidePanel`. Check which of the
+two the reference uses before converting a screen; "make everything a page" is as wrong
+as "make everything a drawer".
+
+**"Wired to the real API" is not "correct".** `docs/web-data-wiring.md`'s status table
+grades screens on data provenance — does this screen read and write the real backend —
+and a form posting fabricated ids to a real endpoint scores full marks on it. Provenance
+is necessary and nowhere near sufficient; field fidelity is a separate gate and has to
+be checked separately.
 
 ## Writing an executable scenario
 
@@ -114,8 +148,7 @@ Rules learned the hard way, all of them from a failure:
 ## Behaviour, not reaction
 
 Automation proves a control reacts; only a scenario proves it did the right thing.
-`docs/testing-scenarios.md` holds ~29 end-to-end lifecycles taken from the captured
-catalog, `docs/scenarios/` holds 964 numbered per-screen scenarios with
+`docs/scenarios/` holds 964 numbered per-screen scenarios with
 `[NOT IMPLEMENTED]` markers where the build diverges, and `scripts/scenarios/` holds
 the executable subset behind `pnpm scenarios`. `docs/scenarios/09-cross-module.md` is
 the seam file: money trails across modules (`cross-module.ts`) plus the currency, tax,

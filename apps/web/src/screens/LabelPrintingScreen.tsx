@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import bwipjs from "bwip-js/browser";
-import { Card, Button, EntityPicker, QtyInput, type EntityPickerOption } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  EntityPicker,
+  QtyInput,
+  Select,
+  type EntityPickerOption,
+} from "@mezan/ui";
 import { buildLabelBatch, LABEL_TEMPLATES, Money, type LabelBatchLineInput, type LabelTemplateCode } from "@mezan/domain";
 import { useItems } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -129,7 +136,6 @@ export function LabelPrintingScreen() {
 
       <div className="print:hidden">
         <div className="mb-[16px]">
-          <div className="mz-eyebrow">{t("eyebrow.inventory.labelPrinting")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("labelPrinting.labelPrinting")}</h1>
           <p className="mt-[6px] text-[13px] text-ink-muted">
             {t("labelPrinting.pickTheItemsAndHow")}
@@ -161,18 +167,13 @@ export function LabelPrintingScreen() {
               <label htmlFor="label-template" className="mb-[4px] block text-[11.5px] font-semibold text-ink-faint">
                 {t("labelPrinting.labelTemplate")}
               </label>
-              <select
+              <Select
                 id="label-template"
+                size="sm"
                 value={templateCode}
-                onChange={(e) => setTemplateCode(e.target.value as LabelTemplateCode)}
-                className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[12.5px] text-ink outline-none focus:border-brand"
-              >
-                {LABEL_TEMPLATES.map((template) => (
-                  <option key={template.code} value={template.code}>
-                    {template.labelAr}
-                  </option>
-                ))}
-              </select>
+                onChange={(value) => setTemplateCode(value as LabelTemplateCode)}
+                options={LABEL_TEMPLATES.map((template) => ({ value: template.code, label: template.labelAr }))}
+              />
             </div>
           </div>
 

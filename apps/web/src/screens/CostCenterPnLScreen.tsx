@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { FulcrumRule, DocumentList, StatCard, Card, Button, formatNumber, type DocumentListColumn } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  FulcrumRule,
+  StatCard,
+  TextInput,
+  formatNumber,
+  type DocumentListColumn,
+} from "@mezan/ui";
 import type { CostCenterPnLRowDTO } from "@mezan/contracts";
 import { useCostCenterPnL } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
@@ -38,15 +47,14 @@ export function CostCenterPnLScreen() {
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.accounting.costCenterPnl")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("costCenterPnl.costCentrePL")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("costCenterPnl.theRevenueAndExpensesOf")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
           <label className="text-[12px] text-ink-muted">{t("common.of")}</label>
-          <input type="date" aria-label={t("costCenterPnl.from")} value={fromDate} onChange={(e) => setFromDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("costCenterPnl.from")} value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
           <label className="text-[12px] text-ink-muted">{t("costCenterPnl.to")}</label>
-          <input type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink" />
+          <TextInput size="sm" className="w-[160px]" type="date" aria-label={t("costCenterPnl.to2")} value={toDate} onChange={(e) => setToDate(e.target.value)} />
         </div>
       </div>
       <FulcrumRule />
@@ -67,7 +75,6 @@ export function CostCenterPnLScreen() {
       </div>
 
       <DocumentList<CostCenterPnLRowDTO>
-        eyebrow={t("eyebrow.accounting.costCenterPL")}
         title=""
         columns={columns}
         rows={report?.rows ?? []}

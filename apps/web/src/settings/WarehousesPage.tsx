@@ -90,7 +90,6 @@ export function WarehousesPage() {
   return (
     <>
       <DocumentList<WarehouseDTO>
-        eyebrow={t("eyebrow.settings.warehouses")}
         title={t("warehouses.title")}
         description={t("warehouses.description")}
         actions={

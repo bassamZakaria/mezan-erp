@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell, type NavGroup } from "@mezan/ui";
 import { ALL_SCOPE } from "@mezan/domain";
 import type { BranchDTO, RoleDTO, ScopeSelectionDTO } from "@mezan/contracts";
@@ -31,7 +31,7 @@ import { PurchaseReturnsScreen } from "./screens/PurchaseReturnsScreen";
 import { LandedCostsScreen } from "./screens/LandedCostsScreen";
 import { InstallmentPlansScreen } from "./screens/InstallmentPlansScreen";
 import { InstallmentFollowUpsScreen } from "./screens/InstallmentFollowUpsScreen";
-import { SalesQuotesScreen } from "./screens/SalesQuotesScreen";
+import { SalesQuotesScreen } from "./screens/sales-quotes";
 import { PriceListsScreen } from "./screens/PriceListsScreen";
 import { PromotionsScreen } from "./screens/PromotionsScreen";
 import { CostCenterPnLScreen } from "./screens/CostCenterPnLScreen";
@@ -149,6 +149,8 @@ import { UsersPage, type UserFormDraft } from "./pages/UsersPage";
 import { RolesPage } from "./pages/RolesPage";
 import { RoleEditorPage } from "./pages/RoleEditorPage";
 import { NavigationProvider, type ScreenIntent } from "./navigation";
+import { hashForRoute, parseHash } from "./routing";
+import { Breadcrumbs } from "./Breadcrumbs";
 import { useGlobalShortcuts } from "./keyboard/useGlobalShortcuts";
 import { ShortcutsOverlay } from "./keyboard/ShortcutsOverlay";
 
@@ -317,7 +319,12 @@ export function App() {
   const { session, setSession } = useApi();
   const { t } = useAppTranslation();
   const [showWizard, setShowWizard] = useState(false);
-  const [activeScreen, setActiveScreen] = useState<ScreenKey>("dashboard");
+  // The URL is the source of truth for which screen and sub-page is on display.
+  const [route, setRoute] = useState(() => parseHash(window.location.hash, "dashboard"));
+  const activeScreen = route.screen;
+  const setActiveScreen = useCallback((screen: ScreenKey) => {
+    window.location.hash = hashForRoute(screen);
+  }, []);
   const [editingRole, setEditingRole] = useState<RoleDTO | null>(null); // null = creating new
   const [pendingIntent, setPendingIntent] = useState<ScreenIntent | null>(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -325,18 +332,35 @@ export function App() {
   // screen is mounted at a time, so > 0 means "this screen can create".
   const [intentTargets, setIntentTargets] = useState(0);
 
-  const navigate = useCallback((screen: ScreenKey, intent?: ScreenIntent) => {
-    setActiveScreen(screen);
-    setPendingIntent(intent ?? null);
+  useEffect(() => {
+    const onHashChange = () => setRoute(parseHash(window.location.hash, "dashboard"));
+    window.addEventListener("hashchange", onHashChange);
+    // Stamp the opening address so the first screen is linkable too.
+    if (window.location.hash === "") window.location.replace(hashForRoute("dashboard"));
+    return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
+
+  const navigate = useCallback(
+    (screen: ScreenKey, intent?: ScreenIntent) => {
+      setActiveScreen(screen);
+      setPendingIntent(intent ?? null);
+    },
+    [setActiveScreen],
+  );
+  const openSubPage = useCallback(
+    (segments: readonly string[]) => {
+      window.location.hash = hashForRoute(route.screen, segments);
+    },
+    [route.screen],
+  );
   const clearIntent = useCallback(() => setPendingIntent(null), []);
   const registerIntentTarget = useCallback(() => {
     setIntentTargets((n) => n + 1);
     return () => setIntentTargets((n) => n - 1);
   }, []);
   const navigation = useMemo(
-    () => ({ navigate, intent: pendingIntent, clearIntent, registerIntentTarget }),
-    [navigate, pendingIntent, clearIntent, registerIntentTarget],
+    () => ({ navigate, segments: route.segments, openSubPage, intent: pendingIntent, clearIntent, registerIntentTarget }),
+    [navigate, route.segments, openSubPage, pendingIntent, clearIntent, registerIntentTarget],
   );
 
   const rolesQuery = useRoles();
@@ -554,6 +578,7 @@ export function App() {
       onSelectBranch={setBranch}
       onSelectWarehouse={setWarehouse}
     >
+      <Breadcrumbs screen={activeScreen} />
       {ActiveRoutableScreen ? <ActiveRoutableScreen /> : null}
 
       {activeScreen === "users" ? (

@@ -1,5 +1,7 @@
 # Mezan — Parallel Execution Plan
 
+> **Archived — point-in-time.** This was the parallel build plan and its W1–W9 wave schedule. Retired 2026-08-25: W1–W7 shipped. Current state is `../STATUS.md`. Kept for its evidence — several source comments cite its wave numbers for why a module is shaped the way it is.
+
 > Orchestration plan for building v1 (Electron desktop, SQLite) with **maximum parallelism**. Strategy: build the shared **base engines** first — even when they live in later phases — so that feature work afterward has no cross-feature dependencies and can run in many concurrent PRs. Every unit = its own branch + squash-merged PR (revertable). Agents rebase on the shared barrels (`packages/*/src/index.ts`) when concurrent.
 
 ## The principle
@@ -15,7 +17,7 @@ The backlog is phase-ordered by domain. That is NOT the fastest build order. The
   - **Report engine** (`ReportDefinition`: params → query → table/chart) — near-standalone; start early.
   - **Print pipeline** (typed `PrintTemplateConfig` + renderer + printToPDF/ESC-POS) — needs `@mezan/ui`.
 - **Tier 3 — Feature fan-out** (DONE for every module except the deferred ones; 18 of the 33 catalog reports built): every document module (journal entries UI, sales invoice, purchase invoice/PO/GRN, treasury vouchers, stock adjustments/transfers/counts, returns, landed costs, installments, manufacturing work orders, van trips, etc.) and every one of the 33 reports and each master/config screen — all leaves on the shared engines, so they run concurrently.
-- **Tier 4 — Platform/config UIs + polish** (NOT STARTED, except the dashboard, users/roles and the settings tabs): workflow builder, notification-rules builder, numbering/print/barcode admin, data-migration wizard, audit-log UI. This tier is now the single largest block of unbuilt v1 scope — see `docs/tasks.md` §Phase 10.
+- **Tier 4 — Platform/config UIs + polish** (NOT STARTED, except the dashboard, users/roles and the settings tabs): workflow builder, notification-rules builder, numbering/print/barcode admin, data-migration wizard, audit-log UI. This tier is now the single largest block of unbuilt v1 scope — see `tasks-2026-08-23.md` §Phase 10.
 - **Cross-cutting, continuous**: after each phase/tier, a dedicated **UI/E2E test agent** (Playwright, web + Electron) runs in parallel with the next tier.
 
 ## Wave schedule (each row = a batch of concurrent PRs)

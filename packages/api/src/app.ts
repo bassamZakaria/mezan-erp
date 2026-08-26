@@ -355,7 +355,7 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
   };
   /**
-   * Mounts `/inventory/writedown-runs` (docs/tasks.md Phase 4 "Aging-based
+   * Mounts `/inventory/writedown-runs` (docs/backlog.md Phase 4 "aging-based
    * inventory write-down batch") when present: a manually-triggered,
    * per-period-idempotent monthly provisioning job that posts Dr write-down
    * expense / Cr the 1190-style contra-asset provision for slow-moving
@@ -891,7 +891,7 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.eta) {
     app.route("/eta", createEtaRoutes(options.eta, options.resolveAuthContext));
   }
-  // Generic document framework (docs/execution-plan.md W4): read-only type
+  // Generic document framework (docs/archive/execution-plan-2026-08-23.md W4): read-only type
   // registry + pure effects computation. No persistence, so always mounted.
   app.route("/documents", createDocumentsRoutes(options.resolveAuthContext));
 

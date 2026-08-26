@@ -2,6 +2,7 @@ import type { KeyboardEvent, ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Card, Chip, StatCard } from "./atoms";
+import { SearchInput } from "./form";
 import { FulcrumRule } from "../shell/FulcrumRule";
 
 /**
@@ -46,7 +47,6 @@ export interface DocumentListSort {
 }
 
 export interface DocumentListProps<Row> {
-  eyebrow?: string;
   title: string;
   description?: string;
   actions?: ReactNode;
@@ -60,7 +60,7 @@ export interface DocumentListProps<Row> {
   filterBarExtra?: ReactNode;
   columns: DocumentListColumn<Row>[];
   rows: Row[];
-  rowKey: (row: Row) => string;
+  rowKey: (row: Row, index: number) => string;
   onRowClick?: (row: Row) => void;
   /**
    * Trailing action revealed on the hovered (or keyboard-focused) row.
@@ -92,7 +92,6 @@ function getPageItems(current: number, total: number): (number | "ellipsis")[] {
 }
 
 export function DocumentList<Row>({
-  eyebrow,
   title,
   description,
   actions,
@@ -127,7 +126,6 @@ export function DocumentList<Row>({
     <div className={cn("w-full", className)}>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {eyebrow ? <div className="mz-eyebrow">{eyebrow}</div> : null}
           {title ? <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1> : null}
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>
@@ -163,20 +161,13 @@ export function DocumentList<Row>({
       {onSearchChange || filterBarExtra ? (
         <div className="mb-[14px] flex flex-wrap gap-[10px]">
           {onSearchChange ? (
-            <div className="flex min-w-[240px] flex-1 items-center gap-[9px] rounded-md border border-border bg-surface px-[13px] py-[9px] focus-within:border-brand">
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[15px] w-[15px] flex-none text-ink-faint">
-                <circle cx="9" cy="9" r="6" stroke="currentColor" strokeWidth="1.6" />
-                <path d="m17 17-4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-              </svg>
-              <input
-                type="text"
-                value={searchValue}
-                onChange={(e) => onSearchChange(e.target.value)}
-                placeholder={searchLabel}
-                aria-label={searchLabel}
-                className="w-full border-none bg-transparent text-[13px] text-ink outline-none placeholder:text-ink-faint"
-              />
-            </div>
+            <SearchInput
+              className="min-w-[240px] flex-1"
+              value={searchValue ?? ""}
+              onValueChange={onSearchChange}
+              placeholder={searchLabel}
+              aria-label={searchLabel}
+            />
           ) : null}
           {filterBarExtra}
         </div>
@@ -234,9 +225,9 @@ export function DocumentList<Row>({
               </tr>
             </thead>
             <tbody>
-              {rows.map((row) => (
+              {rows.map((row, rowIndex) => (
                 <tr
-                  key={rowKey(row)}
+                  key={rowKey(row, rowIndex)}
                   className={cn(
                     "group/row h-[36px] transition-colors even:bg-[color-mix(in_srgb,var(--surface-2)_55%,transparent)]",
                     onRowClick && "cursor-pointer hover:bg-surface-2",

@@ -4,8 +4,9 @@ import {
   Card,
   DocumentList,
   Money as MoneyDisplay,
-  StatusPill,
   SidePanel,
+  StatusPill,
+  TextInput,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
@@ -210,7 +211,6 @@ export function InstallmentPlansScreen() {
         </Card>
       ) : null}
       <DocumentList<InstallmentPlanDocumentDTO>
-        eyebrow={t("eyebrow.installments.plans")}
         title={t("instalments.instalmentPlans")}
         description={t("instalments.splittingASalesInvoiceInto")}
         actions={
@@ -351,12 +351,7 @@ function TextFieldDate({ label, value, onChange }: { label: string; value: strin
   return (
     <label className="flex flex-col gap-1.5">
       <span className="text-[12.5px] font-bold text-ink-muted">{label}</span>
-      <input
-        type="date"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-[38px] rounded-[8px] border border-border bg-surface px-3 text-[13px] text-ink outline-none focus:border-brand"
-      />
+      <TextInput type="date" value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }

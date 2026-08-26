@@ -4,6 +4,8 @@ import { useFormat, type UseFormatOptions } from "../hooks/useFormat";
 import { buildReportExport, downloadReportExport, type ReportExportFormat } from "../lib/report-export";
 import { Button, Card, Money } from "./atoms";
 import { VarianceBeam } from "./beams";
+import { Select } from "./Select";
+import { TextInput } from "./form";
 import { FulcrumRule } from "../shell/FulcrumRule";
 import { useUiTranslation } from "../i18n";
 
@@ -60,7 +62,6 @@ export interface ReportRunnerResult<Row> {
 }
 
 export interface ReportRunnerProps<Row> {
-  eyebrow?: string;
   title: string;
   description?: string;
   paramFields: readonly ReportRunnerParamField[];
@@ -118,8 +119,6 @@ function ParamField({
   fieldErrors?: Record<string, string>;
 }) {
   const { t } = useUiTranslation();
-  const inputClass =
-    "rounded-md border border-border bg-surface px-[11px] py-[8px] text-[12.5px] text-ink outline-none focus:border-brand";
 
   function set(key: string, value: string) {
     onParamsChange({ ...params, [key]: value });
@@ -129,53 +128,51 @@ function ParamField({
   const error = fieldErrors?.[errorKey];
 
   return (
-    <label className="flex flex-col gap-[5px]">
+    <div className="flex flex-col gap-[5px]">
       <span className="text-[11.5px] font-semibold text-ink-muted">{field.label}</span>
       {field.kind === "date" ? (
-        <input type="date" aria-label={field.label} value={params[field.key] ?? ""} onChange={(e) => set(field.key, e.target.value)} className={inputClass} />
+        <TextInput type="date" size="sm" aria-label={field.label} value={params[field.key] ?? ""} onChange={(e) => set(field.key, e.target.value)} />
       ) : field.kind === "dateRange" ? (
         <span className="flex items-center gap-[8px]">
-          <input
+          <TextInput
             type="date"
+            size="sm"
             aria-label={t("ui.report.rangeFrom", { label: field.label })}
             value={params[field.fromKey] ?? ""}
             onChange={(e) => set(field.fromKey, e.target.value)}
-            className={inputClass}
           />
           <span className="text-xs text-ink-faint">{t("ui.dateRange.separator")}</span>
-          <input
+          <TextInput
             type="date"
+            size="sm"
             aria-label={t("ui.report.rangeTo", { label: field.label })}
             value={params[field.toKey] ?? ""}
             onChange={(e) => set(field.toKey, e.target.value)}
-            className={inputClass}
           />
         </span>
       ) : field.kind === "select" ? (
-        <select aria-label={field.label} value={params[field.key] ?? ""} onChange={(e) => set(field.key, e.target.value)} className={inputClass}>
-          {field.options.map((opt) => (
-            <option key={opt.value} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
+        <Select
+          size="sm"
+          aria-label={field.label}
+          value={params[field.key] ?? ""}
+          onChange={(next) => set(field.key, next)}
+          options={field.options.map((opt) => ({ value: opt.value, label: opt.label }))}
+        />
       ) : (
-        <input
-          type="text"
+        <TextInput
+          size="sm"
           aria-label={field.label}
           value={params[field.key] ?? ""}
           placeholder={field.placeholder}
           onChange={(e) => set(field.key, e.target.value)}
-          className={inputClass}
         />
       )}
       {error ? <span className="text-[11px] text-danger-ink">{error}</span> : null}
-    </label>
+    </div>
   );
 }
 
 export function ReportRunner<Row>({
-  eyebrow,
   title,
   description,
   paramFields,
@@ -219,7 +216,6 @@ export function ReportRunner<Row>({
     <div className={cn("w-full", className)}>
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          {eyebrow ? <div className="mz-eyebrow">{eyebrow}</div> : null}
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{title}</h1>
           {description ? <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{description}</p> : null}
         </div>

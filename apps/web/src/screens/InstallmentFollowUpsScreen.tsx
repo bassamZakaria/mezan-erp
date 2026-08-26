@@ -1,5 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Button, Card, DocumentList, StatusPill, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  DocumentList,
+  SidePanel,
+  StatusPill,
+  TextInput,
+  type DocumentListColumn,
+  type DocumentListStatusChip,
+  type PillTone,
+} from "@mezan/ui";
 import type { CollectionFollowUpDTO, FollowUpStatusDTO, FollowUpTypeDTO } from "@mezan/contracts";
 import { SelectField, TextField } from "../settings/form-controls";
 import { useCancelFollowUp, useCompleteFollowUp, useCreateFollowUp, useCustomers, useFollowUps } from "../data/hooks";
@@ -139,7 +149,6 @@ export function InstallmentFollowUpsScreen() {
         </Card>
       ) : null}
       <DocumentList<CollectionFollowUpDTO>
-        eyebrow={t("eyebrow.installments.collectionFollowUps")}
         title={t("followUps.collectionFollowUps")}
         description={t("followUps.aRecordOfCollectionContact")}
         actions={
@@ -175,12 +184,7 @@ export function InstallmentFollowUpsScreen() {
           <SelectField label={t("followUps.followUpType2")} value={type} onChange={(v) => setType(v as FollowUpTypeDTO)} options={Object.entries(TYPE_KEY).map(([value, key]) => ({ value, label: t(key) }))} />
           <label className="flex flex-col gap-1.5">
             <span className="text-[12.5px] font-bold text-ink-muted">{t("followUps.followUpDate2")}</span>
-            <input
-              type="date"
-              value={followUpDate}
-              onChange={(e) => setFollowUpDate(e.target.value)}
-              className="h-[38px] rounded-[8px] border border-border bg-surface px-3 text-[13px] text-ink outline-none focus:border-brand"
-            />
+            <TextInput type="date" value={followUpDate} onChange={(e) => setFollowUpDate(e.target.value)} />
           </label>
           <TextField label={t("common.notes")} value={notes} onChange={setNotes} placeholder={t("followUps.leaveEmptyToAssignThe")} />
           {error ? <div className="rounded-[8px] bg-danger-soft px-3 py-2 text-[12.5px] text-danger">{error}</div> : null}

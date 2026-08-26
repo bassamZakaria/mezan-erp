@@ -6,7 +6,7 @@ import { createBackend, type BackendHandle } from "./create-backend.js";
 /**
  * End-to-end proof that the notification-rules engine is actually WIRED at
  * runtime, not just implemented (see the repo's own "engines that are
- * implemented but never wired" pattern, docs/tasks.md / README.md "What is
+ * implemented but never wired" pattern, docs/STATUS.md / README.md "What is
  * not built"): a rule created over the real `/notification-rules` API fires
  * off a REAL sales-invoice confirm through the real `/sales-invoices` API,
  * and the resulting notification is readable through the real

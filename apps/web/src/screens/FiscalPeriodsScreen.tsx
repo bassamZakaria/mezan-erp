@@ -1,5 +1,15 @@
 import { useMemo, useState } from "react";
-import { FulcrumRule, DocumentList, StatusPill, Chip, Button, Card, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  Chip,
+  DocumentList,
+  FulcrumRule,
+  Select,
+  StatusPill,
+  type DocumentListColumn,
+  type PillTone,
+} from "@mezan/ui";
 import type { FiscalPeriodDTO, FiscalPeriodStatusDTO } from "@mezan/contracts";
 import {
   useClosePeriod,
@@ -169,27 +179,18 @@ export function FiscalPeriodsScreen() {
       ) : null}
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.accounting.fiscalPeriods")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("fiscalPeriods.financialPeriods")}</h1>
           <p className="mt-[5px] max-w-[62ch] text-[12.5px] text-ink-muted">{t("fiscalPeriods.closeAndLockMonthlyFinancial")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-[9px]">
-          <select
+          <Select
+            size="sm"
+            className="w-[130px]"
             aria-label={t("fiscalPeriods.financialYear")}
-            value={selectedYear}
-            onChange={(e) => setYear(Number(e.target.value))}
-            className="rounded-md border border-border bg-surface px-[11px] py-[9px] text-[12.5px] text-ink"
-          >
-            {years.length > 0 ? (
-              years.map((y) => (
-                <option key={y} value={y}>
-                  {y}
-                </option>
-              ))
-            ) : (
-              <option value={selectedYear}>{selectedYear}</option>
-            )}
-          </select>
+            value={String(selectedYear)}
+            onChange={(value) => setYear(Number(value))}
+            options={(years.length > 0 ? years : [selectedYear]).map((y) => ({ value: String(y), label: String(y) }))}
+          />
           <Button variant="primary" onClick={generateNextYear}>
             {t("fiscalPeriods.createNextYear")}
           </Button>
@@ -240,7 +241,6 @@ export function FiscalPeriodsScreen() {
       </div>
 
       <DocumentList<FiscalPeriodDTO>
-        eyebrow={t("eyebrow.accounting.fiscalPeriods")}
         title=""
         filterBarExtra={
           <div className="flex flex-wrap gap-[8px]">

@@ -332,7 +332,6 @@ export function EmployeesScreen() {
       ) : null}
 
       <DocumentList<EmployeeDTO>
-        eyebrow={t("eyebrow.hr.employees")}
         title={t("employees.employees")}
         description={t("employees.theCentralEmployeeRecordPersonal")}
         actions={

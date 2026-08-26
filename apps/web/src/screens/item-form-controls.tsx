@@ -1,38 +1,34 @@
 import { useId, type ReactNode } from "react";
-import { cn } from "@mezan/ui";
+import { Select, Switch, TextInput, cn } from "@mezan/ui";
 
 /**
- * Small local form primitives for the Items screen's add/edit panel. Mirrors
- * the shape of `apps/web/src/settings/form-controls.tsx` (Field/TextField/
- * SelectField/ToggleField) but kept local to `screens/` rather than importing
- * that settings-scoped module — `@mezan/ui` does not yet ship generic
- * text/select/toggle inputs (only the domain-specific
- * MoneyInput/QtyInput/EntityPicker).
+ * Items-screen field wrappers over the @mezan/ui form primitives: they add
+ * this panel's label/hint layout and its `(value) => void` change shape.
  */
-
-const controlClass =
-  "w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none transition-colors focus:border-brand disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-ink-faint";
 
 export interface FieldProps {
   label: string;
   hint?: string;
   required?: boolean;
   className?: string;
+  /** `false` renders the label as a sibling — required when the control is not a labelable element (e.g. `Select`, whose trigger is a button). */
+  wrapWithLabel?: boolean;
   /** The hint `<span>`'s `id`, referenced by the control's `aria-describedby` — keeps hint text out of the `<label>`'s accessible name (it's rendered as a sibling of the label, not inside it). */
   hintId?: string;
   children: ReactNode;
 }
 
-export function Field({ label, hint, required, className, hintId, children }: FieldProps) {
+export function Field({ label, hint, required, className, hintId, wrapWithLabel = true, children }: FieldProps) {
+  const Wrapper = wrapWithLabel ? "label" : "div";
   return (
     <div className={cn("flex flex-col gap-[6px]", className)}>
-      <label className="flex flex-col gap-[6px]">
+      <Wrapper className="flex flex-col gap-[6px]">
         <span className="text-xs font-semibold text-ink-muted">
           {label}
           {required ? " *" : ""}
         </span>
         {children}
-      </label>
+      </Wrapper>
       {hint ? (
         <span id={hintId} className="text-[11px] text-ink-faint">
           {hint}
@@ -77,8 +73,7 @@ export function TextField({ label, value, onChange, placeholder, hint, required,
   const hintId = useId();
   return (
     <Field label={label} hint={hint} required={required} hintId={hint ? hintId : undefined}>
-      <input
-        type="text"
+      <TextInput
         dir={dir}
         required={required}
         value={value}
@@ -86,7 +81,6 @@ export function TextField({ label, value, onChange, placeholder, hint, required,
         disabled={disabled}
         aria-describedby={hint ? hintId : undefined}
         onChange={(e) => onChange(e.target.value)}
-        className={controlClass}
       />
     </Field>
   );
@@ -110,20 +104,15 @@ export interface SelectFieldProps {
 export function SelectField({ label, value, onChange, options, hint, required, disabled }: SelectFieldProps) {
   const hintId = useId();
   return (
-    <Field label={label} hint={hint} required={required} hintId={hint ? hintId : undefined}>
-      <select
+    <Field label={label} hint={hint} required={required} hintId={hint ? hintId : undefined} wrapWithLabel={false}>
+      <Select
+        aria-label={label}
         value={value}
+        options={options}
         disabled={disabled}
-        aria-describedby={hint ? hintId : undefined}
-        onChange={(e) => onChange(e.target.value)}
-        className={controlClass}
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+        required={required}
+        onChange={onChange}
+      />
     </Field>
   );
 }
@@ -141,15 +130,15 @@ export function NumberField({ label, value, onChange, hint, min, disabled }: Num
   const hintId = useId();
   return (
     <Field label={label} hint={hint} hintId={hint ? hintId : undefined}>
-      <input
+      <TextInput
         type="number"
+        numeric
         dir="ltr"
         min={min}
         disabled={disabled}
         value={value ?? ""}
         aria-describedby={hint ? hintId : undefined}
         onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
-        className={cn(controlClass, "mz-num")}
       />
     </Field>
   );
@@ -175,28 +164,13 @@ export function ToggleField({ label, checked, onChange, hint, disabled }: Toggle
           </div>
         ) : null}
       </div>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={checked}
-        aria-label={label}
-        aria-describedby={hint ? hintId : undefined}
+      <Switch
+        checked={checked}
+        onChange={onChange}
+        label={label}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={cn(
-          "relative h-[22px] w-[38px] flex-none rounded-pill border transition-colors",
-          checked ? "border-brand bg-brand" : "border-border bg-surface-3",
-          disabled && "cursor-not-allowed opacity-60",
-        )}
-      >
-        <span
-          aria-hidden
-          className={cn(
-            "absolute top-[2px] h-[16px] w-[16px] rounded-full bg-surface shadow-1 transition-[inset-inline-start]",
-            checked ? "start-[18px]" : "start-[2px]",
-          )}
-        />
-      </button>
+        aria-describedby={hint ? hintId : undefined}
+      />
     </div>
   );
 }

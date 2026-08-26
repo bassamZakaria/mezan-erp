@@ -154,7 +154,6 @@ export function PipelineStagesScreen() {
         </div>
       ) : null}
       <DocumentList<PipelineStageDTO>
-        eyebrow={t("eyebrow.crm.pipelineStages")}
         title={t("pipelineStages.pipelineStages")}
         description={t("pipelineStages.defineTheStagesOfThe")}
         actions={

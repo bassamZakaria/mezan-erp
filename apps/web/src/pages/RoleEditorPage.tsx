@@ -1,5 +1,13 @@
 import { useMemo, useState } from "react";
-import { FulcrumRule, Button, Card, PermissionMatrix, type PermissionMatrixItem, type PermissionMatrixModule } from "@mezan/ui";
+import {
+  Button,
+  Card,
+  FulcrumRule,
+  PermissionMatrix,
+  TextInput,
+  type PermissionMatrixItem,
+  type PermissionMatrixModule,
+} from "@mezan/ui";
 import {
   getPermission,
   isPlatformAdminOnly,
@@ -118,7 +126,6 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-start justify-between gap-[14px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.settings.roles")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{role ? t("roles.editor.title.edit") : t("roles.editor.title.new")}</h1>
         </div>
         <div className="flex gap-[9px]">
@@ -139,31 +146,21 @@ export function RoleEditorPage({ role, entitlements, onSave, onCancel }: RoleEdi
       <Card className="mb-[18px] p-[15px] flex flex-col gap-[12px] sm:flex-row sm:items-start">
         <label className="flex-1">
           <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.name")}</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            disabled={role?.isSystem}
-            className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand disabled:opacity-60"
-          />
+          <TextInput value={name} onChange={(e) => setName(e.target.value)} disabled={role?.isSystem} />
         </label>
         <label className="flex-1">
           <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.code")}</span>
-          <input
+          <TextInput
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase())}
             disabled={role !== null}
             placeholder="VAN_SALES"
-            className="mz-lat w-full rounded-md border border-border bg-surface px-[11px] py-[9px] font-mono text-[13px] text-ink outline-none focus:border-brand disabled:opacity-60"
+            className="mz-lat font-mono"
           />
         </label>
         <label className="flex-[2]">
           <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("roles.editor.field.description")}</span>
-          <input
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            disabled={role?.isSystem}
-            className="w-full rounded-md border border-border bg-surface px-[11px] py-[9px] text-[13px] text-ink outline-none focus:border-brand disabled:opacity-60"
-          />
+          <TextInput value={description} onChange={(e) => setDescription(e.target.value)} disabled={role?.isSystem} />
         </label>
       </Card>
 

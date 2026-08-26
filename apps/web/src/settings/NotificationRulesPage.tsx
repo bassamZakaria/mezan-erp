@@ -234,7 +234,6 @@ export function NotificationRulesPage() {
   return (
     <div className="w-full">
       <DocumentList<NotificationRuleDTO>
-        eyebrow={t("notifRules.eyebrow")}
         title={t("notifRules.title")}
         description={t("notifRules.description")}
         actions={

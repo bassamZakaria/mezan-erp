@@ -11,7 +11,7 @@ import {
   type PillTone,
 } from "@mezan/ui";
 import type { DocumentStatusDTO, PurchaseReturnLineDTO, PurchaseReturnReasonDTO } from "@mezan/contracts";
-import { SelectField, NumberField } from "../settings/form-controls";
+import { SelectField, NumberField, TextField } from "../settings/form-controls";
 import {
   useCancelPurchaseReturn,
   useConfirmPurchaseReturn,
@@ -23,6 +23,7 @@ import {
   useWarehouses,
 } from "../data/hooks";
 import { DOC_STATUS_TONE, documentStatusLabel } from "../doc-status";
+import { useSubPage } from "../navigation";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /** مرتجعات المشتريات (Purchase Returns) — docs/catalog/02. Document-framework-backed (draft → confirmed, de-stocks, reduces AP). */
@@ -76,7 +77,9 @@ export function PurchaseReturnsScreen() {
     return (id: string) => map.get(id) ?? id;
   }, [items]);
 
-  const [panel, setPanel] = useState<"none" | "create" | { id: string }>("none");
+  // `#/…/<screen>` · `…/new` · `…/<docNo|id>` — a create form and a document are places, not overlays.
+  const subPage = useSubPage();
+  const [firstSegment] = subPage.segments;
   const [statusFilter, setStatusFilter] = useState<"all" | DocumentStatusDTO>("all");
   const [invoiceId, setInvoiceId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
@@ -85,27 +88,32 @@ export function PurchaseReturnsScreen() {
   const [error, setError] = useState<string | null>(null);
 
   // Defaults the create form's invoice/warehouse pickers once their queries resolve —
-  // `openCreate` alone can't do this if the panel is opened before `invoices`/`warehouses` load.
+  // `openCreate` alone can't do this if the page is opened before `invoices`/`warehouses` load.
   useEffect(() => {
-    if (panel !== "create" || invoiceId !== "") return;
+    if (firstSegment !== "new" || invoiceId !== "") return;
     const firstInvoice = invoices[0];
     if (!firstInvoice) return;
     setInvoiceId(firstInvoice.id);
     const firstLine = firstInvoice.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
-  }, [panel, invoices, invoiceId]);
+  }, [firstSegment, invoices, invoiceId]);
 
   useEffect(() => {
-    if (panel !== "create" || warehouseId !== "") return;
+    if (firstSegment !== "new" || warehouseId !== "") return;
     const firstWarehouse = warehouses[0];
     if (firstWarehouse) setWarehouseId(firstWarehouse.id);
-  }, [panel, warehouses, warehouseId]);
+  }, [firstSegment, warehouses, warehouseId]);
 
   const selectedInvoice = invoices.find((i) => i.id === invoiceId) ?? null;
   const returnableLines = useMemo(
     () => (selectedInvoice?.lines ?? []).filter((l) => l.kind === "inventory" && l.itemId !== null),
     [selectedInvoice],
   );
+
+  const [search, setSearch] = useState("");
+  const [supplierFilter, setSupplierFilter] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
 
   const counts = useMemo(() => {
     const c = { all: documents.length, draft: 0, confirmed: 0, cancelled: 0 };
@@ -117,8 +125,21 @@ export function PurchaseReturnsScreen() {
     return c;
   }, [documents]);
 
-  const filtered = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
-  const selected = typeof panel === "object" ? (documents.find((d) => d.id === panel.id) ?? null) : null;
+  const filtered = useMemo(() => {
+    let rows = statusFilter === "all" ? documents : documents.filter((d) => d.status === statusFilter);
+    if (supplierFilter) rows = rows.filter((d) => d.lines.some((l) => l.supplierId === supplierFilter));
+    if (fromDate) rows = rows.filter((d) => d.date >= fromDate);
+    if (toDate) rows = rows.filter((d) => d.date <= toDate);
+    if (search.trim() !== "") {
+      const q = search.trim().toLowerCase();
+      rows = rows.filter((d) => (d.docNo ?? "").toLowerCase().includes(q) || (d.lines[0] ? supplierName(d.lines[0].supplierId).includes(search.trim()) : false));
+    }
+    return rows;
+  }, [documents, statusFilter, supplierFilter, fromDate, toDate, search, supplierName]);
+  const selected =
+    firstSegment !== undefined && firstSegment !== "new"
+      ? (documents.find((d) => d.id === firstSegment || d.docNo === firstSegment) ?? null)
+      : null;
 
   function openCreate() {
     setError(null);
@@ -128,7 +149,7 @@ export function PurchaseReturnsScreen() {
     setReason("DEFECTIVE");
     const firstLine = firstInvoice?.lines.find((l) => l.kind === "inventory" && l.itemId !== null);
     setLines(firstLine?.itemId ? [blankLine(firstLine.itemId)] : []);
-    setPanel("create");
+    subPage.open("new");
   }
 
   function changeInvoice(id: string) {
@@ -173,7 +194,7 @@ export function PurchaseReturnsScreen() {
       const id = crypto.randomUUID();
       const created = await createReturn.mutateAsync({ id, date: new Date().toISOString().slice(0, 10), memo: "", lines: returnLines });
       if (confirmAfter) await confirmReturn.mutateAsync(created.id);
-      setPanel("none");
+      subPage.close();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -220,47 +241,17 @@ export function PurchaseReturnsScreen() {
     { key: "status", header: t("common.status"), render: (d) => <StatusPill label={documentStatusLabel(d.status, t)} tone={DOC_STATUS_TONE[d.status]} /> },
   ];
 
-  return (
+  const createPage = (
     <div className="w-full">
-      {query.isError ? (
-        <Card className="mb-[18px] p-[18px_20px]">
-          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseReturns.loadFailed")}</p>
-          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
-            {t("common.retry")}
-          </Button>
-        </Card>
-      ) : null}
-      <DocumentList<(typeof documents)[number]>
-        eyebrow={t("eyebrow.purchases.returns")}
-        title={t("purchaseReturns.title")}
-        description={t("purchaseReturns.description")}
-        actions={
-          <Button variant="primary" onClick={openCreate}>
-            {t("purchaseReturns.new")}
-          </Button>
-        }
-        stats={[
-          { label: t("purchaseReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
-          { label: t("purchaseReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
-        ]}
-        statusChips={statusChips}
-        activeStatusKey={statusFilter}
-        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
-        columns={columns}
-        rows={filtered}
-        rowKey={(d) => d.id}
-        onRowClick={(d) => setPanel({ id: d.id })}
-        page={1}
-        pageCount={1}
-        pageSummary={
-          <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("purchaseReturns.showingSuffix")}
-          </>
-        }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseReturns.empty")}</div>}
-      />
-
-      <SidePanel open={panel === "create"} onClose={() => setPanel("none")} title={t("purchaseReturns.panel.title")}>
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{t("purchaseReturns.panel.title")}</h1>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
         <div className="flex flex-col gap-4 p-5">
           <SelectField
             label={t("purchaseReturns.field.sourceInvoice")}
@@ -324,9 +315,20 @@ export function PurchaseReturnsScreen() {
             </Button>
           </div>
         </div>
-      </SidePanel>
+    </div>
+  );
 
-      <SidePanel open={selected !== null} onClose={() => setPanel("none")} title={selected?.docNo ?? t("purchaseReturns.detailTitle")}>
+  const detailPage = (
+    <div className="w-full">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-bold uppercase tracking-[0.08em] text-ink-muted">{t("eyebrow.purchases.returns")}</div>
+          <h1 className="font-display text-xl font-bold text-ink">{selected?.docNo ?? t("purchaseReturns.detailTitle")}</h1>
+        </div>
+        <Button variant="default" onClick={subPage.close}>
+          {t("quotes.backToList")}
+        </Button>
+      </div>
         {selected ? (
           <div className="flex flex-col gap-4 p-5">
             <StatusPill label={documentStatusLabel(selected.status, t)} tone={DOC_STATUS_TONE[selected.status]} />
@@ -359,7 +361,67 @@ export function PurchaseReturnsScreen() {
             ) : null}
           </div>
         ) : null}
-      </SidePanel>
+    </div>
+  );
+
+  if (firstSegment === "new") return createPage;
+  if (selected) return detailPage;
+
+  return (
+    <div className="w-full">
+      {query.isError ? (
+        <Card className="mb-[18px] p-[18px_20px]">
+          <p className="text-[13px] font-semibold text-danger-ink">{t("purchaseReturns.loadFailed")}</p>
+          <Button size="sm" className="mt-[10px]" onClick={() => query.refetch()}>
+            {t("common.retry")}
+          </Button>
+        </Card>
+      ) : null}
+      <DocumentList<(typeof documents)[number]>
+        title={t("purchaseReturns.title")}
+        description={t("purchaseReturns.description")}
+        actions={
+          <Button variant="primary" onClick={openCreate}>
+            {t("purchaseReturns.new")}
+          </Button>
+        }
+        stats={[
+          { label: t("purchaseReturns.stat.total"), value: <span className="mz-num">{counts.all}</span> },
+          { label: t("purchaseReturns.stat.confirmed"), value: <span className="mz-num">{counts.confirmed}</span> },
+        ]}
+        statusChips={statusChips}
+        activeStatusKey={statusFilter}
+        onStatusChange={(k) => setStatusFilter(k as "all" | DocumentStatusDTO)}
+        columns={columns}
+        searchValue={search}
+        onSearchChange={setSearch}
+        searchPlaceholder={t("purchaseReturns.searchPlaceholder")}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-3">
+            <SelectField
+              label={t("common.supplier")}
+              value={supplierFilter}
+              onChange={setSupplierFilter}
+              options={[{ value: "", label: t("common.allSuppliers") }, ...suppliers.map((sup) => ({ value: sup.id, label: sup.nameAr }))]}
+            />
+            <TextField label={t("common.fromDate")} value={fromDate} onChange={setFromDate} type="date" />
+            <TextField label={t("common.toDate")} value={toDate} onChange={setToDate} type="date" />
+          </div>
+        }
+        rows={filtered}
+        rowKey={(d) => d.id}
+        onRowClick={(d) => subPage.open(d.docNo ?? d.id)}
+        page={1}
+        pageCount={1}
+        pageSummary={
+          <>
+            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{counts.all}</span> {t("purchaseReturns.showingSuffix")}
+          </>
+        }
+        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("purchaseReturns.empty")}</div>}
+      />
+
+
     </div>
   );
 }

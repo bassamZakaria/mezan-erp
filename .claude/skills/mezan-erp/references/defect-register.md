@@ -16,13 +16,21 @@ Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 
 ## Open (as of 2026-08-25 — re-read `docs/defects.md`, it is the authority)
 
-**None.** All 24 rows this register carried are closed, and `pnpm scenarios`
-(2,020 assertions) passes with all four invariants at exactly zero on the seeded
-tenant: trial balance, inventory vs GL 1200, AP vs GL 2100, AR vs GL 1105.
+**D1–D37 are all closed**, and `pnpm scenarios` passes with all four invariants
+at exactly zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs
+GL 2100, AR vs GL 1105.
 
-Read that as "the ones written down are closed", not "the product is clean". The
-next defect gets found the way these did — seed, drive, and compare two numbers
-that must agree.
+**Two are open**, both found on `main` during that same sweep and neither part
+of it — re-read `docs/defects.md` for their evidence:
+
+- **D38** — a quote or invoice line accepts ANY `itemId` string; no route checks
+  it against the item catalogue, so an invented id posts a 201.
+- **D42** — a landed cost credits AP with no supplier dimension, so the payable
+  exists in the ledger and on no supplier's account (2,500.00 on the seed).
+
+Read a closed row as "found and written down and fixed", not "the product is
+clean". The next defect gets found the way these did — seed, drive, and compare
+two numbers that must agree.
 
 Open by DECISION, not by patch: workflow `minAmount` is configurable but never
 enforced (`DocumentWorkflowInput` carries no amount to compare), and

@@ -296,7 +296,6 @@ export function TreasuryVouchersScreen() {
         </Card>
       ) : null}
       <DocumentList<VoucherRowDTO>
-        eyebrow={t("eyebrow.treasury.vouchers")}
         title={t("vouchers.cashVouchers")}
         description={t("vouchers.receiptsDisbursementsAndTransfersOne")}
         actions={
@@ -791,7 +790,6 @@ function CreateVoucherView({
       <div className="w-full">
         <div className="mb-[16px] flex items-end justify-between gap-[18px]">
           <div>
-            <div className="mz-eyebrow">{t("eyebrow.treasury.newVoucher")}</div>
             <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{t("vouchers.chooseAVoucherType")}</h1>
           </div>
           <Button onClick={onDone}>{t("common.cancel")}</Button>
@@ -825,7 +823,6 @@ function CreateVoucherView({
     <div className="w-full">
       <div className="mb-[16px] flex flex-wrap items-end justify-between gap-[18px]">
         <div>
-          <div className="mz-eyebrow">{t("eyebrow.treasury.newVoucher")}</div>
           <h1 className="mt-[5px] font-display text-2xl font-bold text-ink">{def.labelAr}</h1>
           <button type="button" onClick={() => setType(null)} className="mt-[6px] text-[12px] text-brand underline">
             {t("vouchers.changeVoucherType")}

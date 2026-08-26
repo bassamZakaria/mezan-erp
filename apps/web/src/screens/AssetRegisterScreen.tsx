@@ -197,7 +197,6 @@ export function AssetRegisterScreen() {
         </Card>
       ) : null}
       <DocumentList<AssetDTO>
-        eyebrow={t("eyebrow.fixedAssets.register")}
         title={t("asset.assetRegister")}
         description={t("asset.theCentralRecordOfFixed")}
         actions={

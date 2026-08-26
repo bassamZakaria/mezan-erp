@@ -527,4 +527,111 @@ export async function run(ctx: Ctx): Promise<void> {
       await linkAdmin(ctx, original);
     }
   });
+
+  await ctx.scenario("hr / leave — R10.5: an admin files a request for another employee, and only with the approval permission", async () => {
+    const created = await ctx.req("POST", "/hr/leave-requests", {
+      employeeId: "EMP-DEMO-1",
+      leaveType: "annual",
+      startDate: "2029-04-02",
+      endDate: "2029-04-04",
+      reason: "R10.5 — نيابة عن الموظف",
+    });
+    ctx.check("R10.5 — the admin list can file a leave request for a named employee", created.status === 201, `${created.status}: ${JSON.stringify(created.body)}`);
+    ctx.check("the stored request carries the picked employee's REAL id, not the caller's", created.body.employeeId === "EMP-DEMO-1", String(created.body.employeeId));
+
+    const unknown = await ctx.req("POST", "/hr/leave-requests", { employeeId: "EMP-NOPE", leaveType: "annual", startDate: "2029-04-02", endDate: "2029-04-04" });
+    ctx.check("filing for an employee that does not exist is refused", unknown.status === 404, `status ${unknown.status}`);
+
+    const withoutApproval = await ctx.req(
+      "POST",
+      "/hr/leave-requests",
+      { employeeId: "EMP-DEMO-2", leaveType: "annual", startDate: "2029-04-02", endDate: "2029-04-04" },
+      { "x-permissions": "hr.leave.view,hr.leave.create", "x-role-codes": "hr" },
+    );
+    ctx.check(
+      "filing on someone else's behalf needs hr.leave.approve — hr.leave.create alone is self-service only",
+      withoutApproval.status === 403,
+      `status ${withoutApproval.status}`,
+    );
+  });
+
+  await ctx.scenario("hr / leave — cancelling an APPROVED request gives the consumed days back to the balance", async () => {
+    const year = 2029;
+    const grant = await ctx.req("POST", "/hr/leave-balances", { employeeId: "EMP-DEMO-5", leaveType: "casual", year, entitled: "6", carriedOver: "0" });
+    ctx.check("an entitlement can be granted for the year", grant.status === 201 || grant.status === 200, `${grant.status}: ${JSON.stringify(grant.body)}`);
+
+    const before = ctx.rows((await ctx.req("GET", `/hr/leave-balances?employeeId=EMP-DEMO-5&year=${year}`)).body).find((b: any) => b.leaveType === "casual");
+    const request = await ctx.req("POST", "/hr/leave-requests", { employeeId: "EMP-DEMO-5", leaveType: "casual", startDate: "2029-05-04", endDate: "2029-05-05" });
+    ctx.check("the request is filed", request.status === 201, `${request.status}: ${JSON.stringify(request.body)}`);
+    await ctx.req("POST", `/hr/leave-requests/${request.body.id}/approve`, {});
+
+    const consumed = ctx.rows((await ctx.req("GET", `/hr/leave-balances?employeeId=EMP-DEMO-5&year=${year}`)).body).find((b: any) => b.leaveType === "casual");
+    ctx.checkEq("approving consumes the two days", ctx.n(consumed?.used) - ctx.n(before?.used), 2);
+
+    const cancelled = await ctx.req("POST", `/hr/leave-requests/${request.body.id}/cancel`, {});
+    ctx.check("an approver can cancel the request", cancelled.status === 200 && cancelled.body.status === "cancelled", `${cancelled.status}: ${JSON.stringify(cancelled.body)}`);
+
+    const released = ctx.rows((await ctx.req("GET", `/hr/leave-balances?employeeId=EMP-DEMO-5&year=${year}`)).body).find((b: any) => b.leaveType === "casual");
+    ctx.checkEq(
+      "cancelling releases exactly those days — the matrix must not keep counting leave that was never taken",
+      ctx.n(released?.used),
+      ctx.n(before?.used),
+    );
+  });
+
+  await ctx.scenario("hr / payroll — R10.7: a contract line's component decides which GL account the entry debits", async () => {
+    const components = ctx.rows((await ctx.req("GET", "/hr/payroll/components")).body);
+    ctx.check("the payroll-component registry is populated", components.length > 0, `${components.length} components`);
+    const transport = components.find((c: any) => c.id === "PC-DEMO-TRANSPORT");
+    ctx.check("the transport allowance is routed to its own account, not the salary account", transport?.glAccountId === "5121", JSON.stringify(transport));
+
+    const contract = (await ctx.req("GET", "/hr/contracts/CTR-DEMO-1")).body;
+    ctx.check(
+      "every allowance line on the contract binds to a REAL component id, never free text alone",
+      contract.allowances.length > 0 && contract.allowances.every((a: any) => typeof a.componentId === "string" && a.componentId.length > 0),
+      JSON.stringify(contract.allowances),
+    );
+
+    const run = (await ctx.req("GET", "/hr/payroll/runs/PR-DEMO-1")).body;
+    const entry = (await ctx.req("GET", `/gl/journal-entries/${run.journalEntryId}`)).body;
+    const debits = new Map<string, number>();
+    for (const line of entry.lines) debits.set(line.accountId, (debits.get(line.accountId) ?? 0) + ctx.n(line.debit));
+    ctx.check("the payroll entry debits the allowance account 5121 separately from basic pay 5120", (debits.get("5121") ?? 0) > 0 && (debits.get("5120") ?? 0) > 0, JSON.stringify([...debits]));
+
+    const payslips = run.payslips as any[];
+    const allowanceTotal = payslips
+      .flatMap((p) => p.lines)
+      .filter((l: any) => l.source === "contract_allowance")
+      .reduce((sum: number, l: any) => sum + ctx.n(l.amount), 0);
+    ctx.checkEq("the 5121 debit equals the sum of the allowance lines to the cent", debits.get("5121") ?? 0, allowanceTotal);
+    await assertBalancedEntry(ctx, "R10.7 payroll entry", run.journalEntryId);
+  });
+
+  await ctx.scenario("hr / employees — R10.2: re-hiring a terminated employee keeps the years already served", async () => {
+    const code = `SCN-RH-${Date.now()}`;
+    const created = await ctx.req("POST", "/hr/employees", {
+      firstName: "Rehire",
+      lastName: "Case",
+      firstNameAr: "معاد",
+      lastNameAr: "تعيينه",
+      branchId,
+      hireDate: "2020-01-01",
+      priorServiceYears: 1,
+    });
+    ctx.check(`an employee can be created for the re-hire case (${code})`, created.status === 201, `${created.status}: ${JSON.stringify(created.body)}`);
+
+    const stillActive = await ctx.req("POST", `/hr/employees/${created.body.id}/rehire`, { hireDate: "2026-01-01" });
+    ctx.check("an employee who was never terminated cannot be re-hired", stillActive.status === 422, `status ${stillActive.status}`);
+
+    await ctx.req("POST", `/hr/employees/${created.body.id}/terminate`, {});
+    const rehired = await ctx.req("POST", `/hr/employees/${created.body.id}/rehire`, { hireDate: "2026-01-01" });
+    ctx.check("R10.2 — a terminated employee can be re-hired", rehired.status === 200 && rehired.body.status === "active", `${rehired.status}: ${JSON.stringify(rehired.body)}`);
+    ctx.check("the re-hire date becomes the new hire date", rehired.body.hireDate === "2026-01-01", String(rehired.body.hireDate));
+    ctx.check("the termination stamp is cleared", rehired.body.terminatedAt === null, JSON.stringify(rehired.body.terminatedAt));
+    ctx.check(
+      "the previous spell survives as prior service (1 + ~6 years), never silently discarded",
+      rehired.body.priorServiceYears >= 7,
+      `priorServiceYears ${rehired.body.priorServiceYears}`,
+    );
+  });
 }

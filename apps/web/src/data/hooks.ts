@@ -155,6 +155,8 @@ import type {
   AppliedSalesInvoicePromotionDTO,
   PromotionUsageRowDTO,
   SalesInvoiceListQueryDTO,
+  SalesInvoiceStatsDTO,
+  ListCountsDTO,
   SalesReturnDocumentDTO,
   SessionDTO,
   SettleVanTripDTO,
@@ -1734,15 +1736,63 @@ export function useSalesInvoices(filter: SalesInvoiceListQueryDTO = {}): UseQuer
     queryKey: ["sales-invoices", filter],
     enabled: session !== null,
     queryFn: async () => {
-      const params = new URLSearchParams();
-      if (filter.status) params.set("status", filter.status);
-      if (filter.customerId) params.set("customerId", filter.customerId);
-      if (filter.fromDate) params.set("fromDate", filter.fromDate);
-      if (filter.toDate) params.set("toDate", filter.toDate);
-      const qs = params.toString();
+      const qs = salesInvoiceParams(filter).toString();
       const res = await request(`/sales-invoices${qs ? `?${qs}` : ""}`);
       if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
       return res.json<SalesInvoiceDTO[]>();
+    },
+  });
+}
+
+/**
+ * The one place the invoice list's filters become a query string. The rows,
+ * the chip counts and the KPI strip all go through it, so a filter can never
+ * reach one of the three and not the others.
+ */
+function salesInvoiceParams(filter: SalesInvoiceListQueryDTO): URLSearchParams {
+  const params = new URLSearchParams();
+  if (filter.status) params.set("status", filter.status);
+  if (filter.customerId) params.set("customerId", filter.customerId);
+  if (filter.fromDate) params.set("fromDate", filter.fromDate);
+  if (filter.toDate) params.set("toDate", filter.toDate);
+  if (filter.branchId) params.set("branchId", filter.branchId);
+  if (filter.warehouseId) params.set("warehouseId", filter.warehouseId);
+  if (filter.search) params.set("search", filter.search);
+  return params;
+}
+
+/**
+ * The status-chip counts (R1.1). The status filter is intentionally NOT sent:
+ * every chip has to state its own total, not the active one's.
+ */
+export function useSalesInvoiceCounts(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<ListCountsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  const { status: _status, ...rest } = filter;
+  return useQuery<ListCountsDTO, ApiError>({
+    queryKey: ["sales-invoices", "counts", rest],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesInvoiceParams(rest).toString();
+      const res = await request(`/sales-invoices/counts${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      return res.json<ListCountsDTO>();
+    },
+  });
+}
+
+/** The KPI strip, summed in `Money` on the server over the whole filtered set. */
+export function useSalesInvoiceStats(filter: SalesInvoiceListQueryDTO = {}): UseQueryResult<SalesInvoiceStatsDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<SalesInvoiceStatsDTO, ApiError>({
+    queryKey: ["sales-invoices", "stats", filter],
+    enabled: session !== null,
+    queryFn: async () => {
+      const qs = salesInvoiceParams(filter).toString();
+      const res = await request(`/sales-invoices/stats${qs ? `?${qs}` : ""}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.salesInvoicesCouldNotBe"));
+      return res.json<SalesInvoiceStatsDTO>();
     },
   });
 }

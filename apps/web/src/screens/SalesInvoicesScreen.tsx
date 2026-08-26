@@ -29,7 +29,7 @@ import {
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
 } from "@mezan/domain";
-import type { SalesInvoiceStatusDTO } from "@mezan/contracts";
+import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
   useBranches,
@@ -46,6 +46,8 @@ import {
   useRecordSalesInvoicePayment,
   useInstallmentPlans,
   useSalesInvoices,
+  useSalesInvoiceCounts,
+  useSalesInvoiceStats,
   useVouchers,
   useSalesReturns,
   useWarehouses,
@@ -54,6 +56,8 @@ import {
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
 import { useUnitLabel } from "../lib/item-labels";
+import { majorOf } from "../lib/money";
+import { useDebounced } from "../lib/use-debounced";
 import { SelectField, NumberField, TextAreaField, TextField } from "../settings/form-controls";
 import { useNavigation, useScreenIntent, useSubPage } from "../navigation";
 import { salesInvoiceStatusLabel } from "../domain-labels";
@@ -1120,8 +1124,6 @@ function InvoiceDetailView({
 
 export function SalesInvoicesScreen() {
   const { t } = useAppTranslation();
-  const query = useSalesInvoices();
-  const invoices = query.data ?? [];
   const [statusFilter, setStatusFilter] = useState<InvoiceFilterKey>("all");
   const [search, setSearch] = useState("");
   const [branchFilter, setBranchFilter] = useState("");
@@ -1129,6 +1131,31 @@ export function SalesInvoicesScreen() {
   const [customerFilter, setCustomerFilter] = useState<EntityPickerOption | null>(null);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+
+  /**
+   * One filter object drives the rows, the chip counts and the KPI strip
+   * (R1.1). They used to be three separate derivations over whatever the
+   * client happened to hold, so applying a branch or a date range moved the
+   * rows and left the totals alone.
+   */
+  const debouncedSearch = useDebounced(search);
+  const listFilter: SalesInvoiceListQueryDTO = useMemo(
+    () => ({
+      ...(statusFilter === "all" ? {} : { status: statusFilter }),
+      ...(customerFilter ? { customerId: customerFilter.id } : {}),
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+      ...(branchFilter ? { branchId: branchFilter } : {}),
+      ...(warehouseFilter ? { warehouseId: warehouseFilter } : {}),
+      ...(debouncedSearch.trim() ? { search: debouncedSearch.trim() } : {}),
+    }),
+    [statusFilter, customerFilter, fromDate, toDate, branchFilter, warehouseFilter, debouncedSearch],
+  );
+
+  const query = useSalesInvoices(listFilter);
+  const invoices = query.data ?? [];
+  const counts = useSalesInvoiceCounts(listFilter).data ?? {};
+  const stats = useSalesInvoiceStats(listFilter).data ?? null;
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const listBranches = useBranches().data ?? [];
@@ -1149,17 +1176,6 @@ export function SalesInvoicesScreen() {
       ? (invoices.find((inv) => inv.id === firstSegment || inv.docNo === firstSegment) ?? null)
       : null;
 
-  const counts = useMemo(() => {
-    const c: Record<string, number> = { all: invoices.length, open: 0, overdue: 0 };
-    for (const s of LIST_STATUSES) c[s] = 0;
-    for (const inv of invoices) {
-      if (c[inv.status] !== undefined) c[inv.status] = (c[inv.status] ?? 0) + 1;
-      // مفتوحة = confirmed or partially paid with something still owed.
-      if ((inv.status === "confirmed" || inv.status === "partially_paid") && toMajor(inv.remainingBalance) > 0) c.open = (c.open ?? 0) + 1;
-      if (isOverdue(inv, todayIso())) c.overdue = (c.overdue ?? 0) + 1;
-    }
-    return c;
-  }, [invoices]);
 
   /**
    * المقبوضات غير المخصصة — money taken from customers that is not yet applied
@@ -1172,42 +1188,14 @@ export function SalesInvoicesScreen() {
     [receipts],
   );
 
-  const kpi = useMemo(() => {
-    let sales = 0;
-    let collected = 0;
-    let returned = 0;
-    let remaining = 0;
-    for (const inv of invoices) {
-      if (inv.status === "draft" || inv.status === "cancelled") continue;
-      sales += toMajor(inv.totals.grandTotal);
-      collected += toMajor(inv.amountPaid);
-      returned += toMajor(inv.returnedCredit ?? "0");
-      remaining += toMajor(inv.remainingBalance);
-    }
-    return { sales, collected, returned, remaining };
-  }, [invoices]);
+  const kpi = {
+    sales: majorOf(stats?.sales),
+    collected: majorOf(stats?.collected),
+    returned: majorOf(stats?.returned),
+    remaining: majorOf(stats?.remaining),
+  };
 
-  const filtered = useMemo(() => {
-    const now = todayIso();
-    let rows = invoices;
-    if (statusFilter === "open") {
-      rows = rows.filter((inv) => (inv.status === "confirmed" || inv.status === "partially_paid") && toMajor(inv.remainingBalance) > 0);
-    } else if (statusFilter === "overdue") {
-      rows = rows.filter((inv) => isOverdue(inv, now));
-    } else if (statusFilter !== "all") {
-      rows = rows.filter((inv) => inv.status === statusFilter);
-    }
-    if (branchFilter) rows = rows.filter((inv) => inv.branchId === branchFilter);
-    if (warehouseFilter) rows = rows.filter((inv) => inv.warehouseId === warehouseFilter);
-    if (customerFilter) rows = rows.filter((inv) => inv.customerId === customerFilter.id);
-    if (fromDate) rows = rows.filter((inv) => inv.date >= fromDate);
-    if (toDate) rows = rows.filter((inv) => inv.date <= toDate);
-    if (search.trim() !== "") {
-      const q = search.trim();
-      rows = rows.filter((inv) => (inv.docNo ?? "").toLowerCase().includes(q.toLowerCase()) || inv.customerNameAr.includes(q));
-    }
-    return rows;
-  }, [invoices, statusFilter, search, branchFilter, warehouseFilter, customerFilter, fromDate, toDate]);
+  const filtered = invoices;
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);

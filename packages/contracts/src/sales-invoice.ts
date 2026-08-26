@@ -71,13 +71,34 @@ export const salesInvoicePaymentSchema = z.object({
   amount: z.string(),
 });
 
+/**
+ * The two lifecycle chips that are not a stored status: an invoice is `open`
+ * when it is confirmed or part-paid and still owes something, and `overdue`
+ * when it is open past its due date. They live here because the rows, the
+ * chip counts and the KPI strip must all read them the same way.
+ */
+export const salesInvoiceFilterKeySchema = z.union([
+  salesInvoiceStatusSchema,
+  z.enum(["all", "open", "overdue"]),
+]);
+
 /** Query filter for the invoice list. */
 export const salesInvoiceListQuerySchema = z.object({
-  status: salesInvoiceStatusSchema.optional(),
+  /**
+   * Accepts the derived chips (`open`, `overdue`) as well as the stored
+   * statuses. They are resolved server-side so the rows, the chip counts and
+   * the KPI strip cannot each decide what "overdue" means.
+   */
+  status: salesInvoiceFilterKeySchema.optional(),
   customerId: z.string().optional(),
   fromDate: z.string().optional(),
   toDate: z.string().optional(),
+  branchId: z.string().optional(),
+  warehouseId: z.string().optional(),
+  /** Free-text over document number and customer name. */
+  search: z.string().optional(),
 });
+
 
 /**
  * What the promotion engine granted, as the confirming invoice recorded it —
@@ -112,4 +133,15 @@ export type ConfirmSalesInvoiceDTO = z.infer<typeof confirmSalesInvoiceSchema>;
 export type SalesInvoicePaymentDTO = z.infer<typeof salesInvoicePaymentSchema>;
 export type SalesInvoiceListQueryDTO = z.infer<typeof salesInvoiceListQuerySchema>;
 export type AppliedSalesInvoicePromotionDTO = z.infer<typeof appliedSalesInvoicePromotionSchema>;
+/** `GET /sales-invoices/stats` — the KPI strip, summed in `Money` server-side. */
+export const salesInvoiceStatsSchema = z.object({
+  count: z.number(),
+  sales: z.string(),
+  collected: z.string(),
+  returned: z.string(),
+  remaining: z.string(),
+});
+
 export type PromotionUsageRowDTO = z.infer<typeof promotionUsageRowSchema>;
+export type SalesInvoiceStatsDTO = z.infer<typeof salesInvoiceStatsSchema>;
+export type SalesInvoiceFilterKeyDTO = z.infer<typeof salesInvoiceFilterKeySchema>;

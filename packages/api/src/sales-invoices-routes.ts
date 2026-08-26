@@ -46,6 +46,7 @@ import {
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
   salesInvoiceListQuerySchema,
+  type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
 import {
@@ -137,6 +138,20 @@ function serializeTotals(totals: SalesInvoiceTotals) {
     taxTotal: totals.taxTotal.toString(),
     grandTotal: totals.grandTotal.toString(),
   };
+}
+
+/**
+ * What the invoice still owes. Shared by `serialize` and the counts/stats
+ * endpoints so a row's own "remaining" and the KPI strip's total can never
+ * be computed two different ways.
+ */
+function remainingOf(
+  invoice: SalesInvoice,
+  totals: SalesInvoiceTotals,
+  returnedCredit: Money = Money.zero(),
+  allocated: Money = Money.zero(),
+): Money {
+  return totals.grandTotal.add(invoice.amountPaid.add(allocated).negate()).add(returnedCredit.negate());
 }
 
 function serialize(
@@ -373,21 +388,163 @@ export function createSalesInvoicesRoutes(
     }
   });
 
-  app.get("/", gate("sales.invoice.view"), async (c) => {
-    const parsed = salesInvoiceListQuerySchema.safeParse({
+  function parseListQuery(c: Context) {
+    return salesInvoiceListQuerySchema.safeParse({
       status: c.req.query("status"),
       customerId: c.req.query("customerId"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
+      branchId: c.req.query("branchId"),
+      warehouseId: c.req.query("warehouseId"),
+      search: c.req.query("search"),
     });
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through. They used to disagree: the list screen filtered by branch,
+   * warehouse and free text in the browser while the totals were computed
+   * over everything the server had sent, so applying a branch changed the
+   * rows and left the KPIs alone.
+   *
+   * `branchId`/`warehouseId`/`search` are narrowed here rather than in the
+   * repository because they are presentation filters over an already-scoped
+   * set — the branch SCOPE (what this user may see at all) is still enforced
+   * by `withinScope` below, and no query parameter can widen it.
+   */
+  interface FilteredInvoices {
+    readonly rows: readonly SalesInvoice[];
+    readonly credits: ReadonlyMap<string, Money>;
+    readonly allocations: ReadonlyMap<string, Money>;
+  }
+
+  const DERIVED_FILTER_KEYS = new Set(["all", "open", "overdue"]);
+
+  function isOpen(invoice: SalesInvoice, remaining: Money): boolean {
+    return (invoice.status === "confirmed" || invoice.status === "partially_paid") && remaining.scaled > 0n;
+  }
+
+  async function listFiltered(
+    svc: SalesInvoiceService,
+    c: Context,
+    filter: SalesInvoiceListQueryDTO,
+  ): Promise<FilteredInvoices> {
+    const { branchId, warehouseId, search, status, ...dateFilter } = filter;
+    // `open`/`overdue`/`all` are not stored statuses, so they must not reach
+    // the repository — it would match none of them and return nothing.
+    const repoFilter = status && !DERIVED_FILTER_KEYS.has(status) ? { ...dateFilter, status } : dateFilter;
+    let rows = withinScope(
+      await svc.list(repoFilter as Parameters<SalesInvoiceService["list"]>[0]),
+      branchScopeOf(c),
+      (inv) => inv.branchId,
+    );
+    if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
+    if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);
+    const term = search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (inv) =>
+          (inv.docNo ?? "").toLowerCase().includes(term) || (inv.customerNameAr ?? "").toLowerCase().includes(term),
+      );
+    }
+
+    const credits = await returnCredits();
+    const allocations = await allocatedByInvoice(rows.map((inv) => inv.id));
+
+    if (status === "open" || status === "overdue") {
+      const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+      rows = rows.filter((inv) => {
+        const remaining = remainingOf(inv, totalsFor(svc, inv), credits.get(inv.id), allocations.get(inv.id));
+        if (!isOpen(inv, remaining)) return false;
+        return status === "open" || (inv.dueDate !== null && inv.dueDate < today);
+      });
+    }
+    return { rows, credits, allocations };
+  }
+
+  app.get("/", gate("sales.invoice.view"), async (c) => {
+    const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
-    const invoices = withinScope(await svc.list(parsed.data), branchScopeOf(c), (inv) => inv.branchId);
-    const credits = await returnCredits();
-    const allocations = await allocatedByInvoice(invoices.map((inv) => inv.id));
+    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data);
     return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), allocations.get(inv.id))));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   * Every other filter still applies.
+   */
+  app.get("/counts", gate("sales.invoice.view"), async (c) => {
+    const parsed = parseListQuery(c);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const svc = service(c);
+    const { status: _ignored, ...withoutStatus } = parsed.data;
+    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, withoutStatus);
+    const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+
+    const counts: Record<string, number> = {
+      all: invoices.length,
+      draft: 0,
+      confirmed: 0,
+      partially_paid: 0,
+      paid: 0,
+      cancelled: 0,
+      open: 0,
+      overdue: 0,
+    };
+    for (const invoice of invoices) {
+      counts[invoice.status] = (counts[invoice.status] ?? 0) + 1;
+      const remaining = remainingOf(invoice, totalsFor(svc, invoice), credits.get(invoice.id), allocations.get(invoice.id));
+      const unsettled = isOpen(invoice, remaining);
+      if (unsettled) counts.open! += 1;
+      if (unsettled && invoice.dueDate !== null && invoice.dueDate < today) counts.overdue! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip. Money is summed here, in `Money`, over the whole filtered
+   * set — the screens used to add JS numbers across the rows they happened to
+   * hold, which both drifted and ignored the filters the user had applied.
+   * Drafts and cancelled invoices are excluded: neither is a receivable.
+   */
+  app.get("/stats", gate("sales.invoice.view"), async (c) => {
+    const parsed = parseListQuery(c);
+    if (!parsed.success) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    }
+    const svc = service(c);
+    const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data);
+
+    let sales = Money.zero();
+    let collected = Money.zero();
+    let returned = Money.zero();
+    let remaining = Money.zero();
+    let count = 0;
+    for (const invoice of invoices) {
+      if (invoice.status === "draft" || invoice.status === "cancelled") continue;
+      const totals = totalsFor(svc, invoice);
+      const credit = credits.get(invoice.id) ?? Money.zero();
+      const allocated = allocations.get(invoice.id) ?? Money.zero();
+      count += 1;
+      sales = sales.add(totals.grandTotal);
+      collected = collected.add(invoice.amountPaid).add(allocated);
+      returned = returned.add(credit);
+      remaining = remaining.add(remainingOf(invoice, totals, credit, allocated));
+    }
+    return c.json({
+      count,
+      sales: sales.toString(),
+      collected: collected.toString(),
+      returned: returned.toString(),
+      remaining: remaining.toString(),
+    });
   });
 
   app.get("/:id", gate("sales.invoice.view"), async (c) => {

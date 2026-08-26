@@ -464,6 +464,8 @@ export {
   confirmSalesInvoiceSchema,
   salesInvoicePaymentSchema,
   salesInvoiceListQuerySchema,
+  salesInvoiceStatsSchema,
+  salesInvoiceFilterKeySchema,
   appliedSalesInvoicePromotionSchema,
   promotionUsageRowSchema,
   type AppliedSalesInvoicePromotionDTO,
@@ -475,6 +477,8 @@ export {
   type ConfirmSalesInvoiceDTO,
   type SalesInvoicePaymentDTO,
   type SalesInvoiceListQueryDTO,
+  type SalesInvoiceStatsDTO,
+  type SalesInvoiceFilterKeyDTO,
 } from "./sales-invoice.js";
 
 export {
@@ -1294,3 +1298,5 @@ export {
   type SubmitApprovalRequestDTO,
   type DecideApprovalRequestDTO,
 } from "./workflow.js";
+
+export { listCountsSchema, listStatsSchema, type ListCountsDTO, type ListStatsDTO } from "./list-aggregates.js";

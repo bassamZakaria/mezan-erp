@@ -4,12 +4,14 @@ import {
   Card,
   DocumentList,
   EmptyState,
+  RowMenu,
   Select,
   StatusPill,
   formatDateTime,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { NOTIFICATION_PRIORITIES, type NotificationPriority } from "@mezan/domain";
 import type { NotificationDTO } from "@mezan/contracts";
@@ -220,13 +222,13 @@ export function NotificationsScreen() {
         columns={columns}
         rows={pageRows}
         rowKey={(n) => n.id}
-        rowAction={(n) =>
-          n.status === "unread" ? (
-            <Button size="sm" disabled={pendingId === n.id} onClick={() => void markOneRead(n)}>
-              {t("notifications.screen.markOneRead")}
-            </Button>
-          ) : null
-        }
+        rowAction={(n) => {
+          const menuItems: RowMenuItem[] =
+            n.status === "unread"
+              ? [{ key: "markRead", label: t("common.markRead"), disabled: pendingId === n.id, onSelect: () => void markOneRead(n) }]
+              : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: n.title })} />;
+        }}
         page={page}
         pageCount={pageCount}
         onPageChange={setPage}

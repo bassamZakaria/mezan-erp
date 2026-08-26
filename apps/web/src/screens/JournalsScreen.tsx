@@ -9,12 +9,14 @@ import {
   FulcrumRule,
   IconButton,
   Money as MoneyDisplay,
+  RowMenu,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type DocumentStatusStep,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { Money } from "@mezan/domain";
 import type { CreateGlJournalEntryDTO, JournalEntryStatusDTO, JournalSourceModuleDTO } from "@mezan/contracts";
@@ -104,6 +106,8 @@ export function JournalsScreen() {
   const [moduleFilter, setModuleFilter] = useState<"" | JournalSourceModuleDTO>("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const query = useJournalEntries({
     ...(moduleFilter ? { sourceModule: moduleFilter } : {}),
@@ -167,6 +171,19 @@ export function JournalsScreen() {
   function openDetail(id: string) {
     setSelectedId(id);
     setMode("detail");
+  }
+
+  async function reverseEntry(doc: JournalDoc) {
+    if (pendingId) return;
+    setPendingId(doc.id);
+    setRowError(null);
+    try {
+      await reverseJournalEntry.mutateAsync({ id: doc.id });
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingId(null);
+    }
   }
 
   if (mode === "create") {
@@ -269,6 +286,11 @@ export function JournalsScreen() {
           </Button>
         </Card>
       ) : null}
+      {rowError ? (
+        <div role="alert" className="mb-[16px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<JournalDoc>
         title={t("journals.journalEntries")}
         description={t("journals.theJournalRegisterDraftAwaiting")}
@@ -321,6 +343,15 @@ export function JournalsScreen() {
         rows={filtered}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
+        rowAction={(d) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => openDetail(d.id) },
+            ...(d.status === "posted"
+              ? [{ key: "reverse", label: t("journals.reverseEntry"), tone: "danger" as const, disabled: pendingId === d.id, onSelect: () => void reverseEntry(d) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: d.entryNo ?? d.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

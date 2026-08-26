@@ -6,6 +6,7 @@ import {
   DocumentList,
   EntityPicker,
   Money as MoneyDisplay,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentDetailTab,
@@ -13,6 +14,7 @@ import {
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { ContractDTO, ContractTypeDTO, EmployeeDTO, EmployeeStatusDTO, GenderDTO, MaritalStatusDTO, OvertimeEligibilityDTO, WorkerCategoryDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -185,7 +187,7 @@ export function EmployeesScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   const selected = selectedId ? (employees.find((e) => e.id === selectedId) ?? null) : null;
   const contractsQuery = useEmployeeContracts(selectedId);
@@ -307,29 +309,29 @@ export function EmployeesScreen() {
     }
   }
 
-  async function runTransition(status: EmployeeStatusDTO) {
-    if (!selected || pendingAction) return;
-    setPendingAction(true);
+  async function runTransition(employee: EmployeeDTO, status: EmployeeStatusDTO) {
+    if (pendingId) return;
+    setPendingId(employee.id);
     setDetailError(null);
     try {
-      await transitionEmployee.mutateAsync({ id: selected.id, body: { status } });
+      await transitionEmployee.mutateAsync({ id: employee.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTUpdateTheEmployee"));
     } finally {
-      setPendingAction(false);
+      setPendingId(null);
     }
   }
 
-  async function runTerminate() {
-    if (!selected || pendingAction) return;
-    setPendingAction(true);
+  async function runTerminate(employee: EmployeeDTO) {
+    if (pendingId) return;
+    setPendingId(employee.id);
     setDetailError(null);
     try {
-      await terminateEmployee.mutateAsync(selected.id);
+      await terminateEmployee.mutateAsync(employee.id);
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.couldnTTerminateTheEmployee"));
     } finally {
-      setPendingAction(false);
+      setPendingId(null);
     }
   }
 
@@ -345,22 +347,22 @@ export function EmployeesScreen() {
 
   const employeeAdvances = (advancesQuery.data ?? []).filter((a) => a.employeeId === selectedId);
 
-  async function runRehire() {
-    if (!selected || pendingAction) return;
+  async function runRehire(employee: EmployeeDTO) {
+    if (pendingId) return;
     if (rehireDate.trim() === "") {
       setDetailError(t("employees.aRehireDateIsRequired"));
       return;
     }
-    setPendingAction(true);
+    setPendingId(employee.id);
     setDetailError(null);
     try {
-      await rehireEmployee.mutateAsync({ id: selected.id, hireDate: rehireDate.trim() });
+      await rehireEmployee.mutateAsync({ id: employee.id, hireDate: rehireDate.trim() });
       setRehireOpen(false);
       setRehireDate("");
     } catch (err) {
       setDetailError(err instanceof ApiError ? err.message : t("employees.theEmployeeCouldNotBe"));
     } finally {
-      setPendingAction(false);
+      setPendingId(null);
     }
   }
 
@@ -405,7 +407,7 @@ export function EmployeesScreen() {
           <Button type="button" onClick={() => setRehireOpen(false)}>
             {t("common.cancel")}
           </Button>
-          <Button type="button" variant="primary" disabled={pendingAction} onClick={runRehire}>
+          <Button type="button" variant="primary" disabled={selected !== null && pendingId === selected.id} onClick={() => selected && runRehire(selected)}>
             {t("employees.rehire")}
           </Button>
         </div>
@@ -673,17 +675,17 @@ export function EmployeesScreen() {
             <>
               <Button onClick={() => setSelectedId(null)}>{t("employees.backToTheList")}</Button>
               {selected.status === "terminated" ? (
-                <Button variant="primary" disabled={pendingAction} onClick={() => setRehireOpen(true)}>
+                <Button variant="primary" disabled={pendingId === selected.id} onClick={() => setRehireOpen(true)}>
                   {t("employees.rehire")}
                 </Button>
               ) : (
                 <>
                   {validTransitions(selected.status).map((status) => (
-                    <Button key={status} disabled={pendingAction} onClick={() => runTransition(status)}>
+                    <Button key={status} disabled={pendingId === selected.id} onClick={() => runTransition(selected, status)}>
                       {t(STATUS_KEY[status])}
                     </Button>
                   ))}
-                  <Button variant="danger-outline" disabled={pendingAction} onClick={runTerminate}>
+                  <Button variant="danger-outline" disabled={pendingId === selected.id} onClick={() => runTerminate(selected)}>
                     {t("employees.terminate")}
                   </Button>
                 </>
@@ -753,6 +755,34 @@ export function EmployeesScreen() {
         onRowClick={(e) => {
           setDetailError(null);
           setSelectedId(e.id);
+        }}
+        rowAction={(e) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(e.id); } },
+            ...(e.status === "terminated"
+              ? [
+                  {
+                    key: "rehire",
+                    label: t("employees.rehire"),
+                    disabled: pendingId === e.id,
+                    onSelect: () => {
+                      setDetailError(null);
+                      setSelectedId(e.id);
+                      setRehireOpen(true);
+                    },
+                  },
+                ]
+              : [
+                  ...validTransitions(e.status).map((status) => ({
+                    key: `transition-${status}`,
+                    label: t(STATUS_KEY[status]),
+                    disabled: pendingId === e.id,
+                    onSelect: () => void runTransition(e, status),
+                  })),
+                  { key: "terminate", label: t("employees.terminate"), tone: "danger" as const, disabled: pendingId === e.id, onSelect: () => void runTerminate(e) },
+                ]),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: e.code })} />;
         }}
         page={1}
         pageCount={1}

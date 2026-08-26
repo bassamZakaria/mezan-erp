@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, MoneyInput, type DocumentListColumn, type PillTone } from "@mezan/ui";
+import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, RowMenu, SidePanel, MoneyInput, type DocumentListColumn, type PillTone, type RowMenuItem } from "@mezan/ui";
 import type { AssetDTO, AssetScopeDTO, AssetStatusDTO, CreateAssetDTO } from "@mezan/contracts";
 import { ApiError, useAccounts, useAssetCategories, useAssets, useBranches, useCreateAsset, useDisposeAsset } from "../data/hooks";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -238,6 +238,32 @@ export function AssetRegisterScreen() {
         rows={filtered}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
+        rowAction={(a) => {
+          const menuItems: RowMenuItem[] = [
+            {
+              key: "view",
+              label: t("common.view"),
+              onSelect: () => {
+                setDisposeOpen(false);
+                setSelectedId(a.id);
+              },
+            },
+            ...(a.status !== "disposed"
+              ? [
+                  {
+                    key: "dispose",
+                    label: t("assets.dispose"),
+                    tone: "danger" as const,
+                    onSelect: () => {
+                      setSelectedId(a.id);
+                      setDisposeOpen(true);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.nameAr })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

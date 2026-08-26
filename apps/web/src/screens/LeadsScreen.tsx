@@ -6,11 +6,13 @@ import {
   EmptyState,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -129,7 +131,7 @@ export function LeadsScreen() {
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [pendingStatus, setPendingStatus] = useState<LeadStatusDTO | null>(null);
+  const [pendingRowId, setPendingRowId] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeadDraft>(blankDraft());
@@ -189,15 +191,15 @@ export function LeadsScreen() {
   }
 
   async function runTransition(lead: LeadDTO, status: LeadStatusDTO) {
-    if (pendingStatus) return;
-    setPendingStatus(status);
+    if (pendingRowId) return;
+    setPendingRowId(lead.id);
     setDetailError(null);
     try {
       await transitionLead.mutateAsync({ id: lead.id, body: { status } });
     } catch (err) {
       setDetailError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
     } finally {
-      setPendingStatus(null);
+      setPendingRowId(null);
     }
   }
 
@@ -277,6 +279,11 @@ export function LeadsScreen() {
           </Button>
         </Card>
       ) : null}
+      {detailError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {detailError}
+        </div>
+      ) : null}
       <DocumentList<LeadDTO>
         title={t("leads.leads")}
         description={t("leads.captureAndQualifyLeadsBefore")}
@@ -303,6 +310,34 @@ export function LeadsScreen() {
         onRowClick={(l) => {
           setDetailError(null);
           setSelectedId(l.id);
+        }}
+        rowAction={(l) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(l.id); } },
+            ...validTransitions(l.status).map((status) => ({
+              key: `transition-${status}`,
+              label: t(STATUS_KEY[status]),
+              tone: status === "lost" || status === "unqualified" ? ("danger" as const) : undefined,
+              disabled: pendingRowId === l.id,
+              onSelect: () => void runTransition(l, status),
+            })),
+            // Converting collects a customer code and an opportunity stage, so it opens that form.
+            ...(l.status === "qualified"
+              ? [
+                  {
+                    key: "convert",
+                    label: t("leads.convert"),
+                    disabled: pendingRowId === l.id,
+                    onSelect: () => {
+                      setDetailError(null);
+                      setSelectedId(l.id);
+                      openConvertForm(l);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: l.name })} />;
         }}
         page={currentPage}
         pageCount={pageCount}
@@ -381,12 +416,12 @@ export function LeadsScreen() {
 
             <div className="flex flex-col gap-[8px]">
               {validTransitions(selected.status).map((status) => (
-                <Button key={status} variant="primary" disabled={pendingStatus !== null} onClick={() => runTransition(selected, status)}>
+                <Button key={status} variant="primary" disabled={pendingRowId === selected.id} onClick={() => void runTransition(selected, status)}>
                   {t(STATUS_KEY[status])}
                 </Button>
               ))}
               {selected.status === "qualified" ? (
-                <Button variant="primary" disabled={pendingStatus !== null} onClick={() => openConvertForm(selected)}>
+                <Button variant="primary" disabled={pendingRowId === selected.id} onClick={() => openConvertForm(selected)}>
                   {t("leads.convert")}
                 </Button>
               ) : null}

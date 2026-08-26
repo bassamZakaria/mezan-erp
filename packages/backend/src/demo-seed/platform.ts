@@ -320,4 +320,45 @@ export async function seedPlatform(app: App): Promise<void> {
     ],
   });
   await step(app, "POST", "/purchase-returns/PRET-DEMO-2/cancel", {});
+
+  // A second مرتجع مبيعات (different customer, different invoice) — the
+  // notification centre needs more than one row to prove its tabs and
+  // "تحديد الكل كمقروء" actually do something, not just render an empty list.
+  await step(app, "POST", "/sales-returns", {
+    id: "SRET-DEMO-2",
+    date: "2026-08-23",
+    memo: "مرتجع كمية زائدة — فاتورة INV-DEMO-2",
+    lines: [
+      {
+        itemId: CORE.items[1],
+        warehouseId: WAREHOUSE_ID,
+        customerId: CORE.customers[1],
+        sourceInvoiceId: CORE.salesInvoices[1],
+        sourceInvoiceNumber: null,
+        reason: "EXCESS_QTY",
+        availableQty: "90",
+        qty: "8",
+        unitPrice: "95",
+        unitCost: "72",
+        taxAmount: (8 * 95 * (VAT_PERCENT / 100)).toFixed(2),
+      },
+    ],
+  });
+  await step(app, "POST", "/sales-returns/SRET-DEMO-2/confirm", {});
+
+  // Marks the FIRST return's notification read through the real endpoint, as
+  // USER-ADMIN — its own recipient. The bell panel then opens onto a mix of
+  // read and unread rows rather than a stack that all looks the same, and
+  // "تحديد الكل كمقروء" (R1.6) has at least one still-unread row to prove it
+  // clears.
+  const adminNotifications = (await stepAs(app, "GET", "/notifications", PLATFORM_ADMIN)) as Array<{
+    id: string;
+    eventCode: string;
+  }>;
+  // `/notifications` orders newest first, so the LAST match here is SRET-DEMO-1's row.
+  const returnNotifications = adminNotifications.filter((n) => n.eventCode === "SALES_RETURN_CONFIRMED");
+  const firstReturnNotification = returnNotifications[returnNotifications.length - 1];
+  if (firstReturnNotification) {
+    await stepAs(app, "POST", `/notifications/${firstReturnNotification.id}/read`, PLATFORM_ADMIN, {});
+  }
 }

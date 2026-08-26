@@ -1,21 +1,28 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Button,
   Card,
+  Chip,
   DocumentList,
   DocumentDetail,
+  EmptyState,
+  EntityPicker,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
+  type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { ETA_BUYER_TYPES, SALES_INVOICE_ACTIVE_STATUSES, SALES_INVOICE_STATUS_LABELS_AR, matchesSearch } from "@mezan/domain";
 import type { CustomerDTO, EtaBuyerTypeDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useCreateCustomer,
   useCustomers,
+  usePriceLists,
   useSalesInvoices,
   useSalesReturns,
   useInstallmentPlans,
@@ -24,6 +31,7 @@ import {
   useVouchers,
 } from "../data/hooks";
 import { AttachmentsTab } from "../attachments/AttachmentsTab";
+import { useAttachments } from "../data/attachment-hooks";
 import {
   MONEY_RECONCILIATION_TOLERANCE,
   agingBucketsFor,
@@ -57,6 +65,8 @@ import { sumMajor } from "../lib/money";
  * kind (no upload route, no blob store, no attachment table), so an attachments
  * tab would be a navigational dead end rather than an empty collection.
  */
+
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const ETA_BUYER_TYPE_KEY: Record<EtaBuyerTypeDTO, AppTranslationKey> = {
   auto: "customers.etaBuyerType.auto",
@@ -546,6 +556,9 @@ interface CustomerDraft {
   priceListId: string;
   taxExempt: boolean;
   etaBuyerType: EtaBuyerTypeDTO;
+  commercialRegistrationNumber: string;
+  address: string;
+  logoAttachmentId: string | null;
   nationalId: string;
   active: boolean;
 }
@@ -566,6 +579,9 @@ const BLANK_DRAFT: CustomerDraft = {
   priceListId: "",
   taxExempt: false,
   etaBuyerType: "auto",
+  commercialRegistrationNumber: "",
+  address: "",
+  logoAttachmentId: null,
   nationalId: "",
   active: true,
 };
@@ -587,9 +603,57 @@ function draftFromCustomer(customer: CustomerDTO): CustomerDraft {
     priceListId: customer.priceListId ?? "",
     taxExempt: customer.taxExempt,
     etaBuyerType: customer.etaBuyerType,
+    commercialRegistrationNumber: customer.commercialRegistrationNumber ?? "",
+    address: customer.address ?? "",
+    logoAttachmentId: customer.logoAttachmentId,
     nationalId: customer.nationalId ?? "",
     active: customer.active,
   };
+}
+
+/**
+ * شعار العميل — chosen from the files already attached to this customer, so
+ * the bytes live in the attachments resource like every other upload and the
+ * customer record holds only the id. A customer that does not exist yet has
+ * nothing to attach to, so the field says so instead of offering a control
+ * that cannot work.
+ */
+function CustomerLogoField({
+  customerId,
+  value,
+  onChange,
+}: {
+  customerId: string | null;
+  value: string | null;
+  onChange: (id: string | null) => void;
+}) {
+  const { t } = useAppTranslation();
+  const attachments = useAttachments("customer", customerId).data ?? [];
+  const images = attachments.filter((a) => a.mimeType.startsWith("image/"));
+
+  if (!customerId) {
+    return (
+      <div className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12px] text-ink-muted">
+        {t("customers.logo.newCustomer")}
+      </div>
+    );
+  }
+  if (images.length === 0) {
+    return (
+      <div className="rounded-md border border-border bg-surface-2 px-[12px] py-[10px] text-[12px] text-ink-muted">
+        {t("customers.logo.noImages")}
+      </div>
+    );
+  }
+  return (
+    <SelectField
+      label={t("customers.field.logo")}
+      value={value ?? ""}
+      onChange={(v) => onChange(v === "" ? null : v)}
+      options={[{ value: "", label: t("customers.logo.none") }, ...images.map((a) => ({ value: a.id, label: a.fileName }))]}
+      hint={t("customers.logo.hint")}
+    />
+  );
 }
 
 function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; onBack: () => void; onEdit: () => void }) {
@@ -646,6 +710,8 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
                 { label: t("common.email"), value: customer.email ?? t("common.none") },
                 { label: t("customers.detail.contactPerson"), value: customer.contactPerson ?? t("common.none") },
                 { label: t("common.taxNumber"), value: customer.taxNumber ?? t("common.none") },
+                { label: t("customers.field.commercialRegistration"), value: customer.commercialRegistrationNumber ?? t("common.none") },
+                { label: t("customers.field.address"), value: customer.address ?? t("common.none") },
                 { label: t("customers.detail.nationalId"), value: customer.nationalId ?? t("common.none") },
                 { label: t("customers.detail.currency"), value: customer.currency },
                 { label: t("customers.detail.taxExempt"), value: customer.taxExempt ? t("customers.detail.yes") : t("customers.detail.no") },
@@ -678,6 +744,7 @@ function CustomerDetail({ customer, onBack, onEdit }: { customer: CustomerDTO; o
 
 export function CustomersScreen() {
   const { t } = useAppTranslation();
+  const { navigate } = useNavigation();
   const query = useCustomers();
   const createCustomer = useCreateCustomer();
   const updateCustomer = useUpdateCustomer();
@@ -693,20 +760,41 @@ export function CustomersScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<CustomerDraft>(BLANK_DRAFT);
   const [error, setError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+  const [overLimitOnly, setOverLimitOnly] = useState(false);
+  const [priceListFilter, setPriceListFilter] = useState<EntityPickerOption | null>(null);
+
+  const priceLists = usePriceLists().data ?? [];
+  const priceListOptions = useMemo<EntityPickerOption[]>(
+    () => priceLists.map((pl) => ({ id: pl.id, label: pl.nameAr, sublabel: pl.code })),
+    [priceLists],
+  );
+  const priceListOption = (id: string): EntityPickerOption | null => priceListOptions.find((o) => o.id === id) ?? null;
 
   const selected = customers.find((c) => c.id === selectedId) ?? null;
 
   const filtered = useMemo(() => {
     let rows = customers;
     if (statusFilter !== "all") rows = rows.filter((c) => (statusFilter === "active" ? c.active : !c.active));
+    if (overLimitOnly) {
+      rows = rows.filter((c) => num(c.creditLimit) > 0 && (owedById.get(c.id) ?? 0) > num(c.creditLimit));
+    }
+    if (priceListFilter) rows = rows.filter((c) => c.priceListId === priceListFilter.id);
     if (search.trim() !== "") {
-      const q = search.trim().toLowerCase();
-      rows = rows.filter(
-        (c) => matchesSearch(search, c.nameAr, c.nameEn, c.code, c.phone),
-      );
+      rows = rows.filter((c) => matchesSearch(search, c.nameAr, c.nameEn, c.code, c.phone));
     }
     return rows;
-  }, [customers, statusFilter, search]);
+  }, [customers, statusFilter, search, overLimitOnly, priceListFilter, owedById]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const pageRows = filtered.slice((page - 1) * pageSize, page * pageSize);
+  useEffect(() => {
+    if (page > pageCount) setPage(1);
+  }, [page, pageCount]);
+
+  const activeFilterCount = (statusFilter === "all" ? 0 : 1) + (overLimitOnly ? 1 : 0) + (priceListFilter ? 1 : 0);
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: customers.length },
@@ -772,6 +860,10 @@ export function CustomersScreen() {
       priceListId: draft.priceListId.trim() === "" ? null : draft.priceListId.trim(),
       taxExempt: draft.taxExempt,
       etaBuyerType: draft.etaBuyerType,
+      commercialRegistrationNumber:
+        draft.commercialRegistrationNumber.trim() === "" ? null : draft.commercialRegistrationNumber.trim(),
+      address: draft.address.trim() === "" ? null : draft.address.trim(),
+      logoAttachmentId: draft.logoAttachmentId,
       nationalId: draft.nationalId.trim() === "" ? null : draft.nationalId.trim(),
     };
     try {
@@ -819,20 +911,68 @@ export function CustomersScreen() {
           hint={t("customers.field.creditLimitHint")}
         />
         <TextField label={t("customers.field.category")} value={draft.category} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} placeholder={t("common.uncategorized")} />
-        <TextField label={t("customers.field.priceList")} value={draft.priceListId} onChange={(v) => setDraft((d) => ({ ...d, priceListId: v }))} placeholder={t("customers.detail.noPriceList")} />
+        {/* An entity reference, so a picker over the real endpoint — typing a
+            list name here would have stored a string no price list answers to. */}
+        <div>
+          <div className="mb-[6px] text-[12.5px] font-semibold text-ink">{t("customers.field.priceList")}</div>
+          <EntityPicker
+            value={priceListOption(draft.priceListId)}
+            onChange={(option) => setDraft((d) => ({ ...d, priceListId: option?.id ?? "" }))}
+            options={priceListOptions}
+            placeholder={t("customers.detail.noPriceList")}
+            aria-label={t("customers.field.priceList")}
+          />
+        </div>
         <TextField label={t("common.phone")} type="tel" value={draft.phone} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} placeholder="01xxxxxxxx" />
         <TextField label={t("common.email")} type="email" value={draft.email} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-        <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
-        <SelectField
-          label={t("customers.field.etaBuyerType")}
-          value={draft.etaBuyerType}
-          onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
-          options={ETA_BUYER_TYPES.map((kind) => ({ value: kind, label: t(ETA_BUYER_TYPE_KEY[kind]) }))}
-        />
-        <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
-        <ToggleField label={t("customers.field.taxExempt")} checked={draft.taxExempt} onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v }))} />
-        <TextField label={t("customers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
-        <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+
+        <div className="rounded-lg border border-border">
+          <button
+            type="button"
+            onClick={() => setAdvancedOpen((open) => !open)}
+            aria-expanded={advancedOpen}
+            className="flex w-full items-center justify-between p-[12px_14px] text-start"
+          >
+            <span className="text-[13px] font-semibold text-ink">{t("customers.advanced.heading")}</span>
+            <span aria-hidden className="text-[12px] text-ink-faint">
+              {advancedOpen ? "−" : "+"}
+            </span>
+          </button>
+          {advancedOpen ? (
+            <div className="flex flex-col gap-[14px] border-t border-border p-[14px]">
+              <CustomerLogoField
+                customerId={editingId}
+                value={draft.logoAttachmentId}
+                onChange={(id) => setDraft((d) => ({ ...d, logoAttachmentId: id }))}
+              />
+              <TextField label={t("customers.field.taxNumber")} value={draft.taxNumber} onChange={(v) => setDraft((d) => ({ ...d, taxNumber: v }))} placeholder="300xxxxxxxxx" />
+              <TextField
+                label={t("customers.field.commercialRegistration")}
+                value={draft.commercialRegistrationNumber}
+                onChange={(v) => setDraft((d) => ({ ...d, commercialRegistrationNumber: v }))}
+                placeholder="CR-000000"
+              />
+              <ToggleField
+                label={t("customers.field.taxExempt")}
+                checked={draft.taxExempt}
+                onChange={(v) => setDraft((d) => ({ ...d, taxExempt: v }))}
+                hint={t("customers.field.taxExemptHint")}
+              />
+              <SelectField
+                label={t("customers.field.etaBuyerType")}
+                value={draft.etaBuyerType}
+                onChange={(v) => setDraft((d) => ({ ...d, etaBuyerType: v as EtaBuyerTypeDTO }))}
+                options={ETA_BUYER_TYPES.map((kind) => ({ value: kind, label: t(ETA_BUYER_TYPE_KEY[kind]) }))}
+                hint={t("customers.field.etaBuyerTypeHint")}
+              />
+              <TextField label={t("customers.field.nationalId")} value={draft.nationalId} onChange={(v) => setDraft((d) => ({ ...d, nationalId: v }))} />
+              <TextField label={t("customers.field.contactPerson")} value={draft.contactPerson} onChange={(v) => setDraft((d) => ({ ...d, contactPerson: v }))} />
+              <TextField label={t("customers.field.address")} value={draft.address} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
+              <TextField label={t("common.notes")} value={draft.notes} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} />
+            </div>
+          ) : null}
+        </div>
+
         {editingId ? <ToggleField label={t("common.active")} checked={draft.active} onChange={(v) => setDraft((d) => ({ ...d, active: v }))} /> : null}
         <div className="flex justify-end gap-[9px]">
           <Button onClick={() => setPanelOpen(false)}>{t("common.cancel")}</Button>
@@ -888,22 +1028,96 @@ export function CustomersScreen() {
         ]}
         statusChips={statusChips}
         activeStatusKey={statusFilter}
-        onStatusChange={(key) => setStatusFilter(key as typeof statusFilter)}
+        onStatusChange={(key) => {
+          setStatusFilter(key as typeof statusFilter);
+          setPage(1);
+        }}
         searchValue={search}
-        onSearchChange={setSearch}
+        onSearchChange={(value) => {
+          setSearch(value);
+          setPage(1);
+        }}
         searchPlaceholder={t("customers.searchPlaceholder")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        filterBarExtra={
+          <div className="flex flex-wrap items-center gap-[10px]">
+            <Chip
+              active={overLimitOnly}
+              onClick={() => {
+                setOverLimitOnly((on) => !on);
+                setPage(1);
+              }}
+            >
+              {t("customers.filter.overLimit")}
+            </Chip>
+            <div className="min-w-[210px]">
+              <EntityPicker
+                value={priceListFilter}
+                onChange={(option) => {
+                  setPriceListFilter(option);
+                  setPage(1);
+                }}
+                options={priceListOptions}
+                placeholder={t("customers.filter.byPriceList")}
+                aria-label={t("customers.filter.byPriceList")}
+              />
+            </div>
+          </div>
+        }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(c) => c.id}
         onRowClick={(c) => setSelectedId(c.id)}
-        page={1}
-        pageCount={1}
+        rowAction={(c) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("customers.row.view"), onSelect: () => setSelectedId(c.id) },
+            { key: "edit", label: t("customers.row.edit"), onSelect: () => openEditForm(c) },
+            ...(c.active
+              ? [
+                  {
+                    key: "invoice",
+                    label: t("customers.row.newInvoice"),
+                    onSelect: () => navigate("sales-invoices", { kind: "create", prefill: { customerId: c.id } }),
+                  },
+                  {
+                    key: "deactivate",
+                    label: t("customers.row.deactivate"),
+                    tone: "danger" as const,
+                    onSelect: () => void updateCustomer.mutateAsync({ id: c.id, patch: { active: false } }),
+                  },
+                ]
+              : [
+                  {
+                    key: "activate",
+                    label: t("customers.row.activate"),
+                    onSelect: () => void updateCustomer.mutateAsync({ id: c.id, patch: { active: true } }),
+                  },
+                ]),
+          ];
+          return <RowMenu items={menuItems} label={t("customers.row.actionsFor", { customer: c.nameAr })} />;
+        }}
+        page={page}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        pageSizeOptions={PAGE_SIZES}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
         pageSummary={
           <>
-            {t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{customers.length}</span> {t("customers.showingSuffix")}
+            {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{customers.length}</span> {t("customers.showingSuffix")}
           </>
         }
-        emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("customers.empty")}</div>}
+        emptyState={
+          <EmptyState
+            title={t("customers.empty")}
+            description={t("customers.emptyBody")}
+            action={{ label: t("customers.addCustomer"), onClick: openCreateForm }}
+          />
+        }
       />
 
       <SidePanel open={panelOpen} onClose={() => setPanelOpen(false)} title={editingId ? t("customers.editCustomer") : t("customers.addCustomer")} description={t("customers.panel.description")}>

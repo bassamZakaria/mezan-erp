@@ -61,6 +61,9 @@ function customer(overrides: Partial<Customer> = {}): Customer {
     creditLimit: Money.zero(),
     taxExempt: false,
     etaBuyerType: "auto",
+    commercialRegistrationNumber: null,
+    address: null,
+    logoAttachmentId: null,
     nationalId: null,
     ...overrides,
   };

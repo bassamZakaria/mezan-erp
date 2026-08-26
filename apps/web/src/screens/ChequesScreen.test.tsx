@@ -59,6 +59,9 @@ const CUSTOMER: CustomerDTO = {
   creditLimit: "0.00",
   taxExempt: false,
   etaBuyerType: "business",
+  commercialRegistrationNumber: null,
+  address: null,
+  logoAttachmentId: null,
   nationalId: null,
 };
 

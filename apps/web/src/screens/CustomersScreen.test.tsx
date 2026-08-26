@@ -26,6 +26,9 @@ function customer(overrides: Partial<CustomerDTO> = {}): CustomerDTO {
     creditLimit: "15000.00",
     taxExempt: false,
     etaBuyerType: "business",
+    commercialRegistrationNumber: null,
+    address: null,
+    logoAttachmentId: null,
     nationalId: null,
     ...overrides,
   };

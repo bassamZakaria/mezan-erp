@@ -68,6 +68,9 @@ const customers: CustomerDTO[] = [
     creditLimit: "0",
     taxExempt: false,
     etaBuyerType: "auto",
+    commercialRegistrationNumber: null,
+    address: null,
+    logoAttachmentId: null,
     nationalId: null,
   },
 ];

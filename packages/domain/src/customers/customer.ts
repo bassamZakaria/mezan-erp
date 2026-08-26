@@ -14,12 +14,26 @@ export type EtaBuyerType = "auto" | "business" | "individual";
 export const ETA_BUYER_TYPES: readonly EtaBuyerType[] = ["auto", "business", "individual"];
 
 export interface Customer extends PartnerBase {
-  /** Reference to a price list — Phase-2 (Price Lists aren't modeled yet), so this is an opaque id/label for now. */
+  /**
+   * The customer's own price list. An id into the price-lists resource — the
+   * routes verify it names a real list, because an unresolvable id here would
+   * silently price every one of this customer's invoices off the item master.
+   */
   readonly priceListId: string | null;
   /** Always in base (tenant) currency regardless of the customer's own `currency` (catalog note). */
   readonly creditLimit: Money;
   readonly taxExempt: boolean;
   readonly etaBuyerType: EtaBuyerType;
+  /** رقم السجل التجاري — required on an Egyptian B2B invoice alongside the tax number. */
+  readonly commercialRegistrationNumber: string | null;
+  /** العنوان — the buyer address an e-invoice and a printed invoice both carry. */
+  readonly address: string | null;
+  /**
+   * شعار العميل — the id of an attachment on this customer that stands as its
+   * logo. An id into the attachments resource, never a pasted data URL: the
+   * bytes live where every other uploaded file does.
+   */
+  readonly logoAttachmentId: string | null;
   /** Required for e-invoices over the individual-buyer legal threshold (catalog note) — not enforced here, that threshold is a Phase-2/ETA-integration concern. */
   readonly nationalId: string | null;
 }
@@ -51,6 +65,9 @@ export interface CreateCustomerInput {
   readonly creditLimit?: Money;
   readonly taxExempt?: boolean;
   readonly etaBuyerType?: EtaBuyerType;
+  readonly commercialRegistrationNumber?: string | null;
+  readonly address?: string | null;
+  readonly logoAttachmentId?: string | null;
   readonly nationalId?: string | null;
 }
 
@@ -86,6 +103,9 @@ export function createCustomer(input: CreateCustomerInput): Customer {
     creditLimit: input.creditLimit ?? Money.zero(),
     taxExempt: input.taxExempt ?? false,
     etaBuyerType: input.etaBuyerType ?? "auto",
+    commercialRegistrationNumber: input.commercialRegistrationNumber ?? null,
+    address: input.address ?? null,
+    logoAttachmentId: input.logoAttachmentId ?? null,
     nationalId: input.nationalId ?? null,
   };
   const reasons = validate(customer);

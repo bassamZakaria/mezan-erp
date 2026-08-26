@@ -72,9 +72,51 @@ async function step(app: App, method: string, path: string, body?: unknown): Pro
 }
 
 const CUSTOMERS = [
-  { id: "CUST-DEMO-1", code: "C-0001", nameAr: "شركة الأمل للتجارة", nameEn: "Al Amal Trading", phone: "01001234567", paymentTermsDays: 30, creditLimit: "50000" },
-  { id: "CUST-DEMO-2", code: "C-0002", nameAr: "مؤسسة النور للمقاولات", nameEn: "Al Nour Contracting", phone: "01112223344", paymentTermsDays: 45, creditLimit: "120000" },
-  { id: "CUST-DEMO-3", code: "C-0003", nameAr: "مجموعة الفجر التجارية", nameEn: "Al Fajr Group", phone: "01223334455", paymentTermsDays: 15, creditLimit: "25000" },
+  {
+    id: "CUST-DEMO-1",
+    code: "C-0001",
+    nameAr: "شركة الأمل للتجارة",
+    nameEn: "Al Amal Trading",
+    phone: "01001234567",
+    email: "billing@alamal.example",
+    paymentTermsDays: 30,
+    creditLimit: "50000",
+    taxNumber: "300112233445",
+    commercialRegistrationNumber: "CR-114522",
+    etaBuyerType: "business" as const,
+    contactPerson: "أحمد سيد",
+    address: "١٢ شارع طلعت حرب، وسط البلد، القاهرة",
+  },
+  {
+    id: "CUST-DEMO-2",
+    code: "C-0002",
+    nameAr: "مؤسسة النور للمقاولات",
+    nameEn: "Al Nour Contracting",
+    phone: "01112223344",
+    paymentTermsDays: 45,
+    creditLimit: "120000",
+    taxNumber: "300998877665",
+    commercialRegistrationNumber: "CR-208814",
+    etaBuyerType: "business" as const,
+    contactPerson: "هالة منصور",
+    address: "٧ شارع الهرم، الجيزة",
+  },
+  {
+    id: "CUST-DEMO-3",
+    code: "C-0003",
+    nameAr: "مجموعة الفجر التجارية",
+    nameEn: "Al Fajr Group",
+    phone: "01223334455",
+    paymentTermsDays: 15,
+    creditLimit: "25000",
+    // A tax-exempt individual buyer, so the invoice screens have a customer
+    // that genuinely zero-rates rather than only the exempt FLAG to look at.
+    taxExempt: true,
+    etaBuyerType: "individual" as const,
+    nationalId: "29001011234567",
+    contactPerson: "محمود الفجر",
+    address: "٣٤ شارع الجيش، طنطا، الغربية",
+  },
 ];
 
 const SUPPLIERS = [

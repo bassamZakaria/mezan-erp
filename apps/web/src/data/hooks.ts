@@ -5888,6 +5888,9 @@ export function useEntityAudit(entityType: string, entityId: string): UseQueryRe
       if (!res.ok) throw new ApiError(res.status, t("api.auditCouldNotBeLoaded"));
       const body = await res.json<{ events?: AuditEventDTO[] } | AuditEventDTO[]>();
       return Array.isArray(body) ? body : (body.events ?? []);
+    },
+  });
+}
 
 /**
  * Per-line delivery for one purchase invoice (R4.4) — invoiced, received,
@@ -5913,11 +5916,11 @@ export function usePayPurchaseInvoice() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<PurchaseInvoiceDTO & { voucherId: string }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
+  return useMutation<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }, ApiError, { id: string } & PurchaseInvoicePaymentDTO>({
     mutationFn: async ({ id, ...body }) => {
       const res = await request(`/purchases/invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
-      return res.json<PurchaseInvoiceDTO & { voucherId: string }>();
+      return res.json<PurchaseInvoiceDTO & { voucherId: string; voucherNo: string | null }>();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["purchase-invoices"] });

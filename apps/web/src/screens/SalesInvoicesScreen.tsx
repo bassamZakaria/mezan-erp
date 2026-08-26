@@ -12,6 +12,7 @@ import {
   Qty as QtyDisplay,
   QtyInput,
   RowMenu,
+  SidePanel,
   Select,
   StatusPill,
   TextInput,
@@ -1047,6 +1048,100 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
 /* Detail view                                                         */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A document's figures without leaving the list (R2.9), and the two ways this
+ * product can actually share one (R2.10).
+ *
+ * "Share" is print and copy-to-clipboard, not a link: the app runs offline on a
+ * shop's own machine, so there is no address anyone else could open. Copying a
+ * plain-text summary is what a shopkeeper does with it — into a message to the
+ * customer.
+ */
+function InvoicePreviewPanel({
+  invoice,
+  onClose,
+  onOpenFull,
+}: {
+  invoice: SalesInvoiceDTO | null;
+  onClose: () => void;
+  onOpenFull: (invoice: SalesInvoiceDTO) => void;
+}) {
+  const { t, locale } = useAppTranslation();
+  const format = useFormat();
+  const [copied, setCopied] = useState<"ok" | "failed" | null>(null);
+  if (!invoice) return null;
+
+  const label = currencyLabelFor(invoice.currency, locale) ?? format.currencyLabel;
+  const money = (wire: string) => `${format.money(toMajor(wire))} ${label}`;
+
+  // Plain text on purpose: it has to survive being pasted into a chat app.
+  const summary = [
+    `${invoice.docNo ?? invoice.id} · ${invoice.date}`,
+    invoice.customerNameAr,
+    ...invoice.lines.map((l) => `${l.itemNameAr} × ${l.qty} = ${money(String(Number(l.unitPrice) * Number(l.qty)))}`),
+    `${t("common.total")}: ${money(invoice.totals.grandTotal)}`,
+    `${t("salesInvoices.detail.remaining")}: ${money(invoice.remainingBalance)}`,
+  ].join("\n");
+
+  return (
+    <SidePanel open={invoice !== null} onClose={onClose} title={t("salesInvoices.preview.title", { doc: invoice.docNo ?? invoice.id })}>
+      <div className="flex flex-col gap-[14px]">
+        <dl className="grid grid-cols-2 gap-[10px] text-[12.5px]">
+          <div><dt className="text-ink-muted">{t("common.customer")}</dt><dd className="text-ink">{invoice.customerNameAr}</dd></div>
+          <div><dt className="text-ink-muted">{t("common.date")}</dt><dd className="mz-num text-ink">{invoice.date}</dd></div>
+          <div><dt className="text-ink-muted">{t("common.status")}</dt><dd className="text-ink">{salesInvoiceStatusLabel(invoice.status, t)}</dd></div>
+          <div><dt className="text-ink-muted">{t("common.total")}</dt><dd className="mz-num font-semibold text-ink">{money(invoice.totals.grandTotal)}</dd></div>
+        </dl>
+
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-[12.5px]">
+            <thead className="bg-surface-2 text-[11px] font-semibold text-ink-faint">
+              <tr>
+                <th className="px-[10px] py-[7px] text-start">{t("common.item")}</th>
+                <th className="px-[10px] py-[7px] text-end">{t("common.qty")}</th>
+                <th className="px-[10px] py-[7px] text-end">{t("common.total")}</th>
+              </tr>
+            </thead>
+            <tbody>
+              {invoice.lines.map((l) => (
+                <tr key={l.lineId} className="border-t border-border">
+                  <td className="px-[10px] py-[8px] text-ink">{l.itemNameAr}</td>
+                  <td className="mz-num px-[10px] py-[8px] text-end">{l.qty}</td>
+                  <td className="mz-num px-[10px] py-[8px] text-end">{money(String(Number(l.unitPrice) * Number(l.qty)))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {copied ? (
+          <p className={`text-[12.5px] font-semibold ${copied === "ok" ? "text-success-ink" : "text-danger-ink"}`}>
+            {copied === "ok" ? t("salesInvoices.share.copied") : t("salesInvoices.share.copyFailed")}
+          </p>
+        ) : null}
+
+        <div className="flex flex-wrap gap-[8px]">
+          <Button variant="primary" onClick={() => onOpenFull(invoice)}>{t("salesInvoices.preview.openFull")}</Button>
+          <Button onClick={() => window.print()}>{t("salesInvoices.share.print")}</Button>
+          <Button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(summary);
+                setCopied("ok");
+              } catch {
+                // A denied clipboard must say so rather than look like it worked.
+                setCopied("failed");
+              }
+            }}
+          >
+            {t("salesInvoices.share.copy")}
+          </Button>
+        </div>
+      </div>
+    </SidePanel>
+  );
+}
+
 function InvoiceDetailView({
   invoice,
   today,
@@ -1599,6 +1694,7 @@ export function SalesInvoicesScreen() {
   const listCustomers = useCustomers().data ?? [];
   // `#/sales/sales-invoices` · `…/new` · `…/<docNo|id>`
   const subPage = useSubPage();
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const { navigate } = useNavigation();
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
@@ -1853,6 +1949,7 @@ export function SalesInvoicesScreen() {
               // a return nor a plan, a settled one offers no collection (R1.3).
               const menuItems: RowMenuItem[] = [
                 { key: "view", label: t("common.view"), onSelect: () => subPage.open(inv.docNo ?? inv.id) },
+                { key: "preview", label: t("salesInvoices.row.preview"), onSelect: () => setPreviewId(inv.id) },
                 ...(inv.status === "draft"
                   ? [
                       {
@@ -1937,6 +2034,14 @@ export function SalesInvoicesScreen() {
         </div>
       )}
 
+      <InvoicePreviewPanel
+        invoice={previewId === null ? null : (invoices.find((inv) => inv.id === previewId) ?? null)}
+        onClose={() => setPreviewId(null)}
+        onOpenFull={(inv) => {
+          setPreviewId(null);
+          subPage.open(inv.docNo ?? inv.id);
+        }}
+      />
     </>
   );
 }

@@ -6,6 +6,7 @@ import {
   type DocumentNumberingHook,
   type DocumentGlHook,
   SalesQuoteService,
+  isQuoteExpired,
   InvalidSalesQuoteError,
   SalesQuoteNotFoundError,
   DuplicateSalesQuoteError,
@@ -217,19 +218,148 @@ export function createSalesQuotesRoutes(
     }
   });
 
-  app.get("/", gate("sales.quote.view"), async (c) => {
+  /**
+   * The list's status axis carries a derived منتهي bucket the stored status
+   * set has no value for, so `status` is read raw here and only a real stored
+   * status is forwarded to the repository — sending `expired` would match none.
+   */
+  const DERIVED_QUOTE_FILTERS = new Set(["all", "expired"]);
+
+  interface QuoteListFilter {
+    readonly status?: string;
+    readonly customerId?: string;
+    readonly fromDate?: string;
+    readonly toDate?: string;
+    readonly branchId?: string;
+    readonly search?: string;
+  }
+
+  function parseQuoteListQuery(c: Context): { ok: true; filter: QuoteListFilter } | { ok: false; details: unknown } {
+    const status = c.req.query("status");
+    const stored = status && !DERIVED_QUOTE_FILTERS.has(status) ? status : undefined;
     const parsed = salesQuoteListQuerySchema.safeParse({
-      status: c.req.query("status"),
+      status: stored,
       customerId: c.req.query("customerId"),
       fromDate: c.req.query("fromDate"),
       toDate: c.req.query("toDate"),
     });
-    if (!parsed.success) {
-      return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
+    if (!parsed.success) return { ok: false, details: parsed.error.flatten() };
+    return {
+      ok: true,
+      filter: {
+        ...parsed.data,
+        status: status || undefined,
+        branchId: c.req.query("branchId") || undefined,
+        search: c.req.query("search") || undefined,
+      },
+    };
+  }
+
+  function today(): string {
+    return (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
+  }
+
+  /**
+   * The single filter the rows, the chip counts and the KPI strip all go
+   * through (R1.1). The screen used to narrow by branch, customer and free
+   * text in the browser while the three money tiles were summed over every
+   * quote the server had sent, so applying a branch moved the rows and left
+   * the header alone.
+   *
+   * `branchId` and `search` are presentation filters over an already-scoped
+   * set — `branchScopeOf` still decides what this user may see at all, and no
+   * query parameter widens it.
+   */
+  async function listFilteredQuotes(svc: SalesQuoteService, c: Context, filter: QuoteListFilter): Promise<readonly SalesQuote[]> {
+    const { status, branchId, search, ...dateFilter } = filter;
+    const stored = status && !DERIVED_QUOTE_FILTERS.has(status) ? status : undefined;
+    let rows = withinScope(
+      await svc.list({ ...dateFilter, ...(stored ? { status: stored } : {}) } as Parameters<SalesQuoteService["list"]>[0]),
+      branchScopeOf(c),
+      (q) => q.branchId,
+    );
+    if (branchId) rows = rows.filter((q) => q.branchId === branchId);
+    const term = search?.trim().toLowerCase();
+    if (term) {
+      rows = rows.filter(
+        (q) => (q.docNo ?? "").toLowerCase().includes(term) || (q.customerNameAr ?? "").toLowerCase().includes(term),
+      );
+    }
+    if (status === "expired") {
+      const asOf = today();
+      rows = rows.filter((q) => isQuoteExpired(q, asOf));
+    }
+    return rows;
+  }
+
+  app.get("/", gate("sales.quote.view"), async (c) => {
+    const parsed = parseQuoteListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
     }
     const svc = service(c);
-    const quotes = withinScope(await svc.list(parsed.data), branchScopeOf(c), (q) => q.branchId);
+    const quotes = await listFilteredQuotes(svc, c, parsed.filter);
     return c.json(quotes.map((q) => serialize(q, totalsFor(svc, q))));
+  });
+
+  /**
+   * The status chips. Deliberately ignores the `status` query parameter: a
+   * chip has to say how many rows it WOULD show, so counting the already
+   * status-filtered set would render every chip but the active one as zero.
+   */
+  app.get("/counts", gate("sales.quote.view"), async (c) => {
+    const parsed = parseQuoteListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
+    }
+    const svc = service(c);
+    const { status: _ignored, ...withoutStatus } = parsed.filter;
+    const quotes = await listFilteredQuotes(svc, c, withoutStatus);
+    const asOf = today();
+    const counts: Record<string, number> = {
+      all: quotes.length,
+      draft: 0,
+      sent: 0,
+      accepted: 0,
+      rejected: 0,
+      converted: 0,
+      cancelled: 0,
+      expired: 0,
+    };
+    for (const q of quotes) {
+      counts[q.status] = (counts[q.status] ?? 0) + 1;
+      if (isQuoteExpired(q, asOf)) counts.expired! += 1;
+    }
+    return c.json(counts);
+  });
+
+  /**
+   * The KPI strip. A quotations pipeline is judged in money, and the money is
+   * summed here in `Money` over the whole filtered set — the screen used to
+   * add `Number(grandTotal)` across every quote it held.
+   */
+  app.get("/stats", gate("sales.quote.view"), async (c) => {
+    const parsed = parseQuoteListQuery(c);
+    if (!parsed.ok) {
+      return c.json({ error: "VALIDATION_ERROR", details: parsed.details }, 400);
+    }
+    const svc = service(c);
+    const quotes = await listFilteredQuotes(svc, c, parsed.filter);
+    let total = Money.zero();
+    let accepted = Money.zero();
+    let converted = Money.zero();
+    for (const q of quotes) {
+      const amount = totalsFor(svc, q).grandTotal;
+      total = total.add(amount);
+      if (q.status === "accepted") accepted = accepted.add(amount);
+      if (q.status === "converted") converted = converted.add(amount);
+    }
+    return c.json({
+      count: quotes.length,
+      total: total.toString(),
+      accepted: accepted.toString(),
+      converted: converted.toString(),
+    });
   });
 
   app.get("/:id", gate("sales.quote.view"), async (c) => {

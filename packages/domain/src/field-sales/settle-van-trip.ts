@@ -54,7 +54,10 @@ export async function settleVanTrip(cmd: SettleVanTripCommand, deps: SettleVanTr
   if (deps.treasuryTransfer && cmd.countedCash.scaled > 0n) {
     await deps.treasuryTransfer({
       id: cmd.tripId,
-      date: cmd.now?.() ?? new Date().toISOString(),
+      // A voucher's `date` is a calendar day, not an instant — a full ISO
+      // timestamp here prints as one in the vouchers list and falls outside an
+      // inclusive `toDate` of the very day it was settled.
+      date: (cmd.now?.() ?? new Date().toISOString()).slice(0, 10),
       amount: cmd.countedCash,
       branchId: trip.branchId,
       fromTreasuryAccountId: trip.vanTreasuryAccountId,

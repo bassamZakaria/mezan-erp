@@ -104,6 +104,8 @@ export interface ReportDefinition<TParams, Row, Ctx = unknown> {
    * something the column totals cannot.
    */
   readonly kpis?: readonly ReportKpiSpec<Row, TParams>[];
+  /** The chart above the table (A2). Omit it and the report renders none. */
+  readonly chart?: ReportChartSpec;
 }
 
 /**
@@ -130,6 +132,20 @@ export interface ReportKpiResult {
   readonly format?: ReportColumnFormat;
   readonly value: number;
   readonly tone?: "default" | "success" | "danger";
+}
+
+/**
+ * What a report charts (A2, R21.4). Names two of its own columns rather than
+ * carrying a second copy of the data: the chart and the table are then the
+ * same numbers by construction, and a chart cannot drift from the rows beneath
+ * it.
+ */
+export interface ReportChartSpec {
+  readonly labelColumn: string;
+  readonly valueColumn: string;
+  /** Charting fifty rows produces a hairbrush; the top slice is the readable part. */
+  readonly maxPoints?: number;
+  readonly captionAr?: string;
 }
 
 export interface ReportValidationError {

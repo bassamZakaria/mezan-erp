@@ -82,6 +82,12 @@ export function createSalesBySalespersonReport(
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
+    chart: {
+      labelColumn: "salespersonNameAr",
+      valueColumn: "total",
+      maxPoints: 8,
+      captionAr: "حصة كل مندوب من إيراد الفترة.",
+    },
     run: (params, ctx) => {
       const byRep = new Map<
         string,

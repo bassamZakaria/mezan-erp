@@ -68,6 +68,12 @@ export function createSalesByItemReport(
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedRevenue?.(params) ?? 0,
       toleranceMoney: 0.01,
     },
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "revenue",
+      maxPoints: 8,
+      captionAr: "الأصناف مرتبة من الأعلى إيراداً — طول العمود هو حصة الصنف من أعلى صنف، لا من الإجمالي.",
+    },
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
       const totalRevenue = aggregates.reduce((sum, a) => sum + a.revenue, 0);

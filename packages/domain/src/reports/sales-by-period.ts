@@ -70,6 +70,12 @@ export function createSalesByPeriodReport(
       { key: "tax", header: "الضريبة", format: "money", align: "end", total: true, value: (row) => row.tax },
       { key: "net", header: "الصافي", format: "money", align: "end", total: true, value: (row) => row.net },
     ],
+    chart: {
+      labelColumn: "bucket",
+      valueColumn: "net",
+      maxPoints: 8,
+      captionAr: "صافي المبيعات في كل فترة، بعد الخصم ومع الضريبة.",
+    },
     run: (params, ctx) => {
       const buckets = new Map<string, SalesByPeriodRow>();
       for (const invoice of ctx.invoices) {

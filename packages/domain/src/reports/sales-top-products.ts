@@ -67,6 +67,12 @@ export function createTopProductsReport(
       { key: "revenue", header: "الإيرادات", format: "money", align: "end", total: true, value: (row) => row.revenue },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "revenue",
+      maxPoints: 8,
+      captionAr: "أفضل المنتجات مبيعاً، مرتبة تنازلياً.",
+    },
     run: (params, ctx) => {
       const aggregates = aggregateItemSales(ctx.invoices, params.dateFrom, params.dateTo);
       const totalRevenue = aggregates.reduce((sum, a) => sum + a.revenue, 0);

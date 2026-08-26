@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
-import { ReportRunner } from "@mezan/ui";
-import type { ReportColumn, ReportParamField } from "@mezan/domain";
+import { ReportChart, ReportRunner } from "@mezan/ui";
+import type { ReportChartSpec, ReportColumn, ReportParamField } from "@mezan/domain";
 import { useReport } from "../../data/reports-hooks";
 import { localizeReportDefinition, tryReportLabel } from "../../report-labels";
 import { useAppTranslation, type AppTranslationKey } from "../../i18n";
@@ -29,6 +29,7 @@ export interface ReportScreenDefinition<TParams, Row> {
   readonly rowKey: (row: Row) => string;
   /** The balance sheet turns this off — summing assets against liabilities+equity yields no useful figure. */
   readonly showGrandTotal?: boolean;
+  readonly chart?: ReportChartSpec;
 }
 
 export interface ReportScreenProps<TParams, Row> {
@@ -68,6 +69,23 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
    * have to send a formatted string, which could not then be re-localised or
    * exported.
    */
+  /**
+   * The chart's points are read off the SAME rows the table renders, through
+   * the columns the definition names — so the chart cannot drift from the
+   * figures beneath it.
+   */
+  const chartSpec = definition.chart;
+  const labelColumn = chartSpec ? definition.columns.find((c) => c.key === chartSpec.labelColumn) : undefined;
+  const valueColumn = chartSpec ? definition.columns.find((c) => c.key === chartSpec.valueColumn) : undefined;
+  const chartPoints =
+    raw && chartSpec && labelColumn && valueColumn
+      ? raw.rows.slice(0, chartSpec.maxPoints ?? 8).map((row, index) => ({
+          key: `${definition.rowKey(row)}-${index}`,
+          label: String(labelColumn.value(row) ?? ""),
+          value: Number(valueColumn.value(row) ?? 0),
+        }))
+      : null;
+
   const result = raw === null
     ? null
     : {
@@ -101,7 +119,19 @@ export function ReportScreen<TParams extends object, Row>({ definition: rawDefin
       result={result}
       columns={definition.columns}
       rowKey={definition.rowKey}
-      chart={result && renderSummary ? renderSummary(result.rows) : undefined}
+      chart={
+        // A report-declared chart wins; `renderSummary` stays for the handful
+        // of screens that render something a two-column chart cannot express.
+        chartPoints
+          ? <ReportChart
+              title={definition.titleAr}
+              points={chartPoints}
+              caption={definition.chart?.captionAr}
+            />
+          : result && renderSummary
+            ? renderSummary(result.rows)
+            : undefined
+      }
       showGrandTotal={definition.showGrandTotal ?? true}
       exportBaseFilename={definition.id}
     />

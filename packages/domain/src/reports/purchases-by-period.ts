@@ -66,6 +66,12 @@ export function createPurchasesByPeriodReport(
       { key: "tax", header: "الضريبة", format: "money", align: "end", total: true, value: (row) => row.tax },
       { key: "net", header: "الصافي", format: "money", align: "end", total: true, value: (row) => row.net },
     ],
+    chart: {
+      labelColumn: "bucket",
+      valueColumn: "net",
+      maxPoints: 8,
+      captionAr: "صافي تكلفة الشراء في كل فترة.",
+    },
     run: (params, ctx) => {
       const buckets = new Map<string, PurchasesByPeriodRow>();
       for (const invoice of ctx.invoices) {

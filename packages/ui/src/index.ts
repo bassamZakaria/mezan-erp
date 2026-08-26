@@ -238,3 +238,5 @@ export {
   type LabelSheetViewProps,
 } from "./print/LabelSheetView";
 export { createSampleInvoiceDocument } from "./print/sample-invoice";
+
+export { ReportChart, type ReportChartProps, type ReportChartPoint, type ReportChartView } from "./primitives/ReportChart";

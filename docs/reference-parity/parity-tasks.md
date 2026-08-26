@@ -50,8 +50,10 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **A2 / R21.2** `ReportDefinition` gains `kpis`; the server returns the aggregates; `ReportRunner` renders a collapsible KPI strip
   - [x] the mechanism, and a default that gives EVERY report a strip from its own total columns
   - [x] chart captions (R21.3), methodology footnote (R21.9) and the balance banner (R21.10) as runner capabilities
+  - [x] charts — eight reports declare one, rendered from the SAME rows the table shows
+  - [x] **R21.4** chart view toggles (bars / pie / table / hide) on the chart card
   - [ ] per-report `kpis` overrides where the column totals do not say enough
-  - [ ] charts themselves
+  - [ ] charts on the remaining inventory / accounting reports
 - [x] **A3** Quick period chips (هذا الشهر / الشهر الماضي / هذا الربع / هذه السنة) — on every report that has a date range
 - [x] **A4** Replace the hardcoded `TODAY = "2026-08-22"` with the real current date — and fix the UTC day-shift in every `toISOString()` "today" across 21 screens
 - [x] **A6 / R21.6** % contribution on by-item / by-customer / top-products / by-supplier / by-salesperson — rendered as an inline bar, not a bare number

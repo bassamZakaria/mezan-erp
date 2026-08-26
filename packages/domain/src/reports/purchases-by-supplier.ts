@@ -57,6 +57,12 @@ export function createPurchasesBySupplierReport(
       { key: "outstanding", header: "المستحق", format: "money", align: "end", total: true, value: (row) => row.outstanding },
       { key: "contributionPercent", header: "نسبة المساهمة", format: "share", align: "end", value: (row) => row.contributionPercent },
     ],
+    chart: {
+      labelColumn: "supplierNameAr",
+      valueColumn: "total",
+      maxPoints: 8,
+      captionAr: "المورّدون مرتبون حسب حجم الإنفاق في الفترة.",
+    },
     run: (params, ctx) => {
       const supplierNames = new Map(ctx.suppliers.map((s) => [s.id, s.nameAr]));
       const bySupplier = new Map<string, { count: number; total: Money }>();

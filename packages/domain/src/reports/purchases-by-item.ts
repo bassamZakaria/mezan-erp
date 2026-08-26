@@ -69,6 +69,12 @@ export function createPurchasesByItemReport(
       computeReferenceTotal: (_rows, ctx, params) => ctx.postedInventory?.(params) ?? 0,
       toleranceMoney: 0.01,
     },
+    chart: {
+      labelColumn: "itemNameAr",
+      valueColumn: "cost",
+      maxPoints: 8,
+      captionAr: "الأصناف مرتبة حسب ما أُنفق عليها.",
+    },
     run: (params, ctx) => {
       const itemNames = new Map(ctx.items.map((i) => [i.id, i.nameAr]));
       const byItem = new Map<string, { qty: Qty; cost: Money }>();

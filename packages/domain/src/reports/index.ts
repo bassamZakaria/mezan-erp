@@ -8,6 +8,7 @@ export type {
   ReportReconciliationResult,
   ReportKpiResult,
   ReportKpiSpec,
+  ReportChartSpec,
   ReportReconciliationSpec,
   ReportValidationError,
   RunReportOutcome,

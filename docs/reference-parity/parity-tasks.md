@@ -84,7 +84,8 @@ Tick an item only when it has been driven in the running app on seeded data, in
 - [~] **R2.11** Cross-document creation (invoice → return / plan / collection; customer → invoice / collection / quote; quote → its invoice)
 - [~] **R3.4** Sales-invoice detail: installments tab and the cross-document actions done; attachments tab still open
 - [x] **R4.4** Purchase-invoice detail: landed-costs tab, consumed/received/still-in-stock per line (read from the cost layers the funding document created), an inline «تسجيل السداد» that posts a real سند صرف, and the attachments tab
-- [ ] **R2.6** Coupon codes · **R2.9** quick-preview panel · **R2.10** share document
+- [x] **R2.6** Coupon codes — already complete and mis-recorded here. `requiresCoupon` on the promotion, `matchesCoupon` in the engine, the code stored on both the invoice and the quote, an input on the invoice form and a «بكوبون فقط» filter on the promotions list. Verified: a 20-unit cart returns `applicable: false` with no code and unlocks PROMO-DEMO-2 with `BULK15`
+- [ ] **R2.9** quick-preview panel · **R2.10** share document
 
 ## P4 — entity 360
 

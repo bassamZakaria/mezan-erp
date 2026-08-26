@@ -4,15 +4,26 @@ import {
   DocumentList,
   EntityPicker,
   Money as MoneyDisplay,
+  RowMenu,
   StatusPill,
   useFormat,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { SelectField, TextField } from "../../settings/form-controls";
-import { useBranches, useCustomers, useSalesQuotes, type SalesQuoteRecord } from "../../data/hooks";
-import { useScreenIntent, useSubPage } from "../../navigation";
+import {
+  useAcceptSalesQuote,
+  useBranches,
+  useCancelSalesQuote,
+  useCustomers,
+  useRejectSalesQuote,
+  useSalesQuotes,
+  useSendSalesQuote,
+  type SalesQuoteRecord,
+} from "../../data/hooks";
+import { useNavigation, useScreenIntent, useSubPage } from "../../navigation";
 import { useAppTranslation } from "../../i18n";
 import { QuoteDetailView } from "./QuoteDetailView";
 import { QuoteFormView } from "./QuoteFormView";
@@ -39,6 +50,27 @@ export function SalesQuotesScreen() {
 
   // The sub-page lives in the URL: `#/sales/quotes`, `…/new`, `…/<id>`.
   const subPage = useSubPage();
+  const { openScreenAt } = useNavigation();
+  const send = useSendSalesQuote();
+  const accept = useAcceptSalesQuote();
+  const reject = useRejectSalesQuote();
+  const cancel = useCancelSalesQuote();
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  async function runTransition(id: string, transition: { mutateAsync: (id: string) => Promise<unknown> }): Promise<void> {
+    if (pendingId) return;
+    setRowError(null);
+    setPendingId(id);
+    try {
+      await transition.mutateAsync(id);
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setPendingId(null);
+    }
+  }
+
   useScreenIntent((intent) => {
     const customerId = intent.prefill?.customerId;
     subPage.open(...(customerId ? ["new", customerId] : ["new"]));
@@ -180,6 +212,11 @@ export function SalesQuotesScreen() {
 
   return (
     <div className="w-full">
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<SalesQuoteRecord>
         title={t("quotes.title")}
         description={t("quotes.description")}
@@ -240,18 +277,54 @@ export function SalesQuotesScreen() {
         rows={pageRows}
         rowKey={(q) => q.id}
         onRowClick={(q) => subPage.open(q.docNo ?? q.id)}
-        rowAction={(q) => (
-          <div className="flex items-center gap-2">
-            {q.status === "draft" ? (
-              <Button size="sm" variant="default" onClick={() => subPage.open(q.docNo ?? q.id)}>
-                {t("quotes.send")}
-              </Button>
-            ) : null}
-            <Button size="sm" variant="ghost" onClick={() => subPage.open(q.docNo ?? q.id)}>
-              {t("common.show")}
-            </Button>
-          </div>
-        )}
+        rowAction={(q) => {
+          const live = q.status === "draft" || q.status === "sent";
+          /**
+           * Derived from THIS quote's state (R1.3): only a draft can be sent,
+           * only a sent quote can be accepted or rejected, only an accepted one
+           * converts into an invoice (R2.11), and a converted quote offers the
+           * invoice it became instead of any of those.
+           */
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("quotes.row.view"), onSelect: () => subPage.open(q.docNo ?? q.id) },
+            ...(q.status === "draft"
+              ? [{ key: "send", label: t("quotes.send"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, send) }]
+              : []),
+            ...(q.status === "sent"
+              ? [
+                  { key: "accept", label: t("quotes.accept"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, accept) },
+                  { key: "reject", label: t("quotes.reject"), disabled: pendingId === q.id, onSelect: () => void runTransition(q.id, reject) },
+                ]
+              : []),
+            ...(q.status === "accepted"
+              ? [{ key: "convert", label: t("quotes.createInvoice"), onSelect: () => subPage.open(q.docNo ?? q.id) }]
+              : []),
+            ...(q.status === "converted" && q.convertedInvoiceId
+              ? [{ key: "invoice", label: t("quotes.viewInvoice"), onSelect: () => openScreenAt("sales-invoices", [q.convertedInvoiceId!]) }]
+              : []),
+            ...(live
+              ? [
+                  {
+                    key: "cancel",
+                    label: t("quotes.cancel"),
+                    tone: "danger" as const,
+                    disabled: pendingId === q.id,
+                    onSelect: () => void runTransition(q.id, cancel),
+                  },
+                ]
+              : []),
+          ];
+          return (
+            <div className="flex items-center gap-2">
+              {q.status === "draft" ? (
+                <Button size="sm" variant="default" disabled={pendingId === q.id} onClick={() => void runTransition(q.id, send)}>
+                  {t("quotes.send")}
+                </Button>
+              ) : null}
+              <RowMenu items={menuItems} label={t("quotes.row.actionsFor", { doc: q.docNo ?? q.id })} />
+            </div>
+          );
+        }}
         page={currentPage}
         pageCount={pageCount}
         onPageChange={setPage}

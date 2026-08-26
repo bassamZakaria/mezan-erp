@@ -299,15 +299,7 @@ export function TreasuryAccountsScreen() {
             {t("treasuryAcc.balance")}
             <MoneyInput value={openingAmount} onChange={(value) => setOpeningAmount(value ?? 0)} aria-label={t("treasuryAcc.balance")} />
           </label>
-          <label className="flex flex-col gap-[5px] text-[12.5px] font-semibold text-ink">
-            {t("common.date")}
-            <input
-              type="date"
-              value={openingDate}
-              onChange={(event) => setOpeningDate(event.target.value)}
-              className="rounded-md border border-border bg-surface px-[10px] py-[7px] text-[13px] text-ink"
-            />
-          </label>
+          <TextField label={t("common.date")} value={openingDate} onChange={setOpeningDate} type="date" />
           {openingError ? <p className="text-[12.5px] font-semibold text-danger-ink">{openingError}</p> : null}
           <Button
             variant="primary"

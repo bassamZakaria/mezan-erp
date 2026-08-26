@@ -1255,4 +1255,254 @@ export async function run(ctx: Ctx): Promise<void> {
       checkEq("the payable takes the whole 1,500 — how a cost is classified never changes what is owed", (-(await glBal("2100"))) - apBefore, 1500);
     },
   );
+  // --- R4.6: the goods-receipt gate follows the tenant setting, in BOTH positions ---
+  await scenario(
+    "purchases (R4.6): «إلزام أمر الشراء قبل الاستلام» actually gates the goods receipt — refused when on, allowed when off",
+    async () => {
+      const original = (await req("GET", "/settings")).body as Record<string, unknown>;
+      try {
+        // Position 1: policy ON — a PO-less receipt must be refused, by the
+        // SETTING and not by a hardcoded constant.
+        const on = await req("PUT", "/settings", { ...original, requirePoForGrn: true });
+        check("the require-PO policy can be switched on", on.status === 200 && on.body?.requirePoForGrn === true, JSON.stringify(on.body?.requirePoForGrn));
+
+        const refused = await req("POST", "/purchases/receipts", {
+          id: "SCN-GRN-POLICY-1",
+          date: "2026-08-24",
+          supplierId: "SUPP-DEMO-1",
+          warehouseId: WAREHOUSE_ID,
+          lines: [{ itemId: "ITEM-DEMO-3", qty: "3", unitCost: "31" }],
+        });
+        checkEq("with the policy ON an ad-hoc receipt is refused 422", refused.status, 422);
+        check(
+          "and the refusal names the gate (PURCHASE_ORDER_REQUIRED), not a generic validation error",
+          refused.body?.error === "PURCHASE_ORDER_REQUIRED",
+          String(refused.body?.error),
+        );
+        check(
+          "the refusal reaches an Arabic UI in Arabic",
+          typeof refused.body?.message === "string" && /[؀-ۿ]/.test(refused.body.message),
+          String(refused.body?.message).slice(0, 80),
+        );
+        const afterRefusal = await req("GET", "/purchases/receipts/SCN-GRN-POLICY-1");
+        checkEq("nothing was persisted by the refused request", afterRefusal.status, 404);
+
+        // Position 2: policy OFF — the SAME request must now succeed. A gate
+        // that refuses in both positions is a hardcoded `true` wearing a
+        // setting's name.
+        const off = await req("PUT", "/settings", { ...original, requirePoForGrn: false });
+        check("the require-PO policy can be switched off", off.status === 200 && off.body?.requirePoForGrn === false, JSON.stringify(off.body?.requirePoForGrn));
+
+        const allowed = await req("POST", "/purchases/receipts", {
+          id: "SCN-GRN-POLICY-1",
+          date: "2026-08-24",
+          supplierId: "SUPP-DEMO-1",
+          warehouseId: WAREHOUSE_ID,
+          lines: [{ itemId: "ITEM-DEMO-3", qty: "3", unitCost: "31" }],
+        });
+        checkEq("with the policy OFF the identical ad-hoc receipt is created", allowed.status, 201);
+        check("and it is genuinely PO-less", allowed.body?.purchaseOrderId === null, JSON.stringify(allowed.body?.purchaseOrderId));
+        check("carrying the supplier the caller named", allowed.body?.supplierId === "SUPP-DEMO-1", String(allowed.body?.supplierId));
+      } finally {
+        // Leave the tenant as it was found — a later suite measured behind a
+        // flipped policy is a journey that stopped halfway.
+        await req("PUT", "/settings", original);
+      }
+      const restored = await req("GET", "/settings");
+      check("the tenant's own policy is restored", restored.body?.requirePoForGrn === original.requirePoForGrn, String(restored.body?.requirePoForGrn));
+    },
+  );
+
+  // --- R4.7: every allocation basis distributes to the cent, with no drift ---
+  await scenario(
+    "purchases (R4.7): BY_VALUE, BY_QUANTITY and BY_WEIGHT each allocate a landed cost EXACTLY, to the cent, on a total that does not divide evenly",
+    async () => {
+      const invoice = await req("POST", "/purchases/invoices", {
+        id: "SCN-PI-BASIS",
+        supplierId: "SUPP-DEMO-1",
+        date: "2026-08-24",
+        branchId: BRANCH_ID,
+        warehouseId: WAREHOUSE_ID,
+        lines: [
+          { itemId: "ITEM-DEMO-1", kind: "inventory", qty: "7", unitCost: "13", taxRatePercent: VAT },
+          { itemId: "ITEM-DEMO-2", kind: "inventory", qty: "11", unitCost: "17", taxRatePercent: VAT },
+          { itemId: "ITEM-DEMO-3", kind: "inventory", qty: "13", unitCost: "19", taxRatePercent: VAT },
+        ],
+      });
+      checkEq("a three-line source invoice for the basis comparison is created", invoice.status, 201);
+      checkEq("and confirms", (await req("POST", "/purchases/invoices/SCN-PI-BASIS/confirm", {})).status, 200);
+
+      // 1,000.01 across three lines on prime quantities: no basis divides it
+      // evenly, so a naive per-line round leaves a residue. Largest-remainder
+      // must place every last piastre.
+      const TOTAL = 1000.01;
+      const targets = [
+        { itemId: "ITEM-DEMO-1", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "7", unitCost: "13", weight: "3" },
+        { itemId: "ITEM-DEMO-2", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "11", unitCost: "17", weight: "5" },
+        { itemId: "ITEM-DEMO-3", warehouseId: WAREHOUSE_ID, sourceInvoiceId: "SCN-PI-BASIS", sourceInvoiceNumber: null, qty: "13", unitCost: "19", weight: "7" },
+      ];
+
+      const bases: { method: string; id: string; weights: number[] }[] = [
+        { method: "BY_VALUE", id: "SCN-LC-BASIS-V", weights: [7 * 13, 11 * 17, 13 * 19] },
+        { method: "BY_QUANTITY", id: "SCN-LC-BASIS-Q", weights: [7, 11, 13] },
+        { method: "BY_WEIGHT", id: "SCN-LC-BASIS-W", weights: [3, 5, 7] },
+      ];
+
+      for (const basis of bases) {
+        const doc = await req("POST", "/landed-costs", {
+          id: basis.id,
+          date: "2026-08-24",
+          memo: `توزيع ${basis.method}`,
+          distributionMethod: basis.method,
+          costItems: [
+            { costType: "SHIPPING", description: "شحن", amount: "600.01" },
+            { costType: "CUSTOMS", description: "جمارك", amount: "400" },
+          ],
+          targets,
+        });
+        checkEq(`${basis.method}: the landed cost document is created`, doc.status, 201);
+
+        const raw: string[] = (doc.body?.lines ?? []).map((l: any) => String(l.allocatedAmount));
+        const allocated = raw.map((v) => n(v));
+        // Summed as scaled INTEGERS, the way the ledger holds them — adding the
+        // decoded floats would be the very drift this is meant to catch.
+        const scaled = raw.map((v) => {
+          const [whole = "0", frac = ""] = v.split(".");
+          return BigInt(whole + frac.padEnd(6, "0").slice(0, 6));
+        });
+        check(
+          `${basis.method}: the allocated parts sum EXACTLY to the ${TOTAL} entered — nothing lost, nothing invented`,
+          scaled.reduce((a, b) => a + b, 0n) === 1_000_010_000n,
+          raw.join(" · "),
+        );
+        check(
+          `${basis.method}: every part is an exact 6-decimal amount, never a float`,
+          raw.every((v) => /^\d+\.\d{6}$/.test(v)),
+          raw.join(" · "),
+        );
+
+        const weightTotal = basis.weights.reduce((s, v) => s + v, 0);
+        basis.weights.forEach((w, i) => {
+          check(
+            `${basis.method}: line ${i + 1} takes its own share of the basis (within one piastre of ${TOTAL} × ${w}/${weightTotal})`,
+            Math.abs(allocated[i] - (TOTAL * w) / weightTotal) <= 0.01,
+            `allocated ${allocated[i]}`,
+          );
+        });
+
+        // The basis is what makes them different — a BY_WEIGHT document whose
+        // split equals the BY_VALUE one would mean the field is decorative.
+        doc.body.lines.forEach((l: any, i: number) => {
+          checkEq(
+            `${basis.method}: line ${i + 1}'s new unit cost = old + allocated ÷ qty`,
+            n(l.newUnitCost),
+            n(l.unitCost) + n(l.allocatedAmount) / n(l.qty),
+            0.000001,
+          );
+          check(`${basis.method}: the persisted line records the basis it was allocated under`, l.distributionMethod === basis.method, l.distributionMethod);
+        });
+      }
+
+      const byValue = (await req("GET", "/landed-costs/SCN-LC-BASIS-V")).body.lines.map((l: any) => l.allocatedAmount).join(",");
+      const byQty = (await req("GET", "/landed-costs/SCN-LC-BASIS-Q")).body.lines.map((l: any) => l.allocatedAmount).join(",");
+      const byWeight = (await req("GET", "/landed-costs/SCN-LC-BASIS-W")).body.lines.map((l: any) => l.allocatedAmount).join(",");
+      check("the three bases genuinely produce three different splits", byValue !== byQty && byQty !== byWeight && byValue !== byWeight, `${byValue} | ${byQty} | ${byWeight}`);
+
+      // Confirming one of them must move the stock value by exactly what it
+      // allocated, and leave the sub-ledger reconciled to GL 1200.
+      const beforeInv = await ctx.invariants();
+      const before1 = await itemBalance("ITEM-DEMO-1");
+      const confirm = await req("POST", "/landed-costs/SCN-LC-BASIS-W/confirm", {});
+      checkEq("the BY_WEIGHT document confirms", confirm.status, 200);
+      const w1 = n((await req("GET", "/landed-costs/SCN-LC-BASIS-W")).body.lines[0].allocatedAmount);
+      const after1 = await itemBalance("ITEM-DEMO-1");
+      checkEq("the first line's stock VALUE rose by exactly its by-weight allocation", after1.totalValue - before1.totalValue, w1, 0.0000005);
+      const afterInv = await ctx.invariants();
+      checkEq("and the inventory sub-ledger still reconciles to GL 1200 exactly", afterInv.inventory, beforeInv.inventory);
+
+      // The two unconfirmed drafts must not have moved anything.
+      await req("POST", "/landed-costs/SCN-LC-BASIS-V/cancel", {});
+      await req("POST", "/landed-costs/SCN-LC-BASIS-Q/cancel", {});
+      const afterCancel = await ctx.invariants();
+      checkEq("cancelling the two unconfirmed drafts changes nothing — a draft cost has revalued no stock", afterCancel.inventory, afterInv.inventory);
+    },
+  );
+
+  // --- R4.7: a typed cost line keeps its type all the way to the document ---
+  await scenario(
+    "purchases (R4.7): a landed cost's typed lines survive onto the document, and their types sum to the total",
+    async () => {
+      const doc = await req("GET", "/landed-costs/SCN-LC-BASIS-W");
+      const costItems = doc.body?.lines?.[0]?.costItems ?? [];
+      checkEq("both entered cost lines are on the document", costItems.length, 2);
+      check(
+        "each keeps its own نوع التكلفة rather than collapsing into one bucket",
+        costItems.map((c: any) => c.costType).join(",") === "SHIPPING,CUSTOMS",
+        costItems.map((c: any) => c.costType).join(","),
+      );
+      checkEq(
+        "and the typed amounts sum to the document's total cost",
+        costItems.reduce((s: number, c: any) => s + n(c.amount), 0),
+        1000.01,
+        0.0000005,
+      );
+    },
+  );
+
+  // --- R9.1: a shop-floor action records the station and the operator -------
+  await scenario(
+    "manufacturing (R9.1): a work order's issue records محطة العمل and المشغّل, and the movement it produced reports both",
+    async () => {
+      const stations = await req("GET", "/manufacturing/work-stations");
+      check("the work-station registry answers with the seeded stations", stations.status === 200 && rows(stations.body).length > 0, `${stations.status} / ${rows(stations.body).length}`);
+      const station = rows(stations.body).find((w: any) => w.id === "WST-DEMO-1");
+      check("WST-DEMO-1 (خط الخلط) is one of them", station !== undefined, JSON.stringify(rows(stations.body).map((w: any) => w.id)));
+
+      const activity = await req("GET", "/manufacturing/work-orders/WO-DEMO-4/activity");
+      checkEq("the completed demo run's activity feed answers", activity.status, 200);
+      const movements = activity.body?.movements ?? [];
+      check("it produced material movements", movements.length > 0, String(movements.length));
+      check(
+        "and every one of them names the station it happened at",
+        movements.every((m: any) => m.stationId !== null),
+        movements.map((m: any) => m.stationId).join(","),
+      );
+      check(
+        "with the station's own name resolved from the registry, not the raw id",
+        movements.every((m: any) => m.stationName !== null && m.stationName !== m.stationId),
+        movements.map((m: any) => m.stationName).join(","),
+      );
+      check(
+        "and the operator who performed it",
+        movements.every((m: any) => m.operatorId !== null && m.operatorName !== null),
+        movements.map((m: any) => `${m.operatorId}=${m.operatorName}`).join(","),
+      );
+      const receipts = activity.body?.receipts ?? [];
+      check("the finished-goods receipt carries the same two dimensions", receipts.length > 0 && receipts.every((m: any) => m.stationId !== null && m.operatorId !== null), JSON.stringify(receipts.map((m: any) => [m.stationId, m.operatorId])));
+
+      // The seeded run issued at خط الخلط and returned at خط التعبئة, within the
+      // same millisecond. Joining the attribution on the timestamp reported the
+      // LAST station on every row; the join is on the movement's own reference.
+      const issued = movements.filter((m: any) => m.direction.toUpperCase() === "OUT");
+      const returned = movements.filter((m: any) => m.direction.toUpperCase() === "IN");
+      check(
+        "the issues are attributed to the station they were actually made at (WST-DEMO-1), not to whichever action happened to be logged last",
+        issued.length > 0 && issued.every((m: any) => m.stationId === "WST-DEMO-1" && m.operatorId === "EMP-DEMO-3"),
+        issued.map((m: any) => `${m.id}=${m.stationId}/${m.operatorId}`).join(" · "),
+      );
+      check(
+        "and the return to its own station (WST-DEMO-2) and operator — two actions one millisecond apart keep two attributions",
+        returned.length > 0 && returned.every((m: any) => m.stationId === "WST-DEMO-2" && m.operatorId === "EMP-DEMO-4"),
+        returned.map((m: any) => `${m.id}=${m.stationId}/${m.operatorId}`).join(" · "),
+      );
+
+      // The ids are checked against their registries, not trusted.
+      const bogusStation = await req("POST", "/manufacturing/work-orders/WO-DEMO-2/issue", { stationId: "WST-DOES-NOT-EXIST" });
+      checkEq("an issue naming a station that does not exist is refused", bogusStation.status, 422);
+      const bogusOperator = await req("POST", "/manufacturing/work-orders/WO-DEMO-2/issue", { operatorId: "EMP-DOES-NOT-EXIST" });
+      checkEq("and so is one naming an operator that does not exist", bogusOperator.status, 422);
+      const stillStarted = await req("GET", "/manufacturing/work-orders/WO-DEMO-2");
+      check("neither refusal moved the work order on", stillStarted.body?.stage === "started", String(stillStarted.body?.stage));
+    },
+  );
 }

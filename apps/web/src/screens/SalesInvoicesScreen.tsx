@@ -31,7 +31,7 @@ import {
   type SalesInvoiceLine,
   type SalesInvoiceDiscount,
   type SalesInvoiceDiscountType,
-  type SalesInvoiceLineDiscountType, itemTypeIsSellable,} from "@mezan/domain";
+  type SalesInvoiceLineDiscountType, itemTypeIsSellable, findCurrency,} from "@mezan/domain";
 import type { SalesInvoiceListQueryDTO, SalesInvoiceStatusDTO } from "@mezan/contracts";
 import {
   useAccounts,
@@ -93,6 +93,19 @@ const STATUS_TONE: Record<SalesInvoiceStatusDTO, PillTone> = {
 };
 
 const LIST_STATUSES: SalesInvoiceStatusDTO[] = ["draft", "confirmed", "partially_paid", "paid", "cancelled"];
+
+/**
+ * The label an amount ON THIS DOCUMENT should carry. A foreign-currency invoice
+ * holds its own figures — the converted base amount lives in the ledger, not on
+ * the form — so printing them under the tenant's base label made a USD document
+ * read as pounds (D52).
+ */
+function currencyLabelFor(code: string | null | undefined, locale: string): string | undefined {
+  if (!code) return undefined;
+  const definition = findCurrency(code);
+  if (!definition) return code;
+  return locale === "en" ? definition.code : definition.symbol;
+}
 
 function toMajor(v: string): number {
   return Number(v);
@@ -294,7 +307,7 @@ function InvoiceEffectCards({
 }
 
 function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void; initialCustomerId?: string | null }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
   const employeesQuery = useEmployees();
@@ -339,6 +352,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
   const [warehouseId, setWarehouseId] = useState("");
   const [branchId, setBranchId] = useState("");
   const [currency, setCurrency] = useState("EGP");
+  const docCurrencyLabel = currencyLabelFor(currency, locale);
   const [notes, setNotes] = useState("");
   const [internalNotes, setInternalNotes] = useState("");
   /** Whether the user edited the due date by hand — an untouched one keeps tracking the customer's terms. */
@@ -901,11 +915,11 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                       <div className="flex flex-wrap gap-x-[14px] text-[11.5px] text-ink-muted">
                         {lineTotals.lineDiscount.scaled !== 0n ? (
                           <span>
-                            {t("salesInvoices.lineDiscountApplied")} −<MoneyDisplay value={toMajor(lineTotals.lineDiscount.toString())} />
+                            {t("salesInvoices.lineDiscountApplied")} −<MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lineTotals.lineDiscount.toString())} />
                           </span>
                         ) : null}
                         <span>
-                          {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
+                          {t("salesInvoices.lineTotal")} <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lineTotals.total.toString())} />
                         </span>
                       </div>
                     ) : null}
@@ -964,25 +978,25 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
             <div className="flex items-center justify-between">
               <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.subtotalInclusive") : t("salesInvoices.subtotal")}</dt>
               <dd>
-                <MoneyDisplay value={toMajor(totals.subtotal.toString())} />
+                <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(totals.subtotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between">
               <dt className="text-ink-muted">{t("salesInvoices.discount")}</dt>
               <dd>
-                <MoneyDisplay value={toMajor(totals.invoiceDiscountTotal.toString())} />
+                <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(totals.invoiceDiscountTotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between">
               <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.taxIncluded") : t("salesInvoices.tax")}</dt>
               <dd>
-                <MoneyDisplay value={toMajor(totals.taxTotal.toString())} />
+                <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(totals.taxTotal.toString())} />
               </dd>
             </div>
             <div className="flex items-center justify-between border-t border-border pt-[8px] font-bold">
               <dt className="text-ink">{t("salesInvoices.grandTotal")}</dt>
               <dd>
-                <MoneyDisplay value={toMajor(totals.grandTotal.toString())} />
+                <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(totals.grandTotal.toString())} />
               </dd>
             </div>
           </dl>
@@ -1027,8 +1041,9 @@ function InvoiceDetailView({
   today: string;
   onBack: () => void;
 }) {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const format = useFormat();
+  const docCurrencyLabel = currencyLabelFor(invoice.currency, locale);
   const accountsQuery = useAccounts();
   const warehousesQuery = useWarehouses();
   const itemsQuery = useItems();
@@ -1187,12 +1202,12 @@ function InvoiceDetailView({
               { label: t("salesInvoices.detail.appliedPromotion"), value: `${invoice.appliedPromotion.nameAr} (${invoice.appliedPromotion.code})` },
               {
                 label: t("salesInvoices.detail.promotionDiscount"),
-                value: <MoneyDisplay value={toMajor(invoice.appliedPromotion.discountTotal)} />,
+                value: <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.appliedPromotion.discountTotal)} />,
               },
             ]
           : []),
-        { label: t("common.total"), value: <MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /> },
-        { label: t("salesInvoices.detail.remaining"), value: <MoneyDisplay value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
+        { label: t("common.total"), value: <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /> },
+        { label: t("salesInvoices.detail.remaining"), value: <MoneyDisplay currencyLabel={docCurrencyLabel} value={remaining} />, valueTone: remaining > 0 ? "danger" : "success" },
       ]}
       effectsTitle={t("salesInvoices.effectsTitle")}
       effects={effects}
@@ -1243,22 +1258,22 @@ function InvoiceDetailView({
                               </span>
                             ) : null}
                           </td>
-                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(l.unitPrice)} /></td>
+                          <td className="px-[15px] py-[11px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(l.unitPrice)} /></td>
                           <td className="px-[15px] py-[11px] text-end">
-                            {lt ? <MoneyDisplay value={toMajor(lt.lineDiscount.toString())} /> : "—"}
+                            {lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.lineDiscount.toString())} /> : "—"}
                           </td>
-                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.tax.toString())} /> : "—"}</td>
+                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.tax.toString())} /> : "—"}</td>
                           <td className="px-[15px] py-[11px] text-end">
-                            {l.unitCost ? <MoneyDisplay value={toMajor(l.unitCost) * Number(l.qty)} /> : "—"}
+                            {l.unitCost ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(l.unitCost) * Number(l.qty)} /> : "—"}
                           </td>
                           <td className="px-[15px] py-[11px] text-end">
                             {l.unitCost && lt ? (
-                              <MoneyDisplay value={toMajor(lt.taxableBase.toString()) - toMajor(l.unitCost) * Number(l.qty)} />
+                              <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.taxableBase.toString()) - toMajor(l.unitCost) * Number(l.qty)} />
                             ) : (
                               "—"
                             )}
                           </td>
-                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay value={toMajor(lt.total.toString())} /> : "—"}</td>
+                          <td className="px-[15px] py-[11px] text-end">{lt ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(lt.total.toString())} /> : "—"}</td>
                         </tr>
                       );
                     })}
@@ -1268,23 +1283,23 @@ function InvoiceDetailView({
                         grand total appeared without the arithmetic that produced it (R2.7). */}
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.subtotal")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.subtotal)} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.subtotal)} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.tax")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={toMajor(invoice.totals.taxTotal)} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.taxTotal)} /></td>
                     </tr>
                     <tr className="bg-surface-2 font-bold">
                       <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.grandTotal")}</td>
-                      <td className="px-[15px] py-[11px] text-end"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></td>
+                      <td className="px-[15px] py-[11px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalCost")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.cost} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={margin.cost} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.totalProfit")}</td>
-                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={margin.profit} /></td>
+                      <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={margin.profit} /></td>
                     </tr>
                     <tr className="text-ink-muted">
                       <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.grossMargin")}</td>
@@ -1294,12 +1309,12 @@ function InvoiceDetailView({
                       <>
                         <tr className="text-danger">
                           <td className="px-[15px] py-[9px]" colSpan={8}>{t("salesInvoices.detail.returnsDeduction")}</td>
-                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay value={-toMajor(invoice.returnedCredit)} /></td>
+                          <td className="px-[15px] py-[9px] text-end"><MoneyDisplay currencyLabel={docCurrencyLabel} value={-toMajor(invoice.returnedCredit)} /></td>
                         </tr>
                         <tr className="bg-surface-2 font-bold">
                           <td className="px-[15px] py-[11px]" colSpan={8}>{t("salesInvoices.detail.netAfterReturns")}</td>
                           <td className="px-[15px] py-[11px] text-end">
-                            <MoneyDisplay value={toMajor(invoice.totals.grandTotal) - toMajor(invoice.returnedCredit)} />
+                            <MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal) - toMajor(invoice.returnedCredit)} />
                           </td>
                         </tr>
                       </>
@@ -1335,8 +1350,8 @@ function InvoiceDetailView({
                           {journalEntryQuery.data.lines.map((l, i) => (
                             <tr key={i} className="border-b border-border last:border-b-0">
                               <td className="px-[15px] py-[11px] text-ink">{accountLabel(l.accountId)}</td>
-                              <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay value={Number(l.debit)} /> : "—"}</td>
-                              <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay value={Number(l.credit)} /> : "—"}</td>
+                              <td className="px-[15px] py-[11px] text-end">{Number(l.debit) !== 0 ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={Number(l.debit)} /> : "—"}</td>
+                              <td className="px-[15px] py-[11px] text-end">{Number(l.credit) !== 0 ? <MoneyDisplay currencyLabel={docCurrencyLabel} value={Number(l.credit)} /> : "—"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -1361,15 +1376,15 @@ function InvoiceDetailView({
                 <dl className="grid grid-cols-2 gap-[14px] text-[13px] sm:grid-cols-3">
                   <div>
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.grandTotal")}</dt>
-                    <dd className="mt-[4px]"><MoneyDisplay value={toMajor(invoice.totals.grandTotal)} /></dd>
+                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.totals.grandTotal)} /></dd>
                   </div>
                   <div>
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.collected")}</dt>
-                    <dd className="mt-[4px]"><MoneyDisplay value={toMajor(invoice.amountPaid)} /></dd>
+                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={toMajor(invoice.amountPaid)} /></dd>
                   </div>
                   <div>
                     <dt className="text-[11px] font-semibold text-ink-faint">{t("salesInvoices.payments.remaining")}</dt>
-                    <dd className="mt-[4px]"><MoneyDisplay value={remaining} /></dd>
+                    <dd className="mt-[4px]"><MoneyDisplay currencyLabel={docCurrencyLabel} value={remaining} /></dd>
                   </div>
                 </dl>
               </Card>

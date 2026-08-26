@@ -22,7 +22,7 @@ describe("AppShell", () => {
     );
     expect(screen.getByText("ميزان")).toBeInTheDocument();
     // Appears once in the sidebar footer and once in the topbar user chip.
-    expect(screen.getAllByText("محمد الشهابي")).toHaveLength(2);
+    expect(screen.getAllByText("محمد الشهابي")).toHaveLength(1);
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
   });
 
@@ -70,7 +70,7 @@ describe("AppShell", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
   });
 
-  it("wires the branch/warehouse switchers into the sidebar rail, not the topbar", () => {
+  it("wires the branch/warehouse switchers into the topbar, not the sidebar rail", () => {
     const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
     const onSelectBranch = vi.fn();
     render(
@@ -87,7 +87,8 @@ describe("AppShell", () => {
       </AppShell>,
     );
     const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
-    expect(branchSelect.closest("aside")).not.toBeNull();
+    expect(branchSelect.closest("aside")).toBeNull();
+    expect(branchSelect.closest("header")).not.toBeNull();
     fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
     expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
   });

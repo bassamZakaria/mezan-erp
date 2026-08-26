@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
-import type { ThemePreference } from "../hooks/useTheme";
 import { BrandMark } from "./BrandMark";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import type { TopbarScopeOption } from "./Topbar";
@@ -11,30 +10,12 @@ export interface SidebarProps {
   activeKey?: string;
   topItem: NavItem;
   groups: NavGroup[];
-  user: ShellUser;
   brandName?: string;
   brandSub?: string;
   /** Company context pinned above the nav — display only; there is a single tenant per session, so there is nothing to switch. */
   tenantName?: string;
   scopeLabel?: string;
-  theme?: ThemePreference;
-  onToggleTheme?: () => void;
   className?: string;
-  /**
-   * Working-branch / warehouse selectors — real dropdowns that narrow which
-   * data the app queries (see `apps/web/src/data/hub-hooks.ts`
-   * `useScopeSelector` and `authHeaders` in `apps/web/src/data/session.ts`),
-   * not a cosmetic relabel. Omit `branchOptions` to render neither — never
-   * rendered with a fabricated option list.
-   */
-  branchOptions?: readonly TopbarScopeOption[];
-  warehouseOptions?: readonly TopbarScopeOption[];
-  selectedBranchId?: string | null;
-  selectedWarehouseId?: string | null;
-  onSelectBranch?: (branchId: string | null) => void;
-  onSelectWarehouse?: (warehouseId: string | null) => void;
-  allBranchesLabel?: string;
-  allWarehousesLabel?: string;
 }
 
 const RAIL_STORAGE_KEY = "mezan.sidebarCollapsed";
@@ -218,22 +199,11 @@ export function Sidebar({
   activeKey,
   topItem,
   groups,
-  user,
   brandName,
   brandSub = "Mezan ERP",
   tenantName,
   scopeLabel,
-  theme,
-  onToggleTheme,
   className,
-  branchOptions,
-  warehouseOptions,
-  selectedBranchId,
-  selectedWarehouseId,
-  onSelectBranch,
-  onSelectWarehouse,
-  allBranchesLabel,
-  allWarehousesLabel,
 }: SidebarProps) {
   const { t } = useUiTranslation();
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>(() => {
@@ -277,7 +247,6 @@ export function Sidebar({
   }
 
   const expanded = !railCollapsed;
-  const isDark = theme === "dark";
   const railToggleLabel = expanded ? t("shell.rail.collapse") : t("shell.rail.expand");
 
   return (
@@ -329,20 +298,6 @@ export function Sidebar({
           ) : null}
         </div>
       ) : null}
-
-      <ScopeSwitchers
-        expanded={expanded}
-        branchAriaLabel={t("shell.scope.branch")}
-        warehouseAriaLabel={t("shell.scope.warehouse")}
-        branchOptions={branchOptions}
-        warehouseOptions={warehouseOptions}
-        selectedBranchId={selectedBranchId}
-        selectedWarehouseId={selectedWarehouseId}
-        onSelectBranch={onSelectBranch}
-        onSelectWarehouse={onSelectWarehouse}
-        allBranchesLabel={allBranchesLabel ?? t("shell.scope.allBranches")}
-        allWarehousesLabel={allWarehousesLabel ?? t("shell.scope.allWarehouses")}
-      />
 
       <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>
@@ -416,59 +371,6 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      <div
-        className={cn(
-          "flex flex-none items-center gap-[10px] border-t border-chrome-border py-[12px]",
-          expanded ? "px-[12px]" : "flex-col gap-[8px] px-0",
-        )}
-      >
-        <span
-          title={expanded ? undefined : `${user.name} · ${user.role}`}
-          className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[13px] font-extrabold text-[color:var(--chrome-2)]"
-        >
-          {user.initials}
-        </span>
-        {expanded ? (
-          <div className="min-w-0">
-            <div className="truncate text-md font-semibold leading-tight">{user.name}</div>
-            <div className="truncate text-sm text-chrome-ink-muted">{user.role}</div>
-          </div>
-        ) : null}
-        {onToggleTheme ? (
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            aria-label={t("shell.theme.toggle")}
-            title={t("shell.theme.toggle")}
-            className={cn(
-              "flex h-[34px] w-[34px] flex-none items-center justify-center rounded-md border border-chrome-border text-chrome-ink transition-colors hover:bg-chrome-hover",
-              expanded && "ms-auto",
-            )}
-          >
-            {isDark ? (
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
-                <path
-                  d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
-                <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.5" />
-                <path
-                  d="M10 2v2M10 16v2M4 4l1.4 1.4M14.6 14.6 16 16M2 10h2M16 10h2M4 16l1.4-1.4M14.6 5.4 16 4"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </button>
-        ) : null}
-      </div>
     </aside>
   );
 }

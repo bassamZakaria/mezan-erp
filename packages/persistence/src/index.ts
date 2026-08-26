@@ -290,3 +290,5 @@ export {
 export { createSqliteAccountRoutingStore } from "./account-routing-store.js";
 
 export { createSqliteTaxGroupStore } from "./tax-group-store.js";
+
+export { createSqliteVatFilingStore } from "./vat-filing-store.js";

@@ -1,4 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -467,7 +468,7 @@ export function ItemsScreen() {
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter(
-        (i) => i.nameAr.toLowerCase().includes(q) || i.code.toLowerCase().includes(q) || (i.nameEn ?? "").toLowerCase().includes(q),
+        (i) => matchesSearch(search, i.nameAr, i.code, i.nameEn),
       );
     }
     return rows;

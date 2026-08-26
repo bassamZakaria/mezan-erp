@@ -12,4 +12,5 @@ export const STOCK_SOURCE_DOC_TYPE_LABELS_AR: Record<StockSourceDocType, string>
   POS_SALE: "بيع نقطة بيع",
   WORK_ORDER: "أمر إنتاج",
   PURCHASE_CANCELLATION: "إلغاء استلام/فاتورة مشتريات",
+  LANDED_COST: "تكاليف إضافية",
 };

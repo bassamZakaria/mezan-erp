@@ -68,7 +68,16 @@ function daysBetween(a: string, b: string): number {
  * partial first/only period by days in service, and capping cumulative
  * depreciation at the depreciable base.
  */
-export function computeMonthlyDepreciation(asset: Asset, period: DepreciationPeriod): MonthlyDepreciationResult {
+export function computeMonthlyDepreciation(
+  asset: Asset,
+  period: DepreciationPeriod,
+  /**
+   * Settings §"الضريبة" → `depreciationProrate`. "DAILY" prorates the period of
+   * acquisition by days in service (IFRS); "FULL_MONTH" charges the whole month
+   * for any period the asset was in service at all.
+   */
+  prorate: "DAILY" | "FULL_MONTH" = "DAILY",
+): MonthlyDepreciationResult {
   if (asset.status !== "active") {
     return {
       assetId: asset.id,
@@ -87,8 +96,15 @@ export function computeMonthlyDepreciation(asset: Asset, period: DepreciationPer
   const daysInServiceRaw = daysBetween(effectiveStart, end) + 1;
   const daysInService = Math.max(0, Math.min(daysInServiceRaw, daysInPeriod));
 
+  if (daysInService === 0) {
+    return { assetId: asset.id, amount: Money.zero(), fullyDepreciatedAfter: false };
+  }
+
   const monthlyAmount = straightLineMonthlyAmount(asset);
-  const prorated = Money.fromScaled((monthlyAmount.scaled * BigInt(daysInService)) / BigInt(daysInPeriod));
+  const prorated =
+    prorate === "FULL_MONTH"
+      ? monthlyAmount
+      : Money.fromScaled((monthlyAmount.scaled * BigInt(daysInService)) / BigInt(daysInPeriod));
 
   const base = depreciableBase(asset);
   const remainingBase = base.scaled - asset.accumulatedDepreciation.scaled;

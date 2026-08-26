@@ -79,6 +79,35 @@ Apply these first — they have the highest yield per minute.
    Check the id in the database, not in the UI: a plausible label is exactly what a
    fabricated id looks like from the front. Free text where the reference picks an
    entity is a defect even when everything downstream answers 200.
+11. **Two numbers can disagree because they mean different things, not because
+   one is wrong.** The receivables tile and the aging ladder differed by 5,486.12
+   because one summed a subtree and the other counted trade AR; three "AP"
+   figures differed because one followed invoices, one allocations, one the GL.
+   Before hunting arithmetic, ask what each figure is a count OF — and when they
+   should be the same fact, make them read the same source.
+12. **A fix is not done until its assertion is flipped.** The suite documents
+   open defects by asserting the broken behaviour. Leave that in place after a
+   fix and the suite goes red for the wrong reason; delete it and the regression
+   has no guard. Rewrite it to assert what now holds, and say which defect it
+   guards.
+
+11. **Every state a document can reach needs a screen that moves it on.** A quote
+   converts into a *draft* invoice, and the invoice detail page renders only «رجوع»
+   — `POST /sales-invoices/:id/confirm` exists and nothing in the UI calls it (D39).
+   Walk each document's status list against its own page and ask which control
+   advances it; a status with no button is a dead end that no test with API access
+   will ever notice. When one sibling has the control (goods receipts, purchase
+   invoices both confirm) and another does not, the odd one out is the defect.
+
+12. **Exercise the request shape the UI actually sends.** `POST /purchases/invoices`
+   accepts either explicit `lines` or a bare `receiptId`; every scenario passed its
+   own lines with `taxRatePercent: 14`, and the screen passes none — so nobody saw
+   that the auto-filled path resolves every rate to 0% because `resolveTaxRate` was
+   never wired (D42). Where a route has two input shapes, the one with the *fewer*
+   fields is the one the client uses and the one that hides the unwired dependency.
+   The same rule applies to a status that implies money moved: «تحصيل دفعة» flips
+   the invoice to مدفوع and posts nothing (D40) — assert the GL beside the flag,
+   never the flag alone.
 
 
 ## Non-negotiables in this codebase

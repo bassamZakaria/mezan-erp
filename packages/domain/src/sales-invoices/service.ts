@@ -25,7 +25,7 @@ import type {
 import type { GateableActionType } from "../workflow/index.js";
 import type { CreditControlMode } from "../settings/settings.js";
 import { checkCustomerCredit, CreditLimitExceededError, type CreditCheckResult } from "../credit-control/index.js";
-import { SALES_INVOICE_STATUS_LABELS_AR } from "./sales-invoice.js";
+import { SALES_INVOICE_STATUS_LABELS_AR, SALES_INVOICE_ACTIVE_STATUSES } from "./sales-invoice.js";
 import type {
   SalesInvoice,
   SalesInvoiceDiscount,
@@ -64,8 +64,42 @@ export interface SalesInvoiceCreditControlDeps {
   readonly getPolicy: () => Promise<{ readonly enabled: boolean; readonly mode: CreditControlMode }>;
 }
 
+/**
+ * The customer's own price list, consulted server-side. A customer can be
+ * assigned a list quoting 80.00 and an invoice line at 5.00 for the same item
+ * was accepted without a word, because the pricing engine was called from no
+ * route at all — the whole ordering held only in the browser (D35).
+ *
+ * This WARNS rather than refuses, the same way credit control's WARNING mode
+ * does: a negotiated price below the list is a real thing a salesperson does,
+ * and refusing it outright would be a policy this product has not been asked
+ * for. What the product owes the tenant is that nobody can do it unknowingly.
+ */
+export interface SalesInvoicePricingDeps {
+  /** The list price for this customer and item, or null when no list applies. */
+  listPriceFor(customerId: string, itemId: string): Promise<Money | null>;
+}
+
+/** One line charged below the customer's list price. */
+export interface PricingVariance {
+  readonly lineId: string;
+  readonly itemId: string;
+  readonly listPrice: Money;
+  readonly chargedPrice: Money;
+}
+
 /** The workflow action gated on confirm (docs/catalog/09). */
 const GATE_ACTION: GateableActionType = "SALES_INVOICE_CONFIRM";
+
+/** The tenant's VAT rules as a document sees them (settings §"الضريبة"). */
+export interface SalesInvoiceTaxPolicy {
+  /** VAT switched off: every line on a new invoice is raised at a zero rate. */
+  readonly enabled: boolean;
+  /** The rate a line that names none is raised at. */
+  readonly defaultRatePercent: number;
+  /** Unit prices already contain the tax. */
+  readonly inclusive: boolean;
+}
 
 export interface SalesInvoiceServiceDeps {
   readonly repo: SalesInvoiceRepository;
@@ -78,6 +112,8 @@ export interface SalesInvoiceServiceDeps {
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   /** Optional promotion evaluation on confirm; when omitted, no invoice ever records a promotion. */
   readonly promotions?: SalesInvoicePromotionHook;
+  /** Customer price lists; when omitted, no invoice is ever checked against one. */
+  readonly pricing?: SalesInvoicePricingDeps;
   readonly audit?: AuditSink;
   /**
    * Receivables sub-ledger. Without it a confirmed invoice never becomes an
@@ -86,6 +122,12 @@ export interface SalesInvoiceServiceDeps {
    */
   readonly allocatable?: AllocatableInvoiceRepository;
   readonly events?: DocumentEventPublisher;
+  /**
+   * The tenant's VAT rules (settings §"الضريبة"), read when a draft is raised
+   * and stamped onto it. Omit and an invoice behaves as it always did: tax
+   * added on top, and a line with no rate carries none.
+   */
+  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
   /** ISO-8601 UTC "now"; overridable for deterministic tests. */
   readonly now?: () => string;
   readonly actor?: string;
@@ -140,6 +182,8 @@ export interface ConfirmSalesInvoiceResult {
   readonly held: boolean;
   /** Set when credit control ran and the customer is over their limit in WARNING mode; null otherwise (incl. when credit control isn't configured, or the customer is within limit). */
   readonly creditWarning: CreditCheckResult | null;
+  /** Lines charged below the customer's assigned price list; empty when none, or when no list applies. */
+  readonly pricingVariances: readonly PricingVariance[];
 }
 
 export class SalesInvoiceService {
@@ -172,7 +216,7 @@ export class SalesInvoiceService {
     if (await this.deps.repo.findById(cmd.id)) {
       throw new DuplicateSalesInvoiceError(cmd.id);
     }
-    const invoice = this.buildDraft(cmd);
+    const invoice = this.buildDraft(cmd, await this.resolveTaxPolicy());
     this.validate(invoice);
     await this.deps.repo.save(invoice);
     this.emit("DOCUMENT_DRAFTED", invoice);
@@ -206,7 +250,7 @@ export class SalesInvoiceService {
       if (!decision.granted) {
         // Re-confirming while the request is still in the inbox is a no-op, not
         // an illegal pending → pending transition.
-        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null };
+        if (existing.status === "pending") return { invoice: existing, held: true, creditWarning: null, pricingVariances: [] };
         assertTransition(id, existing.status, "pending");
         const held: SalesInvoice = {
           ...existing,
@@ -215,7 +259,7 @@ export class SalesInvoiceService {
         };
         await this.deps.repo.update(held);
         this.emit("DOCUMENT_SUBMITTED", held);
-        return { invoice: held, held: true, creditWarning: null };
+        return { invoice: held, held: true, creditWarning: null, pricingVariances: [] };
       }
     }
 
@@ -228,9 +272,10 @@ export class SalesInvoiceService {
     const totals = this.totalsOf(promoted);
 
     const creditWarning = await this.checkCredit(promoted, totals.grandTotal);
+    const pricingVariances = await this.checkPricing(promoted);
 
     const confirmed = await this.deps.repo.transaction(async () => {
-      const number = await this.deps.numbering.next();
+      const number = await this.deps.numbering.next({ branchId: existing.branchId });
       const docNo = number.formatted;
       // The LEDGER timestamp is the invoice's own date, never the wall clock:
       // a document-dated movement and a now()-stamped one cannot be replayed in
@@ -296,7 +341,7 @@ export class SalesInvoiceService {
 
     await this.recordAudit("CONFIRM", confirmed, "INFO");
     this.emit("DOCUMENT_CONFIRMED", confirmed);
-    return { invoice: confirmed, held: false, creditWarning };
+    return { invoice: confirmed, held: false, creditWarning, pricingVariances };
   }
 
   /**
@@ -369,11 +414,16 @@ export class SalesInvoiceService {
   }
 
   /**
-   * Record a collection against a live invoice, advancing confirmed →
-   * partially_paid → paid. Does NOT post to the GL — collection is a separate
-   * treasury voucher (docs/catalog/01: "لا يتم التحصيل تلقائياً").
+   * Validate a collection against a live invoice. It does NOT write: the caller
+   * creates and confirms a real collection voucher and allocates it, and the
+   * allocation writes `amountPaid` back through `applyAllocatedSettlement`.
+   *
+   * This used to increment a cumulative `amountPaid` itself and post nothing,
+   * which made the invoice a SECOND store of a fact the allocation sub-ledger
+   * owns — and one the ledger never heard about, so AR drifted by every
+   * collection ever recorded that way (D1).
    */
-  async recordPayment(id: string, amount: Money): Promise<SalesInvoice> {
+  async assertCollectable(id: string, amount: Money): Promise<SalesInvoice> {
     const existing = await this.require(id);
     if (existing.status !== "confirmed" && existing.status !== "partially_paid") {
       throw new InvalidSalesInvoicePaymentError(
@@ -384,20 +434,36 @@ export class SalesInvoiceService {
       throw new InvalidSalesInvoicePaymentError("قيمة الدفعة يجب أن تكون أكبر من صفر.");
     }
     const grandTotal = this.totalsOf(existing).grandTotal;
-    const newPaid = existing.amountPaid.add(amount);
-    if (newPaid.scaled > grandTotal.scaled) {
+    if (existing.amountPaid.scaled + amount.scaled > grandTotal.scaled) {
       throw new InvalidSalesInvoicePaymentError("الدفعة تتجاوز الرصيد المتبقي للفاتورة.");
     }
-    const nextStatus: SalesInvoiceStatus = newPaid.scaled >= grandTotal.scaled ? "paid" : "partially_paid";
-    assertTransition(id, existing.status, nextStatus);
-    const updated: SalesInvoice = { ...existing, amountPaid: newPaid, status: nextStatus };
-    await this.deps.repo.update(updated);
-    return updated;
+    return existing;
+  }
+
+  /** Lines charged below the customer's own list price (D35). */
+  private async checkPricing(invoice: SalesInvoice): Promise<readonly PricingVariance[]> {
+    const pricing = this.deps.pricing;
+    if (!pricing) return [];
+    const out: PricingVariance[] = [];
+    for (const line of invoice.lines) {
+      const listPrice = await pricing.listPriceFor(invoice.customerId, line.itemId);
+      if (!listPrice) continue;
+      if (line.unitPrice.scaled < listPrice.scaled) {
+        out.push({ lineId: line.lineId, itemId: line.itemId, listPrice, chargedPrice: line.unitPrice });
+      }
+    }
+    return out;
   }
 
   // --- internals ---
 
-  private buildDraft(cmd: CreateSalesInvoiceCommand): SalesInvoice {
+  private async resolveTaxPolicy(): Promise<SalesInvoiceTaxPolicy> {
+    if (!this.deps.taxPolicy) return { enabled: true, defaultRatePercent: 0, inclusive: false };
+    return this.deps.taxPolicy();
+  }
+
+  private buildDraft(cmd: CreateSalesInvoiceCommand, taxPolicy: SalesInvoiceTaxPolicy): SalesInvoice {
+    const zeroRated = cmd.customerTaxExempt === true || !taxPolicy.enabled;
     const lines: SalesInvoiceLine[] = cmd.lines.map((l) => ({
       lineId: l.lineId,
       itemId: l.itemId,
@@ -406,7 +472,7 @@ export class SalesInvoiceService {
       qty: l.qty,
       unitPrice: l.unitPrice,
       discountPercent: l.discountPercent ?? 0,
-      taxRatePercent: cmd.customerTaxExempt ? 0 : (l.taxRatePercent ?? 0),
+      taxRatePercent: zeroRated ? 0 : (l.taxRatePercent ?? taxPolicy.defaultRatePercent),
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId ?? null,
       inventoryAccountId: l.inventoryAccountId ?? null,
@@ -422,6 +488,7 @@ export class SalesInvoiceService {
       customerId: cmd.customerId,
       customerNameAr: cmd.customerNameAr,
       customerTaxExempt: cmd.customerTaxExempt ?? false,
+      taxInclusive: taxPolicy.inclusive,
       warehouseId: cmd.warehouseId,
       branchId: cmd.branchId,
       salespersonId: cmd.salespersonId ?? null,
@@ -510,6 +577,9 @@ export class SalesInvoiceService {
       entityId: invoice.id,
       action,
       actor: this.deps.actor ?? "system",
+      // The DOCUMENT's branch, not the caller's scope: the default scope is
+      // all-branches, which would leave every row unfindable by branch (D30).
+      branchId: invoice.branchId ?? null,
       severity,
       details: {
         invoiceId: invoice.id,
@@ -529,4 +599,34 @@ function divCost(cost: Money, qty: Qty): Money {
   const r = numerator % qty.scaled;
   const rounded = r * 2n >= qty.scaled ? q + 1n : q;
   return Money.fromScaled(rounded);
+}
+
+/**
+ * Project the allocation sub-ledger back onto the invoice document: `settled`
+ * is the sum of ACTIVE allocations against this invoice, so it falls as well as
+ * rises when one is reversed. This is the only writer that keeps `amountPaid`
+ * truthful for voucher-driven collection — before it, a confirmed collection
+ * credited AR in the GL and left the invoice reporting amountPaid 0 forever
+ * (D1). A free function rather than a service method so the wiring layer can
+ * call it with the repository alone.
+ */
+export async function applyAllocatedSettlement(
+  repo: SalesInvoiceRepository,
+  id: string,
+  settled: Money,
+): Promise<SalesInvoice | null> {
+  const existing = await repo.findById(id);
+  if (!existing) return null;
+  if (!SALES_INVOICE_ACTIVE_STATUSES.has(existing.status)) return existing;
+
+  const grandTotal = salesInvoiceTotals(existing).grandTotal;
+  const capped = settled.scaled > grandTotal.scaled ? grandTotal : settled;
+  const nextStatus: SalesInvoiceStatus =
+    capped.scaled <= 0n ? "confirmed" : capped.scaled >= grandTotal.scaled ? "paid" : "partially_paid";
+  if (capped.scaled === existing.amountPaid.scaled && nextStatus === existing.status) return existing;
+
+  if (nextStatus !== existing.status) assertTransition(id, existing.status, nextStatus);
+  const updated: SalesInvoice = { ...existing, amountPaid: capped, status: nextStatus };
+  await repo.update(updated);
+  return updated;
 }

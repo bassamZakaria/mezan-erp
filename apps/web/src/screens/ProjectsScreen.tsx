@@ -13,7 +13,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { canTransitionProject } from "@mezan/domain";
+import { canTransitionProject, matchesSearch } from "@mezan/domain";
 import type { CreateProjectDTO, ProjectDTO, ProjectStatusDTO } from "@mezan/contracts";
 import { ApiError, useCreateProject, useCustomers, useProjects, useUpdateProject, useUsers } from "../data/hooks";
 import { SelectField, TextField } from "../settings/form-controls";
@@ -130,7 +130,7 @@ export function ProjectsScreen() {
     if (statusFilter !== "all") rows = rows.filter((p) => p.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((p) => p.code.toLowerCase().includes(q) || p.nameAr.toLowerCase().includes(q));
+      rows = rows.filter((p) => matchesSearch(search, p.code, p.nameAr));
     }
     return rows;
   }, [projects, statusFilter, search]);

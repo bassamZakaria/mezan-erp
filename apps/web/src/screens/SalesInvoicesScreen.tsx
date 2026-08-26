@@ -11,6 +11,7 @@ import {
   Qty as QtyDisplay,
   QtyInput,
   RowMenu,
+  Select,
   StatusPill,
   TextInput,
   useFormat,
@@ -37,6 +38,8 @@ import {
   useCustomers,
   useEmployees,
   useItems,
+  useSettings,
+  useItemAvailability,
   useConvertSalesQuoteToInvoice,
   useEtaSubmissions,
   useJournalEntry,
@@ -51,6 +54,7 @@ import {
   useSalesReturns,
   useWarehouses,
   type SalesInvoiceDTO,
+  useTreasuryAccounts,
 } from "../data/hooks";
 import { useWorkingLocation } from "../data/hub-hooks";
 import { useAuditLog } from "../data/platform-hooks";
@@ -121,6 +125,44 @@ function blankLine(): InvoiceLineDraft {
  * panel: a create form is a place you can be, link to and come back to with the
  * browser's Back button.
  */
+/**
+ * Live availability for one invoice line. The other-warehouse figures are shown
+ * only when the server sends them, which it does only when the tenant's عرض
+ * المخزون في المستودعات الأخرى is on — the screen never decides that itself.
+ */
+function LineAvailability({
+  itemId,
+  warehouseId,
+  warehouses,
+}: {
+  itemId: string;
+  warehouseId: string;
+  warehouses: readonly { id: string; name: string }[];
+}) {
+  const { t } = useAppTranslation();
+  const format = useFormat();
+  const availability = useItemAvailability(itemId, warehouseId);
+  if (!availability.data) return null;
+
+  const onHand = Number(availability.data.onHand);
+  const others = availability.data.otherWarehouses;
+  const nameOf = (id: string) => warehouses.find((w) => w.id === id)?.name ?? id;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-[12px] gap-y-[3px] text-[11.5px]">
+      <span className={onHand > 0 ? "text-ink-muted" : "font-semibold text-danger-ink"}>
+        {onHand > 0 ? `${t("salesInvoices.lineAvailable")} ${format.qty(onHand)}` : t("salesInvoices.lineOutOfStock")}
+      </span>
+      {others.length > 0 ? (
+        <span className="text-ink-muted">
+          {t("salesInvoices.lineOtherWarehouses")}:{" "}
+          {others.map((w) => `${nameOf(w.warehouseId)} ${format.qty(Number(w.onHand))}`).join(" · ")}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void; initialCustomerId?: string | null }) {
   const { t } = useAppTranslation();
   const format = useFormat();
@@ -300,6 +342,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     [items, priceFor, format],
   );
 
+  const tenantSettings = useSettings();
   const customerData = customer ? (customers.find((c) => c.id === customer.id) ?? null) : null;
 
   const domainLines = useMemo<SalesInvoiceLine[]>(() => {
@@ -334,10 +377,18 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
     [discountType, discountValue],
   );
 
+  // The tenant's VAT basis, so the preview computes tax the same way the server
+  // will stamp it on the draft (settings §"الضريبة" → `taxCalculation`).
+  const taxInclusive = tenantSettings.data?.taxCalculation === "INCLUSIVE";
+
   // A pure, local totals preview — the server recomputes (and is authoritative on) the same totals on create.
   const totals = useMemo(
-    () => computeInvoiceTotals(domainLines, discount, { taxExempt: customerData?.taxExempt ?? false }),
-    [domainLines, discount, customerData],
+    () =>
+      computeInvoiceTotals(domainLines, discount, {
+        taxExempt: customerData?.taxExempt ?? false,
+        taxInclusive: taxInclusive,
+      }),
+    [domainLines, discount, customerData, taxInclusive],
   );
   const totalsByLineId = useMemo(() => new Map(totals.lines.map((l) => [l.lineId, l])), [totals]);
 
@@ -604,6 +655,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
                         {t("salesInvoices.lineTotal")} <MoneyDisplay value={toMajor(lineTotals.total.toString())} />
                       </div>
                     ) : null}
+                    <LineAvailability itemId={item.id} warehouseId={warehouseId} warehouses={warehouses} />
                   </>
                 ) : null}
               </div>
@@ -648,7 +700,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
               <dd className="font-semibold text-ink">{priceList?.nameAr ?? t("salesInvoices.summary.noPriceList")}</dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">{t("salesInvoices.subtotal")}</dt>
+              <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.subtotalInclusive") : t("salesInvoices.subtotal")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.subtotal.toString())} />
               </dd>
@@ -660,7 +712,7 @@ function CreateInvoicePage({ onClose, initialCustomerId }: { onClose: () => void
               </dd>
             </div>
             <div className="flex items-center justify-between">
-              <dt className="text-ink-muted">{t("salesInvoices.tax")}</dt>
+              <dt className="text-ink-muted">{taxInclusive ? t("salesInvoices.taxIncluded") : t("salesInvoices.tax")}</dt>
               <dd>
                 <MoneyDisplay value={toMajor(totals.taxTotal.toString())} />
               </dd>
@@ -743,6 +795,14 @@ function InvoiceDetailView({
 
   const [paymentAmount, setPaymentAmount] = useState<number | null>(null);
   const [paymentError, setPaymentError] = useState<string | null>(null);
+  // A collection lands in a treasury account or it is not a collection: the
+  // route creates a real voucher and this is where its money goes (D1).
+  const treasuryQuery = useTreasuryAccounts();
+  const treasuryOptions = (treasuryQuery.data ?? [])
+    .filter((a) => a.status === "active")
+    .map((a) => ({ value: a.id, label: `${a.name} (${a.code})` }));
+  const [paymentTreasuryId, setPaymentTreasuryId] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<"cash" | "bank" | "cheque" | "card" | "wallet">("cash");
   const [payBusy, setPayBusy] = useState(false);
 
   const remaining = toMajor(invoice.remainingBalance);
@@ -771,6 +831,7 @@ function InvoiceDetailView({
       invoice.discount.type === "percent" ? { type: "percent", percent: invoice.discount.percent } : { type: "amount", amount: Money.fromMajor(invoice.discount.amount) };
     const totals = computeInvoiceTotals(domainLines, discount, {
       taxExempt: invoice.customerTaxExempt,
+      taxInclusive: invoice.taxInclusive === true,
       promotionLineDiscounts: invoice.appliedPromotion?.lineDiscounts.map((d: { lineId: string; itemId: string; amount: string }) => ({
         lineId: d.lineId,
         itemId: d.itemId,
@@ -793,7 +854,16 @@ function InvoiceDetailView({
     setPayBusy(true);
     setPaymentError(null);
     try {
-      await recordPayment.mutateAsync({ id: invoice.id, amount: String(paymentAmount) });
+      if (!paymentTreasuryId) {
+        setPaymentError(t("salesInvoices.error.treasuryRequired"));
+        return;
+      }
+      await recordPayment.mutateAsync({
+        id: invoice.id,
+        amount: String(paymentAmount),
+        treasuryAccountId: paymentTreasuryId,
+        paymentMethod: paymentMethod,
+      });
       setPaymentAmount(null);
     } catch (err) {
       setPaymentError(err instanceof Error ? err.message : t("salesInvoices.error.paymentFailed"));
@@ -999,11 +1069,30 @@ function InvoiceDetailView({
                       {paymentError}
                     </div>
                   ) : null}
-                  <div className="flex items-end gap-[10px]">
-                    <div className="flex-1">
+                  <div className="flex flex-col gap-[10px]">
+                    <div>
                       <span className="mb-[6px] block text-xs font-semibold text-ink-muted">{t("salesInvoices.payments.amount")}</span>
                       <MoneyInput aria-label={t("salesInvoices.payments.amount")} value={paymentAmount} onChange={setPaymentAmount} />
                     </div>
+                    <SelectField
+                      label={t("salesInvoices.payments.treasury")}
+                      value={paymentTreasuryId}
+                      onChange={setPaymentTreasuryId}
+                      options={[{ value: "", label: t("salesInvoices.payments.treasuryPlaceholder") }, ...treasuryOptions]}
+                    />
+                    <SelectField
+                      label={t("salesInvoices.payments.method")}
+                      value={paymentMethod}
+                      onChange={(v) => setPaymentMethod(v as typeof paymentMethod)}
+                      options={[
+                        { value: "cash", label: t("vouchers.method.cash") },
+                        { value: "bank", label: t("vouchers.method.bank") },
+                        { value: "cheque", label: t("vouchers.method.cheque") },
+                        { value: "card", label: t("vouchers.method.card") },
+                        { value: "wallet", label: t("vouchers.method.wallet") },
+                      ]}
+                    />
+                    <p className="text-[11.5px] text-ink-muted">{t("salesInvoices.payments.hint")}</p>
                     <Button variant="primary" disabled={payBusy} onClick={handleRecordPayment}>
                       {t("salesInvoices.payments.submit")}
                     </Button>
@@ -1421,9 +1510,24 @@ export function SalesInvoicesScreen() {
             pageCount={pageCount}
             onPageChange={setPage}
             pageSummary={
-              <span>
-                {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
-                <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
+              <span className="flex flex-wrap items-center gap-[10px]">
+                <span>
+                  {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
+                  <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
+                </span>
+                <span className="flex items-center gap-[6px] text-[12px] text-ink-muted">
+                  {t("salesInvoices.rowsPerPage")}
+                  <Select
+                    aria-label={t("salesInvoices.rowsPerPage")}
+                    size="sm"
+                    value={String(pageSize)}
+                    onChange={(v) => {
+                      setPageSize(Number(v));
+                      setPage(1);
+                    }}
+                    options={[10, 25, 50, 100].map((n) => ({ value: String(n), label: String(n) }))}
+                  />
+                </span>
               </span>
             }
             pageSize={pageSize}

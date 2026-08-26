@@ -14,6 +14,19 @@ export interface SettleVanTripDeps {
   readonly trips: VanTripRepository;
   /** Same reuse point as openVanTrip — settlement returns any counted cash still on the van back to the source treasury. */
   readonly treasuryTransfer?: (input: TreasuryTransferInput) => Promise<void>;
+  /**
+   * Writes the counted-versus-expected difference off the van's treasury to
+   * عجز/فائض الصندوق. Without it the shortfall stays on the van's books as cash
+   * nobody holds: the transfer only moves what was counted, so the difference
+   * sits there for the next trip to inherit.
+   */
+  readonly recordCashVariance?: (input: {
+    tripId: string;
+    date: string;
+    branchId: string;
+    vanTreasuryAccountId: string;
+    variance: Money;
+  }) => Promise<void>;
 }
 
 export async function settleVanTrip(cmd: SettleVanTripCommand, deps: SettleVanTripDeps): Promise<VanTrip> {
@@ -48,6 +61,18 @@ export async function settleVanTrip(cmd: SettleVanTripCommand, deps: SettleVanTr
       expectedQty: loaded.qty,
       countedQty: Qty.zero(),
       varianceQty: Qty.fromScaled(Qty.zero().scaled - loaded.qty.scaled),
+    });
+  }
+
+  // Before the transfer, so the van never has to hold cash it has already
+  // handed back while the write-off is still pending.
+  if (deps.recordCashVariance && cashVariance.scaled !== 0n) {
+    await deps.recordCashVariance({
+      tripId: trip.id,
+      date: (cmd.now?.() ?? new Date().toISOString()).slice(0, 10),
+      branchId: trip.branchId,
+      vanTreasuryAccountId: trip.vanTreasuryAccountId,
+      variance: cashVariance,
     });
   }
 

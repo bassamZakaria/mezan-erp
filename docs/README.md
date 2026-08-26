@@ -24,6 +24,7 @@ and the category tells you how much to trust it.
 | What is the plan for HR / POS / Cloud? | `deferred-plan.md` |
 | How is anything verified now? | `testing-policy.md` |
 | How do I test after a big change? | `testing-plan.md`, then `scenarios/01..09` |
+| Does the whole product still agree with itself? | `scenarios/10-posting-trails.md` — 76 trails, one per part, each crossing every module it touches (`pnpm trails` rebuilds the tickable page) |
 | How do I wire a screen to real data? | `web-data-wiring.md` |
 | Is the UX enhancement signed off? | `enhancements/design-review-2026-08-23.md` |
 | What did an earlier audit find? | `archive/` — and see its README first |

@@ -59,6 +59,7 @@ async function toListItem(
     suffix: effective.suffix,
     padLength: effective.padLength,
     annualReset: effective.annualReset,
+    branchScoped: effective.branchScoped ?? false,
     currentValue,
     nextNumber: formatSequenceNumber(effective, currentValue + 1),
     isOverridden: override !== undefined,

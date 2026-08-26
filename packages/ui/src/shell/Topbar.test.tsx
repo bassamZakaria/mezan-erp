@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import { Topbar } from "./Topbar";
+import { Topbar, type TopbarScopeOption } from "./Topbar";
 import type { ShellUser, UserMenuItem } from "./types";
 
 const user: ShellUser = { name: "محمد الشهابي", role: "Company Admin", initials: "م.ش" };
@@ -37,9 +37,15 @@ describe("Topbar", () => {
     expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
-  it("no longer renders a theme toggle — that control moved to the sidebar rail", () => {
+  it("renders the appearance toggle beside the language switcher and fires it", () => {
     const onToggleTheme = vi.fn();
     render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={onToggleTheme} user={user} />);
+    fireEvent.click(screen.getByRole("button", { name: "تبديل المظهر" }));
+    expect(onToggleTheme).toHaveBeenCalledOnce();
+  });
+
+  it("omits the appearance toggle when no handler is supplied", () => {
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" user={user} />);
     expect(screen.queryByRole("button", { name: "تبديل المظهر" })).not.toBeInTheDocument();
   });
 
@@ -82,5 +88,30 @@ describe("Topbar", () => {
     render(<Topbar onOpenCommandPalette={() => {}} theme="dark" onToggleTheme={() => {}} user={user} />);
     expect(screen.getByText("محمد الشهابي")).toBeInTheDocument();
     document.documentElement.removeAttribute("data-theme");
+  });
+
+  it("renders the branch and warehouse switchers as real selects and narrows on change", () => {
+    const branchOptions: TopbarScopeOption[] = [{ id: "BR-MAIN", label: "الفرع الرئيسي" }];
+    const warehouseOptions: TopbarScopeOption[] = [{ id: "WH-MAIN", label: "المستودع الرئيسي" }];
+    const onSelectBranch = vi.fn();
+    render(
+      <Topbar
+        user={user}
+        branchOptions={branchOptions}
+        warehouseOptions={warehouseOptions}
+        selectedBranchId={null}
+        selectedWarehouseId={null}
+        onSelectBranch={onSelectBranch}
+      />,
+    );
+    const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
+    expect(screen.getByRole("combobox", { name: "المخزن الحالي" })).toBeInTheDocument();
+    fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
+    expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
+  });
+
+  it("omits the scope switchers when no branch options are supplied — never a fabricated list", () => {
+    render(<Topbar user={user} />);
+    expect(screen.queryByRole("combobox", { name: "الفرع الحالي" })).not.toBeInTheDocument();
   });
 });

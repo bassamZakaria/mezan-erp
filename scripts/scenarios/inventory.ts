@@ -11,7 +11,7 @@ export async function run(ctx: Ctx): Promise<void> {
   await issuingMoreThanOnHandRejected(ctx);
   await negativeCountQtyRejected(ctx);
   await physicalCountAdjustmentPostsNoJournalEntry_D2(ctx);
-  await completingAWorkOrderNeverTouchesGl1200_D3(ctx);
+  await completingAWorkOrderPostsToGl1200_D3(ctx);
   await everyAdjustmentReasonPostsToItsOwnAccount_R59(ctx);
   await purchaseReturnCreditsInventoryAtWhatLeftStock_D47(ctx);
   await draftsReserveStockAndConfirmingConvertsIt_R56(ctx);
@@ -329,13 +329,14 @@ async function physicalCountAdjustmentPostsNoJournalEntry_D2(ctx: Ctx): Promise<
 }
 
 /**
- * D3 (docs/defects.md): `completeWorkOrder` never touches GL 1200. Not wrapped
- * in `scenario()` for the same reason as D2 above. BOM-DEMO-1 at plannedQty 10
- * reproduces the exact 80.00 gap defects.md measured (labor 50 + overhead 30 —
- * the fixed order-level costs neither `issue` nor `receive` ever post to the
- * ledger, so the net stock movement they cause is exactly labor + overhead).
+ * D3 (docs/defects.md — the regression guard): completing a work order posts
+ * its WIP capitalisation against GL 1200, the one control account the stock
+ * ledger moves value through. Not wrapped in `scenario()` for the same reason
+ * as D2 above. BOM-DEMO-1 at plannedQty 10 capitalises labour 50 + overhead 30
+ * into stock, which is exactly what the sub-ledger moves by, so the two stay
+ * reconciled where they used to part by 80.00.
  */
-async function completingAWorkOrderNeverTouchesGl1200_D3(ctx: Ctx): Promise<void> {
+async function completingAWorkOrderPostsToGl1200_D3(ctx: Ctx): Promise<void> {
   const before = await ctx.invariants();
 
   const create = await ctx.req("POST", "/manufacturing/work-orders", {
@@ -355,11 +356,21 @@ async function completingAWorkOrderNeverTouchesGl1200_D3(ctx: Ctx): Promise<void
   ctx.check("D3 setup — start/issue/receive/complete all succeed", [start, issue, receive, complete].every((r) => r.status === 200));
   ctx.check("D3 — the work order reaches status completed", complete.body?.status === "completed", JSON.stringify(complete.body));
 
+  const je = await ctx.req("GET", "/gl/journal-entries/WO-JE:SCN-WO-D3");
+  ctx.check(
+    "D3 — the completion posts a balanced entry that capitalises labour and overhead into GL 1200",
+    je.status === 200 &&
+      je.body?.lines?.some((l: any) => l.accountId === "1200" && Number(l.debit) === 80) &&
+      je.body?.lines?.some((l: any) => l.accountId === "5110") &&
+      je.body?.lines?.some((l: any) => l.accountId === "5210"),
+    `status ${je.status}: ${JSON.stringify(je.body).slice(0, 400)}`,
+  );
+
   const after = await ctx.invariants();
   ctx.checkEq(
-    "D3 — completing the work order leaves inventory off GL 1200 by exactly labor + overhead (80.00), the portion issue/receive move with no GL entry at all",
+    "D3 — so completing the work order leaves the inventory sub-ledger still reconciled to GL 1200",
     after.inventory - before.inventory,
-    80,
+    0,
   );
 }
 

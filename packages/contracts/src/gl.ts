@@ -24,6 +24,30 @@ export const glJournalLineSchema = z.object({
 });
 
 /** Create (and post) a journal entry. */
+/** تسجيل إقرار ضريبي مقدَّم — record that a period's VAT return went to the authority. */
+export const recordVatFilingSchema = z.object({
+  id: z.string().min(1),
+  periodFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  periodTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  netAmount: z.string(),
+  referenceNo: z.string().nullish(),
+});
+export type RecordVatFilingDTO = z.infer<typeof recordVatFilingSchema>;
+
+/** تعديل إقرار — reopen a filed period, with the reason that made it necessary. */
+export const amendVatFilingSchema = z.object({
+  reason: z.string().min(1, "سبب تعديل الإقرار مطلوب"),
+});
+export type AmendVatFilingDTO = z.infer<typeof amendVatFilingSchema>;
+
+/** إقفال السنة المالية — roll the year's result into retained earnings. */
+export const closeFiscalYearSchema = z.object({
+  year: z.number().int().min(1900).max(9999),
+  retainedEarningsAccountId: z.string().min(1),
+  memo: z.string().optional(),
+});
+export type CloseFiscalYearDTO = z.infer<typeof closeFiscalYearSchema>;
+
 export const createGlJournalEntrySchema = z.object({
   id: z.string().min(1),
   date: z.string().min(1),

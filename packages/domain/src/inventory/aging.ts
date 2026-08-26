@@ -38,6 +38,34 @@ function pad2(n: number): string {
   return n.toString().padStart(2, "0");
 }
 
+/** `date` (ISO "YYYY-MM-DD") shifted back `months` calendar months, clamped to the target month's last day. */
+function subtractMonths(date: string, months: number): string {
+  const parts = date.split("-").map(Number);
+  const year = parts[0] ?? 0;
+  const month = parts[1] ?? 1;
+  const day = parts[2] ?? 1;
+  const shifted = new Date(Date.UTC(year, month - 1 - months, 1));
+  const lastDay = new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${shifted.getUTCFullYear()}-${pad2(shifted.getUTCMonth() + 1)}-${pad2(Math.min(day, lastDay))}`;
+}
+
+/**
+ * The tenant's own aging policy (settings §"سياسة المخزون" — مخصص هبوط المخزون
+ * الراكد): one band, "anything untouched for `months` calendar months is
+ * provisioned at `ratePercent`". The month count is converted against the run's
+ * own period end, so a run over February ages by February's real calendar.
+ */
+export function tenantAgingPolicy(period: string, months: number, ratePercent: number): readonly AgingBand[] {
+  const end = periodEndDate(period);
+  return [
+    {
+      minDays: agingDaysBetween(subtractMonths(end, months), end),
+      maxDays: null,
+      writedownRateBps: Math.round(ratePercent * 100),
+    },
+  ];
+}
+
 /** Last calendar day of a "YYYY-MM" period, as a "YYYY-MM-DD" ISO date. */
 export function periodEndDate(period: string): string {
   const match = /^(\d{4})-(\d{2})$/.exec(period);

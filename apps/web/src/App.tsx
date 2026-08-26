@@ -99,6 +99,7 @@ import { ProductTemplatesScreen } from "./screens/ProductTemplatesScreen";
 import { ItemSpecificationsScreen } from "./screens/ItemSpecificationsScreen";
 import { LabelPrintingScreen } from "./screens/LabelPrintingScreen";
 import { SettingsGeneral } from "./settings/SettingsGeneral";
+import { TenantPreferences } from "./settings/TenantPreferences";
 import { BranchesPage } from "./settings/BranchesPage";
 import { WarehousesPage } from "./settings/WarehousesPage";
 import { PrintTemplatesPage } from "./settings/PrintTemplatesPage";
@@ -126,7 +127,7 @@ import { SystemStatusScreen } from "./screens/hubs/SystemStatusScreen";
 import { useScopeSelector } from "./data/hub-hooks";
 import { LoginScreen } from "./login/LoginScreen";
 import { FirstRunWizard } from "./login/FirstRunWizard";
-import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem } from "./nav-config";
+import { buildCommandItems, buildGoToCommandItems, buildNavGroups, buildTopNavItem, UTILITY_GROUP_KEYS } from "./nav-config";
 import { useAppTranslation, type AppTranslationKey } from "./i18n";
 import { useApi } from "./data/ApiContext";
 import type { CommandItem, ShellUser, UserMenuItem } from "@mezan/ui";
@@ -433,6 +434,11 @@ export function App() {
     [navigate, pendingApprovalCount, t],
   );
 
+  // Settings and system live in the topbar's gear menu, not the rail; the
+  // `g`-chord shortcuts below still see the whole tree.
+  const railGroups = useMemo(() => groups.filter((group) => !UTILITY_GROUP_KEYS.has(group.key)), [groups]);
+  const utilityGroups = useMemo(() => groups.filter((group) => UTILITY_GROUP_KEYS.has(group.key)), [groups]);
+
   const routedCommandItems: CommandItem[] = useMemo(() => {
     const targets: Record<string, () => void> = {
       "cmd-invoice": () => navigate("sales-invoices", "create"),
@@ -581,11 +587,13 @@ export function App() {
   const scopeLabel = scopeLabelFor(session.branchScope, branches, t);
 
   return (
+    <TenantPreferences>
     <NavigationProvider value={navigation}>
     <AppShell
       activeNavKey={activeScreen === "role-editor" ? "roles" : activeScreen}
       topNavItem={routedTopNavItem}
-      navGroups={groups}
+      navGroups={railGroups}
+      utilityGroups={utilityGroups}
       user={shellUser}
       commandItems={routedCommandItems}
       tenantName={session.tenantName}
@@ -643,5 +651,6 @@ export function App() {
       <ShortcutsOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} moduleJumps={moduleJumps} />
     </AppShell>
     </NavigationProvider>
+    </TenantPreferences>
   );
 }

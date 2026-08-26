@@ -57,7 +57,11 @@ export type {
 
 export {
   SalesInvoiceService,
+  applyAllocatedSettlement,
   type SalesInvoiceServiceDeps,
+  type SalesInvoicePricingDeps,
+  type SalesInvoiceTaxPolicy,
+  type PricingVariance,
   type SalesInvoiceCreditControlDeps,
   type CreateSalesInvoiceCommand,
   type CreateSalesInvoiceLine,
@@ -68,6 +72,7 @@ export {
 export {
   createSalesInvoiceGlHook,
   createSalesInvoiceStockHook,
+  type CrossWarehouseSourceResolver,
   createSalesInvoiceCustomerExposureHook,
 } from "./adapters.js";
 

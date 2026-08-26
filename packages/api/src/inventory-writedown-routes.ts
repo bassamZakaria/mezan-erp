@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { Hono, type Context } from "hono";
 import {
   createWritedownRun,
+  createDefaultSettings,
+  tenantAgingPolicy,
   postWritedownRun,
   WritedownRunNotFoundError,
   WritedownRunNotDraftError,
@@ -10,6 +12,7 @@ import {
   type WritedownRun,
   type WritedownRunRepository,
   type JournalPostingDeps,
+  type SettingsRepository,
 } from "@mezan/domain";
 import type { WacSnapshotRepository, StockLedgerRepository } from "@mezan/domain";
 import { createWritedownRunSchema } from "@mezan/contracts";
@@ -32,6 +35,12 @@ export interface InventoryWritedownRoutesDeps {
   };
   /** Generates ids when the request omits them. Defaults to `randomUUID`. */
   readonly idGen?: () => string;
+  /**
+   * Tenant settings §"سياسة المخزون" — مخصص هبوط المخزون الراكد. Present means
+   * the run obeys the tenant's own idle-months + rate, and is refused outright
+   * while the provision is switched off. Absent falls back to the shipped bands.
+   */
+  readonly settings?: SettingsRepository;
 }
 
 function serializeRun(run: WritedownRun) {
@@ -87,9 +96,24 @@ export function createInventoryWritedownRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const period = parsed.data.period;
+    let policy = undefined;
+    if (deps.settings) {
+      const settings = (await deps.settings.get()) ?? createDefaultSettings();
+      if (!settings.agingWritedownEnabled) {
+        return c.json(
+          {
+            error: "AGING_WRITEDOWN_DISABLED",
+            message: "مخصص هبوط المخزون الراكد غير مُفعَّل في إعدادات سياسة المخزون.",
+          },
+          422,
+        );
+      }
+      policy = tenantAgingPolicy(period, settings.agingWritedownMonths, settings.agingWritedownRatePercent);
+    }
     try {
       const run = await createWritedownRun(
-        { id: idGen(), period: parsed.data.period, warehouseId: parsed.data.warehouseId ?? null },
+        { id: idGen(), period, warehouseId: parsed.data.warehouseId ?? null, policy },
         { runs: deps.runs, wacSnapshots: deps.wacSnapshots, stockLedger: deps.stockLedger },
       );
       return c.json(serializeRun(run), 201);

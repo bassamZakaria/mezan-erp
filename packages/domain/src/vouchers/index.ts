@@ -25,6 +25,7 @@ export {
   VOUCHER_DOC_TYPE,
   voucherDocumentType,
   voucherLine,
+  voucherNetPaid,
 } from "./voucher-document.js";
 
 export {

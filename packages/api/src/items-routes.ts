@@ -2,6 +2,8 @@ import { Hono, type Context } from "hono";
 import {
   createItem,
   updateItem,
+  createDefaultSettings,
+  type SettingsRepository,
   Money,
   Qty,
   DuplicateItemCodeError,
@@ -10,8 +12,7 @@ import {
   type Item,
   type ItemRepository,
   type AlternateUnit,
-  type WacSnapshotRepository,
-} from "@mezan/domain";
+  type WacSnapshotRepository, matchesSearch } from "@mezan/domain";
 import { createItemSchema, updateItemSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
@@ -96,6 +97,8 @@ export function createItemsRouter(
   repo: ItemRepository,
   resolveAuthContext: AuthContextResolver = headerAuthContextResolver,
   snapshots?: WacSnapshotRepository,
+  /** Tenant settings, so a new item inherits the tenant's own default VAT rate (§"الضريبة"). */
+  settings?: SettingsRepository,
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
@@ -111,13 +114,17 @@ export function createItemsRouter(
    */
   app.get("/", gate("inventory.item.view"), async (c) => {
     const items = await repo.list();
-    if (!snapshots) return c.json(items.map((item) => ({ ...serialize(item), onHand: null, stockState: null })));
+    // Narrow first, then price the survivors: computing a stock state for rows
+    // the search is about to drop is work nobody reads.
+    const q = c.req.query("q");
+    const matched = items.filter((item) => matchesSearch(q, item.nameAr, item.nameEn, item.code, ...(item.barcodes ?? [])));
+    if (!snapshots) return c.json(matched.map((item) => ({ ...serialize(item), onHand: null, stockState: null })));
     const onHandByItem = new Map<string, Qty>();
     for (const position of await snapshots.list()) {
       onHandByItem.set(position.itemId, (onHandByItem.get(position.itemId) ?? Qty.zero()).add(position.onHand));
     }
     return c.json(
-      items.map((item) => {
+      matched.map((item) => {
         // An item that does not hold stock has no quantity — reporting zero
         // would put a service in the "out of stock" chip.
         if (!item.trackInventory) return { ...serialize(item), onHand: null, stockState: null };
@@ -151,12 +158,15 @@ export function createItemsRouter(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     try {
+      const tenant = settings ? ((await settings.get()) ?? createDefaultSettings()) : null;
       const item = await createItem(
         {
           ...parsed.data,
           alternateUnits: toAlternateUnits(parsed.data.alternateUnits),
           salePrice: toMoney(parsed.data.salePrice),
           costPrice: toMoney(parsed.data.costPrice),
+          taxRatePercent:
+            parsed.data.taxRatePercent ?? (tenant ? (tenant.taxEnabled ? tenant.defaultTaxRate : 0) : undefined),
         },
         repo,
       );

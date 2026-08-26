@@ -179,6 +179,9 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
 ];
 
+/** Groups the shell renders in the topbar's gear menu instead of the sidebar rail. */
+export const UTILITY_GROUP_KEYS: ReadonlySet<string> = new Set(["settings", "system"]);
+
 /**
  * The quick actions (R1.5). Go-to entries are NOT listed here — they are
  * generated from the nav config below, so a screen added to the sidebar is

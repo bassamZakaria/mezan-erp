@@ -13,6 +13,7 @@ export type {
   NumeralSystem,
   UiDirection,
   SettingsLanguage,
+  SmtpSecurity,
 } from "./settings.js";
 
 export { createBranch, updateBranch, InvalidBranchError } from "./branch.js";

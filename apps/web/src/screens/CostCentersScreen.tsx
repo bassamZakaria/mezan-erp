@@ -15,7 +15,7 @@ import {
   type EntityPickerOption,
   type PillTone,
 } from "@mezan/ui";
-import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
+import { COST_CENTER_TYPE_DEFINITIONS, getCostCenterTypeLabel, isLinked as costCenterIsLinked, matchesSearch, type CostCenterType as DomainCostCenterType } from "@mezan/domain";
 import type { CostCenterDTO, CostCenterStatusDTO, CostCenterTypeDTO } from "@mezan/contracts";
 import { buildCostCenterTree, isDescendantOf, type CostCenterTreeNode } from "../lib/cost-center-tree";
 import { useBranches, useCostCenters, useCreateCostCenter, useUpdateCostCenter } from "../data/hooks";
@@ -119,7 +119,7 @@ export function CostCentersScreen() {
     const q = search.trim().toLowerCase();
     return [...costCenters]
       .filter((c) => typeFilter === "all" || c.type === typeFilter)
-      .filter((c) => q === "" || c.nameAr.toLowerCase().includes(q) || c.code.toLowerCase().includes(q))
+      .filter((c) => matchesSearch(search, c.nameAr, c.code))
       .sort((a, b) => a.code.localeCompare(b.code))
       .map((c) => ({ ...c, level: 0, hasChildren: false }));
   }, [tree, costCenters, expandedIds, hasActiveFilter, search, typeFilter]);

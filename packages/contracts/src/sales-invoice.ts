@@ -67,8 +67,19 @@ export const confirmSalesInvoiceSchema = z.object({
 });
 
 /** Record a collection against a live invoice. */
+/**
+ * تحصيل من عميل — collecting against an invoice. The treasury account is
+ * REQUIRED: money that lands nowhere is not a collection, and recording one
+ * without it was how the invoice's `amountPaid` drifted from the ledger (D1).
+ * The route creates and confirms a real collection voucher and allocates it.
+ */
 export const salesInvoicePaymentSchema = z.object({
   amount: z.string(),
+  treasuryAccountId: z.string().min(1),
+  paymentMethod: z.enum(["cash", "bank", "cheque", "card", "wallet"]).optional(),
+  date: z.string().min(1).optional(),
+  referenceNo: z.string().nullish(),
+  notes: z.string().nullish(),
 });
 
 /**

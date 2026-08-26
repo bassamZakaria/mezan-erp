@@ -177,7 +177,7 @@ export class DocumentService<Line> {
       let docNo = existing.docNo;
       if (this.def.numberingSequence && !this.def.numberFromGl) {
         if (!this.deps.numbering) throw new MissingHookError(this.def.code, "numbering");
-        docNo = (await this.deps.numbering.next()).formatted;
+        docNo = (await this.deps.numbering.next({ branchId: this.def.branchOf?.(existing) ?? null })).formatted;
       }
 
       let working: FrameworkDocument<Line> = { ...existing, docNo };
@@ -342,6 +342,7 @@ export class DocumentService<Line> {
       entityId: doc.id,
       action,
       actor: this.deps.actor ?? "system",
+      branchId: this.def.branchOf?.(doc) ?? null,
       severity,
       details: {
         docId: doc.id,

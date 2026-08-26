@@ -4,67 +4,63 @@
 pattern behind it. Read its OPEN table before any test run — those defects will
 appear, and re-filing a known one buries whatever is actually new. Update it in the
 same commit as any fix, and never delete a fixed row: a fixed defect is how its
-regression is recognised. `pnpm scenarios` asserts the fixed behaviour, so the suite
-and the register agree — the assertions still failing are exactly the defects still
-open.
+regression is recognised. `pnpm scenarios` asserts the fixed behaviour, so the suite and the register
+agree. Two styles live in it and they mean opposite things: `cross-module` and
+most suites assert the FIXED behaviour (a failure is a defect), while `seams`
+historically asserted the BROKEN behaviour as documentation (a pass was the
+defect). Every such inverted assertion has now been rewritten, so a green suite
+means green — but if you add one, label it and flip it the moment it is fixed.
 
 Report **measured** evidence. "Off by exactly 122.00" is a defect report;
 "reconciliation looks wrong" is a feeling.
 
-## Open (as of 2026-08-25 — re-read `docs/defects.md`, it moves; it now runs to D35)
+## Open (as of 2026-08-25 — re-read `docs/defects.md`, it is the authority)
 
-| # | Area | Defect | Evidence |
-|---|---|---|---|
-| D1 | Treasury / AR+AP | `recordPayment` and the allocation sub-ledger are **two stores of the same fact**; a confirmed collection never moves the invoice's `amountPaid` | `VCH-DEMO-1` collects 6,279.12 and credits AR; invoices still report `amountPaid: 0`. AP stands 35,554.00 above GL 2100 |
-| D2 | Inventory / GL | A `PHYSICAL_COUNT` adjustment moves stock with **no journal entry** — `adjustmentGlAccountsForReason` maps only `INITIAL_STOCK` | inventory off by exactly 122.00 |
-| D3 | Manufacturing / GL | `completeWorkOrder` posts to 1220 / 1210 / 5110 / 5210, never GL 1200; `accountBalance` has no subtree rollup | off by exactly 80.00 |
-| D13 | Fixed assets | No disposal action — the status value and the permission exist, the route and button do not | |
-| D18 | Inventory reporting | A landed cost writes **no stock movement**, so `replay()` can never reproduce the snapshot it mutated | ITEM-DEMO-1 cached 146.827936 vs recomputed 140.000000, on a healthy tenant, while the field's own docstring says nonzero means "the cache is CORRUPTED" |
-| D19 | Dashboard / reports | `gl.receivables` and the customer-aging report disagree by 5,486.12 | the tile sums every 11xx asset account (incl. the credit-natural provision 1190, sign-flipped); aging covers trade AR only. 47,079.28 vs 52,565.40 — a scope question, not arithmetic |
+**D1–D37 are all closed**, and `pnpm scenarios` passes with all four invariants
+at exactly zero on the seeded tenant: trial balance, inventory vs GL 1200, AP vs
+GL 2100, AR vs GL 1105.
 
-The seam pass (2026-08-25, `scripts/scenarios/seams.ts`) added **D24–D35**. Their
-shapes, because they will recur:
+**Two are open**, both found on `main` during that same sweep and neither part
+of it — re-read `docs/defects.md` for their evidence:
 
-- **The engine is right; nothing can speak to it.** FX revaluation is correct end to
-  end, and no document carries a currency or rate for it to revalue (D24). Same family
-  as "built but never wired", one layer further along: the wiring exists, the *input*
-  does not.
-- **A create route that upserts by id.** Re-POSTing a **locked** exchange rate's id
-  rewrote the rate and reset its status to pending (D25). Any lifecycle state a route
-  can silently overwrite is decorative.
-- **The wire contract drops the dimension.** A zod schema strips unknown keys, so
-  `costCenterId` on a voucher (D26) and withholding on a payment (D27) vanish behind a
-  `201`. Nothing errors; the report is simply blind forever.
-- **A report deriving what the ledger never recorded.** The VAT return computes rate =
-  tax ÷ base per entry (D28) and the balance sheet derives retained earnings (D34).
-  Correct on screen, unanswerable from the books.
-- **A control that exists in the catalog and in no route.** `view_own` / `view_all` /
-  `view_cost` and `hr.employee.view_salary` are resolved, documented, ⚠-flagged — and
-  consulted nowhere, so a `.confirm` holder is 403 on the list route while a plain
-  `.view` holder reads every colleague's invoice **and** its unit cost (D31). Module
-  licensing (X38) is the same shape.
-- **The state that is never recorded at all.** Nothing marks a VAT period as filed, so
-  a backdated entry restated an already-submitted return by 140.00 silently (D29).
-  Period close *does* block it — the mechanism exists, nothing ties the two together.
-- **Attribution taken from the caller, not the document** — audit rows with
-  `branchId: null` (D30). Also: no server-side search anywhere and no Arabic
-  normalisation, so احمد never finds أحمد (D32); tenant-global numbering with no branch
-  dimension (D33); a customer's price list consulted by no route (D35).
+- **D38** — a quote or invoice line accepts ANY `itemId` string; no route checks
+  it against the item catalogue, so an invented id posts a 201.
+- **D42** — a landed cost credits AP with no supplier dimension, so the payable
+  exists in the ledger and on no supplier's account (2,500.00 on the seed).
 
-What the same pass proved *sound*, so nobody re-audits it: the FX engine itself,
-promotion ordering and its immutability after deactivation, rounding across forty
-awkward documents and every instalment split, eight concurrent confirms taking
-gap-free numbers with none burned by a refused confirm, and one-notification-per-rule
-with a dead webhook unable to duplicate or roll back its document.
+Read a closed row as "found and written down and fixed", not "the product is
+clean". The next defect gets found the way these did — seed, drive, and compare
+two numbers that must agree.
 
-Also open by decision, not by patch: workflow `minAmount` is configurable but never
-enforced (`DocumentWorkflowInput` carries no amount to compare), and email/WhatsApp
-notification channels are modelled but unimplemented.
+Open by DECISION, not by patch: workflow `minAmount` is configurable but never
+enforced (`DocumentWorkflowInput` carries no amount to compare), and
+email/WhatsApp notification channels are modelled but unimplemented.
 
-**The demo seed steers around D2 and D3** — its two physical counts net to zero and no
-work order is ever completed. The demo data is therefore not evidence those paths are
-sound; it is evidence they were avoided. Seed data that dodges an unproven path is
-itself a finding.
+Settled against the live reference product: its invoice-level "Collect" requires
+a treasury account and applies against invoices, i.e. it IS a receipt voucher.
+Mezan's collect action now does the same, so no path records a payment the
+ledger never hears about.
+
+## What the sweep changed that you will trip over
+
+- **The reconciliation follows the VOUCHER, not the allocation.** An allocation
+  says which invoice cash belongs to; it does not move the GL a second time.
+  Cheques and refunds move the control accounts too, and the sub-ledger counts
+  them.
+- **The stock ledger has a value-only movement.** A landed cost appends one and
+  rebuilds the position; `replay()` values an issue at the cost the LEDGER
+  recorded, not a recomputed average, so `cacheDrift` means cache corruption
+  again rather than entry order.
+- **The GL posts before the stock moves** on a purchase-invoice confirm. There
+  is no transaction around it, so ordering is the only atomicity there is.
+- **Every stock-adjustment reason posts.** New COA leaves: 5070 shrinkage, 5080
+  inventory cost variance, 3200 opening-balance equity, 2210 withholding tax.
+- **Two new locks on posting:** a filed VAT period refuses a backdated entry
+  (amend the filing first, with a reason), alongside the fiscal-period gate.
+- **Read routes narrow.** `.view_own` sees only your own; `view_cost` and
+  `hr.employee.view_salary` omit their fields rather than nulling them.
+- **`matchesSearch` is the one Arabic-forgiving matcher**, used by the server's
+  `?q=` and by the screens. Do not hand-roll `toLowerCase().includes` again.
 
 ## Fixed — the shapes, because they recur
 

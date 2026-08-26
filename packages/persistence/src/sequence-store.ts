@@ -40,8 +40,11 @@ class SqliteSequenceStore implements SequenceStore {
     );
   }
 
-  async increment(code: string, period: number | null): Promise<number> {
-    const p = period === null ? "" : String(period);
+  async increment(code: string, period: number | null, scope?: string | null): Promise<number> {
+    // The scope rides in the period key rather than in a third column: an
+    // unscoped counter keeps its exact existing row, so no migration is needed
+    // and every number already issued keeps its meaning (D33).
+    const p = `${period === null ? "" : String(period)}${scope ? `@${scope}` : ""}`;
     return withSqliteTransaction(
       this.sqlite,
       async () => {

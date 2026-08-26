@@ -51,15 +51,29 @@ import type {
 } from "./ports.js";
 
 export interface StockLedgerPolicy {
-  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`. */
+  /** docs/catalog/09 §"سياسة المخزون" → `allowNegativeStock`: any OUT may drive a position below zero. */
   readonly allowNegativeStock: boolean;
+  /**
+   * §"سياسة المخزون" → `allowBackorder`: a SALE may be confirmed short, and the
+   * shortfall stands as a negative position until stock arrives. Narrower than
+   * `allowNegativeStock` on purpose — it never licenses an adjustment or a transfer.
+   */
+  readonly allowBackorder?: boolean;
 }
+
+/**
+ * The policy is resolved per movement, not captured at construction: it comes
+ * from tenant settings that an administrator can change between two confirms.
+ */
+export type StockLedgerPolicySource = StockLedgerPolicy | (() => Promise<StockLedgerPolicy> | StockLedgerPolicy);
+
+const BACKORDERABLE_SOURCES: readonly StockSourceDocType[] = ["SALES_INVOICE", "POS_SALE"];
 
 export interface StockLedgerServiceDeps {
   readonly ledger: StockLedgerRepository;
   readonly layers: CostLayerRepository;
   readonly snapshots: WacSnapshotRepository;
-  readonly policy: StockLedgerPolicy;
+  readonly policy: StockLedgerPolicySource;
   readonly events?: InventoryEventPublisher;
   readonly gl?: InventoryGlPostingPort;
   /** Wraps a compound operation in one atomic transaction. Defaults to direct execution. */
@@ -171,6 +185,12 @@ export interface ReverseReceiptCommand {
 export interface IssueLine {
   readonly itemId: string;
   readonly qty: Qty;
+  /**
+   * Sources this ONE line from a warehouse other than the document's — the
+   * "sell from another warehouse" rule. The movement, and therefore every
+   * balance and report, records the warehouse the goods actually left.
+   */
+  readonly warehouseId?: string;
 }
 
 /**
@@ -197,6 +217,8 @@ export interface PostIssueCommand {
 export interface IssueLineCost {
   readonly itemId: string;
   readonly qty: Qty;
+  /** The warehouse the goods actually left — the document's, unless the line named another. */
+  readonly warehouseId: string;
   readonly unitCost: Money;
   /** qty × unitCost — the cost of goods issued for this line (a positive magnitude). */
   readonly cost: Money;
@@ -250,6 +272,17 @@ export class StockLedgerService {
    * (the moving average, for an OUT). Not transactional on its own — callers
    * wrap a sequence in `runInTransaction`.
    */
+  private async resolvePolicy(): Promise<StockLedgerPolicy> {
+    const source = this.deps.policy;
+    return typeof source === "function" ? await source() : source;
+  }
+
+  private async negativeAllowedFor(sourceDocType: StockSourceDocType): Promise<boolean> {
+    const policy = await this.resolvePolicy();
+    if (policy.allowNegativeStock) return true;
+    return policy.allowBackorder === true && BACKORDERABLE_SOURCES.includes(sourceDocType);
+  }
+
   private async applyMovement(input: {
     movementId: string;
     itemId: string;
@@ -287,7 +320,7 @@ export class StockLedgerService {
       signed = value;
     } else {
       const projected = snap.onHand.subtract(input.qty);
-      if (projected.isNegative() && !this.deps.policy.allowNegativeStock) {
+      if (projected.isNegative() && !(await this.negativeAllowedFor(input.sourceDocType))) {
         throw new NegativeStockError(input.itemId, input.warehouseId, snap.onHand, input.qty);
       }
       unitCost = unitCostOf(snap.totalValue, snap.onHand); // moving average
@@ -450,10 +483,11 @@ export class StockLedgerService {
 
       for (let i = 0; i < command.lines.length; i++) {
         const line = command.lines[i] as IssueLine;
+        const warehouseId = line.warehouseId ?? command.warehouseId;
         const { signedValue, unitCost } = await this.applyMovement({
           movementId: `${command.issueId}:${i}`,
           itemId: line.itemId,
-          warehouseId: command.warehouseId,
+          warehouseId,
           direction: "OUT",
           qty: line.qty,
           sourceDocType: command.sourceDocType,
@@ -465,7 +499,7 @@ export class StockLedgerService {
         // OUT signedValue is negative COGS; the reported cost is its magnitude.
         const cost = signedValue.negate();
         totalCost = totalCost.add(cost);
-        lineCosts.push({ itemId: line.itemId, qty: line.qty, unitCost, cost });
+        lineCosts.push({ itemId: line.itemId, qty: line.qty, warehouseId, unitCost, cost });
       }
 
       if (command.gl && this.deps.gl && totalCost.scaled !== 0n) {
@@ -721,19 +755,29 @@ export class StockLedgerService {
   /**
    * Landed-cost revaluation (docs/catalog/02 §"التكاليف الإضافية"): raises the
    * cost basis of an EXISTING position by `valueDelta` with NO quantity change —
-   * freight/customs/insurance allocated onto goods already received. Unlike a
-   * normal movement this posts no ledger line (there is no qty to move); it
-   * bumps the cached snapshot's `totalValue`/`averageCost` directly, and —
-   * scoped to `sourceDocId` (the target purchase invoice) — proportionally
-   * raises the unit cost of the SPECIFIC cost layers that invoice's receipt
-   * created, by removing + re-adding each layer at its new unit cost (allowed:
-   * SQLite's `cost_layer_immutable_cost` trigger only blocks an UPDATE of
-   * unit_cost, not a delete+insert). This is the one sanctioned exception to a
-   * layer's "immutable receipt-time cost" invariant (cost-layer.ts) — landed
-   * cost is, by definition, a retroactive correction to that receipt's true
-   * cost. Layers already fully consumed (fully drawn down before the landed
-   * cost posts) are skipped for the per-layer step; the snapshot-level value
-   * bump still applies so system-wide inventory valuation stays exact.
+   * freight/customs/insurance allocated onto goods already received.
+   *
+   * It appends a VALUE-ONLY movement and then rebuilds the position from the
+   * ledger, so the snapshot and the layers are derived rather than patched.
+   * Before this it mutated both directly and appended nothing, which broke the
+   * module's founding invariant — the ledger is the single source of truth —
+   * and left `replay()` unable to reproduce any position a landed cost had
+   * touched, so the drift report read `cacheDrift` nonzero on a healthy tenant
+   * while its own docstring said that means the cache is corrupted (D36).
+   *
+   * The movement is stamped no earlier than the last movement already recorded
+   * for the position. This is the ONE deliberate exception to "stamp
+   * `occurredAt` with the document date" (D4): a landed cost raises the basis of
+   * stock as it stands when the cost becomes known, and dating it earlier would
+   * retroactively re-cost issues whose COGS the GL has already posted, putting
+   * the sub-ledger permanently out of step with GL 1200.
+   *
+   * Which layers absorb it is scoped by `revaluesSourceDocId` — the receipt
+   * document whose layers the cost belongs to — and the replay applies the same
+   * largest-remainder allocation across their original quantities that this
+   * method used to apply by hand. A layer already fully consumed simply is not
+   * there to raise; the position-level value still lands, so system-wide
+   * valuation stays exact.
    */
   async applyLandedCostRevaluation(line: {
     readonly itemId: string;
@@ -742,6 +786,11 @@ export class StockLedgerService {
     readonly sourceDocId: string;
     /** Positive amount to add to this position's cost basis. */
     readonly valueDelta: Money;
+    /** The landed-cost document itself, for the movement's source reference. */
+    readonly landedCostDocId?: string;
+    readonly landedCostDocNumber?: string | null;
+    /** Document date of the landed cost; never dated before the position's last movement. */
+    readonly occurredAt?: string;
   }): Promise<void> {
     if (line.valueDelta.scaled <= 0n) {
       throw new InvalidStockMovementError([
@@ -749,35 +798,49 @@ export class StockLedgerService {
       ]);
     }
     await this.runInTransaction(async () => {
-      const snap = await this.loadSnapshot(line.itemId, line.warehouseId);
-      const newTotalValue = snap.totalValue.add(line.valueDelta);
-      const newAverageCost = unitCostOf(newTotalValue, snap.onHand);
-      await this.deps.snapshots.save({
+      const movements = await this.deps.ledger.listByPosition(line.itemId, line.warehouseId);
+      const last = movements[movements.length - 1]?.occurredAt;
+      const wanted = line.occurredAt ?? new Date().toISOString();
+      const occurredAt = last && last > wanted ? last : wanted;
+
+      await this.deps.ledger.append({
+        id: `${line.landedCostDocId ?? line.sourceDocId}:LC:${line.itemId}:${line.warehouseId}`,
         itemId: line.itemId,
         warehouseId: line.warehouseId,
-        onHand: snap.onHand,
-        totalValue: newTotalValue,
-        averageCost: newAverageCost,
+        direction: "IN",
+        qty: Qty.zero(),
+        unitCost: Money.zero(),
+        sourceDocType: "LANDED_COST",
+        sourceDocId: line.landedCostDocId ?? line.sourceDocId,
+        sourceDocNumber: line.landedCostDocNumber ?? null,
+        reason: null,
+        occurredAt,
+        valueDelta: line.valueDelta,
+        revaluesSourceDocId: line.sourceDocId,
       });
 
-      const layers = (await this.deps.layers.listByPosition(line.itemId, line.warehouseId)).filter(
-        (l) => l.sourceDocId === line.sourceDocId,
-      );
-      if (layers.length === 0) return;
-      const totalOriginalQty = layers.reduce((sum, l) => sum.add(l.originalQty), Qty.zero());
-      if (totalOriginalQty.isZero()) return;
-
-      const weights = layers.map((l) => l.originalQty.scaled);
-      const shares = allocate(line.valueDelta, weights);
-      for (let i = 0; i < layers.length; i++) {
-        const layer = layers[i] as CostLayer;
-        const share = shares[i] as Money;
-        if (layer.originalQty.isZero() || share.scaled === 0n) continue;
-        const perUnitIncrease = unitCostOf(share, layer.originalQty);
-        await this.deps.layers.remove(layer.id);
-        await this.deps.layers.add({ ...layer, unitCost: layer.unitCost.add(perUnitIncrease) });
-      }
+      await this.rebuildWithin(line.itemId, line.warehouseId);
     });
+  }
+
+  /** `rebuild`'s body, for callers already inside a transaction. */
+  private async rebuildWithin(itemId: string, warehouseId: string): Promise<WacPosition> {
+    const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
+    const position =
+      movements.length === 0 ? emptyPosition(itemId, warehouseId) : replay(itemId, warehouseId, movements);
+
+    const existingLayers = await this.deps.layers.listByPosition(itemId, warehouseId);
+    for (const layer of existingLayers) await this.deps.layers.remove(layer.id);
+    for (const layer of position.layers) await this.deps.layers.add(layer);
+
+    await this.deps.snapshots.save({
+      itemId,
+      warehouseId,
+      onHand: position.onHand,
+      totalValue: position.totalValue,
+      averageCost: position.averageCost,
+    });
+    return position;
   }
 
   private validateAdjustment(command: PostAdjustmentCommand): void {
@@ -940,26 +1003,7 @@ export class StockLedgerService {
    * recomputed position.
    */
   async rebuild(itemId: string, warehouseId: string): Promise<WacPosition> {
-    return this.runInTransaction(async () => {
-      const movements = await this.deps.ledger.listByPosition(itemId, warehouseId);
-      const position =
-        movements.length === 0
-          ? emptyPosition(itemId, warehouseId)
-          : replay(itemId, warehouseId, movements);
-
-      const existingLayers = await this.deps.layers.listByPosition(itemId, warehouseId);
-      for (const layer of existingLayers) await this.deps.layers.remove(layer.id);
-      for (const layer of position.layers) await this.deps.layers.add(layer);
-
-      await this.deps.snapshots.save({
-        itemId,
-        warehouseId,
-        onHand: position.onHand,
-        totalValue: position.totalValue,
-        averageCost: position.averageCost,
-      });
-      return position;
-    });
+    return this.runInTransaction(async () => this.rebuildWithin(itemId, warehouseId));
   }
 }
 

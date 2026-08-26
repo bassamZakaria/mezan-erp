@@ -5,6 +5,7 @@ import {
   Money,
   VoucherService,
   voucherLine,
+  voucherNetPaid,
   invoiceOutstanding,
   getVoucherTypeDefinition,
   VOUCHER_TYPE_DEFINITIONS,
@@ -84,6 +85,10 @@ function serialize(doc: VoucherDocument) {
     customerId: line.customerId,
     supplierId: line.supplierId,
     referenceNo: line.referenceNo,
+    costCenterId: line.costCenterId ?? null,
+    withholdingAmount: line.withholdingAmount ? line.withholdingAmount.toString() : null,
+    withholdingRatePercent: line.withholdingRatePercent ?? null,
+    netPaidAmount: voucherNetPaid(line).toString(),
     journalEntryId: doc.journalEntryId,
     confirmedAt: doc.confirmedAt,
   };
@@ -359,6 +364,10 @@ export function createVouchersRoutes(
         customerId: d.customerId ?? null,
         supplierId: d.supplierId ?? null,
         referenceNo: d.referenceNo ?? null,
+        costCenterId: d.costCenterId ?? null,
+        withholdingAmount: d.withholdingAmount ? Money.fromMajor(d.withholdingAmount) : null,
+        withholdingRatePercent: d.withholdingRatePercent ?? null,
+        withholdingGlAccountId: d.withholdingGlAccountId ?? null,
       });
       return c.json(serialize(doc), 201);
     } catch (err) {

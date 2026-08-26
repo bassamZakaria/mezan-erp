@@ -40,6 +40,9 @@ import {
   type DocumentEventPublisher,
   type AuditSink,
   type CreditCheckResult,
+  can,
+  type SalesInvoicePricingDeps,
+  type SalesInvoiceTaxPolicy,
 } from "@mezan/domain";
 import {
   createSalesInvoiceSchema,
@@ -49,7 +52,9 @@ import {
   type SalesInvoiceListQueryDTO,
   type SalesInvoiceDiscountDTO,
 } from "@mezan/contracts";
+import type { CurrencyCheck } from "./currency-policy.js";
 import {
+  createAnyPermissionGate,
   createPermissionGate,
   getAuthContext,
   headerAuthContextResolver,
@@ -74,6 +79,29 @@ export interface SalesInvoiceRoutesDeps {
   readonly creditControl?: SalesInvoiceCreditControlDeps;
   /** Evaluates promotions on confirm (docs/catalog/01 §"العروض"); omit and no invoice records one. */
   readonly promotions?: SalesInvoicePromotionHook;
+  /** The customer's own price list, so a line under it is surfaced rather than silently accepted (D35). */
+  readonly pricing?: SalesInvoicePricingDeps;
+  /** The tenant's VAT rules (settings §"الضريبة"), stamped onto a draft when it is raised. */
+  readonly taxPolicy?: () => Promise<SalesInvoiceTaxPolicy> | SalesInvoiceTaxPolicy;
+  /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
+  readonly currencyCheck?: CurrencyCheck;
+  /**
+   * Turns a collection recorded on the invoice into a real confirmed collection
+   * voucher, allocated to that invoice. Without it the route refuses rather
+   * than writing a payment the ledger never hears about (D1).
+   */
+  readonly collect?: (input: {
+    invoiceId: string;
+    customerId: string;
+    branchId: string;
+    amount: Money;
+    treasuryAccountId: string;
+    paymentMethod: "cash" | "bank" | "cheque" | "card" | "wallet";
+    date: string;
+    referenceNo?: string | null;
+    memo?: string | null;
+    actor?: string;
+  }) => Promise<{ voucherId: string }>;
   readonly audit?: AuditSink;
   readonly allocatable?: AllocatableInvoiceRepository;
   /**
@@ -130,6 +158,7 @@ function serializeAppliedPromotion(promotion: AppliedSalesInvoicePromotion | nul
 
 function serializeTotals(totals: SalesInvoiceTotals) {
   return {
+    taxInclusive: totals.taxInclusive,
     grossTotal: totals.grossTotal.toString(),
     lineDiscountTotal: totals.lineDiscountTotal.toString(),
     promotionDiscountTotal: totals.promotionDiscountTotal.toString(),
@@ -150,28 +179,25 @@ function remainingOf(
   invoice: SalesInvoice,
   totals: SalesInvoiceTotals,
   returnedCredit: Money = Money.zero(),
-  allocated: Money = Money.zero(),
 ): Money {
-  return totals.grandTotal.add(invoice.amountPaid.add(allocated).negate()).add(returnedCredit.negate());
+  return totals.grandTotal.add(invoice.amountPaid.negate()).add(returnedCredit.negate());
 }
 
 function serialize(
   invoice: SalesInvoice,
   totals: SalesInvoiceTotals,
   returnedCredit: Money = Money.zero(),
-  allocated: Money = Money.zero(),
+  withCost = true,
 ) {
   /**
-   * Two payment paths exist and neither knew about the other: `POST
-   * /:id/payments` moves the invoice's own `amountPaid` counter, while a
-   * treasury voucher records an allocation in the sub-ledger and leaves the
-   * counter alone (D1). Reading only the counter meant a collected invoice
-   * still read as unpaid in full.
-   *
-   * Adding them is exact today because the two paths are disjoint: the direct
-   * route never writes an allocation and the voucher never writes the counter.
+   * `amountPaid` is now the single source of what has been collected: there is
+   * one writer, `applyAllocatedSettlement`, which an allocation calls to write
+   * the figure back (D1). This deliberately does NOT add the allocation on top
+   * — that was correct only while the two payment paths were disjoint, and the
+   * settlement write-back made them the same path. Adding both counted every
+   * collection twice.
    */
-  const paid = invoice.amountPaid.add(allocated);
+  const paid = invoice.amountPaid;
   // A confirmed return credits the customer's receivable in the GL, so it has
   // to come off what the invoice still says is owed — otherwise the invoice
   // screen and the AR sub-ledger disagree with the ledger by the returned
@@ -187,6 +213,7 @@ function serialize(
     customerId: invoice.customerId,
     customerNameAr: invoice.customerNameAr,
     customerTaxExempt: invoice.customerTaxExempt,
+    taxInclusive: invoice.taxInclusive,
     warehouseId: invoice.warehouseId,
     branchId: invoice.branchId,
     salespersonId: invoice.salespersonId,
@@ -218,7 +245,9 @@ function serialize(
       revenueAccountId: l.revenueAccountId,
       cogsAccountId: l.cogsAccountId,
       inventoryAccountId: l.inventoryAccountId,
-      unitCost: l.unitCost ? l.unitCost.toString() : null,
+      // Omitted, not nulled: `sales.invoice.view_cost` is ⚠ sensitive in the
+      // catalog, and a null would still tell the caller the field exists (D31).
+      ...(withCost ? { unitCost: l.unitCost ? l.unitCost.toString() : null } : {}),
     })),
     totals: serializeTotals(totals),
   };
@@ -295,7 +324,20 @@ export function createSalesInvoicesRoutes(
 ) {
   const app = new Hono();
   const gate = createPermissionGate(resolveAuthContext);
+  const gateAny = createAnyPermissionGate(resolveAuthContext);
   const idGen = deps.idGen ?? (() => randomUUID());
+
+  const actorOf = (c: Context) => getAuthContext(c)?.userId ?? "system";
+  /** True when the caller's only visibility grant is the own-records tier. */
+  const ownVisibilityOnly = (c: Context) => {
+    const ctx = getAuthContext(c);
+    if (!ctx) return false;
+    return !can(ctx, "sales.invoice.view") && !can(ctx, "sales.invoice.view_all");
+  };
+  const maySeeCost = (c: Context) => {
+    const ctx = getAuthContext(c);
+    return ctx ? can(ctx, "sales.invoice.view_cost") : false;
+  };
 
   /** Confirmed-return credit per invoice; empty when the app mounts no returns module. */
   async function returnCredits(): Promise<ReadonlyMap<string, Money>> {
@@ -329,6 +371,8 @@ export function createSalesInvoicesRoutes(
       workflow: deps.workflow,
       creditControl: deps.creditControl,
       promotions: deps.promotions,
+      pricing: deps.pricing,
+      taxPolicy: deps.taxPolicy,
       audit: deps.audit,
       events: deps.events,
       allocatable: deps.allocatable,
@@ -348,6 +392,8 @@ export function createSalesInvoicesRoutes(
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const d = parsed.data;
+    const currencyRefusal = await deps.currencyCheck?.(d.currency);
+    if (currencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: currencyRefusal }, 422);
     const cmd: CreateSalesInvoiceCommand = {
       id: d.id ?? idGen(),
       date: d.date,
@@ -449,6 +495,10 @@ export function createSalesInvoicesRoutes(
       warehouseScopeOf(c),
       (inv) => inv.warehouseId,
     );
+    // Applied HERE rather than on the rows route alone (D31): a `view_own`
+    // salesperson whose list is narrowed but whose KPI strip still totalled the
+    // whole tenant would be told the figure they are not allowed to see.
+    if (ownVisibilityOnly(c)) rows = rows.filter((inv) => inv.salespersonId === actorOf(c));
     if (branchId) rows = rows.filter((inv) => inv.branchId === branchId);
     if (warehouseId) rows = rows.filter((inv) => inv.warehouseId === warehouseId);
     const term = search?.trim().toLowerCase();
@@ -465,7 +515,7 @@ export function createSalesInvoicesRoutes(
     if (status === "open" || status === "overdue") {
       const today = (deps.now?.() ?? new Date().toISOString()).slice(0, 10);
       rows = rows.filter((inv) => {
-        const remaining = remainingOf(inv, totalsFor(svc, inv), credits.get(inv.id), allocations.get(inv.id));
+        const remaining = remainingOf(inv, totalsFor(svc, inv), credits.get(inv.id));
         if (!isOpen(inv, remaining)) return false;
         return status === "open" || (inv.dueDate !== null && inv.dueDate < today);
       });
@@ -473,14 +523,23 @@ export function createSalesInvoicesRoutes(
     return { rows, credits, allocations };
   }
 
-  app.get("/", gate("sales.invoice.view"), async (c) => {
+  /**
+   * The visibility tiers the catalog defines, enforced (D31):
+   *   - `.view` / `.view_all` see every invoice
+   *   - `.view_own` (which `.confirm`, `.create`, `.edit` all imply) sees only
+   *     the invoices the caller is the salesperson on
+   *   - `.view_cost` is what reveals unit cost; without it the field is absent,
+   *     because the requirement is that costs are HIDDEN, not that the page errors
+   */
+  app.get("/", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
     const svc = service(c);
     const { rows: invoices, credits, allocations } = await listFiltered(svc, c, parsed.data);
-    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), allocations.get(inv.id))));
+    const costs = maySeeCost(c);
+    return c.json(invoices.map((inv) => serialize(inv, totalsFor(svc, inv), credits.get(inv.id), costs)));
   });
 
   /**
@@ -489,7 +548,7 @@ export function createSalesInvoicesRoutes(
    * status-filtered set would render every chip but the active one as zero.
    * Every other filter still applies.
    */
-  app.get("/counts", gate("sales.invoice.view"), async (c) => {
+  app.get("/counts", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -511,7 +570,7 @@ export function createSalesInvoicesRoutes(
     };
     for (const invoice of invoices) {
       counts[invoice.status] = (counts[invoice.status] ?? 0) + 1;
-      const remaining = remainingOf(invoice, totalsFor(svc, invoice), credits.get(invoice.id), allocations.get(invoice.id));
+      const remaining = remainingOf(invoice, totalsFor(svc, invoice), credits.get(invoice.id));
       const unsettled = isOpen(invoice, remaining);
       if (unsettled) counts.open! += 1;
       if (unsettled && invoice.dueDate !== null && invoice.dueDate < today) counts.overdue! += 1;
@@ -525,7 +584,7 @@ export function createSalesInvoicesRoutes(
    * hold, which both drifted and ignored the filters the user had applied.
    * Drafts and cancelled invoices are excluded: neither is a receivable.
    */
-  app.get("/stats", gate("sales.invoice.view"), async (c) => {
+  app.get("/stats", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const parsed = parseListQuery(c);
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
@@ -542,12 +601,11 @@ export function createSalesInvoicesRoutes(
       if (invoice.status === "draft" || invoice.status === "cancelled") continue;
       const totals = totalsFor(svc, invoice);
       const credit = credits.get(invoice.id) ?? Money.zero();
-      const allocated = allocations.get(invoice.id) ?? Money.zero();
       count += 1;
       sales = sales.add(totals.grandTotal);
-      collected = collected.add(invoice.amountPaid).add(allocated);
+      collected = collected.add(invoice.amountPaid);
       returned = returned.add(credit);
-      remaining = remaining.add(remainingOf(invoice, totals, credit, allocated));
+      remaining = remaining.add(remainingOf(invoice, totals, credit));
     }
     return c.json({
       count,
@@ -558,12 +616,16 @@ export function createSalesInvoicesRoutes(
     });
   });
 
-  app.get("/:id", gate("sales.invoice.view"), async (c) => {
+  app.get("/:id", gateAny("sales.invoice.view", "sales.invoice.view_all", "sales.invoice.view_own"), async (c) => {
     const svc = service(c);
     const invoice = await svc.findById(c.req.param("id"));
     if (!invoice) return c.json({ error: "NOT_FOUND" }, 404);
-    const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), allocated));
+    // A `view_own` holder gets 404, not 403: whether an invoice they may not
+    // see exists at all is itself information.
+    if (ownVisibilityOnly(c) && invoice.salespersonId !== actorOf(c)) {
+      return c.json({ error: "NOT_FOUND" }, 404);
+    }
+    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), maySeeCost(c)));
   });
 
   app.post("/:id/confirm", gate("sales.invoice.confirm"), async (c) => {
@@ -589,6 +651,14 @@ export function createSalesInvoicesRoutes(
         ...serialize(result.invoice, totalsFor(svc, result.invoice), await creditFor(result.invoice.id)),
         held: result.held,
         creditWarning: serializeCreditWarning(result.creditWarning),
+        // Lines charged under the customer's own price list (D35). Empty when
+        // no list applies, so a tenant that prices freely sees nothing new.
+        pricingVariances: result.pricingVariances.map((v) => ({
+          lineId: v.lineId,
+          itemId: v.itemId,
+          listPrice: v.listPrice.toString(),
+          chargedPrice: v.chargedPrice.toString(),
+        })),
       });
     } catch (err) {
       return handleDomainError(c, err);
@@ -605,16 +675,46 @@ export function createSalesInvoicesRoutes(
     }
   });
 
+  /**
+   * تحصيل من عميل. Collecting against an invoice creates and confirms a REAL
+   * collection voucher and allocates it to the invoice — money in, AR credited,
+   * `amountPaid` written back by the allocation. It used to increment
+   * `amountPaid` and post nothing, so the invoice and the ledger disagreed
+   * about the same payment forever (D1).
+   */
   app.post("/:id/payments", gate("sales.invoice.edit"), async (c) => {
     const parsed = salesInvoicePaymentSchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    if (!deps.collect) {
+      return c.json(
+        { error: "COLLECTION_UNAVAILABLE", message: "التحصيل يتطلب سند قبض؛ وحدة الخزينة غير مفعّلة." },
+        503,
+      );
+    }
     const svc = service(c);
+    const amount = Money.fromMajor(parsed.data.amount);
     try {
-      const invoice = await svc.recordPayment(c.req.param("id"), Money.fromMajor(parsed.data.amount));
-      const allocated = (await allocatedByInvoice([invoice.id])).get(invoice.id);
-    return c.json(serialize(invoice, totalsFor(svc, invoice), await creditFor(invoice.id), allocated));
+      const invoice = await svc.assertCollectable(c.req.param("id"), amount);
+      const { voucherId } = await deps.collect({
+        invoiceId: invoice.id,
+        customerId: invoice.customerId,
+        branchId: invoice.branchId,
+        amount,
+        treasuryAccountId: parsed.data.treasuryAccountId,
+        paymentMethod: parsed.data.paymentMethod ?? "cash",
+        date: parsed.data.date ?? invoice.date,
+        referenceNo: parsed.data.referenceNo ?? null,
+        memo: parsed.data.notes ?? `تحصيل على الفاتورة ${invoice.docNo ?? invoice.id}`,
+        actor: getAuthContext(c)?.userId,
+      });
+      // Re-read: the allocation wrote amountPaid back through the settlement port.
+      const settled = (await svc.findById(invoice.id)) ?? invoice;
+      return c.json({
+        ...serialize(settled, totalsFor(svc, settled), await creditFor(settled.id), maySeeCost(c)),
+        voucherId,
+      });
     } catch (err) {
       return handleDomainError(c, err);
     }

@@ -1,3 +1,4 @@
+import { matchesSearch } from "@mezan/domain";
 import type { Ctx } from "./harness.js";
 
 /**
@@ -24,6 +25,7 @@ const BRANCH = "BR-MAIN";
 const WH = "WH-MAIN";
 const CASH = "1300-1";
 const AR = "1105";
+const PAYABLE = "2100";
 const OUTPUT_TAX = "2200";
 const INPUT_TAX = "1400";
 const REVENUE = "4100";
@@ -177,7 +179,7 @@ export async function run(ctx: Ctx): Promise<void> {
     const again = await req("POST", "/revaluation/preview", { date: MONTH_END, currencies: ["USD"], autoReverse: true });
     checkEq("re-running the same revaluation reports the same figure, never a doubled one", n(again.body?.totalLoss), 4000);
 
-    // The product half of X23: no DOCUMENT can carry a foreign balance into the GL.
+    // The product half of X23: a DOCUMENT carries its foreign balance into the GL.
     const usdPurchase = await req("POST", "/purchases/invoices", {
       id: "SCN-S-PI-USD", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH, currency: "USD",
       lines: [{ itemId: null, kind: "expense", description: "خدمة بالدولار", qty: "1", unitCost: "1000", taxRatePercent: 0 }],
@@ -187,11 +189,33 @@ export async function run(ctx: Ctx): Promise<void> {
     const usdNumber = String(usdConfirm.body?.number ?? "");
     const usdEntryId = rows((await req("GET", "/gl/journal-entries")).body).find((e: any) => String(e.memo ?? "").includes(usdNumber))?.id ?? "";
     const usdEntry = await journalOf(usdEntryId);
+    const usdRate = n((await req("GET", "/exchange-rates")).body?.find?.((r: any) => r.currency === "USD" && r.effectiveDate <= TODAY && r.status === "approved")?.rate ?? 0);
     check(
-      "NEW DEFECT — a foreign-currency document is a label, not a currency: `buildInvoicePosting` (packages/domain/src/purchasing/purchase-invoice.ts) never looks up a rate and never tags a line, " +
-        "so USD 1,000 is posted as EGP 1,000 and the debt is invisible to revaluation. Every multi-currency purchase in this build understates the payable by the exchange rate.",
-      usdEntry.lines.length > 0 && usdEntry.lines.every((l: any) => !l.currency && !l.fxRate) && usdEntry.credit === 1000,
-      `lines=${JSON.stringify(usdEntry.lines).slice(0, 250)}`,
+      "USD 1,000 posts its BASE-currency value at the approved rate of the invoice's own date, not 1,000 EGP (docs/defects.md D24)",
+      usdEntry.credit > 1000 && Math.abs(usdEntry.credit - 1000 * usdRate) < 0.01,
+      `credit=${usdEntry.credit} rate=${usdRate} lines=${JSON.stringify(usdEntry.lines).slice(0, 250)}`,
+    );
+    const payableLine = usdEntry.lines.find((l: any) => l.accountId === PAYABLE);
+    check(
+      "and the payable line keeps the currency and the rate, which is what makes the debt revaluable at all",
+      payableLine?.currency === "USD" && n(payableLine?.fxRate) === usdRate,
+      `payable=${JSON.stringify(payableLine).slice(0, 250)}`,
+    );
+
+    const noRate = await req("POST", "/purchases/invoices", {
+      id: "SCN-S-PI-XAU", supplierId: SUPPLIER, date: TODAY, branchId: BRANCH, warehouseId: WH, currency: "XAU",
+      lines: [{ itemId: null, kind: "expense", description: "عملة بلا سعر صرف", qty: "1", unitCost: "10", taxRatePercent: 0 }],
+    });
+    check(
+      "a currency the tenant never enabled is REFUSED at the door rather than posted at 1:1 — silently mis-stating a debt is the worse failure, and R11.7's allowed-currency list now catches it one step earlier than the missing-rate guard",
+      noRate.status === 422 && noRate.body?.error === "CURRENCY_NOT_ALLOWED",
+      `create=${noRate.status} ${JSON.stringify(noRate.body).slice(0, 250)}`,
+    );
+    const noRateConfirm = await req("POST", "/purchases/invoices/SCN-S-PI-XAU/confirm", {});
+    check(
+      "and no such document exists to be confirmed",
+      noRateConfirm.status === 404,
+      `confirm=${noRateConfirm.status} ${JSON.stringify(noRateConfirm.body).slice(0, 250)}`,
     );
   });
 
@@ -229,11 +253,13 @@ export async function run(ctx: Ctx): Promise<void> {
     });
     const after = ((await req("GET", "/exchange-rates")).body as any[]).find((r: any) => r.id === "SCN-S-FX-EUR-31");
     check(
-      "NEW DEFECT — a locked rate is not locked: POST /exchange-rates upserts by id (packages/api/src/exchange-rates-routes.ts calls `repo.create`, and the SQLite repository's `write` is an INSERT … ON CONFLICT(id) DO UPDATE), " +
-        "so re-posting the same id silently rewrites the rate AND resets its status. A figure the ledger has already converted at can be changed after the fact by anyone who can create a rate.",
-      overwrite.status === 201 && n(after?.rate) === 99,
+      "a locked rate is final: re-posting its id is refused, and the rate the ledger already converted at is untouched " +
+        "(docs/defects.md D25 — the regression guard; the SQLite repository still upserts, so the route must refuse first)",
+      overwrite.status === 409 && n(after?.rate) === 60 && after?.status === "locked",
       `overwrite=${overwrite.status} storedRate=${after?.rate} storedStatus=${after?.status}`,
     );
+    const relock = await req("POST", "/exchange-rates/SCN-S-FX-EUR-31/approve", {});
+    check("and it cannot be walked back down to approved either", relock.status === 409, `status ${relock.status} ${JSON.stringify(relock.body).slice(0, 160)}`);
   });
 
   // ---------------------------------------------------------------------------
@@ -261,8 +287,8 @@ export async function run(ctx: Ctx): Promise<void> {
     const isAfter = n((await req("GET", `/reports/accounting/income-statement?periodFrom=${MONTH_START}&periodTo=${MONTH_END}`)).body?.grandTotals?.amount);
     checkEq("and the income statement sees the same expense once", isBefore - isAfter, 1500);
 
-    // The seam that matters: real spending goes out through the treasury, and a
-    // treasury voucher has no cost-centre dimension to carry.
+    // The seam that matters: real spending goes out through the treasury, so a
+    // treasury voucher has to carry the cost-centre dimension too.
     const centreRowBefore = n(afterRow?.expense);
     const unassignedBefore = n(((after?.rows ?? []) as any[]).find((r) => r.costCenterId === null)?.expense);
     const voucher = await req("POST", "/vouchers", {
@@ -277,10 +303,9 @@ export async function run(ctx: Ctx): Promise<void> {
     const centreRowAfter = n(((afterVoucher?.rows ?? []) as any[]).find((r) => r.costCenterId === centre.id)?.expense);
     const unassignedAfter = n(((afterVoucher?.rows ?? []) as any[]).find((r) => r.costCenterId === null)?.expense);
     check(
-      "NEW DEFECT — the cost-centre report can never see the majority of real spending: `createVoucherSchema` (packages/contracts/src/voucher.ts) has no `costCenterId`, " +
-        "so the field sent here is dropped at the wire boundary and the 400 lands in the غير مخصص bucket. Only hand-written journal entries can be attributed to a cost centre, " +
-        "and almost nothing a business actually spends is entered as one.",
-      centreRowAfter === centreRowBefore && Math.abs(unassignedAfter - unassignedBefore - 400) < 0.005,
+      "a voucher-paid expense reaches the cost centre it names, rather than the غير مخصص bucket " +
+        "(docs/defects.md D26 — the regression guard: the wire contract carries the dimension the report needs)",
+      Math.abs(centreRowAfter - centreRowBefore - 400) < 0.005 && Math.abs(unassignedAfter - unassignedBefore) < 0.005,
       `centre before=${centreRowBefore} after=${centreRowAfter} · unassigned before=${unassignedBefore} after=${unassignedAfter}`,
     );
     checkEq("the report still reconciles: every posted expense is in exactly one bucket, tagged or not", n(afterVoucher?.totals?.expense) - n(after?.totals?.expense), 400);
@@ -337,7 +362,7 @@ export async function run(ctx: Ctx): Promise<void> {
   });
 
   // ---------------------------------------------------------------------------
-  // X29 — confirming a document should reach the ETA queue
+  // X29 — confirming a document reaches the ETA queue
   // ---------------------------------------------------------------------------
   await scenario("x29 · auto-submit ON puts a confirmed invoice on the ETA queue, and OFF leaves it alone (D5 fixed — guard it)", async () => {
     const config = await req("PUT", "/eta/config", {
@@ -424,44 +449,55 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X45 — withholding tax on local payments
   // ---------------------------------------------------------------------------
-  await scenario("x45 · withholding tax has nowhere to live: a payment cannot settle a supplier in full while paying the authority the difference", async () => {
+  await scenario("x45 · a payment withholds tax: the supplier is settled in full, the authority is owed the difference, and the filing can see it", async () => {
     const accounts = rows((await req("GET", "/accounts")).body);
-    const whtAccount = accounts.find((a: any) =>
-      String(a.nameAr ?? "").includes("خصم وإضافة") ||
-      String(a.nameEn ?? "").toLowerCase().includes("withholding tax") ||
-      String(a.code) === "2210",
-    );
+    const whtAccount = accounts.find((a: any) => String(a.code) === "2210");
     check(
-      "FINDING — the chart of accounts has no withholding-tax payable account at all (2190 is payroll withholdings, a different liability). " +
-        "Egypt withholds on most local B2B payments; a tenant has nowhere to book what they owe the authority on someone else's behalf.",
-      !whtAccount,
+      "the chart of accounts has a withholding-tax payable account distinct from payroll withholdings (2190)",
+      Boolean(whtAccount) && String(whtAccount?.nameEn ?? "").toLowerCase().includes("withholding"),
       `matched=${JSON.stringify(whtAccount ?? null).slice(0, 200)}`,
     );
 
+    const apBefore = await gl(PAYABLE);
+    const cashBefore = await gl(CASH);
+    const whtBefore = await gl("2210");
+
     const voucher = await req("POST", "/vouchers", {
-      id: "SCN-S-VCH-WHT", date: TODAY, memo: "دفعة لمورد بعد خصم ضريبة الخصم", voucherType: "other_expense",
-      amount: "9700.00", branchId: BRANCH, paymentMethod: "cash",
-      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: EXPENSE,
+      id: "SCN-S-VCH-WHT", date: TODAY, memo: "دفعة لمورد بعد خصم ضريبة الخصم", voucherType: "supplier_payment",
+      amount: "10000.00", branchId: BRANCH, paymentMethod: "cash",
+      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: PAYABLE,
       supplierId: SUPPLIER,
-      withholdingRatePercent: 3, withholdingAmount: "300.00", grossAmount: "10000.00",
+      withholdingRatePercent: 3, withholdingAmount: "300.00", withholdingGlAccountId: "2210",
     });
-    check("a payment voucher is accepted", voucher.status === 201, `status ${voucher.status} ${JSON.stringify(voucher.body).slice(0, 250)}`);
-    check(
-      "FINDING — and the withholding fields are dropped silently at the wire: `createVoucherSchema` (packages/contracts/src/voucher.ts) has amount and nothing else. " +
-        "The voucher records the NET paid, so the supplier's ledger shows them still owed the withheld 300 that the tenant is legally holding for the authority.",
-      voucher.status === 201 && voucher.body?.withholdingAmount === undefined && n(voucher.body?.amount) === 9700,
-      `stored=${JSON.stringify(voucher.body).slice(0, 250)}`,
-    );
+    check("a withholding payment voucher is accepted", voucher.status === 201, `status ${voucher.status} ${JSON.stringify(voucher.body).slice(0, 250)}`);
+    checkEq("the voucher records the GROSS that settles the supplier", n(voucher.body?.amount), 10000);
+    checkEq("and the tax withheld from it", n(voucher.body?.withholdingAmount), 300);
+    checkEq("so the net actually leaving the خزنة is derived, not re-entered", n(voucher.body?.netPaidAmount), 9700);
 
-    const report = await req("GET", "/reports/tax/withholding");
-    check("and no withholding report exists for the filing", report.status === 404, `status ${report.status}`);
+    const confirmed = await req("POST", "/vouchers/SCN-S-VCH-WHT/confirm", {});
+    check("it confirms", confirmed.status === 200, JSON.stringify(confirmed.body).slice(0, 200));
 
-    // What the tenant must do by hand today, spelled out so the gap is priced.
-    const manual = await postJournal("SCN-S-JE-WHT", TODAY, "إثبات ضريبة الخصم يدوياً — لا يوجد آلية", [
-      { accountId: EXPENSE, debit: "300.00", credit: "0.00" },
-      { accountId: USD_LIABILITY, debit: "0.00", credit: "300.00" },
-    ]);
-    check("the workaround — a hand-written journal entry per payment — does at least post", manual.status === 201, `status ${manual.status} ${JSON.stringify(manual.body).slice(0, 200)}`);
+    checkEq("the supplier is discharged by the FULL 10,000 — not by what they were handed", (await gl(PAYABLE)) - apBefore, 10000);
+    checkEq("only 9,700 leaves the خزنة", (await gl(CASH)) - cashBefore, -9700);
+    checkEq("and the authority is owed the 300 the tenant is holding on their behalf", (await gl("2210")) - whtBefore, -300);
+
+    const refused = await req("POST", "/vouchers", {
+      id: "SCN-S-VCH-WHT-BAD", date: TODAY, memo: "خصم بلا حساب", voucherType: "supplier_payment",
+      amount: "500.00", branchId: BRANCH, paymentMethod: "cash",
+      treasuryAccountId: CASH_TREASURY, treasuryGlAccountId: CASH, counterpartyGlAccountId: PAYABLE,
+      supplierId: SUPPLIER, withholdingAmount: "50.00",
+    });
+    check("withholding without an account to book it against is refused, in Arabic", refused.status === 422 && /ضريبة الخصم/.test(String(refused.body?.message)), `status ${refused.status} ${JSON.stringify(refused.body).slice(0, 200)}`);
+
+    const report = await req(`GET`, `/reports/tax/withholding?fromDate=${MONTH_START}&toDate=${MONTH_END}`);
+    check("the withholding filing exists", report.status === 200, `status ${report.status}`);
+    const filed = rows(report.body).find((r: any) => r.voucherId === "SCN-S-VCH-WHT");
+    check("and lists this payment with its gross, rate and tax", Boolean(filed), JSON.stringify(rows(report.body)).slice(0, 250));
+    if (filed) {
+      checkEq("gross on the filing", n(filed.grossAmount), 10000);
+      checkEq("tax withheld on the filing", n(filed.withheldAmount), 300);
+      checkEq("net paid on the filing", n(filed.netPaidAmount), 9700);
+    }
   });
 
   // ---------------------------------------------------------------------------
@@ -508,52 +544,74 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X47 — a filed VAT period must not move under the filing
   // ---------------------------------------------------------------------------
-  await scenario("x47 · nothing records that a VAT period was filed, so a backdated invoice silently restates a return that has already gone to the authority", async () => {
+  await scenario("x47 · once a VAT period is filed, a backdated document cannot restate it without someone amending the filing", async () => {
     const filed = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
     const filedOutput = ((filed.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
-    check("July's VAT return runs — this is the figure a tenant would have filed", filed.status === 200, `status ${filed.status}`);
+    check("July's VAT return runs — this is the figure a tenant would file", filed.status === 200, `status ${filed.status}`);
 
-    const noFilingRoute = await req("POST", "/reports/accounting/vat-return/file", { period: "2026-07" });
-    check(
-      "FINDING — there is no way to record that a period was filed: no route, no status, no stored figure. " +
-        "Fiscal-period close (X15) is the only lock in the product, and it is an accounting control, not a tax one — nothing ties the two together.",
-      noFilingRoute.status === 404,
-      `status ${noFilingRoute.status}`,
-    );
-
-    const backdated = await postJournal("SCN-S-JE-JULY-VAT", "2026-07-20", "مبيعات يوليو أُدخلت بعد الإقرار", [
+    const backdatedBefore = await postJournal("SCN-S-JE-JULY-VAT", "2026-07-20", "مبيعات يوليو أُدخلت قبل الإقرار", [
       { accountId: AR, debit: "1140.00", credit: "0.00" },
       { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
       { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
     ]);
-    check("a backdated July sale posts into the open period", backdated.status === 201, `status ${backdated.status} ${JSON.stringify(backdated.body).slice(0, 200)}`);
+    check("before filing, a backdated July sale posts freely into the open period", backdatedBefore.status === 201, `status ${backdatedBefore.status} ${JSON.stringify(backdatedBefore.body).slice(0, 200)}`);
 
-    const refiled = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
-    const refiledOutput = ((refiled.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
-    checkEq(
-      "and the already-filed return silently changes by the new tax — no amendment, no warning, no trace that the filed figure is now wrong",
-      refiledOutput - filedOutput,
-      140,
+    const beforeFiling = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const submitted = ((beforeFiling.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
+    checkEq("and it moves the return, as it should while the period is still open", submitted - filedOutput, 140);
+
+    const filing = await req("POST", "/gl/vat-filings", {
+      id: "SCN-S-VATF-JULY", periodFrom: "2026-07-01", periodTo: "2026-07-31",
+      netAmount: submitted.toFixed(2), referenceNo: "ETA-SCN-JULY",
+    });
+    check("the tenant records that July's return went to the authority (docs/defects.md D29)", filing.status === 201 && filing.body?.status === "filed", `status ${filing.status} ${JSON.stringify(filing.body).slice(0, 250)}`);
+
+    const twice = await req("POST", "/gl/vat-filings", {
+      id: "SCN-S-VATF-JULY-2", periodFrom: "2026-07-01", periodTo: "2026-07-31", netAmount: "1.00",
+    });
+    check("a second filing for the same window is refused", twice.status === 409, `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
+
+    const afterFiling = await postJournal("SCN-S-JE-JULY-AFTER", "2026-07-22", "مبيعات يوليو أُدخلت بعد الإقرار", [
+      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
+      { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
+    ]);
+    check(
+      "and now a backdated posting into that window is REFUSED, in Arabic, naming the filing that blocks it",
+      afterFiling.status === 422 && /قُدّم بالفعل/.test(String(afterFiling.body?.message)),
+      `status ${afterFiling.status} ${JSON.stringify(afterFiling.body).slice(0, 250)}`,
     );
 
-    // The one control that does exist, proven to work: close the period and the same posting is refused.
+    const unchanged = await req("GET", `/reports/accounting/vat-return?periodFrom=2026-07-01&periodTo=2026-07-31`);
+    const stillFiled = ((unchanged.body?.rows ?? []) as any[]).filter((r: any) => r.side === "output").reduce((s, r) => s + n(r.tax), 0);
+    checkEq("so the submitted figure is exactly what was submitted — the return cannot move under the filing", stillFiled, submitted);
+
+    const noReason = await req("POST", "/gl/vat-filings/SCN-S-VATF-JULY/amend", {});
+    check("amending without a reason is refused — a reasonless amendment IS the silent restatement", noReason.status === 400, `status ${noReason.status} ${JSON.stringify(noReason.body).slice(0, 200)}`);
+
+    const amended = await req("POST", "/gl/vat-filings/SCN-S-VATF-JULY/amend", { reason: "فاتورة وردت متأخرة من العميل" });
+    check("amending WITH a reason reopens the window and records why", amended.status === 200 && amended.body?.status === "amended" && amended.body?.amendmentReason, JSON.stringify(amended.body).slice(0, 250));
+
+    const afterAmend = await postJournal("SCN-S-JE-JULY-AMENDED", "2026-07-23", "مبيعات يوليو بعد تعديل الإقرار", [
+      { accountId: AR, debit: "1140.00", credit: "0.00" },
+      { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
+      { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
+    ]);
+    check("and the restatement posts, now that someone decided to make it", afterAmend.status === 201, `status ${afterAmend.status} ${JSON.stringify(afterAmend.body).slice(0, 200)}`);
+
+    // Fiscal-period close remains its own, separate lock — an accounting control, not a tax one.
     const july = rows((await req("GET", "/fiscal-periods?year=2026")).body).find((p: any) => p.periodNumber === 7);
     if (july?.id) {
       const closed = await req("POST", `/fiscal-periods/${july.id}/close`, {});
       check("July closes", closed.status === 200, `status ${closed.status}`);
-      const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة ثانية بعد الإقفال", [
+      const blocked = await postJournal("SCN-S-JE-JULY-BLOCKED", "2026-07-21", "محاولة بعد الإقفال", [
         { accountId: AR, debit: "1140.00", credit: "0.00" },
         { accountId: REVENUE, debit: "0.00", credit: "1000.00" },
         { accountId: OUTPUT_TAX, debit: "0.00", credit: "140.00" },
       ]);
-      check("with the period closed the same backdated posting is refused — the mechanism exists, it is simply not tied to the filing", blocked.status === 422, `status ${blocked.status} ${JSON.stringify(blocked.body).slice(0, 200)}`);
+      check("and the period gate refuses independently of the filing — two locks, two questions", blocked.status === 422, `status ${blocked.status} ${JSON.stringify(blocked.body).slice(0, 200)}`);
       const reopened = await req("POST", `/fiscal-periods/${july.id}/reopen`, {});
       check("July reopens for the rest of the suite", reopened.status === 200 && reopened.body?.status === "open", `status ${reopened.status}`);
-      check(
-        "FINDING — and reopening needs no reason, no approval and leaves no VAT-side trace: a filed period can be reopened, restated and closed again invisibly",
-        reopened.status === 200,
-        `status ${reopened.status}`,
-      );
     }
   });
 
@@ -690,76 +748,113 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X57 — branch-prefixed numbering
   // ---------------------------------------------------------------------------
-  await scenario("x57 · with two branches selling on the same day, their documents share one tenant-wide counter and nothing on the number says where it came from", async () => {
+  await scenario("x57 · a branch-scoped sequence gives each branch its own counter, and the number says which branch it came from", async () => {
     const branch = await req("POST", "/branches", { id: "BR-SCN-SEAM", code: "SEAM", name: "فرع سيناريوهات التقاطع" });
     const warehouse = await req("POST", "/warehouses", { id: "WH-SCN-SEAM", code: "WH-SEAM", name: "مخزن فرع التقاطع", branchId: "BR-SCN-SEAM" });
     check("a second branch and its warehouse exist", branch.status === 201 && warehouse.status === 201, `${branch.status}/${warehouse.status}`);
 
-    const first = await serviceInvoice("SCN-S-BR-A", [{ qty: "1", unitPrice: "100" }]);
-    const second = await serviceInvoice("SCN-S-BR-B", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
-    check("both branches confirm a sale", first.confirmed.status === 200 && second.confirmed.status === 200, `${first.confirmed.status}/${second.confirmed.status}`);
+    const off = await serviceInvoice("SCN-S-BR-GLOBAL", [{ qty: "1", unitPrice: "100" }]);
+    check("with the sequence tenant-global, a sale confirms as before", off.confirmed.status === 200, JSON.stringify(off.confirmed.body).slice(0, 200));
+    const globalNo = String(off.confirmed.body?.docNo ?? "");
+    check("and its number carries no branch", !/SEAM|MAIN/.test(globalNo), globalNo);
 
-    const a = String(first.confirmed.body?.docNo ?? "");
-    const b = String(second.confirmed.body?.docNo ?? "");
-    check(
-      "FINDING (plan.md §6.3.8, now measured) — numbering is tenant-global: the two branches' invoices are consecutive on one counter and carry no branch prefix. " +
-        `A multi-branch customer expects SEAM-000001 beside MAIN-000001; they get ${a} and ${b}. The numbering contract (packages/contracts/src/numbering.ts) has code and year, no branch.`,
-      a.replace(/\d+$/, "") === b.replace(/\d+$/, ""),
-      `first=${a} second=${b}`,
+    const configured = await req("PATCH", "/sequences/SALES_INVOICE", { branchScoped: true });
+    check("the sequence can be switched to branch-scoped from settings", configured.status === 200 && configured.body?.branchScoped === true, `status ${configured.status} ${JSON.stringify(configured.body).slice(0, 200)}`);
+
+    const a = await serviceInvoice("SCN-S-BR-A", [{ qty: "1", unitPrice: "100" }]);
+    const b = await serviceInvoice("SCN-S-BR-B", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
+    check("both branches confirm a sale", a.confirmed.status === 200 && b.confirmed.status === 200, `${a.confirmed.status}/${b.confirmed.status}`);
+
+    const numberA = String(a.confirmed.body?.docNo ?? "");
+    const numberB = String(b.confirmed.body?.docNo ?? "");
+    check("each number names the branch it came from (docs/defects.md D33 — the regression guard)", numberA.includes(BRANCH) && numberB.includes("BR-SCN-SEAM"), `first=${numberA} second=${numberB}`);
+    check("and the two branches do NOT share one counter", numberA.replace(/\D+/g, "") !== numberB.replace(/\D+/g, "") || numberA !== numberB, `first=${numberA} second=${numberB}`);
+
+    const second = await serviceInvoice("SCN-S-BR-B2", [{ qty: "1", unitPrice: "100" }], { branchId: "BR-SCN-SEAM", warehouseId: "WH-SCN-SEAM" });
+    const numberB2 = String(second.confirmed.body?.docNo ?? "");
+    checkEq(
+      "the new branch's own counter advances by one, untouched by what the other branch sold in between",
+      Number(numberB2.replace(/\D+/g, "")) - Number(numberB.replace(/\D+/g, "")),
+      1,
     );
+
     const definition = (await req("GET", "/sequences/SALES_INVOICE")).body;
-    check("and the sequence definition itself offers no branch dimension to configure", definition?.branchId === undefined && definition?.branchPrefix === undefined, JSON.stringify(definition).slice(0, 250));
+    check("the sequence definition exposes the dimension", definition?.branchScoped === true, JSON.stringify(definition).slice(0, 250));
+
+    // Leave the tenant as we found it — a later suite asserts tenant-global numbers.
+    const restored = await req("PATCH", "/sequences/SALES_INVOICE", { branchScoped: false });
+    check("and it is restored to tenant-global for the rest of the suite", restored.body?.branchScoped === false, JSON.stringify(restored.body).slice(0, 200));
   });
 
   // ---------------------------------------------------------------------------
   // X58 — permissions are a graph, and some are sensitive
   // ---------------------------------------------------------------------------
-  await scenario("x58 · the dependency graph is enforced server-side, but the visibility tiers it grants are enforced nowhere", async () => {
+  await scenario("x58 · the dependency graph is enforced server-side, and so are the visibility tiers it grants", async () => {
     const confirmOnly = { "x-permissions": "sales.invoice.confirm", "x-user-id": "USER-SCN-CONFIRM" };
     const viewOnly = { "x-permissions": "sales.invoice.view", "x-user-id": "USER-SCN-VIEW" };
+    const withCost = { "x-permissions": "sales.invoice.view_cost", "x-user-id": "USER-SCN-COST" };
 
     const denied = await req("GET", "/items", undefined, { ...confirmOnly });
     check("a permission the caller does not hold is refused with the code it is missing", denied.status === 403 && denied.body?.error === "PERMISSION_DENIED", `status ${denied.status} ${JSON.stringify(denied.body).slice(0, 200)}`);
 
     const listAsConfirmer = await req("GET", "/sales-invoices", undefined, confirmOnly);
     check(
-      "FINDING — granting `.confirm` implies `.view_own` (packages/domain/src/permissions/resolve.ts expands the graph inside createAuthContext, correctly), but every sales-invoice read route gates on `.view`. " +
-        "A user who may confirm invoices cannot open the list to find one: the visibility tier the catalog grants them addresses no route in the product.",
-      listAsConfirmer.status === 403,
-      `status ${listAsConfirmer.status}`,
+      "granting `.confirm` implies `.view_own`, and the read route honours that tier rather than demanding `.view` (docs/defects.md D31)",
+      listAsConfirmer.status === 200,
+      `status ${listAsConfirmer.status} ${JSON.stringify(listAsConfirmer.body).slice(0, 200)}`,
+    );
+    const confirmerSees = rows(listAsConfirmer.body);
+    check(
+      "and `view_own` NARROWS: a confirmer sees only what they are the salesperson on, not every colleague's invoice",
+      confirmerSees.every((i: any) => i.salespersonId === "USER-SCN-CONFIRM"),
+      `rows=${confirmerSees.length} salespeople=${[...new Set(confirmerSees.map((i: any) => String(i.salespersonId)))].join(",")}`,
     );
 
     const listAsViewer = await req("GET", "/sales-invoices", undefined, viewOnly);
     const all = rows(listAsViewer.body);
     check(
-      "FINDING — and `view_own` never narrows anything: a plain `.view` holder sees every colleague's invoice, because no route filters by createdBy. " +
-        "view_own / view_all are catalog vocabulary with no runtime meaning.",
-      listAsViewer.status === 200 && all.length > 0 && all.some((i: any) => i.createdBy !== "USER-SCN-VIEW"),
-      `rows=${all.length}`,
+      "a `.view` holder is the wider tier and does see the whole book",
+      listAsViewer.status === 200 && all.length > confirmerSees.length,
+      `view=${all.length} view_own=${confirmerSees.length}`,
     );
 
     const withoutCostSight = await req("GET", "/sales-invoices/SCN-S-INV-PROMO", undefined, viewOnly);
-    const lines = (withoutCostSight.body?.lines ?? []) as any[];
+    const hiddenLines = (withoutCostSight.body?.lines ?? []) as any[];
     check(
-      "FINDING — `sales.invoice.view_cost` is flagged ⚠ sensitive in the catalog and checked by no route: the caller holds only `.view` and still reads unit cost off every line. " +
-        "The requirement is that costs are HIDDEN, not that the page errors.",
-      withoutCostSight.status === 200 && lines.some((l: any) => "unitCost" in l),
-      `status ${withoutCostSight.status} line=${JSON.stringify(lines[0] ?? null).slice(0, 200)}`,
+      "`sales.invoice.view_cost` is ⚠ sensitive and now enforced: a plain `.view` holder gets no unit cost at all — the field is absent, not null",
+      withoutCostSight.status === 200 && hiddenLines.length > 0 && hiddenLines.every((l: any) => !("unitCost" in l)),
+      `status ${withoutCostSight.status} line=${JSON.stringify(hiddenLines[0] ?? null).slice(0, 200)}`,
+    );
+
+    const withCostSight = await req("GET", "/sales-invoices/SCN-S-INV-PROMO", undefined, withCost);
+    const shownLines = (withCostSight.body?.lines ?? []) as any[];
+    check(
+      "and the holder of view_cost reads it",
+      withCostSight.status === 200 && shownLines.some((l: any) => "unitCost" in l),
+      `status ${withCostSight.status} line=${JSON.stringify(shownLines[0] ?? null).slice(0, 200)}`,
     );
 
     const contracts = await req("GET", "/hr/contracts", undefined, { "x-permissions": "hr.contract.view", "x-user-id": "USER-SCN-HR" });
     const contractRows = rows(contracts.body);
     check(
-      "FINDING — the same hole on salary: `hr.employee.view_salary` is ⚠ sensitive, yet `hr.contract.view` alone returns monthlySalary for every employee.",
-      contracts.status === 200 && contractRows.some((r: any) => r.monthlySalary !== undefined),
+      "the same tier on salary: `hr.contract.view` alone reads the contract and NOT the pay on it",
+      contracts.status === 200 && contractRows.length > 0 && contractRows.every((r: any) => !("monthlySalary" in r)),
       `status ${contracts.status} row=${JSON.stringify(contractRows[0] ?? null).slice(0, 200)}`,
+    );
+
+    const payroll = await req("GET", "/hr/contracts", undefined, { "x-permissions": "hr.contract.view,hr.employee.view_salary", "x-user-id": "USER-SCN-PAY" });
+    const payRows = rows(payroll.body);
+    check(
+      "while a payroll user, who also holds `hr.employee.view_salary`, reads it",
+      payroll.status === 200 && payRows.some((r: any) => r.monthlySalary !== undefined),
+      `status ${payroll.status} row=${JSON.stringify(payRows[0] ?? null).slice(0, 200)}`,
     );
   });
 
   // ---------------------------------------------------------------------------
   // X59 — Arabic search must forgive Arabic
   // ---------------------------------------------------------------------------
-  await scenario("x59 · a name typed without its hamza must still find the customer — and today nothing on either side normalises Arabic", async () => {
+  await scenario("x59 · a name typed without its hamza still finds the customer, on the server and in the screens alike", async () => {
     const variants: Array<[string, string]> = [
       ["SCN-S-AR-1", "أحمد عبد الله"],
       ["SCN-S-AR-2", "فاطمة السيد"],
@@ -771,26 +866,38 @@ export async function run(ctx: Ctx): Promise<void> {
     }
 
     const unfiltered = rows((await req("GET", "/customers")).body).length;
-    const queried = rows((await req("GET", "/customers?q=احمد")).body).length;
+    const hamzaless = rows((await req("GET", "/customers?q=احمد")).body);
     check(
-      "FINDING — the server has no search at all: `?q=` is not a parameter of any list route, so it is ignored and the full table comes back. " +
-        "Every screen filters in the browser, which means search quality is a client concern that no server test can guard.",
-      queried === unfiltered,
-      `unfiltered=${unfiltered} with q=${queried}`,
+      "`?q=` narrows on the SERVER — it is a real parameter now, not one the route ignores (docs/defects.md D32)",
+      hamzaless.length > 0 && hamzaless.length < unfiltered,
+      `unfiltered=${unfiltered} with q=${hamzaless.length}`,
+    );
+    check(
+      "and it forgives the hamza: احمد finds أحمد",
+      hamzaless.some((c: any) => c.id === "SCN-S-AR-1"),
+      JSON.stringify(hamzaless.map((c: any) => c.nameAr)).slice(0, 200),
     );
 
-    // The filter the screens actually run, reproduced exactly (see apps/web/src/settings/BranchesPage.tsx:608
-    // and the same expression in a dozen other screens): a raw `includes`, no normalisation.
-    const clientFilter = (rowsIn: string[], q: string) => rowsIn.filter((r) => r.toLowerCase().includes(q.trim().toLowerCase()));
+    const taaMarbuta = rows((await req("GET", "/customers?q=فاطمه")).body);
+    check("فاطمه finds فاطمة", taaMarbuta.some((c: any) => c.id === "SCN-S-AR-2"), JSON.stringify(taaMarbuta.map((c: any) => c.nameAr)).slice(0, 200));
+
+    const alifMaqsura = rows((await req("GET", "/customers?q=ليلي")).body);
+    check("ليلي finds ليلى", alifMaqsura.some((c: any) => c.id === "SCN-S-AR-3"), JSON.stringify(alifMaqsura.map((c: any) => c.nameAr)).slice(0, 200));
+
+    const cleared = rows((await req("GET", "/customers?q=")).body).length;
+    checkEq("an empty query shows everything, rather than nothing", cleared, unfiltered);
+
+    const nonsense = rows((await req("GET", "/customers?q=زقزوقةلاتوجد")).body).length;
+    checkEq("and a query that matches nothing returns nothing, not the whole table", nonsense, 0);
+
+    // The screens filter the SAME way — one helper, both ends (D32's other half).
     const names = variants.map(([, nameAr]) => nameAr);
-    check(
-      "FINDING — and that raw `includes` cannot forgive Arabic: searching احمد (no hamza) finds nothing, though أحمد is right there. " +
-        "The fix is one shared normalisation helper (strip hamza forms أإآ→ا, ة→ه, ى→ي, tashkeel) used by both ends; today it exists nowhere in the repo.",
-      clientFilter(names, "احمد").length === 0,
-      `matches for احمد = ${clientFilter(names, "احمد").length}, for أحمد = ${clientFilter(names, "أحمد").length}`,
-    );
-    check("the same for فاطمه against فاطمة", clientFilter(names, "فاطمه").length === 0, `matches=${clientFilter(names, "فاطمه").length}`);
-    check("and for ليلي against ليلى", clientFilter(names, "ليلي").length === 0, `matches=${clientFilter(names, "ليلي").length}`);
+    check("the shared helper the screens use forgives the same spellings", names.filter((nameAr) => matchesSearch("احمد", nameAr)).length === 1, `matches=${names.filter((nameAr) => matchesSearch("احمد", nameAr)).length}`);
+
+    const suppliersQ = await req("GET", "/suppliers?q=");
+    check("suppliers take the same parameter", suppliersQ.status === 200 && rows(suppliersQ.body).length > 0, `status ${suppliersQ.status}`);
+    const itemsQ = await req("GET", "/items?q=");
+    check("and so do items", itemsQ.status === 200 && rows(itemsQ.body).length > 0, `status ${itemsQ.status}`);
   });
 
   // ---------------------------------------------------------------------------
@@ -820,14 +927,10 @@ export async function run(ctx: Ctx): Promise<void> {
     // The trail is newest-first and the endpoint caps `limit` at 200, so the
     // rows this scenario just wrote are on the first page by construction.
     const after = await auditRows("limit=200");
-    /**
-     * Which key carries the document id varies by module — `docId` in
-     * treasury, `invoiceId` in sales, `id` in master data — so the check reads
-     * every string value in `details` rather than guessing one.
-     */
-    const traced = new Set(
-      after.flatMap((row: any) => Object.values(row.details ?? {}).filter((v): v is string => typeof v === "string")),
-    );
+    // Every event now names the entity it is about, so the trail can be asked
+    // the question directly instead of scraping every string in `details` and
+    // hoping the module chose a key this check happens to look at.
+    const traced = new Set(after.map((row: any) => row.entityId).filter((v: unknown): v is string => typeof v === "string"));
     check(
       "the audit trail names the voucher this scenario moved — a money movement that leaves no trace is unauditable on a desktop install",
       traced.has("SCN-S-VCH-AUDIT"),
@@ -846,9 +949,9 @@ export async function run(ctx: Ctx): Promise<void> {
     check("both halves are recorded — money out AND the reversal that put it back", mine.length >= 2, `actions=${mine.map((row: any) => row.action).join(",")}`);
     check("each names the actor who did it", mine.every((row: any) => row.actor && row.actor !== "system"), `actors=${mine.map((row: any) => row.actor).join(",")}`);
     check(
-      "FINDING — but these rows cannot say WHERE the money moved: the voucher names BR-MAIN and every audit row it produced carries branchId null, because `branchScopedAuditSink` takes the branch from the CALLER's x-branch-scope, " +
-        "not from the document. A caller scoped to all branches — the default, and what the shell sends until a branch is picked — writes an unattributed row, and the audit viewer's branch filter never finds it again.",
-      mine.every((row: any) => row.branchId === null),
+      "and they say WHERE: every row carries the DOCUMENT's branch, not the caller's scope — an all-branches caller (the default, and what the shell sends until a branch is picked) " +
+        "used to write unattributed rows the audit viewer's branch filter could never find again (docs/defects.md D30 — the regression guard)",
+      mine.length > 0 && mine.every((row: any) => row.branchId === BRANCH),
       `voucher branchId=BR-MAIN · audit branchIds=${[...new Set(mine.map((row: any) => String(row.branchId)))].join(",")}`,
     );
   });
@@ -856,7 +959,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X63 — price list, promotion and credit limit in one document
   // ---------------------------------------------------------------------------
-  await scenario("x63 · three mechanisms, one number: the credit check sees the promoted price — but the price list is never consulted by the server at all", async () => {
+  await scenario("x63 · three mechanisms, one number: the credit check sees the promoted price, and the server knows when a line is under the customer's list", async () => {
     const itemId = "SCN-S-PRICED-ITEM";
     await req("POST", "/items", {
       id: itemId, code: "SCN-S-PRICED", nameAr: "صنف بقائمة أسعار", type: "service",
@@ -902,17 +1005,35 @@ export async function run(ctx: Ctx): Promise<void> {
       `status ${confirmed.status} ${JSON.stringify(confirmed.body).slice(0, 200)}`,
     );
 
-    // Now the half the server does not do.
+    // A line under the customer's own list price is surfaced, not silently taken.
     const wrongPrice = await req("POST", "/sales-invoices", {
       id: "SCN-S-INV-OFFLIST", date: TODAY, dueDate: "2026-09-23", customerId, customerNameAr: "عميل بقائمة أسعار وحد ائتماني",
       warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
       lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بقائمة أسعار", isStock: false, qty: "1", unitPrice: "5.00", taxRatePercent: VAT, revenueAccountId: REVENUE }],
     });
+    check("an under-list draft is still accepted — a negotiated price is a real thing", wrongPrice.status === 201, `status ${wrongPrice.status} ${JSON.stringify(wrongPrice.body).slice(0, 200)}`);
+    const offList = await req("POST", "/sales-invoices/SCN-S-INV-OFFLIST/confirm", {});
+    check("and it confirms, because this warns rather than refuses (the same shape credit control's WARNING mode uses)", offList.status === 200, `status ${offList.status} ${JSON.stringify(offList.body).slice(0, 200)}`);
+    const variances = (offList.body?.pricingVariances ?? []) as any[];
     check(
-      "FINDING — the price list is a lookup table nothing consults: the invoice routes take whatever unitPrice the client sends, so a line at 5.00 against an 80.00 list price is accepted without a warning. " +
-        "The ordering price list → promotion → credit limit holds only for as long as the UI remembers to apply it; nothing server-side enforces it.",
-      wrongPrice.status === 201,
-      `status ${wrongPrice.status} ${JSON.stringify(wrongPrice.body).slice(0, 200)}`,
+      "but the server SAYS SO: it consulted the customer's price list and reported the line charged under it (docs/defects.md D35 — the regression guard)",
+      variances.length === 1 && variances[0]?.lineId === "L1" && n(variances[0]?.listPrice) === 80 && n(variances[0]?.chargedPrice) === 5,
+      JSON.stringify(variances).slice(0, 250),
+    );
+
+    // Credit control has done its job above; restore it before the last check so
+    // the 800 limit does not stand in for the pricing signal being measured.
+    await req("PUT", "/settings", { ...settings });
+    const onList = await req("POST", "/sales-invoices", {
+      id: "SCN-S-INV-ONLIST", date: TODAY, dueDate: "2026-09-23", customerId, customerNameAr: "عميل بقائمة أسعار وحد ائتماني",
+      warehouseId: WH, branchId: BRANCH, arAccountId: AR, taxAccountId: OUTPUT_TAX,
+      lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بقائمة أسعار", isStock: false, qty: "1", unitPrice: "80.00", taxRatePercent: VAT, revenueAccountId: REVENUE }],
+    });
+    const onListConfirm = await req("POST", "/sales-invoices/SCN-S-INV-ONLIST/confirm", {});
+    check(
+      "a line AT the list price reports nothing — the warning is a signal, not noise on every sale",
+      onList.status === 201 && onListConfirm.status === 200 && (onListConfirm.body?.pricingVariances ?? []).length === 0,
+      `create=${onList.status} confirm=${onListConfirm.status} variances=${JSON.stringify(onListConfirm.body?.pricingVariances ?? [])}`,
     );
 
     await req("PUT", "/settings", { ...settings });
@@ -921,7 +1042,7 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X64 — year-end
   // ---------------------------------------------------------------------------
-  await scenario("x64 · a new year opens where the old one ended — but nothing rolls the profit into retained earnings, so the P&L accounts never reset", async () => {
+  await scenario("x64 · closing the year rolls the result into retained earnings, and the P&L accounts open the new one at zero", async () => {
     const generated = await req("POST", "/fiscal-periods/generate-year", { year: 2027 });
     check("the next fiscal year can be generated", generated.status === 201, `status ${generated.status} ${JSON.stringify(generated.body).slice(0, 200)}`);
     const periods = rows((await req("GET", "/fiscal-periods?year=2027")).body);
@@ -933,25 +1054,32 @@ export async function run(ctx: Ctx): Promise<void> {
     check("2026 has revenue on the books to roll over", revenue2026 > 0, `revenue=${revenue2026}`);
 
     const closeYear = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
+    check("the year closes", closeYear.status === 201, `status ${closeYear.status} ${JSON.stringify(closeYear.body).slice(0, 250)}`);
     check(
-      "FINDING — there is no year-end close anywhere in the product: no route, no service, no closing entry. " +
-        "Retained earnings is an account in the chart that nothing ever posts to.",
-      closeYear.status === 404,
-      `status ${closeYear.status}`,
+      "and reports what it rolled over — every revenue account, not just sales: the year's asset-disposal gain closes too",
+      n(closeYear.body?.revenueClosed) >= revenue2026,
+      `revenueClosed=${closeYear.body?.revenueClosed} sales alone=${revenue2026}`,
     );
+    checkEq("the disposal-gain account is zeroed as well", await creditBalance("4500"), 0);
 
     const revenue2027 = n((await req("GET", "/reports/accounting/income-statement?periodFrom=2027-01-01&periodTo=2027-12-31")).body?.grandTotals?.amount);
-    checkEq("a fresh year's income statement is correctly empty — the REPORT windows by date, which is what saves this", revenue2027, 0);
-    checkEq("but the revenue ACCOUNT still carries last year's total: opening 2027 does not zero it", await creditBalance(REVENUE), revenue2026);
-    checkEq("and retained earnings never received the profit", (await creditBalance(RETAINED_EARNINGS)) - retainedBefore, 0);
+    checkEq("a fresh year's income statement is empty", revenue2027, 0);
+    checkEq("the revenue ACCOUNT no longer carries last year's total — closing zeroed it (docs/defects.md D34)", await creditBalance(REVENUE), 0);
+    checkEq(
+      "and retained earnings received exactly the year's result",
+      Math.round(((await creditBalance(RETAINED_EARNINGS)) - retainedBefore) * 100) / 100,
+      Math.round(n(closeYear.body?.netResult) * 100) / 100,
+    );
+
+    const twice = await req("POST", "/gl/year-end-close", { year: 2026, retainedEarningsAccountId: RETAINED_EARNINGS });
+    check("closing the same year twice is refused rather than posted twice, in Arabic", twice.status === 409 && /مقفلة بالفعل/.test(String(twice.body?.message)), `status ${twice.status} ${JSON.stringify(twice.body).slice(0, 200)}`);
 
     const balanceSheet = await req("GET", `/reports/accounting/balance-sheet?asOfDate=2027-01-01`);
     check("the balance sheet still runs into the new year", balanceSheet.status === 200, `status ${balanceSheet.status}`);
     const bsRows = (balanceSheet.body?.rows ?? []) as any[];
     const derivedRetained = bsRows.find((r: any) => String(r.rowId).includes("retained"));
     check(
-      "and it balances only because the report DERIVES retained earnings from the P&L accounts itself (packages/domain/src/reports/balance-sheet.ts) rather than reading a posted balance — " +
-        "correct on screen, but it means the ledger alone never tells you last year's result",
+      "and it still balances, now with a POSTED retained-earnings balance behind the row rather than one the report derives for itself",
       Boolean(derivedRetained),
       `rows=${bsRows.map((r: any) => r.rowId).slice(0, 12).join(",")}`,
     );

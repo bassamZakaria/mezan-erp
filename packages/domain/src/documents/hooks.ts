@@ -22,7 +22,11 @@ import type { GateableActionType } from "../workflow/index.js";
  * the SQLite `NextNumberService` slots straight in.
  */
 export interface DocumentNumberingHook {
-  next(): Promise<{ readonly value: number; readonly formatted: string }>;
+  /**
+   * `branchId` lets a branch-scoped sequence keep its own counter (D33). A hook
+   * bound to a tenant-global sequence ignores it, so passing it always is safe.
+   */
+  next(opts?: { readonly branchId?: string | null }): Promise<{ readonly value: number; readonly formatted: string }>;
 }
 
 /* --- GL-posting hook (via the GL posting engine) ------------------------- */
@@ -32,6 +36,11 @@ export interface DocumentGlPostingLine {
   readonly debit: Money;
   readonly credit: Money;
   readonly memo?: string | null;
+  /**
+   * Cost-centre dimension. A posting that drops it is invisible to the
+   * cost-centre P&L forever, and the report cannot recover it later (D26).
+   */
+  readonly costCenterId?: string | null;
 }
 
 /**
@@ -104,19 +113,24 @@ export interface DocumentStockPlan {
 }
 
 /**
- * What applying a stock plan actually moved, in money. Signed: positive when
- * the document added inventory value.
+ * What applying a stock plan actually moved, in money.
  *
  * The framework hands this to `buildGlPosting` because a document that removes
  * stock cannot post an honest entry without it — the value removed is decided
  * by the position's live moving average, not by anything on the document
- * (D47).
+ * (D47). Stock leaves at that average, so the two differ whenever the position
+ * has been re-costed since (after a landed cost, for instance), and a posting
+ * that ignores it puts the sub-ledger out of step with GL 1200 by exactly that
+ * difference.
  */
 export interface DocumentStockResult {
+  /** Signed: positive when value entered stock, negative when it left. */
   readonly valueMoved: Money;
 }
 
 export interface DocumentStockHook {
+  // Deliberately NOT `| void`: a hook that returns nothing puts the caller back
+  // to guessing the value from the document, which is the defect above.
   apply(plan: DocumentStockPlan): Promise<DocumentStockResult>;
 }
 

@@ -106,6 +106,17 @@ export interface CreateGoodsReceiptDeps {
   readonly numbering: NextNumberService;
   readonly policy?: PurchasePolicy;
   readonly now?: () => string;
+  /**
+   * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`. Returns the batch
+   * number to stamp on a line the receiver left blank, or null to leave it
+   * blank. The composition — not the domain — decides whether the tenant asked
+   * for this and whether the item tracks batches at all.
+   */
+  readonly autoBatchNo?: (input: {
+    itemId: string;
+    receiptNumber: string;
+    lineIndex: number;
+  }) => Promise<string | null>;
 }
 
 export interface ConfirmGoodsReceiptDeps extends PurchaseAuditDeps {
@@ -126,6 +137,23 @@ export interface CancelGoodsReceiptDeps extends PurchaseAuditDeps {
 
 function nowIso(deps: { now?: () => string }): string {
   return deps.now ? deps.now() : new Date().toISOString();
+}
+
+async function stampBatchNumbers(
+  lines: readonly GoodsReceiptLine[],
+  receiptNumber: string,
+  deps: CreateGoodsReceiptDeps,
+): Promise<GoodsReceiptLine[]> {
+  const out: GoodsReceiptLine[] = [];
+  for (const [lineIndex, line] of lines.entries()) {
+    if (line.batchNo !== null || !deps.autoBatchNo) {
+      out.push(line);
+      continue;
+    }
+    const batchNo = await deps.autoBatchNo({ itemId: line.itemId, receiptNumber, lineIndex });
+    out.push(batchNo ? { ...line, batchNo } : line);
+  }
+  return out;
 }
 
 // --- pure computations ------------------------------------------------------
@@ -226,7 +254,7 @@ export async function createGoodsReceipt(
     warehouseId: order.warehouseId,
     date: command.date,
     notes: command.notes ?? null,
-    lines,
+    lines: await stampBatchNumbers(lines, number.formatted, deps),
     status: "draft",
     invoiced: false,
     createdBy: command.createdBy ?? "system",
@@ -283,7 +311,7 @@ async function createAdHocGoodsReceipt(
     warehouseId: command.warehouseId as string,
     date: command.date,
     notes: command.notes ?? null,
-    lines,
+    lines: await stampBatchNumbers(lines, number.formatted, deps),
     status: "draft",
     invoiced: false,
     createdBy: command.createdBy ?? "system",

@@ -159,6 +159,8 @@ const READ_PATHS = [
   "/eta/unit-mappings",
   "/eta/tax-subtypes",
   "/hr/payroll/components",
+  "/settings/currencies",
+  "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN",
 ];
 
 interface Failure {

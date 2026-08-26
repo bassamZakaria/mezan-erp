@@ -299,6 +299,7 @@ CREATE TABLE IF NOT EXISTS purchase_invoice (
   receipt_id              TEXT,
   lines                   TEXT NOT NULL,
   status                  TEXT NOT NULL,
+  fx_rate                 TEXT,
   created_by              TEXT NOT NULL,
   created_at              TEXT NOT NULL
 );
@@ -317,6 +318,7 @@ interface PiRow {
   currency: string;
   notes: string | null;
   receipt_id: string | null;
+  fx_rate: string | null;
   lines: string;
   status: string;
   created_by: string;
@@ -355,6 +357,7 @@ function piToDomain(row: PiRow): PurchaseInvoice {
     currency: row.currency,
     notes: row.notes,
     receiptId: row.receipt_id,
+    fxRate: row.fx_rate,
     lines,
     status: row.status as PurchaseInvoiceStatus,
     createdBy: row.created_by,
@@ -369,13 +372,14 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, lines, status, created_by, created_at)
-      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @lines, @status, @created_by, @created_at)
+      INSERT INTO purchase_invoice (id, number, supplier_id, date, due_date, supplier_invoice_number, branch_id, warehouse_id, currency, notes, receipt_id, lines, status, fx_rate, created_by, created_at)
+      VALUES (@id, @number, @supplier_id, @date, @due_date, @supplier_invoice_number, @branch_id, @warehouse_id, @currency, @notes, @receipt_id, @lines, @status, @fx_rate, @created_by, @created_at)
       ON CONFLICT(id) DO UPDATE SET
         supplier_id = excluded.supplier_id, date = excluded.date, due_date = excluded.due_date,
         supplier_invoice_number = excluded.supplier_invoice_number, branch_id = excluded.branch_id,
         warehouse_id = excluded.warehouse_id, currency = excluded.currency, notes = excluded.notes,
-        receipt_id = excluded.receipt_id, lines = excluded.lines, status = excluded.status
+        receipt_id = excluded.receipt_id, lines = excluded.lines, status = excluded.status,
+        fx_rate = excluded.fx_rate
     `);
     this.selectById = sqlite.prepare(`SELECT * FROM purchase_invoice WHERE id = ?`);
     this.selectAll = sqlite.prepare(`SELECT * FROM purchase_invoice`);
@@ -420,6 +424,7 @@ class SqlitePurchaseInvoiceStore implements PurchaseInvoiceRepository {
         })),
       ),
       status: inv.status,
+      fx_rate: inv.fxRate ?? null,
       created_by: inv.createdBy,
       created_at: inv.createdAt,
     });
@@ -456,6 +461,12 @@ export function createSqliteGoodsReceiptStore(path: SqliteConnectionInput = ":me
 export function createSqlitePurchaseInvoiceStore(path: SqliteConnectionInput = ":memory:"): SqlitePurchaseInvoiceStoreHandle {
   const { sqlite, owned } = openSqliteConnection(path);
   sqlite.exec(CREATE_PI);
+  // `fx_rate` arrived after the table shipped; CREATE TABLE IF NOT EXISTS will
+  // not widen an existing database, so add it in place.
+  const piColumns = sqlite.prepare(`PRAGMA table_info(purchase_invoice)`).all() as { name: string }[];
+  if (!piColumns.some((c) => c.name === "fx_rate")) {
+    sqlite.exec(`ALTER TABLE purchase_invoice ADD COLUMN fx_rate TEXT`);
+  }
   return Object.assign(new SqlitePurchaseInvoiceStore(sqlite), { close: () => { if (owned) sqlite.close(); } });
 }
 

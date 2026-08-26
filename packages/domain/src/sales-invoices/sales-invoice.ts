@@ -123,6 +123,13 @@ export interface SalesInvoice {
   readonly customerNameAr: string;
   /** Whether the customer is tax-exempt — forces every line's tax to zero. */
   readonly customerTaxExempt: boolean;
+  /**
+   * Whether this invoice's unit prices already contain the tax. Stamped from
+   * the tenant's `taxCalculation` setting when the draft is raised and never
+   * re-read: changing the setting must not restate an invoice that is already
+   * in the books.
+   */
+  readonly taxInclusive: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
   /**

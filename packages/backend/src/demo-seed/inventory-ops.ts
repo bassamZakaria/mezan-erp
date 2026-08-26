@@ -424,6 +424,16 @@ export async function seedInventoryOps(app: App): Promise<void> {
 
   await seedPhysicalCounts(app);
 
+  // The batch runs on the tenant's own bands (settings §سياسة المخزون), so the
+  // demo tenant has to be one that actually provisions its slow-moving stock.
+  const settings = (await step(app, "GET", "/settings")) as Record<string, unknown>;
+  await step(app, "PUT", "/settings", {
+    ...settings,
+    agingWritedownEnabled: true,
+    agingWritedownMonths: 3,
+    agingWritedownRatePercent: 10,
+  });
+
   const writedownRun = (await step(app, "POST", "/inventory/writedown-runs", {
     period: "2026-08",
   })) as WritedownRunResponse;

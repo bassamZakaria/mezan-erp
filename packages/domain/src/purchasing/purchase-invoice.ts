@@ -14,6 +14,7 @@
 import { Money, Qty } from "../money/index.js";
 import type { AllocatableInvoiceRepository } from "../vouchers/allocation.js";
 import { extend, occurredAtFromDocumentDate, type CostLayerRepository } from "../inventory/index.js";
+import { convertToBase } from "../exchange-rates/convert.js";
 import { NextNumberService } from "../numbering/index.js";
 import type { GoodsReceipt, GoodsReceiptRepository } from "./goods-receipt.js";
 import { markGoodsReceiptInvoiced } from "./goods-receipt.js";
@@ -76,6 +77,13 @@ export interface PurchaseInvoice {
   readonly receiptId: string | null;
   readonly lines: readonly PurchaseInvoiceLine[];
   readonly status: PurchaseInvoiceStatus;
+  /**
+   * The rate this invoice was CONFIRMED at, when its currency is not the base
+   * one. Stamped once, at confirm, so the sub-ledger and every report restate
+   * the same figure the GL was posted with rather than re-deriving a rate that
+   * may since have changed (D24). Null for a base-currency invoice.
+   */
+  readonly fxRate?: string | null;
   readonly createdBy: string;
   readonly createdAt: string;
 }
@@ -133,6 +141,15 @@ export interface ConfirmPurchaseInvoiceDeps extends PurchaseAuditDeps {
    * allocation sees nothing to allocate against.
    */
   readonly allocatable?: AllocatableInvoiceRepository;
+  /**
+   * Exchange rates, so a foreign-currency invoice posts its base-currency value
+   * at the rate that applied on its date and keeps that rate on the payable
+   * line for revaluation (D24). Omit and a non-base currency is refused rather
+   * than posted at 1:1 — silently mis-stating a debt is the worse failure.
+   */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's own currency; anything else on a document needs a rate. */
+  readonly baseCurrency?: string;
   readonly now?: () => string;
 }
 
@@ -185,6 +202,21 @@ export function purchaseInvoiceLineTax(line: {
   const base = purchaseInvoiceLineBase(line);
   const rateScaled = BigInt(Math.round(line.taxRatePercent * Number(TAX_SCALE)));
   return Money.fromScaled(divRoundHalfUp(base.scaled * rateScaled, 100n * TAX_SCALE));
+}
+
+/**
+ * The invoice's total in the BASE currency — what GL 2100 was credited with.
+ * `purchaseInvoiceTotal` is the document's own figure, in the document's own
+ * currency; for a foreign invoice the two differ by the rate it confirmed at
+ * (D24), and a sub-ledger that compares the wrong one to the control account
+ * reads adrift by the whole exchange rate.
+ */
+export function purchaseInvoiceBaseTotal(invoice: {
+  readonly lines: readonly PurchaseInvoiceLine[];
+  readonly fxRate?: string | null;
+}): Money {
+  const total = purchaseInvoiceTotal(invoice);
+  return invoice.fxRate ? convertToBase(total, invoice.fxRate) : total;
 }
 
 /** Σ line bases across all lines (the invoice subtotal, before tax). */
@@ -312,10 +344,11 @@ export async function createPurchaseInvoice(
   const lines = normalizeLines(command.lines);
   validate(lines, command.supplierId);
 
-  const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE);
+  const number = await deps.numbering.next(PURCHASE_INVOICE_SEQUENCE, { branchId: command.branchId });
   const invoice: PurchaseInvoice = {
     id: command.id,
     number: number.formatted,
+    fxRate: null,
     supplierId: command.supplierId,
     date: command.date,
     dueDate: command.dueDate ?? null,
@@ -338,12 +371,23 @@ export async function createPurchaseInvoice(
 export function buildInvoicePosting(
   invoice: PurchaseInvoice,
   accounts: PurchaseGlAccounts,
+  fx?: { readonly rate: string; readonly baseCurrency: string },
 ): PurchaseGlPosting {
-  const inventoryBase = purchaseInvoiceInventoryBase(invoice);
-  const freightBase = purchaseInvoiceFreightBase(invoice);
-  const tax = purchaseInvoiceTax(invoice);
+  // Line amounts are entered in the DOCUMENT's currency. When that is not the
+  // base currency they are converted here, once, at the rate that applied on
+  // the invoice's date — and the payable line keeps the currency and rate, so
+  // the FX revaluation engine can restate the debt later. Without this a
+  // `currency: "USD"` invoice credited 2100 with its USD figure as though it
+  // were EGP, understating the payable by the whole rate (D24).
+  const foreign = fx !== undefined;
+  const convert = (amount: Money): Money => (foreign ? convertToBase(amount, fx.rate) : amount);
+
+  const inventoryBase = convert(purchaseInvoiceInventoryBase(invoice));
+  const freightBase = convert(purchaseInvoiceFreightBase(invoice));
+  const tax = convert(purchaseInvoiceTax(invoice));
   const payable = inventoryBase.add(freightBase).add(tax);
   const freightAccountId = accounts.freightAccountId ?? accounts.inventoryAccountId;
+  const fxTag = foreign ? { currency: invoice.currency, fxRate: fx.rate } : {};
 
   const lines: PurchaseGlPostingLine[] = [];
   if (inventoryBase.scaled !== 0n) {
@@ -355,7 +399,7 @@ export function buildInvoicePosting(
   if (tax.scaled !== 0n) {
     lines.push({ accountId: accounts.taxAccountId, debit: tax, credit: Money.zero() });
   }
-  lines.push({ accountId: accounts.payableAccountId, debit: Money.zero(), credit: payable });
+  lines.push({ accountId: accounts.payableAccountId, debit: Money.zero(), credit: payable, ...fxTag });
 
   return {
     sourceDocType: "PURCHASE_INVOICE",
@@ -383,6 +427,29 @@ export async function confirmPurchaseInvoice(
     throw new PurchaseDocumentNotDraftError(id, invoice.status);
   }
 
+  const baseCurrency = deps.baseCurrency ?? "EGP";
+  let fx: { rate: string; baseCurrency: string } | undefined;
+  if (invoice.currency && invoice.currency !== baseCurrency) {
+    const found = await deps.exchangeRates?.findRate(invoice.currency, invoice.date);
+    if (!found) {
+      throw new InvalidPurchaseDocumentError([
+        `لا يوجد سعر صرف معتمد للعملة ${invoice.currency} بتاريخ ${invoice.date}؛ لا يمكن ترحيل الفاتورة.`,
+      ]);
+    }
+    fx = { rate: found.rate, baseCurrency };
+  }
+
+  // The GL goes FIRST, and this ordering is load-bearing: there is no
+  // transaction around this confirm, so whatever runs before a refusal stays
+  // applied. Posting first means a closed period, an inactive account or an
+  // unbalanced entry leaves nothing behind; with the stock move first, a
+  // refused confirm left the inventory sub-ledger permanently ahead of GL 1200
+  // with no document to explain it (D21). The reverse risk does not exist here:
+  // a purchase invoice's movement is always a receipt IN, which no stock policy
+  // can refuse.
+  const posting = buildInvoicePosting(invoice, deps.accounts, fx);
+  await deps.gl.post(posting);
+
   // Manual invoice (no prior receipt): the invoice IS the stock-in document.
   if (!invoice.receiptId) {
     const stockLines = invoice.lines
@@ -406,14 +473,11 @@ export async function confirmPurchaseInvoice(
     }
   }
 
-  const posting = buildInvoicePosting(invoice, deps.accounts);
-  await deps.gl.post(posting);
-
   if (invoice.receiptId && deps.receipts) {
     await markGoodsReceiptInvoiced(invoice.receiptId, { receipts: deps.receipts });
   }
 
-  const confirmed: PurchaseInvoice = { ...invoice, status: "confirmed" };
+  const confirmed: PurchaseInvoice = { ...invoice, status: "confirmed", fxRate: fx?.rate ?? null };
   await deps.invoices.update(confirmed);
 
   if (deps.allocatable) {

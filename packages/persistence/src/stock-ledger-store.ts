@@ -41,7 +41,9 @@ CREATE TABLE IF NOT EXISTS stock_movement (
   reason            TEXT,
   occurred_at       TEXT NOT NULL,
   batch_no          TEXT,
-  expiry_date       TEXT
+  expiry_date       TEXT,
+  value_delta       INTEGER,
+  revalues_doc_id   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_movement_position ON stock_movement(item_id, warehouse_id, seq);
 CREATE INDEX IF NOT EXISTS idx_movement_item ON stock_movement(item_id, seq);
@@ -114,6 +116,12 @@ function addMissingColumns(sqlite: Database.Database): void {
     if (!has("batch_no")) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN batch_no TEXT`);
     if (!has("expiry_date")) sqlite.exec(`ALTER TABLE ${table} ADD COLUMN expiry_date TEXT`);
   }
+  // Value-only movements (landed costs) came later still, and only the ledger
+  // carries them.
+  const movementColumns = sqlite.prepare(`PRAGMA table_info(stock_movement)`).all() as { name: string }[];
+  const hasMovementColumn = (name: string) => movementColumns.some((c) => c.name === name);
+  if (!hasMovementColumn("value_delta")) sqlite.exec(`ALTER TABLE stock_movement ADD COLUMN value_delta INTEGER`);
+  if (!hasMovementColumn("revalues_doc_id")) sqlite.exec(`ALTER TABLE stock_movement ADD COLUMN revalues_doc_id TEXT`);
   sqlite.exec(
     `CREATE INDEX IF NOT EXISTS idx_layer_expiry ON cost_layer(expiry_date, seq) WHERE expiry_date IS NOT NULL`,
   );
@@ -133,6 +141,8 @@ interface MovementRow {
   occurred_at: string;
   batch_no: string | null;
   expiry_date: string | null;
+  value_delta: number | null;
+  revalues_doc_id: string | null;
 }
 
 interface LayerRow {
@@ -173,6 +183,8 @@ function toMovement(row: MovementRow): StockMovement {
     occurredAt: row.occurred_at,
     batchNo: row.batch_no,
     expiryDate: row.expiry_date,
+    valueDelta: row.value_delta === null ? null : Money.fromScaled(row.value_delta),
+    revaluesSourceDocId: row.revalues_doc_id,
   };
 }
 
@@ -230,11 +242,11 @@ class SqliteStockLedgerStore {
       INSERT INTO stock_movement
         (id, item_id, warehouse_id, direction, qty, unit_cost,
          source_doc_type, source_doc_id, source_doc_number, reason, occurred_at,
-         batch_no, expiry_date)
+         batch_no, expiry_date, value_delta, revalues_doc_id)
       VALUES
         (@id, @item_id, @warehouse_id, @direction, @qty, @unit_cost,
          @source_doc_type, @source_doc_id, @source_doc_number, @reason, @occurred_at,
-         @batch_no, @expiry_date)
+         @batch_no, @expiry_date, @value_delta, @revalues_doc_id)
     `);
     this.selectMovByPosition = sqlite.prepare(
       `SELECT * FROM stock_movement WHERE item_id = ? AND warehouse_id = ? ORDER BY occurred_at, seq`,
@@ -301,6 +313,8 @@ class SqliteStockLedgerStore {
       occurred_at: movement.occurredAt,
       batch_no: movement.batchNo ?? null,
       expiry_date: movement.expiryDate ?? null,
+      value_delta: movement.valueDelta ? movement.valueDelta.toScaledNumber() : null,
+      revalues_doc_id: movement.revaluesSourceDocId ?? null,
     });
   }
 

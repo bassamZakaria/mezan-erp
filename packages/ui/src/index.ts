@@ -13,7 +13,7 @@ export {
   type NumeralSystem,
 } from "./lib/format";
 
-export { useFormat, type UseFormatOptions, type UseFormatResult } from "./hooks/useFormat";
+export { useFormat, NumeralsProvider, type UseFormatOptions, type UseFormatResult } from "./hooks/useFormat";
 export { useTheme, type ThemePreference, type UseThemeResult } from "./hooks/useTheme";
 
 export {

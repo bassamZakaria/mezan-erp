@@ -32,6 +32,13 @@ import {
   PurchaseOrderRequiredError,
   PurchaseItemsAlreadyConsumedError,
   GoodsReceiptAlreadyInvoicedError,
+  InvalidJournalEntryError,
+  AccountNotFoundError,
+  HeaderAccountNotPostableError,
+  InactiveAccountError,
+  NoFiscalPeriodForDateError,
+  PeriodNotOpenForPostingError,
+  NegativeStockError,
   DEFAULT_PURCHASE_POLICY,
   type PurchaseOrder,
   type PurchaseOrderRepository,
@@ -57,6 +64,7 @@ import {
   purchaseInvoiceListQuerySchema,
   type PurchaseInvoiceListQueryDTO,
 } from "@mezan/contracts";
+import type { CurrencyCheck } from "./currency-policy.js";
 import {
   createPermissionGate,
   getAuthContext,
@@ -91,10 +99,22 @@ export interface PurchasesRoutesDeps {
   readonly gl: PurchaseGlPostingPort;
   readonly accounts: PurchaseGlAccounts;
   readonly allocatable?: AllocatableInvoiceRepository;
+  /** Exchange rates, so a foreign-currency invoice posts at the rate of its own date (D24). */
+  readonly exchangeRates?: { findRate(currency: string, asOfDate: string): Promise<{ rate: string } | null> };
+  /** The tenant's own currency; anything else on a document needs a rate. */
+  readonly baseCurrency?: string;
   /** A static value, or a resolver read fresh per request (e.g. off the live tenant settings — no restart needed to apply a toggle). */
   readonly policy?: PurchasePolicy | (() => Promise<PurchasePolicy> | PurchasePolicy);
   /** Item → tax rate % lookup for create-from-receipt auto-fill. Defaults to 0. */
   readonly resolveTaxRate?: (itemId: string) => number;
+  /**
+   * Settings §"سياسة المخزون" → `autoGenerateBatchNumbers`: hands a batch
+   * number to a receipt line the receiver left blank. Omit and a blank batch
+   * stays blank.
+   */
+  readonly autoBatchNo?: (input: { itemId: string; receiptNumber: string; lineIndex: number }) => Promise<string | null>;
+  /** Refuses a document currency the tenant has not enabled (settings §"عام"). */
+  readonly currencyCheck?: CurrencyCheck;
   /**
    * Cost-layer lookups the cancel endpoints use for the "sold-item" guard
    * (`trackSoldPurchaseItems`) and the stock-reversal ports use to find the
@@ -236,6 +256,20 @@ function handleDomainError(c: Context, err: unknown): Response {
       422,
     );
   }
+  // Thrown by the GL port inside the confirm, not by the purchase domain — the
+  // sales, voucher and journal routes all map these; leaving them out here made
+  // a closed period answer 500 on this one module alone (D20).
+  if (
+    err instanceof InvalidJournalEntryError ||
+    err instanceof AccountNotFoundError ||
+    err instanceof HeaderAccountNotPostableError ||
+    err instanceof InactiveAccountError ||
+    err instanceof NoFiscalPeriodForDateError ||
+    err instanceof PeriodNotOpenForPostingError ||
+    err instanceof NegativeStockError
+  ) {
+    return c.json({ error: err.code, message: err.message }, 422);
+  }
   throw err;
 }
 
@@ -286,6 +320,8 @@ export function createPurchasesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const orderCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
+    if (orderCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: orderCurrencyRefusal }, 422);
     try {
       const order = await createPurchaseOrder(
         {
@@ -376,6 +412,7 @@ export function createPurchasesRoutes(
           orders: deps.orders,
           numbering: deps.numbering,
           policy: await resolvePolicy(),
+          autoBatchNo: deps.autoBatchNo,
           now: deps.now,
         },
       );
@@ -595,6 +632,8 @@ export function createPurchasesRoutes(
     if (!parsed.success) {
       return c.json({ error: "VALIDATION_ERROR", details: parsed.error.flatten() }, 400);
     }
+    const invoiceCurrencyRefusal = await deps.currencyCheck?.(parsed.data.currency);
+    if (invoiceCurrencyRefusal) return c.json({ error: "CURRENCY_NOT_ALLOWED", message: invoiceCurrencyRefusal }, 422);
     try {
       // create-from-receipt: auto-fill lines from a confirmed receipt when omitted.
       let lines: PurchaseInvoiceLine[] | undefined;
@@ -655,6 +694,8 @@ export function createPurchasesRoutes(
         gl: deps.gl,
         accounts: deps.accounts,
         allocatable: deps.allocatable,
+        exchangeRates: deps.exchangeRates,
+        baseCurrency: deps.baseCurrency,
         audit: audit(c),
         actor: actor(c),
         now: deps.now,

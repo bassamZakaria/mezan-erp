@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { matchesSearch } from "@mezan/domain";
 import {
   Button,
   Card,
@@ -204,7 +205,7 @@ export function ConfigurableProductsScreen() {
     if (statusFilter !== "all") rows = rows.filter((p) => p.status === statusFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
-      rows = rows.filter((p) => p.code.toLowerCase().includes(q) || p.nameAr.includes(search.trim()));
+      rows = rows.filter((p) => matchesSearch(search, p.code, p.nameAr));
     }
     return rows;
   }, [products, statusFilter, search]);

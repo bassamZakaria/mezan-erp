@@ -36,12 +36,7 @@ export async function run(ctx: Ctx): Promise<void> {
       ctx.checkEq("AP sub-ledger reconciles exactly to GL 2100", ctx.n(ap.subLedgerBalance), ctx.n(ap.glBalance));
     }
     if (ar) {
-      const diff = ctx.n(ar.subLedgerBalance) - ctx.n(ar.glBalance);
-      ctx.check(
-        "D1 — AR sub-ledger stays adrift from GL 1105 (a confirmed collection voucher never moves the invoice's amountPaid)",
-        Math.abs(diff) > 0.01,
-        `measured diff ${diff.toFixed(2)}`,
-      );
+      ctx.checkEq("AR sub-ledger reconciles exactly to GL 1105", ctx.n(ar.subLedgerBalance), ctx.n(ar.glBalance));
     }
   });
 

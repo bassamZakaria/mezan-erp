@@ -458,10 +458,683 @@ export async function run(ctx: Ctx): Promise<void> {
   // scenario-only approval chain must not outlive this file: it silently held
   // the sales module's own returns بانتظار الموافقة and hid what they assert.
   // ---------------------------------------------------------------------
+  await settingsPoliciesAreLive(ctx);
+  await taxSettingsAreLive(ctx);
+  await generalSettingsAreLive(ctx);
+
   await ctx.scenario("platform / teardown — remove the scenario-only approval chain", async () => {
     const del = await req("DELETE", `/workflow/configs/${scnReturnConfigId}`, undefined, {});
     check("scenario SALES_RETURN_CONFIRM config deleted", del.status === 204, `${del.status}: ${JSON.stringify(del.body)}`);
     const configs = await req("GET", "/workflow/configs", undefined, {});
     check("no SALES_RETURN_CONFIRM chain is left behind", !rows(configs.body).some((c: any) => c.actionType === "SALES_RETURN_CONFIRM"), JSON.stringify(rows(configs.body).map((c: any) => c.actionType)));
+  });
+}
+
+/**
+ * R11.2 — the سياسة المخزون switches govern behaviour, not just their own row
+ * in the settings table. Each check below flips one switch through the same
+ * PUT /settings the screen calls and then drives the document the switch
+ * claims to govern. Every position this touches is returned to where it
+ * started, because every later module runs against this same tenant.
+ */
+async function settingsPoliciesAreLive(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, scenario } = ctx;
+
+  const ITEM = "SCN-SET-STOCK";
+  const WAREHOUSE = "WH-MAIN";
+
+  async function settings() {
+    return (await req("GET", "/settings")).body;
+  }
+  async function setPolicy(patch: Record<string, unknown>) {
+    return req("PUT", "/settings", { ...(await settings()), ...patch });
+  }
+  async function adjust(id: string, direction: "IN" | "OUT", qty: string, unitCost?: string) {
+    await req("POST", "/inventory/stock-adjustments/draft", {
+      id,
+      date: "2026-08-24",
+      lines: [{ itemId: ITEM, warehouseId: WAREHOUSE, reason: "OTHER", direction, qty, ...(unitCost ? { unitCost } : {}) }],
+    });
+    return req("POST", `/inventory/stock-adjustments/${id}/confirm`, {});
+  }
+  async function onHand(): Promise<number> {
+    const res = await req("GET", `/inventory/balance?itemId=${ITEM}&warehouseId=${WAREHOUSE}`);
+    return ctx.n(res.body?.onHand);
+  }
+
+  await scenario("settings / سياسة المخزون — السماح بالمخزون السالب is read by the stock ledger, not just stored", async () => {
+    const created = await req("POST", "/items", {
+      id: ITEM,
+      code: "SCN-SET-STOCK",
+      nameAr: "صنف اختبار سياسة المخزون",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("policy-test item created", created.status === 201, `${created.status}: ${JSON.stringify(created.body).slice(0, 160)}`);
+    const opened = await adjust("SCN-SET-ADJ-IN", "IN", "10", "100");
+    check("10 units opened at 100 each", opened.status === 200, JSON.stringify(opened.body).slice(0, 160));
+
+    const off = await settings();
+    check("السماح بالمخزون السالب is off to begin with", off?.allowNegativeStock === false, JSON.stringify(off?.allowNegativeStock));
+    const refused = await adjust("SCN-SET-ADJ-OVER-1", "OUT", "15");
+    check("issuing 15 of 10 is refused while the switch is off", refused.status !== 200, `status ${refused.status}`);
+    checkEq("and the position is untouched by the refused attempt", await onHand(), 10);
+
+    const on = await setPolicy({ allowNegativeStock: true });
+    check("the switch turns on and persists", on.status === 200 && on.body?.allowNegativeStock === true, `status ${on.status}`);
+    const allowed = await adjust("SCN-SET-ADJ-OVER-2", "OUT", "15");
+    check("the SAME issue now posts — the ledger read the live setting", allowed.status === 200, JSON.stringify(allowed.body).slice(0, 200));
+    checkEq("the position is genuinely negative, not silently clamped to zero", await onHand(), -5);
+
+    const restored = await adjust("SCN-SET-ADJ-BACK", "IN", "5", "100");
+    check("the position is brought back to zero", restored.status === 200, JSON.stringify(restored.body).slice(0, 160));
+    checkEq("on-hand is back to zero for every later module", await onHand(), 0);
+    const back = await setPolicy({ allowNegativeStock: false });
+    check("the switch is restored to off", back.status === 200 && back.body?.allowNegativeStock === false, `status ${back.status}`);
+  });
+
+  await scenario("settings / سياسة المخزون — السماح بالطلبات المؤجلة licenses a SALE only, never an adjustment", async () => {
+    const on = await setPolicy({ allowBackorder: true, allowNegativeStock: false });
+    check("back-orders on, negative stock still off", on.status === 200 && on.body?.allowBackorder === true && on.body?.allowNegativeStock === false, `status ${on.status}`);
+
+    const refused = await adjust("SCN-SET-ADJ-BO", "OUT", "3");
+    check("a stock adjustment is STILL refused — a back-order is not a licence to write stock off", refused.status !== 200, `status ${refused.status}`);
+    checkEq("and the position stays at zero", await onHand(), 0);
+
+    const invoice = await req("POST", "/sales-invoices", {
+      id: "SCN-SET-INV-BO",
+      date: "2026-08-24",
+      dueDate: "2026-09-23",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      warehouseId: WAREHOUSE,
+      branchId: "BR-MAIN",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: "SCN-SET-INV-BO-L1",
+          itemId: ITEM,
+          itemNameAr: "صنف اختبار سياسة المخزون",
+          isStock: true,
+          qty: "3",
+          unitPrice: "150",
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+          cogsAccountId: "5100",
+          inventoryAccountId: "1200",
+        },
+      ],
+    });
+    check("a sale of 3 against an empty position drafts", invoice.status === 201, JSON.stringify(invoice.body).slice(0, 200));
+    const confirmed = await req("POST", "/sales-invoices/SCN-SET-INV-BO/confirm", {});
+    check("and CONFIRMS, because a back-order is exactly what the tenant asked for", confirmed.status === 200 && confirmed.body?.status === "confirmed", JSON.stringify(confirmed.body).slice(0, 200));
+    checkEq("the shortfall is recorded as a negative position, not hidden", await onHand(), -3);
+
+    const restored = await adjust("SCN-SET-ADJ-BO-BACK", "IN", "3", "0");
+    check("goods arrive and clear the back-order", restored.status === 200, JSON.stringify(restored.body).slice(0, 160));
+    checkEq("the position is level again", await onHand(), 0);
+
+    const back = await setPolicy({ allowBackorder: false });
+    check("back-orders restored to off", back.status === 200 && back.body?.allowBackorder === false, `status ${back.status}`);
+    const refusedAgain = await req("POST", "/sales-invoices", {
+      id: "SCN-SET-INV-BO-2",
+      date: "2026-08-24",
+      dueDate: "2026-09-23",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      warehouseId: WAREHOUSE,
+      branchId: "BR-MAIN",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: "SCN-SET-INV-BO-2-L1",
+          itemId: ITEM,
+          itemNameAr: "صنف اختبار سياسة المخزون",
+          isStock: true,
+          qty: "3",
+          unitPrice: "150",
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+          cogsAccountId: "5100",
+          inventoryAccountId: "1200",
+        },
+      ],
+    });
+    const stillRefused = await req("POST", "/sales-invoices/SCN-SET-INV-BO-2/confirm", {});
+    check("with the switch off the same sale is refused again", refusedAgain.status === 201 && stillRefused.status !== 200, `draft ${refusedAgain.status} confirm ${stillRefused.status}`);
+    checkEq("and the position is still level", await onHand(), 0);
+  });
+
+  await scenario("settings / سياسة المخزون — السماح بالبيع من مستودع آخر sources a line the document's warehouse cannot cover", async () => {
+    const original = await settings();
+    const item = "SCN-SET-XW";
+    const other = "WH-DEMO-2";
+    const created = await req("POST", "/items", {
+      id: item,
+      code: "SCN-SET-XW",
+      nameAr: "صنف اختبار البيع من مستودع آخر",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a stock item exists", created.status === 201, `${created.status}: ${JSON.stringify(created.body).slice(0, 160)}`);
+
+    await req("POST", "/inventory/stock-adjustments/draft", {
+      id: "SCN-SET-XW-ADJ",
+      date: "2026-08-24",
+      lines: [{ itemId: item, warehouseId: other, reason: "INITIAL_STOCK", direction: "IN", qty: "20", unitCost: "50" }],
+    });
+    const opened = await req("POST", "/inventory/stock-adjustments/SCN-SET-XW-ADJ/confirm", {});
+    check("20 units are opened in the OTHER warehouse only", opened.status === 200, JSON.stringify(opened.body).slice(0, 160));
+
+    async function onHandAt(wh: string): Promise<number> {
+      return ctx.n((await req("GET", `/inventory/balance?itemId=${item}&warehouseId=${wh}`)).body?.onHand);
+    }
+    checkEq("the document's warehouse holds none of it", await onHandAt(WAREHOUSE), 0);
+
+    function sell(id: string) {
+      return req("POST", "/sales-invoices", {
+        id,
+        date: "2026-08-24",
+        dueDate: "2026-09-23",
+        customerId: "CUST-DEMO-1",
+        customerNameAr: "شركة الأمل للتجارة",
+        warehouseId: WAREHOUSE,
+        branchId: "BR-MAIN",
+        currency: "EGP",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [
+          {
+            lineId: "L1",
+            itemId: item,
+            itemNameAr: "صنف اختبار البيع من مستودع آخر",
+            isStock: true,
+            qty: "5",
+            unitPrice: "90",
+            taxRatePercent: 14,
+            revenueAccountId: "4100",
+            cogsAccountId: "5100",
+            inventoryAccountId: "1200",
+          },
+        ],
+      });
+    }
+
+    const off = await setPolicy({ allowCrossWarehouseSales: false, allowNegativeStock: false, allowBackorder: false });
+    check("selling from another warehouse is off", off.status === 200 && off.body?.allowCrossWarehouseSales === false, `status ${off.status}`);
+    await sell("SCN-SET-XW-INV-1");
+    const refused = await req("POST", "/sales-invoices/SCN-SET-XW-INV-1/confirm", {});
+    check("the sale is refused — the named warehouse is empty and nothing licenses looking elsewhere", refused.status !== 200, `status ${refused.status} ${JSON.stringify(refused.body).slice(0, 200)}`);
+
+    const on = await setPolicy({ allowCrossWarehouseSales: true });
+    check("the tenant allows selling from another warehouse", on.status === 200 && on.body?.allowCrossWarehouseSales === true, `status ${on.status}`);
+    const posted = await req("POST", "/sales-invoices/SCN-SET-XW-INV-1/confirm", {});
+    check("the same sale now confirms", posted.status === 200 && posted.body?.status === "confirmed", `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 200)}`);
+    checkEq("the goods left the warehouse that actually had them", await onHandAt(other), 15);
+    checkEq("and the empty warehouse was NOT driven negative behind the user's back", await onHandAt(WAREHOUSE), 0);
+
+    const restore = await setPolicy({
+      allowCrossWarehouseSales: original?.allowCrossWarehouseSales,
+      allowNegativeStock: original?.allowNegativeStock,
+      allowBackorder: original?.allowBackorder,
+    });
+    check(
+      "the three switches are left exactly where the tenant had them",
+      restore.status === 200 && restore.body?.allowCrossWarehouseSales === original?.allowCrossWarehouseSales,
+      `status ${restore.status}`,
+    );
+  });
+
+  await scenario("settings / سياسة المخزون — عرض المخزون في المستودعات الأخرى decides what a line's availability lookup may say", async () => {
+    const path = "/inventory/availability?itemId=ITEM-DEMO-1&warehouseId=WH-MAIN";
+    const on = await setPolicy({ showOtherWarehouseStock: true });
+    check("the switch is on", on.status === 200 && on.body?.showOtherWarehouseStock === true, `status ${on.status}`);
+
+    const withOthers = await req("GET", path);
+    check("the availability lookup answers for the document's own warehouse", withOthers.status === 200 && withOthers.body?.warehouseId === WAREHOUSE, `${withOthers.status}: ${JSON.stringify(withOthers.body).slice(0, 200)}`);
+    check("and says so is on", withOthers.body?.showOtherWarehouseStock === true, JSON.stringify(withOthers.body?.showOtherWarehouseStock));
+    check(
+      "and it really lists what the OTHER warehouses hold, with a real warehouse id on every row",
+      (withOthers.body?.otherWarehouses ?? []).length > 0 &&
+        (withOthers.body?.otherWarehouses ?? []).every((w: any) => typeof w.warehouseId === "string" && w.warehouseId !== WAREHOUSE),
+      JSON.stringify(withOthers.body?.otherWarehouses),
+    );
+
+    const off = await setPolicy({ showOtherWarehouseStock: false });
+    check("the switch is turned off", off.status === 200 && off.body?.showOtherWarehouseStock === false, `status ${off.status}`);
+    const withoutOthers = await req("GET", path);
+    check("the same lookup still reports this warehouse's own on-hand", withoutOthers.status === 200 && withoutOthers.body?.onHand === withOthers.body?.onHand, `${withoutOthers.status}: ${JSON.stringify(withoutOthers.body).slice(0, 200)}`);
+    check("but says nothing at all about the other warehouses — the server withholds it, the screen never had to", (withoutOthers.body?.otherWarehouses ?? []).length === 0, JSON.stringify(withoutOthers.body?.otherWarehouses));
+
+    const back = await setPolicy({ showOtherWarehouseStock: true });
+    check("the switch is restored", back.status === 200 && back.body?.showOtherWarehouseStock === true, `status ${back.status}`);
+  });
+
+  await scenario("settings / سياسة المخزون — مخصص هبوط المخزون الراكد drives the write-down batch's own bands", async () => {
+    const seeded = await settings();
+    const off = await setPolicy({ agingWritedownEnabled: false });
+    check("the provision can be switched off", off.status === 200 && off.body?.agingWritedownEnabled === false, `status ${off.status}`);
+    const disabled = await req("POST", "/inventory/writedown-runs", { period: "2026-07" });
+    check("the batch refuses to run while the provision is switched off", disabled.status === 422 && disabled.body?.error === "AGING_WRITEDOWN_DISABLED", `${disabled.status}: ${JSON.stringify(disabled.body).slice(0, 160)}`);
+
+    const on = await setPolicy({ agingWritedownEnabled: true, agingWritedownMonths: 1, agingWritedownRatePercent: 12.5 });
+    check("the provision is switched on at 12.5% after 1 idle month", on.status === 200 && on.body?.agingWritedownRatePercent === 12.5, `status ${on.status}`);
+
+    const run = await req("POST", "/inventory/writedown-runs", { period: "2026-07" });
+    check("the batch now produces a draft run", run.status === 201, `${run.status}: ${JSON.stringify(run.body).slice(0, 200)}`);
+    const rates = (run.body?.lines ?? []).map((l: any) => l.writedownRateBps);
+    check(
+      "and every line carries the TENANT's 1,250 bps, not the shipped 1,000/2,500/5,000 bands",
+      rates.length > 0 && rates.every((r: number) => r === 1_250),
+      JSON.stringify(rates.slice(0, 8)),
+    );
+
+    const restore = await setPolicy({
+      agingWritedownEnabled: seeded?.agingWritedownEnabled,
+      agingWritedownMonths: seeded?.agingWritedownMonths,
+      agingWritedownRatePercent: seeded?.agingWritedownRatePercent,
+    });
+    check("the tenant's own provision settings are put back", restore.status === 200 && restore.body?.agingWritedownRatePercent === seeded?.agingWritedownRatePercent, `status ${restore.status}`);
+  });
+
+  await scenario("settings / سياسة المخزون — توليد أرقام الدفعات تلقائيًا stamps a batch a receiver left blank", async () => {
+    const batchItem = "SCN-SET-BATCH";
+    const created = await req("POST", "/items", {
+      id: batchItem,
+      code: "SCN-SET-BATCH",
+      nameAr: "صنف اختبار الدفعات",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      trackBatches: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a batch-tracked item exists", created.status === 201, `${created.status}: ${JSON.stringify(created.body).slice(0, 160)}`);
+    check("and it really tracks batches", created.body?.trackBatches === true, JSON.stringify(created.body?.trackBatches));
+
+    const line = { itemId: batchItem, qty: "4", unitCost: "50" };
+    const blank = await req("POST", "/purchases/receipts", {
+      id: "SCN-SET-GRN-1",
+      date: "2026-08-24",
+      supplierId: "SUPP-DEMO-1",
+      warehouseId: WAREHOUSE,
+      lines: [line],
+    });
+    check("a receipt with no batch entered is accepted while the switch is off", blank.status === 201, `${blank.status}: ${JSON.stringify(blank.body).slice(0, 200)}`);
+    check("and its batch stays blank — nothing was invented", blank.body?.lines?.[0]?.batchNo === null, JSON.stringify(blank.body?.lines?.[0]?.batchNo));
+
+    const on = await setPolicy({ autoGenerateBatchNumbers: true });
+    check("auto batch numbers switched on", on.status === 200 && on.body?.autoGenerateBatchNumbers === true, `status ${on.status}`);
+
+    const stamped = await req("POST", "/purchases/receipts", {
+      id: "SCN-SET-GRN-2",
+      date: "2026-08-24",
+      supplierId: "SUPP-DEMO-1",
+      warehouseId: WAREHOUSE,
+      lines: [line],
+    });
+    check("the next receipt drafts", stamped.status === 201, `${stamped.status}: ${JSON.stringify(stamped.body).slice(0, 200)}`);
+    const batchNo = stamped.body?.lines?.[0]?.batchNo;
+    check("and its blank batch was stamped from the receipt's own number", typeof batchNo === "string" && batchNo === `${stamped.body?.number}-01`, JSON.stringify(batchNo));
+
+    const back = await setPolicy({ autoGenerateBatchNumbers: false });
+    check("auto batch numbers restored to off", back.status === 200 && back.body?.autoGenerateBatchNumbers === false, `status ${back.status}`);
+  });
+}
+
+/**
+ * R11.5 — the الضريبة tab. VAT on/off, the default rate, tax-inclusive vs
+ * tax-exclusive pricing and the depreciation basis all had no reader: tax was
+ * computed as if it were always exclusive, a line with no rate carried none,
+ * and depreciation was always day-prorated. Every check below only raises
+ * DRAFTS, so nothing here touches the books.
+ */
+async function taxSettingsAreLive(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, scenario } = ctx;
+
+  async function settings() {
+    return (await req("GET", "/settings")).body;
+  }
+  async function setTax(patch: Record<string, unknown>) {
+    return req("PUT", "/settings", { ...(await settings()), ...patch });
+  }
+  async function draftInvoice(id: string, line: Record<string, unknown>) {
+    return req("POST", "/sales-invoices", {
+      id,
+      date: "2026-08-24",
+      dueDate: "2026-09-23",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      currency: "EGP",
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: `${id}-L1`,
+          itemId: "ITEM-DEMO-1",
+          itemNameAr: "صنف اختبار الضريبة",
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          revenueAccountId: "4100",
+          ...line,
+        },
+      ],
+    });
+  }
+
+  await scenario("settings / الضريبة — نسبة الضريبة الافتراضية is what a line with no rate of its own is raised at", async () => {
+    const before = await settings();
+    checkEq("the tenant's default rate is 14%", ctx.n(before?.defaultTaxRate), 14);
+
+    const draft = await draftInvoice("SCN-SET-TAX-DEFAULT", {});
+    check("a line that names no rate drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    checkEq("and is raised at the tenant's own default, not at zero", ctx.n(draft.body?.lines?.[0]?.taxRatePercent), 14);
+    checkEq("so the invoice carries 14.00 of tax", ctx.n(draft.body?.totals?.taxTotal), 14);
+    checkEq("and totals 114.00", ctx.n(draft.body?.totals?.grandTotal), 114);
+    check("on a tax-exclusive basis", draft.body?.taxInclusive === false, JSON.stringify(draft.body?.taxInclusive));
+  });
+
+  await scenario("settings / الضريبة — الأسعار شاملة الضريبة makes the invoice total the price the customer was quoted", async () => {
+    const inclusive = await setTax({ taxCalculation: "INCLUSIVE" });
+    check("the tenant switches to inclusive pricing", inclusive.status === 200 && inclusive.body?.taxCalculation === "INCLUSIVE", `status ${inclusive.status}`);
+
+    const draft = await draftInvoice("SCN-SET-TAX-INCLUSIVE", { taxRatePercent: 14 });
+    check("the invoice drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    check("and it is stamped inclusive, so a later settings change cannot restate it", draft.body?.taxInclusive === true, JSON.stringify(draft.body?.taxInclusive));
+    checkEq("the customer still pays exactly the 100.00 on the price tag", ctx.n(draft.body?.totals?.grandTotal), 100);
+    checkEq("12.28 of it is the VAT already inside that price (100 × 14/114)", ctx.n(draft.body?.totals?.taxTotal), 12.28);
+    checkEq("and 87.72 is the revenue the GL will see", ctx.n(draft.body?.totals?.taxableTotal), 87.72);
+    checkEq("the two reconcile to the cent", ctx.n(draft.body?.totals?.taxableTotal) + ctx.n(draft.body?.totals?.taxTotal), 100);
+
+    const exclusive = await setTax({ taxCalculation: "EXCLUSIVE" });
+    check("the tenant switches back to exclusive pricing", exclusive.status === 200, `status ${exclusive.status}`);
+
+    const reread = await req("GET", "/sales-invoices/SCN-SET-TAX-INCLUSIVE");
+    check("the invoice raised under inclusive pricing is STILL inclusive after the switch", reread.body?.taxInclusive === true, JSON.stringify(reread.body?.taxInclusive));
+    checkEq("and still totals 100.00 — a settings change never restates a document", ctx.n(reread.body?.totals?.grandTotal), 100);
+
+    const after = await draftInvoice("SCN-SET-TAX-EXCLUSIVE-AGAIN", { taxRatePercent: 14 });
+    check("while a NEW invoice is exclusive again", after.body?.taxInclusive === false, JSON.stringify(after.body?.taxInclusive));
+    checkEq("and totals 114.00", ctx.n(after.body?.totals?.grandTotal), 114);
+  });
+
+  await scenario("settings / الضريبة — تفعيل ضريبة القيمة المضافة off raises every line at a zero rate", async () => {
+    const off = await setTax({ taxEnabled: false });
+    check("VAT is switched off", off.status === 200 && off.body?.taxEnabled === false, `status ${off.status}`);
+
+    const draft = await draftInvoice("SCN-SET-TAX-DISABLED", { taxRatePercent: 14 });
+    check("an invoice still drafts", draft.status === 201, JSON.stringify(draft.body).slice(0, 200));
+    checkEq("but the line's rate is zero even though the caller asked for 14", ctx.n(draft.body?.lines?.[0]?.taxRatePercent), 0);
+    checkEq("no tax is charged", ctx.n(draft.body?.totals?.taxTotal), 0);
+    checkEq("and the invoice totals the goods alone", ctx.n(draft.body?.totals?.grandTotal), 100);
+
+    const item = await req("POST", "/items", {
+      id: "SCN-SET-ITEM-NOVAT",
+      code: "SCN-SET-NOVAT",
+      nameAr: "صنف بلا ضريبة",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    check("a new item is created while VAT is off", item.status === 201, `${item.status}: ${JSON.stringify(item.body).slice(0, 160)}`);
+    checkEq("and inherits a zero rate rather than the built-in 14", ctx.n(item.body?.taxRatePercent), 0);
+
+    const on = await setTax({ taxEnabled: true, defaultTaxRate: 5 });
+    check("VAT is switched back on at a different default", on.status === 200 && ctx.n(on.body?.defaultTaxRate) === 5, `status ${on.status}`);
+    const item5 = await req("POST", "/items", {
+      id: "SCN-SET-ITEM-VAT5",
+      code: "SCN-SET-VAT5",
+      nameAr: "صنف بضريبة 5%",
+      type: "stock",
+      baseUnitCode: "PCS",
+      trackInventory: true,
+      revenueAccountId: "4100",
+      cogsAccountId: "5100",
+      inventoryAccountId: "1200",
+    });
+    checkEq("a new item inherits the tenant's rate, not a number baked into the code", ctx.n(item5.body?.taxRatePercent), 5);
+
+    const restore = await setTax({ defaultTaxRate: 14 });
+    check("the default rate is restored", restore.status === 200 && ctx.n(restore.body?.defaultTaxRate) === 14, `status ${restore.status}`);
+  });
+
+  await scenario("settings / الضريبة — الإهلاك في شهر الاقتناء picks the basis the depreciation run uses", async () => {
+    const asset = (id: string, start: string) => ({
+      id,
+      code: id,
+      nameAr: `أصل اختبار الإهلاك ${id}`,
+      categoryId: "ASSET-CAT-DEMO-1",
+      scope: "general",
+      acquisitionDate: start,
+      acquisitionCost: "31000",
+      depreciationStartDate: start,
+      usefulLifeMonths: 10,
+      salvageValue: "0",
+    });
+    const a = await req("POST", "/assets", asset("SCN-SET-ASSET-A", "2026-05-20"));
+    const b = await req("POST", "/assets", asset("SCN-SET-ASSET-B", "2026-06-20"));
+    check("two identical assets, each acquired on the 20th of its own month", a.status === 201 && b.status === 201, `${a.status}/${b.status}`);
+
+    // 31,000 over 10 months is 3,100 a month; May has 31 days and the asset was
+    // in service for 12 of them, so a day-prorated May charge is 1,200.
+    const daily = await setTax({ depreciationProrate: "DAILY" });
+    check("the tenant's basis is the IFRS daily proration", daily.status === 200 && daily.body?.depreciationProrate === "DAILY", `status ${daily.status}`);
+    const mayRun = await req("POST", "/assets/depreciation/runs", { period: "2026-05" });
+    check("the May run drafts", mayRun.status === 201, `${mayRun.status}: ${JSON.stringify(mayRun.body).slice(0, 200)}`);
+    const mayLine = (mayRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-A");
+    checkEq("and charges 12 of May's 31 days, not a whole month", ctx.n(mayLine?.amount), 1200);
+
+    const fullMonth = await setTax({ depreciationProrate: "FULL_MONTH" });
+    check("the tenant switches to a whole month in the month of acquisition", fullMonth.status === 200 && fullMonth.body?.depreciationProrate === "FULL_MONTH", `status ${fullMonth.status}`);
+    const juneRun = await req("POST", "/assets/depreciation/runs", { period: "2026-06" });
+    check("the June run drafts", juneRun.status === 201, `${juneRun.status}: ${JSON.stringify(juneRun.body).slice(0, 200)}`);
+    const juneLine = (juneRun.body?.lines ?? []).find((l: any) => l.assetId === "SCN-SET-ASSET-B");
+    checkEq("and the identical asset acquired on the 20th now carries the whole 3,100", ctx.n(juneLine?.amount), 3100);
+
+    const restore = await setTax({ depreciationProrate: "DAILY" });
+    check("the basis is restored", restore.status === 200 && restore.body?.depreciationProrate === "DAILY", `status ${restore.status}`);
+  });
+}
+
+/**
+ * R11.7 / R11.1 — the عام and الرقابة الائتمانية tabs. Multi-currency, the list
+ * of usable currencies, the missing-rate policy and the price-list switch all
+ * had no reader: any three-letter string reached the ledger, the strict refusal
+ * was hardcoded, and turning price lists off left every invoice still measured
+ * against one.
+ */
+async function generalSettingsAreLive(ctx: Ctx): Promise<void> {
+  const { req, check, checkEq, scenario } = ctx;
+
+  async function settings() {
+    return (await req("GET", "/settings")).body;
+  }
+  async function set(patch: Record<string, unknown>) {
+    return req("PUT", "/settings", { ...(await settings()), ...patch });
+  }
+  function invoiceIn(id: string, currency: string) {
+    return req("POST", "/sales-invoices", {
+      id,
+      date: "2026-08-24",
+      dueDate: "2026-09-23",
+      customerId: "CUST-DEMO-1",
+      customerNameAr: "شركة الأمل للتجارة",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      currency,
+      arAccountId: "1105",
+      taxAccountId: "2200",
+      lines: [
+        {
+          lineId: `${id}-L1`,
+          itemId: "ITEM-DEMO-1",
+          itemNameAr: "صنف اختبار العملة",
+          isStock: false,
+          qty: "1",
+          unitPrice: "100",
+          taxRatePercent: 14,
+          revenueAccountId: "4100",
+        },
+      ],
+    });
+  }
+
+  await scenario("settings / عام — تعدد العملات decides which currencies a document may carry", async () => {
+    const base = await settings();
+    const off = await set({ multiCurrencyEnabled: false });
+    check("multi-currency can be switched off", off.status === 200 && off.body?.multiCurrencyEnabled === false, `status ${off.status}`);
+
+    const currenciesOff = await req("GET", "/settings/currencies");
+    check("and the allowed list is the base currency alone", currenciesOff.status === 200 && JSON.stringify(currenciesOff.body?.allowed) === JSON.stringify(["EGP"]), JSON.stringify(currenciesOff.body));
+
+    const refused = await invoiceIn("SCN-SET-CUR-USD-1", "USD");
+    check("a USD invoice is refused while multi-currency is off", refused.status === 422 && refused.body?.error === "CURRENCY_NOT_ALLOWED", `${refused.status}: ${JSON.stringify(refused.body).slice(0, 180)}`);
+
+    const on = await set({ multiCurrencyEnabled: true });
+    check("multi-currency is switched on", on.status === 200 && on.body?.multiCurrencyEnabled === true, `status ${on.status}`);
+    const currenciesOn = await req("GET", "/settings/currencies");
+    check("the allowed list now carries the base plus the tenant's own additions", (currenciesOn.body?.allowed ?? []).includes("USD"), JSON.stringify(currenciesOn.body?.allowed));
+
+    const accepted = await invoiceIn("SCN-SET-CUR-USD-2", "USD");
+    check("the same USD invoice is now accepted", accepted.status === 201, `${accepted.status}: ${JSON.stringify(accepted.body).slice(0, 180)}`);
+    check("and really carries USD", accepted.body?.currency === "USD", JSON.stringify(accepted.body?.currency));
+
+    const notListed = await invoiceIn("SCN-SET-CUR-GBP", "GBP");
+    check("a currency the tenant did NOT list is still refused — the list is not decoration", notListed.status === 422 && notListed.body?.error === "CURRENCY_NOT_ALLOWED", `${notListed.status}: ${JSON.stringify(notListed.body).slice(0, 180)}`);
+
+    const withGbp = await set({ secondaryCurrencies: [...(base?.secondaryCurrencies ?? []), "GBP"] });
+    check("GBP is added to the list", withGbp.status === 200 && (withGbp.body?.secondaryCurrencies ?? []).includes("GBP"), `status ${withGbp.status}`);
+    const gbpNow = await invoiceIn("SCN-SET-CUR-GBP-2", "GBP");
+    check("and the same GBP invoice goes through", gbpNow.status === 201, `${gbpNow.status}: ${JSON.stringify(gbpNow.body).slice(0, 180)}`);
+
+    const restore = await set({
+      secondaryCurrencies: base?.secondaryCurrencies,
+      multiCurrencyEnabled: base?.multiCurrencyEnabled,
+    });
+    check("the tenant's own currency configuration is put back", restore.status === 200 && restore.body?.multiCurrencyEnabled === base?.multiCurrencyEnabled, `status ${restore.status}`);
+  });
+
+  await scenario("settings / عام — سياسة عدم وجود سعر صرف decides whether a rate-less document may post", async () => {
+    // A currency of this scenario's own, so the debt it leaves behind cannot
+    // disturb the USD revaluation a later module measures: one approved SAR
+    // rate, dated AFTER the document — exactly the "no rate on or before my own
+    // date" case the policy governs.
+    const rate = await req("POST", "/exchange-rates", {
+      id: "SCN-SET-FX-SAR", currency: "SAR", rate: "13.20", effectiveDate: "2026-08-01", rateType: "standard", source: "manual",
+    });
+    check("a SAR rate is recorded", rate.status === 201, `${rate.status}: ${JSON.stringify(rate.body).slice(0, 180)}`);
+    const approved = await req("POST", "/exchange-rates/SCN-SET-FX-SAR/approve", {});
+    check("and approved", approved.body?.status === "approved", JSON.stringify(approved.body).slice(0, 180));
+
+    const draft = await req("POST", "/purchases/invoices", {
+      id: "SCN-SET-FX-PI",
+      supplierId: "SUPP-DEMO-1",
+      date: "2026-07-15",
+      dueDate: "2026-08-15",
+      warehouseId: "WH-MAIN",
+      branchId: "BR-MAIN",
+      currency: "SAR",
+      lines: [{ itemId: null, kind: "expense", description: "خدمة بالريال", qty: "1", unitCost: "100", taxRatePercent: 0 }],
+    });
+    check("a SAR purchase invoice dated before that rate drafts", draft.status === 201, `${draft.status}: ${JSON.stringify(draft.body).slice(0, 220)}`);
+
+    const strict = await req("POST", "/purchases/invoices/SCN-SET-FX-PI/confirm", {});
+    check("STRICT refuses to post it — the ledger will not guess a rate", strict.status !== 200, `status ${strict.status} ${JSON.stringify(strict.body).slice(0, 200)}`);
+
+    const allow = await set({ fxRateMissingPolicy: "ALLOW_MISSING" });
+    check("the tenant relaxes the policy", allow.status === 200 && allow.body?.fxRateMissingPolicy === "ALLOW_MISSING", `status ${allow.status}`);
+
+    const posted = await req("POST", "/purchases/invoices/SCN-SET-FX-PI/confirm", {});
+    check("and the same invoice now posts", posted.status === 200, `status ${posted.status} ${JSON.stringify(posted.body).slice(0, 200)}`);
+
+    const je = await req("GET", "/gl/journal-entries/PI-JE:SCN-SET-FX-PI");
+    const payable = (je.body?.lines ?? []).find((l: any) => ctx.n(l.credit) > 0);
+    checkEq("at the tenant's nearest approved rate (13.20), not at 1:1", ctx.n(payable?.credit), 1320);
+    check("and the posted line records the currency and the rate it used", payable?.currency === "SAR" && ctx.n(payable?.fxRate) === 13.2, JSON.stringify(payable));
+
+    const back = await set({ fxRateMissingPolicy: "STRICT" });
+    check("the missing-rate policy is restored", back.status === 200 && back.body?.fxRateMissingPolicy === "STRICT", `status ${back.status}`);
+  });
+
+  await scenario("settings / الرقابة الائتمانية — تفعيل قوائم الأسعار decides whether an invoice is measured against one", async () => {
+    const itemId = "SCN-SET-PL-ITEM";
+    await req("POST", "/items", {
+      id: itemId,
+      code: "SCN-SET-PL",
+      nameAr: "صنف بقائمة أسعار",
+      type: "service",
+      baseUnitCode: "PCS",
+      trackInventory: false,
+      revenueAccountId: "4100",
+    });
+    const list = await req("POST", "/price-lists", {
+      id: "SCN-SET-PL-1",
+      code: "SCN-SET-PL",
+      nameAr: "قائمة أسعار اختبار الإعدادات",
+      lines: [{ itemId, price: "80.00" }],
+    });
+    check("a price list quoting 80 is created", list.status === 201, `${list.status}: ${JSON.stringify(list.body).slice(0, 180)}`);
+    const customer = await req("POST", "/customers", {
+      id: "SCN-SET-PL-CUST",
+      code: "SCN-SET-PLC",
+      nameAr: "عميل قائمة أسعار الإعدادات",
+      priceListId: "SCN-SET-PL-1",
+      currency: "EGP",
+    });
+    check("and a customer assigned to it", customer.status === 201 && customer.body?.priceListId === "SCN-SET-PL-1", `${customer.status}: ${JSON.stringify(customer.body).slice(0, 180)}`);
+
+    function underList(id: string) {
+      return req("POST", "/sales-invoices", {
+        id,
+        date: "2026-08-24",
+        dueDate: "2026-09-23",
+        customerId: "SCN-SET-PL-CUST",
+        customerNameAr: "عميل قائمة أسعار الإعدادات",
+        warehouseId: "WH-MAIN",
+        branchId: "BR-MAIN",
+        currency: "EGP",
+        arAccountId: "1105",
+        taxAccountId: "2200",
+        lines: [{ lineId: "L1", itemId, itemNameAr: "صنف بقائمة أسعار", isStock: false, qty: "1", unitPrice: "5.00", taxRatePercent: 14, revenueAccountId: "4100" }],
+      });
+    }
+
+    const off = await set({ priceListsEnabled: false });
+    check("price lists are switched off", off.status === 200 && off.body?.priceListsEnabled === false, `status ${off.status}`);
+    await underList("SCN-SET-PL-INV-OFF");
+    const confirmedOff = await req("POST", "/sales-invoices/SCN-SET-PL-INV-OFF/confirm", {});
+    check("an invoice five pounds under the list confirms", confirmedOff.status === 200, `status ${confirmedOff.status}`);
+    check("and reports NO variance — a tenant that does not use price lists is not nagged about them", (confirmedOff.body?.pricingVariances ?? []).length === 0, JSON.stringify(confirmedOff.body?.pricingVariances));
+
+    const on = await set({ priceListsEnabled: true });
+    check("price lists are switched back on", on.status === 200 && on.body?.priceListsEnabled === true, `status ${on.status}`);
+    await underList("SCN-SET-PL-INV-ON");
+    const confirmedOn = await req("POST", "/sales-invoices/SCN-SET-PL-INV-ON/confirm", {});
+    const variances = (confirmedOn.body?.pricingVariances ?? []) as any[];
+    check(
+      "and the identical invoice now reports the line charged under the customer's list",
+      confirmedOn.status === 200 && variances.length === 1 && ctx.n(variances[0]?.listPrice) === 80 && ctx.n(variances[0]?.chargedPrice) === 5,
+      `status ${confirmedOn.status} ${JSON.stringify(variances).slice(0, 200)}`,
+    );
   });
 }

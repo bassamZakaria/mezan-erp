@@ -313,6 +313,9 @@ export {
   journalEntryStatusSchema,
   glJournalLineSchema,
   createGlJournalEntrySchema,
+  closeFiscalYearSchema,
+  recordVatFilingSchema,
+  amendVatFilingSchema,
   reverseGlJournalEntrySchema,
   glJournalListQuerySchema,
   journalSourceModuleSchema,
@@ -947,6 +950,7 @@ export {
   createAssetCategorySchema,
   assetSchema,
   createAssetSchema,
+  disposeAssetSchema,
   depreciationRunStatusSchema,
   depreciationRunLineSchema,
   depreciationRunSchema,
@@ -958,6 +962,7 @@ export {
   type CreateAssetCategoryDTO,
   type AssetDTO,
   type CreateAssetDTO,
+  type DisposeAssetDTO,
   type DepreciationRunStatusDTO,
   type DepreciationRunLineDTO,
   type DepreciationRunDTO,
@@ -1367,3 +1372,11 @@ export {
 } from "./workflow.js";
 
 export { listCountsSchema, listStatsSchema, type ListCountsDTO, type ListStatsDTO } from "./list-aggregates.js";
+export {
+  sendTestEmailSchema,
+  testEmailResultSchema,
+  allowedCurrenciesSchema,
+  type SendTestEmailDTO,
+  type TestEmailResultDTO,
+  type AllowedCurrenciesDTO,
+} from "./settings.js";

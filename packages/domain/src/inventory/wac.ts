@@ -25,9 +25,9 @@
  * integers on every engine, which the golden fixtures lock down.
  */
 
-import { Money, Qty } from "../money/index.js";
+import { Money, Qty, allocate } from "../money/index.js";
 import { CostLayer, drawDownLayer, layerRemainingValue, orderLayersForConsumption } from "./cost-layer.js";
-import { StockMovement, signedQty } from "./movement.js";
+import { StockMovement, isRevaluation, signedQty } from "./movement.js";
 import { extend, unitCostOf } from "./wac-math.js";
 
 export interface WacPosition {
@@ -101,6 +101,28 @@ export function replay(
   let layers: CostLayer[] = [];
 
   for (const m of movements) {
+    if (isRevaluation(m)) {
+      // Value in, no quantity: raise the position's basis, and raise the unit
+      // cost of the specific layers the named receipt created, in proportion to
+      // their original quantity — the same arithmetic the live engine applies.
+      const delta = m.valueDelta as Money;
+      const signed = m.direction === "IN" ? delta : Money.fromScaled(-delta.scaled);
+      totalValue = totalValue.add(signed);
+      const targets = layers.filter((l) => l.sourceDocId === m.revaluesSourceDocId);
+      const weights = targets.map((l) => l.originalQty.scaled);
+      if (targets.length > 0 && weights.some((wgt) => wgt !== 0n)) {
+        const shares = allocate(signed, weights);
+        const bumped = new Map(
+          targets.map((l, i) => {
+            const share = shares[i] as Money;
+            if (l.originalQty.isZero() || share.scaled === 0n) return [l.id, l] as const;
+            return [l.id, { ...l, unitCost: l.unitCost.add(unitCostOf(share, l.originalQty)) }] as const;
+          }),
+        );
+        layers = layers.map((l) => bumped.get(l.id) ?? l);
+      }
+      continue;
+    }
     if (m.direction === "IN") {
       totalValue = totalValue.add(extend(m.qty, m.unitCost));
       onHand = onHand.add(m.qty);
@@ -119,8 +141,17 @@ export function replay(
         expiryDate: m.expiryDate ?? null,
       });
     } else {
-      const movingAvg = unitCostOf(totalValue, onHand);
-      const cogs = extend(m.qty, movingAvg);
+      // Value the issue at the cost the LEDGER recorded, not at a freshly
+      // recomputed average. The movement carries the average it actually left
+      // at ("retained on the movement so the ledger is self-describing when
+      // replayed" — movement.ts), and recomputing instead made replay disagree
+      // with the live engine for any document entered out of date order: a
+      // backdated sale, or a landed cost dated after a sale that had already
+      // consumed the revalued stock. Recomputation made `cacheDrift` an
+      // artefact of entry order rather than the cache-corruption signal its own
+      // docstring promises.
+      const issuedAt = m.unitCost.scaled === 0n ? unitCostOf(totalValue, onHand) : m.unitCost;
+      const cogs = extend(m.qty, issuedAt);
       totalValue = totalValue.add(cogs.negate());
       onHand = onHand.subtract(m.qty);
       layers = consumeLayers(layers, m.qty);

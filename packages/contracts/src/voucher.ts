@@ -48,6 +48,11 @@ export const voucherSchema = z.object({
   customerId: z.string().nullable(),
   supplierId: z.string().nullable(),
   referenceNo: z.string().nullable(),
+  costCenterId: z.string().nullable(),
+  withholdingAmount: z.string().nullable(),
+  withholdingRatePercent: z.number().nullable(),
+  /** What actually leaves the treasury: amount − withholdingAmount. */
+  netPaidAmount: z.string(),
   journalEntryId: z.string().nullable(),
   confirmedAt: z.string().nullable(),
 });
@@ -70,6 +75,11 @@ export const createVoucherSchema = z.object({
   customerId: z.string().nullish(),
   supplierId: z.string().nullish(),
   referenceNo: z.string().nullish(),
+  costCenterId: z.string().nullish(),
+  /** Tax withheld from this payment and owed to the authority instead of to the payee. */
+  withholdingAmount: z.string().nullish(),
+  withholdingRatePercent: z.number().min(0).max(100).nullish(),
+  withholdingGlAccountId: z.string().nullish(),
 });
 
 /** Confirm a draft voucher (posts GL, stamps CV- number). */

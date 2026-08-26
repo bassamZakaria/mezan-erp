@@ -8,6 +8,7 @@ import type { AccountRepository } from "../accounts/account.js";
 import { AccountNotFoundError } from "../accounts/errors.js";
 import { HeaderAccountNotPostableError } from "../accounts/errors.js";
 import type { FiscalPeriodRepository } from "../fiscal-periods/fiscal-period.js";
+import { VatPeriodAlreadyFiledError } from "../tax/vat-filing.js";
 import { assertOpenForPosting } from "../fiscal-periods/transitions.js";
 import { NoFiscalPeriodForDateError } from "../fiscal-periods/errors.js";
 import { NextNumberService } from "../numbering/index.js";
@@ -70,6 +71,14 @@ export interface JournalPostingDeps {
   readonly ledger: LedgerRepository;
   readonly accounts: Pick<AccountRepository, "findById">;
   readonly periods: Pick<FiscalPeriodRepository, "findByDate">;
+  /**
+   * Filed VAT returns. A separate lock from the fiscal period, answering a
+   * separate question: a tenant can legitimately have an open accounting period
+   * whose VAT has already gone to the authority, and a document dated into it
+   * would silently restate a submitted return (D29). Omit and nothing is
+   * checked, which is how every caller behaved before filings existed.
+   */
+  readonly vatFilings?: { findCovering(date: string): Promise<readonly { id: string; status: string }[]> };
   readonly numbering: NextNumberService;
   readonly audit?: AuditSink;
   readonly events?: GlEventPublisher;
@@ -173,6 +182,16 @@ export async function assertPeriodOpen(
   assertOpenForPosting(period);
 }
 
+/** The period's VAT return must not have been filed — see `vatFilings` above. */
+export async function assertVatNotFiled(
+  date: string,
+  filings: { findCovering(date: string): Promise<readonly { id: string; status: string }[]> } | undefined,
+): Promise<void> {
+  if (!filings) return;
+  const live = (await filings.findCovering(date)).find((f) => f.status === "filed");
+  if (live) throw new VatPeriodAlreadyFiledError(live.id, date);
+}
+
 /**
  * Create a مسودة (draft) journal entry: structurally valid, balanced, and
  * targeting postable accounts — but NOT yet number-stamped and NOT period-gated
@@ -229,6 +248,7 @@ export async function postJournalEntry(
   const { totalDebit, totalCredit } = assertBalanced(cmd.lines);
   await assertLinesPostable(cmd.lines, deps.accounts);
   await assertPeriodOpen(cmd.date, deps.periods);
+  await assertVatNotFiled(cmd.date, deps.vatFilings);
 
   const entry = await deps.ledger.transaction(async () => {
     if (await deps.ledger.findById(cmd.id)) {
@@ -279,6 +299,7 @@ export async function postDraftJournalEntry(
   const { totalDebit, totalCredit } = assertBalanced(existing.lines);
   await assertLinesPostable(existing.lines, deps.accounts);
   await assertPeriodOpen(existing.date, deps.periods);
+  await assertVatNotFiled(existing.date, deps.vatFilings);
 
   const entry = await deps.ledger.transaction(async () => {
     const number = await deps.numbering.next(JOURNAL_ENTRY_SEQUENCE);

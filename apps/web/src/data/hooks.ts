@@ -46,6 +46,8 @@ import type {
   CreateAllocationDTO,
   CreateAssetCategoryDTO,
   CreateAssetDTO,
+  SalesInvoicePaymentDTO,
+  DisposeAssetDTO,
   CreateBomDTO,
   CreateBranchDTO,
   CreateChequeDTO,
@@ -205,6 +207,8 @@ import type {
   UpdateSupplierDTO,
   UpdateTaxRateDTO,
   UpdateTenantSettingsDTO,
+  TestEmailResultDTO,
+  AllowedCurrenciesDTO,
   UpdateTreasuryAccountDTO,
   UpdateUserDTO,
   UpdateWarehouseDTO,
@@ -1825,6 +1829,8 @@ export interface SalesInvoiceDTO {
   readonly customerId: string;
   readonly customerNameAr: string;
   readonly customerTaxExempt: boolean;
+  /** Whether this invoice's prices already contained the tax when it was raised. */
+  readonly taxInclusive: boolean;
   readonly warehouseId: string;
   readonly branchId: string;
   readonly salespersonId: string | null;
@@ -1954,13 +1960,20 @@ export function useRecordSalesInvoicePayment() {
   const { t } = useAppTranslation();
   const { request } = useApi();
   const queryClient = useQueryClient();
-  return useMutation<SalesInvoiceDTO, ApiError, { id: string; amount: string }>({
-    mutationFn: async ({ id, amount }) => {
-      const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify({ amount }) });
+  return useMutation<SalesInvoiceDTO, ApiError, { id: string } & SalesInvoicePaymentDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/sales-invoices/${id}/payments`, { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.thePaymentCouldNotBe")));
       return res.json<SalesInvoiceDTO>();
     },
-    onSuccess: () => invalidateSalesInvoices(queryClient),
+    // A collection is a real voucher now, so the treasury and the ledger both
+    // moved: their views are stale too.
+    onSuccess: () => {
+      invalidateSalesInvoices(queryClient);
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
   });
 }
 
@@ -2277,6 +2290,23 @@ export function useCreateAsset() {
       return res.json<AssetDTO>();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["assets"] }),
+  });
+}
+
+export function useDisposeAsset() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<AssetDTO, ApiError, { id: string } & DisposeAssetDTO>({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/assets/${id}/dispose`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theAssetCouldNotBeDisposed")));
+      return res.json<AssetDTO>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["assets"] });
+      queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    },
   });
 }
 
@@ -5759,6 +5789,66 @@ export function useCreateTaxGroup() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["tax-groups"] });
+    },
+  });
+}
+
+/* -------------------------------------------------------------------- */
+/* الإعدادات — البريد الإلكتروني (R11.6)                                   */
+/* -------------------------------------------------------------------- */
+
+/** Sends a REAL test message through the configured SMTP server and reports what it said. */
+export function useSendTestEmail() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  return useMutation<TestEmailResultDTO, ApiError, { to: string }>({
+    mutationFn: async (body) => {
+      const res = await request("/settings/email/test", { method: "POST", body: JSON.stringify(body) });
+      const payload = await res.json<TestEmailResultDTO>();
+      if (payload?.message === undefined) throw new ApiError(res.status, t("api.settingsCouldNotBeSaved"));
+      return payload;
+    },
+  });
+}
+
+export interface ItemAvailabilityDTO {
+  readonly itemId: string;
+  readonly warehouseId: string;
+  readonly onHand: string;
+  readonly showOtherWarehouseStock: boolean;
+  readonly otherWarehouses: readonly { readonly warehouseId: string; readonly onHand: string }[];
+}
+
+/**
+ * On-hand for one item in the document's warehouse, plus what the OTHER
+ * warehouses hold — the latter only when the tenant's عرض المخزون في المستودعات
+ * الأخرى is on, which the server decides, not the screen.
+ */
+export function useItemAvailability(itemId: string, warehouseId: string): UseQueryResult<ItemAvailabilityDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<ItemAvailabilityDTO, ApiError>({
+    queryKey: ["inventory-availability", itemId, warehouseId],
+    enabled: session !== null && itemId !== "" && warehouseId !== "",
+    queryFn: async () => {
+      const res = await request(`/inventory/availability?itemId=${encodeURIComponent(itemId)}&warehouseId=${encodeURIComponent(warehouseId)}`);
+      if (!res.ok) throw new ApiError(res.status, t("api.itemAvailabilityCouldNotBe"));
+      return res.json<ItemAvailabilityDTO>();
+    },
+  });
+}
+
+/** The currencies a document is allowed to carry — the read side of تفعيل تعدد العملات. */
+export function useAllowedCurrencies(): UseQueryResult<AllowedCurrenciesDTO, ApiError> {
+  const { t } = useAppTranslation();
+  const { request, session } = useApi();
+  return useQuery<AllowedCurrenciesDTO, ApiError>({
+    queryKey: ["settings", "currencies"],
+    enabled: session !== null,
+    queryFn: async () => {
+      const res = await request("/settings/currencies");
+      if (!res.ok) throw new ApiError(res.status, t("api.settingsCouldNotBeLoaded"));
+      return res.json<AllowedCurrenciesDTO>();
     },
   });
 }

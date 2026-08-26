@@ -243,6 +243,12 @@ export {
   type VatSide,
 } from "./vat-return.js";
 export {
+  createWithholdingTaxReport,
+  type WithholdingTaxContext,
+  type WithholdingTaxParams,
+  type WithholdingTaxRow,
+} from "./withholding-tax.js";
+export {
   createGeneralLedgerReport,
   type GeneralLedgerParams,
   type GeneralLedgerRow,

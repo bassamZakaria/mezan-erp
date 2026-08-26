@@ -18,6 +18,7 @@ function salesInvoice(overrides: Partial<SalesInvoiceDTO> = {}): SalesInvoiceDTO
     customerId: "cust-1",
     customerNameAr: "شركة الأمل للتجارة",
     customerTaxExempt: false,
+    taxInclusive: false,
     warehouseId: "MAIN-WH",
     branchId: "MAIN",
     salespersonId: null,

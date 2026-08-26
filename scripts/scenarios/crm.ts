@@ -344,9 +344,34 @@ export async function run(ctx: Ctx): Promise<void> {
     check("a fully-depreciated asset is excluded from later runs entirely", !stillEligible);
   });
 
-  await scenario("fixed-assets · D13: no disposal route exists — the status value and permission exist, the route does not (docs/defects.md D13)", async () => {
-    const dispose = await req("POST", "/assets/ASSET-DEMO-1/dispose", {});
-    checkEq("no such route is mounted", dispose.status, 404);
+  await scenario("fixed-assets · disposing an asset clears its cost and accumulated depreciation and books the gain or loss (docs/defects.md D13)", async () => {
+    const before = (await req("GET", "/assets/ASSET-DEMO-1")).body;
+    check("the asset is live before disposal", before?.status !== "disposed", JSON.stringify(before?.status));
+    const cost = n(before?.acquisitionCost);
+    const accumulated = n(before?.accumulatedDepreciation);
+    const bookValue = cost - accumulated;
+    check("and carries a real book value to dispose of", bookValue > 0, `cost=${cost} accumulated=${accumulated}`);
+
+    const proceeds = Math.round((bookValue + 500) * 100) / 100;
+    const dispose = await req("POST", "/assets/ASSET-DEMO-1/dispose", {
+      date: "2026-08-24",
+      proceeds: proceeds.toFixed(2),
+      proceedsAccountId: "1300-1",
+    });
+    check("the disposal is accepted", dispose.status === 200, `status ${dispose.status} ${JSON.stringify(dispose.body).slice(0, 250)}`);
+    checkEq("it reports the book value it removed", n(dispose.body?.bookValueAtDisposal), bookValue);
+    checkEq("and the gain over that book value", n(dispose.body?.gainOrLoss), 500);
+    check("the asset is now disposed", dispose.body?.status === "disposed", String(dispose.body?.status));
+
+    const je = (await req("GET", "/gl/journal-entries/DISP-JE:ASSET-DEMO-1")).body;
+    const line = (accountId: string) => (je?.lines ?? []).find((l: any) => l.accountId === accountId);
+    check("the entry clears the asset's own cost account", n(line("1510")?.credit) === cost, JSON.stringify(je?.lines ?? []).slice(0, 300));
+    checkEq("clears its accumulated depreciation", n(line("1590")?.debit), accumulated);
+    checkEq("takes the proceeds into the خزنة", n(line("1300-1")?.debit), proceeds);
+    checkEq("and books the gain", n(line("4500")?.credit), 500);
+
+    const again = await req("POST", "/assets/ASSET-DEMO-1/dispose", { date: "2026-08-24" });
+    check("disposal is terminal — a second one is refused, in Arabic", again.status === 409 && /تم التخلص منه/.test(String(again.body?.message)), `status ${again.status} ${JSON.stringify(again.body).slice(0, 200)}`);
   });
 
   // --- Field Sales priority 4: the seeded settled trip has a REAL shortage — assert the numbers ---
@@ -468,9 +493,9 @@ export async function run(ctx: Ctx): Promise<void> {
       rows(dayBefore.body).length, 0);
   });
 
-  // --- Installments: D1 reaches here too — a confirmed collection never moves amountPaid ---
+  // --- Installments: an allocated collection reaches the invoice it settles ---
 
-  await scenario("installments · D1: a confirmed, allocated collection voucher never moves the source invoice's amountPaid (docs/defects.md D1)", async () => {
+  await scenario("installments · a confirmed, allocated collection voucher moves the source invoice's amountPaid", async () => {
     const voucher = await req("GET", "/vouchers/VCH-DEMO-1");
     checkEq("voucher fetched", voucher.status, 200);
     check("voucher is confirmed", voucher.body.status === "confirmed");
@@ -479,9 +504,10 @@ export async function run(ctx: Ctx): Promise<void> {
     check("with a real, non-zero amount", n(allocation.amount) > 0);
 
     const invoice = await req("GET", "/sales-invoices/INV-DEMO-1");
-    checkEq("D1: amountPaid stays 0.00 despite the confirmed, allocated collection above", n(invoice.body.amountPaid), 0);
-    check("D1: remainingBalance therefore still shows the invoice's full, uncollected grand total",
-      invoice.body.remainingBalance === invoice.body.totals.grandTotal);
+    checkEq("amountPaid equals what the allocation applied (docs/defects.md D1 — the regression guard)", n(invoice.body.amountPaid), n(allocation.amount));
+    check("remainingBalance therefore drops below the grand total",
+      n(invoice.body.remainingBalance) < n(invoice.body.totals.grandTotal),
+      `remaining=${invoice.body.remainingBalance} grandTotal=${invoice.body.totals.grandTotal}`);
   });
 
   // --- Installments must-not-do: no route sets a line to 'paid' — do not invent one, assert the gap (INST-08) ---

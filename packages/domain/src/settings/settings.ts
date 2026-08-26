@@ -18,6 +18,7 @@ export type DepreciationProrateMode = "DAILY" | "FULL_MONTH";
 export type NumeralSystem = "western" | "arabic";
 export type UiDirection = "LTR" | "RTL";
 export type SettingsLanguage = "ar" | "en" | "de";
+export type SmtpSecurity = "NONE" | "STARTTLS" | "TLS";
 
 export interface TenantSettings {
   // --- عام (General / localization) ---
@@ -31,8 +32,10 @@ export interface TenantSettings {
   readonly weekendDays: readonly number[];
   readonly fiscalYearStartMonth: number;
   readonly fxRateMissingPolicy: FxRateMissingPolicy;
+  readonly multiCurrencyEnabled: boolean;
 
   // --- بيانات المنشأة (Company info) ---
+  readonly weekStartDay: number;
   readonly companyName: string;
   readonly taxRegistrationNumber: string;
   readonly commercialRegistrationNumber: string;
@@ -59,6 +62,10 @@ export interface TenantSettings {
   readonly showOtherWarehouseStock: boolean;
   readonly allowBackorder: boolean;
   readonly allowNegativeStock: boolean;
+  readonly agingWritedownEnabled: boolean;
+  readonly agingWritedownMonths: number;
+  readonly agingWritedownRatePercent: number;
+  readonly autoGenerateBatchNumbers: boolean;
 
   // --- التحكم في المشتريات (Purchase control) ---
   readonly requirePoForGrn: boolean;
@@ -68,6 +75,18 @@ export interface TenantSettings {
   // --- سياسة الخزينة (Treasury policy) ---
   readonly preventNegativeCashBalance: boolean;
   readonly allowNegativeTreasury: boolean;
+
+  // --- البريد الإلكتروني (Outgoing mail) ---
+  readonly smtpEnabled: boolean;
+  readonly smtpHost: string;
+  readonly smtpPort: number;
+  readonly smtpSecurity: SmtpSecurity;
+  readonly smtpUsername: string;
+  readonly smtpPassword: string;
+  readonly smtpFromName: string;
+  readonly smtpFromEmail: string;
+  readonly emailTemplateSubject: string;
+  readonly emailTemplateBody: string;
 }
 
 export class InvalidSettingsError extends Error {
@@ -85,6 +104,7 @@ const DEPRECIATION_PRORATE_MODES: readonly DepreciationProrateMode[] = ["DAILY",
 const NUMERAL_SYSTEMS: readonly NumeralSystem[] = ["western", "arabic"];
 const UI_DIRECTIONS: readonly UiDirection[] = ["LTR", "RTL"];
 const LANGUAGES: readonly SettingsLanguage[] = ["ar", "en", "de"];
+const SMTP_SECURITIES: readonly SmtpSecurity[] = ["NONE", "STARTTLS", "TLS"];
 
 /**
  * Defaults mirroring the captured tenant payload (docs/catalog/09 lines
@@ -103,7 +123,9 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   weekendDays: [5, 6],
   fiscalYearStartMonth: 1,
   fxRateMissingPolicy: "STRICT",
+  multiCurrencyEnabled: false,
 
+  weekStartDay: 6,
   companyName: "",
   taxRegistrationNumber: "",
   commercialRegistrationNumber: "",
@@ -127,6 +149,10 @@ export const DEFAULT_SETTINGS: TenantSettings = {
   showOtherWarehouseStock: true,
   allowBackorder: false,
   allowNegativeStock: false,
+  agingWritedownEnabled: false,
+  agingWritedownMonths: 6,
+  agingWritedownRatePercent: 25,
+  autoGenerateBatchNumbers: false,
 
   requirePoForGrn: false,
   requireGrnForInvoice: false,
@@ -134,6 +160,18 @@ export const DEFAULT_SETTINGS: TenantSettings = {
 
   preventNegativeCashBalance: true,
   allowNegativeTreasury: true,
+
+  smtpEnabled: false,
+  smtpHost: "",
+  smtpPort: 587,
+  smtpSecurity: "STARTTLS",
+  smtpUsername: "",
+  smtpPassword: "",
+  smtpFromName: "",
+  smtpFromEmail: "",
+  emailTemplateSubject: "{{documentType}} رقم {{documentNumber}} من {{companyName}}",
+  emailTemplateBody:
+    "السلام عليكم {{recipientName}}،\n\nمرفق {{documentType}} رقم {{documentNumber}} بتاريخ {{documentDate}} بإجمالي {{documentTotal}}.\n\nمع خالص الشكر،\n{{companyName}}",
 };
 
 function validate(settings: TenantSettings): string[] {
@@ -195,6 +233,43 @@ function validate(settings: TenantSettings): string[] {
   }
   if (!CREDIT_CONTROL_MODES.includes(settings.creditControlMode)) {
     reasons.push(`creditControlMode must be one of ${CREDIT_CONTROL_MODES.join(", ")}`);
+  }
+
+  if (!Number.isInteger(settings.weekStartDay) || settings.weekStartDay < 0 || settings.weekStartDay > 6) {
+    reasons.push("weekStartDay must be an integer in 0..6");
+  }
+  if (settings.multiCurrencyEnabled && settings.secondaryCurrencies.length === 0) {
+    reasons.push("multiCurrencyEnabled needs at least one additional currency");
+  }
+  if (settings.secondaryCurrencies.includes(settings.currency)) {
+    reasons.push("secondaryCurrencies must not repeat the base currency");
+  }
+
+  if (
+    !Number.isInteger(settings.agingWritedownMonths) ||
+    settings.agingWritedownMonths < 1 ||
+    settings.agingWritedownMonths > 60
+  ) {
+    reasons.push("agingWritedownMonths must be an integer in 1..60");
+  }
+  if (settings.agingWritedownRatePercent < 0 || settings.agingWritedownRatePercent > 100) {
+    reasons.push("agingWritedownRatePercent must be in 0..100");
+  }
+  if (settings.agingWritedownEnabled && settings.agingWritedownRatePercent <= 0) {
+    reasons.push("agingWritedownEnabled needs a rate greater than 0");
+  }
+
+  if (!SMTP_SECURITIES.includes(settings.smtpSecurity)) {
+    reasons.push(`smtpSecurity must be one of ${SMTP_SECURITIES.join(", ")}`);
+  }
+  if (!Number.isInteger(settings.smtpPort) || settings.smtpPort < 1 || settings.smtpPort > 65535) {
+    reasons.push("smtpPort must be an integer in 1..65535");
+  }
+  if (settings.smtpEnabled) {
+    if (settings.smtpHost.trim() === "") reasons.push("smtpEnabled needs an SMTP host");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(settings.smtpFromEmail)) {
+      reasons.push("smtpEnabled needs a valid sender address");
+    }
   }
 
   return reasons;

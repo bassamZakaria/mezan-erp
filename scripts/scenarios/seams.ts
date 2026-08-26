@@ -959,6 +959,49 @@ export async function run(ctx: Ctx): Promise<void> {
   // ---------------------------------------------------------------------------
   // X63 — price list, promotion and credit limit in one document
   // ---------------------------------------------------------------------------
+  await scenario("x65 · an entity's own audit trail is selectable by id, and a price or credit-limit change is flagged, not merely logged", async () => {
+    // The trail used to be filterable by entity TYPE and no further: the id was
+    // buried in a free-form details blob under a different key per module, so
+    // "what happened to THIS customer" was a question the audit store could not
+    // answer. Every event now carries entityId.
+    const bump = await req("PATCH", "/customers/CUST-DEMO-1", { creditLimit: "77000.00" });
+    check("a customer's credit limit is raised", bump.status === 200, `status ${bump.status} ${JSON.stringify(bump.body).slice(0, 200)}`);
+
+    const custTrail = await auditRows("entityType=CUSTOMER&entityId=CUST-DEMO-1&limit=50");
+    check("the customer's own trail is selectable by id", custTrail.length > 0, `rows=${custTrail.length}`);
+    check(
+      "and every row in it is about THAT customer — a filter that returned the whole stream would look identical from a count",
+      custTrail.every((row: any) => row.entityId === "CUST-DEMO-1"),
+      JSON.stringify(custTrail.map((r: any) => r.entityId)).slice(0, 200),
+    );
+    const raise = custTrail.find((row: any) => row.details?.previousCreditLimit !== undefined);
+    check("the credit-limit change carries what it was before, not just what it now is", raise !== undefined, JSON.stringify(custTrail[0]).slice(0, 300));
+    check(
+      "and is WARNING, not INFO — the credit limit decides how much may be sold on credit, so raising it quietly is the cheapest way to push a bad debt through",
+      raise?.severity === "WARNING",
+      `severity=${raise?.severity}`,
+    );
+
+    const priced = await req("PATCH", "/items/ITEM-DEMO-1", { salePrice: "188.00" });
+    check("an item's sale price is changed", priced.status === 200, `status ${priced.status}`);
+    const itemTrail = await auditRows("entityType=ITEM&entityId=ITEM-DEMO-1&limit=50");
+    const moved = itemTrail.find((row: any) => row.details?.previousSalePrice !== undefined);
+    check("the item's trail records the price move with its previous value", moved !== undefined, JSON.stringify(itemTrail[0] ?? {}).slice(0, 300));
+    check("flagged WARNING — it restates the margin on every line booked after it", moved?.severity === "WARNING", `severity=${moved?.severity}`);
+
+    // An edit that moves no price is ordinary master-data maintenance and must
+    // NOT cry wolf, or the severity stops carrying information.
+    const quiet = await req("PATCH", "/items/ITEM-DEMO-1", { nameEn: "White Rice 5kg" });
+    check("an edit that touches no price is accepted", quiet.status === 200, `status ${quiet.status}`);
+    const latest = (await auditRows("entityType=ITEM&entityId=ITEM-DEMO-1&limit=50"))[0];
+    check("and is recorded at INFO", latest?.severity === "INFO", `severity=${latest?.severity} details=${JSON.stringify(latest?.details).slice(0, 200)}`);
+
+    // A document's trail is the same mechanism, which is the point: one query
+    // shape serves customers, items and documents alike.
+    const invoiceTrail = await auditRows("entityType=SALES_INVOICE&limit=50");
+    check("documents are addressable the same way", invoiceTrail.length > 0 && invoiceTrail.every((r: any) => typeof r.entityId === "string"), `rows=${invoiceTrail.length}`);
+  });
+
   await scenario("x63 · three mechanisms, one number: the credit check sees the promoted price, and the server knows when a line is under the customer's list", async () => {
     const itemId = "SCN-S-PRICED-ITEM";
     await req("POST", "/items", {

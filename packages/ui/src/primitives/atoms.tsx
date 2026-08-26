@@ -230,3 +230,42 @@ export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "
     </Card>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* Empty state                                                         */
+/* ------------------------------------------------------------------ */
+
+export interface EmptyStateProps {
+  title: string;
+  description?: string;
+  /** The SAME action the list's own toolbar offers — an empty state is not a second, disconnected button (R1.10). */
+  action?: { label: string; onClick: () => void };
+  icon?: ReactNode;
+  className?: string;
+}
+
+/**
+ * A list with zero rows carries a call to action (R1.10), not just a message —
+ * "لا توجد فواتير بعد — ابدأ بإنشاء…" plus the create button. Callers pass this
+ * to `DocumentList`'s `emptyState` prop; a caller with nothing to create yet
+ * (a read-only feed, a report with no matches) omits `action` and gets the
+ * plain message.
+ */
+export function EmptyState({ title, description, action, icon, className }: EmptyStateProps) {
+  return (
+    <div className={cn("flex flex-col items-center gap-[10px] px-[24px] py-[36px] text-center", className)}>
+      {icon ? (
+        <div aria-hidden className="text-ink-faint">
+          {icon}
+        </div>
+      ) : null}
+      <p className="text-[13px] font-semibold text-ink">{title}</p>
+      {description ? <p className="max-w-[42ch] text-[12px] text-ink-muted">{description}</p> : null}
+      {action ? (
+        <Button variant="primary" size="sm" className="mt-[4px]" onClick={action.onClick}>
+          {action.label}
+        </Button>
+      ) : null}
+    </div>
+  );
+}

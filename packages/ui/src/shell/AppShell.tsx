@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { cn } from "../lib/cn";
 import { useTheme } from "../hooks/useTheme";
 import { Sidebar } from "./Sidebar";
-import { Topbar, type TopbarScopeOption } from "./Topbar";
+import { Topbar, type TopbarScopeOption, type TopbarSystemStatus, type TopbarSupportItem } from "./Topbar";
 import type { CommandItem, NavGroup, NavItem, ShellUser, UserMenuItem } from "./types";
 
 export interface AppShellProps {
@@ -15,6 +15,10 @@ export interface AppShellProps {
   commandItems?: CommandItem[];
   tenantName?: string;
   scopeLabel?: string;
+  /** The header's always-visible system-status pill (R1.7), forwarded straight to `<Topbar>`. */
+  systemStatus?: TopbarSystemStatus;
+  /** The header's support entry point (R1.8), forwarded straight to `<Topbar>`. */
+  supportItems?: readonly TopbarSupportItem[];
   notificationCount?: number;
   onToggleNotifications?: () => void;
   notificationsPanel?: ReactNode;
@@ -47,6 +51,8 @@ export function AppShell({
   commandItems = [],
   tenantName,
   scopeLabel,
+  systemStatus,
+  supportItems,
   notificationCount,
   onToggleNotifications,
   notificationsPanel,
@@ -78,6 +84,8 @@ export function AppShell({
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar
           commandItems={commandItems}
+          systemStatus={systemStatus}
+          supportItems={supportItems}
           notificationCount={notificationCount}
           onToggleNotifications={onToggleNotifications}
           notificationsPanel={notificationsPanel}

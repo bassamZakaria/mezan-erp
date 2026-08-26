@@ -166,6 +166,13 @@ const uiAr = {
   "sample.line2.description": "كابل HDMI — 5 متر",
   "sample.unit.piece": "قطعة",
   "sample.tax.vat": "ضريبة القيمة المضافة",
+
+  // R1.10-R1.13 shell polish
+  "ui.list.statsCollapse": "إخفاء التفاصيل",
+  "ui.list.statsExpand": "عرض التفاصيل",
+  "ui.list.filters": "تصفية النتائج",
+  "shell.systemStatus.ariaLabel": "حالة النظام: {label}",
+  "shell.support.menu": "الدعم الفني",
 } as const;
 
 export type UiTranslationKey = keyof typeof uiAr;
@@ -331,6 +338,13 @@ const uiEn: Record<UiTranslationKey, string> = {
   "sample.line2.description": "HDMI cable — 5 m",
   "sample.unit.piece": "each",
   "sample.tax.vat": "VAT",
+
+  // R1.10-R1.13 shell polish
+  "ui.list.statsCollapse": "Hide details",
+  "ui.list.statsExpand": "Show details",
+  "ui.list.filters": "Filter results",
+  "shell.systemStatus.ariaLabel": "System status: {label}",
+  "shell.support.menu": "Support",
 };
 
 export const uiCatalogs: LocaleCatalogs = { ar: uiAr, en: uiEn };

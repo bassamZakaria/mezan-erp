@@ -52,7 +52,9 @@ export const updateEtaConfigSchema = z.object({
 
 export const etaReadinessSchema = z.object({
   percent: z.number(),
-  items: z.array(z.object({ key: z.string(), labelAr: z.string(), complete: z.boolean() })),
+  items: z.array(
+    z.object({ key: z.string(), labelAr: z.string(), complete: z.boolean(), missing: z.number() }),
+  ),
 });
 
 export const etaSubmissionSchema = z.object({
@@ -70,6 +72,73 @@ export const etaSubmissionSchema = z.object({
 
 export const excludeEtaSubmissionSchema = z.object({ reason: z.string().min(1) });
 
+export const etaActivityCodeSchema = z.object({
+  code: z.string(),
+  labelAr: z.string(),
+  labelEn: z.string(),
+});
+
+export const etaTestConnectionResultSchema = z.object({
+  ok: z.boolean(),
+  reason: z.enum(["missing_credentials", "offline"]).nullable(),
+  checkedAt: z.string(),
+});
+
+export const etaBranchCodeRowSchema = z.object({
+  branchId: z.string(),
+  branchCode: z.string(),
+  branchName: z.string(),
+  etaBranchCode: z.string().nullable(),
+});
+
+export const updateEtaBranchCodeSchema = z.object({ etaBranchCode: z.string().min(1) });
+
+export const etaItemMappingRowSchema = z.object({
+  itemId: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  etaCodeType: z.enum(["EGS", "GPC"]).nullable(),
+  etaItemCode: z.string().nullable(),
+  gpcCode: z.string().nullable(),
+});
+
+export const updateEtaItemMappingSchema = z.object({
+  etaCodeType: z.enum(["EGS", "GPC"]).nullable().optional(),
+  etaItemCode: z.string().nullable().optional(),
+  gpcCode: z.string().nullable().optional(),
+});
+
+export const etaUnitCodeSchema = z.object({
+  code: z.string(),
+  labelAr: z.string(),
+  labelEn: z.string(),
+});
+
+export const etaUnitMappingRowSchema = z.object({
+  unitCode: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  etaUnitCode: z.string().nullable(),
+  suggestion: z.string().nullable(),
+});
+
+export const updateEtaUnitMappingSchema = z.object({ etaUnitCode: z.string().min(1) });
+
+export const applyEtaUnitSuggestionsResultSchema = z.object({
+  applied: z.array(etaUnitMappingRowSchema),
+  unresolved: z.array(z.string()),
+});
+
+export const etaTaxSubTypeRowSchema = z.object({
+  taxRateId: z.string(),
+  code: z.string(),
+  name: z.string(),
+  rate: z.number(),
+  etaSubType: z.string(),
+  resolved: z.boolean(),
+});
+
 export type EtaEnvironmentDTO = z.infer<typeof etaEnvironmentSchema>;
 export type EtaDocumentVersionDTO = z.infer<typeof etaDocumentVersionSchema>;
 export type EtaSigningMethodDTO = z.infer<typeof etaSigningMethodSchema>;
@@ -81,3 +150,14 @@ export type UpdateEtaConfigDTO = z.infer<typeof updateEtaConfigSchema>;
 export type EtaReadinessDTO = z.infer<typeof etaReadinessSchema>;
 export type EtaSubmissionDTO = z.infer<typeof etaSubmissionSchema>;
 export type ExcludeEtaSubmissionDTO = z.infer<typeof excludeEtaSubmissionSchema>;
+export type EtaActivityCodeDTO = z.infer<typeof etaActivityCodeSchema>;
+export type EtaTestConnectionResultDTO = z.infer<typeof etaTestConnectionResultSchema>;
+export type EtaBranchCodeRowDTO = z.infer<typeof etaBranchCodeRowSchema>;
+export type UpdateEtaBranchCodeDTO = z.infer<typeof updateEtaBranchCodeSchema>;
+export type EtaItemMappingRowDTO = z.infer<typeof etaItemMappingRowSchema>;
+export type UpdateEtaItemMappingDTO = z.infer<typeof updateEtaItemMappingSchema>;
+export type EtaUnitCodeDTO = z.infer<typeof etaUnitCodeSchema>;
+export type EtaUnitMappingRowDTO = z.infer<typeof etaUnitMappingRowSchema>;
+export type UpdateEtaUnitMappingDTO = z.infer<typeof updateEtaUnitMappingSchema>;
+export type ApplyEtaUnitSuggestionsResultDTO = z.infer<typeof applyEtaUnitSuggestionsResultSchema>;
+export type EtaTaxSubTypeRowDTO = z.infer<typeof etaTaxSubTypeRowSchema>;

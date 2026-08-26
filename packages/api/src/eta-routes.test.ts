@@ -51,8 +51,8 @@ describe("eta router — submission lifecycle", () => {
   async function enqueue(service: EtaService) {
     await service.enqueue({
       internalId: "INV-000014", documentType: "invoice", issueDateTime: "2026-08-22T09:00:00Z",
-      receiver: { registrationNumber: null, name: "عميل", type: "P" },
-      lines: [{ description: "منتج", itemCode: "EG-1", quantity: "1", unitPrice: "100", netTotal: "100", taxSubType: "V009", taxRate: "14", taxAmount: "14" }],
+      receiver: { registrationNumber: null, name: "عميل", type: "P" }, branchCode: null,
+      lines: [{ description: "منتج", itemCode: "EG-1", quantity: "1", unitType: "EA", unitPrice: "100", netTotal: "100", taxSubType: "V009", taxRate: "14", taxAmount: "14" }],
       totalNet: "100", totalTax: "14", totalAmount: "114",
     });
   }

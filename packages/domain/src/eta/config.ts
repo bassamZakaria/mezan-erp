@@ -55,6 +55,8 @@ export interface EtaReadinessItem {
   readonly key: string;
   readonly labelAr: string;
   readonly complete: boolean;
+  /** How many records still lack the code. 0 once complete; 1 for a single config field. */
+  readonly missing: number;
 }
 
 export interface EtaReadiness {
@@ -63,15 +65,53 @@ export interface EtaReadiness {
   readonly percent: number;
 }
 
-/** Compute the setup readiness percentage across the core config fields. */
-export function computeEtaReadiness(config: EtaConfig): EtaReadiness {
+/**
+ * How many records of each kind are still unregistered with the authority.
+ * Counted from the item, unit, branch and tax-rate masters, none of which the
+ * ETA module owns — the caller reads them and passes the totals in.
+ */
+export interface EtaReadinessCounts {
+  readonly branchesMissingCode: number;
+  readonly itemsMissingCode: number;
+  readonly unitsMissingMapping: number;
+  readonly taxRatesMissingSubType: number;
+}
+
+/**
+ * Compute the setup readiness percentage. Without `counts` only the config's
+ * own fields are checked; with it, the four master-data prerequisites join the
+ * checklist and each reports how many records are still missing a code.
+ */
+export function computeEtaReadiness(config: EtaConfig, counts?: EtaReadinessCounts): EtaReadiness {
+  const field = (key: string, labelAr: string, complete: boolean): EtaReadinessItem => ({
+    key,
+    labelAr,
+    complete,
+    missing: complete ? 0 : 1,
+  });
   const items: EtaReadinessItem[] = [
-    { key: "taxRegistrationNumber", labelAr: "رقم التسجيل الضريبي", complete: !!config.taxRegistrationNumber },
-    { key: "activityCode", labelAr: "كود النشاط", complete: !!config.activityCode },
-    { key: "address", labelAr: "عنوان المنشأة", complete: !!config.address },
-    { key: "clientId", labelAr: "بيانات الربط (Client ID)", complete: !!config.clientId },
-    { key: "clientSecret", labelAr: "السر (Client Secret)", complete: config.hasClientSecret },
+    field("taxRegistrationNumber", "رقم التسجيل الضريبي", !!config.taxRegistrationNumber),
+    field("activityCode", "كود النشاط", !!config.activityCode),
+    field("address", "عنوان المنشأة", !!config.address),
   ];
+  if (counts) {
+    const collection = (key: string, labelAr: string, missing: number): EtaReadinessItem => ({
+      key,
+      labelAr,
+      complete: missing === 0,
+      missing,
+    });
+    items.push(
+      collection("branchCodes", "أكواد الفروع لدى المصلحة", counts.branchesMissingCode),
+      collection("itemCodes", "أكواد الأصناف", counts.itemsMissingCode),
+      collection("unitMappings", "ربط الوحدات", counts.unitsMissingMapping),
+      collection("taxSubTypes", "أنواع الضريبة الفرعية", counts.taxRatesMissingSubType),
+    );
+  }
+  items.push(
+    field("clientId", "بيانات الربط (Client ID)", !!config.clientId),
+    field("clientSecret", "السر (Client Secret)", config.hasClientSecret),
+  );
   const done = items.filter((i) => i.complete).length;
   return { items, percent: Math.round((done / items.length) * 100) };
 }

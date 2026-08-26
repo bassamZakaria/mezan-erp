@@ -8,6 +8,7 @@ export {
   type EtaConfig,
   type EtaReadinessItem,
   type EtaReadiness,
+  type EtaReadinessCounts,
   type EtaConfigRepository,
 } from "./config.js";
 export {
@@ -41,3 +42,20 @@ export {
   EtaOfflineError,
   EtaExclusionReasonRequiredError,
 } from "./errors.js";
+export {
+  ETA_UNIT_CODES,
+  isEtaUnitCode,
+  suggestEtaUnitCode,
+  type EtaBranchCode,
+  type EtaBranchCodeRepository,
+  type EtaUnitCodeDefinition,
+  type EtaUnitMapping,
+  type EtaUnitMappingRepository,
+} from "./mappings.js";
+export {
+  ETA_ACTIVITY_CODES,
+  findEtaActivityCode,
+  searchEtaActivityCodes,
+  type EtaActivityCode,
+} from "./activity-codes.js";
+export { resolveEtaVatSubType } from "./tax-subtype.js";

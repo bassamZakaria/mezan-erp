@@ -5,11 +5,13 @@ import {
   DocumentList,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { LeadDTO, LeadSourceDTO, LeadStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField, ToggleField } from "../settings/form-controls";
@@ -125,6 +127,8 @@ export function LeadsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [pendingStatus, setPendingStatus] = useState<LeadStatusDTO | null>(null);
+  const [pendingRowId, setPendingRowId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
 
   const [formOpen, setFormOpen] = useState(false);
   const [draft, setDraft] = useState<LeadDraft>(blankDraft());
@@ -189,6 +193,19 @@ export function LeadsScreen() {
       setDetailError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
     } finally {
       setPendingStatus(null);
+    }
+  }
+
+  async function runRowTransition(lead: LeadDTO, status: LeadStatusDTO) {
+    if (pendingRowId) return;
+    setPendingRowId(lead.id);
+    setRowError(null);
+    try {
+      await transitionLead.mutateAsync({ id: lead.id, body: { status } });
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : t("leads.failedToUpdateTheStatus"));
+    } finally {
+      setPendingRowId(null);
     }
   }
 
@@ -268,6 +285,11 @@ export function LeadsScreen() {
           </Button>
         </Card>
       ) : null}
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<LeadDTO>
         title={t("leads.leads")}
         description={t("leads.captureAndQualifyLeadsBefore")}
@@ -288,6 +310,32 @@ export function LeadsScreen() {
         onRowClick={(l) => {
           setDetailError(null);
           setSelectedId(l.id);
+        }}
+        rowAction={(l) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(l.id); } },
+            ...validTransitions(l.status).map((status) => ({
+              key: `transition-${status}`,
+              label: t(STATUS_KEY[status]),
+              tone: status === "lost" || status === "unqualified" ? ("danger" as const) : undefined,
+              disabled: pendingRowId === l.id,
+              onSelect: () => void runRowTransition(l, status),
+            })),
+            ...(l.status === "qualified"
+              ? [
+                  {
+                    key: "convert",
+                    label: t("leads.convert"),
+                    disabled: pendingRowId === l.id,
+                    onSelect: () => {
+                      setSelectedId(l.id);
+                      openConvertForm(l);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: l.name })} />;
         }}
         page={1}
         pageCount={1}

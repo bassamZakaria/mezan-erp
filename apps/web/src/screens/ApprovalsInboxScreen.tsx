@@ -3,11 +3,13 @@ import {
   Button,
   Card,
   DocumentList,
+  RowMenu,
   Select,
   StatusPill,
   TextInput,
   type DocumentListColumn,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { GATEABLE_ACTION_TYPES } from "@mezan/domain";
 import type { ApprovalRequestDTO } from "@mezan/contracts";
@@ -118,12 +120,12 @@ export function ApprovalsInboxScreen() {
     render: (r) => <span className="mz-num">{r.createdAt.slice(0, 10)}</span>,
   };
 
-  const decideColumn: DocumentListColumn<ApprovalRequestDTO> = {
-    key: "actions",
+  const noteColumn: DocumentListColumn<ApprovalRequestDTO> = {
+    key: "note",
     header: "",
     align: "end",
     render: (r) => (
-      <div className="flex items-center justify-end gap-[6px]" onClick={(e) => e.stopPropagation()}>
+      <div onClick={(e) => e.stopPropagation()}>
         <TextInput
           size="sm"
           className="min-h-0 w-[140px] px-[8px] py-[5px] text-[11.5px]"
@@ -132,15 +134,6 @@ export function ApprovalsInboxScreen() {
           placeholder={t("approvals.noteOptional")}
           aria-label={t("approvals.noteLabel", { request: r.entityLabel ?? r.id })}
         />
-        <Button size="sm" variant="primary" disabled={pendingId === r.id} onClick={() => void act(r, "approve")}>
-          {t("approvals.approve")}
-        </Button>
-        <Button size="sm" variant="ghost" disabled={pendingId === r.id} onClick={() => void act(r, "request_modification")}>
-          {t("approvals.askForAChange")}
-        </Button>
-        <Button size="sm" variant="danger-outline" disabled={pendingId === r.id} onClick={() => void act(r, "reject")}>
-          {t("approvals.reject")}
-        </Button>
       </div>
     ),
   };
@@ -152,7 +145,7 @@ export function ApprovalsInboxScreen() {
           progressColumn,
           { key: "role", header: t("approvals.roleRequired"), render: (r) => r.steps[r.currentStep]?.role ?? "—" },
           { key: "submittedBy", header: t("approvals.raisedBy"), render: (r) => <span className="mz-lat">{r.submittedBy}</span> },
-          decideColumn,
+          noteColumn,
         ]
       : [documentColumn, statusColumn, progressColumn, submittedColumn];
 
@@ -205,6 +198,23 @@ export function ApprovalsInboxScreen() {
       columns={columns}
       rows={filtered}
       rowKey={(r) => r.id}
+      rowAction={
+        tab === "inbox"
+          ? (r) => {
+              const menuItems: RowMenuItem[] = [
+                { key: "approve", label: t("approvals.approve"), disabled: pendingId === r.id, onSelect: () => void act(r, "approve") },
+                {
+                  key: "request_modification",
+                  label: t("approvals.askForAChange"),
+                  disabled: pendingId === r.id,
+                  onSelect: () => void act(r, "request_modification"),
+                },
+                { key: "reject", label: t("approvals.reject"), tone: "danger", disabled: pendingId === r.id, onSelect: () => void act(r, "reject") },
+              ];
+              return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.entityLabel ?? r.id })} />;
+            }
+          : undefined
+      }
       page={1}
       pageCount={1}
       pageSummary={

@@ -6,16 +6,18 @@ import {
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { OpportunityDTO, OpportunityStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
-import { useCreateOpportunity, useCustomers, useOpportunities, usePipelineStages } from "../data/hooks";
+import { useCreateOpportunity, useCustomers, useMoveOpportunityStage, useOpportunities, usePipelineStages } from "../data/hooks";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { sumMajor } from "../lib/money";
 
@@ -151,6 +153,7 @@ export function OpportunitiesScreen() {
   const query = useOpportunities();
   const customersQuery = useCustomers();
   const stagesQuery = usePipelineStages();
+  const moveStage = useMoveOpportunityStage();
   const opportunities = query.data ?? [];
 
   const customerName = useMemo(() => {
@@ -168,6 +171,24 @@ export function OpportunitiesScreen() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | OpportunityStatusDTO>("all");
   const [formOpen, setFormOpen] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  const winStage = (stagesQuery.data ?? []).find((s) => s.isWinStage);
+  const lossStage = (stagesQuery.data ?? []).find((s) => s.isLossStage);
+
+  async function runMoveStage(opportunity: OpportunityDTO, stageId: string) {
+    if (pendingId) return;
+    setPendingId(opportunity.id);
+    setRowError(null);
+    try {
+      await moveStage.mutateAsync({ id: opportunity.id, body: { stageId } });
+    } catch (err) {
+      setRowError(err instanceof Error ? err.message : t("common.failed"));
+    } finally {
+      setPendingId(null);
+    }
+  }
 
   const filtered = useMemo(() => {
     let rows = opportunities;
@@ -210,6 +231,11 @@ export function OpportunitiesScreen() {
           </Button>
         </Card>
       ) : null}
+      {rowError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {rowError}
+        </div>
+      ) : null}
       <DocumentList<OpportunityDTO>
         title={t("opportunities.opportunities")}
         description={t("opportunities.trackingLiveDealsAgainstA")}
@@ -235,6 +261,28 @@ export function OpportunitiesScreen() {
         columns={columns}
         rows={filtered}
         rowKey={(o) => o.id}
+        rowAction={(o) => {
+          const menuItems: RowMenuItem[] =
+            o.status === "open"
+              ? [
+                  ...(winStage
+                    ? [{ key: "won", label: t("opportunities.won"), disabled: pendingId === o.id, onSelect: () => void runMoveStage(o, winStage.id) }]
+                    : []),
+                  ...(lossStage
+                    ? [
+                        {
+                          key: "lost",
+                          label: t("opportunities.lost"),
+                          tone: "danger" as const,
+                          disabled: pendingId === o.id,
+                          onSelect: () => void runMoveStage(o, lossStage.id),
+                        },
+                      ]
+                    : []),
+                ]
+              : [];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: o.title })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

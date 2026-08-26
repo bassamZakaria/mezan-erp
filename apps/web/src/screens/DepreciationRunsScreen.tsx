@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone } from "@mezan/ui";
+import { DocumentList, Money as MoneyDisplay, StatusPill, Card, Button, RowMenu, SidePanel, type DocumentListColumn, type DocumentListStatusChip, type PillTone, type RowMenuItem } from "@mezan/ui";
 import type { CreateDepreciationRunDTO, DepreciationRunDTO, DepreciationRunStatusDTO } from "@mezan/contracts";
 import { ApiError, useBranches, useCreateDepreciationRun, useDepreciationRuns, usePostDepreciationRun } from "../data/hooks";
 import { NumberField, SelectField } from "../settings/form-controls";
@@ -115,27 +115,6 @@ export function DepreciationRunsScreen() {
     { key: "lines", header: t("depreciation.assets"), align: "end", render: (r) => <span className="mz-num">{r.lines.length}</span> },
     { key: "total", header: t("depreciation.totalAmount"), align: "end", render: (r) => <MoneyDisplay value={toMajor(r.totalAmount)} /> },
     { key: "status", header: t("common.status"), render: (r) => <StatusPill label={t(STATUS_KEY[r.status])} tone={STATUS_TONE[r.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (r) =>
-        r.status === "draft" ? (
-          <Button
-            size="sm"
-            variant="primary"
-            disabled={postingId === r.id}
-            onClick={(event) => {
-              event.stopPropagation();
-              void handlePost(r);
-            }}
-          >
-            {postingId === r.id ? t("depreciation.posting") : t("depreciation.post")}
-          </Button>
-        ) : r.journalEntryId ? (
-          <span className="mz-num text-[11px] text-ink-faint">{r.journalEntryId}</span>
-        ) : null,
-    },
   ];
 
   const statusChips: DocumentListStatusChip[] = [
@@ -184,6 +163,15 @@ export function DepreciationRunsScreen() {
         rows={filtered}
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelectedId(r.id)}
+        rowAction={(r) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(r.id) },
+            ...(r.status === "draft"
+              ? [{ key: "post", label: t("depreciation.post"), disabled: postingId === r.id, onSelect: () => void handlePost(r) }]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: r.period })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

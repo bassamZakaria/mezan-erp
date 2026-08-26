@@ -6,12 +6,14 @@ import {
   EntityPicker,
   Money as MoneyDisplay,
   MoneyInput,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import type { EmployeeAdvanceDTO, EmployeeAdvanceStatusDTO } from "@mezan/contracts";
 import { NumberField, SelectField, TextField } from "../settings/form-controls";
@@ -203,6 +205,11 @@ export function EmployeeAdvancesScreen() {
           </Button>
         </Card>
       ) : null}
+      {detailError ? (
+        <div role="alert" className="mb-[18px] rounded-md border border-danger bg-danger-soft px-[12px] py-[10px] text-[12.5px] text-danger-ink">
+          {detailError}
+        </div>
+      ) : null}
 
       <DocumentList<EmployeeAdvanceDTO>
         title={t("advances.employeeAdvances")}
@@ -232,6 +239,31 @@ export function EmployeeAdvancesScreen() {
         onRowClick={(a) => {
           setDetailError(null);
           setSelectedId(a.id);
+        }}
+        rowAction={(a) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => { setDetailError(null); setSelectedId(a.id); } },
+            ...(a.status === "pending"
+              ? [
+                  { key: "approve", label: t("advances.approve"), disabled: pendingId === a.id, onSelect: () => void runDecision(a, "approve") },
+                  { key: "reject", label: t("advances.reject"), tone: "danger" as const, disabled: pendingId === a.id, onSelect: () => void runDecision(a, "reject") },
+                ]
+              : []),
+            ...(a.status === "approved"
+              ? [
+                  {
+                    key: "disburse",
+                    label: t("advances.payOut"),
+                    disabled: pendingId === a.id,
+                    onSelect: () => {
+                      setDetailError(null);
+                      setSelectedId(a.id);
+                    },
+                  },
+                ]
+              : []),
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: a.number })} />;
         }}
         page={1}
         pageCount={1}

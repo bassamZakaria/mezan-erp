@@ -5,12 +5,14 @@ import {
   DocumentList,
   EntityPicker,
   Money as MoneyDisplay,
+  RowMenu,
   SidePanel,
   StatusPill,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { BANK_STATEMENT_STATUS_DEFINITIONS, getBankStatementStatusLabel, parseCsv } from "@mezan/domain";
 import type { BankStatementDTO, BankStatementStatusDTO, StatementDateFormatDTO, StatementLineDTO } from "@mezan/contracts";
@@ -143,16 +145,6 @@ export function BankReconciliationScreen() {
       ),
     },
     { key: "status", header: t("common.status"), render: (s) => <StatusPill label={getBankStatementStatusLabel(s.status)} tone={STATUS_TONE[s.status]} /> },
-    {
-      key: "actions",
-      header: "",
-      align: "end",
-      render: (s) => (
-        <Button size="sm" variant="ghost" onClick={() => setOpenStatementId(s.id)}>
-          {t("bankRec.openReconciliation")}
-        </Button>
-      ),
-    },
   ];
 
   return (
@@ -203,6 +195,12 @@ export function BankReconciliationScreen() {
         rows={rows}
         rowKey={(s) => s.id}
         onRowClick={(s) => setOpenStatementId(s.id)}
+        rowAction={(s) => {
+          const menuItems: RowMenuItem[] = [
+            { key: "open", label: t("bankRec.openReconciliation"), onSelect: () => setOpenStatementId(s.id) },
+          ];
+          return <RowMenu items={menuItems} label={t("common.rowActionsFor", { name: s.statementNumber ?? s.id })} />;
+        }}
         page={1}
         pageCount={1}
         pageSummary={

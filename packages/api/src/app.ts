@@ -56,6 +56,7 @@ import {
   type WorkOrderRepository,
   type ConfigurableProductRepository,
   type ConfigInstanceRepository,
+  type WorkStationRepository,
   type WorkOrderGlAccounts,
   type ManufacturingGlPosting,
   type ManufacturingGlPostingPort,
@@ -574,6 +575,10 @@ export interface CreateAppOptions {
     readonly workOrders: WorkOrderRepository;
     readonly configurableProducts: ConfigurableProductRepository;
     readonly configInstances: ConfigInstanceRepository;
+    /** محطات العمل — the registry behind `/manufacturing/work-stations` (R9.1). */
+    readonly workStations: WorkStationRepository;
+    /** المشغّلون — the employee registry an operator id on a shop-floor action is resolved against. */
+    readonly operators?: { findById(id: string): Promise<{ id: string; fullName: string } | null> };
     readonly numbering: NextNumberService;
     readonly stock: StockLedgerService;
     /** On-hand per (item, warehouse) for the materials tab's available/shortage columns (R9.2). */
@@ -1197,6 +1202,8 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
           workOrders: mfg.workOrders,
           configurableProducts: mfg.configurableProducts,
           configInstances: mfg.configInstances,
+          workStations: mfg.workStations,
+          operators: mfg.operators,
           numbering: mfg.numbering,
           stock: mfg.stock,
           positions: mfg.positions,

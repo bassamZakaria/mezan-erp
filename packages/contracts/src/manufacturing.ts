@@ -102,12 +102,52 @@ export const createWorkOrderSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-export const workOrderLineActionSchema = z.object({
+/**
+ * محطة العمل + المشغّل on a shop-floor action (R9.1). Both are ids into their
+ * own registries (`/work-stations`, `/employees`); the route resolves them
+ * before the domain records anything, so a movement can never name a station
+ * that does not exist.
+ */
+export const shopFloorAttributionSchema = z.object({
+  stationId: z.string().min(1).nullable().optional(),
+  operatorId: z.string().min(1).nullable().optional(),
+});
+
+export const workOrderLineActionSchema = shopFloorAttributionSchema.extend({
   lines: z.array(z.object({ itemId: z.string().min(1), qty: positiveDecimalString })).min(1),
 });
 
-export const receiveProductSchema = z.object({
+export const receiveProductSchema = shopFloorAttributionSchema.extend({
   producedQty: positiveDecimalString,
+});
+
+export const issueMaterialsSchema = shopFloorAttributionSchema;
+
+// --- Work Station ----------------------------------------------------------
+
+export const workStationSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  nameAr: z.string(),
+  nameEn: z.string().nullable(),
+  notes: z.string().nullable(),
+  status: activationStatusSchema,
+  createdAt: z.string(),
+});
+
+export const createWorkStationSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(1),
+  nameAr: z.string().min(1),
+  nameEn: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+});
+
+export const workOrderShopFloorEntrySchema = z.object({
+  kind: z.enum(["issue", "extra_issue", "return", "waste", "receive"]),
+  stationId: z.string().nullable(),
+  operatorId: z.string().nullable(),
+  at: z.string(),
 });
 
 export const logCostSchema = z.object({
@@ -116,7 +156,7 @@ export const logCostSchema = z.object({
   notes: z.string().nullable().optional(),
 });
 
-export const logWasteSchema = z.object({
+export const logWasteSchema = shopFloorAttributionSchema.extend({
   lines: z
     .array(
       z.object({
@@ -199,6 +239,11 @@ export type WorkOrderLineActionDTO = z.infer<typeof workOrderLineActionSchema>;
 export type ReceiveProductDTO = z.infer<typeof receiveProductSchema>;
 export type LogCostDTO = z.infer<typeof logCostSchema>;
 export type LogWasteDTO = z.infer<typeof logWasteSchema>;
+export type ShopFloorAttributionDTO = z.infer<typeof shopFloorAttributionSchema>;
+export type IssueMaterialsDTO = z.infer<typeof issueMaterialsSchema>;
+export type WorkStationDTO = z.infer<typeof workStationSchema>;
+export type CreateWorkStationDTO = z.infer<typeof createWorkStationSchema>;
+export type WorkOrderShopFloorEntryDTO = z.infer<typeof workOrderShopFloorEntrySchema>;
 export type ConfigInputDTO = z.infer<typeof configInputSchema>;
 export type MaterialFormulaDTO = z.infer<typeof materialFormulaSchema>;
 export type UpsertConfigurableProductDTO = z.infer<typeof upsertConfigurableProductSchema>;

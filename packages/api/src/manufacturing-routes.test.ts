@@ -78,6 +78,7 @@ async function newApp() {
       workOrders: mfg.workOrders,
       configurableProducts: mfg.configurableProducts,
       configInstances: mfg.configInstances,
+      workStations: mfg.workStations,
       numbering: ledger.numbering,
       stock,
       gl: { ledger, accounts, periods, numbering: ledger.numbering, now: () => "2026-08-22T10:00:00.000Z" },

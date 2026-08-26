@@ -11,7 +11,10 @@ import {
   type WorkOrderMaterial,
   type WorkOrderCostLogEntry,
   type WorkOrderWasteEntry,
+  type WorkOrderShopFloorEntry,
   type WorkOrderRepository,
+  type WorkStation,
+  type WorkStationRepository,
   type WorkOrderStatus,
   type WorkOrderStage,
   type WorkOrderPriority,
@@ -197,6 +200,7 @@ CREATE TABLE IF NOT EXISTS work_order (
   extra_cost              TEXT NOT NULL,
   cost_log                TEXT NOT NULL,
   waste_log               TEXT NOT NULL,
+  shop_floor_log          TEXT NOT NULL DEFAULT '[]',
   config_instance_id      TEXT,
   gl_posted               INTEGER NOT NULL,
   created_by              TEXT NOT NULL,
@@ -233,6 +237,7 @@ interface WoRow {
   extra_cost: string;
   cost_log: string;
   waste_log: string;
+  shop_floor_log: string | null;
   config_instance_id: string | null;
   gl_posted: number;
   created_by: string;
@@ -306,6 +311,8 @@ function woToDomain(row: WoRow): WorkOrder {
     extraCost: Money.fromMajor(row.extra_cost),
     costLog,
     wasteLog,
+    // Rows written before R9.1 carry no shop-floor log.
+    shopFloorLog: JSON.parse(row.shop_floor_log ?? "[]") as WorkOrderShopFloorEntry[],
     configInstanceId: row.config_instance_id,
     glPosted: row.gl_posted === 1,
     createdBy: row.created_by,
@@ -324,8 +331,8 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
 
   constructor(sqlite: Database.Database) {
     this.upsert = sqlite.prepare(`
-      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at)
-      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at)
+      INSERT INTO work_order (id, number, bom_id, bom_version, product_item_id, planned_qty, produced_qty, source_warehouse_id, destination_warehouse_id, priority, scheduled_start_date, scheduled_end_date, notes, status, stage, materials, material_cost, labor_cost, overhead_cost, extra_cost, cost_log, waste_log, shop_floor_log, config_instance_id, gl_posted, created_by, created_at, started_at, issued_at, received_at, completed_at)
+      VALUES (@id, @number, @bom_id, @bom_version, @product_item_id, @planned_qty, @produced_qty, @source_warehouse_id, @destination_warehouse_id, @priority, @scheduled_start_date, @scheduled_end_date, @notes, @status, @stage, @materials, @material_cost, @labor_cost, @overhead_cost, @extra_cost, @cost_log, @waste_log, @shop_floor_log, @config_instance_id, @gl_posted, @created_by, @created_at, @started_at, @issued_at, @received_at, @completed_at)
       ON CONFLICT(id) DO UPDATE SET
         planned_qty = excluded.planned_qty, produced_qty = excluded.produced_qty,
         source_warehouse_id = excluded.source_warehouse_id, destination_warehouse_id = excluded.destination_warehouse_id,
@@ -334,7 +341,8 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
         status = excluded.status, stage = excluded.stage, materials = excluded.materials,
         material_cost = excluded.material_cost, labor_cost = excluded.labor_cost,
         overhead_cost = excluded.overhead_cost, extra_cost = excluded.extra_cost,
-        cost_log = excluded.cost_log, waste_log = excluded.waste_log, gl_posted = excluded.gl_posted,
+        cost_log = excluded.cost_log, waste_log = excluded.waste_log,
+        shop_floor_log = excluded.shop_floor_log, gl_posted = excluded.gl_posted,
         started_at = excluded.started_at, issued_at = excluded.issued_at,
         received_at = excluded.received_at, completed_at = excluded.completed_at
     `);
@@ -393,6 +401,7 @@ class SqliteWorkOrderStore implements WorkOrderRepository {
       waste_log: JSON.stringify(
         o.wasteLog.map((w) => ({ itemId: w.itemId, qty: w.qty.toString(), notes: w.notes, at: w.at })),
       ),
+      shop_floor_log: JSON.stringify(o.shopFloorLog),
       config_instance_id: o.configInstanceId,
       gl_posted: o.glPosted ? 1 : 0,
       created_by: o.createdBy,
@@ -690,6 +699,91 @@ class SqliteConfigInstanceStore implements ConfigInstanceRepository {
   }
 }
 
+// --- Work Station ----------------------------------------------------------
+
+const CREATE_WS = `
+CREATE TABLE IF NOT EXISTS work_station (
+  id         TEXT PRIMARY KEY,
+  code       TEXT NOT NULL UNIQUE,
+  name_ar    TEXT NOT NULL,
+  name_en    TEXT,
+  notes      TEXT,
+  status     TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+`;
+
+interface WsRow {
+  id: string;
+  code: string;
+  name_ar: string;
+  name_en: string | null;
+  notes: string | null;
+  status: string;
+  created_at: string;
+}
+
+function wsToDomain(row: WsRow): WorkStation {
+  return {
+    id: row.id,
+    code: row.code,
+    nameAr: row.name_ar,
+    nameEn: row.name_en,
+    notes: row.notes,
+    status: row.status as WorkStation["status"],
+    createdAt: row.created_at,
+  };
+}
+
+class SqliteWorkStationStore implements WorkStationRepository {
+  private readonly upsert: Database.Statement;
+  private readonly selectById: Database.Statement;
+  private readonly selectByCode: Database.Statement;
+  private readonly selectAll: Database.Statement;
+
+  constructor(sqlite: Database.Database) {
+    this.upsert = sqlite.prepare(`
+      INSERT INTO work_station (id, code, name_ar, name_en, notes, status, created_at)
+      VALUES (@id, @code, @name_ar, @name_en, @notes, @status, @created_at)
+      ON CONFLICT(id) DO UPDATE SET
+        code = excluded.code, name_ar = excluded.name_ar, name_en = excluded.name_en,
+        notes = excluded.notes, status = excluded.status
+    `);
+    this.selectById = sqlite.prepare(`SELECT * FROM work_station WHERE id = ?`);
+    this.selectByCode = sqlite.prepare(`SELECT * FROM work_station WHERE code = ?`);
+    this.selectAll = sqlite.prepare(`SELECT * FROM work_station ORDER BY code`);
+  }
+
+  async findById(id: string): Promise<WorkStation | null> {
+    const row = this.selectById.get(id) as WsRow | undefined;
+    return row ? wsToDomain(row) : null;
+  }
+  async findByCode(code: string): Promise<WorkStation | null> {
+    const row = this.selectByCode.get(code) as WsRow | undefined;
+    return row ? wsToDomain(row) : null;
+  }
+  async list(): Promise<WorkStation[]> {
+    return (this.selectAll.all() as WsRow[]).map(wsToDomain);
+  }
+  async create(station: WorkStation): Promise<void> {
+    this.write(station);
+  }
+  async update(station: WorkStation): Promise<void> {
+    this.write(station);
+  }
+  private write(w: WorkStation): void {
+    this.upsert.run({
+      id: w.id,
+      code: w.code,
+      name_ar: w.nameAr,
+      name_en: w.nameEn,
+      notes: w.notes,
+      status: w.status,
+      created_at: w.createdAt,
+    });
+  }
+}
+
 // --- Factories -------------------------------------------------------------
 
 /**
@@ -701,6 +795,7 @@ export interface SqliteManufacturingStores {
   readonly workOrders: WorkOrderRepository;
   readonly configurableProducts: ConfigurableProductRepository;
   readonly configInstances: ConfigInstanceRepository;
+  readonly workStations: WorkStationRepository;
   close(): void;
 }
 
@@ -710,11 +805,19 @@ export function createSqliteManufacturingStores(path: SqliteConnectionInput = ":
   sqlite.exec(CREATE_WO);
   sqlite.exec(CREATE_CP);
   sqlite.exec(CREATE_CI);
+  sqlite.exec(CREATE_WS);
+  // `shop_floor_log` arrived after the table shipped; CREATE TABLE IF NOT EXISTS
+  // will not widen an existing database, so add it in place.
+  const woColumns = sqlite.prepare(`PRAGMA table_info(work_order)`).all() as { name: string }[];
+  if (!woColumns.some((c) => c.name === "shop_floor_log")) {
+    sqlite.exec(`ALTER TABLE work_order ADD COLUMN shop_floor_log TEXT NOT NULL DEFAULT '[]'`);
+  }
   return {
     boms: new SqliteBomStore(sqlite),
     workOrders: new SqliteWorkOrderStore(sqlite),
     configurableProducts: new SqliteConfigurableProductStore(sqlite),
     configInstances: new SqliteConfigInstanceStore(sqlite),
+    workStations: new SqliteWorkStationStore(sqlite),
     close: () => { if (owned) sqlite.close(); },
   };
 }

@@ -6570,6 +6570,40 @@ const webAr = {
   "landedCosts.emptyHint": "أنشئ مستند تكلفة لتحميل الشحن والجمارك على تكلفة البضاعة المستلمة.",
   "landedCosts.totalAllocated": "إجمالي الموزَّع",
   "landedCosts.weightOf": "الوزن {weight}",
+  // workOrders — station and operator on every shop-floor action (R9.1)
+  "workOrders.station": "محطة العمل",
+  "workOrders.station.none": "بدون محطة",
+  "workOrders.operator": "المشغّل",
+  "workOrders.operator.none": "بدون مشغّل",
+  "workOrders.attributionHint": "تُسجَّل المحطة والمشغّل مع كل حركة صرف أو استلام، وتظهران في تبويب الحركات.",
+  "workOrders.allPriorities": "كل الأولويات",
+  "workOrders.allStages": "كل المراحل",
+  "workOrders.row.actionsFor": "إجراءات أمر التصنيع {doc}",
+  "workOrders.emptyHint": "أنشئ أمر تصنيع من قائمة مواد لبدء تشغيلة وتتبّع تكلفتها.",
+
+  // production — محطات العمل registry on the production hub (R9.1)
+  "production.station.heading": "محطات العمل",
+  "production.station.description": "المحطات التي تُسجَّل عندها حركات الصرف والاستلام في أوامر التصنيع.",
+  "production.station.empty": "لا توجد محطات عمل بعد",
+  "production.station.emptyHint": "أضف محطة أدناه لتتمكن من تسجيلها على حركات أوامر التصنيع.",
+  "production.station.active": "مفعّلة",
+  "production.station.inactive": "موقوفة",
+  "production.station.activate": "تفعيل",
+  "production.station.deactivate": "إيقاف",
+  "production.station.code": "الكود",
+  "production.station.name": "الاسم",
+  "production.station.add": "إضافة محطة",
+  "production.station.needCodeAndName": "أدخل كود المحطة واسمها.",
+  "production.station.createFailed": "تعذّر حفظ محطة العمل.",
+
+  // boms — list polish
+  "boms.allProducts": "كل المنتجات",
+  "boms.row.actionsFor": "إجراءات قائمة المواد {doc}",
+  "boms.emptyHint": "أنشئ قائمة مواد تحدد الخامات وتكلفة العمالة لكل دفعة إنتاج.",
+
+  // api — work stations
+  "api.workStationsCouldNotBe": "تعذّر تحميل محطات العمل.",
+  "api.theWorkStationCouldNot": "تعذّر حفظ محطة العمل.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -13145,6 +13179,40 @@ const webEn: Record<WebTranslationKey, string> = {
   "landedCosts.emptyHint": "Create a cost document to load freight and customs onto the cost of the goods received.",
   "landedCosts.totalAllocated": "Total allocated",
   "landedCosts.weightOf": "weight {weight}",
+  // workOrders — station and operator on every shop-floor action (R9.1)
+  "workOrders.station": "Work station",
+  "workOrders.station.none": "No station",
+  "workOrders.operator": "Operator",
+  "workOrders.operator.none": "No operator",
+  "workOrders.attributionHint": "The station and the operator are recorded with every issue and receipt, and show on the movements tab.",
+  "workOrders.allPriorities": "All priorities",
+  "workOrders.allStages": "All stages",
+  "workOrders.row.actionsFor": "Actions for work order {doc}",
+  "workOrders.emptyHint": "Raise a work order against a bill of materials to start a run and track what it costs.",
+
+  // production — work-station registry on the production hub (R9.1)
+  "production.station.heading": "Work stations",
+  "production.station.description": "The stations a work order\u2019s material issues and product receipts are recorded at.",
+  "production.station.empty": "No work stations yet",
+  "production.station.emptyHint": "Add a station below so shop-floor movements can name where they happened.",
+  "production.station.active": "Active",
+  "production.station.inactive": "Inactive",
+  "production.station.activate": "Activate",
+  "production.station.deactivate": "Deactivate",
+  "production.station.code": "Code",
+  "production.station.name": "Name",
+  "production.station.add": "Add station",
+  "production.station.needCodeAndName": "Enter the station\u2019s code and name.",
+  "production.station.createFailed": "The work station could not be saved.",
+
+  // boms — list polish
+  "boms.allProducts": "All products",
+  "boms.row.actionsFor": "Actions for bill of materials {doc}",
+  "boms.emptyHint": "Create a bill of materials that names the raw materials and the labour cost of one production batch.",
+
+  // api — work stations
+  "api.workStationsCouldNotBe": "Work stations could not be loaded.",
+  "api.theWorkStationCouldNot": "The work station could not be saved.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

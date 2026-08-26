@@ -4,18 +4,21 @@ import {
   Card,
   DocumentList,
   DocumentDetail,
+  EmptyState,
   EntityPicker,
   Money as MoneyValue,
+  RowMenu,
   StatusPill,
   SidePanel,
   type DocumentListColumn,
   type DocumentListStatusChip,
   type EntityPickerOption,
   type PillTone,
+  type RowMenuItem,
 } from "@mezan/ui";
 import { useBoms, useCreateBom, useDeactivateBom, useItems, type BomRecord } from "../data/hooks";
 import { useUnitLabel } from "../lib/item-labels";
-import { TextField, NumberField } from "../settings/form-controls";
+import { TextField, NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 import { itemTypeIsBomComponent } from "@mezan/domain";
 
@@ -147,6 +150,9 @@ export function BomsScreen() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<BomStatus | "all">("all");
   const [search, setSearch] = useState("");
+  const [productFilter, setProductFilter] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
   const [panelOpen, setPanelOpen] = useState(false);
   const [product, setProduct] = useState<EntityPickerOption | null>(null);
   const [standardQty, setStandardQty] = useState(1);
@@ -162,12 +168,19 @@ export function BomsScreen() {
   const filtered = useMemo(() => {
     let rows = boms;
     if (statusFilter !== "all") rows = rows.filter((b) => b.status === statusFilter);
+    if (productFilter) rows = rows.filter((b) => b.productItemId === productFilter);
     if (search.trim() !== "") {
       const q = search.trim().toLowerCase();
       rows = rows.filter((b) => b.number.toLowerCase().includes(q) || itemName(b.productItemId).includes(search.trim()));
     }
     return [...rows].sort((a, b) => b.number.localeCompare(a.number));
-  }, [boms, statusFilter, search, itemName]);
+  }, [boms, statusFilter, productFilter, search, itemName]);
+
+  const activeFilterCount = [productFilter].filter((v) => v !== "").length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const bomProducts = [...new Map(boms.map((b) => [b.productItemId, itemName(b.productItemId)])).entries()];
 
   const statusChips: DocumentListStatusChip[] = [
     { key: "all", label: t("common.all"), count: boms.length },
@@ -347,17 +360,55 @@ export function BomsScreen() {
         searchValue={search}
         onSearchChange={setSearch}
         searchPlaceholder={t("boms.searchByNumberOrProduct")}
+        filterBarCollapsible
+        activeFilterCount={activeFilterCount}
+        filterBarExtra={
+          <div className="grid w-full gap-2 sm:grid-cols-2">
+            <SelectField
+              label={t("boms.finishedProduct")}
+              value={productFilter}
+              onChange={setProductFilter}
+              options={[{ value: "", label: t("boms.allProducts") }, ...bomProducts.map(([id, label]) => ({ value: id, label }))]}
+            />
+          </div>
+        }
         columns={columns}
-        rows={filtered}
+        rows={pageRows}
         rowKey={(b) => b.id}
         onRowClick={(b) => setSelectedId(b.id)}
-        page={1}
-        pageCount={1}
-        pageSummary={<>{t("common.show")} <span className="mz-num">{filtered.length}</span> {t("common.of")} <span className="mz-num">{boms.length}</span> {t("boms.bills")}</>}
+        rowAction={(b) => {
+          // Only an active BOM can start a run or be deactivated (R1.3).
+          const menuItems: RowMenuItem[] = [
+            { key: "view", label: t("common.view"), onSelect: () => setSelectedId(b.id) },
+            ...(b.status === "active"
+              ? [{ key: "deactivate", label: t("boms.deactivate"), onSelect: () => void deactivate(b.id) }]
+              : []),
+          ];
+          return (
+            <div className="flex items-center gap-2" onClick={(event) => event.stopPropagation()}>
+              <RowMenu items={menuItems} label={t("boms.row.actionsFor", { doc: b.number })} />
+            </div>
+          );
+        }}
+        page={currentPage}
+        pageCount={pageCount}
+        onPageChange={setPage}
+        pageSize={pageSize}
+        onPageSizeChange={(size) => {
+          setPageSize(size);
+          setPage(1);
+        }}
+        pageSummary={<>{t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")} <span className="mz-num">{filtered.length}</span> {t("boms.bills")}</>}
         emptyState={
-          <div className="p-8 text-center text-sm text-ink-muted">
-            {query.isLoading ? t("common.loading") : t("boms.noMatchingBillsOfMaterials")}
-          </div>
+          query.isLoading ? (
+            <div className="p-8 text-center text-sm text-ink-muted">{t("common.loading")}</div>
+          ) : (
+            <EmptyState
+              title={t("boms.noMatchingBillsOfMaterials")}
+              description={t("boms.emptyHint")}
+              action={{ label: t("boms.newBillOfMaterials"), onClick: openCreate }}
+            />
+          )
         }
       />
       {panel}

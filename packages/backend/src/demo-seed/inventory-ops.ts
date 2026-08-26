@@ -184,6 +184,23 @@ const WORK_ORDERS = [
     notes: "أُلغي بعد سحب العميل للطلب",
     action: "cancel" as const,
   },
+  {
+    id: "WO-DEMO-4",
+    bomId: "BOM-DEMO-1",
+    plannedQty: "5",
+    priority: "normal" as const,
+    scheduledStartDate: "2026-08-18",
+    scheduledEndDate: "2026-08-19",
+    notes: "تشغيلة صغيرة صُرفت موادها على خط الخلط",
+    action: "issue" as const,
+  },
+];
+
+/** محطات العمل — the shop floor a work order's issues and receipts are recorded at (R9.1). */
+const WORK_STATIONS = [
+  { id: "WST-DEMO-1", code: "WST-01", nameAr: "خط الخلط", nameEn: "Blending line", notes: "خلاط أفقي ٢٠٠ كجم" },
+  { id: "WST-DEMO-2", code: "WST-02", nameAr: "خط التعبئة", nameEn: "Packing line", notes: "تعبئة وتغليف" },
+  { id: "WST-DEMO-3", code: "WST-03", nameAr: "مراقبة الجودة", nameEn: "Quality control", notes: null },
 ];
 
 interface CountLine {
@@ -439,6 +456,10 @@ export async function seedInventoryOps(app: App): Promise<void> {
   })) as WritedownRunResponse;
   await step(app, "POST", `/inventory/writedown-runs/${writedownRun.id}/post`, {});
 
+  for (const station of WORK_STATIONS) {
+    await step(app, "POST", "/manufacturing/work-stations", station);
+  }
+
   for (const order of WORK_ORDERS) {
     await step(app, "POST", "/manufacturing/work-orders", {
       id: order.id,
@@ -451,8 +472,35 @@ export async function seedInventoryOps(app: App): Promise<void> {
       scheduledEndDate: order.scheduledEndDate,
       notes: order.notes,
     });
-    if (order.action === "start") {
+    if (order.action === "start" || order.action === "issue") {
       await step(app, "POST", `/manufacturing/work-orders/${order.id}/start`, {});
+    }
+    if (order.action === "issue") {
+      // Materials issued AT a station BY an operator, so the movements tab has
+      // both dimensions on a real run rather than only on one made by hand.
+      await step(app, "POST", `/manufacturing/work-orders/${order.id}/issue`, {
+        stationId: "WST-DEMO-1",
+        operatorId: "EMP-DEMO-3",
+      });
+      await step(app, "POST", `/manufacturing/work-orders/${order.id}/extra-issue`, {
+        stationId: "WST-DEMO-1",
+        operatorId: "EMP-DEMO-3",
+        lines: [{ itemId: "ITEM-DEMO-4", qty: "2" }],
+      });
+      await step(app, "POST", `/manufacturing/work-orders/${order.id}/return`, {
+        stationId: "WST-DEMO-2",
+        operatorId: "EMP-DEMO-4",
+        lines: [{ itemId: "ITEM-DEMO-4", qty: "1" }],
+      });
+      await step(app, "POST", `/manufacturing/work-orders/${order.id}/receive`, {
+        stationId: "WST-DEMO-2",
+        operatorId: "EMP-DEMO-4",
+        producedQty: "5",
+      });
+      // The run has to CLOSE: issuing materials moves the stock sub-ledger with
+      // no GL, and only the completion posting capitalises the WIP back into
+      // inventory. Leaving it received-but-open puts the sub-ledger off GL 1200.
+      await step(app, "POST", `/manufacturing/work-orders/${order.id}/complete`, {});
     }
     if (order.action === "cancel") {
       await step(app, "POST", `/manufacturing/work-orders/${order.id}/cancel`, {});

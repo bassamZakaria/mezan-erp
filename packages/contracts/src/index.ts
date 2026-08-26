@@ -547,6 +547,11 @@ export {
   upsertConfigurableProductSchema,
   createConfigInstanceSchema,
   previewConfigInstanceSchema,
+  shopFloorAttributionSchema,
+  issueMaterialsSchema,
+  workStationSchema,
+  createWorkStationSchema,
+  workOrderShopFloorEntrySchema,
   type ActivationStatusDTO,
   type WorkOrderStatusDTO,
   type WorkOrderStageDTO,
@@ -567,6 +572,11 @@ export {
   type UpsertConfigurableProductDTO,
   type CreateConfigInstanceDTO,
   type PreviewConfigInstanceDTO,
+  type ShopFloorAttributionDTO,
+  type IssueMaterialsDTO,
+  type WorkStationDTO,
+  type CreateWorkStationDTO,
+  type WorkOrderShopFloorEntryDTO,
 } from "./manufacturing.js";
 
 export {

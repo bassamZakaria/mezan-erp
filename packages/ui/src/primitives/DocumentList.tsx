@@ -3,6 +3,7 @@ import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
 import { Card, Chip, StatCard } from "./atoms";
 import { SearchInput } from "./form";
+import { Select } from "./Select";
 import { FulcrumRule } from "../shell/FulcrumRule";
 
 /**
@@ -73,9 +74,20 @@ export interface DocumentListProps<Row> {
   pageCount: number;
   onPageChange?: (page: number) => void;
   pageSummary?: ReactNode;
+  /**
+   * Rows per page. Supplying it renders the shared page-size selector in the
+   * footer, so every list offers the same 10/25/50/100 the reference does
+   * (docs/reference-parity/audit/REQUIREMENTS.md R1.12) instead of each screen
+   * growing its own.
+   */
+  pageSize?: number;
+  onPageSizeChange?: (size: number) => void;
+  pageSizeOptions?: readonly number[];
   emptyState?: ReactNode;
   className?: string;
 }
+
+const DEFAULT_PAGE_SIZES = [10, 25, 50, 100] as const;
 
 function getPageItems(current: number, total: number): (number | "ellipsis")[] {
   if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
@@ -114,6 +126,9 @@ export function DocumentList<Row>({
   pageCount,
   onPageChange,
   pageSummary,
+  pageSize,
+  onPageSizeChange,
+  pageSizeOptions = DEFAULT_PAGE_SIZES,
   emptyState,
   className,
 }: DocumentListProps<Row>) {
@@ -296,7 +311,22 @@ export function DocumentList<Row>({
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-[10px] border-t border-border px-[16px] py-[13px] text-xs text-ink-muted">
-          <span>{pageSummary}</span>
+          <span className="flex flex-wrap items-center gap-[12px]">
+            {pageSummary}
+            {pageSize !== undefined && onPageSizeChange ? (
+              <span className="flex items-center gap-[6px]">
+                <Select
+                  size="sm"
+                  aria-label={t("ui.list.rowsPerPage")}
+                  value={String(pageSize)}
+                  onChange={(value) => onPageSizeChange(Number(value))}
+                  options={pageSizeOptions.map((size) => ({ value: String(size), label: String(size) }))}
+                  className="w-[78px]"
+                />
+                <span>{t("ui.list.rowsPerPage")}</span>
+              </span>
+            ) : null}
+          </span>
           {pageCount > 1 ? (
             <nav aria-label={t("ui.list.pagination")} className="flex gap-[4px]">
               {getPageItems(page, pageCount).map((item, i) =>

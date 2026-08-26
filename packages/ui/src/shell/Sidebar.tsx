@@ -5,7 +5,7 @@ import type { ThemePreference } from "../hooks/useTheme";
 import { BrandMark } from "./BrandMark";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import type { TopbarScopeOption } from "./Topbar";
-import type { NavGroup, NavItem, ShellUser } from "./types";
+import { navGroupItems, type NavGroup, type NavItem, type NavSection, type ShellUser } from "./types";
 
 export interface SidebarProps {
   activeKey?: string;
@@ -153,6 +153,66 @@ function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; s
   );
 }
 
+function NavSectionBlock({
+  section,
+  collapsed,
+  holdsActive,
+  expanded,
+  activeKey,
+  onToggle,
+}: {
+  section: NavSection;
+  collapsed: boolean;
+  holdsActive: boolean;
+  expanded: boolean;
+  activeKey?: string;
+  onToggle: () => void;
+}) {
+  if (!expanded) {
+    // Collapsed rail has no room for a third level; its items sit flush with
+    // the group's own, which is what the icon-only rail is for.
+    return (
+      <ul className="flex flex-col gap-[1px]">
+        {section.items.map((item) => (
+          <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel={false} />
+        ))}
+      </ul>
+    );
+  }
+
+  return (
+    <div className="mt-[2px]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        className={cn(
+          "flex w-full items-center gap-[7px] rounded-sm px-[11px] py-[6px] text-start text-sm font-semibold transition-colors",
+          holdsActive ? "text-chrome-ink" : "text-chrome-ink-muted hover:text-chrome-ink",
+        )}
+      >
+        <svg
+          aria-hidden
+          viewBox="0 0 12 12"
+          fill="none"
+          className={cn("h-[10px] w-[10px] flex-none opacity-70 transition-transform duration-150", collapsed && "-rotate-90")}
+        >
+          <path d="M3 4.5 6 8l3-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+        <span className="truncate">{section.label}</span>
+        <span className="ms-auto flex-none text-[10px] font-normal opacity-60">{section.items.length}</span>
+      </button>
+      {collapsed ? null : (
+        <ul className="flex flex-col gap-[1px] ps-[13px]">
+          {section.items.map((item) => (
+            <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Sidebar — the dark-teal module rail: company context and branch/warehouse switchers on top, grouped nav with a brass active bar, user + theme at the foot. Collapses to icon-only; mirrors with the document direction. */
 export function Sidebar({
   activeKey,
@@ -181,12 +241,32 @@ export function Sidebar({
     for (const group of groups) if (group.defaultCollapsed) initial[group.key] = true;
     return initial;
   });
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    const initial: Record<string, boolean> = {};
+    for (const group of groups) {
+      for (const section of group.sections ?? []) {
+        if (section.defaultCollapsed) initial[`${group.key}/${section.key}`] = true;
+      }
+    }
+    return initial;
+  });
   const [railCollapsed, setRailCollapsed] = useState(loadPersistedRailCollapsed);
 
   const activeGroupKey = useMemo(
-    () => groups.find((group) => group.items.some((item) => item.key === activeKey))?.key ?? null,
+    () => groups.find((group) => navGroupItems(group).some((item) => item.key === activeKey))?.key ?? null,
     [groups, activeKey],
   );
+
+  // A section holding the active screen opens regardless of its stored state,
+  // otherwise deep-linking to a nested screen lands on a collapsed sub-group.
+  const activeSectionKey = useMemo(() => {
+    for (const group of groups) {
+      for (const section of group.sections ?? []) {
+        if (section.items.some((item) => item.key === activeKey)) return `${group.key}/${section.key}`;
+      }
+    }
+    return null;
+  }, [groups, activeKey]);
 
   function toggleRail() {
     setRailCollapsed((prev) => {
@@ -307,11 +387,30 @@ export function Sidebar({
                 )}
               </button>
               {groupCollapsed ? null : (
-                <ul className="flex flex-col gap-[1px]">
-                  {group.items.map((item) => (
-                    <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel={expanded} />
-                  ))}
-                </ul>
+                <>
+                  {group.items.length ? (
+                    <ul className="flex flex-col gap-[1px]">
+                      {group.items.map((item) => (
+                        <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel={expanded} />
+                      ))}
+                    </ul>
+                  ) : null}
+                  {(group.sections ?? []).map((section) => {
+                    const sectionId = `${group.key}/${section.key}`;
+                    const sectionCollapsed = (collapsedSections[sectionId] ?? false) && activeSectionKey !== sectionId;
+                    return (
+                      <NavSectionBlock
+                        key={section.key}
+                        section={section}
+                        collapsed={sectionCollapsed}
+                        holdsActive={activeSectionKey === sectionId}
+                        expanded={expanded}
+                        activeKey={activeKey}
+                        onToggle={() => setCollapsedSections((prev) => ({ ...prev, [sectionId]: !sectionCollapsed }))}
+                      />
+                    );
+                  })}
+                </>
               )}
             </div>
           );

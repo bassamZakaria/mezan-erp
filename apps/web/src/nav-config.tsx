@@ -12,12 +12,24 @@ import { navGroupIcon, navItemIcon } from "./nav-icons";
 
 type Translate = (key: AppTranslationKey) => string;
 
-export interface NavGroupSpec {
+export interface NavSectionSpec {
   readonly key: string;
   readonly itemKeys: readonly string[];
   readonly defaultCollapsed?: boolean;
 }
 
+export interface NavGroupSpec {
+  readonly key: string;
+  readonly itemKeys: readonly string[];
+  readonly sections?: readonly NavSectionSpec[];
+  readonly defaultCollapsed?: boolean;
+}
+
+/**
+ * Three levels, matching the reference product's own tree. Before this the
+ * sidebar could only express group → item, so التقارير was a flat list of 22
+ * and الإعدادات a flat list of 15 (docs/reference-parity/gap-inventory.md A1).
+ */
 export const navGroupSpecs: readonly NavGroupSpec[] = [
   { key: "workflow", defaultCollapsed: true, itemKeys: ["approvals"] },
   {
@@ -42,42 +54,37 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "inventory",
     defaultCollapsed: true,
-    itemKeys: [
-      "inventory-hub",
-      "items",
-      "stock-balance",
-      "stock-transfers",
-      "stock-adjustments",
-      "physical-counts",
-      "configurable-products",
-      "product-templates",
-      "item-specifications",
-      "labels",
-      "writedown-runs",
+    itemKeys: ["inventory-hub"],
+    sections: [
+      {
+        key: "products",
+        itemKeys: ["items", "product-templates", "configurable-products", "item-specifications"],
+      },
+      {
+        key: "movements",
+        defaultCollapsed: true,
+        itemKeys: ["stock-balance", "stock-transfers", "stock-adjustments", "physical-counts", "writedown-runs"],
+      },
+      { key: "output", defaultCollapsed: true, itemKeys: ["labels"] },
     ],
   },
   {
     key: "manufacturing",
     defaultCollapsed: true,
-    itemKeys: ["manufacturing-hub", "production-dashboard", "work-orders", "boms", "custom-manufacturing"],
+    itemKeys: ["manufacturing-hub"],
+    sections: [
+      { key: "production", itemKeys: ["production-dashboard", "work-orders", "custom-manufacturing"] },
+      { key: "definitions", defaultCollapsed: true, itemKeys: ["boms"] },
+    ],
   },
   {
     key: "accounting",
     defaultCollapsed: true,
-    itemKeys: [
-      "accounting-hub",
-      "coa",
-      "cost-centers",
-      "cost-center-pl",
-      "journals",
-      "fiscal-periods",
-      "taxes",
-      "exchange-rates",
-      "revaluation",
-      "reconciliation",
-      "eta",
-      "trial-balance-report",
-      "financial-reports",
+    itemKeys: ["accounting-hub"],
+    sections: [
+      { key: "definitions", itemKeys: ["coa", "cost-centers", "taxes", "exchange-rates"] },
+      { key: "cycle", defaultCollapsed: true, itemKeys: ["journals", "fiscal-periods", "revaluation", "reconciliation", "eta"] },
+      { key: "statements", defaultCollapsed: true, itemKeys: ["trial-balance-report", "financial-reports", "cost-center-pl"] },
     ],
   },
   {
@@ -94,21 +101,15 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "hr",
     defaultCollapsed: true,
-    itemKeys: [
-      "hr-dashboard",
-      "employees",
-      "departments",
-      "job-titles",
-      "contracts",
-      "holidays",
-      "attendance",
-      "payroll",
-      "advances",
-      "leave-requests",
-      "leave-balances",
-      "leave-accrual-batches",
-      "leave-policies",
-      "my-leave",
+    itemKeys: ["hr-dashboard"],
+    sections: [
+      { key: "people", itemKeys: ["employees", "departments", "job-titles", "contracts"] },
+      {
+        key: "time",
+        defaultCollapsed: true,
+        itemKeys: ["attendance", "holidays", "leave-requests", "leave-balances", "leave-accrual-batches", "leave-policies", "my-leave"],
+      },
+      { key: "pay", defaultCollapsed: true, itemKeys: ["payroll", "advances"] },
     ],
   },
   { key: "projects", defaultCollapsed: true, itemKeys: ["projects"] },
@@ -126,50 +127,53 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   {
     key: "reports",
     defaultCollapsed: true,
-    itemKeys: [
-      "report-sales-by-period",
-      "report-sales-by-item",
-      "report-sales-by-customer",
-      "report-sales-by-salesperson",
-      "report-sales-top-products",
-      "report-purchases-by-period",
-      "report-purchases-by-supplier",
-      "report-purchases-by-item",
-      "report-inventory-stock-levels",
-      "report-inventory-movement",
-      "report-inventory-ledger",
-      "report-inventory-valuation",
-      "report-inventory-aging",
-      "report-inventory-expiring",
-      "report-inventory-slow-moving",
-      "report-inventory-drift",
-      "report-aging-customers",
-      "report-aging-suppliers",
-      "report-installments-overview",
-      "report-installments-overdue",
-      "report-van-sales",
-      "report-make-vs-buy",
+    itemKeys: [],
+    sections: [
+      {
+        key: "sales",
+        itemKeys: [
+          "report-sales-by-period",
+          "report-sales-by-item",
+          "report-sales-by-customer",
+          "report-sales-by-salesperson",
+          "report-sales-top-products",
+          "report-van-sales",
+        ],
+      },
+      {
+        key: "purchases",
+        defaultCollapsed: true,
+        itemKeys: ["report-purchases-by-period", "report-purchases-by-supplier", "report-purchases-by-item"],
+      },
+      {
+        key: "inventory",
+        defaultCollapsed: true,
+        itemKeys: [
+          "report-inventory-stock-levels",
+          "report-inventory-movement",
+          "report-inventory-ledger",
+          "report-inventory-valuation",
+          "report-inventory-aging",
+          "report-inventory-expiring",
+          "report-inventory-slow-moving",
+          "report-inventory-drift",
+        ],
+      },
+      { key: "manufacturing", defaultCollapsed: true, itemKeys: ["report-make-vs-buy"] },
+      { key: "aging", defaultCollapsed: true, itemKeys: ["report-aging-customers", "report-aging-suppliers"] },
+      { key: "installments", defaultCollapsed: true, itemKeys: ["report-installments-overview", "report-installments-overdue"] },
     ],
   },
   {
     key: "settings",
     defaultCollapsed: true,
-    itemKeys: [
-      "settings-general",
-      "settings-branches",
-      "settings-warehouses",
-      "settings-print",
-      "notification-rules",
-      "settings-data-migration",
-      "settings-workflow",
-      "settings-sequences",
-      "settings-barcode",
-      "settings-profile",
-      "settings-api-keys",
-      "settings-webhooks",
-      "audit",
-      "users",
-      "roles",
+    itemKeys: ["settings-general"],
+    sections: [
+      { key: "access", itemKeys: ["users", "roles", "settings-profile", "audit"] },
+      { key: "structure", defaultCollapsed: true, itemKeys: ["settings-branches", "settings-warehouses"] },
+      { key: "workflow", defaultCollapsed: true, itemKeys: ["settings-workflow", "notification-rules"] },
+      { key: "documents", defaultCollapsed: true, itemKeys: ["settings-print", "settings-sequences", "settings-barcode"] },
+      { key: "integrations", defaultCollapsed: true, itemKeys: ["settings-api-keys", "settings-webhooks", "settings-data-migration"] },
     ],
   },
   { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
@@ -187,16 +191,26 @@ export function buildTopNavItem(t: Translate): NavItem {
   return { key: "dashboard", label: t("nav.item.dashboard"), icon: navItemIcon("dashboard") };
 }
 
+function buildNavItems(keys: readonly string[], t: Translate): NavItem[] {
+  return keys.map((key) => ({
+    key,
+    label: t(`nav.item.${key}` as AppTranslationKey),
+    icon: navItemIcon(key),
+  }));
+}
+
 export function buildNavGroups(t: Translate): NavGroup[] {
   return navGroupSpecs.map((group) => ({
     key: group.key,
     label: t(`nav.group.${group.key}` as AppTranslationKey),
     defaultCollapsed: group.defaultCollapsed,
     icon: navGroupIcon(group.key),
-    items: group.itemKeys.map((key) => ({
-      key,
-      label: t(`nav.item.${key}` as AppTranslationKey),
-      icon: navItemIcon(key),
+    items: buildNavItems(group.itemKeys, t),
+    sections: group.sections?.map((section) => ({
+      key: section.key,
+      label: t(`nav.section.${group.key}.${section.key}` as AppTranslationKey),
+      defaultCollapsed: section.defaultCollapsed,
+      items: buildNavItems(section.itemKeys, t),
     })),
   }));
 }

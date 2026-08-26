@@ -1291,30 +1291,16 @@ export function SalesInvoicesScreen() {
             pageCount={pageCount}
             onPageChange={setPage}
             pageSummary={
-              <span className="flex flex-wrap items-center gap-[10px]">
-                <span>
-                  {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
-                  <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
-                </span>
-                <label className="flex items-center gap-[6px] text-[12px] text-ink-muted">
-                  {t("salesInvoices.rowsPerPage")}
-                  <select
-                    value={pageSize}
-                    onChange={(e) => {
-                      setPageSize(Number(e.target.value));
-                      setPage(1);
-                    }}
-                    className="mz-num rounded-md border border-border bg-surface px-[8px] py-[4px] text-[12px] text-ink outline-none focus:border-brand"
-                  >
-                    {[10, 25, 50, 100].map((n) => (
-                      <option key={n} value={n}>
-                        {n}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <span>
+                {t("common.show")} <span className="mz-num">{pageRows.length}</span> {t("common.of")}{" "}
+                <span className="mz-num">{filtered.length}</span> {t("salesInvoices.showingSuffix")}
               </span>
             }
+            pageSize={pageSize}
+            onPageSizeChange={(size) => {
+              setPageSize(size);
+              setPage(1);
+            }}
             emptyState={<div className="p-8 text-center text-sm text-ink-muted">{t("salesInvoices.empty")}</div>}
           />
         </div>

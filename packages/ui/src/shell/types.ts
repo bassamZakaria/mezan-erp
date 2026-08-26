@@ -15,13 +15,33 @@ export interface NavItem {
   icon?: ReactNode;
 }
 
-export interface NavGroup {
+/**
+ * A sub-group inside a nav group — the third level. The reference product
+ * nests التقارير → المبيعات → «المبيعات حسب الفترة»; without this the reports
+ * group is a flat list of 22 and Settings a flat list of 15.
+ */
+export interface NavSection {
   key: string;
   label: string;
   items: NavItem[];
   defaultCollapsed?: boolean;
+}
+
+export interface NavGroup {
+  key: string;
+  label: string;
+  /** Items that hang directly off the group, rendered above any sections. */
+  items: NavItem[];
+  /** Sub-groups, rendered after `items`. A group may have either, or both. */
+  sections?: NavSection[];
+  defaultCollapsed?: boolean;
   /** Shown in place of the group label when the rail is collapsed; without one the header falls back to a monogram. */
   icon?: ReactNode;
+}
+
+/** Every item in a group, direct or nested — the flat view callers need for active-key lookups. */
+export function navGroupItems(group: NavGroup): NavItem[] {
+  return [...group.items, ...(group.sections ?? []).flatMap((section) => section.items)];
 }
 
 export interface ShellUser {

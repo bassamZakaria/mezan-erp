@@ -22,7 +22,11 @@ const PATH_BY_SCREEN = new Map<string, string>();
 const SCREEN_BY_PATH = new Map<string, string>();
 
 for (const group of navGroupSpecs) {
-  for (const key of group.itemKeys) {
+  // The URL stays `<group>/<item>` even for items nested in a section: a
+  // section is a grouping in the rail, not a routing level, so adding one
+  // never changes an existing address.
+  const keys = [...group.itemKeys, ...(group.sections ?? []).flatMap((section) => section.itemKeys)];
+  for (const key of keys) {
     const path = `${group.key}/${key}`;
     PATH_BY_SCREEN.set(key, path);
     SCREEN_BY_PATH.set(path, key);
@@ -52,7 +56,8 @@ export function hubScreenForGroup(groupKey: string): string | null {
   const hub = `${groupKey}-hub`;
   if (PATH_BY_SCREEN.has(hub)) return hub;
   const group = navGroupSpecs.find((g) => g.key === groupKey);
-  return group?.itemKeys[0] ?? null;
+  if (!group) return null;
+  return group.itemKeys[0] ?? group.sections?.[0]?.itemKeys[0] ?? null;
 }
 
 export interface Route {

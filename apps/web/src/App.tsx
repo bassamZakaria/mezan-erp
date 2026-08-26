@@ -353,14 +353,18 @@ export function App() {
     },
     [route.screen],
   );
+  const openScreenAt = useCallback((screen: ScreenKey, segments: readonly string[]) => {
+    setActiveScreen(screen);
+    window.location.hash = hashForRoute(screen, segments);
+  }, []);
   const clearIntent = useCallback(() => setPendingIntent(null), []);
   const registerIntentTarget = useCallback(() => {
     setIntentTargets((n) => n + 1);
     return () => setIntentTargets((n) => n - 1);
   }, []);
   const navigation = useMemo(
-    () => ({ navigate, segments: route.segments, openSubPage, intent: pendingIntent, clearIntent, registerIntentTarget }),
-    [navigate, route.segments, openSubPage, pendingIntent, clearIntent, registerIntentTarget],
+    () => ({ navigate, segments: route.segments, openSubPage, openScreenAt, intent: pendingIntent, clearIntent, registerIntentTarget }),
+    [navigate, route.segments, openSubPage, openScreenAt, pendingIntent, clearIntent, registerIntentTarget],
   );
 
   const rolesQuery = useRoles();

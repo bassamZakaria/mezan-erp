@@ -105,7 +105,8 @@ describe("DashboardScreen quick actions", () => {
   it.each(EXPECTED)("%s navigates to %s with a create intent", (label, screenKey) => {
     const navigate = vi.fn();
     renderWithProviders(
-      <NavigationProvider value={{ navigate, segments: [], openSubPage: () => {}, intent: null, clearIntent: () => {} }}>
+      <NavigationProvider value={{ navigate, segments: [], openSubPage: () => {},
+        openScreenAt: () => {}, intent: null, clearIntent: () => {} }}>
         <DashboardScreen />
       </NavigationProvider>,
       { transport: stubTransport({ "GET /dashboard/summary": () => ({ body: summary() }) }), initialSession: testAdminSession },

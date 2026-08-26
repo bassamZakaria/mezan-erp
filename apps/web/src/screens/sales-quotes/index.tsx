@@ -39,7 +39,10 @@ export function SalesQuotesScreen() {
 
   // The sub-page lives in the URL: `#/sales/quotes`, `…/new`, `…/<id>`.
   const subPage = useSubPage();
-  useScreenIntent(() => subPage.open("new"));
+  useScreenIntent((intent) => {
+    const customerId = intent.prefill?.customerId;
+    subPage.open(...(customerId ? ["new", customerId] : ["new"]));
+  });
 
   const [statusFilter, setStatusFilter] = useState<QuoteFilterKey>("all");
   const [search, setSearch] = useState("");
@@ -156,7 +159,7 @@ export function SalesQuotesScreen() {
   ];
 
   const [firstSegment] = subPage.segments;
-  if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} />;
+  if (firstSegment === "new") return <QuoteFormView onClose={subPage.close} initialCustomerId={subPage.segments[1] ?? ""} />;
   if (firstSegment !== undefined) {
     const quote = quotes.find((q) => q.id === firstSegment || q.docNo === firstSegment);
     if (quote) return <QuoteDetailView quote={quote} onBack={subPage.close} />;

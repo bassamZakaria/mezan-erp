@@ -15,6 +15,7 @@ import {
 import { useAuditLog } from "../../data/platform-hooks";
 import { useWorkingLocation } from "../../data/hub-hooks";
 import { useAppTranslation } from "../../i18n";
+import { useNavigation } from "../../navigation";
 import { Money, Qty, computeQuoteTotals, type SalesQuoteDiscount, type SalesQuoteLine } from "@mezan/domain";
 import {
   AR_ACCOUNT_ID,
@@ -44,6 +45,7 @@ const STEPS = [
  * happen when I press this" is the question the seller is actually asking.
  */
 export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; onBack: () => void }) {
+  const { openScreenAt } = useNavigation();
   const { t } = useAppTranslation();
   const format = useFormat();
   const items = useItems().data ?? [];
@@ -325,8 +327,13 @@ export function QuoteDetailView({ quote, onBack }: { quote: SalesQuoteRecord; on
                   <div className="rounded-[8px] bg-success-soft px-3 py-2 text-[12.5px] text-success-ink">
                     {t("quotes.alreadyConverted")}
                     {quote.convertedInvoiceId ? (
-                      <div className="mt-1 text-[11.5px]">
-                        {t("quotes.convertedInvoice")} <span className="mz-num">{quote.convertedInvoiceId}</span>
+                      <div className="mt-1 flex items-center gap-[8px] text-[11.5px]">
+                        <span>
+                          {t("quotes.convertedInvoice")} <span className="mz-num">{quote.convertedInvoiceId}</span>
+                        </span>
+                        <Button size="sm" variant="ghost" onClick={() => openScreenAt("sales-invoices", [quote.convertedInvoiceId!])}>
+                          {t("quotes.viewInvoice")}
+                        </Button>
                       </div>
                     ) : null}
                   </div>

@@ -42,7 +42,7 @@ import {
  * from the customer's price list when they have one, falling back to the
  * item's own sale price.
  */
-export function QuoteFormView({ onClose }: { onClose: () => void }) {
+export function QuoteFormView({ onClose, initialCustomerId = "" }: { onClose: () => void; initialCustomerId?: string }) {
   const { t } = useAppTranslation();
   const format = useFormat();
   const customersQuery = useCustomers();
@@ -59,7 +59,8 @@ export function QuoteFormView({ onClose }: { onClose: () => void }) {
   const workingLocation = useWorkingLocation();
   const create = useCreateSalesQuote();
 
-  const [customerId, setCustomerId] = useState("");
+  // Carried in from «عرض سعر جديد» on a customer's page; the id is in the URL, so it survives a reload.
+  const [customerId, setCustomerId] = useState(initialCustomerId);
   const [branchId, setBranchId] = useState(workingLocation.branchId ?? "");
   const [date, setDate] = useState(today());
   const [expiryDate, setExpiryDate] = useState(plusDays(30));

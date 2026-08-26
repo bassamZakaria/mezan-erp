@@ -1109,6 +1109,7 @@ const webAr = {
   "quotes.backToList": "رجوع إلى القائمة",
   "quotes.notFound": "لم يُعثر على عرض السعر المطلوب.",
   "quotes.cancel": "إلغاء العرض",
+  "quotes.viewInvoice": "عرض الفاتورة",
   "quotes.convertedInvoice": "رقم الفاتورة:",
 
   // sales — invoices
@@ -6784,6 +6785,7 @@ const webEn: Record<WebTranslationKey, string> = {
   "quotes.backToList": "Back to list",
   "quotes.notFound": "That quote could not be found.",
   "quotes.cancel": "Cancel quote",
+  "quotes.viewInvoice": "View invoice",
   "quotes.convertedInvoice": "Invoice id:",
 
   // sales — invoices

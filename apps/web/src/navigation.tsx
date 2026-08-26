@@ -31,6 +31,13 @@ type NavigationValue = {
   segments: readonly string[];
   /** Replace the active screen's sub-page: `openSubPage(["new"])` → `#/sales/quotes/new`. */
   openSubPage: (segments: readonly string[]) => void;
+  /**
+   * Open ANOTHER screen at a sub-page — the invoice a quote became, the journal
+   * entry a document posted, the invoice a return came from. Without this a
+   * cross-document link can only reach the target's list and leave the user to
+   * find the row again.
+   */
+  openScreenAt: (screen: ScreenKey, segments: readonly string[]) => void;
   intent: ScreenIntent | null;
   clearIntent: () => void;
   /**
@@ -53,6 +60,7 @@ const FALLBACK: NavigationValue = {
   },
   segments: [],
   openSubPage: () => {},
+  openScreenAt: () => {},
   intent: null,
   clearIntent: () => {},
 };

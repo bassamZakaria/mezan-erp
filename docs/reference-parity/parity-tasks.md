@@ -39,8 +39,18 @@ Tick an item only when it has been driven in the running app on seeded data, in
       - [x] `/customers/stats` and `/suppliers/stats` derive receivables and payables server-side in `Money`,
             from the same figures `/sales-invoices/stats` reports — wired at the composition root in
             `packages/api/src/app.ts` rather than left null
-      - [~] Screens pointed at them: sales quotes, customers, suppliers and items are live and verified in the
-            browser in ar+en; the rest still derive their strip in the browser from the rows they hold
+      - [x] All 20 screens pointed at them, so the strip follows the chip instead of reporting the whole book.
+            Verified live on a seeded tenant in ar/RTL and en/LTR, light and dark: on quotes, clicking محول moved
+            the rows to 1 AND the total from 33,219.60 to 9,849.60 while every other chip kept its own count; on
+            cheques, محصل moved 5 rows / 13,050.00 to 2 rows / 7,300.00; on items, «out of stock» moved 19 to 9 in
+            the rows AND in all four tiles; on purchase orders, «fully received» moved 72,730.00 to 23,300.00.
+            The customers strip's «إجمالي المستحق» now ties to the cent to `/sales-invoices/stats` remaining
+            (43,880.88), and `?q=مؤسسه` finds «مؤسسة النور» — the server search forgives ة/ه, the old browser
+            `includes` did not (D32)
+      - [ ] The treasury-accounts money tiles stay client-side on purpose: they are LIVE GL balances read from the
+            trial balance, and `/treasury-accounts/stats` answers opening balances. Publishing an opening balance
+            under a live-balance label is the defect `73381da` fixed; the endpoint needs a ledger source before
+            those three tiles can move
 - [x] **R2.2** Returns must start from a source document, and returnable quantity must be recomputed server-side
 
 ## P1 — shell and navigation

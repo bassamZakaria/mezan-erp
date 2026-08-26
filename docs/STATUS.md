@@ -1,6 +1,6 @@
 # Mezan — Status
 
-**Updated 2026-08-24** · Branch `main` · v1 = Electron desktop, SQLite, real data.
+**Updated 2026-08-26** · Branch `main` · v1 = Electron desktop, SQLite, real data.
 
 > **This is the only status document.** Two other files are live alongside it and
 > own their own subject: `defects.md` (what is broken) and `decisions.md` (what is
@@ -15,6 +15,26 @@ whether it goes stale. The three live documents are **this file** (what is done
 and what is broken), `defects.md` (the defect register) and `decisions.md`
 (what is waiting on a human).
 
+## Reference parity — the current head of work
+
+A two-round live diff against the reference product was run on 2026-08-26:
+round 1 swept **101 reference routes against 116 Mezan routes** at list level;
+round 2 opened every create form, entity detail panel, tab and row menu.
+
+- **`docs/reference-parity/gap-inventory.md`** — the findings: what Mezan is missing,
+  where the reference is wrong and should not be copied, and what is out of scope.
+- **`docs/reference-parity/parity-tasks.md`** — the ordered work list (P0 defects →
+  P1 shell → P2 reports → P3 document detail → P4 entity 360 → P5 features → P6 lists).
+- **`docs/scenarios/10-reference-parity.md`** — the scenarios that verify each phase.
+
+Headline: the sidebar is two levels where the reference is three; all 22 operational
+reports are one table component with no KPI strip and no charts; treasury exposes 4 of
+11 voucher types; items have 2 of 6 types; customer/supplier statements, attachments,
+cost-layer and reserved-stock views, and the entity action bars do not exist yet.
+Three new defects were filed: **D43** (four shipped "(المرحلة الثانية)" placeholders on
+surfaces whose data already exists), **D44** (cost-centre columns), **D45** (three empty
+list surfaces).
+
 ## Current state
 
 Measured against the running app, not the checklist:
@@ -24,7 +44,8 @@ Measured against the running app, not the checklist:
 | Screens routed | **110** (from 129 nav entries) |
 | «قريباً» markers outside HR | **0** |
 | Read surfaces answering `pnpm smoke` | **116** |
-| Reference screens still absent | ~22 |
+| Reference screens still absent | ~14 (POS descoped) |
+| Reference **features** still absent | see `reference-parity/parity-tasks.md` |
 | Typecheck / lint / build / smoke | passing |
 | UX enhancement spec (§2–§8) | built; 4 items await a human decision |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow |

@@ -9,6 +9,8 @@ export interface AppShellProps {
   activeNavKey?: string;
   topNavItem: NavItem;
   navGroups: NavGroup[];
+  /** Groups that belong in the header's gear menu rather than the rail — settings and system. */
+  utilityGroups?: NavGroup[];
   user: ShellUser;
   commandItems?: CommandItem[];
   tenantName?: string;
@@ -40,6 +42,7 @@ export function AppShell({
   activeNavKey,
   topNavItem,
   navGroups,
+  utilityGroups,
   user,
   commandItems = [],
   tenantName,
@@ -67,13 +70,10 @@ export function AppShell({
         activeKey={activeNavKey}
         topItem={topNavItem}
         groups={navGroups}
-        user={user}
         brandName={brandName}
         brandSub={brandSub}
         tenantName={tenantName}
         scopeLabel={scopeLabel}
-        theme={theme}
-        onToggleTheme={toggleTheme}
         branchOptions={branchOptions}
         warehouseOptions={warehouseOptions}
         selectedBranchId={selectedBranchId}
@@ -89,6 +89,10 @@ export function AppShell({
           notificationsPanel={notificationsPanel}
           userMenuItems={userMenuItems}
           user={user}
+          theme={theme}
+          onToggleTheme={toggleTheme}
+          utilityGroups={utilityGroups}
+          activeNavKey={activeNavKey}
         />
         <main className="flex-1 px-[30px] pb-[72px] pt-[28px]">{children}</main>
       </div>

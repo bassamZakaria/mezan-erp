@@ -37,9 +37,15 @@ describe("Topbar", () => {
     expect(screen.getByRole("listbox", { name: "لوحة الأوامر" })).toBeInTheDocument();
   });
 
-  it("no longer renders a theme toggle — that control moved to the sidebar rail", () => {
+  it("renders the appearance toggle beside the language switcher and fires it", () => {
     const onToggleTheme = vi.fn();
     render(<Topbar onOpenCommandPalette={() => {}} theme="light" onToggleTheme={onToggleTheme} user={user} />);
+    fireEvent.click(screen.getByRole("button", { name: "تبديل المظهر" }));
+    expect(onToggleTheme).toHaveBeenCalledOnce();
+  });
+
+  it("omits the appearance toggle when no handler is supplied", () => {
+    render(<Topbar onOpenCommandPalette={() => {}} theme="light" user={user} />);
     expect(screen.queryByRole("button", { name: "تبديل المظهر" })).not.toBeInTheDocument();
   });
 

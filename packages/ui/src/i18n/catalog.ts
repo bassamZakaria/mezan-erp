@@ -22,6 +22,7 @@ const uiAr = {
   "shell.palette.placeholder": "اكتب أمراً أو ابحث…",
   "shell.palette.empty": "لا توجد نتائج مطابقة",
   "shell.command.placeholder": "ابحث أو نفّذ أمراً… فاتورة، عميل، قيد، تقرير",
+  "shell.utility.menu": "الإعدادات والنظام",
   "shell.rail.collapse": "طي شريط التنقل",
   "shell.rail.expand": "توسيع شريط التنقل",
 
@@ -172,6 +173,7 @@ const uiEn: Record<UiTranslationKey, string> = {
   "shell.palette.placeholder": "Type a command or search…",
   "shell.palette.empty": "No matching results",
   "shell.command.placeholder": "Search or run a command… invoice, customer, entry, report",
+  "shell.utility.menu": "Settings and system",
   "shell.rail.collapse": "Collapse the navigation rail",
   "shell.rail.expand": "Expand the navigation rail",
 

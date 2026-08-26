@@ -22,7 +22,7 @@ describe("AppShell", () => {
     );
     expect(screen.getByText("ميزان")).toBeInTheDocument();
     // Appears once in the sidebar footer and once in the topbar user chip.
-    expect(screen.getAllByText("محمد الشهابي")).toHaveLength(2);
+    expect(screen.getAllByText("محمد الشهابي")).toHaveLength(1);
     expect(screen.getByText("محتوى الصفحة")).toBeInTheDocument();
   });
 

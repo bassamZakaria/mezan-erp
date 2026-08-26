@@ -1,24 +1,20 @@
 import { useMemo, useState } from "react";
 import { cn } from "../lib/cn";
 import { useUiTranslation } from "../i18n";
-import type { ThemePreference } from "../hooks/useTheme";
 import { BrandMark } from "./BrandMark";
 import { ScopeSwitchers } from "./ScopeSwitcher";
 import type { TopbarScopeOption } from "./Topbar";
-import type { NavGroup, NavItem, ShellUser } from "./types";
+import type { NavGroup, NavItem } from "./types";
 
 export interface SidebarProps {
   activeKey?: string;
   topItem: NavItem;
   groups: NavGroup[];
-  user: ShellUser;
   brandName?: string;
   brandSub?: string;
   /** Company context pinned above the nav — display only; there is a single tenant per session, so there is nothing to switch. */
   tenantName?: string;
   scopeLabel?: string;
-  theme?: ThemePreference;
-  onToggleTheme?: () => void;
   className?: string;
   /**
    * Working-branch / warehouse selectors — real dropdowns that narrow which
@@ -153,18 +149,15 @@ function NavRow({ item, active, showLabel }: { item: NavItem; active: boolean; s
   );
 }
 
-/** Sidebar — the dark-teal module rail: company context and branch/warehouse switchers on top, grouped nav with a brass active bar, user + theme at the foot. Collapses to icon-only; mirrors with the document direction. */
+/** Sidebar — the dark-teal module rail: company context and branch/warehouse switchers on top and grouped nav with a brass active bar. Collapses to icon-only; mirrors with the document direction. */
 export function Sidebar({
   activeKey,
   topItem,
   groups,
-  user,
   brandName,
   brandSub = "Mezan ERP",
   tenantName,
   scopeLabel,
-  theme,
-  onToggleTheme,
   className,
   branchOptions,
   warehouseOptions,
@@ -197,7 +190,6 @@ export function Sidebar({
   }
 
   const expanded = !railCollapsed;
-  const isDark = theme === "dark";
   const railToggleLabel = expanded ? t("shell.rail.collapse") : t("shell.rail.expand");
 
   return (
@@ -317,59 +309,6 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      <div
-        className={cn(
-          "flex flex-none items-center gap-[10px] border-t border-chrome-border py-[12px]",
-          expanded ? "px-[12px]" : "flex-col gap-[8px] px-0",
-        )}
-      >
-        <span
-          title={expanded ? undefined : `${user.name} · ${user.role}`}
-          className="flex h-[34px] w-[34px] flex-none items-center justify-center rounded-full bg-gradient-to-br from-accent to-accent-strong font-display text-[13px] font-extrabold text-[color:var(--chrome-2)]"
-        >
-          {user.initials}
-        </span>
-        {expanded ? (
-          <div className="min-w-0">
-            <div className="truncate text-md font-semibold leading-tight">{user.name}</div>
-            <div className="truncate text-sm text-chrome-ink-muted">{user.role}</div>
-          </div>
-        ) : null}
-        {onToggleTheme ? (
-          <button
-            type="button"
-            onClick={onToggleTheme}
-            aria-label={t("shell.theme.toggle")}
-            title={t("shell.theme.toggle")}
-            className={cn(
-              "flex h-[34px] w-[34px] flex-none items-center justify-center rounded-md border border-chrome-border text-chrome-ink transition-colors hover:bg-chrome-hover",
-              expanded && "ms-auto",
-            )}
-          >
-            {isDark ? (
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
-                <path
-                  d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            ) : (
-              <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
-                <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.5" />
-                <path
-                  d="M10 2v2M10 16v2M4 4l1.4 1.4M14.6 14.6 16 16M2 10h2M16 10h2M4 16l1.4-1.4M14.6 5.4 16 4"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
-            )}
-          </button>
-        ) : null}
-      </div>
     </aside>
   );
 }

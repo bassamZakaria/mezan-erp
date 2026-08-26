@@ -4,7 +4,7 @@ import type { ThemePreference } from "../hooks/useTheme";
 import { LOCALE_SHORT_LABEL, useUiTranslation, type Locale } from "../i18n";
 import { CommandBar } from "./CommandBar";
 import { TopbarMenu } from "./TopbarMenu";
-import type { CommandItem, ShellUser, UserMenuItem } from "./types";
+import type { CommandItem, NavGroup, ShellUser, UserMenuItem } from "./types";
 
 /**
  * A notification row as the shell renders it. Kept here (rather than in the
@@ -60,9 +60,17 @@ export interface TopbarProps {
   searchPlaceholder?: string;
   tenantName?: string;
   scopeLabel?: string;
-  /** The theme control now lives at the foot of the sidebar rail (spec §5); accepted here for source compatibility. */
+  /** Drives which glyph the appearance toggle shows; the toggle only renders when `onToggleTheme` is supplied. */
   theme?: ThemePreference;
   onToggleTheme?: () => void;
+  /**
+   * Nav groups lifted out of the sidebar rail into the header's gear menu —
+   * settings and system. Their items keep the same `onClick` the rail gave
+   * them, so routing is unchanged.
+   */
+  utilityGroups?: readonly NavGroup[];
+  /** Highlights the matching utility item, mirroring the rail's active row. */
+  activeNavKey?: string;
   notificationCount?: number;
   /** Toggles the caller-supplied `notificationsPanel` open — omit both to keep the bell inert. */
   onToggleNotifications?: () => void;
@@ -89,12 +97,106 @@ function LanguageToggle() {
   );
 }
 
-/** Topbar — the persistent command bar, tenant chip, language toggle, notifications and the user menu, all on the dark chrome. */
+/** The appearance toggle — flips light/dark, sitting beside the language switcher. */
+function ThemeToggle({ theme, onToggleTheme }: { theme?: ThemePreference; onToggleTheme: () => void }) {
+  const { t } = useUiTranslation();
+  return (
+    <ChromeIconButton aria-label={t("shell.theme.toggle")} onClick={onToggleTheme}>
+      {theme === "dark" ? (
+        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+          <path
+            d="M16.5 12.6A6.8 6.8 0 0 1 7.4 3.5 6.8 6.8 0 1 0 16.5 12.6Z"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+          />
+        </svg>
+      ) : (
+        <svg aria-hidden viewBox="0 0 20 20" fill="none" className="h-[17px] w-[17px]">
+          <circle cx="10" cy="10" r="3.6" stroke="currentColor" strokeWidth="1.5" />
+          <path
+            d="M10 2v2M10 16v2M4 4l1.4 1.4M14.6 14.6 16 16M2 10h2M16 10h2M4 16l1.4-1.4M14.6 5.4 16 4"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
+    </ChromeIconButton>
+  );
+}
+
+/** The gear menu — settings and system, grouped, opened from the header. */
+function UtilityMenu({ groups, activeNavKey }: { groups: readonly NavGroup[]; activeNavKey?: string }) {
+  const { t } = useUiTranslation();
+  const label = t("shell.utility.menu");
+  return (
+    <TopbarMenu
+      label={label}
+      panelClassName="max-h-[calc(100vh-92px)] w-[268px] overflow-y-auto"
+      trigger={(triggerProps) => (
+        <button
+          {...triggerProps}
+          type="button"
+          aria-label={label}
+          className="flex h-[36px] w-[36px] flex-none items-center justify-center rounded-md border border-chrome-border text-chrome-ink-muted transition-colors hover:bg-chrome-hover hover:text-chrome-ink"
+        >
+          <svg aria-hidden viewBox="0 0 24 24" fill="none" className="h-[18px] w-[18px]">
+            <path
+              d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.6" />
+          </svg>
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          {groups.map((group) => (
+            <div key={group.key} className="border-b border-border last:border-b-0">
+              <div className="px-[14px] pb-[4px] pt-[10px] text-2xs font-bold uppercase tracking-wide text-ink-faint">{group.label}</div>
+              <ul className="pb-[6px]">
+                {group.items.map((item) => (
+                  <li key={item.key}>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        item.onClick?.();
+                        close();
+                      }}
+                      className={cn(
+                        "w-full px-[14px] py-[7px] text-start text-sm transition-colors hover:bg-surface-2",
+                        item.key === activeNavKey ? "bg-surface-2 font-semibold text-ink" : "text-ink",
+                      )}
+                    >
+                      {item.label}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </>
+      )}
+    </TopbarMenu>
+  );
+}
+
+/** Topbar — the persistent command bar, tenant chip, the settings/system gear menu, language and appearance toggles, notifications and the user menu, all on the dark chrome. */
 export function Topbar({
   commandItems = [],
   searchPlaceholder,
   tenantName,
   scopeLabel,
+  theme,
+  onToggleTheme,
+  utilityGroups = [],
+  activeNavKey,
   notificationCount = 0,
   onToggleNotifications,
   notificationsPanel,
@@ -107,7 +209,7 @@ export function Topbar({
   return (
     <header
       className={cn(
-        "sticky top-0 z-20 flex h-[62px] flex-none items-center gap-[12px] border-b border-chrome-border bg-chrome px-[22px] text-chrome-ink",
+        "sticky top-0 z-40 flex h-[62px] flex-none items-center gap-[12px] border-b border-chrome-border bg-chrome px-[22px] text-chrome-ink",
         className,
       )}
     >
@@ -138,7 +240,10 @@ export function Topbar({
           </div>
         ) : null}
 
+        {utilityGroups.length > 0 ? <UtilityMenu groups={utilityGroups} activeNavKey={activeNavKey} /> : null}
+
         <LanguageToggle />
+        {onToggleTheme ? <ThemeToggle theme={theme} onToggleTheme={onToggleTheme} /> : null}
 
         <div className="relative">
           <ChromeIconButton

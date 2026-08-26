@@ -115,7 +115,7 @@ describe("App", () => {
     login();
     await screen.findByRole("heading", { name: "مرحباً، محمد · طاب يومك" });
 
-    fireEvent.click(screen.getByRole("button", { name: "الإعدادات" }));
+    fireEvent.click(screen.getByRole("button", { name: "الإعدادات والنظام" }));
     fireEvent.click(screen.getByRole("button", { name: "إعدادات الموافقات" }));
     expect(await screen.findByRole("heading", { name: "إعدادات الموافقات" })).toBeInTheDocument();
   });

@@ -175,6 +175,9 @@ export const navGroupSpecs: readonly NavGroupSpec[] = [
   { key: "system", defaultCollapsed: true, itemKeys: ["status"] },
 ];
 
+/** Groups the shell renders in the topbar's gear menu instead of the sidebar rail. */
+export const UTILITY_GROUP_KEYS: ReadonlySet<string> = new Set(["settings", "system"]);
+
 const commandItemSpecs = [
   { id: "cmd-invoice", groupKey: "command.group.quickActions", hint: `${modKeyLabel()}+N` },
   { id: "cmd-receipt", groupKey: "command.group.quickActions" },

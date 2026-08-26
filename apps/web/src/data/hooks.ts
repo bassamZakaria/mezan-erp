@@ -82,6 +82,8 @@ import type {
   CreateSalesInvoiceDTO,
   CreateSalesQuoteDTO,
   CreateSalesReturnDTO,
+  BuildSalesReturnFromInvoiceDTO,
+  RefundSalesReturnDTO,
   CreateStockAdjustmentDTO,
   CreateStockTransferDTO,
   CreateSupplierDTO,
@@ -5975,6 +5977,53 @@ export function useResolvePriceListPrice() {
       const res = await request("/price-lists/resolve-price", { method: "POST", body: JSON.stringify(body) });
       if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.priceListsCouldNotBe")));
       return res.json<ResolvedPriceListPrice>();
+    },
+  });
+}
+
+/**
+ * «مرتجع من فاتورة» — the server reads every price, cost, tax share and
+ * returnable quantity off the source invoice, so this sends only the invoice
+ * and a quantity (and a reason) per item.
+ */
+export function useCreateSalesReturnFromInvoice() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<SalesReturnDocumentDTO, ApiError, BuildSalesReturnFromInvoiceDTO>({
+    mutationFn: async (body) => {
+      const res = await request("/sales-returns/from-invoice", { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theSalesReturnCouldNot")));
+      return res.json<SalesReturnDocumentDTO>();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["sales-returns"] }),
+  });
+}
+
+/**
+ * «استرداد للعميل» — a real سند صرف, so the treasury and the ledger both moved
+ * and their views are stale too.
+ */
+export function useRefundSalesReturn() {
+  const { t } = useAppTranslation();
+  const { request } = useApi();
+  const queryClient = useQueryClient();
+  return useMutation<
+    SalesReturnDocumentDTO & { voucherId: string; voucherNo: string | null },
+    ApiError,
+    { id: string } & RefundSalesReturnDTO
+  >({
+    mutationFn: async ({ id, ...body }) => {
+      const res = await request(`/sales-returns/${id}/refund`, { method: "POST", body: JSON.stringify(body) });
+      if (!res.ok) throw new ApiError(res.status, await readError(res, t("api.theRefundCouldNotBe")));
+      return res.json<SalesReturnDocumentDTO & { voucherId: string; voucherNo: string | null }>();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["sales-returns"] });
+      queryClient.invalidateQueries({ queryKey: ["vouchers"] });
+      queryClient.invalidateQueries({ queryKey: ["treasury-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
 }

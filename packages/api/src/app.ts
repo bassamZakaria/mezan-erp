@@ -75,6 +75,7 @@ import {
   type LandedCostService,
   type PurchaseInvoiceLookupPort,
   type SalesInvoiceLookupPort,
+  type SalesReturnRefundPort,
   type SalesReturnLine,
   type PurchaseReturnLine,
   type LandedCostLine,
@@ -665,6 +666,8 @@ export interface CreateAppOptions {
     readonly resolveAuthContext?: AuthContextResolver;
     /** Lets the server derive the returnable quantity rather than trusting the client's. */
     readonly invoices?: SalesInvoiceLookupPort;
+    /** Treasury seam behind «استرداد للعميل» — without it the refund route 503s instead of faking a state change (R3.9). */
+    readonly refunds?: SalesReturnRefundPort;
   };
   /** Mounts `/purchase-returns` (docs/catalog/02 §"مرتجعات المشتريات") when present — mirrors `salesReturns`. */
   readonly purchaseReturns?: {
@@ -963,7 +966,12 @@ export function createApp(uow: UnitOfWork, options: CreateAppOptions = {}) {
   if (options.salesReturns) {
     app.route(
       "/sales-returns",
-      createSalesReturnsRoutes(options.salesReturns.service, options.salesReturns.resolveAuthContext, options.salesReturns.invoices),
+      createSalesReturnsRoutes(
+        options.salesReturns.service,
+        options.salesReturns.resolveAuthContext,
+        options.salesReturns.invoices,
+        options.salesReturns.refunds,
+      ),
     );
   }
   if (options.purchaseReturns) {

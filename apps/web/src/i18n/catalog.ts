@@ -6325,6 +6325,31 @@ const webAr = {
   "customers.row.activate": "تفعيل العميل",
   "customers.row.deactivate": "إيقاف العميل",
   "customers.row.actionsFor": "إجراءات {customer}",
+
+  // R3.9 — مرتجعات المبيعات: سبب لكل بند، وانتظار الاسترداد، والاسترداد نفسه
+  "salesReturns.col.reasons": "أسباب الإرجاع",
+  "salesReturns.col.refundDue": "المتبقي للرد",
+  "salesReturns.stat.refundDue": "إجمالي المستحق للعملاء",
+  "salesReturns.emptyBody": "المرتجع يبدأ دائماً من فاتورة مؤكدة — يعيد البضاعة للمخزون ويخفّض مديونية العميل.",
+  "salesReturns.field.reasonHint": "هذا السبب الافتراضي لكل بند جديد؛ ويمكن تغييره لكل بند على حدة.",
+  "salesReturns.field.lineReason": "سبب البند",
+  "salesReturns.row.view": "عرض المرتجع",
+  "salesReturns.row.viewSourceInvoice": "عرض الفاتورة المصدر",
+  "salesReturns.row.actionsFor": "إجراءات {doc}",
+  "salesReturns.refund.heading": "استرداد للعميل",
+  "salesReturns.refund.hint": "الاسترداد ينشئ سند صرف مؤكداً: المبلغ يخرج من الخزينة ويُخصم من حساب العملاء بنفس القيمة في قيد متوازن واحد.",
+  "salesReturns.refund.treasury": "الخزينة التي يخرج منها المبلغ",
+  "salesReturns.refund.method": "طريقة الدفع",
+  "salesReturns.refund.method.cash": "نقدي",
+  "salesReturns.refund.method.bank": "بنكي",
+  "salesReturns.refund.method.cheque": "شيك",
+  "salesReturns.refund.due": "المتبقي للرد",
+  "salesReturns.refund.submit": "استرداد للعميل",
+  "salesReturns.refund.done": "تم إنشاء سند الصرف {voucher} وخرج المبلغ من الخزينة.",
+  "salesReturns.refund.needTreasury": "اختر الخزينة التي يخرج منها المبلغ.",
+  "salesReturns.refund.postedHeading": "سندات الاسترداد",
+  "salesReturns.refund.voucher": "السند",
+  "api.theRefundCouldNotBe": "تعذّر تنفيذ الاسترداد.",
 } as const;
 
 export type WebTranslationKey = keyof typeof webAr;
@@ -12655,6 +12680,31 @@ const webEn: Record<WebTranslationKey, string> = {
   "customers.row.activate": "Activate customer",
   "customers.row.deactivate": "Deactivate customer",
   "customers.row.actionsFor": "Actions for {customer}",
+
+  // R3.9 — sales returns: a reason per line, awaiting refund, and the refund itself
+  "salesReturns.col.reasons": "Return reasons",
+  "salesReturns.col.refundDue": "Still to refund",
+  "salesReturns.stat.refundDue": "Owed back to customers",
+  "salesReturns.emptyBody": "A return always starts from a confirmed invoice — it puts the goods back into stock and lowers what the customer owes.",
+  "salesReturns.field.reasonHint": "The default reason for each new line; every line can carry its own.",
+  "salesReturns.field.lineReason": "Line reason",
+  "salesReturns.row.view": "Open return",
+  "salesReturns.row.viewSourceInvoice": "View source invoice",
+  "salesReturns.row.actionsFor": "Actions for {doc}",
+  "salesReturns.refund.heading": "Refund the customer",
+  "salesReturns.refund.hint": "Refunding creates a confirmed payment voucher: the money leaves the till and the same figure is taken off receivables in one balanced entry.",
+  "salesReturns.refund.treasury": "Treasury the money leaves",
+  "salesReturns.refund.method": "Payment method",
+  "salesReturns.refund.method.cash": "Cash",
+  "salesReturns.refund.method.bank": "Bank",
+  "salesReturns.refund.method.cheque": "Cheque",
+  "salesReturns.refund.due": "Still to refund",
+  "salesReturns.refund.submit": "Refund the customer",
+  "salesReturns.refund.done": "Payment voucher {voucher} was created and the money left the till.",
+  "salesReturns.refund.needTreasury": "Choose the treasury the money leaves.",
+  "salesReturns.refund.postedHeading": "Refund vouchers",
+  "salesReturns.refund.voucher": "Voucher",
+  "api.theRefundCouldNotBe": "The refund could not be made.",
 };
 
 export const webCatalogs: LocaleCatalogs = { ar: webAr, en: webEn };

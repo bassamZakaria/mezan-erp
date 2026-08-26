@@ -17,9 +17,9 @@ import {
 import { InvalidDocumentError } from "../documents/errors.js";
 import {
   createSalesReturnDocumentType,
-  isAwaitingRefund,
   type SalesReturnLine,
 } from "./sales-return-document.js";
+import { isAwaitingRefund } from "./refund.js";
 
 const ACCOUNTS = {
   accountsReceivableId: "AR",

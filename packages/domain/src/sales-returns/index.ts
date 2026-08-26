@@ -7,7 +7,6 @@
 export {
   DOC_TYPE as SALES_RETURN_DOC_TYPE,
   SALES_RETURN_REASONS,
-  isAwaitingRefund,
   salesReturnGrandTotal,
   salesReturnLineCredit,
   salesReturnCreditByInvoice,
@@ -28,3 +27,14 @@ export type {
   SourceSalesInvoice,
   SalesInvoiceLookupPort,
 } from "./ports.js";
+
+export {
+  isAwaitingRefund,
+  refundDue,
+  sumRefunds,
+  assertRefundable,
+  SalesReturnNotRefundableError,
+  type SalesReturnRefund,
+  type SalesReturnRefundPort,
+  type SalesReturnRefundCommand,
+} from "./refund.js";

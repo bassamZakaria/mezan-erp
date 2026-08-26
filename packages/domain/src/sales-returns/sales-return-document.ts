@@ -2,9 +2,8 @@
  * Sales Return as a document-framework consumer (docs/catalog/01
  * §"مرتجعات المبيعات"): a return processed against a specific confirmed sales
  * invoice — restocks inventory at the invoice line's cost and reduces the
- * customer's receivable; it never auto-refunds cash (a separate treasury
- * disbursement voucher does that, out of this PR's scope — see
- * {@link isAwaitingRefund}).
+ * customer's receivable; it never auto-refunds cash. Paying the credit note
+ * out is a separate treasury disbursement — see `./refund.ts`.
  *
  * The sales-invoices module (Phase 5/6, landing in a parallel PR) is NOT a
  * hard dependency here: a return's line already carries the invoice-line
@@ -108,10 +107,6 @@ export function salesReturnCreditByInvoice(
   return byInvoice;
 }
 
-/** A confirmed return is always بانتظار دفع المبلغ (awaiting a manual cash refund) — no auto-refund in this PR. */
-export function isAwaitingRefund(doc: SalesReturnDocument): boolean {
-  return doc.status === "confirmed";
-}
 
 export function createSalesReturnDocumentType(
   accounts: SalesReturnGlAccounts,

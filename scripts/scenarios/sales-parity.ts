@@ -14,15 +14,15 @@ const BRANCH_ID = "BR-MAIN";
 const WAREHOUSE_ID = "WH-MAIN";
 const AR_ACCOUNT = "1105";
 const TAX_ACCOUNT = "2200";
-const CASH_ACCOUNT = "1110";
+const CASH_ACCOUNT = "1300-1";
 const TODAY = "2026-08-24";
 
 export async function run(ctx: Ctx): Promise<void> {
   const { req, rows, n, check, checkEq, scenario } = ctx;
 
   async function glBalance(accountId: string): Promise<number> {
-    const res = await req("GET", `/gl/accounts/${accountId}/ledger`);
-    return n(res.body?.balance?.balance ?? res.body?.balance ?? 0);
+    const res = await req("GET", `/gl/accounts/${encodeURIComponent(accountId)}/ledger`);
+    return n(res.body?.balance?.balance ?? 0);
   }
 
   // ---------------------------------------------------------------- R3.11
@@ -236,13 +236,16 @@ export async function run(ctx: Ctx): Promise<void> {
     check("the voucher is a real confirmed رد مبلغ لعميل", voucher?.status === "confirmed" && voucher?.voucherType === "customer_refund", JSON.stringify({ s: voucher?.status, t: voucher?.voucherType }));
     check("it posted a journal entry", typeof voucher?.journalEntryId === "string" && voucher.journalEntryId.length > 0, JSON.stringify(voucher?.journalEntryId));
 
-    const entry = (await req("GET", `/gl/entries/${voucher?.journalEntryId}`)).body;
+    const entry = (await req("GET", `/gl/journal-entries/${voucher?.journalEntryId}`)).body;
     const debit = rows(entry?.lines).reduce((s: number, l: any) => s + n(l.debit), 0);
     const credit = rows(entry?.lines).reduce((s: number, l: any) => s + n(l.credit), 0);
     checkEq("the entry balances to the cent", debit, credit, 0);
     checkEq("it moves the refunded amount", debit, 400);
 
-    checkEq("AR falls by the refund — the credit note is settled", await glBalance(AR_ACCOUNT), arBefore - 400);
+    // The return CREDITED AR when it confirmed; refunding debits it back, so
+    // paying the credit note out RAISES the AR balance to where it stood
+    // before the return — and takes the same figure out of the till.
+    checkEq("AR is cleared of the credit note by the refund", await glBalance(AR_ACCOUNT), arBefore + 400);
     checkEq("cash falls by the same amount", await glBalance(CASH_ACCOUNT), cashBefore - 400);
 
     const settled = (await req("GET", "/sales-returns/SCP-RET-1")).body;
@@ -261,7 +264,7 @@ export async function run(ctx: Ctx): Promise<void> {
 
     // The reverse must restore BOTH sides, not just the flag.
     const reversed = await req("POST", `/vouchers/${refund.body?.voucherId}/reverse`, { reversalId: "SCP-RET-1-REV" });
-    check("the refund voucher reverses", reversed.status === 200, JSON.stringify(reversed.body).slice(0, 200));
+    check("the refund voucher reverses", reversed.ok, `${reversed.status} ${JSON.stringify(reversed.body).slice(0, 160)}`);
     checkEq("AR is restored", await glBalance(AR_ACCOUNT), arBefore);
     checkEq("cash is restored", await glBalance(CASH_ACCOUNT), cashBefore);
 

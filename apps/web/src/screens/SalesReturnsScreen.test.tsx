@@ -91,6 +91,9 @@ function salesReturn(overrides: Partial<SalesReturnDocumentDTO> = {}): SalesRetu
     workflowRequestId: null,
     journalEntryId: null,
     awaitingRefund: false,
+    refundDue: "0",
+    refundedTotal: "0",
+    refunds: [],
     ...overrides,
   };
 }

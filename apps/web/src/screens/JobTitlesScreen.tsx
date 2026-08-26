@@ -4,6 +4,7 @@ import type { JobTitleDTO } from "@mezan/contracts";
 import { TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateJobTitle, useDepartments, useEmployees, useJobTitles, useUpdateJobTitle } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { bilingualName } from "./hr-employee-name";
 
 /** المسميات الوظيفية (Job Titles) — docs/catalog/06 §"المسميات الوظيفية". Department-scoped master data; department is locked once created. */
 
@@ -18,7 +19,7 @@ function blankDraft(): JobTitleDraft {
 }
 
 export function JobTitlesScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useJobTitles();
   const departmentsQuery = useDepartments();
   const employeesQuery = useEmployees();
@@ -41,10 +42,11 @@ export function JobTitlesScreen() {
   const [editActive, setEditActive] = useState(true);
   const [editError, setEditError] = useState<string | null>(null);
 
-  const departmentOptions: EntityPickerOption[] = departments.map((d) => ({ id: d.id, label: d.nameAr ?? d.name }));
+  const departmentOptions: EntityPickerOption[] = departments.map((d) => ({ id: d.id, label: bilingualName(d, locale) }));
 
   function departmentName(departmentId: string): string {
-    return departments.find((d) => d.id === departmentId)?.nameAr ?? departments.find((d) => d.id === departmentId)?.name ?? departmentId;
+    const dept = departments.find((d) => d.id === departmentId);
+    return dept ? bilingualName(dept, locale) : departmentId;
   }
 
   const headcountByJobTitle = useMemo(() => {
@@ -127,7 +129,7 @@ export function JobTitlesScreen() {
   ];
 
   const columns: DocumentListColumn<JobTitleDTO>[] = [
-    { key: "name", header: t("jobTitles.jobTitle"), render: (j) => <span className="font-semibold text-ink">{j.nameAr ?? j.name}</span> },
+    { key: "name", header: t("jobTitles.jobTitle"), render: (j) => <span className="font-semibold text-ink">{bilingualName(j, locale)}</span> },
     { key: "department", header: t("jobTitles.department"), render: (j) => departmentName(j.departmentId) },
     { key: "headcount", header: t("jobTitles.employees"), align: "end", render: (j) => <span className="mz-num">{headcountByJobTitle.get(j.id) ?? 0}</span> },
     {

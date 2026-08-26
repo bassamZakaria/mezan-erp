@@ -4,6 +4,7 @@ import type { DepartmentDTO } from "@mezan/contracts";
 import { NumberField, TextField, ToggleField } from "../settings/form-controls";
 import { ApiError, useCreateDepartment, useDepartments, useEmployees, useUpdateDepartment } from "../data/hooks";
 import { useAppTranslation } from "../i18n";
+import { bilingualName } from "./hr-employee-name";
 
 /** الأقسام (Departments) — docs/catalog/06 §"الأقسام". Thin master data: list + a combined edit/detail panel + create panel, no standalone detail page (matches the catalog's "no dedicated detail page" note). */
 
@@ -32,7 +33,7 @@ function draftFrom(d: DepartmentDTO): DepartmentDraft {
 }
 
 export function DepartmentsScreen() {
-  const { t } = useAppTranslation();
+  const { t, locale } = useAppTranslation();
   const query = useDepartments();
   const employeesQuery = useEmployees();
   const createDepartment = useCreateDepartment();
@@ -148,7 +149,7 @@ export function DepartmentsScreen() {
 
   const columns: DocumentListColumn<DepartmentDTO>[] = [
     { key: "code", header: t("departments.departmentCode"), render: (d) => <span className="mz-num font-semibold text-ink">{d.code}</span> },
-    { key: "name", header: t("departments.departmentName"), render: (d) => <span className="font-semibold text-ink">{d.nameAr ?? d.name}</span> },
+    { key: "name", header: t("departments.departmentName"), render: (d) => <span className="font-semibold text-ink">{bilingualName(d, locale)}</span> },
     { key: "manager", header: t("departments.manager"), render: (d) => managerName(d.managerId) },
     { key: "headcount", header: t("departments.employees"), align: "end", render: (d) => <span className="mz-num">{headcountByDepartment.get(d.id) ?? 0}</span> },
     {

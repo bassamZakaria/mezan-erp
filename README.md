@@ -115,7 +115,7 @@ Beyond the deferred modules below, these are named in the docs' phase lists but 
 - **Inventory extras** — label printing, product templates / variant generation, and the aging-based write-down batch.
 - **Navigation extras** — per-domain hub landing pages, branch 360 view, profile screen, production dashboard.
 - **Reports** — sales-by-salesperson, van-sales and POS report packs (the last depends on POS).
-- **Delivery notes** — open product decision (`docs/backlog.md` §5.2).
+- **Delivery notes** — open product decision (`docs/tasks.md` §5.2).
 
 ## How to run
 
@@ -149,4 +149,4 @@ pnpm build
 - **`main`** — tracks parity with the reference application's captured catalog (`docs/catalog/`). This is the v1 desktop scope: every module listed above, built to functional completeness against the catalog, in Mezan's own UI — not a pixel clone.
 - **An `enhancements` branch** (created off `main` once v1 parity is stable) is where beyond-parity ideas live — anything that improves on the reference system rather than just matching it. Parity work always lands on `main` first; enhancement branches rebase onto it, not the other way around.
 
-See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/backlog.md`](docs/backlog.md) for the phased issue backlog, [`docs/STATUS.md`](docs/STATUS.md) for what is done and what is broken right now, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.
+See [`docs/README.md`](docs/README.md) for the documentation map, [`docs/plan.md`](docs/plan.md) for the full architecture rationale and module build order, [`docs/tasks.md`](docs/tasks.md) for the phased issue backlog, [`docs/STATUS.md`](docs/STATUS.md) for what is done and what is broken right now, and [`docs/catalog/`](docs/catalog) for the per-domain functional specification everything above is grounded in.

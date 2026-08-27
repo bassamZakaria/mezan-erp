@@ -19,7 +19,7 @@ import { NumberField, SelectField } from "../settings/form-controls";
 import { useAppTranslation, type AppTranslationKey } from "../i18n";
 
 /**
- * هبوط قيمة المخزون (Inventory Aging Write-down Runs) — docs/backlog.md Phase 4
+ * هبوط قيمة المخزون (Inventory Aging Write-down Runs) — docs/tasks.md §6 Phase 4
  * "Aging-based inventory write-down batch". Monthly, manually-triggered,
  * per-period-idempotent batch that provisions Dr 5060 (write-down expense) /
  * Cr 1190 (contra-asset provision) against slow-moving stock — never touches

@@ -3,16 +3,16 @@
 ## Sources
 
 - `docs/reference-parity/gap-inventory.md` — the live diff of 101 reference routes against 116 Mezan routes, plus the round-2 deep pass over forms, detail panels, tabs and row menus.
-- `docs/reference-parity/parity-tasks.md` — the ordered work list these scenarios verify.
+- `docs/tasks.md` §1 — the ordered work list these scenarios verify.
 - `docs/defects.md` — D43 (four "(المرحلة الثانية)" placeholders), D44 (cost-centre columns), D45 (three empty list surfaces).
 
 ## Conventions
 
 - Run every scenario in **both locales** (ar/RTL default, en/LTR) and **both themes**. A scenario passes only if it passes in all four combinations.
 - **Reload the page after every save.** Several past defects only appeared on the second look.
-- A scenario tagged **`[PARITY]`** describes behaviour the reference has and Mezan does not yet. It is expected to fail until its `parity-tasks.md` item is ticked — record the failure, do not re-file it.
+- A scenario tagged **`[PARITY]`** describes behaviour the reference has and Mezan does not yet. It is expected to fail until its `tasks.md` §1 item is ticked — record the failure, do not re-file it.
 - A scenario tagged **`[AHEAD]`** protects something Mezan does that the reference does not. It must keep passing; a regression here is a real defect.
-- IDs are `PAR-001`, `PAR-002`, … grouped by the phase in `parity-tasks.md`.
+- IDs are `PAR-001`, `PAR-002`, … grouped by the phase in `tasks.md` §1.
 
 ---
 
@@ -141,7 +141,7 @@ Chips متأخرة / تستحق قريباً / مدفوع جزئياً / مدف�
 A المخزون column with a low/out-of-stock state, chips for each state, and تصنيفات الأصناف / تصدير actions.
 
 **PAR-062 — every document list filters by branch, warehouse and date.**
-Walk each list in `parity-tasks.md` P6 and confirm the filter bar, the active-filter count, and that filters survive a reload.
+Walk each list in `tasks.md` §1 P6 and confirm the filter bar, the active-filter count, and that filters survive a reload.
 
 **PAR-063 — ETA has all five tabs.**
 الإعدادات العامة، بيانات الاعتماد، ربط الأصناف، ربط الوحدات، الإرسالات. Credentials must never render in plain text after save.

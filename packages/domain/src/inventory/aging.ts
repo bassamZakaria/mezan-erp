@@ -1,5 +1,5 @@
 /**
- * Aging policy for the inventory write-down batch (docs/backlog.md Phase 4
+ * Aging policy for the inventory write-down batch (docs/tasks.md §6 Phase 4
  * "Aging-based inventory write-down batch"). Pure math only — no repository
  * dependency, mirroring `fixed-assets/depreciation.ts`'s split between pure
  * period/rate math and the run that reads live data.

@@ -16,13 +16,13 @@
 
 ## Build status (as of 2026-08-23, `main` @ `7b65887`)
 
-This section is maintained as the plan executes; §4 below stays the unmodified original phase design. Every claim here was re-verified against the code in this pass; `docs/STATUS.md` carries the current per-capability state and `docs/archive/coverage-audit-2026-08-23-static.md` the parity math of the day.
+This section is maintained as the plan executes; §4 below stays the unmodified original phase design. Every claim here was re-verified against the code in this pass; `docs/STATUS.md` carries the current per-capability state.
 
 **Done.** Every v1 domain named in §4 has landed: Foundations (persistence-behind-ports, Money/Qty, auth, permissions, entitlements/licensing skeleton, numbering, audit trail, workflow-engine core, notification bus core, RTL app shell, Electron shell + backup/restore) through Phase 12 (CRM + Projects + Fixed Assets + Field/Van Sales). Concretely, `packages/domain/src` holds 49 domain modules covering accounts, GL/journal posting, cost centers + cost-center P&L, fiscal periods, tax rates, exchange rates + FX revaluation, reconciliation, items, customers/suppliers/partners, sales quotes/invoices/returns, price lists, promotions, credit control, purchasing (RFQ→PO→GRN→invoice), purchase returns, landed costs, inventory, treasury accounts, vouchers, cheques, bank reconciliation, installments, manufacturing, CRM, projects, fixed assets, field sales, permissions, roles, users, workflow, entitlements, licensing, numbering, audit, events, ETA, settings and the LAN host. Each has a persistence + API layer and is mounted in `packages/backend`. The engines called out as the hardest parts of the plan — double-entry posting with balance/period enforcement, WAC costing with immutable cost layers, the 26-action-type workflow gate, the 25-sequence numbering engine, the 268-permission catalog with dependency resolution — are all implemented and covered by unit tests, plus a recent backfill pass added component/unit coverage for previously-thin modules. The real-data control panel described in `docs/web-data-wiring.md` (typed hooks over one platform-swapped transport, real loading/empty/error states, no static arrays driving a screen) is in place and is now the pattern nearly every screen follows; the most recent merges to `main` mounted the manufacturing/RFQ/historical-import/returns/landed-costs/installments backends, converted the remaining sample-data screens, and fixed a real SQLite write-concurrency bug: `createBackend` opened ~35 separate `better-sqlite3` connections onto the same file, and a confirm flow that both issued stock and posted a GL entry inside one store's `BEGIN IMMEDIATE` deadlocked against itself across those separate connections (`SQLITE_BUSY`, not waitable by `busy_timeout` alone). That's fixed — every store-owned connection now goes through `packages/persistence/src/sqlite-connection.ts`'s `openSqliteConnection` (WAL + shared `busy_timeout`) and `withSqliteTransaction` (savepoint-based re-entrancy) — landed directly on `main`.
 
 **Gates.** `pnpm test` → 306 test files / 2078 tests passing; `pnpm typecheck` and `pnpm lint` (incl. the RTL logical-CSS rule) pass; 28 Playwright specs live under `e2e/`; 33 API route prefixes are mounted; the web app ships 74 non-test components across ~70 nav entries.
 
-**Landed since the previous revision of this section.** The financial-statement report family (income statement, balance sheet, cash flow, VAT return, general/account ledger) and the inventory-operations merge (stock adjustments, transfers, physical counts, stock balance) are both on `main` — `docs/archive/coverage-audit-2026-08-23-static.md` was written just before these merges and still counts them as gaps.
+**Landed since the previous revision of this section.** The financial-statement report family (income statement, balance sheet, cash flow, VAT return, general/account ledger) and the inventory-operations merge (stock adjustments, transfers, physical counts, stock balance) are both on `main`.
 
 **Not built (gaps, not deferrals).** Verified absent across all layers: the platform admin UIs (approvals inbox, notification-rules builder — no rules engine exists either, only the event bus; numbering-sequences admin, barcode config, data-migration wizard, audit-log viewer), the 9-tab print-template designer (the page is a live `PrintView` preview instead), label printing, product templates / variant generation, the aging-based inventory write-down batch, every per-domain hub landing page, the branch 360 view, the profile screen, the production dashboard, and the sales-by-salesperson / van-sales / POS report packs.
 
@@ -30,11 +30,11 @@ This section is maintained as the plan executes; §4 below stays the unmodified 
 - **Real-data sweep, finishing touches** — 7 `*-sample-data.ts` files still exist under `apps/web/src` (the six previously listed plus `inventory-ops-sample-data.ts`) with roughly twenty importers. `sample-data.ts` is not just demo rows: it still owns the nav registry, the command-palette items and the demo entitlements, so retiring it needs those moved somewhere real first.
 - **Domain-in-browser screens** — 9 screens (`StockBalance`, `StockTransfers`, `StockAdjustments`, `PhysicalCounts`, `ExchangeRates`, `FxRevaluation`, `CostCenterPnL`, `Reconciliation`, `Eta`) import `@mezan/domain` directly through `apps/web/src/store/*` and run it against in-memory repositories. The rules are the real ones and the tests are meaningful, but nothing these screens do reaches SQLite, and their API routes are already mounted — so this is web wiring, not new backend work.
 - **Manufacturing/RFQ mount** — domain + persistence + API layers exist for Manufacturing (BOMs, work orders, configurable-product instances) and RFQs; the backend-mount and web-screen wiring landed in the most recent merge and needs a stabilization pass (edge cases, e2e coverage) before being considered fully hardened.
-- **Bug-hunt** — an active sweep across the app looking for functional defects (the kind called out in `docs/backlog.md` §8 as worth deliberately avoiding, e.g. RTL direction handling, i18n fallback gaps, navigation-target mismatches) before the next stabilization checkpoint. The SQLite cross-connection deadlock above was one concrete find from this sweep.
+- **Bug-hunt** — an active sweep across the app looking for functional defects (the kind called out in `docs/tasks.md` §8 as worth deliberately avoiding, e.g. RTL direction handling, i18n fallback gaps, navigation-target mismatches) before the next stabilization checkpoint. The SQLite cross-connection deadlock above was one concrete find from this sweep.
 - Several phase branches (`phase1/users-roles`, `phase4/inventory-ops`, `phase56/returns-landed-installments`, `phase9/accounting-depth`, `phase9/financial-statements`, `sweep/real-data-screens`) and Playwright e2e-stabilization worktrees remain open alongside already-merged work, reconciling incremental hardening and test coverage against what's landed on `main`.
 
-**Deferred (by product decision, not by gap — see §1 "v1 Scope" and `docs/backlog.md` §1).**
-- **HR & Payroll** (backlog Phase 13) — all 13 screens (employees, departments, job titles, attendance, holidays, contracts, leave requests/policies, leave accrual batches, payroll runs, advances, my-leave, shift settings). The payroll calculation-engine internals are flagged in `docs/backlog.md` as the single largest specification hole in the whole catalog and need a standalone design pass before implementation starts.
+**Deferred (by product decision, not by gap — see §1 "v1 Scope" and `docs/tasks.md` §1).**
+- **HR & Payroll** (backlog Phase 13) — all 13 screens (employees, departments, job titles, attendance, holidays, contracts, leave requests/policies, leave accrual batches, payroll runs, advances, my-leave, shift settings). The payroll calculation-engine internals are flagged in `docs/tasks.md` as the single largest specification hole in the whole catalog and need a standalone design pass before implementation starts.
 - **POS** (backlog Phase 14) — terminals, sessions/shifts, sales/refunds ledgers, discount approvals, restaurant mode (tables/kitchen/reservations/deliveries), loyalty, and the net-new POS selling screen (no reference implementation exists anywhere — needs its own design spike with a real cashier before being built).
 - **Cloud/SaaS website edition** (backlog Phase 15) — Postgres dialect + dual-engine conformance suite, cloud JWT + Row-Level Security, `apps/server` as a real hosted multi-tenant server, SSE + Redis realtime fan-out, S3 storage, subscription→entitlements, tenant onboarding, API keys/webhooks/WhatsApp integration. The architecture (ports-first persistence, transport-agnostic Hono app layer) is deliberately built to make this additive later, not a rewrite — nothing here is started.
 
@@ -42,60 +42,13 @@ This section is maintained as the plan executes; §4 below stays the unmodified 
 - Finish the real-data sweep (above) and delete every dead `*-sample-data.ts` file once its last consumer is converted.
 - Extend the SQLite concurrency fix with a regression test that exercises concurrent numbering-sequence allocation and LAN multi-till writers, so this class of cross-connection deadlock can't reappear silently.
 - Stabilize e2e coverage — several `test/e2e-*` worktrees are mid-flight; consolidate into a green, deterministic Playwright suite (browser project) run on every change, per the CI plan in §2.7.
-- Complete the bug-hunt sweep and fold findings into either immediate fixes or tracked backlog items, cross-checked against the known-defects list already called out in `docs/backlog.md` §8 (so known source-app bugs aren't silently reintroduced).
+- Complete the bug-hunt sweep and fold findings into either immediate fixes or tracked backlog items, cross-checked against the known-defects list already called out in `docs/tasks.md` §8 (so known source-app bugs aren't silently reintroduced).
 - Merge the outstanding phase branches into `main` (or confirm their content already landed via a later merge) so the branch list reflects actual `main` state, not stale in-flight work.
 - Re-run the golden-ledger fixture suite and the permission/workflow/numbering invariant tests as a release gate once the above lands, per the testing strategy in §2.7.
 - Decide and record the open product decisions in §6.3 that are still genuinely open (licensing mechanism finalization, installment late-fee rule, FIFO-in-v1, delivery notes, branch-scoped numbering) — none block current development but several block calling specific v1 issues "done" rather than "buildable."
 
 ---
 
-## Market & competitive notes (for review)
-
-Inputs from a review of a competing Egyptian ERP's public marketing site, gathered to sanity-check our approach and surface possible catalog gaps. These are **discussion inputs for a "what do we actually need for v1" review, not decisions or committed scope** — each item needs a team call before it changes a plan or a backlog issue.
-
-**Pricing & licensing model — validates our approach.** A competing Egyptian ERP sells a **Core** bundle (Accounting + Sales + Purchases + Inventory) plus **priced add-on modules**: POS (+500), Manufacturing (+500), HR & Payroll (+400), Installments & Cheques (+250), Multi-currency (+200), Fixed Assets (+200), Loyalty (+150), AI Assistant (+500) — all EGP/month. **Capacity axes** (seats, branches, warehouses, POS terminals) are priced separately, and curated **persona bundles** (Wholesale & Distribution / Retail & F&B / Manufacturing) sit on top of the à la carte modules. Commercial terms: two-month-free annual discount, 14-day trial.
-→ This is a clean external validation of our module-entitlement design (§2.5, §6.3.1). Recommended action: fold the **4 capacity dimensions** (seats / branches / warehouses / POS terminals) into our licensing model, and consider offering **persona bundles** on top of raw per-module pricing.
-
-**Deployment differentiator.** The reference product is cloud SaaS; **only its POS module is offline-capable** (with sync back to the cloud). Our **fully-offline desktop edition is a genuine differentiator**, not just feature parity — worth leaning on in positioning.
-
-**Possible catalog gaps to verify.** Features the reference product markets that our catalog may cover thinly or not at all:
-- BOQ / progress-certificate / retention billing for Contracting & Real-Estate — our Projects domain looked thin (see §6.3.7, Projects row in Phase 7).
-- FEFO (first-expiry-first-out) for pharma.
-- Cheque **endorsement / replacement** states (beyond the 7-state lifecycle already captured, §2.3, §4).
-- Restaurant **own-fleet delivery tracking**.
-- IAS-21 **FX gain/loss** depth in multi-currency.
-
-→ Action: check each against docs/catalog before finalizing those modules' issues.
-
-**Module-boundary notes.** The reference product markets **multi-currency** and **ETA e-invoicing** almost as standalone modules. → Consider treating **multi-currency as its own licensable module** in our entitlement model, rather than an always-on accounting feature.
-
----
-
-## Competitive landscape (for review)
-
-Broader review intel gathered against the named ERPs an Egyptian SMB buyer would actually compare us to, plus Excel as the do-nothing baseline. As with the section above, this is **review input, not committed positioning**.
-
-| Product | Arabic/RTL | Egypt ETA fit | Deployment | Pricing model | Coverage vs our domains | Primary weakness |
-|---|---|---|---|---|---|---|
-| Daftra | Native | Real ETA (manual credential/dongle setup; markets Saudi ZATCA first) | Cloud only | Tiered SaaS with usage caps — Basic ~490 / Advanced ~978 / Premium ~1,960 EGP/mo — + per-unit add-ons (users, branches, warehouses, storage) | High | No offline/desktop or self-host |
-| Odoo | Partner/add-on | Via localization/partner | Cloud or self-host | Free community + paid apps (Egypt implementations cited ~125,000 EGP+) | High but assembled | Hidden TCO, partner-dependent |
-| SAP Business One | Partner | Partner Arabic/ETA | On-prem/partner cloud | Costly, partner-led | High (enterprise) | Cost + long rollout |
-| ERPNext | Community-translated | Not native | Self-host or Frappe Cloud | Free license + hosting/partner | Med-High | Needs a technical team; no built-in Egypt compliance |
-| Microsoft Dynamics 365 Business Central | Partner/ISV | Partner Arabic/ETA | Cloud/partner | Per-user + implementation | High | Cost, bolted-on localization |
-| QuickBooks | Not Egypt-native | Not Egypt-native | Cloud | Subscription | Low (accounting-only) | No real Egypt localization/ERP depth |
-| Zoho | Not Egypt-native | Not Egypt-native | Cloud | Subscription | Low (accounting-only) | No real Egypt localization/ERP depth |
-| Excel | None | None | Local/offline | Free | Very low | Manual, no GL |
-
-**Note on Daftra specifically:** it is the closest competitor and is actually deep — cheque cycle, installments, BOM/routings/scrap manufacturing, HR/payroll, multi-branch, 7 mobile apps, and an offline-syncing POS.
-
-**Where Mezan differentiates:**
-1. A true offline-first Arabic **desktop** ERP — no competitor in this field offers it (Daftra's offline capability is POS-only).
-2. Module-based licensing vs. Daftra's cap-based tiers.
-3. Egypt/ETA-first positioning.
-
-> **Honesty caveat.** Independent research shows the reference system's own compare page **overstates** Daftra's weaknesses — Daftra actually has manufacturing, cheques, installments, and offline-capable POS. Mezan's real edge is deployment model + execution quality, not "features they lack." Don't reuse the reference system's overstated competitive claims in our own materials.
-
----
 
 ## 1. Executive summary
 
@@ -665,13 +618,14 @@ The first five concrete tasks, in order.
 
 ---
 
+
 ## Reference parity — supersedes the earlier phasing for UI/feature scope
 
 **Added 2026-08-26.** A three-round live audit of the reference product replaced the
 prose catalog as the source of truth for what a screen must do. The requirements
 register is `docs/reference-parity/audit/REQUIREMENTS.md` (~90 numbered
 requirements, R1.1 … R12.2, each observed in a running screen); the ordered work
-list is `docs/reference-parity/parity-tasks.md`; the scenarios that verify it are
+list is `docs/tasks.md` §1; the scenarios that verify it are
 `docs/scenarios/10-reference-parity.md`.
 
 Where this plan and the requirements register disagree about the scope of a screen,
@@ -705,7 +659,7 @@ the target; visual fidelity is not.
 
 **Added 2026-08-27.** Measured against `packages/domain/src`, not against the catalog.
 Full rationale, per-domain evidence and competitor context are in
-`docs/enhancements/market-analysis.md` §3.6 (CRM depth) and §3.7 (operational breadth);
+`plan.md` §8.4.6 (CRM depth) and §8.4.7 (operational breadth);
 this section records what that means for phasing. **Nothing here is committed scope** —
 these are candidates that sit beyond parity, and each needs the same treatment every
 other module got: a catalog or requirements entry before a line of code.
@@ -767,5 +721,906 @@ MRP, WMS bins and service management do not.
 credible workshop system on the engine already built. Routings, capacity scheduling and MRP
 are a different product — they need a planning engine that does not exist and they push
 Mezan into deals where the buyer expects a partner-led implementation. That answer decides
-whether items 22–24 in `market-analysis.md` §4 are ever scheduled, and it belongs in
+whether items 22–24 in `plan.md` §8.5 are ever scheduled, and it belongs in
 `docs/decisions.md` once taken.
+
+---
+
+# 8. Market position, competitors and gaps
+
+> Merged 2026-08-27 from `plan.md` §8 (research pass 2026-08,
+> public web sources) and the two earlier "for review" sections this plan used to carry.
+> Pricing and ETA-compliance status change frequently — treat figures as directional and
+> verify before quoting externally. Nothing in this chapter is committed scope.
+
+## 8.0 Why this chapter exists
+
+Mezan is an Arabic-first, RTL, **offline-first** Electron desktop ERP for the Egyptian market —
+single-tenant SQLite storage, Ed25519-signed offline license files (module/feature entitlements,
+seat counts, machine-fingerprint binding, 14-day grace period), LAN multi-till, with a cloud
+edition planned as an additive layer later (see `docs/plan.md`, `README.md`). Its catalog-derived
+v1 scope covers Sales, Purchases, Inventory, Accounting, Treasury, Installments, Manufacturing,
+Projects, Fixed Assets, Field/Van Sales, CRM, and (deferred) HR/Payroll and POS.
+
+This document surveys the competitive landscape Mezan sells into — Egyptian/MENA-native
+accounting SaaS, global ERP platforms operating in Egypt, and SMB accounting tools — to find
+where Mezan's architecture (offline-first, module-licensed, desktop-native) creates real,
+defensible differentiation versus where it's simply late to a solved problem. It closes with a
+prioritized list of new features to feed the `enhancements` backlog.
+
+---
+
+## 8.1 The reference product's own pricing and licensing
+
+Inputs from a review of a competing Egyptian ERP's public marketing site, gathered to sanity-check our approach and surface possible catalog gaps. These are **discussion inputs for a "what do we actually need for v1" review, not decisions or committed scope** — each item needs a team call before it changes a plan or a backlog issue.
+
+**Pricing & licensing model — validates our approach.** A competing Egyptian ERP sells a **Core** bundle (Accounting + Sales + Purchases + Inventory) plus **priced add-on modules**: POS (+500), Manufacturing (+500), HR & Payroll (+400), Installments & Cheques (+250), Multi-currency (+200), Fixed Assets (+200), Loyalty (+150), AI Assistant (+500) — all EGP/month. **Capacity axes** (seats, branches, warehouses, POS terminals) are priced separately, and curated **persona bundles** (Wholesale & Distribution / Retail & F&B / Manufacturing) sit on top of the à la carte modules. Commercial terms: two-month-free annual discount, 14-day trial.
+→ This is a clean external validation of our module-entitlement design (§2.5, §6.3.1). Recommended action: fold the **4 capacity dimensions** (seats / branches / warehouses / POS terminals) into our licensing model, and consider offering **persona bundles** on top of raw per-module pricing.
+
+**Deployment differentiator.** The reference product is cloud SaaS; **only its POS module is offline-capable** (with sync back to the cloud). Our **fully-offline desktop edition is a genuine differentiator**, not just feature parity — worth leaning on in positioning.
+
+
+## 8.2 Competitor matrix
+
+| Product | Origin / HQ | Segment | Arabic/RTL | Egypt ETA | Deployment | Pricing model | Manufacturing depth |
+|---|---|---|---|---|---|---|---|
+| **Daftra** | Egypt | SMB, 50+ verticals | Native | Deep, native (e-signature, hardware token) | Cloud SaaS; POS-hardware offline only on top tier | Tiered SaaS, EGP 489–1,960/mo | Real BOM/production orders |
+| **Odoo** | Belgium (global OSS) | SMB–mid-market | Bolted-on, mature but rough edges | Official module (CE/EE), reliability questioned | Cloud/on-prem hybrid; not offline-first (POS caches only) | Free core + per-app Enterprise; EGP 125K–350K implementations | Full MRP module |
+| **SAP Business One** | Germany (SAP) | Upper-SMB–mid-market | Historically hard localization, matured since 2021 MENA pack | Official, enterprise-grade (SAP DRC) | **True on-prem/offline option** — only global player with this | $95–250/user/mo cloud or $1,350–5,500/user perpetual + 18–20%/yr maintenance; $12K–120K implementation | Deep, enterprise-grade |
+| **ERPNext (Frappe)** | India (OSS) | Price-sensitive SMB, technical teams | Weakest — open RTL bugs, incomplete translation | **No official module** — community/marketplace only | Self-hosted "can" run offline but not offline-by-design; cloud hosting common | Free software, compute-based hosting ($5–25/site/mo Frappe Cloud) or self-host | Present, less polished than Odoo |
+| **Microsoft Dynamics 365 BC** | USA (Microsoft) | Mid-market | Add-on language packs, no official Egypt pack | No native BC module (F&O has it, BC doesn't) | Cloud-first SaaS; legacy on-prem SKU still offline-capable but de-emphasized | $80–110/user/mo (Essentials/Premium) + $8 team member; $15K–150K+ implementation | Premium tier only |
+| **QuickBooks (Online/Desktop)** | USA (Intuit) | Micro–small business | **None** — no Arabic UI at all | None native — third-party connector only (avtax.net) | QBO pure cloud; Desktop being sunset globally | $38–275/mo (US list) | None |
+| **Zoho (Books/Inventory/One)** | India | SMB, self-serve | Mature regional editions, RTL reasonable | Semi-native + marketplace connectors (QuiXcel, Wanas) — best of the global SaaS tier | Pure cloud, **zero offline option** | Zoho One $37/user/mo; Books $15–50/mo | Light inventory-level BOM only |
+| **Qoyod** | Saudi Arabia | Saudi/GCC SME, accounting-first | Native | **Not available — Egypt listed "coming soon"** | Cloud SaaS only | SAR 138–380/mo tiered | Manufacturing-adjacent (raw materials, mfg orders) at top tier |
+| **Wafeq** | Saudi/UAE (Gulf-focused) | Startups → multi-entity Gulf businesses | Native bilingual | In rollout — Egypt pages exist, ETA certification not confirmed complete | Cloud SaaS only | Free tier + SAR ~119/mo Starter → custom Enterprise; unlimited users per plan | None found |
+| **Dafater** | Saudi Arabia (Egypt-registered entity) | Multi-tier by company size (Eirady/Power/Flowhub) | Native | **None found for Egypt** — ZATCA (Saudi) only | Cloud SaaS only | Not publicly published | Unclear — not documented |
+| **SMACC** | Egypt (MNT-Halan) | SME, broadest install base claimed | Native bilingual | Deep, specific (UUID retrieval, QR/long-ID printing, bulk issuance) | Cloud SaaS only, no offline | Tiered SaaS, $125–185/mo (2–4 users) | Present at Enterprise tier |
+| **Qeemah** | Saudi Arabia | SME, KSA-first | Native bilingual | **Unverified/unlikely** — all messaging is ZATCA-specific | Cloud SaaS only | SAR 199/mo+ (opaque beyond entry tier) | Claimed (unconfirmed depth) |
+| **AccFlex** | Egypt | SMB–mid-market, vertical-specific (construction, F&B, real estate) | Native, long-established | Confirmed ETA-approved | Ambiguous/legacy hybrid, no confirmed offline-first client | Quote-based, unpublished | Precast-concrete vertical only |
+| **Mezan** | Egypt | SMB–mid-market trading, distribution, light manufacturing | Native, RTL-first by construction | Native ETA screen (VAT sub-type codes V001–V009, e-seal signing, submission queue) — in progress | **Offline-first desktop** (Electron/SQLite) + LAN multi-till; cloud edition additive/planned | **Per-module perpetual/offline license** (Ed25519-signed, seat + machine-bound) | Full v1 module: BOMs, 4-stage work orders, configurable products |
+
+---
+
+## 8.3 Per-competitor detail
+
+### 8.3.1 Daftra
+
+- **Positioning**: Egypt-born, comprehensive cloud ERP for SMEs across 50+ verticals; markets
+  itself as the lowest-priced full-featured regional SaaS suite.
+- **Target segment**: SMBs, both B2B and B2C, strong retail/POS and services focus.
+- **Arabic/RTL + ETA fit**: Native bilingual product built in Egypt. Deepest Egypt ETA integration
+  of any SaaS competitor surveyed — e-signature/digital stamp, automatic VAT calculation,
+  documented Client ID/secret-key ETA-portal setup, hardware token support. Also covers KSA
+  (ZATCA) and Jordan e-invoicing.
+- **Deployment**: Cloud SaaS + mobile app. "Offline POS Terminals" exists only on the Premium
+  tier for in-store hardware POS — not a true offline-first back office/accounting system.
+- **Pricing**: Basic 489.50 EGP/mo, Advanced 977.58 EGP/mo, Premium 1,960 EGP/mo (annual billing
+  ~30% cheaper); tiered invoice/client caps, warehouse limits (1/3/5); extra user ~392 EGP/mo,
+  extra branch ~1,293.6 EGP/mo.
+- **Module coverage**: Accounting (cost centers gated to Advanced+), Sales/POS, Inventory, real
+  Manufacturing (BOM, production/manufacturing orders, routing, scrap tracking), HR/Payroll/
+  Attendance, basic CRM, Rental management, booking/work orders.
+- **Strengths**: Native Arabic + Egypt-born; deepest ETA compliance surveyed; genuine
+  manufacturing/BOM module; broad module breadth; low entry price.
+- **Weaknesses**: Offline is POS-hardware-only, not architectural; pure recurring SaaS pricing —
+  no perpetual/offline license; cost-center accounting gated behind a paid tier; cloud-only
+  creates a connectivity dependency Egyptian retail/trading businesses in low-connectivity areas
+  actively want to avoid.
+
+### 8.3.2 Odoo
+
+- **Positioning**: Open-source, modular "suite of business apps" — pay only for the apps used.
+- **Target segment**: SMB to mid-market, with Enterprise edition scaling further up.
+- **Arabic/RTL + ETA fit**: RTL ships via `rtlcss`, mature but community-reported as inconsistent
+  across dashboards/reports; extra modules often needed to fully fix layout/translation gaps. An
+  official Egyptian E-Invoice localization module exists since Odoo 15.0 (documented at
+  odoo.com/documentation), but paid third-party alternatives (e.g., ECOSIRE, $349 one-time +
+  $499 GCC dependency) exist — a signal the official module needs supplementing in practice.
+- **Deployment**: Cloud/on-prem hybrid, but connectivity-first by design. POS has a limited
+  offline cache (view/reopen previously loaded records), not full offline write/sync. On-prem
+  installs still typically need internet for integrations/support.
+- **Pricing**: Core Community is free; Enterprise is per-user/per-app subscription. Egypt partner
+  implementations run roughly EGP 125,000–350,000 depending on scope.
+- **Module coverage**: Very broad — Sales, Purchase, Inventory, Accounting, MRP, POS, CRM,
+  Project, HR — solid SMB depth, not enterprise-grade in accounting/manufacturing rigor.
+- **Strengths**: Huge module breadth at low entry cost; large Egypt/MENA partner ecosystem;
+  official ETA module exists; fast to deploy; strong community.
+- **Weaknesses**: Not offline-first by design; RTL/Arabic has rough edges requiring extra
+  modules; official ETA module reliability questioned; customization-heavy projects can balloon
+  in cost and create ongoing partner dependency.
+
+### 8.3.3 SAP Business One
+
+- **Positioning**: Enterprise-grade ERP purpose-built for SMEs, backed by SAP's global brand and
+  structured implementation methodology.
+- **Target segment**: Upper-SMB to mid-market — most expensive/formal option surveyed.
+- **Arabic/RTL + ETA fit**: Historically the hardest localization for SAP to build (ran a
+  dedicated "Arabisation" program); a specific MENA localization pack only arrived in 2021 —
+  before that, resellers used the UK localization as a workaround. Egypt ETA compliance is
+  official and enterprise-grade via SAP Document and Reporting Compliance (SAP DRC, XML
+  submission via eDocument Cockpit), plus certified partner connectors (BSC Global, OrchidaTax).
+- **Deployment**: The only competitor surveyed offering **true on-premise deployment that
+  eliminates internet dependency entirely** as a first-class, documented option (vs. cloud
+  requiring stable connectivity).
+- **Pricing**: Cloud $95–250/user/mo (sources vary, some cite $110–219); on-prem perpetual
+  license $1,350–5,500/user + 18–20%/yr maintenance. Implementation typically $30K–120K; one
+  Egypt-based partner quoted a minimum of $12,000+VAT for non-manufacturing standard scope.
+- **Module coverage**: Deepest and most mature surveyed — full financials, manufacturing (MRP),
+  inventory, CRM, service, project management, strong SAP HANA reporting.
+- **Strengths**: Only true offline/on-prem option among global players; official, robust ETA
+  compliance; deep enterprise-grade module maturity; global brand trust; structured local
+  partner ecosystem.
+- **Weaknesses**: Significantly higher TCO — out of reach for small Egyptian traders/retailers;
+  RTL/Arabic support arrived late, implying residual UX rough edges; mandates ongoing
+  consultant/partner relationship, not self-serve; heavier implementation timeline unsuited to a
+  small shop wanting to go live fast.
+
+### 8.3.4 ERPNext (Frappe)
+
+- **Positioning**: Open-source, 100%-self-hostable ERP with compute-based pricing instead of
+  per-seat licensing.
+- **Target segment**: Price-sensitive SMB and technically capable teams willing to self-host;
+  Frappe Cloud lowers the bar somewhat.
+- **Arabic/RTL + ETA fit**: Weakest RTL support surveyed — active, unresolved GitHub issues on
+  RTL layout breaking, text boxes defaulting to LTR under Arabic locale, an incomplete ~20,000-
+  line community translation effort. **No official Egypt ETA module** — only community/
+  marketplace third-party apps requiring a certified-partner HSM and an always-online Windows/
+  .NET machine; the feature request for official support is still open.
+- **Deployment**: Self-hosted install can in principle run without internet after setup, but
+  Docker/cloud deployments commonly hard-fail on connectivity checks; true offline operation has
+  required custom engineering (e.g., WSL-based local instances syncing daily backups from cloud)
+  — not offline-by-design.
+- **Pricing**: No per-user licensing. Frappe Cloud $5–25/site/mo; dedicated servers from
+  $200/mo; self-hosted is free software but needs ongoing DevOps investment.
+- **Module coverage**: Broad (Accounting, Manufacturing, CRM, HR, Projects, Assets, POS) but
+  generally less polished per-module than Odoo, especially manufacturing/POS.
+- **Strengths**: Zero licensing cost; no per-user fee scales cheaply with headcount; fully open
+  source, no vendor lock-in; growing Frappe partner presence in Egypt.
+- **Weaknesses**: No official ETA compliance module — real compliance risk on fragile community
+  code; open, unresolved RTL/Arabic bugs; offline operation not native; low sticker price hides
+  real TCO in DevOps effort — poor fit for a non-technical Egyptian retailer wanting to install
+  and use.
+
+### 8.3.5 Microsoft Dynamics 365 Business Central
+
+- **Positioning**: Mid-market cloud ERP unifying finance, sales, service, and operations —
+  Microsoft's step-up tier above QuickBooks-class tools.
+- **Target segment**: Mid-market (~10–250 employees), priced above SMB tools.
+- **Arabic/RTL + ETA fit**: Arabic is not a standard shipped language — bolted on via third-party
+  language packs/extensions; UAE gets built-in bilingual localization, Egypt does not. No native
+  Egypt ETA localization inside Business Central itself (the ETA integration exists at the
+  separate Dynamics 365 Finance & Operations layer, not confirmed for BC); marketplace shows
+  only a UAE e-invoicing connector.
+- **Deployment**: Primarily SaaS/cloud, requires internet for day-to-day operation. A legacy
+  on-premises SKU exists and can run offline but lacks feature parity/latest updates and is
+  being de-emphasized by Microsoft.
+- **Pricing** (US list, late 2025): Essentials $80/user/mo, Premium (adds manufacturing/service
+  order mgmt) $110/user/mo, Team Member $8/user/mo, Device license $45/device/mo. No published
+  Egypt-specific pricing; sold through local/regional partners. Implementation typically
+  $15K–150K+.
+- **Module coverage**: Deep finance/GL, sales, purchasing, inventory/warehousing, project
+  management, service; manufacturing only in Premium tier; CRM via separate Dynamics 365 Sales;
+  HR thin, usually needs a third-party app.
+- **Strengths**: Deep, mature finance core; strong Power Platform/Office 365 integration; large
+  partner ecosystem; scalable to true mid-market complexity.
+- **Weaknesses**: Arabic is add-on quality, inconsistent across partners; Egypt ETA compliance
+  not out-of-box for BC; fundamentally cloud-dependent for the mainstream SKU; per-user pricing
+  and implementation cost are far beyond typical Egyptian SMB budgets.
+
+### 8.3.6 QuickBooks (Online / Desktop)
+
+- **Positioning**: "Smart tools for smart business owners" — small-business bookkeeping
+  simplicity.
+- **Target segment**: Micro to small business; not designed for complex multi-entity/
+  manufacturing needs.
+- **Arabic/RTL + ETA fit**: **No native Arabic UI at all**, confirmed unavailable by Intuit —
+  the only hard Arabic blocker among the global players surveyed. Egypt ETA handled only via a
+  third-party connector (avtax.net "ETA Connector") syncing invoices to the tax authority with
+  validation and digital signature.
+- **Deployment**: QuickBooks Online is pure cloud SaaS, requires internet. QuickBooks Desktop
+  still exists but Intuit stopped selling new Desktop subscriptions to new US customers after
+  Sept 2024 (Enterprise tier still sold) — a clear global signal the desktop/offline line is
+  being sunset, even though Egyptian resellers may still sell it.
+- **Pricing** (US list, 2026): Simple Start $38/mo, Essentials $75/mo, Plus $140/mo, Advanced
+  $275/mo. No Egypt-specific pricing found; likely sold via local resellers.
+- **Module coverage**: Core accounting/bookkeeping, invoicing, expenses, basic inventory (Plus
+  tier), simple project tracking. No manufacturing, no real CRM, no native POS, no multi-till/
+  multi-location depth.
+- **Strengths**: Extremely simple onboarding; large ecosystem of bookkeepers familiar with it;
+  low entry cost; broad third-party app marketplace.
+- **Weaknesses**: No Arabic/RTL at all; ETA compliance entirely bolted-on; zero offline
+  capability for QBO; Desktop line being sunset globally; shallow on inventory/manufacturing/
+  multi-entity — not built for Mezan's module breadth.
+
+### 8.3.7 Zoho (Books / Inventory / Zoho One)
+
+- **Positioning**: "Operating System for Business" — broad, affordable, integrated SMB suite of
+  40+ apps.
+- **Target segment**: SMB, strong self-serve/price-sensitive segment, scaling into lower-mid-
+  market via the Zoho One bundle.
+- **Arabic/RTL + ETA fit**: Region-specific editions (e.g., zoho.com/sa) with reasonably mature
+  Arabic/RTL support, actively marketed to Egypt/Gulf by local partners. Zoho Books ships
+  pre-configured for Egypt with local tax rates/currency and an official e-invoicing help page,
+  plus dedicated marketplace extensions (QuiXcel, Wanas Apps) offering RSA-token digital
+  signatures and real-time ETA sync — the most Egypt-ready global SaaS option surveyed.
+- **Deployment**: Pure cloud SaaS across Books/Inventory/One — **no offline or on-premises
+  option at all**.
+- **Pricing**: Zoho Books $15–50/mo (SMB sweet spot; UAE Professional ≈ AED 110/mo annual); Zoho
+  One (full bundle: CRM, Inventory, Books, Projects, Desk, etc.) $37/user/mo.
+- **Module coverage**: Broadest of the global SaaS players — Books, Inventory (multi-warehouse,
+  transfer orders, light BOM), CRM (strong, dedicated product), Projects, a separate POS
+  product, Desk. No dedicated fixed-assets or installments module found; manufacturing is
+  inventory-level only, not shop-floor/costing depth. HR via Zoho People in Zoho One.
+- **Strengths**: Best-in-class SMB pricing/value; broadest app suite under one vendor; most
+  mature Egypt ETA ecosystem among global SaaS players; reasonable Arabic/RTL; fast self-serve
+  onboarding.
+- **Weaknesses**: 100% cloud-dependent, zero offline capability — a hard disqualifier for
+  connectivity-unreliable shops; shallow manufacturing/cost-center depth; no native fixed-assets
+  or installment-sales; per-app product sprawl can fragment data/workflow.
+
+### 8.3.8 Qoyod
+
+- **Positioning**: Saudi-first, ZATCA-compliant accounting SaaS for SMEs — accounting-centered
+  rather than full ERP (self-acknowledged).
+- **Target segment**: Saudi/GCC SMEs, with manufacturing/factories named as a vertical but the
+  vendor itself points customers needing deep ERP elsewhere.
+- **Arabic/RTL + ETA fit**: Native Arabic (Saudi product). **Egypt not supported — listed as
+  "coming soon"**; currently live only in Saudi Arabia and Jordan.
+- **Deployment**: Cloud SaaS only; only the separate POS product mentions any offline mode.
+- **Pricing** (SAR, tax incl.): Basic 138/mo, Pro 207/mo, Advanced 379.50/mo, tiered by
+  users/locations; add-ons for extra user, extra location, payroll, POS.
+- **Module coverage**: Accounting/GL, invoicing, ZATCA e-invoicing (Phase 1 on Basic, Phase 2 on
+  Pro+), inventory (richer at Advanced with raw materials/manufacturing orders), fixed assets &
+  depreciation (Advanced), dimensions/budgets (Advanced), POS/HR as paid add-ons. No standalone
+  CRM.
+- **Strengths**: Clean ZATCA compliance depth; accounting dimensions/cost-center features at top
+  tier; transparent published pricing; fixed assets/depreciation built in.
+- **Weaknesses**: No Egypt/ETA support at all today; not a full ERP; no offline capability; no
+  flexible/offline licensing model; no CRM.
+
+### 8.3.9 Wafeq
+
+- **Positioning**: Multi-language, multi-entity/multi-currency accounting system built for Gulf
+  expansion — "keep track of debits and credits, manage inventory, payroll, and more."
+- **Target segment**: Startups through larger multi-branch/multi-entity businesses.
+- **Arabic/RTL + ETA fit**: Native bilingual English/Arabic. Actively expanding into Egypt with
+  dedicated Egypt pages covering e-invoice/e-receipt compliance, but sources indicate Wafeq is
+  still in the process of seeking formal ETA approval — Egypt support exists in product/
+  marketing, formal certification not confirmed complete.
+- **Deployment**: Cloud SaaS only, no offline capability found anywhere.
+- **Pricing**: Free Basic tier; Starter ~SAR 119/mo (sources conflict on exact figure); Plus/
+  Premium scale with quotes/PO/payroll; custom Enterprise pricing. Reportedly unlimited users on
+  all paid plans.
+- **Module coverage**: Invoicing, quotes, purchase orders, bank reconciliation, 40+ financial
+  reports, payroll, expense claims, fixed assets, automated VAT/ZATCA/FTA returns, AI receipt/
+  invoice scanning ("Inbox"), multi-branch/cost-center/project revenue analysis. No manufacturing
+  module, no POS module.
+- **Strengths**: Strong multi-country/multi-entity/multi-currency design; unlimited users even
+  on paid tiers; automated VAT filing; polished expense-capture automation.
+- **Weaknesses**: No manufacturing, no POS; no offline capability; Egypt ETA compliance appears
+  still mid-rollout rather than proven live; pure SaaS licensing only.
+
+### 8.3.10 Dafater
+
+- **Positioning**: "منصة الإدارة المتكاملة دفاتر" — integrated cloud management platform, Saudi-
+  headquartered with an Egypt-registered entity ("Dafater Electronic Services"). **Distinct
+  product from Daftra** — do not conflate the two.
+- **Target segment**: Multi-tier product family (Eirady for small business, Power for mid/large
+  service & commercial, Flowhub for multi-department institutions), plus public/private sector.
+- **Arabic/RTL + ETA fit**: Fully native Arabic, RTL throughout. **No evidence of Egypt ETA
+  support** despite the Egypt-registered entity — e-invoicing support confirmed only for Saudi
+  ZATCA ("Fatora" platform, approved 2022). Marketing/product focus is Saudi/Gulf-centric.
+- **Deployment**: Cloud SaaS only (standard or "Managed Cloud SaaS" for Flowhub); no offline
+  capability found.
+- **Pricing**: Not publicly published; per-user/per-unit subscription mentioned for the Power
+  tier without figures; a 5-day free trial is referenced.
+- **Module coverage**: Financial/accounting, inventory, POS, HR/employee management, project
+  tracking, Saudi VAT/Zakat compliance, e-invoicing (Fatora/ZATCA).
+- **Strengths**: Native Arabic-first design; multi-product tiering matched to company size;
+  established certified ZATCA e-invoicing provider since 2022.
+- **Weaknesses / verification gaps**: No Egypt ETA integration evidence; no public pricing; no
+  offline capability; thin English documentation makes deep verification difficult; functionally
+  closer to a Saudi ZATCA-compliance ERP than a genuine Egypt-market competitor — flagged here
+  as a weak/unconfirmed rival rather than a real Egypt threat.
+
+### 8.3.11 SMACC, Qeemah, AccFlex, and other Egypt-niche players
+
+**SMACC (smacc.com, part of the MNT-Halan ecosystem)**
+- **Positioning**: Markets itself directly as "best accounting software in Egypt" — cloud
+  ERP/accounting for SMEs, with a regional engine also covering ZATCA (KSA) and FTA (UAE).
+- **Target segment**: SMEs; claims a large installed base (99,000+ clients, 715,000+ users
+  across MENA) — the broadest scale claim of any Egypt-native competitor surveyed.
+- **Arabic/RTL + ETA fit**: Bilingual UI. The deepest, most explicit Egypt ETA integration found
+  in this survey — submits invoices for ETA approval, retrieves UUID, prints long-ID/QR code,
+  supports tax invoices, simplified tax invoices, credit/debit notes, and bulk issuance, wired
+  directly into accounting/inventory/POS flows.
+- **Deployment**: Cloud-only — browser plus iOS/Android apps. No offline capability found
+  anywhere, explicitly absent from its own e-invoicing documentation.
+- **Pricing** (USD/month, shown in EGP among 30+ currencies): Basic $125 (1 of 4 modules —
+  Accounting/Inventory/Fixed Assets/HR, 2 users) → Advanced $159 (2 of 6 modules incl. POS/
+  Manufacturing, 3 users) → Enterprise $185 (all 7 modules incl. Projects, 4 users). Yearly
+  discount ~10%, 2-year ~25%.
+- **Module coverage**: Accounting, Inventory, Fixed Assets, HR/Payroll, POS, Manufacturing,
+  Projects — full spread but gated by tier/module count, not available at entry price.
+- **Strengths**: Deepest Egypt ETA integration surveyed; full module breadth at Enterprise tier;
+  large installed base/credibility (MNT-Halan backing); mobile apps; multi-currency/multi-branch
+  on one database.
+- **Weaknesses**: Cloud-only — no offline or desktop mode, a direct architectural gap versus
+  Mezan; per-tier module gating feels like feature-limited SaaS rather than flexible licensing;
+  user counts stay low even at top tier (4 users for $185/mo — expensive to scale headcount); no
+  CRM found; no evidence of deep cost-center accounting.
+
+**Qeemah (qeemahcloud.com)**
+- **Positioning**: "Regional-first" cloud accounting/ERP for KSA and wider MENA, targeting
+  finance teams moving off spreadsheets.
+- **Target segment**: Small/mid-sized businesses, primarily Saudi.
+- **Arabic/RTL + ETA fit**: Native, parallel AR/EN sites. **Egypt ETA support is unverified and
+  unlikely** — all compliance messaging found is ZATCA (Saudi) Phase 2-specific; treat as a
+  KSA-first product with no confirmed Egypt play.
+- **Deployment**: Cloud SaaS only, browser-based; no on-prem/offline mentioned anywhere.
+- **Pricing**: Starts at SAR 199/month (one source cites unlimited users at entry); broader plans
+  are "custom pricing after a scoping call" — no fixed public list beyond entry tier.
+- **Module coverage**: Accounting, inventory/warehouse, HR/payroll, manufacturing (BOM/
+  production planning claimed but unconfirmed depth). No POS or CRM evidenced.
+- **Strengths**: Strong bilingual UX; ZATCA Phase 2 depth; modern cloud UI.
+- **Weaknesses**: Egypt/ETA support unproven; cloud-only; pricing opacity beyond entry tier;
+  unclear cost-center/multi-branch depth; smaller Egypt footprint than SMACC.
+
+**AccFlex (accflex.com)**
+- **Positioning**: Long-standing Egyptian ERP/accounting vendor with vertical modules for
+  restaurants, construction/precast concrete, real estate marketing, and internet cafes.
+- **Target segment**: SMB to mid-market, notably vertical-specific — broader industry spread
+  than Qeemah or SMACC.
+- **Arabic/RTL + ETA fit**: Native, long-established Arabic-market product. Confirmed
+  ETA-approved for handling electronic invoices.
+- **Deployment**: Ambiguous/hybrid — a "deskcloud.accflex.com" portal suggests a legacy
+  desktop-to-cloud transition typical of older Egyptian ERP vendors; a pure offline desktop
+  client or true offline-first architecture could not be confirmed from available material (site
+  content was largely thin/inaccessible).
+- **Pricing**: Not published — quote-based only.
+- **Module coverage**: 10 integrated modules — general accounting, inventory/store management,
+  treasury & banking, HR, plus vertical add-ons (construction, manufacturing, precast concrete,
+  real estate marketing, restaurants).
+- **Strengths**: Broadest vertical-industry coverage found among any competitor surveyed
+  (construction, real estate, F&B); ETA-approved; treasury/banking module explicitly named
+  (rarer in this competitor set); long regional track record.
+- **Weaknesses**: No public pricing, worse opacity than SMACC; deployment model unclear and
+  likely legacy hybrid rather than modern offline-first; thin/inconsistent documentation lowers
+  confidence in feature claims (vendor-asserted, not independently verified); no confirmed
+  manufacturing depth beyond the precast-concrete vertical; no CRM evidenced.
+
+**Other names checked, not included**: Matiyas (matiyas.com) is an India-headquartered
+ERPNext-implementation consultancy with an Egypt localization landing page (ETA API integration,
+Fawry/Paymob payment-gateway ties) rather than a genuinely Egypt-native product — excluded as not
+distinctly notable. Searches for "Raseed," "Bee Order," "Elmnhg," and "Fatoorah" as named
+Egyptian ERP products returned no credible, verifiable matches — skipped rather than padded with
+unverified names.
+
+---
+
+## 8.4 Market gaps and opportunities — the gap analysis
+
+Reading across all twelve competitors, five structural gaps recur — each one a place Mezan's
+architecture can win on merit rather than on marketing:
+
+### 8.4.1 Nobody is genuinely offline-first except SAP B1 (and it prices itself out of reach)
+
+Every Egypt-native SaaS competitor (Daftra, SMACC, Qoyod, Wafeq, Qeemah, Dafater) is cloud-only,
+with "offline" at best meaning a POS terminal that can cache a sale locally (Daftra, top tier
+only) — never a full offline back office with accounting, inventory, and reporting. Every global
+platform is connectivity-first by default; only SAP Business One offers genuine on-prem/offline
+operation, at $1,350–5,500/user plus 18–20%/year maintenance and $12K–120K implementation — three
+orders of magnitude above what an Egyptian trading SMB or retail chain will pay. ERPNext and Odoo
+can be forced offline with custom engineering, but neither ships it as a supported mode.
+
+**Opportunity**: Mezan is the only surveyed product built offline-first from the domain core
+outward (SQLite WAL, in-process IPC instead of sockets, OS-keychain-sealed local sessions) at an
+SMB price point. This is a defensible, hard-to-copy architectural moat — a cloud-first SaaS
+vendor cannot retrofit this without a rewrite, exactly the reasoning `README.md` already encodes
+in "Path A" (cloud is additive to the desktop core, not the other way around).
+
+### 8.4.2 Egypt connectivity reality is underserved
+
+Outside Cairo/Alexandria/major hubs, Egyptian retail and light-industrial businesses routinely
+deal with unreliable or expensive connectivity, and a cloud SaaS outage or ISP drop means the
+till stops ringing. None of the competitors surveyed message directly to this pain point as a
+primary sales argument — they treat offline as a POS edge case, not a business continuity
+requirement. This is a market message Mezan can own outright given its architecture already
+solves it end-to-end (not just at the till).
+
+### 8.4.3 Licensing model mismatch: perpetual/module vs. recurring-forever SaaS
+
+Every competitor surveyed — Egypt-native and global alike — sells recurring subscriptions (often
+gated by user count, branch count, or module tier at increasingly expensive brackets: e.g.,
+SMACC's Enterprise tier caps at 4 users for $185/mo). For a small trading business, this is a
+permanent, compounding cost with no ownership. Mezan's Ed25519-signed offline license
+(module/feature entitlements, seat counts, machine-fingerprint binding, 14-day grace period) is
+structurally different — it supports a perpetual or term-license commercial model that Egyptian
+SMB owners culturally prefer (buy the software, not rent it forever) and that none of the
+surveyed competitors can match without changing their entire business model.
+
+### 8.4.4 Manufacturing + treasury + installments depth is rare and fragmented
+
+Real BOM/production-order manufacturing exists in only three competitors surveyed (Daftra,
+SMACC-Enterprise, and claimed-but-thin at Qoyod/Qeemah); nobody surveyed has Mezan's specific
+combination of a 4-stage work-order execution model, versioned BOMs with waste%, and a unified
+10-type treasury voucher plus 7-state cheque register plus installment plans with overdue-batch
+follow-ups in one product. Businesses needing this today stitch together an accounting SaaS plus
+a separate manufacturing tool plus manual treasury tracking, or pay SAP B1/Dynamics BC enterprise
+prices for depth they don't otherwise need. Installment-based retail (a very common Egyptian SMB
+sales motion — furniture, appliances, electronics) has essentially no first-class support in any
+surveyed competitor except SMACC/Daftra-adjacent loyalty features; nobody has Mezan's dedicated
+installment-plan + collection-follow-up module.
+
+### 8.4.5 ETA e-invoicing maturity is inconsistent across the field — a bar Mezan can clear cleanly
+
+Egypt ETA support ranges from genuinely deep (Daftra, SMACC, AccFlex, SAP B1) through
+in-progress/unconfirmed (Wafeq) to entirely absent (Qoyod, Dafater, Qeemah, QuickBooks-native,
+Dynamics BC-native). Mezan's catalog already specs a dedicated ETA screen (VAT sub-type
+V001–V009 mapping at the tax level, e-seal signing for production, encrypted client
+credentials, submission queue with per-document lifecycle) — matching or exceeding the
+mid-tier of the field. The gap to close is less "build ETA support" and more "reach and
+message the same maturity level as Daftra/SMACC," since those are the two most credible
+Egypt-native rivals a prospect will actually compare Mezan against.
+
+### 8.4.6 Where Mezan is currently behind and should not pretend otherwise
+
+- **CRM depth**: Zoho and Odoo have dedicated, mature CRM products; Wafeq, Qoyod, Dafater have
+  none. Mezan's CRM has since been **built** — leads (6 states), lead→customer/opportunity
+  conversion, opportunities over configurable pipeline stages with probability and expected
+  value, a pipeline board, and activities (call/meeting/todo/email) — all gated and reachable.
+  What is missing is depth rather than presence. Measured against `packages/domain/src/crm/`
+  on 2026-08-27:
+
+  | Gap | Evidence | Why it matters |
+  |---|---|---|
+  | **Nothing in CRM has an owner** | `Opportunity` carries `customerId`, `branchId`, `stageId` — no `ownerId`; `Activity` has no assignee. Meanwhile `contracts/src/sales-invoice.ts` carries `salespersonId` and `reports/sales-by-salesperson.ts` reports on it | The funnel has a rep at the bottom and nobody at the top. No "my pipeline", no "my tasks", no leaderboard, no link from a closed deal to the person who worked it. Every other CRM item depends on this |
+  | **The funnel breaks at the opportunity** | No `opportunityId` on a sales quote or invoice; only `convert-lead.ts` links lead→opportunity | A won deal never points at the quote that won it or the revenue it produced. Win rate by value, pipeline-to-invoice conversion and open-quotes-on-live-deals are all unanswerable |
+  | **A stage move erases its own history** | `move-opportunity-stage.ts` overwrites `stageId` and returns the new object; nothing records the transition | Kills time-in-stage, deal velocity, stalled-deal detection and forecast trend. Same shape as the ledger rule this repo already enforces: a report that needs a fact the store never recorded |
+  | **No loss reasons** | `LeadStatus` has `lost`/`unqualified`, `Opportunity.status` has `lost`; neither carries a reason code | "Why are we losing?" is the first question a sales manager asks and the cheapest to answer |
+  | **Activities do not survive conversion** | `Activity` links to `relatedLeadId` and `relatedOpportunityId` — never to a customer | Call and meeting history disappears from the customer view the moment a lead converts. A customer 360 is what CRM depth means to an SMB |
+  | **No contact persons** | A customer is one flat record (`domain/src/customers/customer.ts`) | A distribution deal involves a purchasing manager, an owner and an accountant, each with their own phone. The one item here needing a new entity rather than a field |
+
+  Two further items are cheap because the data already exists: a **weighted forecast**
+  (`expectedValue × probability` by stage/period/owner — both fields are stored, only the
+  report is missing) and **next-action hygiene** (an opportunity with no pending activity is a
+  deal nobody is working; `dueDate` and `pending` exist, the surface does not).
+- **Mobile/field access**: SMACC ships iOS/Android apps; Daftra has a mobile app; Mezan is
+  desktop-only by design (LAN multi-till substitutes for some of this at the till level, but not
+  for a traveling sales rep needing a phone). Van/rep trips are scoped in Mezan's catalog
+  (`01-sales.md` §"رحلات المندوبين") but a phone companion app is not.
+  - Note: this is a real trade-off, not an oversight — a "desktop-only + LAN" design is exactly
+    what makes true offline-first tenable; a mobile app reintroduces a sync/connectivity
+    dependency that would need to be solved deliberately (see §4.6).
+- **Cloud/multi-tenant maturity**: SMACC, Daftra, Zoho, Odoo Enterprise, Dynamics BC are
+  cloud-native today; Mezan's cloud edition (Phase 15) is deferred by design. This is fine for a
+  desktop-first go-to-market but means Mezan cannot yet compete for a prospect who explicitly
+  wants zero local infrastructure.
+
+### 8.4.7 Operational breadth beyond finance and HR is where mid-market ERPs actually live
+
+Measured against `packages/domain/src` on 2026-08-27. Mezan's manufacturing is genuinely
+respectable for its class — versioned BOMs with waste %, 4-stage work orders, material
+issue/return/waste/receive, shop-floor entries stamped with station and operator, a
+labor/overhead/other cost log, configurable products with formulas, and work stations as
+master data. The gap is not manufacturing depth in isolation; it is the operational domains
+Odoo, SAP Business One and ERPNext run *alongside* manufacturing, none of which Mezan has.
+
+| Domain | What competitors ship | Mezan today |
+|---|---|---|
+| **Production planning / MRP** | Demand (open orders + forecast) netted against stock and open POs, respecting lead time and safety stock, emitting suggested work and purchase orders (Odoo MRP, SAP B1 MRP wizard, ERPNext production plan) | `reorderLevel` on the item plus an `inventory-stock-levels` report — a threshold, not planning. No `safetyStock`, no `leadTime`, no planning run |
+| **Routings and capacity** | Operations with standard times, machine/shift capacity, finite scheduling, WIP by operation | `work-station.ts` is a master record only (code, name, status). A work order knows what materials but never how long or on which machine when |
+| **Subcontracting (التصنيع لدى الغير)** | Send material out, receive a semi-finished good back, absorb the subcontractor's cost onto the order | Zero. Can only be faked as a stock issue plus an unrelated purchase invoice, and the cost never lands on the work order |
+| **Quality management** | Inspection points on goods receipt and production receipt, quarantine location, pass/fail routing to return or rework, NCR | Zero — no inspection, no NCR, no quarantine |
+| **Traceability depth** | Batch genealogy (which raw batches went into which finished batch), bidirectional recall report, serial numbers | `batchNo` and expiry exist and FEFO is on a branch. No genealogy, no recall report, no serial numbers |
+| **Maintenance (CMMS/EAM)** | Preventive schedules on machines and vehicles, meter readings, work requests, spare-part consumption against equipment | `maintenance` appears only as a GL account name and a voucher type. Fixed assets are a register, not equipment |
+| **Warehouse execution (WMS)** | Bin locations inside a warehouse, put-away rules, pick lists and waves, packing, ABC cycle counting | Warehouses and physical counts with variance and blind counting — "how much do I have", not "where in the building" |
+| **Delivery and dispatch** | Shipments, delivery notes as their own document, drivers, proof of delivery, freight cost allocation | `field-sales/van-trip.ts` covers a rep's van route; ordinary order fulfillment has none of it |
+| **Service and after-sales** | Service orders, warranty registration, installed base at the customer, repair orders, SLA | Zero — and it collides with a segment already targeted: installment retail is furniture, appliances and electronics, exactly the goods that come back for warranty service |
+| **Project delivery** | WBS/tasks, timesheets, progress %, BOQ / progress certificates (مستخلصات) / retention billing | `projects/` is a header only — code, customer, manager, budget, dates, site address |
+
+Also absent and lower priority for the current buyer set: rental/leasing (Daftra has it),
+e-commerce channel sync, engineering change orders on top of the already-versioned BOM, and
+demand forecasting / S&OP.
+
+**The distinction that matters for sequencing** is not the feature count but which of these
+are *new fields on documents that already post correctly* versus *new domains with their own
+documents and GL consequences*. Batch genealogy, quality-on-receipt and subcontracting attach
+to the existing stock ledger. MRP, WMS bins and service management are genuinely new domains.
+
+**A costing argument for routings, separate from planning:** `WorkOrderCostLogEntry` takes
+labor and overhead as amounts somebody types in — every one of them a number the caller
+supplied, the exact shape this codebase's own rules warn about. Standard times × a station
+rate would let the system compute what is currently asserted.
+
+
+## 8.5 Recommended differentiating features
+
+Prioritized by how directly each feature converts an architectural advantage (§3.1–3.3) into a
+feature a prospect can see and compare against a specific competitor, or closes a real gap
+(§3.6) before it costs a sale. "P0" = should lead the `enhancements` backlog; "P1" = strong
+follow-on; "P2" = differentiator once the core is proven.
+
+### P0 — Lead with the offline-first + licensing moat
+
+1. **Cloud-fallback sync mode ("hybrid" license tier)** — an opt-in, still-offline-first mode
+   where a desktop instance can push/pull a background sync to a lightweight relay when
+   connectivity is present, without ever requiring it. Directly neutralizes the "but I want a
+   dashboard from my phone" objection that every cloud-only competitor (§3.1, §3.6) wins on
+   today, while keeping the offline core intact — the opposite of Odoo/ERPNext's
+   connectivity-first-with-a-bolted-on-offline-cache model.
+2. **Multi-branch consolidated reporting over disconnected desktop instances** — a
+   periodic/manual export-import or sync mechanism that rolls up several independently-running
+   branch desktop instances (each fully offline-capable) into one consolidated P&L/balance
+   sheet/inventory view, without requiring a live multi-tenant cloud backend. No cloud-only
+   competitor can offer this as a "buy once per branch, still see one number" story; it is
+   uniquely enabled by Mezan's single-tenant-per-install architecture.
+3. **Perpetual + subscription hybrid pricing packaging with a public price sheet** — publish a
+   transparent module-by-module perpetual-license price list (mirroring Daftra's and SMACC's
+   transparent tiered pricing pages, which build buyer trust) so "own it, don't rent it" is a
+   marketable claim, not just an architectural fact. Not a code feature, but should be tracked in
+   the same backlog since it depends on the licensing/entitlements engine already built.
+4. **License self-service portal (offline-license reissue/transfer flow)** — a lightweight
+   web/desktop flow letting a customer re-host a license to new hardware, add seats, or add a
+   module without support intervention, addressing the one real friction point of perpetual
+   offline licensing versus "log in from anywhere" SaaS.
+
+### P1 — Close specific competitive gaps before they cost a sale
+
+5. **Installment-sales module polish + collection-risk scoring** — Mezan already scopes
+   installment plans + overdue batch + follow-ups (`docs/tasks.md` Phase 7); this is a genuine
+   whitespace versus nearly every competitor surveyed. Adding light collection-risk
+   scoring/aging buckets on top would make it a headline feature for furniture/appliance/
+   electronics retailers, a segment none of the twelve competitors targets explicitly.
+6. **Manufacturing cost-drilldown parity with Daftra/SMACC-Enterprise** — ensure BOM +
+   work-order costing rolls up cleanly into cost-center P&L (already scoped in Phase 8/11) and is
+   demoable end-to-end; this is the module where Mezan can credibly claim to out-depth every
+   Egypt-native SaaS rival except Daftra.
+7. **ETA readiness dashboard + guided setup wizard** — the catalog's ETA screen already tracks a
+   "readiness %" completion metric; turning that into a guided, checklist-driven onboarding flow
+   (mirroring Daftra's documented step-by-step ETA setup) closes the perception gap against
+   Daftra/SMACC, which currently look more "done" on ETA than an unconfigured Mezan demo does.
+8. **Arabic-first accountant/bookkeeper collaboration mode** — a constrained, read-mostly or
+   scoped-write remote role for an external accountant (many Egyptian SMBs outsource bookkeeping)
+   to review/adjust books without needing a full seat or full LAN access — addresses a workflow
+   every cloud SaaS competitor solves trivially (just log in) that a pure offline desktop app
+   does not solve by default.
+9. **Lightweight CRM pipeline view** — not a full CRM build-out (already scoped later in
+   `docs/tasks.md` Phase 12), but pulling the existing Leads/Opportunities scope earlier or
+   shipping a minimal pipeline board sooner narrows the gap to Zoho/Odoo for
+   distribution-with-a-sales-team customers without committing to full CRM parity.
+
+### P2 — Differentiators once the core v1 is proven
+
+10. **Companion mobile app for field/van sales reps (sync-on-connect only)** — a phone app for
+    the already-scoped Van/Rep Trips module that syncs opportunistically when connectivity
+    appears, never requiring it — extending the offline-first philosophy to the one place
+    (traveling reps) where a pure desktop app structurally can't reach, without compromising the
+    core desktop product's zero-dependency design.
+11. **Multi-till LAN mode as a marketed retail-chain feature, not just a technical capability** —
+    Mezan already has LAN multi-till gated by license flag; packaging and marketing this
+    explicitly against Daftra's Premium-only "offline POS terminals" tier turns an existing
+    capability into a head-to-head competitive callout (works at every tier that includes it, no
+    internet dependency at all, versus Daftra's internet-dependent-except-at-the-till model).
+12. **Data portability / import tooling from named competitors** — guided import wizards
+    specifically from Daftra, QuickBooks, and Excel-based bookkeeping (the three most common
+    "what a prospect is currently using" answers in Egypt), lowering switching cost and directly
+    targeting Mezan's most likely displacement targets.
+13. **Vertical starter packs (retail, furniture/installment-heavy, light manufacturing,
+    distribution)** — pre-configured chart of accounts, tax mappings, and item templates per
+    vertical, competing with AccFlex's vertical-specific positioning (construction, F&B, real
+    estate) without needing AccFlex's per-vertical module sprawl — Mezan's single coherent core
+    can offer starter configuration instead of separate products.
+14. **Offline-capable audit/compliance export bundle** — a one-click "everything ETA/tax auditor
+    might need" export (journals, ETA submission log, tax reports) that works even if the machine
+    has never been online that day, a scenario every cloud-only competitor cannot serve at all
+    during an outage or in a low-connectivity branch.
+
+### Added 2026-08-27 · P1 — CRM depth substrate
+
+Ordered so each item unblocks the next; the first two are the substrate every CRM report needs.
+Rationale and evidence in §3.6.
+
+15. **Ownership on the pipeline** — `ownerId` on `Opportunity` and an assignee on `Activity`.
+    Revenue already knows its salesperson; the pipeline knows nobody, so the leaderboard would
+    report on invoices while the forecast reports on no one. Small change, and items 16–18 and
+    the forecast/leaderboard reports all depend on it.
+16. **Close the funnel** — carry `opportunityId` onto the sales quote and through conversion
+    into the invoice, making quote→order→invoice traceable end to end (this is ENH-042's
+    missing prerequisite).
+17. **Record stage transitions** — append-only stage history (from, to, at, by) so deal
+    velocity, time-in-stage and stalled-deal detection become reportable. Cheap to store now
+    and impossible to reconstruct later.
+18. **Loss reasons and customer-linked activities** — a `LOSS_REASON_DEFINITIONS` taxonomy
+    following the existing `LEAD_STATUS_DEFINITIONS` pattern (code + `labelAr`), plus a
+    customer link on activities so history survives conversion into a customer 360.
+
+### Added 2026-08-27 · P2 — Operational breadth beyond finance and HR
+
+Rationale and evidence in §3.7. Sequenced by fit with the current buyer set — wholesale /
+distribution, retail, restaurant, light manufacturing, pharma — not by market size.
+
+19. **Subcontracting (التصنيع لدى الغير)** — send material to a contractor, receive the
+    semi-finished good, absorb the cost onto the work order. This is the Egyptian workshop
+    reality (cutting, plating, printing, stitching) and nothing in the field models it well at
+    SMB price points.
+20. **Quality on receipt with a quarantine location** — an inspection status on goods receipt
+    and production receipt, failures routed to return or rework. Small on top of the existing
+    stock ledger, and it is the pharma/food gatekeeper question.
+21. **Batch genealogy and the recall report** — raw batch → finished batch links walked in
+    both directions. Mostly reporting over data already stored, and the claim that wins a
+    pharma or food account.
+22. **Routings with standard times** — operations, station rates, and computed labor cost;
+    turns work orders into real costing and is the prerequisite for any capacity story.
+23. **Maintenance-lite on the asset register** — preventive schedules, meter readings and work
+    requests against machines and vehicles, reusing the fixed-assets register as the equipment
+    master.
+24. **Delivery and dispatch for distribution** — a delivery note as its own document, driver,
+    proof of delivery and freight allocation, extending the van-trip model to ordinary order
+    fulfillment.
+
+**The scope question these raise, which needs a human answer:** do we sell *light
+manufacturing* or *manufacturing*? Items 19–21 make a credible workshop system on the engine
+already built. Items 22 and beyond — routings, capacity scheduling, MRP — are a different
+product: they need a planning engine that does not exist, and they push Mezan into deals where
+the buyer expects a partner-led implementation, which is where Odoo and SAP B1 live.
+
+---
+
+## 8.6 Catalog gaps to verify, and module boundaries
+
+**Possible catalog gaps to verify.** Features the reference product markets that our catalog may cover thinly or not at all:
+
+- BOQ / progress-certificate / retention billing for Contracting & Real-Estate — our Projects domain looked thin (see §6.3.7, Projects row in Phase 7).
+- FEFO (first-expiry-first-out) for pharma.
+- Cheque **endorsement / replacement** states (beyond the 7-state lifecycle already captured, §2.3, §4).
+- Restaurant **own-fleet delivery tracking**.
+- IAS-21 **FX gain/loss** depth in multi-currency.
+
+→ Action: check each against docs/catalog before finalizing those modules' issues.
+
+**Module-boundary notes.** The reference product markets **multi-currency** and **ETA e-invoicing** almost as standalone modules. → Consider treating **multi-currency as its own licensable module** in our entitlement model, rather than an always-on accounting feature.
+
+
+## 8.7 Where Mezan differentiates — and the honesty caveat
+
+1. A true offline-first Arabic **desktop** ERP — no competitor in this field offers it (Daftra's offline capability is POS-only).
+2. Module-based licensing vs. Daftra's cap-based tiers.
+3. Egypt/ETA-first positioning.
+
+> **Honesty caveat.** Independent research shows the reference system's own compare page **overstates** Daftra's weaknesses — Daftra actually has manufacturing, cheques, installments, and offline-capable POS. Mezan's real edge is deployment model + execution quality, not "features they lack." Don't reuse the reference system's overstated competitive claims in our own materials.
+
+---
+
+
+## 8.8 Summary
+
+Twelve competitors were surveyed: **Daftra, Odoo, SAP Business One, ERPNext, Microsoft Dynamics
+365 Business Central, QuickBooks, Zoho, Qoyod, Wafeq, Qeemah, Dafater, SMACC**, plus one
+additional notable Egyptian vendor surfaced during research, **AccFlex**. None combine
+Mezan's specific architecture — Arabic-first RTL, genuinely offline-first desktop core, and
+perpetual/module-based licensing — at an SMB-accessible price point. SAP Business One is the only
+competitor with true offline capability, at enterprise pricing; every SaaS competitor (Egyptian-
+native or global) is cloud-only with at best a POS-level offline cache. This is Mezan's clearest,
+most defensible market gap, and the fourteen recommended features above are prioritized to make
+that gap visible and comparable to a prospect evaluating Mezan against Daftra or SMACC — the two
+most credible Egypt-native rivals — rather than against the field in the abstract.
+
+---
+
+# 9. Deferred roadmap — HR/Payroll, POS, Cloud/SaaS
+
+> Scope: the three areas explicitly descoped at v1 kickoff (`docs/plan.md` §"v1 Scope"): **HR/Payroll**, **POS (including the net-new selling screen)**, and the **Cloud/SaaS website edition**. `docs/tasks.md` already reserves these as Phase 13/14/15 stubs (13/16/15 issues respectively); this document expands each into a dependency-ordered, issue-level plan and is the thing to work from once v1 (Phases 0–12, SQLite-only Electron desktop) ships. Nothing here invents scope beyond `docs/catalog/06-crm-hr.md`, `docs/catalog/05-pos-installments.md` and `docs/plan.md`'s architecture sections — deviations and open decisions are flagged inline, not silently resolved.
+
+**Why these three, together, now:** all three were deferred by the same Path-A decision — build the SQLite-only desktop core first, but keep the domain core behind repository ports and the transport behind a Hono app so nothing here requires re-architecting anything already shipped. HR/Payroll and POS are pure domain-service additions on top of the finished GL/treasury/cost-center/sales-invoice/inventory engines. Cloud/SaaS is almost entirely *infrastructure* — a Postgres dialect, a real HTTP host, multi-tenant auth — sitting underneath the same `packages/api` Hono app and `packages/domain` core that already exist and already run over HTTP today (`apps/server` currently serves the shared app against SQLite as a Postgres stand-in — see Cloud §0).
+
+**Sequencing between the three areas:** independent tracks, no cross-blocking. HR and POS both depend only on v1-core engines (GL, treasury, cost centers, sales-invoices, inventory, stock, permissions, numbering, workflow, event bus, print/report engine — note there is no notification *rules* engine yet, only the event bus, so any notification-driven scope below has to build it) — pick either first based on business priority. Cloud/SaaS can start in parallel with either, since its Phase 0 (Postgres dialect + conformance suite) only needs the schema-spec DSL that already exists; it does *not* need HR or POS domain code to exist first, though shipping it after both gives the conformance suite more domain surface to prove out.
+
+## Legend
+
+| Size | Meaning (same scale as `docs/tasks.md` §2) |
+|---|---|
+| **S** | < 1 day — CRUD screen, config toggle, single report, small fix |
+| **M** | 2–4 days — a screen with real workflow/state machine, or a medium engine slice |
+| **L** | ~1–2 weeks — a screen family or a substantial engine component |
+| **XL** | 2+ weeks — phase-defining engine work; usually warrants its own sub-breakdown (Payroll's calc kernel and the POS selling screen both get one below) |
+
+Each task row carries a **Reuse** column naming the actual existing package/module it builds on — verified against the current `packages/domain/src`, `packages/persistence/src`, `packages/api/src` and `apps/server` trees, not inferred from the architecture doc alone.
+
+**Confirmed already in the repo and reusable by every task below:**
+- `packages/domain/src/gl`, `journal.ts`, `post-journal-entry.ts` — the balanced-entry posting engine (Article-47/payroll/accrual/advance postings all route through this, not a new engine).
+- `packages/domain/src/treasury-accounts`, `vouchers` — cash accounts, the 10-type voucher document, allocation/cash-application.
+- `packages/domain/src/cost-centers`, `cost-center-pl` — for departmental/branch cost allocation.
+- `packages/domain/src/sales-invoices`, `sales-returns` — the document engines the POS selling screen and refunds specialize, not reimplement.
+- `packages/domain/src/permissions`, `numbering`, `workflow`, `events` (typed event bus/catalog), `entitlements`, `licensing`, `lan` (LAN multi-till session registry + feature flags), `reports/engine.ts` (`ReportDefinition` abstraction).
+- `apps/server` — already mounts the shared `packages/api` Hono app over HTTP with SQLite standing in for Postgres (Path A proof point); Cloud's job is to swap the dialect and add real multi-tenancy underneath this, not stand up a server from zero.
+- **Not yet built anywhere** (confirmed by search — flag honestly rather than claim false reuse): a `FileStore`/attachments port and implementation. HR (employee photos, contract attachments), POS (item images already exist via Items) and Cloud (S3 adapter) all need this; it does not exist today and is called out as new work where it first becomes a hard dependency (HR §1, Cloud §2).
+
+---
+
+## 9.1 Part 1 — HR/Payroll (27 tasks)
+
+Ordered by the dependency chain the catalog itself implies: Employees is the hub record every other HR screen scopes against (`06-crm-hr.md`: "most other HR screens ... are really employee-scoped sub-resources"); Payroll is deliberately last because it consumes Contracts + Attendance + Advances and is the single largest unknown in the whole catalog (§0.6 below).
+
+### HR-0 — Foundation & master data
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 1 | HR numbering: `EMP-####` employee-code sequence registered in the numbering engine | S | v1 numbering engine | `packages/domain/src/numbering` — add one more of the 25 sequence types, same atomic-counter mechanism already used for invoices/POs |
+| 2 | HR permission set: register `hr.*` dot-notation perms (employees/contracts/attendance/leave/payroll/advances, `⚠ sensitive` on salary/personal-data reads) into the permission catalog + dependency graph | S | v1 permissions engine | `packages/domain/src/permissions` (data-driven manifest), `packages/api/src/permission-gate.ts`, `module-gate.ts` |
+| 3 | Departments: CRUD, self-referencing parent hierarchy, manager picker | S | #2 | `packages/domain/src/users` (manager select), branches |
+| 4 | Job Titles: dept-scoped CRUD (title disabled until department chosen) | S | #3 | same list/CRUD primitives as Departments |
+| 5 | Shift Settings: named time-window templates, optional branch scope | S | branches | none new — same pattern as v1's branch-scoped master data |
+
+### HR-1 — Employee & Contract core
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 6 | Employee domain model + repository: identity, employment info (worker category, overtime-eligibility inheritance chain dept→company, `priorServiceYears` for Article 47), address, emergency contact | L | HR-0 | branches (assignment), users (account-link for self-service, HR-3 #16) |
+| 7 | Employee attachments/photo — **new**: minimal content-addressed `FileStore` port + desktop impl (mirrors the file-storage design already specified for Cloud, built once and shared) | M | #6 | none existing — first hard need for the FileStore port; build the port here so Cloud §2 only swaps the adapter |
+| 8 | Employee create/edit full-page form (all sections incl. clock-in biometric/selfie switches, probation end date) | L | #6 | `<DocumentDetail>`/form primitives, `<EntityPicker>` (v1 design system) |
+| 9 | Employee list + detail page (8 tabs, side-panel quick-view variant) + status machine (active/on-leave/suspended/terminated) + terminate action | L | #6, #8 | `<DocumentList>` primitive |
+| 10 | Contracts domain model: type/pay-basis/frequency, currency (reuse the 11-currency list), leave-entitlement overrides, allowance/deduction line items | L | #6, Leave Policies (HR-3 #14 — can stub entitlement defaults until then) | multi-currency (`packages/domain` money/qty), same currency picker as Sales Customers |
+| 11 | Contracts list + detail page (پay-terms tab, audit tab) + terminate-contract action | M | #10 | `<DocumentDetail>` tabs pattern |
+
+### HR-2 — Attendance & Holidays
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 12 | Attendance domain model: daily status codes (P/A/H/L/HO/weekly-off), manual entry path (device/biometric ingestion is a stub hook, not built — no hardware integration evidenced in the catalog) | L | #6, #5 | none new |
+| 13 | Attendance calendar-grid screen (month navigator, per-employee row × day-of-month columns) + monthly-summary dialog | L | #12 | **new component** — the one HR screen that isn't the standard list+filter+table pattern; nothing to reuse from v1's `<DocumentList>` |
+| 14 | Official/Public Holidays: year-tabbed CRUD, recurring-vs-one-time flag | S | none | none new |
+
+### HR-3 — Leave
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 15 | Leave Policies: type matrix (entitlement/accrual-frequency/carryover/termination-payout/legal-mandate flag) + two dated presets (Egypt Labour Law 12/2003, 14/2025) modeled as **versioned dated data**, never hardcoded | M | none | follows `plan.md` §6.2's explicit mitigation for "Egyptian regulatory change" risk — legal constants as data, not logic |
+| 16 | Leave Requests: domain + workflow (half-day = 0.5-day calc, leave-type resolution from policy + contract override) | L | #10, #15 | `packages/domain/src/workflow` (26 action types) — **[decision]** confirm whether the 9 granular per-leave-type gates the task brief names are real distinct action types or one gate applied per leave-type instance; not directly evidenced in `06-crm-hr.md` itself, cross-check `09-settings-dashboard-ux.md`'s 26-type catalog before finalizing |
+| 17 | Leave Requests screens: admin list + full-page new-request form | M | #16 | `<DocumentList>`, standard form primitives |
+| 18 | My Leave (employee self-service, gated on account-linked-to-employee-record) | S | #9, #16 | same list/form components as #17, scoped to `me` |
+| 19 | Leave Accrual Batches: manual ("run now") + scheduled runs, **posts a journal entry** and updates balances immediately | M | #16, GL | **`packages/domain/src/gl`, `journal.ts` directly** — this is a JE-posting consumer of the existing engine, not a new one; scheduler pattern per `plan.md` §3.5 (desktop in-process scheduler with catch-up semantics) |
+
+### HR-4 — Advances
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 20 | Employee Advances domain: 4-state workflow (pending→approved→disbursed→repaid), explicitly a **balance-sheet asset/debt**, expensed only on write-off | M | #6, GL/accounts | **`packages/domain/src/gl`, `accounts`, `treasury-accounts`/`vouchers`** for the disbursement cash-out leg |
+| 21 | Advances screens: list + request dialog + approve/disburse/repay row actions | S | #20 | same list/dialog primitives |
+
+### HR-5 — Payroll engine (deliberately its own sub-phase — largest specification hole in the whole catalog)
+
+The create-run dialog itself is two fields (year, month); everything else — the actual calculation — was never observed running against real data in the source (one seeded employee, no executed run). Per `docs/tasks.md` §7.4's finding, this needs a standalone design deliverable before it can be split into safely-sized build tickets; the breakdown below is the *shape* of that split, not a claim the internals are already known.
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 22 | **Payroll calc-engine design spike** — resolve the day-divisor basis (tenant setting observed as `payrollDayDivisorBasis: "FIXED_30"` with zero UI surface), the Article-47 seniority-bonus formula, the overtime multiplier, and how allowances/deductions/leave-entitlement contract overrides combine into gross pay. Output: a written calc spec, not code. | M | none (research/product decision) | **[decision]** — needs either a populated reference tenant with an executed payroll run, or a from-first-principles design against Egyptian payroll law; do not start #23 until this lands |
+| 23 | Payroll calc kernel: base-salary proration (day-divisor), Article-47 seniority bonus, overtime multiplier, allowance/deduction application | XL | #22, #10 | `Money`/`Qty` scaled-int value objects + `decimal.js` rounding policy (v1 Phase 0) — same largest-remainder allocation discipline used for invoice discount/tax rounding |
+| 24 | Payroll ↔ Attendance integration (pull absence/overtime hours into the calc kernel) | M | #23, #12 | none new |
+| 25 | Payroll ↔ Advances integration (pull installment deductions into the calc kernel) | M | #23, #20 | none new |
+| 26 | Payroll run lifecycle (draft→calculated→approved→disbursed, +cancelled) + GL posting + payslip generation/print | L | #23–#25, GL, print engine | **`packages/domain/src/gl`/`journal.ts`** for posting; **`packages/domain/src/reports/engine.ts`** (`ReportDefinition`)+ v1's print pipeline and Arabic amount-in-words for payslips — no new print mechanism |
+| 27 | Payroll screens: run list, new-run dialog, run detail (recalc/approve/disburse actions); HR Dashboard (KPI tiles, 3 charts, leave-consumption table, alert chips) | L | #26 | `<DocumentList>`/`<DocumentDetail>`, Recharts (already wired for the main Dashboard) |
+
+*(27 numbered tasks above — HR-0 through HR-5.)*
+
+---
+
+## 9.2 Part 2 — POS (26 tasks)
+
+Highest design risk in the whole deferred scope: back-office parity (terminals/sessions/sales/refunds/discount-approvals/restaurant mode) is a straightforward build against v1 engines; the selling screen has **no reference implementation anywhere** — the source app's `/pos/sell` renders "نقطة البيع انتقلت إلى تطبيقات الجوال وسطح المكتب" (moved to mobile/desktop apps) and 404s the moment you try to reach it on web. It is broken out as its own sub-phase (POS-3) with a mandatory design spike ahead of any code, per `plan.md` §7.4.
+
+### POS-0 — Foundation
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 1 | POS permission set: register the 38 POS permissions (largest single module in the catalog) into the catalog + dependency graph | S | v1 permissions engine | `packages/domain/src/permissions`, `packages/api/src/module-gate.ts` |
+| 2 | Payment-method catalog: company-wide list, 2 non-deletable built-ins (Cash `CASH`, Card `CARD`), per-method account-type + default-account mapping | S | treasury-accounts | `packages/domain/src/treasury-accounts`, `accounts` |
+| 3 | Terminals: CRUD (branch/warehouse/cash-drawer-account/enabled-payment-methods/thermal-printer-address) | M | #1, #2, branches/warehouses | branches, warehouses, treasury-accounts |
+
+### POS-1 — Sessions/shifts & back-office ledgers
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 4 | Sessions/Shifts domain: open→running→close lifecycle, cash-drawer manual movements (float top-up/withdrawal/payout, distinct from customer cash sales), close-out variance calc | L | #3 | `packages/domain/src/treasury-accounts`/`vouchers` pattern for cash-movement entries |
+| 5 | Session settlement UI: 6 sub-tabs (settlement, payment breakdown, AR/credit collections, cash movements, sales summary, salesperson breakdown) + close-shift dialog (expected vs. actual cash, closing notes) | L | #4 | `<DocumentDetail>` tabs pattern |
+| 6 | POS Sales domain: immutable sale record created by the selling screen, GL + stock posting on confirm | M | #4, GL, Inventory | **specializes `packages/domain/src/sales-invoices` directly** — a POS sale is a constrained sales-invoice confirm path (walk-in default customer, immediate full payment), not a parallel document engine |
+| 7 | POS Sales list + detail screens (items/payments/accounting-entries/attachments/audit tabs) | M | #6 | `<DocumentDetail>` "effects of this transaction" explainer pattern already built for Sales Invoices |
+| 8 | POS Refunds domain: per-line qty-capped returns against an original sale, tied to an active shift | M | #6 | **specializes `packages/domain/src/sales-returns`** |
+| 9 | POS Refunds screens (list + new-refund form, pre-scoped from a sale or opened blank) | S | #8 | same list/form primitives |
+| 10 | Discount Approvals: manager queue, cashier/manager % + amount thresholds, 5-minute request expiry | M | #1 | **deliberately not the general workflow engine** — a separate, threshold-driven mechanism per `plan.md` §5.6; wired via `packages/domain/src/events` (notification-style, not the 26-action-type workflow gate) |
+| 11 | POS Hub (domain landing page) | S | #3–#10 | same hub pattern already built for the other 8 domains |
+
+### POS-2 — Restaurant mode
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 12 | Table Management: floor designer (drag-drop layout editor, staging area for unplaced tables, section/zone grouping) | L | #3 | none new — bespoke drag-drop, no v1 equivalent |
+| 13 | Table Management: live occupancy view + per-table stats tab | M | #12, #6 | POS sales for revenue-by-table stats |
+| 14 | Reservations: **consolidate** the embedded tables-tab reservation flow and the standalone `/pos/reservations` screen into one data model with two entry points (per `docs/tasks.md` §5, decision 10 — the source shows the same data behind two disconnected surfaces; pick one to avoid inheriting the ambiguity) | M | #12 | shared form/list |
+| 15 | Kitchen Display System: order-card queue, stage transitions (queued→preparing→urgent→ready→picked-up), meal/course-section routing config | L | #6, dedicated realtime channel | **`packages/domain/src/events`** (typed event bus) — needs a dedicated, well-tested channel with polling fallback per `plan.md` §2.6, since this is the one screen with hard latency requirements; **[spec-risk]**: empty queue in the source, order-card layout/bump controls inferred, not observed |
+| 16 | Deliveries: 6-state pipeline (pending→prepared→dispatched→delivered, +failed/returned), driver assignment, live-map placeholder | L | #6 | none new; **[spec-risk]**: 0 records in source, driver-assign/live-map mechanics unconfirmed |
+| 17 | Loyalty points config (source shows this as platform-managed-only; **[decision]** whether Mezan makes it tenant-editable) | S | none | none new |
+
+### POS-3 — The net-new selling screen
+
+The single deliberate net-new UI surface in the entire Mezan rebuild. Every sub-task below reuses an existing engine for its *logic*; only the screen itself is new.
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 18 | **Selling-screen design spike** — interview a real cashier, storyboard scan→cart→discount-request→split-payment→receipt→drawer, hold/resume, AR collection at the till, offline queue + force-close; prototype in the design system; test on real hardware (barcode scanner, 80mm thermal printer, cash drawer, touch screen) | L | POS-1/POS-2 domain models | mandatory per `plan.md` §7.4 — do not start #19 until this produces an agreed screen spec |
+| 19 | Product grid + search + barcode scan (incl. embedded price/weight barcodes: prefix + item-code digits + price digits + decimals + EAN-13 check) | L | #18, Items, v1 barcode-parsing rules | **v1's embedded-barcode parsing rules (Phase 9/10) + item search**, reused verbatim |
+| 20 | Cart engine: line discounts, held/suspended sales, customer attach + walk-in default (`زبون عابر`) | L | #19 | **`packages/domain/src/sales-invoices` line/discount/tax computation directly** |
+| 21 | Split & multi-method payment, AR/credit collection from the till (gated by the `السماح بتحصيل الآجل من الكاشير` setting) | L | #20, #2, treasury | **treasury cash-application/allocation engine (`packages/domain/src/treasury-accounts`, `vouchers`)** |
+| 22 | Discount-over-limit request flow: cashier-side trigger feeding the manager approval queue | M | #10, #20 | POS-1 #10's Discount Approvals domain |
+| 23 | Table assignment + course/meal routing to the kitchen | M | #12, #15, #20 | POS-2's table + kitchen domains |
+| 24 | Cash-drawer movements + receipt print + drawer kick | M | #4 | **v1's client-rendered print pipeline + ESC/POS `tcp://ip:9100` raster/text path** (`plan.md` §2.4) for auto-cut/drawer-kick — not a new printing mechanism |
+| 25 | Hard offline behaviour: offline sale queue + `force_close` permission ("close with pending offline sales") | L | #20, #21 | **`packages/domain/src/lan`** (session registry + feature flags already built for LAN multi-till) — a till losing its LAN connection to the shop's SQLite host is the actual offline scenario in Mezan's architecture (the desktop app itself is already offline-first by construction; this is specifically the *multi-till* disconnection case) |
+| 26 | Selling-screen hardware E2E suite (scanner, thermal printer, drawer, touch) | M | #19–#25 | v1's Playwright **Electron** project (already in CI per `plan.md` §2.7) |
+
+*(26 numbered tasks above — POS-0 through POS-3.)*
+
+---
+
+## 9.3 Part 3 — Cloud/SaaS website edition (20 tasks)
+
+Everything the Path-A decision was made to defer, not to avoid: `apps/server` already exists today and mounts the shared `packages/api` Hono app over real HTTP with SQLite standing in for Postgres (`apps/server/src/index.ts`). This part is genuinely additive infrastructure work underneath code that already runs the same way in production form on desktop — no domain rewrite anywhere in this section.
+
+### Cloud-0 — Postgres dialect & conformance (the deferred core of Path A)
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 1 | Postgres schema-spec DSL codegen: emit `schema.pg.ts` + `drizzle-kit generate` migrations from the same spec that already emits SQLite | L | none | **`packages/persistence/src/schema.ts`** — the spec DSL is already authored once for SQLite per `plan.md` §2.2; this is the second codegen target it was built for |
+| 2 | `SqlDialect` capability shim, Postgres implementation: upsert syntax, `RETURNING`, window functions, `ILIKE`, JSON functions, `pg_advisory_xact_lock` | M | #1 | shim interface scoped in `plan.md` §2.2 for exactly this swap-in |
+| 3 | Dual-engine conformance test suite in CI: the full existing Vitest domain/repository corpus run against both a fresh Postgres (Testcontainers) and SQLite on every run | L | #1, #2 | **the entire existing test suite** across `packages/domain`, `packages/persistence`, `packages/api` — this task runs it twice, doesn't rewrite it |
+| 4 | Golden-ledger fixture assertion on both engines (invoice→stock+COGS+AR+VAT, FX revaluation, payroll run, depreciation run — asserted to the minor unit) | M | #3 | existing golden-ledger/`post-journal-entry` test fixtures |
+| 5 | Arabic search on Postgres: `pg_trgm` GIN index + `tsvector`(`simple`) over the shared `search_norm` column that SQLite's FTS5 already indexes | M | #1 | `normalizeArabic()` + `search_norm` column (already written by the domain on save for SQLite/FTS5 per `plan.md` §2.3) — same normalized text, new index type only |
+
+### Cloud-1 — Auth & multi-tenancy
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 6 | Cloud JWT auth + refresh-token flow (`HttpOnly` cookie, in-memory access token — the two deliberate improvements over the source app's `localStorage` tokens), Argon2id password hashing | M | #1 | `packages/domain/src/users`, `roles`, `permissions` — same `AuthContext` shape the desktop local-user-store already produces (`plan.md` §3.3) |
+| 7 | Postgres Row-Level Security: per-request `SET LOCAL app.tenant_id`, defence-in-depth under the repository's own tenant scoping | M | #6 | `tenant_id` already present on every desktop table (kept deliberately for this — `plan.md` §2.3) |
+| 8 | Multi-tenant admin/platform-admin permission tier (the 2 platform-only permissions: `admin.tenant.settings.edit`, `admin.modules.manage`) | S | #6 | permissions engine's dependency-graph mechanism |
+
+### Cloud-2 — Server, realtime & storage
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 9 | Node server hardening: real tenant resolution by company code (today's `apps/server` is single-tenant/dev-only), request-scoped `UnitOfWork`, structured error handling | M | #6, #7 | **`apps/server`, `packages/api`** — extends the existing mount, doesn't replace it |
+| 10 | SSE + Redis pub/sub realtime fan-out, scoped per tenant/user | M | #9 | **`packages/domain/src/events`** — the typed event bus/catalog already used for desktop's in-process `webContents.send` delivery; same events, new transport |
+| 11 | `FileStore` port, S3-compatible implementation (private buckets, short-lived signed URLs, server-side MIME scanning) | M | #9 | port interface built in HR §1 #7 for the desktop content-addressed store — this task adds the second adapter, not the port |
+| 12 | Kitchen Display's dedicated low-latency realtime path over SSE (the one screen with hard latency needs, per `plan.md` §2.6) | M | #10, POS-2 #15 | same event bus/catalog |
+
+### Cloud-3 — Entitlements, billing, onboarding
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 13 | Subscription/plan → entitlements mapping (`{plan, activeModules[], features{}, seats, expiresAt}`) | M | #6 | **`packages/domain/src/entitlements`** — same shape the desktop Ed25519 license file already encodes (`plan.md` §2.5); cloud just derives it from a subscription record instead of a signed file |
+| 14 | Tenant onboarding: company-code registration + seed wizard (COA, tax profile, numbering sequences, branch, warehouse) | M | #13 | mirrors the desktop first-run wizard already specified in `plan.md` §3.3 |
+| 15 | Billing integration (provider **[decision]** — Stripe vs. a regional processor for EGP) | L | #13 | new work — no existing analog |
+
+### Cloud-4 — Deferred platform surfaces that only make sense once multi-tenant
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 16 | API Keys + Connected Apps screen (real feature in the source, just unlinked from its nav) | M | #8 | v1's permission-gated settings-screen pattern |
+| 17 | Webhooks: outbound HMAC-signed event delivery + event-type picker | M | #10 | same typed event catalog doubles as the webhook trigger source per `plan.md` §5.6 |
+| 18 | Email delivery (SMTP/Resend) + headless-Chromium server-side PDF generation | M | #9, v1 print engine | **v1's client-rendered print DOM** — server renders the identical components via headless Chromium instead of `webContents.printToPDF`; offline (desktop) never depends on this path |
+| 19 | Cloud backup: PITR, cross-region snapshots, per-tenant export (doubles as the cloud→desktop migration path) | M | #9 | desktop's backup/restore manifest + integrity-check design (`plan.md` §3.7) — same shape, platform-operated instead of scheduled-in-app |
+
+### Cloud-5 — Packaging & deploy (local build/deploy steps only — no CI wiring as part of this plan)
+
+| # | Task | Size | Depends on | Reuse |
+|---|---|---|---|---|
+| 20 | Production server deployment shape: container image, environment/secrets config, migration-on-deploy step, basic monitoring/logging | M | #9 | existing GitHub Actions pipeline structure (extended, not replaced) |
+
+*(20 numbered tasks above — Cloud-0 through Cloud-5.)*
+
+---
+
+## Cross-cutting notes carried over from `docs/plan.md` and `docs/tasks.md`
+
+- **WhatsApp integration settings** and the **third locale (German)** are named in the source catalog but flagged `[spec-risk]`/`[decision]` in `docs/tasks.md` §5 — neither is scoped as a numbered task above; resolve the product question first, then it's a small addition to Cloud-4 or the app-shell respectively.
+- **ETA e-invoicing on the cloud edition** is already in v1 scope (online-only, per `plan.md` §3.6) and does not repeat here; Cloud's job is only to make sure the multi-tenant transport doesn't change its online-only constraint.
+- **Payroll (HR-5) and the POS selling screen (POS-3)** are the two genuine unknowns in this entire deferred scope — both carry a mandatory design spike as their first task (#22 and #18 respectively) precisely so the size estimates on the tasks that follow them are honest rather than optimistic placeholders.

@@ -5,7 +5,7 @@
 > **This is the only status document.** Two other files are live alongside it and
 > own their own subject: `defects.md` (what is broken) and `decisions.md` (what is
 > waiting on a human). Everything else under `docs/` is durable reference or
-> procedure. Point-in-time audits live in `docs/archive/` and are kept for their
+> procedure. Point-in-time audit evidence lives in `docs/reference-parity/audit/` and is kept for its
 > evidence, not their conclusions — do not read them for current state.
 
 ## Where to look
@@ -37,7 +37,7 @@ was ever performed, and only `GET` traffic was observed.
 | `docs/reference-parity/audit/COVERAGE.md` | What was **not** seen — read this before planning a sprint |
 | `docs/reference-parity/audit/screenshots/` | 28 captured screens |
 | `docs/reference-parity/gap-inventory.md` | The screen-by-screen diff |
-| `docs/reference-parity/parity-tasks.md` | The ordered work list, P0 → P6 |
+| `docs/tasks.md` §1 | The ordered work list, P0 → P6 |
 | `docs/scenarios/10-reference-parity.md` | The scenarios that verify each phase |
 
 **The single most consequential finding:** every list resource on the reference is
@@ -69,7 +69,7 @@ Measured against the running app, not the checklist:
 | «قريباً» markers outside HR | **0** |
 | Read surfaces answering `pnpm smoke` | **116** |
 | Reference screens still absent | ~14 (POS descoped) |
-| Reference **features** still absent | see `reference-parity/parity-tasks.md` |
+| Reference **features** still absent | see `tasks.md` §1–§2 |
 | Typecheck / lint / build / smoke | passing |
 | UX enhancement spec (§2–§8) | built; 4 items await a human decision |
 | Contrast sweep, 13 screens × 2 themes | 0 failures, 0 horizontal overflow |

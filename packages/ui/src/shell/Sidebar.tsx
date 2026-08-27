@@ -296,7 +296,7 @@ export function Sidebar({
         </div>
       ) : null}
 
-      <nav className="flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
+      <nav className="mz-scrollbar-none flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
         <ul>
           <NavRow item={topItem} active={activeKey === topItem.key} showLabel={expanded} />
           {pinnedItems.map((item) => (

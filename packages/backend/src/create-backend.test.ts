@@ -1070,7 +1070,7 @@ describe("createBackend — SQLite concurrency (file-backed DB)", () => {
 });
 
 /**
- * القوائم المالية over the REAL posted GL (docs/catalog/08, docs/backlog.md Phase 8).
+ * القوائم المالية over the REAL posted GL (docs/catalog/08, docs/tasks.md §6 Phase 8).
  * Proves the seven financial statements compute from actual posted journal
  * entries — not the static fixture ledger the screen used to render — by seeding
  * balanced posted entries through the real `/gl/journal-entries` poster against

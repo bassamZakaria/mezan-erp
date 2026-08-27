@@ -19,7 +19,7 @@ import { createWritedownRunSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Inventory aging-based write-down batch routes (docs/backlog.md Phase 4
+ * Inventory aging-based write-down batch routes (docs/tasks.md §6 Phase 4
  * "Aging-based inventory write-down batch"): manual trigger (draft) + post
  * (posts the REAL balanced GL entry). Root-relative — a parent app mounts
  * this router under `/inventory/writedown-runs`.

@@ -251,6 +251,23 @@ body {
   padding: 0;
 }
 
+/* The page scrollbar is hidden app-wide. In RTL it renders against the inline
+   end of the viewport — flush with the sidebar's outer edge — where it reads as
+   sidebar chrome rather than page chrome. Scrolling is unaffected; only the bar
+   is hidden. */
+html,
+body {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 body {
   background: var(--bg);
   color: var(--text);
@@ -366,4 +383,19 @@ th.mz-num {
   50% {
     transform: rotate(2.5deg);
   }
+}
+
+/* The sidebar nav scrolls when the window is short, but its scrollbar must
+   never render: a classic scrollbar claims ~15px of the fixed 264px rail,
+   reflowing every nav label. Scrolling itself (wheel, keyboard, drag) is
+   untouched — only the bar is hidden. */
+.mz-scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.mz-scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }

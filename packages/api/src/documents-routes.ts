@@ -13,7 +13,7 @@ import { journalDocumentEffectsRequestSchema } from "@mezan/contracts";
 import { createPermissionGate, headerAuthContextResolver, type AuthContextResolver } from "./permission-gate.js";
 
 /**
- * Document-framework routes (docs/plan.md §3 + docs/archive/execution-plan-2026-08-23.md W4),
+ * Document-framework routes (docs/plan.md §3 + docs/plan.md §3),
  * mounted under `/documents`:
  *   GET  /documents/types            list registered document types + their hooks
  *   POST /documents/journal/effects  compute the "تأثيرات هذا المستند" descriptor

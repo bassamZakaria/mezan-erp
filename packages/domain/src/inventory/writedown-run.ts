@@ -1,7 +1,7 @@
 import type { Money, Qty } from "../money/index.js";
 
 /**
- * Inventory Write-down Run (docs/backlog.md Phase 4 "aging-based inventory
+ * Inventory Write-down Run (docs/tasks.md §6 Phase 4 "aging-based inventory
  * write-down batch"): a monthly, manually-triggered, per-period-idempotent
  * batch that provisions for slow-moving stock. Mirrors
  * `fixed-assets/depreciation-run.ts`'s shape (draft batch of lines → one

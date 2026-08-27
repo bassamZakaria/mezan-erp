@@ -3,7 +3,7 @@ import type { LocaleCatalogs } from "@mezan/ui";
 /**
  * The web app's own strings. Arabic is the source language and `webEn` is typed
  * against it, so an untranslated key is a compile error — never a raw key in
- * the UI (docs/archive/parity-audit-2026-08-23-live.md records the reference
+ * the UI (docs/reference-parity/ records the reference
  * app leaking `customers.openingBalance` into its own screens).
  */
 const webAr = {

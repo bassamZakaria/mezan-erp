@@ -106,7 +106,10 @@ describe("Topbar", () => {
     );
     const branchSelect = screen.getByRole("combobox", { name: "الفرع الحالي" });
     expect(screen.getByRole("combobox", { name: "المخزن الحالي" })).toBeInTheDocument();
-    fireEvent.change(branchSelect, { target: { value: "BR-MAIN" } });
+    // `Select` is a portaled listbox, not a native <select>: it commits on the
+    // option's mousedown, which is the only path a real user has.
+    fireEvent.click(branchSelect);
+    fireEvent.mouseDown(screen.getByRole("option", { name: "الفرع الرئيسي" }));
     expect(onSelectBranch).toHaveBeenCalledWith("BR-MAIN");
   });
 

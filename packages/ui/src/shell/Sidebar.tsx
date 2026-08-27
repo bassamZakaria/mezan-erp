@@ -7,6 +7,21 @@ import type { TopbarScopeOption } from "./Topbar";
 import { navGroupItems, type NavGroup, type NavItem, type NavSection, type ShellUser } from "./types";
 import { DisclosureChevron } from "../primitives/DisclosureChevron";
 
+/**
+ * ── SUPERSEDED — nothing renders this any more ─────────────────────────────
+ *
+ * The side rail was replaced by the two-row top bar: `AppShell` now draws the
+ * workspaces as labelled tabs in row one and the ACTIVE workspace's own screens
+ * in row two (`WorkspaceTabs` + `WorkspaceScreensBar`), with «كل الشاشات»
+ * (`AllScreensPanel`) as the browse-everything surface. There is no rail in the
+ * app at all.
+ *
+ * The file is kept only because `packages/ui/src/index.ts` still exports the
+ * component and `Sidebar.test.tsx` still covers it. It is not part of the shell;
+ * do not add features here and do not re-mount it beside the bar — two
+ * navigation trees that can disagree is exactly what the revamp removed. Delete
+ * it together with its export and its test.
+ */
 export interface SidebarProps {
   activeKey?: string;
   topItem: NavItem;
@@ -16,7 +31,10 @@ export interface SidebarProps {
    * toggles were removed, so nothing here is user-configurable.
    */
   pinnedItems?: readonly NavItem[];
-  /** Screens this user opened most recently, newest first. Supplied by the app, which owns the history. */
+  /**
+   * Accepted but no longer rendered — the rail's «آخر ما فتحته» block was
+   * removed. Kept so existing callers compile; drop it and the callers together.
+   */
   recentItems?: readonly NavItem[];
   groups: NavGroup[];
   brandName?: string;
@@ -220,7 +238,6 @@ export function Sidebar({
   activeKey,
   topItem,
   pinnedItems = [],
-  recentItems = [],
   groups,
   brandName,
   brandSub = "Mezan ERP",
@@ -255,10 +272,6 @@ export function Sidebar({
   }, [groups, topItem, pinnedItems]);
 
 
-  const recentUnpinned = useMemo(
-    () => recentItems.filter((item) => item.key !== activeKey).slice(0, 4),
-    [recentItems, activeKey],
-  );
 
   const trimmedQuery = query.trim();
   const searchResults = useMemo(() => {
@@ -391,17 +404,6 @@ export function Sidebar({
                 ))}
               </ul>
             )}
-          </div>
-        ) : null}
-
-        {expanded && trimmedQuery === "" && recentUnpinned.length > 0 ? (
-          <div>
-            <RailBlockLabel>{t("shell.rail.recent")}</RailBlockLabel>
-            <ul className="flex flex-col gap-[1px]">
-              {recentUnpinned.map((item) => (
-                <NavRow key={item.key} item={item} active={activeKey === item.key} showLabel />
-              ))}
-            </ul>
           </div>
         ) : null}
 

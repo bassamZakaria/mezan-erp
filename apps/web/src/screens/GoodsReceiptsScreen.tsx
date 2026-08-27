@@ -580,6 +580,7 @@ export function GoodsReceiptsScreen() {
         activeFilterCount={activeFilterCount}
         columns={columns}
         rows={pageRows}
+        loading={settingsQuery.isLoading}
         rowKey={(r) => r.id}
         onRowClick={(r) => subPage.open(r.number ?? r.id)}
         rowAction={(r) => {

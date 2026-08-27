@@ -213,6 +213,7 @@ export function ExchangeRatesScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={allowedCurrencies.isLoading}
         rowKey={(r) => r.id}
         rowAction={(r) => {
           const menuItems: RowMenuItem[] =

@@ -99,12 +99,19 @@
   --fs-2xl: 1.75rem;
   --fs-3xl: 2.25rem;
 
-  --font-ar: "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  /* Families follow design/mezan-enhanced-mockups.html, the design authority.
+     The code had drifted to Noto Kufi / Noto Sans Arabic, which the mockup
+     never specified. All five are self-hosted — see fonts.css. */
+  --font-ar: "IBM Plex Sans Arabic", "Segoe UI", Tahoma, sans-serif;
   --font-body: var(--font-ar);
-  --font-display: "Noto Kufi Arabic", "Noto Sans Arabic", sans-serif;
-  --font-sig: "Noto Kufi Arabic", "Noto Sans Arabic", sans-serif;
-  --font-lat: "IBM Plex Sans", "Noto Sans Arabic", sans-serif;
-  --font-mono: "IBM Plex Mono", "Noto Sans Arabic", monospace;
+  --font-display: "Tajawal", "IBM Plex Sans Arabic", sans-serif;
+  --font-sig: "Reem Kufi", "Tajawal", sans-serif;
+  --font-lat: "IBM Plex Sans", "IBM Plex Sans Arabic", sans-serif;
+  /* IBM Plex Mono carries no Arabic-Indic digits. A tenant on the ٠١٢ numeral
+     system would otherwise get its figures from an arbitrary system fallback,
+     breaking "one numeral system per user" mid-column. IBM Plex Sans Arabic
+     has ٠-٩ and tabular figures, so it is the per-glyph fallback. */
+  --font-mono: "IBM Plex Mono", "IBM Plex Sans Arabic", monospace;
 
   color-scheme: light;
 }
@@ -321,13 +328,26 @@ th.mz-num {
   font-family: var(--font-sig);
 }
 
+/* Arabic has no letter case, so `text-transform: uppercase` does nothing to it,
+   and `letter-spacing` actively harms it: Arabic letterforms JOIN, and adding
+   tracking pulls a connected word into disconnected glyphs. Both are therefore
+   scoped to Latin runs only (see the [lang="en"] / .mz-lat rule below). */
 .mz-eyebrow {
   font-family: var(--font-sig);
   font-size: var(--fs-2xs);
   font-weight: 500;
+  color: var(--accent-strong);
+}
+
+/* Casing and tracking apply to Latin runs only. `:lang(ar)` cannot be used to
+   exclude, because an eyebrow inside an Arabic page inherits lang="ar" even
+   when its own text is Latin — so the rule OPTS IN on the explicit Latin
+   markers this codebase already uses for that purpose. */
+[lang="en"] .mz-eyebrow,
+.mz-eyebrow.mz-lat,
+.mz-lat .mz-eyebrow {
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--accent-strong);
 }
 
 /* A disclosure chevron points along the reading direction: down when open,

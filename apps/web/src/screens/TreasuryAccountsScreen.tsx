@@ -337,6 +337,7 @@ export function TreasuryAccountsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={branchesQuery.isLoading}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
         page={page}

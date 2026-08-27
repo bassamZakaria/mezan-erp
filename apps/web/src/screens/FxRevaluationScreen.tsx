@@ -154,6 +154,7 @@ export function FxRevaluationScreen() {
             title=""
             columns={columns}
             rows={pageRows}
+            loading={balancesQuery.isLoading}
             rowKey={(d) => `${d.accountId}-${d.currency}`}
             page={page}
             pageCount={pageCount}

@@ -530,6 +530,7 @@ export function ConfigInstancesScreen() {
         searchPlaceholder={t("customOrders.searchByOrderNumberProduct")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(i) => i.id}
         onRowClick={(i) => setSelectedId(i.id)}
         rowAction={(i) => {

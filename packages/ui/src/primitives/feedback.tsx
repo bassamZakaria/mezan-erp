@@ -244,6 +244,16 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
+/**
+ * The provider-tolerant form, for primitives inside this package. A shared
+ * component cannot assume the host mounted a `ToastProvider` — RowMenu renders
+ * in unit tests and in the desktop print preview, neither of which has one —
+ * and throwing there would break a list rather than lose a message.
+ */
+export function useOptionalToast(): ToastContextValue | null {
+  return useContext(ToastContext);
+}
+
 /* ------------------------------------------------------------------ */
 /* ConfirmDialog                                                        */
 /* ------------------------------------------------------------------ */

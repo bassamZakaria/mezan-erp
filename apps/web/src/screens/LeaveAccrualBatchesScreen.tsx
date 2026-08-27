@@ -145,6 +145,7 @@ export function LeaveAccrualBatchesScreen() {
         ]}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(b) => b.id}
         page={page}
         pageCount={pageCount}

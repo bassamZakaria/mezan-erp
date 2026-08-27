@@ -195,6 +195,7 @@ export function WritedownRunsScreen() {
         }}
         columns={columns}
         rows={pageRows}
+        loading={warehousesQuery.isLoading}
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelectedId(r.id)}
         rowAction={(r) => {

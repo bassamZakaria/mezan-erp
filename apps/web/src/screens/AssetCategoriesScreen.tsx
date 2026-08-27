@@ -166,6 +166,7 @@ export function AssetCategoriesScreen() {
         searchPlaceholder={t("assetCategories.searchByCategoryCodeOr")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(c) => c.id}
         page={page}
         pageCount={pageCount}

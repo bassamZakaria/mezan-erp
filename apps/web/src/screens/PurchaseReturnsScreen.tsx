@@ -426,6 +426,7 @@ export function PurchaseReturnsScreen() {
         filterBarCollapsible
         activeFilterCount={activeFilterCount}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(d) => d.id}
         onRowClick={(d) => subPage.open(d.docNo ?? d.id)}
         rowAction={(d) => {

@@ -374,6 +374,7 @@ export function BomsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={itemsQuery.isLoading}
         rowKey={(b) => b.id}
         onRowClick={(b) => setSelectedId(b.id)}
         rowAction={(b) => {

@@ -418,6 +418,7 @@ export function VanTripsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={employeesQuery.isLoading}
         rowKey={(trip) => trip.id}
         onRowClick={(trip) => setSelectedId(trip.id)}
         rowAction={(trip) => {

@@ -244,6 +244,7 @@ export function ProductTemplatesScreen() {
         stats={[{ label: t("templates.totalTemplates"), value: <span className="mz-num">{templates.length}</span> }]}
         columns={columns}
         rows={pageRows}
+        loading={specificationsQuery.isLoading}
         rowKey={(t) => t.id}
         onRowClick={(t) => {
           setSelectedId(t.id);

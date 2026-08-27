@@ -1546,6 +1546,7 @@ export function ItemsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(row) => row.id}
         onRowClick={openDetail}
         sort={sort}

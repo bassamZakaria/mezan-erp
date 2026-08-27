@@ -842,6 +842,7 @@ export function SuppliersScreen() {
         searchPlaceholder={t("suppliers.searchPlaceholder")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(s) => s.id}
         onRowClick={(s) => setSelectedId(s.id)}
         rowAction={(s) => {

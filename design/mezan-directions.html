@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ميزان — ثلاثة اتجاهات تصميم</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Reem+Kufi:wght@500;600;700&family=Readex+Pro:wght@300;400;500;600&family=Zain:wght@400;700;800&family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   COMPARE CHROME — deliberately neutral. Not part of any design.
+   ============================================================ */
+*,*::before,*::after{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:#18181B;font-family:"IBM Plex Sans Arabic",system-ui,sans-serif}
+
+.cmp{position:sticky;top:0;z-index:50;background:#18181B;color:#E4E4E7;
+     border-block-end:1px solid #3F3F46;padding:10px 18px;
+     display:flex;gap:18px;align-items:center;flex-wrap:wrap}
+.cmp b{font-size:14px;font-weight:600;letter-spacing:0}
+.cmp .grp{display:flex;gap:4px;background:#27272A;padding:3px;border-radius:6px}
+.cmp button{font:inherit;font-size:12.5px;color:#A1A1AA;background:none;border:0;
+     padding:7px 13px;border-radius:4px;cursor:pointer;min-height:32px}
+.cmp button[aria-pressed=true]{background:#3F3F46;color:#FAFAFA}
+.cmp .note{font-size:11.5px;color:#71717A;margin-inline-start:auto;max-width:38ch;line-height:1.5}
+
+.stage{padding:0}
+.dir{display:none}
+.dir[data-on=true]{display:block}
+.screen{display:none}
+.screen[data-on=true]{display:block}
+
+.num{font-variant-numeric:tabular-nums;direction:ltr;unicode-bidi:isolate;display:inline-block}
+
+/* the caption strip above each direction */
+.thesis{padding:16px 22px;font-size:12.5px;line-height:1.75;color:#A1A1AA;background:#0F0F11;
+        border-block-end:1px solid #27272A;max-width:150ch}
+.thesis strong{color:#FAFAFA;font-weight:600}
+.thesis em{color:#D4D4D8;font-style:normal}
+
+/* ============================================================
+   SHARED STRUCTURE  (identical DOM in all three — only CSS differs)
+   ============================================================ */
+.app{min-height:78vh}
+.wsbar{display:flex;align-items:center;gap:2px}
+.wsbar .ws{padding:0 16px;height:46px;display:flex;align-items:center;font-size:13.5px;cursor:pointer;border:0;background:none;font-family:inherit;color:inherit}
+.wsbar .sp{margin-inline-start:auto;display:flex;align-items:center;gap:10px;padding-inline-end:16px;font-size:12.5px}
+.cmdk{display:flex;align-items:center;gap:8px;height:32px;padding:0 12px;font-size:12.5px;cursor:pointer;border:0;font-family:inherit}
+
+.body{display:flex;align-items:stretch;min-height:70vh}
+.spine{width:56px;flex:0 0 56px;display:flex;flex-direction:column;align-items:center;gap:3px;padding-block:10px}
+.spine .ic{width:40px;height:40px;display:grid;place-items:center;font-size:17px;cursor:pointer;border:0;background:none;color:inherit;border-radius:4px}
+.main{flex:1;min-width:0;display:flex;align-items:stretch}
+.content{flex:1;min-width:0;padding:22px 26px}
+.gutter{width:262px;flex:0 0 262px;padding:20px 18px}
+
+.phead{display:flex;align-items:flex-start;gap:16px;margin-block-end:18px}
+.phead h1{margin:0;font-size:21px;line-height:1.35}
+.phead .sub{font-size:12.5px;margin-block-start:4px}
+.phead .acts{margin-inline-start:auto;display:flex;gap:8px;align-items:center}
+.btn{font:inherit;font-size:13px;min-height:44px;padding:0 18px;cursor:pointer;border:1px solid transparent;display:inline-flex;align-items:center;gap:7px}
+.btn.sec{background:none}
+.btn.sm{min-height:36px;padding:0 12px;font-size:12.5px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:start;font-weight:600;font-size:11.5px;padding:9px 10px;white-space:nowrap}
+td{padding:0;height:34px;vertical-align:middle}
+td .cell{padding:0 10px;display:flex;align-items:center;height:100%}
+td.e .cell{justify-content:flex-end}
+.gt{font-size:11px;letter-spacing:0;margin-block-end:9px;display:block;font-weight:600}
+
+/* worklist */
+.wl{display:flex;flex-direction:column}
+.wl .row{display:flex;align-items:center;gap:14px;padding:13px 14px;min-height:60px}
+.wl .row .cnt{font-size:19px;min-width:52px;text-align:center}
+.wl .row .txt{flex:1;min-width:0}
+.wl .row .t1{font-size:14px}
+.wl .row .t2{font-size:12px;margin-block-start:2px}
+.wl .drag{width:32px;height:32px;display:grid;place-items:center;font-size:13px;cursor:grab;border:0;background:none;color:inherit;opacity:.55}
+
+.strip{display:flex;gap:0;margin-block-end:20px}
+.strip .f{flex:1;padding:12px 14px}
+.strip .f .k{font-size:11px;margin-block-end:5px}
+.strip .f .v{font-size:17px}
+
+/* balance instrument — the signature */
+.bal{padding:14px 0}
+.bal .side{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;font-size:12.5px}
+.bal .side .v{font-size:14px}
+.bal .beam{height:3px;margin:11px 0;position:relative}
+.bal .beam i{position:absolute;inset-block:0;inset-inline-start:0;display:block;inline-size:50%}
+.bal .verdict{display:flex;align-items:center;gap:8px;padding:10px 12px;font-size:13px;margin-block-start:10px}
+.bal .verdict .sym{font-size:15px}
+
+/* shortcut tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(178px,1fr));gap:12px}
+.tile{min-height:104px;padding:14px;display:flex;flex-direction:column;gap:8px;cursor:pointer;font:inherit;text-align:start;color:inherit}
+.tile .g{font-size:22px;line-height:1}
+.tile .n{font-size:13.5px;line-height:1.45}
+.tile .m{font-size:11.5px;margin-block-start:auto}
+.tile.add{align-items:center;justify-content:center;text-align:center}
+
+.secbar{display:flex;align-items:center;gap:10px;margin-block:22px 12px}
+.secbar h2{margin:0;font-size:14px}
+.secbar .rst{margin-inline-start:auto}
+
+/* =================================================================
+   DIRECTION A — المِيزان · Instrument
+   paper + ink + one alert. Brand colour ONLY inside the balance.
+   ================================================================= */
+[data-dir="a"] .app{--paper:#FBFAF7;--surface:#FFF;--ink:#1A1A17;--muted:#6B6B62;--faint:#8C8C82;
+  --rule:#E4E1D9;--rule-2:#C8C4B7;--verdict:#0F5C4A;--verdict-soft:#EAF2EF;--alert:#B4341F;--alert-soft:#FBEEEB;
+  background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans Arabic",sans-serif;font-size:14px;line-height:1.7}
+[data-dir="a"] h1,[data-dir="a"] h2,[data-dir="a"] .disp{font-family:"Reem Kufi",sans-serif;font-weight:600}
+[data-dir="a"] .num{font-family:"IBM Plex Sans Arabic",monospace;font-weight:500}
+[data-dir="a"] .wsbar{background:var(--surface);border-block-end:1px solid var(--rule-2)}
+[data-dir="a"] .wsbar .ws{color:var(--muted);border-block-end:2px solid transparent;margin-block-end:-1px}
+[data-dir="a"] .wsbar .ws[aria-current]{color:var(--ink);border-block-end-color:var(--ink);font-weight:600}
+[data-dir="a"] .cmdk{background:var(--paper);border:1px solid var(--rule-2);color:var(--faint);border-radius:3px}
+[data-dir="a"] .spine{background:var(--surface);border-inline-end:1px solid var(--rule)}
+[data-dir="a"] .spine .ic[aria-current]{background:var(--paper);box-shadow:inset 2px 0 0 var(--ink)}
+[data-dir="a"] .content{background:var(--paper)}
+[data-dir="a"] .gutter{background:var(--surface);border-inline-start:1px solid var(--rule-2)}
+[data-dir="a"] .phead .sub{color:var(--muted)}
+[data-dir="a"] .btn{background:var(--ink);color:#FBFAF7;border-radius:3px}
+[data-dir="a"] .btn.sec{background:none;color:var(--ink);border-color:var(--rule-2)}
+[data-dir="a"] th{color:var(--faint);border-block-end:1px solid var(--rule-2);text-transform:none;letter-spacing:0}
+[data-dir="a"] td{border-block-end:1px solid var(--rule)}
+[data-dir="a"] tbody tr:hover{background:var(--surface)}
+[data-dir="a"] .gt{color:var(--faint)}
+[data-dir="a"] .strip{border:1px solid var(--rule-2);border-radius:3px;background:var(--surface)}
+[data-dir="a"] .strip .f + .f{border-inline-start:1px solid var(--rule)}
+[data-dir="a"] .strip .f .k{color:var(--faint)}
+[data-dir="a"] .wl{border:1px solid var(--rule-2);border-radius:3px;background:var(--surface)}
+[data-dir="a"] .wl .row + .row{border-block-start:1px solid var(--rule)}
+[data-dir="a"] .wl .row .cnt{color:var(--ink)}
+[data-dir="a"] .wl .row.urgent .cnt{color:var(--alert)}
+[data-dir="a"] .wl .row .t2{color:var(--muted)}
+[data-dir="a"] .bal .beam{background:var(--rule-2)}
+[data-dir="a"] .bal .beam i{background:var(--verdict)}
+[data-dir="a"] .bal .side{border-block-end:1px solid var(--rule)}
+[data-dir="a"] .bal .verdict{background:var(--verdict-soft);color:var(--verdict);border-radius:3px}
+[data-dir="a"] .bal.short .beam i{background:var(--alert)}
+[data-dir="a"] .bal.short .verdict{background:var(--alert-soft);color:var(--alert)}
+[data-dir="a"] .tile{background:var(--surface);border:1px solid var(--rule-2);border-radius:3px}
+[data-dir="a"] .tile:hover{border-color:var(--ink)}
+[data-dir="a"] .tile .m{color:var(--faint)}
+[data-dir="a"] .tile.add{border-style:dashed;background:none;color:var(--muted)}
+
+/* =================================================================
+   DIRECTION B — المِشكاة · Lantern
+   geometry as structure. warm stone, one lapis action colour.
+   ================================================================= */
+[data-dir="b"] .app{--stone:#E9E2D5;--surface:#F8F4EC;--surface-2:#F1EBE0;--ink:#22201A;--muted:#6E6558;--faint:#8B8173;
+  --seam:#D6CCBA;--action:#2E3A8C;--action-soft:#E4E5F2;--warn:#8A5A1E;--warn-soft:#F0E6D6;
+  background:var(--stone);color:var(--ink);font-family:"Readex Pro",sans-serif;font-size:13.5px;line-height:1.75;font-weight:300}
+[data-dir="b"] h1,[data-dir="b"] h2,[data-dir="b"] .disp{font-family:"Zain",sans-serif;font-weight:700;letter-spacing:0}
+[data-dir="b"] h1{font-size:26px}
+[data-dir="b"] .num{font-family:"Readex Pro",sans-serif;font-weight:400}
+[data-dir="b"] .wsbar{background:var(--ink);color:var(--surface)}
+[data-dir="b"] .wsbar .ws{opacity:.6}
+[data-dir="b"] .wsbar .ws[aria-current]{opacity:1;background:var(--stone);color:var(--ink);font-weight:500}
+[data-dir="b"] .cmdk{background:rgba(255,255,255,.1);color:rgba(255,255,255,.7)}
+[data-dir="b"] .spine{background:var(--surface-2);border-inline-end:1px solid var(--seam)}
+[data-dir="b"] .spine .ic[aria-current]{background:var(--action);color:#F8F4EC}
+[data-dir="b"] .content{background:var(--surface);padding:26px 30px}
+[data-dir="b"] .gutter{background:var(--surface-2);border-inline-start:1px solid var(--seam)}
+[data-dir="b"] .phead .sub{color:var(--muted)}
+[data-dir="b"] .btn{background:var(--action);color:#F8F4EC;
+  clip-path:polygon(9px 0,100% 0,100% calc(100% - 9px),calc(100% - 9px) 100%,0 100%,0 9px)}
+[data-dir="b"] .btn.sec{background:var(--surface-2);color:var(--ink);border-color:var(--seam)}
+[data-dir="b"] th{color:var(--faint);background:var(--surface-2)}
+[data-dir="b"] td{border-block-end:1px solid var(--seam)}
+[data-dir="b"] tbody tr:nth-child(odd){background:var(--surface-2)}
+[data-dir="b"] .gt{color:var(--faint)}
+[data-dir="b"] .strip{gap:1px;background:var(--seam);border:1px solid var(--seam)}
+[data-dir="b"] .strip .f{background:var(--surface-2)}
+[data-dir="b"] .strip .f .k{color:var(--faint)}
+[data-dir="b"] .wl{gap:1px;background:var(--seam);border:1px solid var(--seam)}
+[data-dir="b"] .wl .row{background:var(--surface-2)}
+[data-dir="b"] .wl .row .cnt{color:var(--action);font-weight:500}
+[data-dir="b"] .wl .row.urgent .cnt{color:var(--warn)}
+[data-dir="b"] .wl .row .t2{color:var(--muted)}
+[data-dir="b"] .bal .beam{background:var(--seam)}
+[data-dir="b"] .bal .beam i{background:var(--action)}
+[data-dir="b"] .bal .side{border-block-end:1px solid var(--seam)}
+[data-dir="b"] .bal .verdict{background:var(--action-soft);color:var(--action)}
+[data-dir="b"] .bal.short .beam i{background:var(--warn)}
+[data-dir="b"] .bal.short .verdict{background:var(--warn-soft);color:var(--warn)}
+[data-dir="b"] .tile{background:var(--surface-2);border:1px solid var(--seam);
+  clip-path:polygon(11px 0,100% 0,100% calc(100% - 11px),calc(100% - 11px) 100%,0 100%,0 11px)}
+[data-dir="b"] .tile:hover{background:var(--action-soft);border-color:var(--action)}
+[data-dir="b"] .tile .m{color:var(--faint)}
+[data-dir="b"] .tile.add{background:
+  repeating-linear-gradient(45deg,var(--surface-2) 0 9px,var(--surface) 9px 18px);color:var(--muted)}
+
+/* =================================================================
+   DIRECTION C — الشُبّاك · Counter
+   achromatic. colour ONLY on deltas and states. dense, keyboard-first.
+   ================================================================= */
+[data-dir="c"] .app{--base:#F4F4F5;--surface:#FFF;--surface-2:#FAFAFA;--ink:#111113;--muted:#71717A;--faint:#A1A1AA;
+  --line:#D4D4D8;--line-2:#E4E4E7;--up:#15803D;--up-soft:#DCFCE7;--down:#B91C1C;--down-soft:#FEE2E2;
+  background:var(--base);color:var(--ink);font-family:"Vazirmatn",sans-serif;font-size:13px;line-height:1.55}
+[data-dir="c"] h1,[data-dir="c"] h2,[data-dir="c"] .disp{font-family:"Vazirmatn",sans-serif;font-weight:600;letter-spacing:-.01em}
+[data-dir="c"] h1{font-size:17px}
+[data-dir="c"] .num{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:.94em}
+[data-dir="c"] .wsbar{background:var(--surface);border-block-end:1px solid var(--line)}
+[data-dir="c"] .wsbar .ws{height:38px;color:var(--muted);font-size:12.5px;padding:0 13px}
+[data-dir="c"] .wsbar .ws[aria-current]{color:var(--ink);background:var(--base);box-shadow:inset 0 -2px 0 var(--ink)}
+[data-dir="c"] .cmdk{background:var(--base);border:1px solid var(--line);color:var(--faint);height:26px;font-size:11.5px}
+[data-dir="c"] .spine{width:44px;flex-basis:44px;background:var(--surface);border-inline-end:1px solid var(--line)}
+[data-dir="c"] .spine .ic{width:32px;height:32px;font-size:14px;border-radius:0}
+[data-dir="c"] .spine .ic[aria-current]{background:var(--base);box-shadow:inset 2px 0 0 var(--ink)}
+[data-dir="c"] .content{background:var(--surface);padding:14px 16px}
+[data-dir="c"] .gutter{width:230px;flex-basis:230px;background:var(--surface-2);border-inline-start:1px solid var(--line);padding:14px}
+[data-dir="c"] .phead{margin-block-end:12px}
+[data-dir="c"] .phead .sub{color:var(--muted);font-size:11.5px}
+[data-dir="c"] .btn{background:var(--ink);color:#FFF;border-radius:0;min-height:30px;font-size:12.5px;padding:0 14px}
+[data-dir="c"] .btn.sec{background:var(--surface);color:var(--ink);border-color:var(--line)}
+[data-dir="c"] th{color:var(--muted);background:var(--surface-2);border-block:1px solid var(--line);padding:5px 8px;font-size:11px;font-weight:500}
+[data-dir="c"] td{height:28px;border-block-end:1px solid var(--line-2)}
+[data-dir="c"] td .cell{padding:0 8px}
+[data-dir="c"] tbody tr:hover{background:var(--surface-2)}
+[data-dir="c"] .gt{color:var(--muted);font-weight:500;text-transform:none}
+[data-dir="c"] .strip{border:1px solid var(--line);margin-block-end:12px}
+[data-dir="c"] .strip .f{padding:8px 11px}
+[data-dir="c"] .strip .f + .f{border-inline-start:1px solid var(--line-2)}
+[data-dir="c"] .strip .f .k{color:var(--muted);font-size:10.5px}
+[data-dir="c"] .strip .f .v{font-size:15px}
+[data-dir="c"] .wl{border:1px solid var(--line)}
+[data-dir="c"] .wl .row{min-height:34px;padding:5px 10px;gap:10px}
+[data-dir="c"] .wl .row + .row{border-block-start:1px solid var(--line-2)}
+[data-dir="c"] .wl .row .cnt{font-size:14px;min-width:40px}
+[data-dir="c"] .wl .row.urgent .cnt{color:var(--down)}
+[data-dir="c"] .wl .row .t1{font-size:12.5px}
+[data-dir="c"] .wl .row .txt{display:flex;align-items:baseline;gap:8px}
+[data-dir="c"] .wl .row .t2{margin:0;font-size:11.5px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-dir="c"] .bal .beam{background:var(--line)}
+[data-dir="c"] .bal .beam i{background:var(--ink)}
+[data-dir="c"] .bal .side{border-block-end:1px solid var(--line-2)}
+[data-dir="c"] .bal .verdict{background:var(--up-soft);color:var(--up)}
+[data-dir="c"] .bal.short .beam i{background:var(--down)}
+[data-dir="c"] .bal.short .verdict{background:var(--down-soft);color:var(--down)}
+[data-dir="c"] .tile{background:var(--surface);border:1px solid var(--line);min-height:78px;padding:10px}
+[data-dir="c"] .tile:hover{background:var(--surface-2);border-color:var(--ink)}
+[data-dir="c"] .tile .g{font-size:16px}
+[data-dir="c"] .tile .n{font-size:12.5px}
+[data-dir="c"] .tile .m{color:var(--faint)}
+[data-dir="c"] .tile.add{border-style:dashed;color:var(--muted)}
+[data-dir="c"] .tiles{grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<div class="cmp">
+  <b>ميزان — ثلاثة اتجاهات</b>
+  <div class="grp" id="dirs">
+    <button data-d="a" aria-pressed="true">المِيزان</button>
+    <button data-d="b" aria-pressed="false">المِشكاة</button>
+    <button data-d="c" aria-pressed="false">الشُبّاك</button>
+  </div>
+  <div class="grp" id="scrs">
+    <button data-s="today" aria-pressed="true">لوحة اليوم</button>
+    <button data-s="inv" aria-pressed="false">فاتورة مبيعات</button>
+    <button data-s="short" aria-pressed="false">صفحة الاختصارات</button>
+  </div>
+  <div class="grp" id="nums">
+    <button data-n="west" aria-pressed="true">أرقام غربية</button>
+    <button data-n="east" aria-pressed="false">أرقام عربية</button>
+  </div>
+  <div class="note">نفس الشاشات، نفس بيانات البذرة (شركة الأمل، مؤسسة النور، أرز/زيت/سكر/شاي). الفرق تصميمي فقط. الخطوط هنا من الشبكة — في المنتج تُشحن محليًا.</div>
+</div>
+
+<div class="stage" id="stage"></div>
+
+<script>
+/* ------------------------------------------------------------------
+   Real figures from packages/backend/src/demo-seed.ts — no invented data.
+   ------------------------------------------------------------------ */
+const DATA = {
+  customer: { name:"شركة الأمل للتجارة", code:"C-0001", limit:50000, balance:18400, terms:30,
+              aging:[{k:"جارٍ",v:11200},{k:"30–60 يوم",v:5300},{k:"أكثر من 60",v:1900}] },
+  lines: [
+    { name:"سكر أبيض ١ كجم",        code:"IT-0003", qty:40, unit:"كجم",  price:42,  total:1680 },
+    { name:"زيت عباد الشمس ١ لتر",  code:"IT-0002", qty:24, unit:"لتر",  price:95,  total:2280 },
+    { name:"شاي أسود ٥٠٠ جم",       code:"IT-0004", qty:12, unit:"عبوة", price:260, total:3120 },
+    { name:"خليط شاي بالنعناع ١ كجم", code:"IT-0006", qty:8,  unit:"كجم",  price:170, total:1360 },
+  ],
+  work: [
+    { n:7,  t1:"فواتير متأخرة التحصيل",    t2:"أقدمها 64 يوم · شركة الأمل، مجموعة الفجر", b:"تحصيل",       u:true },
+    { n:3,  t1:"شيكات تستحق هذا الأسبوع",  t2:"البنك الأهلي — جاري",                      b:"فتح الشيكات", u:true },
+    { n:12, t1:"مستندات غير مرحّلة",       t2:"9 فواتير بيع · 3 أذون استلام",             b:"مراجعة",      u:false },
+    { n:5,  t1:"أصناف تحت حد إعادة الطلب", t2:"شاي أسود ٥٠٠ جم، خليط شاي بالنعناع",       b:"أمر شراء",    u:false },
+    { n:2,  t1:"موافقات منتظرة",           t2:"خصم فوق الحد · مؤسسة النور للمقاولات",     b:"مراجعة",      u:false },
+    { n:1,  t1:"فترة محاسبية بانتظار الإقفال", t2:"يوليو 2026 — قيد واحد غير مرحّل",       b:"الإقفال",     u:false },
+  ],
+  tiles: [
+    { g:"🧾", n:"فاتورة مبيعات جديدة", m:"البيع والتحصيل" },
+    { g:"💵", n:"سند قبض من عميل",     m:"المالية والإقفال" },
+    { g:"📥", n:"استلام بضاعة",         m:"الشراء والتوريد" },
+    { g:"🧮", n:"كشف حساب عميل",        m:"البيع والتحصيل" },
+    { g:"📦", n:"الرصيد المخزني — كل الفروع", m:"المخزون والتصنيع" },
+    { g:"⚖️", n:"ميزان المراجعة",       m:"المالية والإقفال" },
+  ],
+};
+
+const n = (v, d=2) => v.toLocaleString("en-US",{minimumFractionDigits:d,maximumFractionDigits:d});
+const N = (v,d=2) => `<span class="num">${n(v,d)}</span>`;
+const I = v => `<span class="num">${v}</span>`;
+/* wrap bare digit runs in ordinary Arabic prose so the numeral toggle owns them too */
+const dg = s => s.replace(/\d[\d,\.]*/g, m => `<span class="num">${m}</span>`);
+
+/* ---------- shell ---------- */
+const shell = (inner, gutter) => `
+<div class="app">
+  <div class="wsbar">
+    <button class="ws" aria-current="true">البيع والتحصيل</button>
+    <button class="ws">الشراء والتوريد</button>
+    <button class="ws">المخزون والتصنيع</button>
+    <button class="ws">المالية والإقفال</button>
+    <button class="ws">الأشخاص والأصول</button>
+    <button class="ws">الإعداد والصلاحيات</button>
+    <div class="sp">
+      <button class="cmdk">⌘K &nbsp;ابحث أو نفّذ أمرًا</button>
+      <span>الفرع الرئيسي</span>
+    </div>
+  </div>
+  <div class="body">
+    <div class="spine">
+      <button class="ic" aria-current="true" title="لوحة اليوم">◫</button>
+      <button class="ic" title="اختصاراتي">✦</button>
+      <button class="ic" title="كل الشاشات">☰</button>
+      <button class="ic" title="الموافقات">✓</button>
+      <button class="ic" title="التنبيهات">◔</button>
+    </div>
+    <div class="main">
+      <div class="content">${inner}</div>
+      ${gutter ? `<aside class="gutter">${gutter}</aside>` : ""}
+    </div>
+  </div>
+</div>`;
+
+/* ---------- the signature instrument ---------- */
+const balance = ({label, aName, aVal, bName, bVal, mode="equal"}) => {
+  const diff = aVal - bVal;
+  const tilt = Math.max(0, Math.min(100, Math.min(aVal,bVal)/Math.max(aVal,bVal)*100));
+  // Two kinds of truth, one instrument: "these must be equal" and "this must not
+  // exceed that". Same geometry, different verdict sentence — a ceiling that is
+  // not yet reached is good news, and must never read as a shortfall.
+  const ok = mode === "ceiling" ? diff >= 0 : Math.abs(diff) < 0.005;
+  const say = mode === "ceiling"
+    ? (ok ? `ضمن الحد — متبقٍ ${n(diff)} ج.م` : `تجاوز الحد بمقدار ${n(-diff)} ج.م`)
+    : (ok ? "متزن" : `ناقص بمقدار ${n(Math.abs(diff))} ج.م`);
+  return `
+  <div class="bal ${ok?"":"short"}">
+    <span class="gt">${label}</span>
+    <div class="side"><span>${aName}</span><span class="v">${N(aVal)}</span></div>
+    <div class="beam"><i style="inline-size:${tilt}%"></i></div>
+    <div class="side" style="border:0"><span>${bName}</span><span class="v">${N(bVal)}</span></div>
+    <div class="verdict">
+      <span class="sym">${ok?"\u2696":"\u25B2"}</span>
+      <span>${say}</span>
+    </div>
+    ${ok?"":`<button class="btn sec sm" style="margin-block-start:10px;width:100%;justify-content:center">أين الفرق؟</button>`}
+  </div>`;
+};
+
+/* ---------- screen 1: worklist ---------- */
+const today = () => shell(`
+  <div class="phead">
+    <div>
+      <h1>لوحة اليوم</h1>
+      <div class="sub">الخميس ${I(27)} أغسطس ${I(2026)} · الفرع الرئيسي · ترتيب: الأهم أولًا</div>
+    </div>
+    <div class="acts">
+      <button class="btn sec sm">تخصيص اللوحة</button>
+      <button class="btn sec sm">استعادة الوضع الافتراضي</button>
+      <button class="btn">فاتورة مبيعات جديدة</button>
+    </div>
+  </div>
+
+  <div class="strip">
+    <div class="f"><div class="k">النقدية اليوم</div><div class="v num">312,480.00</div></div>
+    <div class="f"><div class="k">مستحق من العملاء</div><div class="v num">186,220.00</div></div>
+    <div class="f"><div class="k">مستحق للموردين</div><div class="v num">94,750.00</div></div>
+    <div class="f"><div class="k">قيمة المخزون</div><div class="v num">421,905.00</div></div>
+  </div>
+
+  <div class="secbar"><h2>ماذا أفعل الآن؟</h2>
+    <span class="rst" style="font-size:11.5px;opacity:.7">اسحب أو استخدم مفاتيح الأسهم لإعادة الترتيب</span></div>
+  <div class="wl">
+    ${DATA.work.map(w=>`
+      <div class="row ${w.u?"urgent":""}">
+        <button class="drag" title="نقل">⠿</button>
+        <span class="cnt num">${w.n}</span>
+        <span class="txt"><div class="t1">${w.t1}</div><div class="t2">${dg(w.t2)}</div></span>
+        <button class="btn sec sm">${w.b}</button>
+      </div>`).join("")}
+  </div>
+`, `
+  ${balance({label:"تقفيل الخزينة — اليوم", aName:"المتوقع بالدفاتر", aVal:312480, bName:"المعدود فعليًا", bVal:311930})}
+  <div style="margin-block-start:26px">
+    <span class="gt">الفروع</span>
+    <div class="wl" style="border-radius:3px">
+      <div class="row" style="min-height:44px"><span class="txt"><div class="t1">الفرع الرئيسي</div></span><span style="font-size:12.5px">متزن ✓</span></div>
+      <div class="row urgent" style="min-height:44px"><span class="txt"><div class="t1">فرع طنطا</div></span><span style="font-size:12.5px">ناقص <span class="num">550.00</span></span></div>
+      <div class="row" style="min-height:44px"><span class="txt"><div class="t1">فرع الجيزة</div></span><span style="font-size:12.5px">متزن ✓</span></div>
+    </div>
+  </div>
+`);
+
+/* ---------- screen 2: sales invoice + the gutter ---------- */
+const inv = () => {
+  const sub = DATA.lines.reduce((s,l)=>s+l.total,0);
+  const vat = sub*0.14, tot = sub+vat;
+  const after = DATA.customer.balance + tot;
+  return shell(`
+  <div class="phead">
+    <div>
+      <h1>فاتورة مبيعات — مسودة</h1>
+      <div class="sub">INV-2026-0342 · ${DATA.customer.name} · استحقاق بعد ${I(DATA.customer.terms)} يوم</div>
+    </div>
+    <div class="acts">
+      <button class="btn sec">حفظ كمسودة</button>
+      <button class="btn">ترحيل الفاتورة</button>
+    </div>
+  </div>
+
+  <span class="gt">البنود — Tab للتنقل بين الخانات، Enter لسطر جديد</span>
+  <table>
+    <thead><tr>
+      <th style="width:34%">الصنف</th><th>الكود</th><th class="e">الكمية</th><th>الوحدة</th>
+      <th class="e">السعر</th><th class="e">الخصم</th><th class="e">الإجمالي</th>
+    </tr></thead>
+    <tbody>
+      ${DATA.lines.map(l=>`<tr>
+        <td><span class="cell">${l.name}</span></td>
+        <td><span class="cell num">${l.code}</span></td>
+        <td class="e"><span class="cell num">${n(l.qty,0)}</span></td>
+        <td><span class="cell">${l.unit}</span></td>
+        <td class="e"><span class="cell num">${n(l.price)}</span></td>
+        <td class="e"><span class="cell num">0.00</span></td>
+        <td class="e"><span class="cell num">${n(l.total)}</span></td>
+      </tr>`).join("")}
+      <tr><td colspan="7"><span class="cell" style="opacity:.5">اكتب اسم الصنف أو امسح الباركود…</span></td></tr>
+    </tbody>
+  </table>
+
+  <div class="strip" style="margin-block-start:20px">
+    <div class="f"><div class="k">الإجمالي قبل الضريبة</div><div class="v num">${n(sub)}</div></div>
+    <div class="f"><div class="k">ضريبة القيمة المضافة ${I(14)}٪</div><div class="v num">${n(vat)}</div></div>
+    <div class="f"><div class="k">الإجمالي المستحق</div><div class="v num">${n(tot)}</div></div>
+  </div>
+`, `
+  <span class="gt">${DATA.customer.name}</span>
+  <div style="font-size:12px;opacity:.7;margin-block-end:14px">${DATA.customer.code} · سداد ${I(DATA.customer.terms)} يوم</div>
+
+  ${balance({label:"حد الائتمان — بعد هذه الفاتورة",
+             aName:"الحد المسموح", aVal:DATA.customer.limit,
+             bName:"الرصيد بعد الترحيل", bVal:after, mode:"ceiling"})}
+
+  <div style="margin-block-start:22px">
+    <span class="gt">أعمار الدين</span>
+    ${DATA.customer.aging.map(a=>`
+      <div style="display:flex;justify-content:space-between;padding:6px 0;font-size:12.5px">
+        <span>${dg(a.k)}</span><span class="num">${n(a.v)}</span></div>`).join("")}
+  </div>
+
+  <div style="margin-block-start:18px;display:flex;flex-direction:column;gap:8px">
+    <button class="btn sec sm" style="justify-content:center">كشف حساب</button>
+    <button class="btn sec sm" style="justify-content:center">سند قبض</button>
+  </div>
+`);
+};
+
+/* ---------- screen 3: shortcut page ---------- */
+const short = () => shell(`
+  <div class="phead">
+    <div>
+      <h1>اختصاراتي</h1>
+      <div class="sub">تخطيط «أمين المخزن» · محفوظ لحسابك على الخادم — يتبعك على أي جهاز</div>
+    </div>
+    <div class="acts">
+      <button class="btn sec sm">استعادة الوضع الافتراضي</button>
+      <button class="btn sec">إعادة الترتيب</button>
+      <button class="btn">إضافة بلاطة</button>
+    </div>
+  </div>
+
+  <div class="secbar"><h2>ما أفعله كل يوم</h2></div>
+  <div class="tiles">
+    ${DATA.tiles.map(t=>`<button class="tile"><span class="g">${t.g}</span><span class="n">${t.n}</span><span class="m">${t.m}</span></button>`).join("")}
+    <button class="tile add"><span class="g">＋</span><span class="n">إضافة اختصار</span></button>
+  </div>
+
+  <div class="secbar"><h2>قوائم محفوظة</h2></div>
+  <div class="tiles">
+    <button class="tile"><span class="g">◧</span><span class="n">اللي عليّ أحصّله</span><span class="m">فواتير · ${I(7)} صف</span></button>
+    <button class="tile"><span class="g">◧</span><span class="n">شيكات هذا الأسبوع</span><span class="m">الخزينة · ${I(3)} صفوف</span></button>
+    <button class="tile"><span class="g">◧</span><span class="n">تحت حد إعادة الطلب</span><span class="m">المخزون · ${I(5)} صفوف</span></button>
+    <button class="tile add"><span class="g">＋</span><span class="n">حفظ القائمة الحالية</span></button>
+  </div>
+
+  <div class="secbar"><h2>آخر ما فتحته</h2></div>
+  <div class="tiles">
+    <button class="tile"><span class="g">↺</span><span class="n">فاتورة INV-2026-0342</span><span class="m">مسودة · منذ ${I(4)} دقائق</span></button>
+    <button class="tile"><span class="g">↺</span><span class="n">${DATA.customer.name}</span><span class="m">عميل · اليوم</span></button>
+    <button class="tile"><span class="g">↺</span><span class="n">ميزان المراجعة</span><span class="m">تقرير · أمس</span></button>
+  </div>
+`);
+
+const THESIS = {
+  a:`<strong>المِيزان — Instrument.</strong> <em>التطبيق أداة قياس، لا لوحة عرض.</em> ورق وحبر ولون إنذار واحد؛ اللون المميّز لا يظهر إلا داخل الميزان نفسه، فيصير اللون = الحكم. خطوط شعرية بدل الظلال، بلا بطاقات وبلا ظلال، وبلا شريط جانبي داكن. الخط: Reem Kufi للعناوين، IBM Plex Sans Arabic للواجهة. <em>ما يبدو خطأً فيه:</em> التدرجات، الصور الرمزية، ارتفاع البطاقات عند المرور.`,
+  b:`<strong>المِشكاة — Lantern.</strong> <em>الهندسة الإسلامية كبنية لا كزخرفة.</em> حجر دافئ على ٩٠٪ من السطح، ولون فعل واحد عالي التشبع (لازوردي، لا تيل ولا ذهبي). الألواح تتراص حافة بحافة، والشبكة نفسها هي الزخرفة؛ زوايا المستندات مقصوصة بدل الحدود. الخط: Zain للعناوين، Readex Pro للواجهة. <em>ما يبدو خطأً فيه:</em> الظلال، التيل والذهبي، أطقم الأيقونات الجاهزة.`,
+  c:`<strong>الشُبّاك — Counter.</strong> <em>طرفية تداول لمحل.</em> أساس بلا لون؛ اللون محجوز حصريًا للفروق والحالات — لا شيء يحمل لون علامة. بلا عرض أقصى، بلا بطاقات، صفوف ٢٨ بكسل، بلا استدارة، ألواح قابلة لتغيير الحجم، لوحة المفاتيح أولًا. الخط: Vazirmatn + IBM Plex Mono للأرقام. <em>ما يبدو خطأً فيه:</em> المساحات البيضاء الواسعة، الأقراص المستديرة، ما يظهر عند المرور فقط.`,
+};
+
+const SCREENS = { today, inv, short };
+let curDir = "a", curScr = "today";
+
+function render(){
+  document.getElementById("stage").innerHTML = ["a","b","c"].map(d=>`
+    <div class="dir" data-dir="${d}" data-on="${d===curDir}">
+      <div class="thesis">${THESIS[d]}</div>
+      ${Object.keys(SCREENS).map(s=>`
+        <div class="screen" data-on="${s===curScr}">${SCREENS[s]()}</div>`).join("")}
+    </div>`).join("");
+  applyNumerals();
+}
+
+/* Ground rule §2.3 — one numeral system per user, never mixed on a screen. */
+const EAST = "٠١٢٣٤٥٦٧٨٩";
+let numeral = "west";
+function applyNumerals(){
+  document.querySelectorAll(".num").forEach(el=>{
+    const src = el.dataset.raw ?? (el.dataset.raw = el.textContent);
+    el.textContent = numeral === "east" ? src.replace(/[0-9]/g, c => EAST[+c]) : src;
+  });
+}
+
+document.getElementById("dirs").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  curDir = b.dataset.d;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  render();
+});
+document.getElementById("scrs").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  curScr = b.dataset.s;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  render();
+});
+document.getElementById("nums").addEventListener("click", e=>{
+  const b = e.target.closest("button"); if(!b) return;
+  numeral = b.dataset.n;
+  [...e.currentTarget.children].forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  applyNumerals();
+});
+
+render();
+</script>
+</body>
+</html>

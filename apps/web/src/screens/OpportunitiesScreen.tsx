@@ -275,6 +275,7 @@ export function OpportunitiesScreen() {
         searchPlaceholder={t("opportunities.searchByTitle")}
         columns={columns}
         rows={pageRows}
+        loading={stagesQuery.isLoading}
         rowKey={(o) => o.id}
         rowAction={(o) => {
           // Won and lost are stage moves, so they are offered only while the deal is open

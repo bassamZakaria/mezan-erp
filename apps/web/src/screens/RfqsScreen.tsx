@@ -661,6 +661,7 @@ export function RfqsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={comparisonQuery.isLoading}
         rowKey={(r) => r.id}
         onRowClick={(r) => subPage.open(r.number ?? r.id)}
         rowAction={(r) => {

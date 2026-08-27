@@ -1,9 +1,59 @@
 /*
- * Google Fonts — Noto Kufi Arabic (display/headings + wordmark), Noto Sans
- * Arabic (body UI), IBM Plex Sans (Latin UI), IBM Plex Mono (figures /
- * tabular-nums).
+ * Fonts are SELF-HOSTED and must stay that way.
  *
- * Loaded via @import so this file is the single place that pulls fonts in —
- * consumers only need to import "@mezan/ui/styles.css" once.
+ * This file used to `@import` Google Fonts over the network. Mezan is an
+ * offline-first desktop ERP: the machine it runs on is a shop counter with no
+ * connectivity, and a remote font request there does not fail loudly — it
+ * silently falls back to whatever the OS happens to have, so an Arabic UI
+ * designed around Tajawal and Reem Kufi renders in Tahoma with different
+ * metrics. Every face below is bundled by Vite from `@fontsource/*` and served
+ * from the app's own origin (`file://` in the Electron edition).
+ *
+ * Families and weights follow design/mezan-enhanced-mockups.html, the design
+ * authority: IBM Plex Sans Arabic (body), Tajawal (display), Reem Kufi
+ * (wordmark/signature), IBM Plex Sans (Latin), IBM Plex Mono (figures).
+ *
+ * Both the `arabic` and `latin` subsets are loaded for every family that has
+ * them: this UI mixes scripts inside a single line — an Arabic label beside
+ * `INV-000001` — so dropping the Latin subset would swap fonts mid-sentence.
  */
-@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Noto+Kufi+Arabic:wght@500;600;700&family=Noto+Sans+Arabic:wght@400;500;600;700&display=swap");
+
+/* Body — IBM Plex Sans Arabic 400/500/600/700 */
+@import "@fontsource/ibm-plex-sans-arabic/arabic-400.css";
+@import "@fontsource/ibm-plex-sans-arabic/arabic-500.css";
+@import "@fontsource/ibm-plex-sans-arabic/arabic-600.css";
+@import "@fontsource/ibm-plex-sans-arabic/arabic-700.css";
+@import "@fontsource/ibm-plex-sans-arabic/latin-400.css";
+@import "@fontsource/ibm-plex-sans-arabic/latin-500.css";
+@import "@fontsource/ibm-plex-sans-arabic/latin-600.css";
+@import "@fontsource/ibm-plex-sans-arabic/latin-700.css";
+
+/* Display — Tajawal 400/500/700/800 */
+@import "@fontsource/tajawal/arabic-400.css";
+@import "@fontsource/tajawal/arabic-500.css";
+@import "@fontsource/tajawal/arabic-700.css";
+@import "@fontsource/tajawal/arabic-800.css";
+@import "@fontsource/tajawal/latin-400.css";
+@import "@fontsource/tajawal/latin-500.css";
+@import "@fontsource/tajawal/latin-700.css";
+@import "@fontsource/tajawal/latin-800.css";
+
+/* Signature / wordmark — Reem Kufi 500/600/700 */
+@import "@fontsource/reem-kufi/arabic-500.css";
+@import "@fontsource/reem-kufi/arabic-600.css";
+@import "@fontsource/reem-kufi/arabic-700.css";
+@import "@fontsource/reem-kufi/latin-500.css";
+@import "@fontsource/reem-kufi/latin-600.css";
+@import "@fontsource/reem-kufi/latin-700.css";
+
+/* Latin UI — IBM Plex Sans 400/500/600 */
+@import "@fontsource/ibm-plex-sans/latin-400.css";
+@import "@fontsource/ibm-plex-sans/latin-500.css";
+@import "@fontsource/ibm-plex-sans/latin-600.css";
+
+/* Figures — IBM Plex Mono 400/500/600. It has NO Arabic-Indic digits; the
+   `--font-mono` stack falls through to IBM Plex Sans Arabic for ٠١٢٣٤٥٦٧٨٩,
+   which is why that fallback is load-bearing and not decoration. */
+@import "@fontsource/ibm-plex-mono/latin-400.css";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";

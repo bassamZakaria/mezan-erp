@@ -273,6 +273,7 @@ export function FiscalPeriodsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(p) => p.id}
         rowAction={(p) => {
           const menuItems: RowMenuItem[] =

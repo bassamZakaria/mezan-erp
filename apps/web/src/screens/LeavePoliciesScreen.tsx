@@ -281,6 +281,7 @@ export function LeavePoliciesScreen() {
         ]}
         columns={columns}
         rows={pageRows}
+        loading={presetsQuery.isLoading}
         rowKey={(p) => p.id}
         page={page}
         pageCount={pageCount}

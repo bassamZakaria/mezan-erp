@@ -454,6 +454,7 @@ export function PurchaseOrdersScreen() {
         activeFilterCount={activeFilterCount}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(o) => o.id}
         onRowClick={(o) => subPage.open(o.number ?? o.id)}
         rowAction={(o) => {

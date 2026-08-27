@@ -242,6 +242,7 @@ export function StockBalanceScreen() {
         }
         columns={columns}
         rows={[...pageRows]}
+        loading={itemsQuery.isLoading}
         rowKey={(r) => r.itemId}
         expandedKeys={expandedKeys}
         renderExpandedRow={(r) =>

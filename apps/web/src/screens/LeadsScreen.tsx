@@ -306,6 +306,7 @@ export function LeadsScreen() {
         searchPlaceholder={t("leads.searchByNameOrCompany")}
         columns={columns}
         rows={pageRows}
+        loading={stagesQuery.isLoading}
         rowKey={(l) => l.id}
         onRowClick={(l) => {
           setDetailError(null);

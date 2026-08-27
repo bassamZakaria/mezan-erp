@@ -89,6 +89,7 @@ export function CostCenterPnLScreen() {
         title=""
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(r) => r.costCenterId ?? "unassigned"}
         page={page}
         pageCount={pageCount}

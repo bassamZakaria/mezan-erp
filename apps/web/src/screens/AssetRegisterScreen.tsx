@@ -279,6 +279,7 @@ export function AssetRegisterScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={accountsQuery.isLoading}
         rowKey={(a) => a.id}
         onRowClick={(a) => setSelectedId(a.id)}
         rowAction={(a) => {

@@ -187,6 +187,7 @@ export function JobTitlesScreen() {
         searchPlaceholder={t("jobTitles.searchByName")}
         columns={columns}
         rows={pageRows}
+        loading={employeesQuery.isLoading}
         rowKey={(j) => j.id}
         onRowClick={openEdit}
         page={page}

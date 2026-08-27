@@ -233,6 +233,7 @@ export function BankReconciliationScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(s) => s.id}
         onRowClick={(s) => setOpenStatementId(s.id)}
         rowAction={(s) => (

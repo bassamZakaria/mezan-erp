@@ -506,6 +506,7 @@ export function ConfigurableProductsScreen() {
         searchPlaceholder={t("configProducts.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
+        loading={itemsQuery.isLoading}
         rowKey={(p) => p.id}
         onRowClick={(p) => setSelectedId(p.id)}
         rowAction={(p) => {

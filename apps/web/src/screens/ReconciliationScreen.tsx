@@ -94,6 +94,7 @@ export function ReconciliationScreen() {
           title=""
           columns={summaryColumns}
           rows={summaryPageRows}
+          loading={query.isLoading}
           rowKey={(r) => r.key}
           page={summaryPage}
           pageCount={summaryPageCount}
@@ -116,6 +117,7 @@ export function ReconciliationScreen() {
               title=""
               columns={unlinkedColumns}
               rows={unlinkedPageRows}
+              loading={query.isLoading}
               rowKey={(u) => `${u.entryId}-${u.accountId}`}
               page={unlinkedPage}
               pageCount={unlinkedPageCount}

@@ -208,6 +208,7 @@ export function DepartmentsScreen() {
         searchPlaceholder={t("departments.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
+        loading={employeesQuery.isLoading}
         rowKey={(d) => d.id}
         onRowClick={openEdit}
         page={page}

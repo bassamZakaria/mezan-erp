@@ -260,6 +260,7 @@ export function PhysicalCountsScreen() {
         searchPlaceholder={t("counts.searchByCountNumber")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(c) => c.id}
         onRowClick={(c) => openDetail(c.id)}
         rowAction={(c) => {

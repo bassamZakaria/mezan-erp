@@ -321,6 +321,7 @@ export function ItemSpecificationsScreen() {
         searchPlaceholder={t("specs.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(s) => s.code}
         page={page}
         pageCount={pageCount}

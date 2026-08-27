@@ -85,6 +85,7 @@ export {
 export {
   ToastProvider,
   useToast,
+  useOptionalToast,
   type ToastTone,
   type ToastUndoAction,
   type ToastInput,
@@ -137,7 +138,7 @@ export { MoneyInput, type MoneyInputProps } from "./primitives/MoneyInput";
 export { QtyInput, type QtyInputProps } from "./primitives/QtyInput";
 export { EntityPicker, type EntityPickerProps, type EntityPickerOption } from "./primitives/EntityPicker";
 export { RowMenu } from "./primitives/RowMenu";
-export type { RowMenuItem, RowMenuProps } from "./primitives/RowMenu";
+export type { RowMenuItem, RowMenuItemConfirm, RowMenuProps } from "./primitives/RowMenu";
 export { Select, type SelectProps, type SelectOption, type SelectSize, type SelectVariant } from "./primitives/Select";
 export {
   Field,

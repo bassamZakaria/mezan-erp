@@ -215,6 +215,7 @@ export function PayrollComponentsScreen() {
         searchPlaceholder={t("payrollComponents.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
+        loading={accountsQuery.isLoading}
         rowKey={(row) => row.id}
         onRowClick={openEdit}
         page={page}

@@ -249,6 +249,7 @@ export function EmployeeAdvancesScreen() {
         searchPlaceholder={t("advances.searchByAdvanceNumberOr")}
         columns={columns}
         rows={pageRows}
+        loading={branchesQuery.isLoading}
         rowKey={(a) => a.id}
         onRowClick={(a) => {
           setDetailError(null);

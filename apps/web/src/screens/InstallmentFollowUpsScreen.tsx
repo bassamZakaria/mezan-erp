@@ -196,6 +196,7 @@ export function InstallmentFollowUpsScreen() {
         }}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(f) => f.id}
         onRowClick={(f) => setPanel({ id: f.id })}
         rowAction={(f) => {

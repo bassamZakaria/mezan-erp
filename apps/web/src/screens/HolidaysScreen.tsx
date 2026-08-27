@@ -205,6 +205,7 @@ export function HolidaysScreen() {
         ]}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(h) => h.id}
         page={page}
         pageCount={pageCount}

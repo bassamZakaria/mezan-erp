@@ -1077,6 +1077,7 @@ export function CustomersScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(c) => c.id}
         onRowClick={(c) => setSelectedId(c.id)}
         rowAction={(c) => {

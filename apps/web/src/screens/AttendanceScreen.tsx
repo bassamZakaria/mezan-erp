@@ -240,6 +240,7 @@ export function AttendanceScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={summaryQuery.isLoading}
         rowKey={(e) => e.id}
         page={page}
         pageCount={pageCount}

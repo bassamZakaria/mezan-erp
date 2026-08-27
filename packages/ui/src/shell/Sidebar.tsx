@@ -410,7 +410,13 @@ export function Sidebar({
         </div>
       ) : null}
 
-      <nav className="mz-scrollbar-none flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]">
+      {/* Named landmark: the page now has three navs — this rail, the
+          breadcrumb, and the in-page tabs — and "navigation" three times over
+          is not a way to find the main one. */}
+      <nav
+        aria-label={t("shell.rail.landmark")}
+        className="mz-scrollbar-none flex-1 overflow-y-auto px-[12px] pb-[16px] pt-[4px]"
+      >
         {expanded ? (
           <div className="relative pb-[6px]">
             <input /* native-control-allow: SearchInput paints from surface/ink tokens, which are light in light mode; the rail is dark teal in BOTH themes and must use the independent chrome-* set (see tokens.css). */

@@ -464,6 +464,7 @@ export function PromotionsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(p) => p.id}
         onRowClick={openEdit}
         rowAction={(p) => {

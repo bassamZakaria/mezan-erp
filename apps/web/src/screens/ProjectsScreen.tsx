@@ -288,6 +288,7 @@ export function ProjectsScreen() {
         searchPlaceholder={t("projects.searchByCodeOrName")}
         columns={columns}
         rows={pageRows}
+        loading={usersQuery.isLoading}
         rowKey={(p) => p.id}
         onRowClick={openDetail}
         rowAction={(p) => {

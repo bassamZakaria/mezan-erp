@@ -6,6 +6,7 @@ import { Card, StatCard } from "./atoms";
 import { SearchInput } from "./form";
 import { Select } from "./Select";
 import { ListViews, AppliedFilters, type ListView, type AppliedFilter } from "./ListViews";
+import { SkeletonTable } from "./feedback";
 
 /**
  * DocumentList — the reusable list-page pattern (KPI strip + status chips +
@@ -123,6 +124,14 @@ export interface DocumentListProps<Row> {
   pageSizeOptions?: readonly number[];
   emptyState?: ReactNode;
   /**
+   * First load only. An empty table and a still-loading one look identical,
+   * and the empty state actively lies while the rows are on their way — it
+   * offers "create the first one" for records that already exist. Pass the
+   * query's loading flag and the rows are replaced by a skeleton until they
+   * arrive; a refetch over rows already shown is NOT loading.
+   */
+  loading?: boolean;
+  /**
    * Renders `stats` behind a collapse toggle (R1.11) — a report with 30 rows
    * of KPI cards above it is a report you scroll past, not one you read.
    * Requires `listKey` to remember the reader's choice across a reload;
@@ -230,6 +239,7 @@ export function DocumentList<Row>({
   onPageSizeChange,
   pageSizeOptions = DEFAULT_PAGE_SIZES,
   emptyState,
+  loading = false,
   statsCollapsible = false,
   filterBarCollapsible = false,
   activeFilterCount,
@@ -511,7 +521,13 @@ export function DocumentList<Row>({
             ) : null}
           </table>
 
-          {rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
+          {loading && rows.length === 0 ? (
+            <div className="p-[16px]">
+              <SkeletonTable rows={Math.min(pageSize ?? 5, 8)} columns={Math.min(columns.length, 6)} />
+            </div>
+          ) : null}
+
+          {!loading && rows.length === 0 && emptyState ? <div className="p-[16px]">{emptyState}</div> : null}
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-[10px] border-t border-border px-[16px] py-[13px] text-xs text-ink-muted">

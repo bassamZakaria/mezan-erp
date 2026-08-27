@@ -234,6 +234,7 @@ export function AuditLogScreen() {
         }
         columns={columns}
         rows={events}
+        loading={listQuery.isLoading}
         // Bulk writes share a millisecond, an actor and an action — only the position separates them.
         rowKey={(e, i) => `${e.timestamp}-${e.actor}-${e.action}-${e.entityType}-${i}`}
         onRowClick={setSelected}

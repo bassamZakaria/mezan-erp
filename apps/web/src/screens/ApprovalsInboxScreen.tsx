@@ -220,6 +220,7 @@ export function ApprovalsInboxScreen() {
       }
       columns={columns}
       rows={pageRows}
+      loading={query.isLoading}
       rowKey={(r) => r.id}
       rowAction={
         tab === "inbox"

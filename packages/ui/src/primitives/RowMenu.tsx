@@ -1,13 +1,34 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { cn } from "../lib/cn";
+import { useUiTranslation } from "../i18n";
+import { ConfirmDialog, useOptionalToast } from "./feedback";
+
+export interface RowMenuItemConfirm {
+  title?: ReactNode;
+  /** What the action will actually do — never a bare "are you sure?". */
+  consequence: ReactNode;
+  confirmLabel?: string;
+}
 
 export interface RowMenuItem {
   key: string;
   label: string;
-  onSelect: () => void;
+  /**
+   * May return a promise. When it does, the menu reports its outcome: the
+   * success toast waits for the server rather than firing on the click.
+   */
+  onSelect: () => void | Promise<unknown>;
   /** `danger` for destructive entries — cancel, void, delete. */
   tone?: "default" | "danger";
   disabled?: boolean;
+  /**
+   * Ask before running. Implied by `tone: "danger"` — a destructive entry
+   * always confirms, and supplying this only replaces the generic wording with
+   * something specific to the document.
+   */
+  confirm?: RowMenuItemConfirm;
+  /** Overrides the generic "«action» done" toast. */
+  successMessage?: string;
 }
 
 export interface RowMenuProps {
@@ -25,7 +46,10 @@ export interface RowMenuProps {
  * nothing rather than a menu that opens onto nothing.
  */
 export function RowMenu({ items, label, className }: RowMenuProps) {
+  const { t } = useUiTranslation();
+  const toast = useOptionalToast();
   const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState<RowMenuItem | null>(null);
   const menuId = useId();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
@@ -82,6 +106,30 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
     };
   }, [open]);
 
+  async function run(item: RowMenuItem) {
+    try {
+      await item.onSelect();
+      toast?.show({ tone: "success", message: item.successMessage ?? t("ui.rowAction.done", { action: item.label }) });
+    } catch (error) {
+      // A failed destructive action must say so: the row simply not changing
+      // reads identically to the action having been refused on purpose.
+      toast?.show({
+        tone: "error",
+        message: t("ui.rowAction.failed", { action: item.label }),
+        detail: error instanceof Error ? error.message : undefined,
+      });
+    }
+  }
+
+  function select(item: RowMenuItem) {
+    setOpen(false);
+    if (item.confirm || item.tone === "danger") {
+      setPending(item);
+      return;
+    }
+    void run(item);
+  }
+
   if (items.length === 0) return null;
 
   return (
@@ -121,10 +169,7 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
               type="button"
               role="menuitem"
               disabled={item.disabled}
-              onClick={() => {
-                setOpen(false);
-                item.onSelect();
-              }}
+              onClick={() => select(item)}
               className={cn(
                 "flex w-full items-center px-[12px] py-[8px] text-start text-[12.5px] transition-colors",
                 item.disabled
@@ -139,6 +184,22 @@ export function RowMenu({ items, label, className }: RowMenuProps) {
           ))}
         </div>
       ) : null}
+
+      <ConfirmDialog
+        open={pending !== null}
+        title={pending?.confirm?.title ?? t("ui.rowAction.confirmTitle", { action: pending?.label ?? "" })}
+        consequence={
+          pending?.confirm?.consequence ?? t("ui.rowAction.consequence", { action: pending?.label ?? "", row: label })
+        }
+        confirmLabel={pending?.confirm?.confirmLabel ?? pending?.label ?? ""}
+        tone={pending?.tone === "danger" ? "danger" : "default"}
+        onConfirm={() => {
+          const item = pending;
+          setPending(null);
+          if (item) void run(item);
+        }}
+        onCancel={() => setPending(null)}
+      />
     </div>
   );
 }

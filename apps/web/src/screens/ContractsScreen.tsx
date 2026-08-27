@@ -296,6 +296,7 @@ export function ContractsScreen() {
         searchPlaceholder={t("contracts.searchByContractNumberOr")}
         columns={columns}
         rows={pageRows}
+        loading={employeesQuery.isLoading}
         rowKey={(c) => c.id}
         onRowClick={(c) => {
           setDetailError(null);

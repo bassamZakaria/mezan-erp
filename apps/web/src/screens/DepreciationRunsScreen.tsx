@@ -186,6 +186,7 @@ export function DepreciationRunsScreen() {
         }}
         columns={columns}
         rows={pageRows}
+        loading={branchesQuery.isLoading}
         rowKey={(r) => r.id}
         onRowClick={(r) => setSelectedId(r.id)}
         rowAction={(r) => {

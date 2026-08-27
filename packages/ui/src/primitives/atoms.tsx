@@ -81,7 +81,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
 export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("rounded-lg border border-border bg-surface shadow-1", className)}
+      className={cn("rounded-lg border border-border bg-surface", className)}
       {...props}
     />
   );
@@ -256,7 +256,10 @@ const statSubToneClass = {
  */
 export function StatCard({ label, value, sub, subTone = "neutral", valueTone = "default" }: StatCardProps) {
   return (
-    <Card className="relative overflow-hidden rounded-md p-[15px_16px] transition-[transform,box-shadow] duration-150 hover:-translate-y-[2px] hover:shadow-2 motion-reduce:transition-none motion-reduce:hover:translate-y-0">
+    // Depth comes from the hairline border, not a drop shadow, and a card does
+    // not lift on hover: design spec §3.4. The lift also moved a row under the
+    // cursor mid-click on a dense list.
+    <Card className="relative overflow-hidden rounded-md p-[15px_16px] transition-colors duration-150 hover:border-border-strong">
       <div className="text-xs font-semibold text-ink-muted">{label}</div>
       <div
         className={cn(

@@ -445,6 +445,7 @@ export function TaxesScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(tax) => tax.id}
         rowAction={(tax) => {
           const items: RowMenuItem[] = [{ key: "edit", label: t("common.edit"), onSelect: () => openEditForm(tax) }];

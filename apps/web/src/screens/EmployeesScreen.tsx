@@ -771,6 +771,7 @@ export function EmployeesScreen() {
         activeFilterCount={activeFilterCount}
         columns={columns}
         rows={pageRows}
+        loading={attendanceQuery.isLoading}
         rowKey={(e) => e.id}
         onRowClick={(e) => {
           setDetailError(null);

@@ -381,6 +381,7 @@ export function JournalsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(d) => d.id}
         onRowClick={(d) => openDetail(d.id)}
         rowAction={(d) => {

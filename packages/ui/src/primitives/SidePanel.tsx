@@ -19,6 +19,9 @@ export interface SidePanelProps {
  * state translates off-screen with `transform`, which is direction-neutral
  * and not something the repo's left/right lint flags.
  */
+const PANEL_FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
 export function SidePanel({ open, onClose, title, description, children, className }: SidePanelProps) {
   const { t } = useUiTranslation();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -29,10 +32,47 @@ export function SidePanel({ open, onClose, title, description, children, classNa
   // aria-hidden on an element because its descendant retained focus" warning.
   const [ariaHidden, setAriaHidden] = useState(!open);
 
+  /**
+   * `aria-modal="true"` is a promise to assistive tech that the rest of the
+   * page is inert. Storing the previously focused element only pays half of
+   * that: without moving focus IN, a keyboard or screen-reader user opens the
+   * panel and stays on the trigger behind it, and Tab walks the page underneath
+   * while the panel claims to be modal.
+   */
+  useEffect(() => {
+    if (!open) return;
+    const panel = panelRef.current;
+    if (!panel) return;
+    const first = panel.querySelector<HTMLElement>(PANEL_FOCUSABLE);
+    // The close button is always present, so `first` is only null in a panel
+    // rendered before its content — fall back to the dialog itself.
+    (first ?? panel).focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = [...panel.querySelectorAll<HTMLElement>(PANEL_FOCUSABLE)].filter(
+        (el) => el.offsetParent !== null || el === document.activeElement,
+      );
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === panel)) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
@@ -66,6 +106,7 @@ export function SidePanel({ open, onClose, title, description, children, classNa
         ref={panelRef}
         role="dialog"
         aria-modal="true"
+        tabIndex={-1}
         aria-label={typeof title === "string" ? title : undefined}
         aria-hidden={ariaHidden}
         className={cn(

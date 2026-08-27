@@ -174,6 +174,7 @@ export function ActivitiesScreen() {
         searchPlaceholder={t("activities.searchBySubject")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(a) => a.id}
         rowAction={(a) => {
           const menuItems: RowMenuItem[] =

@@ -405,6 +405,7 @@ export function LandedCostsScreen() {
         filterBarCollapsible
         activeFilterCount={activeFilterCount}
         rows={pageRows}
+        loading={itemsQuery.isLoading}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}
         rowAction={(d) => {

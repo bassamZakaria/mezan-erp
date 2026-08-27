@@ -837,6 +837,7 @@ export function WorkOrdersScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(o) => o.id}
         onRowClick={(o) => setSelectedId(o.id)}
         rowAction={(o) => {

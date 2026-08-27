@@ -1940,6 +1940,7 @@ export function SalesInvoicesScreen() {
             }
             columns={columns}
             rows={pageRows}
+            loading={query.isLoading}
             rowKey={(inv) => inv.id}
             onRowClick={(inv) => subPage.open(inv.docNo ?? inv.id)}
             rowAction={(inv) => {

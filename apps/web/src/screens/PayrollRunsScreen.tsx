@@ -254,6 +254,7 @@ export function PayrollRunsScreen() {
         searchPlaceholder={t("payroll.searchByRunNumberOr")}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(r) => r.id}
         onRowClick={(r) => {
           setDetailError(null);

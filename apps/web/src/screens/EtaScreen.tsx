@@ -639,6 +639,7 @@ function ItemMappingTab() {
       }
       columns={columns}
       rows={pageRows}
+      loading={mappings.isLoading}
       rowKey={(row) => row.itemId}
       page={page}
       pageCount={pageCount}
@@ -746,6 +747,7 @@ function UnitMappingTab() {
         title=""
         columns={columns}
         rows={pageRows}
+        loading={unitCodes.isLoading}
         rowKey={(row) => row.unitCode}
         page={page}
         pageCount={pageCount}
@@ -881,6 +883,7 @@ function SubmissionsTab({ statusKeys }: { statusKeys: Record<EtaSubmissionStatus
         }
         columns={columns}
         rows={pageRows}
+        loading={submissionsQuery.isLoading}
         rowKey={(s) => s.id}
         rowAction={(s) => {
           if (!actionable(s.status)) return null;

@@ -179,6 +179,7 @@ export function PipelineStagesScreen() {
         ]}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(s) => s.id}
         page={currentPage}
         pageCount={pageCount}

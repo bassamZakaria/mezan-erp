@@ -423,6 +423,7 @@ export function PriceListsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(pl) => pl.id}
         onRowClick={(pl) => subPage.open(pl.id)}
         rowAction={(pl) => {

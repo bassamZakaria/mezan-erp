@@ -317,6 +317,7 @@ export function ChequesScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={treasuryQuery.isLoading}
         rowKey={(c) => c.id}
         rowAction={(c) => {
           const actions = legalActions(c);

@@ -282,6 +282,7 @@ export function InstallmentPlansScreen() {
         }}
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(d) => d.id}
         onRowClick={(d) => setPanel({ id: d.id })}
         rowAction={(d) => {

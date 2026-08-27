@@ -221,6 +221,7 @@ export function NotificationsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={listQuery.isLoading}
         rowKey={(n) => n.id}
         rowAction={(n) => {
           const menuItems: RowMenuItem[] =

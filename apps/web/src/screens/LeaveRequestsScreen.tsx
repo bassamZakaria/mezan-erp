@@ -258,6 +258,7 @@ export function LeaveRequestsScreen() {
         }
         columns={columns}
         rows={pageRows}
+        loading={query.isLoading}
         rowKey={(r) => r.id}
         rowAction={(r) => {
           const menuItems: RowMenuItem[] =

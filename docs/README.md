@@ -6,7 +6,7 @@ the category tells you how much to trust it.
 | Category | Goes stale? | Files |
 |---|---|---|
 | **Live** — kept current, read before acting | yes, and it is maintained | `STATUS.md`, `defects.md`, `decisions.md`, `tasks.md` |
-| **Durable reference** — the product, the market and the architecture | no | `plan.md`, `catalog/`, `reference-parity/` |
+| **Durable reference** — the product, the market and the architecture | no | `plan.md`, `distribution.md`, `workflows.md`, `catalog/`, `reference-parity/` |
 | **Procedure** — how to do a recurring job | only when the job changes | `testing-policy.md`, `testing-plan.md`, `scenarios/`, `web-data-wiring.md`, `enhancements/` |
 
 ## The two documents most work starts from
@@ -31,6 +31,10 @@ the category tells you how much to trust it.
 | What is the architecture, and why? | `plan.md` §1–§3 |
 | Who do we compete with, and where are the gaps? | `plan.md` §8 |
 | What is the plan for HR / POS / Cloud? | `plan.md` §9 |
+| Which bundle do we sell to which industry, and what can we honestly sell today? | `distribution.md` §2 |
+| How do we branch and release when every customer self-hosts their own copy? | `distribution.md` §4–§5 |
+| What do I actually show a prospect in a demo, and in what words? | `workflows.md` §2–§3 |
+| Which of the periodic actions (collection, cheques, bank rec, year-end) are proven to work? | `workflows.md` §3.5 |
 | What does the reference app actually do? | `catalog/01..10` — the spec, captured from the live product |
 | What did a live re-enumeration of one reference screen find? | `reference-parity/` |
 | How is anything verified now? | `testing-policy.md` |
